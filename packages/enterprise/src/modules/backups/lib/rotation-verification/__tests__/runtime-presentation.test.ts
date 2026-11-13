@@ -7,6 +7,11 @@ let mockRun: (options: RotationCoordinatorOptions) => Promise<void>
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }) }))
 jest.mock('../../engine', () => ({ recipientsFromFile: async () => [], identitiesFromFile: async () => [], createBackup: jest.fn(), verifyBackup: jest.fn(), createPostgresSource: jest.fn() }))
 jest.mock('../report', () => ({ publishRotationReport: jest.fn(async () => undefined), publishRotationFailureReport: jest.fn(async () => undefined) }))
+jest.mock('../../../../../lib/recovery-configuration', () => ({
+  ...jest.requireActual('../../../../../lib/recovery-configuration'),
+  resolveRecoveryConfiguration: jest.fn(async () => ({ paths: { base: '/defaults', custody: '/defaults/custody', recipientsFile: '/secure/recipients', identityFile: '/secure/identities', serviceFile: '/secure/service', passwordFile: '/secure/password', backupOutput: '/defaults/backups', backupWorkspace: '/defaults/workspace', rotationArtifacts: '/artifacts', rotationTrust: '/trusted' }, binaries: { directory: '/binaries' } })),
+  requireRecoveryDirectories: jest.fn(), requireRecoveryCustodyFile: jest.fn(),
+}))
 jest.mock('../coordinator', () => ({ createEnterpriseRotationProtection: (options: RotationCoordinatorOptions) => ({ protect: async () => mockRun(options) }) }))
 
 const environment: NodeJS.ProcessEnv = {
@@ -25,6 +30,8 @@ test('final success is emitted only after report publication AND coordinator dur
   const writes: string[] = []
   jest.spyOn(process.stderr, 'write').mockImplementation(chunk => { writes.push(String(chunk)); return true })
   mockRun = async options => {
+    expect(options.artifactRoot).toBe('/artifacts')
+    expect(options.trustRoot).toBe('/trusted')
     await options.reportRun?.('coordinator-run')
     options.phase?.('verification'); options.phase?.('finalizing')
     await options.report(receipt, recovery)

@@ -4,9 +4,9 @@ import { EntitySchema } from '@mikro-orm/core'
 import { MikroORM } from '@mikro-orm/postgresql'
 import { Client } from 'pg'
 import { randomUUID, randomBytes } from 'node:crypto'
-import { mkdtemp, rm, mkdir, writeFile, readdir, readFile, stat } from 'node:fs/promises'
+import { mkdtemp, rm, mkdir, writeFile, readdir, readFile, stat, copyFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
+import { tmpdir, homedir } from 'node:os'
 import { join } from 'node:path'
 import { EncryptionMap, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
@@ -58,8 +58,13 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
   let base: URL
   let previousEnvironment: NodeJS.ProcessEnv
   let stderrDescriptors: Record<string, PropertyDescriptor | undefined>
+  let ownedPersistentDirectories: string[]
   beforeEach(async () => {
     previousEnvironment = { ...process.env }
+    ownedPersistentDirectories = []
+    // Never inherit an operator's actual Vault endpoints or rotation selections.
+    for (const name of Object.keys(process.env)) if (name.startsWith('VAULT_') || name === 'OM_RECOVERY_ROOT' || (name.startsWith('OM_ROTATION_') && !/^OM_ROTATION_(TEST_|CLI_EVIDENCE_|VAULT_EVIDENCE_)/.test(name))) delete process.env[name]
+    for (const name of ['TENANT_DATA_ENCRYPTION_KEY', 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'TENANT_DATA_ENCRYPTION_OLD_KEY']) delete process.env[name]
     stderrDescriptors = Object.fromEntries(['isTTY', 'columns', 'rows'].map(key => [key, Object.getOwnPropertyDescriptor(process.stderr, key)]))
     directory = await mkdtemp(join(tmpdir(), 'rotation-cli-production-'))
     base = new URL(process.env.OM_ROTATION_TEST_DATABASE_URL!)
@@ -89,6 +94,7 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
     try { await administrator.query('DROP DATABASE IF EXISTS "' + database + '" WITH (FORCE)') } finally { await administrator.end() }
     process.env = previousEnvironment
     await rm(directory, { recursive: true, force: true })
+    for (const path of ownedPersistentDirectories) await rm(path, { recursive: true, force: true })
   })
   async function runtimeEnvironment(): Promise<NodeJS.ProcessEnv> {
     const bin = join(directory, 'bin'); await mkdir(bin, { mode: 0o700 })
@@ -314,6 +320,25 @@ native('real Core CLI handler with Enterprise DI and native PostgreSQL', () => {
     const handler = cli.find(command => command.command === 'rotate-encryption-key')!
     return { em, selected, records, oldKeys, nextKeys, sourceKind, targetKind, sourcePrefix, targetPrefix, sourceVersions, targetVersions, call, stage, handler, args: count === 1 ? ['--tenant', tenantId, '--org', organizationId] : [] }
   }
+
+  const nativeMac = process.platform === 'darwin' ? vaultNative : test.skip
+  nativeMac('actual macOS defaults resolve persistent paths and trusted PATH clients without legacy rotation path variables', async () => {
+    const fixture = await prepareVaultRoute('derived-derived', 1)
+    const root = await mkdtemp(join(homedir(), 'Library', 'Application Support', 'om-recovery-fixture-'))
+    ownedPersistentDirectories.push(root)
+    await mkdir(join(root, 'custody'), { mode: 0o700 })
+    await copyFile(process.env.OM_ROTATION_RECIPIENTS_FILE!, join(root, 'custody', 'recipients.txt'))
+    await copyFile(process.env.OM_ROTATION_IDENTITIES_FILE!, join(root, 'custody', 'identity.txt'))
+    process.env.OM_RECOVERY_ROOT = root
+    process.env.PATH = process.env.OM_BACKUP_BINARIES_DIR + ':' + process.env.PATH
+    for (const name of ['OM_BACKUP_BINARIES_DIR', 'OM_ROTATION_BACKUP_OUTPUT', 'OM_ROTATION_BACKUP_WORKSPACE', 'OM_ROTATION_ARTIFACT_ROOT', 'OM_ROTATION_TRUST_ROOT', 'OM_ROTATION_RECIPIENTS_FILE', 'OM_ROTATION_IDENTITIES_FILE']) delete process.env[name]
+    await fixture.handler.run(fixture.args)
+    const files = await readdir(join(root, 'rotation-trust'))
+    const report = JSON.parse(await readFile(join(root, 'rotation-trust', files.find(name => name.endsWith('.report.json'))!), 'utf8'))
+    expect(report.status).toBe('passed')
+    expect(report.recoveryArtifact.startsWith(join(root, 'backups'))).toBe(true)
+    expect((await stat(join(root, 'rotation-artifacts'))).isDirectory()).toBe(true)
+  }, 90000)
 
   vaultNative.each(routes)('real Vault/PG/Core $route with $tenants tenant scope', async ({ route, tenants: count }) => {
     const fixture = await prepareVaultRoute(route, count)

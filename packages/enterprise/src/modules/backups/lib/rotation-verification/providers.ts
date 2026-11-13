@@ -3,11 +3,16 @@ import type { RotationProtectionContext } from '@open-mercato/shared/lib/encrypt
 import { pinRotationProviders, type ExplicitKeyProvider } from './keys'
 import { createVersionedVaultProvider } from './vault-provider'
 
-export async function resolveRotationProviders(context: RotationProtectionContext, tenantIds: string[], environment: NodeJS.ProcessEnv, signal?: AbortSignal) {
+export function rotationProviderKinds(environment: NodeJS.ProcessEnv) {
   const sourceKind = (environment.OM_ROTATION_SOURCE_PROVIDER ?? 'derived').trim()
   const targetKind = (environment.OM_ROTATION_TARGET_PROVIDER ?? environment.OM_ROTATION_KMS_PROVIDER)?.trim()
   if (!['derived', 'vault'].includes(sourceKind) || !targetKind || !['derived', 'vault'].includes(targetKind)) throw new Error('[internal] ROTATION_EXPLICIT_PROVIDER_REQUIRED')
   if (environment.OM_ROTATION_TARGET_PROVIDER !== undefined && environment.OM_ROTATION_KMS_PROVIDER !== undefined && environment.OM_ROTATION_TARGET_PROVIDER.trim() !== environment.OM_ROTATION_KMS_PROVIDER.trim()) throw new Error('[internal] ROTATION_PROVIDER_CONFIGURATION_CONFLICT')
+  return { sourceKind, targetKind }
+}
+
+export async function resolveRotationProviders(context: RotationProtectionContext, tenantIds: string[], environment: NodeJS.ProcessEnv, signal?: AbortSignal) {
+  const { sourceKind, targetKind } = rotationProviderKinds(environment)
   const vault = async (role: 'SOURCE' | 'TARGET'): Promise<ExplicitKeyProvider> => {
     const prefix = `OM_ROTATION_${role}_VAULT_`
     const target = role === 'TARGET'
