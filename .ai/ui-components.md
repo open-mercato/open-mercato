@@ -1903,7 +1903,7 @@ const [date, setDate] = React.useState<Date | null>(null)
 
 | `footer` | Behaviour |
 |---|---|
-| `'apply-cancel'` (default, Figma-aligned) | Selecting a day stages a draft inside the popover. `Apply` commits and closes; `Cancel` reverts and closes. |
+| `'apply-cancel'` (default, Figma-aligned) | Selecting a day stages a draft inside the popover. `Apply` commits and closes; `Cancel` or `Escape` reverts and closes. Any other close (pressing or tabbing outside, clicking the trigger) commits a changed draft, so a picked day is never silently dropped (e.g. when the user clicks a form's Save without pressing Apply). |
 | `'today-clear'` | Legacy footer with link-style `Today` / `Clear` buttons. Selecting a day commits immediately (set `closeOnSelect={false}` to keep the popover open). Toggle individual buttons with `showTodayButton` / `showClearButton`. |
 | `'none'` | No footer; selecting a day commits and closes. |
 
@@ -1912,7 +1912,7 @@ const [date, setDate] = React.useState<Date | null>(null)
 | Prop | Type | Default | Notes |
 |---|---|---|---|
 | `value` | `Date \| null` | — | Controlled value. `null` renders the placeholder. |
-| `onChange` | `(value: Date \| null) => void` | — | Called on Apply / immediate commit / Clear / Today. |
+| `onChange` | `(value: Date \| null) => void` | — | Called on Apply / immediate commit / Clear / Today, and on an outside/trigger close with a changed draft in `'apply-cancel'` mode. |
 | `footer` | `'apply-cancel' \| 'today-clear' \| 'none'` | `'apply-cancel'` | Footer mode (see table above). |
 | `closeOnSelect` | `boolean` | `footer === 'today-clear'` | Only meaningful in `'today-clear'` mode. |
 | `showTodayButton` / `showClearButton` | `boolean` | `true` | `'today-clear'` mode only. |

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { pl } from 'date-fns/locale/pl'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { DatePicker } from '../date-picker'
@@ -138,6 +138,180 @@ describe('DatePicker primitive', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     })
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  describe('unapplied draft in apply-cancel mode (#9093)', () => {
+    const MAY_9 = new Date(2026, 4, 9)
+
+    async function pickDay(day: string) {
+      const grid = screen.getByRole('grid')
+      const cell = within(grid).getByText(day).closest('button')
+      if (!cell) throw new Error(`Day ${day} button not found`)
+      await act(async () => {
+        fireEvent.click(cell)
+      })
+    }
+
+    async function waitForDismissListeners() {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+
+    function renderWithOutsideTarget(ui: React.ReactElement) {
+      return renderWithI18n(
+        <div>
+          {ui}
+          <button type="button">Outside</button>
+        </div>,
+      )
+    }
+
+    it('commits the picked day when the user presses outside the popover', async () => {
+      const onChange = jest.fn()
+      renderWithOutsideTarget(<DatePicker value={MAY_9} onChange={onChange} />)
+      await openPopover()
+      await waitForDismissListeners()
+      await pickDay('15')
+      expect(onChange).not.toHaveBeenCalled()
+      const outside = screen.getByRole('button', { name: 'Outside' })
+      await act(async () => {
+        fireEvent.pointerDown(outside, { button: 0 })
+        fireEvent.mouseDown(outside, { button: 0 })
+        fireEvent.pointerUp(outside, { button: 0 })
+        fireEvent.mouseUp(outside, { button: 0 })
+        fireEvent.click(outside, { button: 0 })
+      })
+      expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange.mock.calls[0][0]).toEqual(new Date(2026, 4, 15))
+    })
+
+    it('commits the picked day when focus leaves the popover', async () => {
+      const onChange = jest.fn()
+      renderWithOutsideTarget(<DatePicker value={MAY_9} onChange={onChange} />)
+      await openPopover()
+      await waitForDismissListeners()
+      await pickDay('15')
+      await act(async () => {
+        screen.getByRole('button', { name: 'Outside' }).focus()
+      })
+      expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange.mock.calls[0][0]).toEqual(new Date(2026, 4, 15))
+    })
+
+    it('submits the picked day when the host form is saved without pressing Apply', async () => {
+      const submitted: Array<Date | null> = []
+      function Host() {
+        const valueRef = React.useRef<Date | null>(MAY_9)
+        const [value, setValue] = React.useState<Date | null>(MAY_9)
+        return (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              submitted.push(valueRef.current)
+            }}
+          >
+            <DatePicker
+              value={value}
+              onChange={(next) => {
+                valueRef.current = next
+                setValue(next)
+              }}
+            />
+            <button type="submit">Save</button>
+          </form>
+        )
+      }
+      renderWithI18n(<Host />)
+      await openPopover()
+      await waitForDismissListeners()
+      await pickDay('15')
+      const save = screen.getByRole('button', { name: 'Save' })
+      await act(async () => {
+        fireEvent.pointerDown(save, { button: 0 })
+        fireEvent.mouseDown(save, { button: 0 })
+        save.focus()
+        fireEvent.pointerUp(save, { button: 0 })
+        fireEvent.mouseUp(save, { button: 0 })
+        fireEvent.click(save, { button: 0 })
+      })
+      expect(submitted).toEqual([new Date(2026, 4, 15)])
+    })
+
+    it('commits the picked day exactly once when the trigger is clicked to close', async () => {
+      const onChange = jest.fn()
+      renderWithOutsideTarget(<DatePicker value={MAY_9} onChange={onChange} />)
+      await openPopover()
+      await waitForDismissListeners()
+      await pickDay('15')
+      const trigger = getTrigger()
+      await act(async () => {
+        fireEvent.pointerDown(trigger, { button: 0 })
+        fireEvent.mouseDown(trigger, { button: 0 })
+        trigger.focus()
+        fireEvent.pointerUp(trigger, { button: 0 })
+        fireEvent.mouseUp(trigger, { button: 0 })
+        fireEvent.click(trigger, { button: 0 })
+      })
+      expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange.mock.calls[0][0]).toEqual(new Date(2026, 4, 15))
+    })
+
+    it('does not call onChange on outside dismiss when no day was picked', async () => {
+      const onChange = jest.fn()
+      renderWithOutsideTarget(<DatePicker value={MAY_9} onChange={onChange} />)
+      await openPopover()
+      await waitForDismissListeners()
+      await act(async () => {
+        screen.getByRole('button', { name: 'Outside' }).focus()
+      })
+      expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('discards the picked day when the popover is closed with Escape', async () => {
+      const onChange = jest.fn()
+      renderWithOutsideTarget(<DatePicker value={MAY_9} onChange={onChange} />)
+      await openPopover()
+      await waitForDismissListeners()
+      await pickDay('15')
+      await act(async () => {
+        fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+      })
+      expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('discards the picked day when Cancel is clicked', async () => {
+      const onChange = jest.fn()
+      renderWithOutsideTarget(<DatePicker value={MAY_9} onChange={onChange} />)
+      await openPopover()
+      await pickDay('15')
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      })
+      expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('keeps the picked day when the host re-renders with an equal but new Date instance', async () => {
+      const onChange = jest.fn()
+      const { rerender } = renderWithI18n(<DatePicker value={new Date(MAY_9)} onChange={onChange} />)
+      await openPopover()
+      await pickDay('15')
+      rerender(
+        <I18nProvider locale="en" dict={{}}>
+          <DatePicker value={new Date(MAY_9)} onChange={onChange} />
+        </I18nProvider>,
+      )
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+      })
+      expect(onChange).toHaveBeenCalledTimes(1)
+      expect(onChange.mock.calls[0][0]).toEqual(new Date(2026, 4, 15))
+    })
   })
 
   it('renders the time input when withTime=true', async () => {
