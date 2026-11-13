@@ -1,6 +1,6 @@
 import { mkdtemp, chmod, mkdir, writeFile, readFile, readdir,rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { contained, privateDirectory, readBoundedFile } from '../lib/engine/artifacts'
 import { runBackupCli } from '../lib/engine/cli/main'
 import { acquireBackupLock } from '../lib/engine/lock'
@@ -94,21 +94,27 @@ describe('recovery security boundary', () => {
   test.each(['public-custody', 'symlink-base'])('implicit 0600 recipients refuse %s before opening source or creating artifacts', async unsafe => {
     for (const key of rights) process.env[key] = 'true'
     const priorRoot = process.env.OM_RECOVERY_ROOT
-    const actual = join(root, 'actual'), plannedRoot = unsafe === 'symlink-base' ? join(root, 'alias') : actual
-    await mkdir(actual, { mode: 0o700 })
-    await mkdir(join(actual, 'custody'), { mode: 0o700 })
-    if (unsafe === 'symlink-base') await symlink(actual, plannedRoot)
-    else await chmod(join(actual, 'custody'), 0o777)
-    await writeFile(join(actual, 'custody', 'recipients.txt'), 'private-file-with-unsafe-ancestor', { mode: 0o600 })
-    process.env.OM_RECOVERY_ROOT = plannedRoot
-    const open = jest.fn(), sourceFactory = jest.fn(() => ({ open, close: jest.fn() }))
-    const stdout: string[] = []
+    // Exercise the private-ancestor guard outside forbidden temporary recovery roots,
+    // including when Turbo's strict environment omits the host TMPDIR.
+    const guardRoot = await mkdtemp(join(homedir(), '.om-backup-security-'))
     try {
+      const actual = join(guardRoot, 'actual'), plannedRoot = unsafe === 'symlink-base' ? join(guardRoot, 'alias') : actual
+      await mkdir(actual, { mode: 0o700 })
+      await mkdir(join(actual, 'custody'), { mode: 0o700 })
+      if (unsafe === 'symlink-base') await symlink(actual, plannedRoot)
+      else await chmod(join(actual, 'custody'), 0o777)
+      await writeFile(join(actual, 'custody', 'recipients.txt'), 'private-file-with-unsafe-ancestor', { mode: 0o600 })
+      process.env.OM_RECOVERY_ROOT = plannedRoot
+      const open = jest.fn(), sourceFactory = jest.fn(() => ({ open, close: jest.fn() }))
+      const stdout: string[] = []
       expect(await runBackupCli(['create', '--source-service', 'fixture', '--json', '--progress', 'json'], { sourceFactory, stdout: value => stdout.push(value), stderr: () => {} })).toBe(3)
       expect(JSON.parse(stdout[0]).error.code).toBe('RECOVERY_PRIVATE_DIRECTORY_REQUIRED')
       expect(sourceFactory).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled()
       expect(await readdir(actual)).toEqual(['custody'])
-    } finally { if (priorRoot === undefined) delete process.env.OM_RECOVERY_ROOT; else process.env.OM_RECOVERY_ROOT = priorRoot }
+    } finally {
+      if (priorRoot === undefined) delete process.env.OM_RECOVERY_ROOT; else process.env.OM_RECOVERY_ROOT = priorRoot
+      await rm(guardRoot, { recursive: true, force: true })
+    }
   })
   test.each(['restore', 'exercise'])('%s checks only its actual durable workspace, not unused default output', async command => {
     for (const key of rights) process.env[key] = 'true'
