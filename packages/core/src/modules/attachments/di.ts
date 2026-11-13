@@ -75,11 +75,13 @@ export function register(container: AppContainer) {
       em: ConstructorParameters<typeof DefaultAttachmentService>[0]
       storageDriverFactory: ConstructorParameters<typeof DefaultAttachmentService>[1]
       attachmentScopedUploadService: ScopedAttachmentUploadService
+      dataEngine: DataEngine
     }) => new DefaultAttachmentService(
       cradle.em,
       cradle.storageDriverFactory,
       () => cradle.attachmentScopedUploadService ?? null,
       accessContext,
+      () => cradle.dataEngine ?? null,
     ))
       .scoped()
       .proxy(),

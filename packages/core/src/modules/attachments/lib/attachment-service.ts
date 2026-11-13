@@ -33,6 +33,10 @@ import {
   resolveAttachmentMultipartMaxBytes,
 } from './upload-limits'
 import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from './documentStructure/purge'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
+import { clearAttachmentThumbnailCache } from './thumbnailCache'
 
 const logger = createLogger('attachments').child({ component: 'attachment-service' })
 
@@ -179,11 +183,13 @@ export interface AttachmentService {
   createScoped(input: CreateScopedAttachmentInput): Promise<CreatedScopedAttachment>
   readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult>
   /**
-   * Permanently deletes an attachment row and its stored object once no other row references it.
+   * Permanently deletes an attachment row and its stored object once no other row references it,
+   * then emits `attachments.attachment.deleted` (with its query-index side effect) after commit.
    *
    * With `{ flush: false }` call it inside your own transaction and run the returned cleanup after
-   * commit; it deletes the stored object when no other row references it and queues removal of the
-   * purged sections' search records. `undefined` means there is nothing left to clean up.
+   * commit; it deletes the stored object when no other row references it, queues removal of the
+   * purged sections' search records, clears cached thumbnails and emits the delete event. Always
+   * invoke a returned cleanup; `undefined` means there is nothing left to clean up.
    *
    * @deprecated Calling it with `{ flush: false }` outside a transaction. It still works for one
    * minor version but logs a warning, and its reference check is not locked, so two racing releases
@@ -254,7 +260,27 @@ export class DefaultAttachmentService implements AttachmentService {
     private readonly storageDriverFactory: StorageDriverFactory,
     private readonly resolveScopedUploadService?: (() => ScopedAttachmentUploadService | null) | null,
     private readonly resolveAccessContext?: (() => AttachmentAccessContext) | null,
+    private readonly resolveDataEngine?: (() => DataEngine | null) | null,
   ) {}
+
+  private async emitReleasedSideEffects(attachment: Attachment): Promise<void> {
+    await clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id)
+    const dataEngine = this.resolveDataEngine?.() ?? null
+    if (!dataEngine) return
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: attachment,
+      identifiers: {
+        id: attachment.id,
+        organizationId: attachment.organizationId ?? null,
+        tenantId: attachment.tenantId ?? null,
+      },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    })
+    await dataEngine.flushOrmEntityChanges()
+  }
 
   validateUpload(input: {
     contentLength?: string | null
@@ -502,14 +528,15 @@ export class DefaultAttachmentService implements AttachmentService {
       )
       em.remove(attachment)
       const { indexedSectionIds } = purge
-      if (!removal.releaseStorage && indexedSectionIds.length === 0) return undefined
       return async () => {
         if (indexedSectionIds.length > 0) await enqueuePurgedSectionSearchDelete(scope, indexedSectionIds)
         if (removal.releaseStorage) await deleteProviderBytes()
+        await this.emitReleasedSideEffects(attachment)
       }
     }
     const removal = await removeAttachmentRecord(em, attachment)
     if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
     if (removal.releaseStorage) await deleteProviderBytes()
+    await this.emitReleasedSideEffects(attachment)
   }
 }
