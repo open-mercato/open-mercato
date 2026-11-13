@@ -10,7 +10,7 @@ import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-r
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
-import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows } from '@open-mercato/shared/lib/query/encrypted-sort'
+import { resolveEncryptedSortMaxRows } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -31,6 +31,7 @@ import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
 import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { matchesDecryptedSearch, resolveEncryptedSearchMaxRows, resolveEncryptedSortPage } from './encryptedSortPage'
 import { applyDecryptedFields } from './decryptedFields'
+import { resolveEncryptedFieldsAcrossOrganizations } from './encryptedScopeFields'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -339,6 +340,31 @@ const INTERACTION_LIST_COLUMNS = [
   'updated_at',
 ] as const
 
+// The organizations whose encryption maps decide how the list is searched and sorted.
+// A restricted scope names them. An unrestricted one covers the whole tenant, so they are
+// read from the rows themselves, and only when encryption is on: with it off every map
+// resolves to "nothing encrypted" and the extra query would buy nothing.
+async function listEncryptionScopeOrganizationIds(
+  db: any,
+  params: {
+    tenantId: string
+    organizationIds: string[] | undefined
+    selectedOrganizationId: string | null
+    encryptionEnabled: boolean
+  },
+): Promise<Array<string | null>> {
+  if (params.organizationIds !== undefined) return params.organizationIds
+  if (!params.encryptionEnabled) return [params.selectedOrganizationId]
+  const rows = await db
+    .selectFrom('customer_interactions')
+    .select('organization_id')
+    .distinct()
+    .where('deleted_at', 'is', null)
+    .where('tenant_id', '=', params.tenantId)
+    .execute() as Array<{ organization_id: string | null }>
+  return [params.selectedOrganizationId, ...rows.map((row) => row.organization_id ?? null)]
+}
+
 // Shared by both the SQL keyset path and the encrypted-sort candidate scan
 // so the two paths never drift on which rows are in scope.
 function applyInteractionListFilters(
@@ -498,18 +524,27 @@ export async function GET(req: Request) {
     // Encrypted sort columns can't use SQL keyset ordering on ciphertext, so an
     // encrypted sort field takes a bounded candidate-scan + in-memory-sort path
     // instead of the SQL path below. Resolved alongside the independent
-    // visibility-feature lookup rather than after it.
+    // visibility-feature lookup rather than after it. The list can span every
+    // organization in `organizationIds`, each with its own encryption map, so the
+    // decision is taken across that whole scope: reading only the selected
+    // organization's map ran SQL search and ordering against the ciphertext of an
+    // organization that encrypts a column the selected one keeps in plaintext.
     const [callerUserFeatures, encryptedFields] = await Promise.all([
       viewerUserId
         ? resolveUserFeatures(container, viewerUserId, auth.tenantId ?? null, selectedOrganizationId)
         : Promise.resolve(undefined),
-      resolveEncryptedSortFields(
-        encryptionService,
-        CUSTOMER_INTERACTION_ENTITY_ID,
-        [sortConfig.column, 'title', 'body'],
-        auth.tenantId,
-        selectedOrganizationId,
-      ),
+      (async () => resolveEncryptedFieldsAcrossOrganizations({
+        service: encryptionService,
+        entityId: CUSTOMER_INTERACTION_ENTITY_ID,
+        fields: [sortConfig.column, 'title', 'body'],
+        tenantId: auth.tenantId,
+        organizationIds: await listEncryptionScopeOrganizationIds(db, {
+          tenantId: auth.tenantId as string,
+          organizationIds,
+          selectedOrganizationId,
+          encryptionEnabled: encryptionService?.isEnabled() ?? false,
+        }),
+      }))(),
     ])
     const sortFieldIsEncrypted = encryptedFields.has(sortConfig.column)
     const searchTerm = query.search
