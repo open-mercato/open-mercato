@@ -1,6 +1,8 @@
+import { isDatabaseRuntimeEnabled, currentDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { runQueryIndexTenantContinuation } from './reindex-scopes'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
+import { resolveQueryIndexSourceTableMetadata, resolveQueryIndexSourceMetadata } from './subscriber-scope'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
@@ -279,7 +281,7 @@ export async function reindexEntity(
   // here: doing so would let a principal with `query_index.reindex` point the
   // reindexer at arbitrary tables (e.g. `auth_users`, `users`) and read their
   // rows into the index, bypassing tenant scoping and entity-level encryption.
-  const source = resolveQueryIndexSourceTableMetadata(em, entityType)
+  const source = isDatabaseRuntimeEnabled() ? resolveQueryIndexSourceMetadata(em, entityType) : resolveQueryIndexSourceTableMetadata(em, entityType)
   const table = source?.table
   if (!table || entityType === 'query_index:search_token' || table === 'search_tokens') {
     if (!table) {
@@ -311,6 +313,30 @@ export async function reindexEntity(
   const hasOrgCol = columns.has('organization_id')
   const hasTenantCol = columns.has('tenant_id')
   const hasDeletedCol = columns.has('deleted_at')
+
+  if (isDatabaseRuntimeEnabled() && tenantId == null && hasTenantCol) {
+    if (currentDatabaseExecutionContext()?.kind !== 'maintenance') {
+      throw new Error('[internal] Global reindex requires a classified maintenance context')
+    }
+    let tenantQuery = db.selectFrom(table).select('tenant_id').distinct().where('tenant_id', 'is not', null)
+    if (hasOrgCol && organizationId != null) tenantQuery = tenantQuery.where('organization_id', '=', organizationId)
+    const tenantRows = await tenantQuery.execute() as Array<{ tenant_id: unknown }>
+    const aggregate: ReindexJobResult = { processed: 0, total: 0, tenantScopes: [], scopes: [] }
+    for (const row of tenantRows) {
+      const result = await runQueryIndexTenantContinuation(row.tenant_id, organizationId, async (container, scopedTenantId) => {
+        let scopedVectorService: VectorIndexService | null = null
+        try { scopedVectorService = container.resolve<VectorIndexService>('vectorIndexService') } catch { scopedVectorService = null }
+        return reindexEntity(container.resolve<EntityManager>('em'), {
+          ...options, tenantId: scopedTenantId, eventBus: container.resolve('eventBus'), vectorService: scopedVectorService,
+        })
+      })
+      aggregate.processed += result.processed
+      aggregate.total += result.total
+      aggregate.tenantScopes.push(...result.tenantScopes)
+      aggregate.scopes.push(...result.scopes)
+    }
+    return aggregate
+  }
 
   // `applyBaseWhere()` below can only apply the tenant predicate when the source
   // table HAS a `tenant_id` column; when it does not, it silently drops the
@@ -373,7 +399,7 @@ export async function reindexEntity(
   // through would silently drop the tenant predicate and stamp the caller's tenant - the
   // exact defect the guard exists for - while the author believes the declaration took
   // effect. Fail closed and name it, in the spirit of the allowlist itself.
-  const tenantlessRefusal = tenantId != null ? resolveTenantlessRefusal(entityType, columns, source) : null
+  const tenantlessRefusal = tenantId != null || isDatabaseRuntimeEnabled() ? resolveTenantlessRefusal(entityType, columns, source) : null
   if (tenantlessRefusal) {
     logger.warn(
       tenantlessRefusal === 'declared-global-but-org-scoped'
