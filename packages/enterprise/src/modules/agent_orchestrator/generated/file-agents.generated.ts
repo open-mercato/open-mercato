@@ -8,8 +8,8 @@
 // `compileOutcome` at load time and registers it with `runtime:'opencode'`.
 //
 // Regenerate with `yarn generate`.
-import type { JsonSchemaNode, OutcomeKind } from "../lib/sdk/outcomeSchema.js"
-import type { AgentTokenUsage, FileAgentFile } from "../lib/tokens/types.js"
+import type { JsonSchemaNode, OutcomeKind } from '../lib/sdk/outcomeSchema'
+import type { AgentTokenUsage, FileAgentFile } from '../lib/tokens/types'
 
 export type FileAgentScript = {
   name: string

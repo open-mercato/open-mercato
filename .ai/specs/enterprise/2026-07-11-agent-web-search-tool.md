@@ -404,6 +404,44 @@ bypass result caching so previously enriched pages cannot survive a policy chang
 migration or manual cache purge is required. Operators needing rendered content must wait for
 browser domain enforcement; keep the restrictive domain rules in place.
 
+### Credential retargeting protection (#9118)
+
+`PUT /api/agent_orchestrator/web-search/settings` rejects a submitted adapter document
+with HTTP 400 when any URL option differs from its resolved stored value and any
+secret field still contains `__om_secret_unchanged__`. Validation happens before
+unmasking, encryption, persistence and health-cache invalidation. URL fields include
+schema URL formats (`z.url()` and `z.string().url()`, including optional/default
+wrappers) and names ending in `Url`. Adding or omitting a URL counts as a change:
+omission can switch a custom destination back to an adapter's built-in default.
+When both documents omit the URL, the adapter default remains unchanged.
+
+Unchanged destinations still accept masked credentials and unrelated option edits.
+Retargeting succeeds when all submitted secrets are fresh or removed; credentials
+are never copied from the prior adapter document by omission. Other adapter
+settings and settings updates omitting adapter options retain their existing behavior.
+One invalid adapter rejects the whole save before any write. The exported
+`unmaskSecrets` signature and behavior remain unchanged; the settings route owns
+the destination check. No startup flags, environment variables, schema, dependencies,
+ACLs or architecture change.
+
+**Migration and emergency exception:** this intentionally narrows the stable PUT
+behavior from successful hidden-secret reuse to HTTP 400. A compatibility bridge
+would preserve the credential-disclosure path. Clients must re-enter every masked
+credential when changing any URL; operators should review prior adapter destination
+changes and rotate credentials that may have reached an untrusted destination.
+Named human maintainer approval of the emergency security exception is required
+before merge under `BACKWARD_COMPATIBILITY.md`; automated review cannot grant it.
+The mandatory top-level compatibility and upgrade-note disclosures remain a merge
+prerequisite if not included by the integrating maintainer.
+
+Regression coverage: `api/web-search/settings/__tests__/route.test.ts` exercises
+three adapters, every URL field form, multiple secrets, mixed-adapter atomic rejection,
+explicit/default URL transitions, unchanged/default settings, fresh credentials,
+partial settings, authentication and tenant scope. These handler tests use isolated
+fixtures and mocked persistence/encryption; they do not claim live egress or browser
+coverage. `packages/web-research/src/loader/__tests__/describe.test.ts` covers URL
+format discovery through wrapped string schemas.
+
 ## Final Compliance Report (to complete at implementation)
 
 | MUST | Status |
@@ -450,6 +488,8 @@ Decisions honored: web egress lives ONLY in the centrally-registered, MCP/ACL-ga
 Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no `@types/node` transitively (unlike sibling provider packages), so node builtins (`node:dns/promises`, `node:net`) need the explicit reference. Internal `WebSearchProviderError` messages stay developer-facing; Phase 2 maps error `code`s to user-facing i18n keys in the tool wrappers.
 
 ## Changelog
+
+- **2026-11-13** — #9118: reject masked credential reuse when an adapter URL changes; preserve unchanged destinations and require fresh credentials on retarget. Added route regressions and wrapped string URL discovery. Human emergency compatibility waiver remains required.
 
 - 2026-11-01 — Corrected #7234 independently: suppress unattributed synthesized answers
   under domain policies at the agent and preview boundaries, with explicit diagnostics
