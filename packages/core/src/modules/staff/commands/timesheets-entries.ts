@@ -1951,7 +1951,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       : null
     await assertTaskBelongsToProject(task, nextProjectId)
     const storedTaskLeftBehind =
-      parsed.taskId === undefined && projectChanged && entry.taskId
+      parsed.taskId === undefined && project && entry.taskId
         ? !timeEntryTaskMatchesProject(
             await findOneWithDecryption(
               em,
@@ -1960,7 +1960,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
               undefined,
               { tenantId: entry.tenantId, organizationId: entry.organizationId },
             ),
-            project?.id ?? null,
+            project.id,
           )
         : false
 
