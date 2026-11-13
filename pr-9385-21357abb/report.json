@@ -1,0 +1,461 @@
+{
+  "runId": "21357abb-bd43-434e-8122-51bd969a944b",
+  "mode": "pr",
+  "depth": "COMPLEX",
+  "target": {
+    "prNumber": 9385,
+    "title": "fix(wms): reject non-active reservation mutations",
+    "branch": "codex/rescue-5419-834c50f3fc6dd536",
+    "headSha": "7484ce5f63f51af2308565c407ea54469c590c3a",
+    "url": "https://github.com/open-mercato/open-mercato/pull/9385",
+    "issueNumber": 5418
+  },
+  "verdict": "PARTIAL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "Own tenant-bound operator/second user; narrow viewer; own foreign-tenant actor",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "browserVersion": "1.61.1 Chromium",
+    "runner": "local, production, isolated PostgreSQL",
+    "rayonNumThreads": 2,
+    "ownedProcessRssLimitGiB": 21,
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Exact-head production /backend/wms/inventory; own stock fixture",
+      "expected": "Built SHA matches PR;10 on hand,2x5 reservations",
+      "observed": "Cold production build, authenticated readiness and warm reuse verified; initial reserved10/allocated0.",
+      "result": "PASS",
+      "screenshot": "step-01-default-en.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "TC-WMS-028 release replay and allocate(released)",
+      "expected": "409 invalid_reservation_state; remaining reservation still backed",
+      "observed": "Native API test passed; reserved5/allocated0; reserve10 refused, freed5 accepted.",
+      "result": "PASS",
+      "screenshot": null,
+      "coverage": "API"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "Open release dialog; second tenant-bound user releases its target; Ctrl+Enter",
+      "expected": "Translated409, no success, no further writes",
+      "observed": "EN toast verified; whole reservation/balance/movement records byte-for-byte unchanged after refusal.",
+      "result": "PASS",
+      "screenshot": "step-02-stale-release-en.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Escape after stale release; inspect refreshed reservation table",
+      "expected": "Dialog closes and only one active reservation remains",
+      "observed": "Reservation table refreshed to1 active row; balance available5/reserved5/allocated0.",
+      "result": "PASS",
+      "screenshot": "step-04-refreshed-en.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "Stale Allocate while another active reservation still holds5",
+      "expected": "409 invalid_reservation_state; do not consume another reservation backing",
+      "observed": "EN message/no false success; reserved5/allocated0; every field and movement unchanged.",
+      "result": "PASS",
+      "screenshot": "step-05-stale-allocate-en.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "Explicit Polish locale; repeat stale release and allocate",
+      "expected": "Both new texts translate; refusals preserve every field",
+      "observed": "Both PL messages verified with real409 responses; Ctrl+Enter, Escape and repeated/double submit safe.",
+      "result": "PASS",
+      "screenshot": "step-09-stale-allocate-pl.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "390px viewport with long warehouse name and stale release dialog",
+      "expected": "Wrapped content and actionable dialog remain usable",
+      "observed": "Long name wraps; submit/cancel accessible; translated toast visible; no stock change on retry.",
+      "result": "PASS",
+      "screenshot": "step-07-stale-release-pl-narrow.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "Polish quantity display after API fixture quantity1.5",
+      "expected": "Displays1,5 and retains1.5",
+      "observed": "PL balance/reservation show1,5; input was API fixture setup, not UI numeric entry.",
+      "result": "PASS",
+      "screenshot": "step-08-polish-decimal-narrow.png",
+      "coverage": "UI display / API setup"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Empty active reservations state",
+      "expected": "Useful empty state after releases",
+      "observed": "No reservations renders within owned warehouse scope.",
+      "result": "PASS",
+      "screenshot": "step-03-empty-reservations-en.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "Loading state with explicitly delayed GET requests",
+      "expected": "Useful headings/shell while tables load; then data",
+      "observed": "2.5s network latency injected through browser routing; real responses then loaded.",
+      "result": "PASS",
+      "screenshot": "step-11-loading-shell-en.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "Network-error state and recovery",
+      "expected": "Localized error, then recovery after network restored",
+      "observed": "Reservation GET aborted deliberately; Failed to load reservations. rendered; normal reload recovered. Not a backend500.",
+      "result": "PASS",
+      "screenshot": "step-12-network-error-en.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "Own narrow role with only wms.view",
+      "expected": "No mutating UI actions; direct writes403",
+      "observed": "Own viewer has no inventory operations/row actions; release and allocate both403.",
+      "result": "PASS",
+      "screenshot": "step-10-own-viewer-no-actions.png",
+      "coverage": "UI + API"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "Own second-tenant actor targets first-tenant reservation",
+      "expected": "No cross-tenant mutation or record fields returned",
+      "observed": "Real tenant-bound JWT scope verified; existing guard returns403 Forbidden, including body scope widening. All records unchanged.",
+      "result": "PASS",
+      "screenshot": null,
+      "coverage": "API"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "Malformed/unknown IDs and anonymous writes",
+      "expected": "400/404/401; no500 or mutation",
+      "observed": "Both operations tested at each boundary; exact statuses and all-field preservation verified.",
+      "result": "PASS",
+      "screenshot": null,
+      "coverage": "API"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "Released and fulfilled terminal-state refusals,10 attempts per operation/state",
+      "expected": "Every attempt409 invalid_reservation_state; no balance drift",
+      "observed": "40/40 rejected; all reservation/balance/movement fields unchanged. Fulfilled+allocated metadata was an explicit owned DB fixture, not a fulfillment journey.",
+      "result": "PASS",
+      "screenshot": null,
+      "coverage": "API / DB fixture"
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "Cancel owned Sales order with one reservation already released",
+      "expected": "Remaining reservation released via persistent worker; repeat safe",
+      "observed": "Prior3 already released, remaining2 released on cancellation; reserved3→1, allocated0/onHand10; repeat stable. NativeTC-WMS-017 lifecycle test also passed.",
+      "result": "PASS",
+      "screenshot": null,
+      "coverage": "API + real worker"
+    },
+    {
+      "step": 17,
+      "priority": "P0",
+      "action": "Deterministic cancellation race error-isolation branch",
+      "expected": "Skip invalid_reservation_state and release next reservation",
+      "observed": "Focused native unit test verifies two commands and no spurious drift event. No live interleaving was forced.",
+      "result": "PASS",
+      "screenshot": null,
+      "coverage": "UNIT"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "Successful release with double-click; wait10 seconds",
+      "expected": "One successful request; reserved0/allocated0/onHand10; stable UI",
+      "observed": "One200 request observed; success then empty active list; no residual error after10s.",
+      "result": "PASS",
+      "screenshot": "step-14-reverse-path-stable-en.png",
+      "coverage": "UI"
+    },
+    {
+      "step": 19,
+      "priority": "P0",
+      "action": "All new locale keys in en/pl/es/de/ko",
+      "expected": "Both error keys present and translated in every supported locale",
+      "observed": "All5 files verified; i18n sync passes. EN/PL browser renders checked; ES/DE/KO render not driven.",
+      "result": "PASS",
+      "screenshot": null,
+      "coverage": "STATIC + UI EN/PL"
+    },
+    {
+      "step": 20,
+      "priority": "P1",
+      "action": "Sales cancellation trigger through its UI",
+      "expected": "Cancel through Sales screen and observe inventory",
+      "observed": "Not exercised: trigger and worker checked through API; inventory UI effects observed separately.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null,
+      "coverage": "UI"
+    },
+    {
+      "step": 21,
+      "priority": "P0",
+      "action": "Live cancellation race between active-list read and mutation",
+      "expected": "Competing release does not prevent remaining releases",
+      "observed": "Not exercised live; deterministic race branch only unit-tested.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null,
+      "coverage": "LIVE CONCURRENCY"
+    }
+  ],
+  "hasUiTest": false,
+  "tests": {
+    "unit": {
+      "suites": 8,
+      "passed": 55,
+      "failed": 0,
+      "log": "resume-unit.log"
+    },
+    "nativeIntegration": {
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "logs": [
+        "native-integration.log",
+        "native-cancellation-regression.log"
+      ],
+      "cases": [
+        "TC-WMS-022",
+        "TC-WMS-026",
+        "TC-WMS-027",
+        "TC-WMS-028-reservation-release-replay",
+        "TC-WMS-017"
+      ]
+    },
+    "build": [
+      "yarn install --immutable",
+      "TURBO_FORCE=true yarn build:packages",
+      "TURBO_FORCE=true yarn generate",
+      "yarn build:packages",
+      "yarn test:integration:ephemeral:start --force-rebuild"
+    ],
+    "i18n": "yarn i18n:check-sync PASS; usage8121 unused keys advisory"
+  },
+  "images": [
+    {
+      "file": "step-01-default-en.png",
+      "bytes": 183085,
+      "sha256": "2a1ac86fc3491e571b72186945bb1bc0d27241ac10c36f4936042e3fbcc91c26",
+      "width": 1440,
+      "height": 1367,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-01-default-en.png"
+    },
+    {
+      "file": "step-02-stale-release-en.png",
+      "bytes": 204902,
+      "sha256": "f4a5b6b8104813a8bc363d6a3421b95b20f8faf08b1a54489d9b5f45d9b6f6b1",
+      "width": 1440,
+      "height": 1367,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-02-stale-release-en.png"
+    },
+    {
+      "file": "step-03-empty-reservations-en.png",
+      "bytes": 176904,
+      "sha256": "2e034b5f7aa19bd3833b7efe99f213a379fc6c24a6a34c552654fc44085f9d50",
+      "width": 1440,
+      "height": 1418,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-03-empty-reservations-en.png"
+    },
+    {
+      "file": "step-04-refreshed-en.png",
+      "bytes": 176823,
+      "sha256": "cb9627d5c1c4042870178b72c152d48e7ab18eead5ec3917bfaabe3b90011dbd",
+      "width": 1440,
+      "height": 1329,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-04-refreshed-en.png"
+    },
+    {
+      "file": "step-05-stale-allocate-en.png",
+      "bytes": 186775,
+      "sha256": "2e2866f13be9a88fa264d1a07bdc59492f8c4189b4a11d0aa9f6183447efdf1b",
+      "width": 1440,
+      "height": 1329,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-05-stale-allocate-en.png"
+    },
+    {
+      "file": "step-06-inventory-pl.png",
+      "bytes": 158970,
+      "sha256": "bc5d5ee6dcd711f320f6d3438ad2dc9af273fa28736bef1cf86b04167b9f4bce",
+      "width": 1440,
+      "height": 1163,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-06-inventory-pl.png"
+    },
+    {
+      "file": "step-07-stale-release-pl-narrow.png",
+      "bytes": 126916,
+      "sha256": "5ee389fcceebdefaac381950835c3b3788ab5febc5ac807dfa805f39f4e9c102",
+      "width": 390,
+      "height": 1997,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-07-stale-release-pl-narrow.png"
+    },
+    {
+      "file": "step-08-polish-decimal-narrow.png",
+      "bytes": 134935,
+      "sha256": "32f76d05b4b94166185782f9d8d76e0abdaee6c751a63cfc75ac651dbc26a525",
+      "width": 390,
+      "height": 1997,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-08-polish-decimal-narrow.png"
+    },
+    {
+      "file": "step-09-stale-allocate-pl.png",
+      "bytes": 199619,
+      "sha256": "5324c698aeaf378230d37a67fbb109ed3d5c5bc3b4f4ced3f0b5c1084adbbff8",
+      "width": 1440,
+      "height": 1329,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-09-stale-allocate-pl.png"
+    },
+    {
+      "file": "step-10-own-viewer-no-actions.png",
+      "bytes": 139261,
+      "sha256": "55c24083ba5feb61830de072d5eb34f4b6f01537585b83a3d4f845e0567cb306",
+      "width": 1280,
+      "height": 1142,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-10-own-viewer-no-actions.png"
+    },
+    {
+      "file": "step-11-loading-shell-en.png",
+      "bytes": 80087,
+      "sha256": "97b16e5f82569a3fd3a22ccda818c3a46e629849b4f98522f2dd76943ac58baa",
+      "width": 1440,
+      "height": 1038,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-11-loading-shell-en.png"
+    },
+    {
+      "file": "step-12-network-error-en.png",
+      "bytes": 168913,
+      "sha256": "0ce96c9ca1e8d7787cac499a7ba22fb06ddf17b5caa6a3107733a43228515726",
+      "width": 1440,
+      "height": 1320,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-12-network-error-en.png"
+    },
+    {
+      "file": "step-13-release-success-en.png",
+      "bytes": 179406,
+      "sha256": "5ba27b9f66d6e7c0b63ff0e52ffca6470215a5cf13b607ac8fb68dbc6eb6fc37",
+      "width": 1440,
+      "height": 1418,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-13-release-success-en.png"
+    },
+    {
+      "file": "step-14-reverse-path-stable-en.png",
+      "bytes": 177812,
+      "sha256": "b33c967ac7fd9cac2ab55089fff12a43e3c442ce567027b4ac526e1e84bce2cc",
+      "width": 1440,
+      "height": 1418,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/step-14-reverse-path-stable-en.png"
+    }
+  ],
+  "evidence": {
+    "branch": "qa-evidence-pr-9385-21357abb",
+    "slug": "pr-9385-21357abb",
+    "reportJson": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/report.json",
+    "reportMarkdown": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9385-21357abb/pr-9385-21357abb/report.md"
+  },
+  "cleanup": {
+    "at": "2026-11-13T09:21:22.767118+00:00",
+    "ownedDatabaseContainersRemoved": {
+      "807e80e077d2": true
+    },
+    "allFixturesDisposedWithIsolatedDatabase": true,
+    "ownAppHttpProbe": "000 connection refused",
+    "ownedRuntimeProcessMatches": 0,
+    "browserAndDatabaseInspectionClosed": true,
+    "generatedEmailCaptureRestored": true,
+    "sourceStatus": "",
+    "sourceDiffZero": true,
+    "claimCleanup": "pending after evidence publication"
+  },
+  "claim": {
+    "runId": "21357abb-bd43-434e-8122-51bd969a944b",
+    "lockSha": "7f224ba38d960ce98dd3a1c8622155ad41766b39",
+    "commentId": 6835953471,
+    "actor": "open-mercato-maintenance[bot]",
+    "assignment": "Confirmed unassignable App; no human assignments changed"
+  },
+  "notes": [
+    "Evidence-only COMPLEX QA: PARTIAL, not QA approval. Every executed final assertion passed; no confirmed product regression. needs-qa retained; no qa-approved, qa-self-verified, qa-failed or pipeline writes.",
+    "New TC-WMS-028 is API-only. Existing TC-WMS-026 provides3 browser tests but does not pin the new stale-message/refresh paths; a ready browser follow-up scenario is supplied.",
+    "Cancelled-order trigger was API-only. Fulfilled reservation was prepared directly in the isolated DB because no public WMS fulfill action exists in the examined module. Neither is represented as a browser lifecycle PASS.",
+    "Generic WMS undo is intentionally disabled; explicit reserve/allocate→release counter-actions were tested. Priced-document/payment/refund flows are outside this stock-only change; own cancellation order had zero-valued fixture lines and all decrypted amount fields remained0.",
+    "Existing cross-tenant mutation guards return403 Forbidden, not404. This behavior predates the diff; no record fields or mutations were returned. Narrow-role writes also403; unknown IDs404.",
+    "Loading/error screenshots use explicit browser network latency/abort injection, not fabricated application responses. Navigation waited for semantic roles after persistent connections prevented networkidle.",
+    "Exploration harness corrections: first-row API sorting was aligned to the actual UI response; action locators scoped to the reservations table; asynchronous route cleanup was corrected after driver restart. Earlier setup/locator failures are not product failures and were not counted as PASS.",
+    "Interrupted Nov12 session lost its runtime when the cockpit recreated the worktree. Nov13 rebuilt and reran exact-head tests; previous incomplete browser work was not counted.",
+    "Only temporary QA scripts/artifacts/environment were created. Test-generated tracked email capture appends restored after stopping the runtime; source diff is zero."
+  ],
+  "createdAt": "2026-11-13T09:22:55.793608+00:00",
+  "commands": [
+    {
+      "command": "yarn install --immutable",
+      "result": "PASS; optional cpu-features native warning; SQLite bundled runtime smoke PASS"
+    },
+    {
+      "command": "TURBO_FORCE=true yarn build:packages && TURBO_FORCE=true yarn generate && yarn build:packages",
+      "result": "PASS; first42/42 rebuilt, generation completed, own matching package artifacts reused in second pass"
+    },
+    {
+      "command": "sh .ai/scripts/test-env-up.sh (authoritative yarn test:integration:ephemeral:start --force-rebuild)",
+      "result": "PASS production cold and authenticated warm reuse; owned21GiB RSS guard did not fire"
+    },
+    {
+      "command": "yarn jest --config packages/core/jest.config.cjs --runInBand --testPathPatterns=modules/wms/(commands/__tests__/inventory-actions|lib/__tests__/salesOrderInventoryAutomation|lib/__tests__/inventoryReconciliation)",
+      "result": "8 suites /55 tests PASS"
+    },
+    {
+      "command": "OM_INTEGRATION_MODULES=wms OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=86400 yarn mercato test:integration 'TC-WMS-(028-reservation-release-replay|027-ledger-integrity|026-inventory-console-row-actions|022-inventory-mutations)'",
+      "result": "13/13 PASS in42.9s"
+    },
+    {
+      "command": "OM_INTEGRATION_MODULES=wms OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=86400 yarn mercato test:integration TC-WMS-017",
+      "result": "1/1 PASS in10.5s"
+    },
+    {
+      "command": "TMPDIR=/tmp/qa9385-21357abb yarn i18n:check-sync; yarn i18n:check-usage",
+      "result": "Sync PASS; usage8121 unused keys advisory. Original long TMPDIR failed tsx IPC path limit; short TMPDIR run passed."
+    },
+    {
+      "command": "Playwright provider open/snapshot/interact/assert/screenshot via artifact browser-driver.cjs and browser-commands.jsonl",
+      "result": "14 genuine screenshots; mainUI EN/PL checks PASS; harness retries disclosed in notes"
+    },
+    {
+      "command": "sh .ai/scripts/test-env-down.sh; remove exact owned PostgreSQL container; restore generated email capture",
+      "result": "Owned app closed; all fixtures disposed; git status clean"
+    }
+  ]
+}
