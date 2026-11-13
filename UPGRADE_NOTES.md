@@ -3507,3 +3507,13 @@ With `NODE_ENV=production`, `mercato init` now rejects missing, blank, or built-
 Operators using starter or generated-app full-app Compose deployments must set a unique `OM_INIT_SUPERADMIN_PASSWORD` securely before first initialization or reinstall; the Compose `password` fallback is only usable outside production. On this release line, ordinary init retains the existing-users abort message before credential validation, allowing entrypoint scripts to continue with migrations when a seed marker is missing. Bootstrap scripts must supply the secret via environment or `--password` and handle initialization failures. Do not store secrets in source control or logs.
 
 This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
+
+## Customer comment update attribution (#8759)
+
+Customer-comment body edits preserve the persisted author when `authorUserId` is omitted. Ordinary staff and API keys can no longer reassign or clear attribution through `customers.comments.update` / `PUT /api/customers/comments`; supplied author input is ignored while authorized body edits continue. API keys cannot override this even with superadmin privileges.
+
+**Client migration:** omit `authorUserId` for body edits. Intentional corrections require a non-API-key superadmin session and an explicit active user in the comment's tenant, or explicit null to clear attribution. Omitted authors and unchanged historical authors remain intact.
+
+**Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
+
+**Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
