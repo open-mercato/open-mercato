@@ -11,13 +11,17 @@ export const databaseDeclarations: DatabaseModuleDeclarations = {
         import('@open-mercato/shared/lib/di/container'), import('@open-mercato/shared/lib/encryption/find'), import('./data/entities'),
       ])
       const container = await createRequestContainer()
-      const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
-      if (!await findOneWithDecryption(em, Tenant, { id: identity.context.tenantId, isActive: true, deletedAt: null })) return false
-      if (!organization) return true
-      return await findOneWithDecryption(em, Organization, {
-        id: organization.id, tenant: identity.context.tenantId, isActive: true, deletedAt: null,
-        ...(organization.slug ? { slug: organization.slug } : {}),
-      }) !== null
+      try {
+        const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+        if (!await findOneWithDecryption(em, Tenant, { id: identity.context.tenantId, isActive: true, deletedAt: null })) return false
+        if (!organization) return true
+        return await findOneWithDecryption(em, Organization, {
+          id: organization.id, tenant: identity.context.tenantId, isActive: true, deletedAt: null,
+          ...(organization.slug ? { slug: organization.slug } : {}),
+        }) !== null
+      } finally {
+        await container.dispose()
+      }
     })
   }],
 }
