@@ -15,7 +15,7 @@ test.describe('TC-NOTIF-027: Mark all read failure feedback and retry', () => {
       const button = panel.getByRole('button', { name: messages['notifications.markAllRead'], exact: true })
       const unreadTab = panel.getByRole('tab', { name: new RegExp(messages['notifications.filters.unread']) })
       await unreadTab.click()
-      await expect(unreadTab).toContainText('2')
+      const unreadBefore = await unreadTab.innerText()
       const effects = observeNotificationEffects(page)
       const endpoint = '/api/notifications/mark-all-read'
       const pattern = `**${endpoint}`
@@ -25,7 +25,7 @@ test.describe('TC-NOTIF-027: Mark all read failure feedback and retry', () => {
         await button.click()
         await expect(panel.getByRole('alert')).toHaveText(messages['notifications.error.markAllRead'])
         await expect(button).toBeEnabled()
-        await expect(unreadTab).toContainText('2')
+        await expect(unreadTab).toHaveText(unreadBefore)
         await expect(panel.getByText(keyboardFixture.title, { exact: true })).toBeVisible()
         expect(await keyboardFixture.read()).toEqual(keyboardFixture.before)
         await keyboardFixture.expectUnrelatedNotificationUnchanged()
