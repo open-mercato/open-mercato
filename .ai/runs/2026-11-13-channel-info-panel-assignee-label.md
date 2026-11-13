@@ -23,7 +23,7 @@ Root cause: `loadUsers()` runs only from the Select's `onOpenChange`; until then
 
 ## Progress
 
-PR: #9422
+PR: #9467 (carried forward from #9422)
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
