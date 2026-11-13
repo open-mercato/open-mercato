@@ -556,7 +556,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 ## Organization Update Preserves Omitted Hierarchy Fields (2026-10-01)
 
-`directory.organizations.update` treated an omitted `parentId` as `null` and an omitted `childIds` as `[]`, so a partial update — notably `PUT /api/directory/organization-branding`, which sends only logo fields — detached the organization from its parent and orphaned its children. Omitted hierarchy fields are now preserved:
+Partial organization updates preserve omitted hierarchy fields; explicit null/empty values still clear them.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -653,3 +653,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## #2252 (2026-11-12)
+
+STABLE: restricted invites denied; role arrays ≤100. Bridge retains escalation/DoS. @pkarw waived steps 1–3. [Migration](UPGRADE_NOTES.md#invitation-role-authorization-2252).

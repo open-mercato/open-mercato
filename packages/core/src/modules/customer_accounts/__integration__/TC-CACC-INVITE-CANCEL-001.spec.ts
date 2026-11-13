@@ -82,7 +82,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
     let acceptedUserId: string | null = null
     const invitationIds: string[] = []
     try {
-      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
       const invitation = await createInvitation(request, adminToken, roleId)
       invitationIds.push(invitation.id)
       const token = await capturedToken(invitation.email)
@@ -122,7 +122,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
     let personId: string | null = null
     const invitationIds: string[] = []
     try {
-      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
       const suffix = uniqueSuffix()
       const email = `qa-invite-widget-${suffix}@test.local`
       personId = await createPersonFixture(request, adminToken, {
@@ -191,7 +191,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       let personId: string | null = null
       const invitationIds: string[] = []
       try {
-        roleId = (await createCustomerRoleFixture(request, adminToken)).id
+        roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
         const suffix = uniqueSuffix()
         const email = `qa-invite-permissions-${suffix}@test.local`
         personId = await createPersonFixture(request, adminToken, { firstName: 'Permission', lastName: suffix, displayName: `Permission ${suffix}`, primaryEmail: email })
@@ -247,7 +247,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
     let roleId: string | null = null
     const invitationIds: string[] = []
     try {
-      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
       const invitation = await createInvitation(request, adminToken, roleId)
       invitationIds.push(invitation.id)
       const token = await capturedToken(invitation.email)
@@ -291,7 +291,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
     let otherOrgId: string | null = null
     const invitationIds: string[] = []
     try {
-      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
       const invitation = await createInvitation(request, adminToken, roleId)
       invitationIds.push(invitation.id)
       otherOrgId = await createOrganizationInDb({ name: `Cancellation cookie ${uniqueSuffix()}`, tenantId: scope.tenantId })
@@ -318,7 +318,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
     let acceptedUserId: string | null = null
     const invitationIds: string[] = []
     try {
-      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
       const invitation = await createInvitation(request, adminToken, roleId)
       invitationIds.push(invitation.id)
       const originalToken = await capturedToken(invitation.email)
@@ -377,7 +377,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
     let acceptedUserId: string | null = null
     const invitationIds: string[] = []
     try {
-      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
       const invitation = await createInvitation(request, adminToken, roleId)
       invitationIds.push(invitation.id)
       const token = await capturedToken(invitation.email)
@@ -441,7 +441,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
     let staffId: string | null = null
     const invitationIds: string[] = []
     try {
-      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
       const invitation = await createInvitation(request, adminToken, roleId)
       invitationIds.push(invitation.id)
       const path = `${endpoint}?id=${invitation.id}`

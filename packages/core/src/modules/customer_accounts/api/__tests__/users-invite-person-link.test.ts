@@ -15,6 +15,10 @@ const mockIsOwnedPersonEntity = jest.fn()
 const mockResolveOwnedCompanyForPerson = jest.fn()
 const mockSendCustomerInvitationEmail = jest.fn(async () => undefined)
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(async () => [{ id: '11111111-1111-4111-8111-111111111111', customerAssignable: true }]),
+}))
+
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => ({
   checkAuthRateLimit: (...args: unknown[]) => mockCheckAuthRateLimit(...args),
   customerInviteIpRateLimitConfig: inviteIpConfig,

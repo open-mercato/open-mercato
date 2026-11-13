@@ -114,7 +114,11 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
         return {
           ok: true,
           status: 200,
-          result: { items: [{ id: 'role-1', name: 'Buyer' }] },
+          result: { items: [
+            { id: 'role-1', name: 'Buyer', customerAssignable: true },
+            { id: 'restricted-role', name: 'Restricted admin', customerAssignable: false },
+            { id: 'unclassified-role', name: 'Unclassified role' },
+          ] },
         } as never
       }
       if (
@@ -147,6 +151,14 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     fireEvent.click(await screen.findByRole('button', { name: /invite to portal/i }))
     return screen.findByRole('button', { name: /send invitation/i })
   }
+
+  it('offers only explicitly customer-assignable roles', async () => {
+    await openInviteForm()
+
+    expect(screen.getByRole('button', { name: 'Buyer' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Restricted admin' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Unclassified role' })).not.toBeInTheDocument()
+  })
 
   it('routes the invitation POST through useGuardedMutation.runMutation', async () => {
     const submitButton = await openInviteForm()

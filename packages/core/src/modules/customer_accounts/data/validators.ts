@@ -5,6 +5,9 @@ const emailField = z.string().email().max(255)
 const passwordField = z.string().min(8).max(128)
 const displayNameField = z.string().min(1).max(255)
 
+export const MAX_CUSTOMER_ROLE_IDS = 100
+const roleIdsField = z.array(z.string().uuid()).max(MAX_CUSTOMER_ROLE_IDS)
+
 export const signupSchema = z.object({
   email: emailField,
   password: passwordField,
@@ -82,7 +85,7 @@ export const inviteUserSchema = z.object({
   email: emailField,
   customerEntityId: z.string().uuid().optional(),
   personEntityId: z.string().uuid().optional(),
-  roleIds: z.array(z.string().uuid()).min(1),
+  roleIds: roleIdsField.min(1),
   displayName: displayNameField.optional(),
 })
 
@@ -93,14 +96,14 @@ export const cancelInvitationSchema = z.object({
 export type CancelInvitationInput = z.infer<typeof cancelInvitationSchema>
 
 export const assignRolesSchema = z.object({
-  roleIds: z.array(z.string().uuid()).min(1),
+  roleIds: roleIdsField.min(1),
 })
 
 export const adminCreateUserSchema = z.object({
   email: emailField,
   password: passwordField,
   displayName: displayNameField,
-  roleIds: z.array(z.string().uuid()).optional(),
+  roleIds: roleIdsField.optional(),
   customerEntityId: z.string().uuid().optional(),
   organizationId: z.string().uuid().optional(),
 })
@@ -111,7 +114,7 @@ export const adminUpdateUserSchema = z.object({
   lockedUntil: z.string().datetime().nullable().optional(),
   personEntityId: z.string().uuid().nullable().optional(),
   customerEntityId: z.string().uuid().nullable().optional(),
-  roleIds: z.array(z.string().uuid()).optional(),
+  roleIds: roleIdsField.optional(),
 })
 
 export const adminResetPasswordSchema = z.object({

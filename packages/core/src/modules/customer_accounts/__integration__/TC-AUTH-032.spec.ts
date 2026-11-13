@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createCustomerRoleFixture, deleteCustomerRoleFixture } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 
 /**
  * TC-AUTH-032: Customer invitation creation contract + bad-token rejection
@@ -19,19 +21,13 @@ test.describe('TC-AUTH-032: invitation creation contract', () => {
     const inviteEmail = `qa-auth-032-${stamp}@test.local`
 
     let adminToken: string | null = null
+    let roleId: string | null = null
+    let invitationId: string | null = null
 
     try {
       adminToken = await getAuthToken(request, 'admin')
 
-      // Look up an assignable customer role to satisfy the inviteUserSchema's
-      // roleIds requirement. setup.ts seeds a 'buyer' (or similar) role per tenant.
-      const rolesRes = await apiRequest(request, 'GET', '/api/customer_accounts/admin/roles?pageSize=10', {
-        token: adminToken,
-      })
-      expect(rolesRes.ok(), 'roles list should succeed').toBeTruthy()
-      const rolesBody = (await rolesRes.json()) as { items: Array<{ id: string; slug: string }> }
-      expect(rolesBody.items.length, 'tenant should have at least one customer role').toBeGreaterThan(0)
-      const roleId = rolesBody.items[0].id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
 
       const inviteRes = await apiRequest(request, 'POST', '/api/customer_accounts/admin/users-invite', {
         token: adminToken,
@@ -46,6 +42,7 @@ test.describe('TC-AUTH-032: invitation creation contract', () => {
         ok: boolean
         invitation: { id: string; email: string; expiresAt: string }
       }
+      invitationId = inviteBody.invitation.id
       expect(inviteBody.ok).toBe(true)
       expect(inviteBody.invitation).toBeTruthy()
       expect(inviteBody.invitation.email.toLowerCase()).toBe(inviteEmail.toLowerCase())
@@ -65,8 +62,10 @@ test.describe('TC-AUTH-032: invitation creation contract', () => {
       const fakeBody = (await fakeAcceptRes.json()) as { ok: boolean; error?: string }
       expect(fakeBody.ok).toBe(false)
     } finally {
-      // Best-effort cleanup: nothing to delete (the user wasn't created — only the invitation
-      // record exists, and there's no public endpoint to delete invitations from tests).
+      if (invitationId) await withClient(async (client) => {
+        await client.query('delete from customer_user_invitations where id = $1', [invitationId])
+      })
+      await deleteCustomerRoleFixture(request, adminToken, roleId)
     }
   })
 })

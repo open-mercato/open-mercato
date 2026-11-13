@@ -64,6 +64,23 @@ describe('portal role assignment organization scope', () => {
     })
   })
 
+  it('rejects oversized role input before looking up the target or changing assignments', async () => {
+    const response = await PUT(new Request(
+      `http://localhost/api/customer_accounts/portal/users/${targetUserId}/roles`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roleIds: Array(101).fill(roleId) }),
+      },
+    ), { params: { id: targetUserId } })
+
+    expect(response.status).toBe(400)
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    expect(em.transactional).not.toHaveBeenCalled()
+    expect(mockInvalidateUserCache).not.toHaveBeenCalled()
+  })
+
   it('rejects an assignable role owned by another organization in the same tenant', async () => {
     mockFindWithDecryption.mockImplementation(async (_em, _entity, where: Record<string, unknown>) => (
       where.organizationId === organizationId

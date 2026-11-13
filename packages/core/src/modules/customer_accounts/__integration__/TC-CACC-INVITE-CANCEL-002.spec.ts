@@ -59,7 +59,7 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
       let roleId: string | null = null
       let invitationId: string | null = null
       try {
-        roleId = (await createCustomerRoleFixture(request, adminToken)).id
+        roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
         const email = `qa-invite-compensation-${uniqueSuffix()}@test.local`
         const created = await apiRequest(request, 'POST', endpoint, { token: adminToken, data: { email, roleIds: [roleId] } })
         expect(created.status()).toBe(201)
@@ -126,7 +126,7 @@ test.describe('TC-CACC-INVITE-CANCEL-002: real route, command persistence and li
         await setUserAclInDb({ userId: staffId, tenantId: adminScope.tenantId, features: ['customer_accounts.*'], organizations: [adminScope.organizationId] })
         const staffToken = await getAuthToken(request, staffEmail, password)
         const scope = getTokenScope(staffToken)
-        roleId = (await createCustomerRoleFixture(request, adminToken)).id
+        roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
         const email = `qa-invite-audit-${uniqueSuffix()}@test.local`
         const created = await apiRequest(request, 'POST', endpoint, { token: adminToken, data: { email, roleIds: [roleId] } })
         expect(created.status()).toBe(201)
