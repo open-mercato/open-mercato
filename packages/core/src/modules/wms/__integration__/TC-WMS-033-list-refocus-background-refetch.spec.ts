@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { login } from '@open-mercato/core/helpers/integration/auth'
+import { acknowledgeGlobalNotices } from '@open-mercato/core/helpers/integration/auth'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 import {
   createProductFixture,
@@ -14,7 +21,6 @@ import {
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCrudFixture,
-  ensureRoleFeatures,
   postAction,
 } from './helpers/wmsFixtures'
 import {
@@ -28,18 +34,58 @@ export const integrationMeta = {
   dependsOnModules: ['wms', 'catalog'],
 }
 
-const RECEIVING_FEATURES = [
-  'wms.view',
-  'wms.manage_warehouses',
-  'wms.manage_locations',
-  'wms.manage_inventory',
-  'wms.manage_asn',
-  'wms.manage_putaway',
-  'wms.receive_inventory',
-  'wms.adjust_inventory',
-] as const
-
 const LOADING_TEXT = /Loading data/i
+
+async function createWmsActor(request: APIRequestContext) {
+  const bootstrapToken = await getAuthToken(request, 'admin')
+  const scope = getTokenScope(bootstrapToken)
+  const suffix = randomUUID()
+  const email = `tc033-${suffix}@example.com`
+  const password = 'WmsRefocus1!Pass'
+  let roleId: string | null = null
+  let userId: string | null = null
+  const cleanup = async () => {
+    await deleteUserIfExists(request, bootstrapToken, userId)
+    await deleteRoleIfExists(request, bootstrapToken, roleId)
+  }
+
+  try {
+    roleId = await createRoleFixture(request, bootstrapToken, {
+      name: `TC033 WMS actor ${suffix}`,
+      tenantId: scope.tenantId,
+    })
+    await setRoleAclFeatures(request, bootstrapToken, {
+      roleId,
+      features: ['wms.*', 'catalog.*', 'currencies.view', 'dictionaries.view'],
+      organizations: [scope.organizationId],
+    })
+    userId = await createUserFixture(request, bootstrapToken, {
+      email,
+      password,
+      organizationId: scope.organizationId,
+      roles: [roleId],
+      name: `TC033 Actor ${suffix}`,
+    })
+    const token = await getAuthToken(request, email, password)
+    const actorScope = getTokenScope(token)
+    return {
+      token,
+      cleanup,
+      async login(page: Page) {
+        await acknowledgeGlobalNotices(page)
+        const baseUrl = process.env.BASE_URL?.trim() || 'http://localhost:3000'
+        await page.context().addCookies([
+          { name: 'auth_token', value: token, url: baseUrl, sameSite: 'Lax' },
+          { name: 'om_selected_tenant', value: actorScope.tenantId, url: baseUrl, sameSite: 'Lax' },
+          { name: 'om_selected_org', value: actorScope.organizationId, url: baseUrl, sameSite: 'Lax' },
+        ])
+      },
+    }
+  } catch (error) {
+    await cleanup()
+    throw error
+  }
+}
 
 /**
  * Holds the next matching background GET once `arm()` is called, so a test
@@ -96,19 +142,11 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
   }) => {
     test.slow()
 
-    const adminToken = await getAuthToken(request, 'admin')
-    const superadminToken = await getAuthToken(request, 'superadmin')
-    const scope = getTokenScope(adminToken)
+    const actor = await createWmsActor(request)
+    const actorToken = actor.token
+    const scope = getTokenScope(actorToken)
     const suffix = randomUUID().slice(0, 8)
     const asnRef = `TC033-ASN-${suffix}`
-
-    const restoreAdminAcl = await ensureRoleFeatures(
-      request,
-      superadminToken,
-      scope.tenantId,
-      'admin',
-      [...RECEIVING_FEATURES],
-    )
 
     let productId: string | null = null
     let warehouseId: string | null = null
@@ -116,17 +154,17 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
     let asnId: string | null = null
 
     try {
-      productId = await createProductFixture(request, adminToken, {
+      productId = await createProductFixture(request, actorToken, {
         title: `TC033 ASN Refocus ${suffix}`,
         sku: `TC033-P-${suffix}`,
       })
-      const variantId = await createVariantFixture(request, adminToken, {
+      const variantId = await createVariantFixture(request, actorToken, {
         productId,
         name: `TC033 ASN Refocus Variant ${suffix}`,
         sku: `TC033-V-${suffix}`,
       })
 
-      warehouseId = await createCrudFixture(request, adminToken, '/api/wms/warehouses', {
+      warehouseId = await createCrudFixture(request, actorToken, '/api/wms/warehouses', {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         name: `TC033 Warehouse ${suffix}`,
@@ -137,7 +175,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
         isActive: true,
       })
 
-      stagingId = await createCrudFixture(request, adminToken, '/api/wms/locations', {
+      stagingId = await createCrudFixture(request, actorToken, '/api/wms/locations', {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         warehouseId,
@@ -148,7 +186,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
         isActive: true,
       })
 
-      const asnCreate = await postAction<{ id?: string }>(request, adminToken, '/api/wms/asns', {
+      const asnCreate = await postAction<{ id?: string }>(request, actorToken, '/api/wms/asns', {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         warehouseId,
@@ -166,7 +204,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
       asnId = asnCreate.id ?? null
       expect(asnId).toBeTruthy()
 
-      await login(page, 'admin')
+      await actor.login(page)
       await ensureEnglishLocale(page)
       await page.goto('/backend/wms/asns')
       await waitForWmsMutationAccess(page)
@@ -207,54 +245,45 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
       await expect(asnRow).toBeVisible({ timeout: 10_000 })
     } finally {
       if (asnId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/asns', asnId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/asns', asnId)
       }
       if (stagingId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', stagingId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/locations', stagingId)
       }
       if (warehouseId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/warehouses', warehouseId)
       }
       if (productId) {
-        await deleteCatalogProductIfExists(request, adminToken, productId)
+        await deleteCatalogProductIfExists(request, actorToken, productId)
       }
-      await restoreAdminAcl()
+      await actor.cleanup()
     }
   })
 
   test('Lots list keeps rows visible during a refocus-triggered background refetch', async ({ page, request }) => {
     test.slow()
 
-    const adminToken = await getAuthToken(request, 'admin')
-    const superadminToken = await getAuthToken(request, 'superadmin')
-    const scope = getTokenScope(adminToken)
+    const actor = await createWmsActor(request)
+    const actorToken = actor.token
+    const scope = getTokenScope(actorToken)
     const suffix = randomUUID().slice(0, 8)
     const lotNumber = `TC033-LOT-${suffix}`
 
-    const restoreAdminAcl = await ensureRoleFeatures(
-      request,
-      superadminToken,
-      scope.tenantId,
-      'admin',
-      ['wms.view', 'wms.manage_warehouses', 'wms.manage_locations', 'wms.manage_inventory', 'wms.adjust_inventory'],
-    )
-
     let productId: string | null = null
-    let variantId: string | null = null
     let lotId: string | null = null
 
     try {
-      productId = await createProductFixture(request, adminToken, {
+      productId = await createProductFixture(request, actorToken, {
         title: `TC033 Lot Refocus ${suffix}`,
         sku: `TC033-LP-${suffix}`,
       })
-      variantId = await createVariantFixture(request, adminToken, {
+      const variantId = await createVariantFixture(request, actorToken, {
         productId,
         name: `TC033 Lot Refocus Variant ${suffix}`,
         sku: `TC033-LV-${suffix}`,
       })
 
-      lotId = await createCrudFixture(request, adminToken, '/api/wms/lots', {
+      lotId = await createCrudFixture(request, actorToken, '/api/wms/lots', {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         catalogVariantId: variantId,
@@ -263,7 +292,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
         status: 'available',
       })
 
-      await login(page, 'admin')
+      await actor.login(page)
       await ensureEnglishLocale(page)
       await page.goto('/backend/wms/lots')
       await waitForWmsMutationAccess(page)
@@ -290,12 +319,12 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
       await expect(lotRow).toBeVisible()
     } finally {
       if (lotId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', lotId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/lots', lotId)
       }
       if (productId) {
-        await deleteCatalogProductIfExists(request, adminToken, productId)
+        await deleteCatalogProductIfExists(request, actorToken, productId)
       }
-      await restoreAdminAcl()
+      await actor.cleanup()
     }
   })
 
@@ -305,20 +334,12 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
   }) => {
     test.slow()
 
-    const adminToken = await getAuthToken(request, 'admin')
-    const superadminToken = await getAuthToken(request, 'superadmin')
-    const scope = getTokenScope(adminToken)
+    const actor = await createWmsActor(request)
+    const actorToken = actor.token
+    const scope = getTokenScope(actorToken)
     const suffix = randomUUID().slice(0, 8)
     const stagingCode = `STG-${suffix}`
     const binCode = `BIN-${suffix}`
-
-    const restoreAdminAcl = await ensureRoleFeatures(
-      request,
-      superadminToken,
-      scope.tenantId,
-      'admin',
-      [...RECEIVING_FEATURES],
-    )
 
     let productId: string | null = null
     let warehouseId: string | null = null
@@ -328,17 +349,17 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
     let asnId: string | null = null
 
     try {
-      productId = await createProductFixture(request, adminToken, {
+      productId = await createProductFixture(request, actorToken, {
         title: `TC033 Putaway Refocus ${suffix}`,
         sku: `TC033-PP-${suffix}`,
       })
-      const variantId = await createVariantFixture(request, adminToken, {
+      const variantId = await createVariantFixture(request, actorToken, {
         productId,
         name: `TC033 Putaway Refocus Variant ${suffix}`,
         sku: `TC033-PV-${suffix}`,
       })
 
-      warehouseId = await createCrudFixture(request, adminToken, '/api/wms/warehouses', {
+      warehouseId = await createCrudFixture(request, actorToken, '/api/wms/warehouses', {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         name: `TC033 Putaway Warehouse ${suffix}`,
@@ -349,7 +370,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
         isActive: true,
       })
 
-      stagingId = await createCrudFixture(request, adminToken, '/api/wms/locations', {
+      stagingId = await createCrudFixture(request, actorToken, '/api/wms/locations', {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         warehouseId,
@@ -360,7 +381,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
         isActive: true,
       })
 
-      binId = await createCrudFixture(request, adminToken, '/api/wms/locations', {
+      binId = await createCrudFixture(request, actorToken, '/api/wms/locations', {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         warehouseId,
@@ -371,7 +392,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
         isActive: true,
       })
 
-      profileId = await createCrudFixture(request, adminToken, '/api/wms/inventory-profiles', {
+      profileId = await createCrudFixture(request, actorToken, '/api/wms/inventory-profiles', {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         catalogProductId: productId,
@@ -382,7 +403,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
 
       const asnCreate = await postAction<{ id?: string; lineIds?: string[] }>(
         request,
-        adminToken,
+        actorToken,
         '/api/wms/asns',
         {
           organizationId: scope.organizationId,
@@ -408,7 +429,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
       // Receive the line via the API directly (QC-passed) — the UI receive flow
       // is already covered elsewhere; this fixture only needs the resulting
       // open putaway task.
-      await postAction(request, adminToken, `/api/wms/asns/${asnId}/receive`, {
+      await postAction(request, actorToken, `/api/wms/asns/${asnId}/receive`, {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         lineId,
@@ -419,7 +440,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
         performedBy: scope.userId,
       })
 
-      await login(page, 'admin')
+      await actor.login(page)
       await ensureEnglishLocale(page)
       await page.goto('/backend/wms/putaway')
       await waitForWmsMutationAccess(page)
@@ -462,24 +483,24 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
       await expect(putawayRow).toHaveCount(0)
     } finally {
       if (asnId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/asns', asnId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/asns', asnId)
       }
       if (profileId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/inventory-profiles', profileId)
       }
       if (binId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', binId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/locations', binId)
       }
       if (stagingId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', stagingId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/locations', stagingId)
       }
       if (warehouseId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
+        await deleteGeneralEntityIfExists(request, actorToken, '/api/wms/warehouses', warehouseId)
       }
       if (productId) {
-        await deleteCatalogProductIfExists(request, adminToken, productId)
+        await deleteCatalogProductIfExists(request, actorToken, productId)
       }
-      await restoreAdminAcl()
+      await actor.cleanup()
     }
   })
 })
