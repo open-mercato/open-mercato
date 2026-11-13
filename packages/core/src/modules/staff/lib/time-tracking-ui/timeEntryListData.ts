@@ -29,6 +29,7 @@ import {
   readRowString,
   type ApiRow,
 } from './timeEntryDialogState'
+import type { TimeEntryTotals } from '../timesheets/timeEntryTotals'
 
 /** The shared refusal code every write path answers when an entry is frozen in a report. */
 export const TIME_ENTRY_LOCKED_CODE = 'time_entry_locked'
@@ -144,6 +145,35 @@ export function summarizeTimeEntries(rows: readonly TimeEntryListRow[]): TimeEnt
   }
 }
 
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * Reads the list API's optional `totals` (sent for `includeTotals=true`). Anything
+ * malformed reads as `null`, which keeps the footer on the page-only sums rather
+ * than showing a whole-set figure it cannot trust.
+ */
+export function readTimeEntryTotals(value: unknown): TimeEntryTotals | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const entryCount = readFiniteNumber(raw.entryCount)
+  const durationMinutes = readFiniteNumber(raw.durationMinutes)
+  const roundedMinutes = readFiniteNumber(raw.roundedMinutes)
+  if (entryCount === null || durationMinutes === null || roundedMinutes === null) return null
+  const totals: TimeEntryTotals = { entryCount, durationMinutes, roundedMinutes }
+  if (Array.isArray(raw.money)) {
+    totals.money = raw.money.flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const amount = readFiniteNumber((item as Record<string, unknown>).amount)
+      if (amount === null) return []
+      const code = (item as Record<string, unknown>).currencyCode
+      return [{ currencyCode: typeof code === 'string' && code.length > 0 ? code : null, amount }]
+    })
+  }
+  return totals
+}
+
 type ErrorBag = Record<string, unknown>
 
 /**
@@ -171,6 +201,34 @@ export function readErrorStatus(error: unknown): number | null {
     if (typeof bag.status === 'number' && Number.isFinite(bag.status)) return bag.status
   }
   return null
+}
+
+/**
+ * The reason the server gave for a refused write — already translated, e.g.
+ * "This date is outside your assignment to this project." — or the caller's
+ * fallback when the failure carried none. Pass the same fallback as the
+ * request's `errorMessage`, so a body without a reason never surfaces as
+ * `Request failed (403)`.
+ */
+export function readErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) return error.message
+  return fallback
+}
+
+/**
+ * The payload rows a refused bulk save names in `errors[].index`, so the grid
+ * can mark the cells that caused it instead of failing the batch opaquely.
+ */
+export function readRejectedRowIndexes(error: unknown): number[] {
+  const indexes = new Set<number>()
+  for (const bag of errorPayloads(error)) {
+    if (!Array.isArray(bag.errors)) continue
+    for (const item of bag.errors) {
+      const index = (item as { index?: unknown } | null)?.index
+      if (typeof index === 'number' && Number.isInteger(index) && index >= 0) indexes.add(index)
+    }
+  }
+  return Array.from(indexes)
 }
 
 /**

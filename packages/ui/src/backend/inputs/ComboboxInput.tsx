@@ -33,6 +33,10 @@ export type ComboboxInputProps = {
   allowCustomValues?: boolean
   clearable?: boolean
   clearLabel?: string
+  id?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
+  'aria-required'?: boolean
 }
 
 function normalizeOptions(input?: Array<string | ComboboxOption>): ComboboxOption[] {
@@ -79,6 +83,10 @@ export function ComboboxInput({
   allowCustomValues = true,
   clearable = false,
   clearLabel,
+  id,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
+  'aria-required': ariaRequired,
 }: ComboboxInputProps) {
   const t = useT()
   const resolvedPlaceholder = placeholder ?? t('ui.inputs.comboboxInput.placeholder', 'Type to search...')
@@ -210,7 +218,7 @@ export function ComboboxInput({
   // to focus the field. Runs once per value when it is not already covered.
   const eagerResolveLabel = typeof resolveLabel === 'function' ? resolveLabel : undefined
   React.useEffect(() => {
-    if (!value || disabled) return
+    if (!value) return
     let cancelled = false
     const apply = (label?: string | null, description?: string | null) => {
       const clean = typeof label === 'string' ? label.trim() : ''
@@ -250,7 +258,7 @@ export function ComboboxInput({
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveDescription intentionally excluded:
   // including it would re-run the effect on every render when the prop is an inline function
-  }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
+  }, [value, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 
   // Sync input with a value that changed outside the component. A focused field is
   // synced too, because `autoFocus` can focus the control before an async default value
@@ -427,6 +435,7 @@ export function ComboboxInput({
               on this specific surface. Keeps the rest of the form on Input primitive. */}
           <input
             ref={inputRef}
+            id={id}
             type="text"
             className={[
               'w-full h-9 rounded-md border border-input bg-background px-3 text-sm shadow-xs transition-colors outline-none placeholder:text-muted-foreground focus-visible:shadow-focus focus-visible:border-foreground disabled:bg-bg-disabled disabled:border-border-disabled disabled:text-muted-foreground disabled:cursor-not-allowed',
@@ -446,6 +455,9 @@ export function ComboboxInput({
             // makes it a logical descendant and keeps `aria-activedescendant` below valid.
             aria-owns={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
             aria-autocomplete="list"
+            aria-describedby={ariaDescribedBy}
+            aria-invalid={ariaInvalid}
+            aria-required={ariaRequired}
             aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
             onFocus={() => {
               setTouched(true)

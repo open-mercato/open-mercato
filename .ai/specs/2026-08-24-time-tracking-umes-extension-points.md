@@ -498,6 +498,11 @@ Legend for **Type**: `catalog` · `event` · `guard` · `interceptor` · `enrich
   `propsSchema` built from the shared helpers in `lib/time-tracking/componentContracts.ts`
   — `useRegisteredComponent` parses it in development and falls back to the original
   component when a replacement does not satisfy it.
+- **Dialog schema exported (#6989, 2026-10-07).** `timeEntryDialogPropsSchema` is a named
+  export of `lib/time-tracking-ui/TimeEntryDialog.tsx` — STABLE, additive-only — so a
+  replacement imports the exact contract. The other nine schemas are covered by
+  `.ai/specs/2026-10-30-time-tracking-component-props-schema-exports.md`. `optionalCallbackProp` now marks its key
+  optional, so an omitted optional callback no longer fails the dev-time check.
 
 ### Group 6 — Domain strategy registries (10) ✅
 
@@ -1004,6 +1009,19 @@ the entries below rather than into the implementation.
 
 ## Part 4 — Cross-cutting requirements
 
+### Migration & Backward Compatibility
+
+- `InjectionWidgetPlacement.priority?: number` is additive. Injection tables already
+  accepted entry-level `priority`, and the loader already copied it into the loaded
+  placement object; the declared type now reflects that runtime contract.
+- Customer company, person and deal detail tabs treat built-ins as priority `0`.
+  Contributions without a priority therefore retain their existing position after all
+  built-ins, while positive and negative priorities opt into placement before or after
+  them. Equal priorities preserve declaration order through stable sorting.
+- No database, API, event, ACL, import-path or generated-file migration is required.
+  Existing injection tables and component overrides remain source- and
+  behavior-compatible.
+
 - **Backward compatibility.** Every EP is additive. The event ids in `events.ts`, the
   ACL feature ids in `acl.ts` and the API route paths are FROZEN/STABLE surfaces
   (`BACKWARD_COMPATIBILITY.md`) — EP-02 makes declared ids *fire*, it must not rename one.
@@ -1022,3 +1040,10 @@ the entries below rather than into the implementation.
 - **Docs.** Each phase updates
   `apps/docs/docs/framework/extensibility/current-surfaces.mdx` and the staff
   `AGENTS.md` host table; run `yarn generate` and `yarn agents:check-budget`.
+
+## Changelog
+
+- 2026-10-29 — Added `TC-CRM-8020-injected-tab-priority` browser coverage on real company, person and deal detail pages for priority ordering, unchanged defaults, stable ties, unavailable contributors, selection and deep links.
+
+- 2026-10-22 — Documented the additive injected-tab priority contract and its
+  migration/backward-compatibility guarantees for customer detail hosts.
