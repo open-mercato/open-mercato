@@ -1,5 +1,7 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { createRequire } from 'module'
+import { stripNulCharacters } from './extractedText'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveMaxOcrPages, resolvePdfPageIterationLimit } from './ocrLimits'
 import { openPdfDocument } from './pdfJsLoader'
@@ -109,6 +111,13 @@ async function extractDocxText(filePath: string): Promise<string | null> {
 }
 
 export async function extractAttachmentContent(params: ExtractParams): Promise<string | null> {
+  const extracted = await extractRawAttachmentContent(params)
+  if (!extracted) return null
+  const persistable = stripNulCharacters(extracted).trim()
+  return persistable.length > 0 ? persistable : null
+}
+
+async function extractRawAttachmentContent(params: ExtractParams): Promise<string | null> {
   const { filePath, mimeType } = params
   if (!filePath) return null
   if (isImage(mimeType, filePath)) return null

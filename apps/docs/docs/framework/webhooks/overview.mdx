@@ -158,6 +158,11 @@ Use the official [Standard Webhooks libraries](https://github.com/standard-webho
 
 ## Retry Behavior
 
+Each attempt is sent by one worker: before sending, the worker claims the delivery (`pending` once its
+retry is due, or `sending` left over by a worker that stopped more than the webhook timeout + 15 s ago),
+and jobs for deliveries that already finished are ignored. Receivers should still deduplicate on the
+`webhook-id` header, because delivery is at-least-once.
+
 Failed deliveries are retried with exponential backoff. The delay before attempt *n* is
 `1s × 2^(n-2)` plus up to 1s of jitter (`calculateNextRetry` in `lib/delivery.ts`):
 

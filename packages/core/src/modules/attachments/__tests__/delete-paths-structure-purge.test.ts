@@ -97,6 +97,10 @@ jest.mock('#generated/entities.ids.generated', () => ({
   E: { attachments: { attachment: 'attachments:attachment' } },
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/entityIds', () => ({
+  getEntityIds: () => ({ attachments: { attachment: 'attachments:attachment' } }),
+}))
+
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
   AttachmentPartition: class AttachmentPartition {},

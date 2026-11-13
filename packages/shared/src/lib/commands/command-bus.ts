@@ -35,6 +35,7 @@ import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
 import { getAmbientAuditCorrelation } from './auditCorrelationScope'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getTransactionLifetime,
@@ -51,6 +52,7 @@ type CommandActionLogService = {
   releaseUndoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean>
   markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
   claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
+  releaseRedoClaim?(id: string, transactionalEm?: EntityManager): Promise<boolean>
   log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
 }
 
@@ -168,15 +170,22 @@ function deepEqual(a: unknown, b: unknown, seen?: Set<unknown>): boolean {
   }
   if (a && b && typeof a === 'object' && typeof b === 'object') {
     if (!seen) seen = new Set()
+    // `seen` is the current path: an object met again on it is a cycle. An object reached twice by
+    // different paths (the items of one array held under two keys) is compared like any other.
     if (seen.has(a) || seen.has(b)) return false
     seen.add(a)
     seen.add(b)
-    const aRec = a as Record<string, unknown>
-    const bRec = b as Record<string, unknown>
-    const keysA = Object.keys(aRec)
-    const keysB = Object.keys(bRec)
-    if (keysA.length !== keysB.length) return false
-    return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+    try {
+      const aRec = a as Record<string, unknown>
+      const bRec = b as Record<string, unknown>
+      const keysA = Object.keys(aRec)
+      const keysB = Object.keys(bRec)
+      if (keysA.length !== keysB.length) return false
+      return keysA.every((key) => deepEqual(aRec[key], bRec[key], seen))
+    } finally {
+      seen.delete(a)
+      seen.delete(b)
+    }
   }
   return false
 }
@@ -510,6 +519,15 @@ export class CommandBus {
         coreResult = await executeCore(effectiveOptions)
       }], { transaction: true, label: `${commandId}.redo` })
       replaySourceFinalized = !ambientReplay.joinsAmbient
+    } else if (replayLogEntry?.id) {
+      const redoClaimRelease = await this.claimRedoSource(effectiveOptions.ctx, commandId, replayLogEntry.id)
+      try {
+        coreResult = await executeCore(effectiveOptions)
+      } catch (err) {
+        await redoClaimRelease?.()
+        throw err
+      }
+      replaySourceFinalized = redoClaimRelease !== null
     } else {
       coreResult = await executeCore(effectiveOptions)
     }
@@ -686,10 +704,12 @@ export class CommandBus {
         label: `${log.commandId}.undo`,
       })
     } else {
+      let undoClaimed = false
       try {
         // Preserve the established non-atomic lifecycle exactly: authorization,
         // source claim, before-undo interceptors, handler, then finalization.
         await claimUndo()
+        undoClaimed = true
         const prepared = await runBeforeUndoInterceptors(ctx)
         undoInterceptorMetadata = prepared.metadata
         userFeatures = prepared.userFeatures
@@ -697,7 +717,15 @@ export class CommandBus {
       } catch (err) {
         // Legacy handlers retain their compensating release behavior because
         // their domain mutation may not share the action-log transaction.
-        await service.releaseUndoClaim(log.id).catch(() => {})
+        if (undoClaimed) {
+          await service.releaseUndoClaim(log.id).catch((releaseErr: unknown) => {
+            logger.error('Failed to release undo claim', { commandId: log.commandId, logId: log.id, err: releaseErr })
+            getTelemetryRuntime()?.reportError(releaseErr, {
+              module: 'shared',
+              code: 'shared.undo_claim_release_failed',
+            })
+          })
+        }
         throw err
       }
     }
@@ -833,6 +861,43 @@ export class CommandBus {
     await withAtomicFlush(guardEm, [async () => {
       await ctx.replayTransactionGuard!({ operation, logEntry, transactionalEm: guardEm })
     }], { transaction: true, label: `${logEntry.commandId}.${operation}.request-guard` })
+  }
+
+  private async claimRedoSource(
+    ctx: CommandRuntimeContext,
+    commandId: string,
+    sourceLogId: string,
+  ): Promise<(() => Promise<void>) | null> {
+    let service: CommandActionLogService | null = null
+    try {
+      service = ctx.container.resolve('actionLogService') as CommandActionLogService
+    } catch {
+      service = null
+    }
+    if (!service || typeof service.claimForRedo !== 'function' || typeof service.releaseRedoClaim !== 'function') {
+      logger.warn('Redo source claim unavailable; replaying without an atomic claim', { commandId, sourceLogId })
+      return null
+    }
+    const releaseClaim = service.releaseRedoClaim.bind(service)
+    const transactionalEm = ctx.transactionalEm
+    const claimed = transactionalEm
+      ? await service.claimForRedo(sourceLogId, transactionalEm)
+      : await service.claimForRedo(sourceLogId)
+    if (!claimed) throw new Error('[internal] Redo source already consumed')
+    return async () => {
+      try {
+        const released = transactionalEm
+          ? await releaseClaim(sourceLogId, transactionalEm)
+          : await releaseClaim(sourceLogId)
+        if (!released) logger.warn('Redo source claim was not held at release', { commandId, sourceLogId })
+      } catch (releaseErr) {
+        logger.error('Failed to release redo source claim', { commandId, sourceLogId, err: releaseErr })
+        getTelemetryRuntime()?.reportError(releaseErr, {
+          module: 'shared',
+          code: 'shared.redo_claim_release_failed',
+        })
+      }
+    }
   }
 
   private async resolveHandler<TInput, TResult>(commandId: string): Promise<CommandHandler<TInput, TResult>> {

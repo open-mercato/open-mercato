@@ -1,3 +1,4 @@
+import { isEntityIndexStrategyAllowed } from '../lib/entity-strategy-policy'
 import type { SearchService } from '../service'
 import type {
   SearchModuleConfig,
@@ -716,6 +717,8 @@ export class SearchIndexer {
       errors: [],
     }
 
+    if (!isEntityIndexStrategyAllowed(params.entityId, 'fulltext', this.moduleConfigs)) return result
+
     const fulltext = this.getFulltextStrategy()
     if (!fulltext) {
       result.success = false
@@ -944,6 +947,8 @@ export class SearchIndexer {
       jobsEnqueued: 0,
       errors: [],
     }
+
+    if (!isEntityIndexStrategyAllowed(params.entityId, 'vector', this.moduleConfigs)) return result
 
     // If useQueue is requested but no queue is available, return error
     if (params.useQueue !== false && !this.vectorQueue) {
