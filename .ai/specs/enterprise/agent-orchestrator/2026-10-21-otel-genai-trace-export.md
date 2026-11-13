@@ -15,7 +15,7 @@
 **Scope:**
 - Phase 1 (minimum useful): export from persisted rows over **OTLP/HTTP JSON** with zero new npm dependencies, metadata only (no prompt/completion content), per-deployment endpoint, per-tenant opt-in, batching/retry, backfill CLI, local collector/Jaeger test setup.
 - Phase 2: opt-in content events (prompts/completions/tool args) gated by the capture level of the observability spec plus a deployment allow-switch; OTLP/HTTP protobuf; per-tenant endpoints.
-- Phase 3: live streaming of in-flight spans through the platform telemetry bridge (metadata only).
+- Phase 3: live streaming of in-flight spans through the platform telemetry bridge (metadata only) — specified in [`../../2026-11-13-agent-otel-live-streaming.md`](../../2026-11-13-agent-otel-live-streaming.md); only the export-mode switch stays here.
 
 **Concerns:**
 - The platform telemetry policy (`packages/telemetry/AGENTS.md`, telemetry spec S6) forbids prompt/completion content and request bodies in telemetry. Content export is therefore a **separate, explicitly allowed channel** that never rides the platform pipeline, and stays off unless both the deployment and the tenant allow it.
@@ -259,10 +259,11 @@ Caveats to state to adopters:
 3. Per-tenant endpoint + headers through `integrations` credentials (encrypted); settings UI picks a configured integration.
 4. Export ledger table at the next planned re-squash (if scheduled).
 
-### Phase 3: Live streaming (metadata) — candidate for a separate spec (Q5)
-1. In `runAiAgentObject` (ai-assistant) and the AO runners, wrap the run and each model/tool call in `withTelemetrySpan` (`@open-mercato/shared/lib/telemetry/runtime`) with `gen_ai.*` metadata attributes only — content forced off per telemetry S6. Spans then appear live inside the request/worker trace under the platform sampler.
-2. Correlate: the live run span carries `om.run.id`; the replay export links to the live trace via the manifest `traceparent`. Operators choose `OM_AGENT_OTEL_EXPORT_MODE = replay | live | both` (default `replay`) to avoid double counting in dashboards.
-3. Optional `gen_ai.client.token.usage` / `gen_ai.client.operation.duration` histograms via `recordHistogram`.
+### Phase 3: Live streaming (metadata) — moved to its own spec (Q5)
+The live, metadata-only spans (run, tool and model-call spans through the platform telemetry bridge, GenAI histograms) are specified in the OSS spec [`../../2026-11-13-agent-otel-live-streaming.md`](../../2026-11-13-agent-otel-live-streaming.md). AO native runs inherit them because they execute through `runAiAgentObject`; OpenCode and externally ingested runs stay replay-only. The AO delta that remains here:
+1. `OM_AGENT_OTEL_EXPORT_MODE = replay | live | both` (default `replay`): `live` skips the replay export of native runs (OpenCode and ingested runs are always replayed), so dashboards fed by both pipelines do not double count.
+2. The replay run span already links to the platform trace through the manifest `om.platform_trace.traceparent` (`mapAgentRunToOtlp.ts`); Phase 3 adds an integration case asserting that link for a native run executed with telemetry on.
+3. `lib/trace/genAiAttributes.ts` re-exports the key constants that the OSS spec moves to `@open-mercato/shared/lib/ai/gen-ai-attributes`.
 
 ### File Manifest
 | File | Action | Purpose |
@@ -417,3 +418,6 @@ None.
   - **The integration** uses category `other` and English labels, like every other `integration.ts`; its health check works before the integration is enabled.
   - **The settings response** gains `integration: { configured, enabled }` (status only, never the URL or headers) and `deployment.tenantEndpointsAllowed`.
   - **The exported-content path** of `TC-AGENT-OTEL-003` needs trace content storage; environments without it exercise the not-exported statuses only.
+
+### 2026-11-13
+- Phase 3 split into the OSS spec [`../../2026-11-13-agent-otel-live-streaming.md`](../../2026-11-13-agent-otel-live-streaming.md) (OTEL-Q5, OTEL-Q7). The Phase 3 section here now keeps only the AO delta: `OM_AGENT_OTEL_EXPORT_MODE`, the replay-to-live link assertion and the constants re-export.
