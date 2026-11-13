@@ -334,6 +334,7 @@ function autosaveDebounce<TArgs extends unknown[]>(fn: (...args: TArgs) => void,
 export function FormStudio({ formId }: { formId: string }) {
   const t = useT()
   const { runMutation } = useGuardedMutation({ contextId: 'forms.form.studio' })
+  const runMutationRef = React.useRef(runMutation)
   const router = useRouter()
 
   const [form, setForm] = React.useState<FormDetail | null>(null)
@@ -395,6 +396,10 @@ export function FormStudio({ formId }: { formId: string }) {
     metadataTranslateRef.current = t
   }, [t])
 
+  React.useEffect(() => {
+    runMutationRef.current = runMutation
+  }, [runMutation])
+
   const metadataAutosave = React.useMemo(
     () =>
       createMetadataAutosave({
@@ -404,7 +409,7 @@ export function FormStudio({ formId }: { formId: string }) {
           flash(metadataTranslateRef.current('forms.studio.autosave.error'), 'error')
         },
         save: async (payload) => {
-          const call = await runMutation({
+          const call = await runMutationRef.current({
             operation: () => withScopedApiRequestHeaders(
               buildOptimisticLockHeader(formUpdatedAtRef.current),
               () => apiCall<LockMutationResponse>(`/api/forms/${encodeURIComponent(formId)}`, {
@@ -429,7 +434,7 @@ export function FormStudio({ formId }: { formId: string }) {
           return true
         },
       }),
-    [formId, runMutation],
+    [formId],
   )
 
   React.useEffect(() => () => metadataAutosave.dispose(), [metadataAutosave])
@@ -453,7 +458,7 @@ export function FormStudio({ formId }: { formId: string }) {
 
     if (!draft) {
       // No draft yet — fork one automatically so the studio always has a draft.
-      const forkCall = await runMutation({
+      const forkCall = await runMutationRef.current({
         operation: () => apiCall<{ versionId: string }>(
           `/api/forms/${encodeURIComponent(formId)}/versions/fork`,
           { method: 'POST', body: JSON.stringify({}) },
@@ -489,7 +494,7 @@ export function FormStudio({ formId }: { formId: string }) {
       undoController.clear()
     }
     setIsLoading(false)
-  }, [formId, metadataAutosave, runMutation, undoController])
+  }, [formId, metadataAutosave, undoController])
 
   React.useEffect(() => {
     void reload()
