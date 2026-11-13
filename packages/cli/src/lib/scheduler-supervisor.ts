@@ -91,6 +91,7 @@ export async function probeEnabledSchedules(env: NodeJS.ProcessEnv = process.env
 }
 
 async function probeScheduleConnection(databaseUrl: string, maintenance: boolean): Promise<SchedulerScheduleProbeResult> {
+  let clientEnded = false
   let lifecycle: DatabasePoolLifecycle | undefined
   let release: (() => void) | undefined
   let client: InstanceType<typeof import('pg').Client> | undefined
@@ -106,7 +107,7 @@ async function probeScheduleConnection(databaseUrl: string, maintenance: boolean
     let connection: Pick<InstanceType<typeof Client>, 'query'> = client
     if (maintenance) {
       const physical = { query: client.query.bind(client), release: () => undefined }
-      const pool = { connect: async () => physical }
+      const pool = { connect: async () => physical, get ended() { return clientEnded } }
       lifecycle = configureDatabasePool(pool, { id: 'scheduler-lazy-probe', purpose: 'maintenance', tables: ['scheduled_jobs'] })
       await lifecycle.ready()
       const guarded = await pool.connect()
@@ -143,7 +144,12 @@ async function probeScheduleConnection(databaseUrl: string, maintenance: boolean
     }
   } finally {
     try { release?.() } finally {
-      try { await client?.end().catch(() => undefined) } finally { lifecycle?.dispose() }
+      try {
+        if (client) {
+          await client.end()
+          clientEnded = true
+        }
+      } finally { lifecycle?.dispose() }
     }
   }
 }

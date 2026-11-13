@@ -46,6 +46,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.5-transport | Restrict event PG transports and create fresh callback scopes | inline | done | events189/runtime99/shared23; live PG17 16+26 zero skips |
 | 2 | 2.5-search-cli | Declare search CLI access and isolate each direct worker job container | inline | done | this commit; four lifecycle tests and search tsc |
 | 2 | 2.5-search | Integrate search-owned storage provisioning and restricted runtime pools | inline | done | bd37d270a4 merged; parent73 tests/search tsc |
+| 2 | 2.3-scheduler-probe-fix | Report truthful client closure before guarded probe disposal | inline | done | this commit; composed boundary11 tests/CLI tsc |
 | 2 | 2.3-scheduler-discovery | Preserve scheduler exports and expose the neutral discovery contract | inline | done | this commit; scheduler declaration lifecycle tests |
 | 2 | 2.3-scheduler | Resolve persisted scheduler jobs before fresh tenant execution | inline | done | deaa13f99a merged; parent572+9 tests |
 | 2 | 2.5-vector-catalog | Decode PostgreSQL index catalog arrays as text in restricted readiness | inline | done | this commit; actual vector gate follows |

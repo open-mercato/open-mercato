@@ -266,6 +266,35 @@ describe('probeEnabledSchedules database boundary', () => {
     expect(probeDispose).toHaveBeenCalledTimes(2)
   })
 
+  it.each([false, true])('drains the actual guarded probe pool after query failure=%s', async (queryFails) => {
+    const { installTenantPoolBoundary } = jest.requireActual<typeof import('../../../../enterprise/src/lib/rls/runtime/pool')>('../../../../enterprise/src/lib/rls/runtime/pool')
+    const { runWithFreshTenantBoundary } = jest.requireActual<typeof import('../../../../enterprise/src/lib/rls/runtime/scope')>('../../../../enterprise/src/lib/rls/runtime/scope')
+    probeFreshContext.mockImplementation((context, callback) => runWithFreshTenantBoundary(context as import('@open-mercato/shared/lib/db/runtime').DatabaseExecutionContext, callback))
+    configureProbePool.mockImplementation((pool: import('../../../../enterprise/src/lib/rls/runtime/pool').BoundaryPool) => {
+      expect(pool.ended).toBe(false)
+      const lifecycle = installTenantPoolBoundary(pool, { configurationKey: 'scheduler-probe-regression' })
+      return { ready: lifecycle.ready, dispose: () => {
+        expect(probeEnd).toHaveBeenCalledTimes(1)
+        expect(pool.ended).toBe(true)
+        lifecycle.dispose()
+        probeDispose()
+      } }
+    })
+    if (queryFails) probeQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes('scheduled_jobs')) throw new Error('schedule query failed')
+      return { rows: [] }
+    })
+    try {
+      const result = await probeEnabledSchedules({ DATABASE_URL: 'runtime' })
+      expect(result).toEqual(queryFails
+        ? { enabledSchedules: 0, dueSchedules: 0, error: true, errorMessage: 'schedule query failed' }
+        : { enabledSchedules: 3, dueSchedules: 1, error: false })
+      expect(probeDispose).toHaveBeenCalledTimes(1)
+    } finally {
+      probeFreshContext.mockImplementation((_context, callback) => callback())
+    }
+  })
+
   it('keeps the direct runtime URL and existing missing-table behavior when disabled', async () => {
     probeEnabled.mockReturnValue(false)
     probeQuery.mockRejectedValue(Object.assign(new Error('missing'), { code: '42P01' }))
