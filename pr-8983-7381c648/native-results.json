@@ -1,0 +1,1354 @@
+{
+  "config": {
+    "argv": [
+      "/opt/node/bin/node",
+      "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      ".ai/qa/tests/playwright.config.ts",
+      "TC-(FORMS-(UI-009|LOCK-001|ACL-005|TEN-008)|WC-(003-lifecycle|002-lines-partials|007-tenant-isolation|036-line-undo-stale-state|039-receiving-redo|040-replacement-order-undo|030-sales-return-bridge|034-credit-memo-bridge))"
+    ],
+    "configFile": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/qa/tests/playwright.config.ts",
+    "rootDir": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/qa/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2",
+        "testIgnore": [
+          "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/apps/mercato/.mercato/**",
+          "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.claude/**",
+          "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.codex/**",
+          "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/tmp/**",
+          "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/cezar/**",
+          "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/create-app/template/**"
+        ],
+        "testMatch": [
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-006.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-ANA-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-ATT-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-ATT-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-ATT-003.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-ATT-004.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-ATT-005.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-AUTH-011.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-CRUD-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-CRUD-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-CRUD-003.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-CRUD-004.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-DIST-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-DIST-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-DIST-003.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-EMB-006.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-EMB-007.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-EXP-010.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-INV-010.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-INV-011.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-INV-012.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-INV-015.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-LOCK-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PDF-016.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PORTAL-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PORTAL-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PUB-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PUB-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PUB-003.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PUB-004.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PUB-005.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-PUB-006.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-RUN-030.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-RUN-034.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-SUB-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-SUB-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-SUB-003.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-SUB-004.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-SUB-007.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-SUB-008.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-SUB-018.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-009.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-UI-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-UI-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-VER-001.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-VER-002.spec.ts",
+          "packages/core/src/modules/forms/__integration__/TC-FORMS-VER-003.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-001-claims-crud.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-003-lifecycle.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-004-vendor-recovery.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-005-portal.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-006-timeline.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-007-tenant-isolation.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-008-sla-reopen.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-009-settings-auto-adjudication.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-010-stats-risk.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-011-external-api.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-012-portal-orders.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-013-ai-draft.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-014-type-adaptive-intake.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-015-bugs-regression.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-016-grading.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-017-entitlement-registration.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-018-vendor-policy-auto-recovery.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-019-adjudication-rules.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-020-sla-escalation.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-021-return-label-seam.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-022-email-to-claim.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-023-quarantine.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-024-ai-assess.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-025-troubleshooting.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-026-enricher.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-027-desk-filters.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-028-portal-actions.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-029-secondary-list-filters.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-031-over-claim-guards.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-032-return-window.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-033-replacement-order-bridge.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-035-return-shipment-delivered.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-037-portal-upload-stream-limit.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-038-detail-attachment-access.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-038-order-reference-integrity.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-038-portal-tracker-realtime.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-line-number-uniqueness.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-replacement-order-undo.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-6323-upload-throttle.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-7974-desk-line-pagination.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-7997-pinned-column-surfaces.spec.ts",
+          "packages/core/src/modules/warranty_claims/__integration__/TC-WC-8502-portal-rejection-label.spec.ts"
+        ],
+        "timeout": 20000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/qa/test-results/results.json"
+        }
+      ],
+      [
+        "html",
+        {
+          "outputFolder": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/qa/test-results/html",
+          "open": "never"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts",
+      "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-FORMS-ACL-005: forms.view cannot create or edit",
+          "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts",
+          "line": 24,
+          "column": 6,
+          "specs": [
+            {
+              "title": "grants the list read and denies create and patch",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "slow",
+                      "location": {
+                        "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts",
+                        "line": 26,
+                        "column": 10
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1450,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:35.474Z",
+                      "annotations": [
+                        {
+                          "type": "slow",
+                          "location": {
+                            "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts",
+                            "line": 26,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "644664ff88cfab29b6fe-586183b8591fd541699e",
+              "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-ACL-005.spec.ts",
+              "line": 25,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/forms/__integration__/TC-FORMS-LOCK-001.spec.ts",
+      "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-LOCK-001.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-FORMS-LOCK-001: form metadata optimistic locking",
+          "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-LOCK-001.spec.ts",
+          "line": 13,
+          "column": 6,
+          "specs": [
+            {
+              "title": "rejects a stale form edit with the unified 409 payload",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 221,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:36.952Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9362277efe478c143930-6441ce9496780d5bf5bf",
+              "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-LOCK-001.spec.ts",
+              "line": 14,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts",
+      "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-FORMS-TEN-008: cross-organization form read",
+          "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts",
+          "line": 29,
+          "column": 6,
+          "specs": [
+            {
+              "title": "answers 404 for a foreign form id and stays indistinguishable from a missing one",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "slow",
+                      "location": {
+                        "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts",
+                        "line": 31,
+                        "column": 10
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 240,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:37.194Z",
+                      "annotations": [
+                        {
+                          "type": "slow",
+                          "location": {
+                            "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts",
+                            "line": 31,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "1dd86e02ad72fdce0683-3cc8e3008c17768d9855",
+              "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-TEN-008.spec.ts",
+              "line": 30,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts",
+      "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-FORMS-UI-009: narrow studio header",
+          "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts",
+          "line": 8,
+          "column": 6,
+          "specs": [
+            {
+              "title": "keeps translated actions and long metadata inside the viewport",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "slow",
+                      "location": {
+                        "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts",
+                        "line": 10,
+                        "column": 10
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4859,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:37.446Z",
+                      "annotations": [
+                        {
+                          "type": "slow",
+                          "location": {
+                            "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts",
+                            "line": 10,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/qa/test-results/artifacts/packages-core-src-modules--9d1cd-etadata-inside-the-viewport/test-finished-1.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "6ff9c26f658cedd4c646-b70ecc7a11a7fd853a9f",
+              "file": "packages/core/src/modules/forms/__integration__/TC-FORMS-UI-009-header-wrap.spec.ts",
+              "line": 9,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+      "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-WC-002: warranty claim line partial approvals",
+          "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+          "line": 21,
+          "column": 6,
+          "specs": [
+            {
+              "title": "admin can cancel then confirm removing a line from the desk (#8012)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3310,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:42.405Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/qa/test-results/artifacts/packages-core-src-modules--2c1fd--a-line-from-the-desk-8012-/test-finished-1.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d60ef7244ea5446c7600-af882c839fd963638e80",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+              "line": 23,
+              "column": 5
+            },
+            {
+              "title": "employee can cancel then confirm removing a line from the desk (#8012)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3317,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:45.726Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/.ai/qa/test-results/artifacts/packages-core-src-modules--3c452--a-line-from-the-desk-8012-/test-finished-1.png"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d60ef7244ea5446c7600-f3a655641ccf40a87d56",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+              "line": 23,
+              "column": 5
+            },
+            {
+              "title": "validates partial quantities, recomputes header totals, and locks closed claims",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4833,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:49.052Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d60ef7244ea5446c7600-815b87d14bcaefba5937",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+              "line": 76,
+              "column": 3
+            },
+            {
+              "title": "refuses a stale per-line optimistic-lock update with HTTP 409",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 400,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:53.891Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d60ef7244ea5446c7600-f7213283c6c7ddeba532",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+              "line": 211,
+              "column": 3
+            },
+            {
+              "title": "auto-assigns the next line number when creating an additional line without lineNo",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 422,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:54.298Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d60ef7244ea5446c7600-78cd6a7557a371f8d004",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-002-lines-partials.spec.ts",
+              "line": 279,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-003-lifecycle.spec.ts",
+      "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-003-lifecycle.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-WC-003: warranty claim lifecycle commands",
+          "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-003-lifecycle.spec.ts",
+          "line": 20,
+          "column": 6,
+          "specs": [
+            {
+              "title": "covers lifecycle happy path, invalid transitions, rejection reason, credit-only skip, and stale locks",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "slow",
+                      "location": {
+                        "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/warranty_claims/__integration__/TC-WC-003-lifecycle.spec.ts",
+                        "line": 22,
+                        "column": 10
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 10036,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:15:54.733Z",
+                      "annotations": [
+                        {
+                          "type": "slow",
+                          "location": {
+                            "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/warranty_claims/__integration__/TC-WC-003-lifecycle.spec.ts",
+                            "line": 22,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "3136f9fd20c73abec4a1-d057c2c43e22b47472d4",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-003-lifecycle.spec.ts",
+              "line": 21,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-007-tenant-isolation.spec.ts",
+      "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-007-tenant-isolation.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-WC-007: warranty claims tenant isolation",
+          "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-007-tenant-isolation.spec.ts",
+          "line": 20,
+          "column": 6,
+          "specs": [
+            {
+              "title": "hides org-A claims from a user authenticated in a second organization of the same tenant",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1187,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:04.781Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ff8633c0c5823215a2bf-197bb0ddcb5d8a79cf49",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-007-tenant-isolation.spec.ts",
+              "line": 21,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts",
+      "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-WC-030: sales-return execution bridge",
+          "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts",
+          "line": 84,
+          "column": 6,
+          "specs": [
+            {
+              "title": "rejects unauthenticated callers",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 7,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:05.978Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "634d5d52a3a9414e9443-1d8725c10660518abf3f",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts",
+              "line": 85,
+              "column": 3
+            },
+            {
+              "title": "creates and links a sales return from approved lines, then blocks duplicates",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6034,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:05.990Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "634d5d52a3a9414e9443-d6b5917206f735cc8770",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts",
+              "line": 93,
+              "column": 3
+            },
+            {
+              "title": "translates the shipped-quantity cap and reports skipped lines",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 8833,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:12.029Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "634d5d52a3a9414e9443-a8bdab70a6c6a6bf88ff",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-030-sales-return-bridge.spec.ts",
+              "line": 153,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+      "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-WC-034: credit-memo execution bridge",
+          "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+          "line": 111,
+          "column": 6,
+          "specs": [
+            {
+              "title": "rejects unauthenticated callers",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 8,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:20.875Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "268fcc1892cae8f725e8-abc89331e80e3b6c0d26",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+              "line": 112,
+              "column": 3
+            },
+            {
+              "title": "mints a receipt-capped, discount-aware credit memo at a 23% tax rate and blocks duplicates",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4574,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:20.888Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "268fcc1892cae8f725e8-9f757f5a5f650be9be26",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+              "line": 120,
+              "column": 3
+            },
+            {
+              "title": "deducts restocking fees, enforces receipt evidence and status gates, and validates manual links",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "slow",
+                      "location": {
+                        "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+                        "line": 209,
+                        "column": 10
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 9245,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:25.468Z",
+                      "annotations": [
+                        {
+                          "type": "slow",
+                          "location": {
+                            "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+                            "line": 209,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "268fcc1892cae8f725e8-fe19d3824070dac22c4d",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-034-credit-memo-bridge.spec.ts",
+              "line": 208,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts",
+      "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-WC-036: claim-line undo refuses stale state and keeps header totals consistent",
+          "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts",
+          "line": 103,
+          "column": 6,
+          "specs": [
+            {
+              "title": "undo of a line update is refused after another user quarantines the line",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2890,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:34.728Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "b10d9840369adf5a97bc-05c2fa24a6164e6e531c",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts",
+              "line": 108,
+              "column": 3
+            },
+            {
+              "title": "undo of a line credit edit restores the line and header totals, and redo re-applies it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 714,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:37.624Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "b10d9840369adf5a97bc-40fb340a5b0e2c20ddb9",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts",
+              "line": 174,
+              "column": 3
+            },
+            {
+              "title": "undo of a line update is refused with lineLocked once the claim is closed",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3710,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:38.344Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "b10d9840369adf5a97bc-0ee1fb14f6f97543d24b",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-036-line-undo-stale-state.spec.ts",
+              "line": 221,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+      "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-WC-039: receiving and quarantine release redo",
+          "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+          "line": 51,
+          "column": 6,
+          "specs": [
+            {
+              "title": "redoes receive after undo when the original body included updatedAt",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "slow",
+                      "location": {
+                        "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+                        "line": 54,
+                        "column": 12
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 7118,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:42.067Z",
+                      "annotations": [
+                        {
+                          "type": "slow",
+                          "location": {
+                            "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+                            "line": 54,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "60baa92e5d5d724a359a-48a7753a5bb5c3adcc42",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+              "line": 53,
+              "column": 5
+            },
+            {
+              "title": "redoes release after undo when the original body included updatedAt",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [
+                    {
+                      "type": "slow",
+                      "location": {
+                        "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+                        "line": 54,
+                        "column": 12
+                      }
+                    }
+                  ],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5868,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:49.192Z",
+                      "annotations": [
+                        {
+                          "type": "slow",
+                          "location": {
+                            "file": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/7381c648-8237-42d0-8dfb-d49224b451b2/packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+                            "line": 54,
+                            "column": 12
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "60baa92e5d5d724a359a-8cfa141b9aa92a0a962a",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-039-receiving-redo.spec.ts",
+              "line": 53,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-replacement-order-undo.spec.ts",
+      "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-replacement-order-undo.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "TC-WC-040: replacement-order undo after approval initialization",
+          "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-replacement-order-undo.spec.ts",
+          "line": 29,
+          "column": 6,
+          "specs": [
+            {
+              "title": "undoes and redoes a replacement order initialized by the stock approval workflow",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4347,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:55.071Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "1e1e38e3100878db5401-ba09f80b579ed700c07b",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-replacement-order-undo.spec.ts",
+              "line": 31,
+              "column": 5
+            },
+            {
+              "title": "preserves a replacement order edited by a user and translates the refusal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 20000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3873,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-11-13T09:16:59.423Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "1e1e38e3100878db5401-90214d053a4b72dfdeb6",
+              "file": "packages/core/src/modules/warranty_claims/__integration__/TC-WC-040-replacement-order-undo.spec.ts",
+              "line": 31,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-13T09:15:20.800Z",
+    "duration": 102569.59400000001,
+    "expected": 24,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
