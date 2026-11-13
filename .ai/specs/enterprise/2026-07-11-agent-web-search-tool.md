@@ -431,8 +431,8 @@ credential when changing any URL; operators should review prior adapter destinat
 changes and rotate credentials that may have reached an untrusted destination.
 Named human maintainer approval of the emergency security exception is required
 before merge under `BACKWARD_COMPATIBILITY.md`; automated review cannot grant it.
-The mandatory top-level compatibility and upgrade-note disclosures remain a merge
-prerequisite if not included by the integrating maintainer.
+The top-level compatibility record and `UPGRADE_NOTES.md` include the required
+client and operator disclosures. The named human waiver remains outstanding.
 
 Regression coverage: `api/web-search/settings/__tests__/route.test.ts` exercises
 three adapters, every URL field form, multiple secrets, mixed-adapter atomic rejection,

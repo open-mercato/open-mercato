@@ -653,3 +653,11 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Web-search masked credentials and destination changes (2026-11-13, #9118)
+
+STABLE HTTP behavior: `PUT /api/agent_orchestrator/web-search/settings` returns 400 instead of reusing a hidden stored secret when an adapter URL changes, including URL additions or omissions. Continuing the old success path in a bridge would allow the credential to be sent to an attacker-selected destination. Rejection is limited to changed URL options with unchanged-secret placeholders; unchanged destinations and retargeting with fresh credentials remain supported. The exported `unmaskSecrets` signature and behavior remain unchanged.
+
+Clients must re-enter or remove every masked secret when retargeting. Operators must review prior destination changes and rotate potentially disclosed keys; existing settings and credentials are not repaired automatically. See [upgrade notes](UPGRADE_NOTES.md#web-search-credentials-must-be-re-entered-when-urls-change-9118) and [specification](.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md#credential-retargeting-protection-9118).
+
+Emergency exception requested for steps 1–3. Named human maintainer approval is required before merge and has not been granted by this automated run. QA, review and validation gates remain mandatory.
