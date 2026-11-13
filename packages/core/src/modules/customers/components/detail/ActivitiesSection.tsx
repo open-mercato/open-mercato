@@ -18,6 +18,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
+import { useActivityDelete } from './hooks/useActivityDelete'
 import { resolveAuthorUserNames } from './authorUserLookup'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -398,6 +399,17 @@ export function ActivitiesSection({
     }
   }, [loadActivities, onDataRefresh, runGuardedMutation, t])
 
+  const refreshAfterDelete = React.useCallback(async () => {
+    await loadActivities()
+    await Promise.resolve(onDataRefresh?.())
+  }, [loadActivities, onDataRefresh])
+
+  const { deleteActivity, ConfirmDialogElement } = useActivityDelete({
+    runMutation: runGuardedMutation,
+    onAfterDelete: refreshAfterDelete,
+    logContext: 'ActivitiesSection',
+  })
+
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 
   // Resolve missing author names from user IDs
@@ -444,6 +456,7 @@ export function ActivitiesSection({
 
   return (
     <div className="flex flex-col gap-3.5 rounded-[10px] border border-border bg-card pt-4 pb-[18px] px-[18px]">
+      {ConfirmDialogElement}
       <div className="flex items-center gap-2">
         <Clock className="size-[15px] text-muted-foreground" />
         <h3 className="text-[13px] font-semibold text-foreground">
@@ -525,6 +538,7 @@ export function ActivitiesSection({
             activities={visibleActivities}
             onEdit={onEditActivity}
             onMarkDone={handleMarkDone}
+            onDelete={deleteActivity}
           />
           {totalCount > 0 || hasMore ? (
             <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
