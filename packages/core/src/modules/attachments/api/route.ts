@@ -652,8 +652,9 @@ async function uploadAttachment(req: Request) {
   }
 
   if (useLlmOcr) {
-    // Await so wait-queue overflow can finish the inline text fallback before
-    // the response returns (background LLM OCR still schedules via setImmediate).
+    // Await so the durable `attachments-ocr` job is enqueued (or, when the queue is
+    // unavailable, an in-process wait-queue overflow finishes its inline text
+    // fallback) before the response returns.
     try {
       await requestOcrProcessing(em, att, uploadDriver, storedPath)
     } catch (error) {

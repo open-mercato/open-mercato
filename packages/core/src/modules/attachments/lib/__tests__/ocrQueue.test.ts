@@ -10,6 +10,15 @@ import type { Attachment } from '../../data/entities'
 import type { StorageDriver } from '../drivers/types'
 import { extractAttachmentContent } from '../textExtraction'
 import { OcrService } from '../ocrService'
+import { enqueueAttachmentOcr } from '../ocrJobQueue'
+
+jest.mock('../ocrJobQueue', () => ({
+  enqueueAttachmentOcr: jest.fn(async () => {
+    throw new Error('queue unavailable')
+  }),
+}))
+
+const enqueueAttachmentOcrMock = enqueueAttachmentOcr as jest.MockedFunction<typeof enqueueAttachmentOcr>
 
 jest.mock('../textExtraction', () => ({
   extractAttachmentContent: jest.fn(async () => null),
@@ -29,6 +38,52 @@ const makeAttachment = (): Attachment =>
   }) as unknown as Attachment
 
 const driver = {} as StorageDriver
+
+describe('requestOcrProcessing durable queue', () => {
+  let setImmediateSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    resetOcrConcurrencyStateForTests()
+    setImmediateSpy = jest.spyOn(global, 'setImmediate').mockImplementation((() => undefined) as never)
+  })
+
+  afterEach(() => {
+    setImmediateSpy.mockRestore()
+    enqueueAttachmentOcrMock.mockClear()
+  })
+
+  it('enqueues a durable attachments-ocr job carrying only the attachment id and scope', async () => {
+    enqueueAttachmentOcrMock.mockResolvedValueOnce('job-1')
+    const fork = jest.fn()
+    const requestEm = { fork } as unknown as EntityManager
+
+    await expect(
+      requestOcrProcessing(requestEm, makeAttachment(), driver, 'docs/attachment-1.pdf'),
+    ).resolves.toBe('queued')
+
+    expect(enqueueAttachmentOcrMock).toHaveBeenCalledWith({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(fork).not.toHaveBeenCalled()
+    expect(setImmediateSpy).not.toHaveBeenCalled()
+    expect(getOcrConcurrencyStateForTests()).toEqual({ active: 0, waiting: 0 })
+  })
+
+  it('falls back to the in-process scheduler when the durable queue rejects the job', async () => {
+    const fork = jest.fn(() => ({}))
+    const requestEm = { fork } as unknown as EntityManager
+
+    await expect(
+      requestOcrProcessing(requestEm, makeAttachment(), driver, 'docs/attachment-1.pdf'),
+    ).resolves.toBe('queued')
+
+    expect(enqueueAttachmentOcrMock).toHaveBeenCalledTimes(1)
+    expect(fork).toHaveBeenCalledTimes(1)
+    expect(setImmediateSpy).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('requestOcrProcessing EntityManager isolation', () => {
   let setImmediateSpy: jest.SpyInstance
