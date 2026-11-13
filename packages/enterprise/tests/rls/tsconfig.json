@@ -4,6 +4,13 @@
     "noEmit": true,
     "incremental": false
   },
-  "include": ["run.ts", "catalog.run.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "run.ts",
+    "catalog.run.ts",
+    "benchmark.run.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }
