@@ -57,8 +57,11 @@ For a documentation-only result, manually review the diff and run the existing C
 - The full local encryption-preflight test could not load missing shared-package build output in the audit environment. This is a local validation limit; the fixed assertion's repository test passed in subsequent main CI, and this PR's Test scripts gate passed.
 - PR full-suite run [43401554192](https://github.com/open-mercato/open-mercato/actions/runs/43401554192) passed on `7a474e288a451800b9be5c0d6d9ee5f60aad3765`: all 15 integration shards, package/app preparation, full typecheck/unit/script tests, lint, DS lint, Docker build, documents multi-instance, core-timezone, and merge-coverage. CodeQL, contribution guard, CLA, and mutation scope checks also passed. Dependency audit and mutation execution/comment were non-applicable skips for this documentation-only diff.
 - No code or workflow changes were needed. The configured local build/generate/typecheck/unit/app gate is not rerun for this documentation-only result; CI supplies the full requested runtime verification.
-- Main Snapshot Release [43396497321](https://github.com/open-mercato/open-mercato/actions/runs/43396497321) remains pending at this evidence update. Snapshot publication passed; standalone integration tests are still running. This is separate from the successful main and PR CI suites; do not claim it passed or apply automerge while it remains unsettled.
-- The final independent review and latest-head verification remain required. Administrative documentation pushes trigger another full PR run.
+- Main Snapshot Release [43396497321](https://github.com/open-mercato/open-mercato/actions/runs/43396497321) completed successfully: both snapshot publication and standalone integration tests passed. This fresh result supersedes the earlier pending observation.
+- Independent final [review](https://github.com/open-mercato/open-mercato/pull/9425#issuecomment-6850746857) approved `db55f673e0eaa35b4ad70058b567d309cf9c126e` with no findings. The parent inspected the report, checked the child branch has no baseline diff, repeated the 40 regression tests, and verified the exact-head CI/snapshot metadata. The reviewer explicitly accepted this clerical completion update without a substantive re-review.
+- Reviewed-head [CI 43406853723](https://github.com/open-mercato/open-mercato/actions/runs/43406853723) passed all 15 shards and applicable workspace gates. Its 35 reported checks settled with 31 successes and four non-applicable skips (dependency audit, mutation execution/comment, Backport).
+- GitHub rejected the same-App native approval with HTTP 422. The independent task verdict is recorded in the signed review comment; native review approval remains required and is not bypassed.
+- `automerge` was applied after green reviewed-head CI and independent approval while the PR remained draft and claimed. It is withheld again before pushing this final clerical update, then restored only after this update's own applicable checks pass. The final head SHA and run result are recorded in the PR verification comment to avoid another documentation-only CI cycle. No source changes, merges, or native-approval bypass are part of completion.
 
 ## Risks
 
@@ -75,12 +78,12 @@ PR: #9425
 
 ### Phase 1: Diagnose
 
-- [x] 1.1 Audit current and recent main CI failures independently; verify current scope/concurrency regression checks in the parent task.
+- [x] 1.1 Audit current and recent main CI failures independently; verify current scope/concurrency regression checks in the parent task. — db55f673e0
 
 ### Phase 2: Stabilize and validate
 
-- [x] 2.1 Fix reproduced root causes if any, with regression tests; run the stabilization PR's full CI suite and record all checks, skips, and limits.
+- [x] 2.1 Fix reproduced root causes if any, with regression tests; run the stabilization PR's full CI suite and record all checks, skips, and limits. — db55f673e0
 
 ### Phase 3: Review and hand off
 
-- [ ] 3.1 Dispatch one final independent review of this branch through `cez task create --kind review`, address findings, publish evidence, and apply `automerge` only once checks are green and review approves.
+- [x] 3.1 Dispatch one final independent review of this branch through `cez task create --kind review`, address findings, publish evidence, and apply `automerge` only once checks are green and review approves.
