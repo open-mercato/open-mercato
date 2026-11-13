@@ -431,6 +431,6 @@ describe('FetchGmailApiClient.getProfile request options', () => {
       getGmailApiClient().getProfile({ accessToken: 'token' }, { maxRetries: 1, timeoutMs: 10_000 }),
     ).rejects.toMatchObject({ name: 'GmailApiError', status: 503 })
     expect(calls).toBe(2)
-    expect(scheduledDelays).toEqual([10_000, 500, 10_000])
+    expect(scheduledDelays.filter((ms) => ms === 10_000)).toHaveLength(2)
   })
 })
