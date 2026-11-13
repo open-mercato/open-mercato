@@ -1950,6 +1950,19 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       ? await requireTimeProjectInScope(em, nextProjectId, entry.tenantId, entry.organizationId)
       : null
     await assertTaskBelongsToProject(task, nextProjectId)
+    const storedTaskLeftBehind =
+      parsed.taskId === undefined && projectChanged && entry.taskId
+        ? !timeEntryTaskMatchesProject(
+            await findOneWithDecryption(
+              em,
+              StaffTimeTask,
+              { id: entry.taskId, tenantId: entry.tenantId, organizationId: entry.organizationId },
+              undefined,
+              { tenantId: entry.tenantId, organizationId: entry.organizationId },
+            ),
+            nextProjectId,
+          )
+        : false
 
     const settings = await readEntrySettings(ctx, entry.tenantId)
     const write: TimeEntryWriteAccess = {
@@ -2018,6 +2031,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       entry.rateCurrencyCode = project?.currencyCode ?? null
     }
     if (parsed.taskId !== undefined) entry.taskId = task?.id ?? null
+    else if (storedTaskLeftBehind) entry.taskId = null
     if (parsed.customerId !== undefined) entry.customerId = parsed.customerId ?? null
     if (parsed.dealId !== undefined) entry.dealId = parsed.dealId ?? null
     if (parsed.orderId !== undefined) entry.orderId = parsed.orderId ?? null

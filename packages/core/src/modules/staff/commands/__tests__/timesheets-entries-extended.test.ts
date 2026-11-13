@@ -194,7 +194,11 @@ function makeEm(world: World, entities: Entities) {
         return world.projects.find((row) => row.id === where.id && !row.deletedAt && matchesScope(row, where)) ?? null
       }
       if (cls === entities.StaffTimeTask) {
-        return world.tasks.find((row) => row.id === where.id && !row.deletedAt && matchesScope(row, where)) ?? null
+        return (
+          world.tasks.find(
+            (row) => row.id === where.id && (where.deletedAt !== null || !row.deletedAt) && matchesScope(row, where),
+          ) ?? null
+        )
       }
       if (cls === entities.StaffTimeEntry) {
         return (
@@ -583,6 +587,83 @@ describe('staff timesheets extended time-entry write path (T4.1)', () => {
 
       expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
       expect(entry.rateCurrencyCode).toBe('EUR')
+    })
+
+    it('drops the task when a project-only move leaves it on the old project', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: PROJECT_ID, taskId: TASK_ID })
+      const world: World = {
+        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID, currencyCode: 'EUR' })],
+        tasks: [{ id: TASK_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: PROJECT_ID, deletedAt: null }],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID }, ctx)
+
+      expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
+      expect(entry.taskId).toBeNull()
+    })
+
+    it('drops a soft-deleted task that stays on the old project when the entry moves', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: PROJECT_ID, taskId: TASK_ID })
+      const world: World = {
+        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID })],
+        tasks: [
+          {
+            id: TASK_ID,
+            tenantId: TENANT_ID,
+            organizationId: ORG_ID,
+            timeProjectId: PROJECT_ID,
+            deletedAt: new Date('2026-07-02T00:00:00.000Z'),
+          },
+        ],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID }, ctx)
+
+      expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
+      expect(entry.taskId).toBeNull()
+    })
+
+    it('keeps the task when a project-only move lands on the project the task belongs to', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: PROJECT_ID, taskId: TASK_ID })
+      const world: World = {
+        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID })],
+        tasks: [
+          { id: TASK_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: HIDDEN_PROJECT_ID, deletedAt: null },
+        ],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID }, ctx)
+
+      expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
+      expect(entry.taskId).toBe(TASK_ID)
+    })
+
+    it('keeps the task and skips the task lookup when the project does not change', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: PROJECT_ID, taskId: TASK_ID })
+      const world: World = { projects: [projectRow()], tasks: [], entries: [entry], created: [] }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: PROJECT_ID, description: 'note only' }, ctx)
+
+      expect(entry.taskId).toBe(TASK_ID)
+      expect(em.findOne.mock.calls.some(([cls]) => cls === entities.StaffTimeTask)).toBe(false)
     })
 
     it('lets `description` win over `notes` on update too', async () => {
