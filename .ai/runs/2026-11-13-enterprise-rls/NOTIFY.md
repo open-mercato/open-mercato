@@ -22,3 +22,5 @@ Checkpoint4: verified public continuations committed/pushed;119 storefront and27
 ## Checkpoint 5
 
 Production migration/storage/transport, onboarding and CLI foundations verified with targeted checks and live PG17. Search and scheduler merged after diff review and parent test reruns. Actual 2,000-operation concurrency evidence is posted. Full-spec gates remain open; two children own global jobs/events and actual People browser coverage. See checkpoint-5-checks.md and rewritten HANDOFF.md.
+
+2026-11-13 checkpoint6: actual PostgreSQL event worker retry/CLI isolation passes16+27 checks, zero skips; benchmark24/12000 actual acquisitions publishedcomment6858319187. People native third run appbuild passed, assertions pending. Fixed onboarding narrowing and actual vector catalog name[] incompatibility. Childrenb2a vector and45ec owner-local reindex active; full completion gates remain open.
