@@ -205,7 +205,20 @@ Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardr
 - A rule asks for a human by writing `holdsAutoApproval: true` on a `warn` row — the disposition gate holds those (`auto_disposition_block='guardrail'`). `route: 'review'` also emits `run.review_requested`. Shadow mode (`OM_AGENT_INTEGRITY=off`) strips the flag.
 - Untrusted input fields are screened as `sourceKind: 'input'` spans and rendered as nonce-delimited blocks; never interpolate them into the prompt yourself.
 - The run API `integrity` summary is derived from the check rows (`summary.ts`) — add new outcomes there, not in routes. The pre-repair output is an encrypted artifact (`rawOutputKey`, `kind=raw_output`), never inline.
-- OpenCode runs the integrity rules only (no `tool_scope`, grounding or untrusted inputs).
+- OpenCode checks only the submitted outcome: the integrity rules when declared, else schema + `tool_scope`; no grounding or untrusted inputs.
+
+## Next Re-Squash Debt (promote at the next AO migration re-squash)
+
+No AO DDL until then (squash-only). Each item lives in a stand-in today; the re-squash adds the column/table plus a one-off backfill from the stand-in. Canonical list: roadmap `.ai/specs/2026-10-21-agent-platform-capabilities-roadmap.md` → Shared decisions §1.
+
+- `agent_runs.invoker_user_id`, `api_key_id`, `definition_hash`, `capture_level` ← manifest `om.invoker`, `om.agent.definition_hash`, `om.capture` (OBS-Q4).
+- `agent_runs.entry_point`, `correlation_id` ← manifest `om.entry_point`, `om.correlation_id` (ROAD-Q2).
+- `agent_runs.raw_output_key` ← check evidence `rawOutput.key`, manifest `om.integrity.raw_output_key` (ROAD-Q2).
+- `agent_guardrail_checks.rule_id` ← `evidence.ruleId`.
+- Table `agent_trace_exports` (OTel P2.4 ledger) ← logs + `reportError`, health in module config `otel_export_health`.
+- Table `agent_eval_set_snapshots` ← `agent_eval_suite_runs.summary.__evalSet` (EVAL-Q1).
+- Candidate: table `agent_llm_calls` ← `llm` spans (observability alternatives).
+- Not scheduled (ROAD-Q3). `migrations/adopt-squash.mjs` cannot adopt the current squash and refuses to run.
 
 ## Agent Principals and Audit Correlation (`lib/identity/`)
 

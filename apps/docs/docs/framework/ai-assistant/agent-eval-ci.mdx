@@ -211,5 +211,6 @@ The same file format is available over HTTP so a set authored in git can be edit
 | Variable | Purpose |
 |----------|---------|
 | `OM_EVAL_TENANT_ID`, `OM_EVAL_ORG_ID` | Default `--tenant` / `--org` for the CLI. |
+| `OM_EVAL_GIT_SHA` | Commit recorded as the report's **Environment** git SHA, including the error report written when the run cannot complete. `GITHUB_SHA` wins when both are set, so set this in CI systems other than GitHub Actions. With neither set, the SHA is empty. |
 | `OM_AGENT_EVAL_SET_MAX_BYTES` | Eval-set file and manifest size cap (default 5242880). |
 | `OM_AGENT_EVAL_TOOL_FIXTURE_MAX_BYTES` | Per-fixture-file size cap (default 5242880). |

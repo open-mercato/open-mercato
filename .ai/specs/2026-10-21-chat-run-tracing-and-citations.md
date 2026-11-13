@@ -655,3 +655,6 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/ui-par
   - Run citations are capped at 50. Search citations use the ref `<entityId>:<recordId>`.
   - The citations part travels in the tool-output `uiParts` envelope (field `payload`), not as a `data-aiui` chunk.
   - Chat-run integration fixtures seed runs directly in the DB, because a run is only recorded after a live LLM turn. Cases that need a real turn skip when no provider is configured.
+
+### 2026-11-13
+- Deviation recorded (Phase 4, wave 5): the AO citation re-export shim was dropped. No AO citation registry existed to move (`agent_orchestrator/components/citationResolvers.ts` and `registerCitationResolver` were absent when Phase 4 started; see `.ai/runs/2026-10-28-agent-platform-wave-5/research-observability-chat.md`), so the registry is new code in `packages/ui/src/ai/citations/registry.ts` and there is no old import path to keep. The BC row for AO import paths, the AO shim in Phase 4 step 2, the `citationResolvers.ts` row of the file manifest and the compliance row "AO citation path … re-exported" are void.
