@@ -89,6 +89,12 @@ export function databaseJobTenantContext(tenantId: unknown, operation: string): 
   return { kind: 'tenant', tenantId: parsed.data.toLowerCase(), source: 'worker', operation }
 }
 
+export async function resolveOwnedDatabaseJobContext(moduleId: string, input: DatabaseJobInput): Promise<DatabaseExecutionContext> {
+  const providers = (declarations().get(moduleId)?.jobProviders ?? []).filter((provider) => provider.matches(input))
+  if (providers.length !== 1) throw new Error('[internal] Database job requires exactly one owning module context provider')
+  return providers[0].resolve(input)
+}
+
 export async function resolveDeclaredDatabaseJobContext(input: DatabaseJobInput): Promise<DatabaseExecutionContext> {
   const providers = [...declarations().values()].flatMap((entry) => entry.jobProviders ?? []).filter((provider) => provider.matches(input))
   if (providers.length > 1) throw new Error('[internal] Ambiguous database job context providers')

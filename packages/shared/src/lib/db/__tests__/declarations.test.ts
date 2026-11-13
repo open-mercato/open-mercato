@@ -91,3 +91,15 @@ it('requires an owner validator for explicit binding checks and propagates its r
   validate.mockRejectedValueOnce(new Error('[internal] owner unavailable'))
   await expect(validateDeclaredDatabaseBinding(identity, { requireValidator: true })).rejects.toThrow('owner unavailable')
 })
+
+it('resolves system jobs only through the explicitly named owner without tenant fallback', async () => {
+  const { resolveOwnedDatabaseJobContext } = await import('../declarations')
+  const input = { queue: 'global-probe', workerIds: [], payload: { tenantId: '11111111-1111-4111-8111-111111111111' } }
+  await expect(resolveOwnedDatabaseJobContext('missing', input)).rejects.toThrow('owning module')
+  registerDatabaseModuleDeclarations([{ moduleId: 'system-owner', declarations: { jobProviders: [{
+    matches: (job) => job.queue === 'global-probe',
+    resolve: async () => ({ kind: 'maintenance', tenantId: null, source: 'maintenance', operation: 'global-probe' }),
+  }] } }])
+  await expect(resolveOwnedDatabaseJobContext('other-owner', input)).rejects.toThrow('owning module')
+  await expect(resolveOwnedDatabaseJobContext('system-owner', input)).resolves.toEqual({ kind: 'maintenance', tenantId: null, source: 'maintenance', operation: 'global-probe' })
+})

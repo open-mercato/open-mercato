@@ -31,6 +31,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.2-portal-lifecycle | Await portal attachment activity through tenant invocation completion | inline | done | this commit; 11 focused tests + core tsc |
 | 2 | 2.2-public-onboarding | Validate persisted onboarding bindings through owner declarations and bound provisioning continuations | inline | done | onboarding151/shared21 tests; parent integration gate remains |
 | 2 | 2.2-public | Scope verified public token, storefront and provisioning continuations | inline | todo | — |
+| 2 | 2.3-owned-jobs | Require explicit owner classification for global scheduled work | inline | done | shared10 declaration tests |
 | 2 | 2.3-job-foundation | Resolve persisted job identities before containers and bind canonical event envelopes | inline | done | this commit; CLI9/shared18/events180 tests + package tsc |
 | 2 | 2.3-boundary-foundation | Verify maintenance pool ownership and effective asynchronous invocation lifetimes | inline | done | this commit; 16 shared/86 runtime/185 events/9 CLI tests; PG17 16+24 checks |
 | 2 | 2.3-coalescing-fix | Preserve accepted trailing broadcasts in a fresh validated invocation | inline | done | this commit; 21 event tests and events/enterprise typechecks |
