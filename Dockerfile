@@ -279,7 +279,7 @@ ENV NODE_ENV=production \
 COPY --from=dev-build --chown=1001:1001 /app /app
 USER 1001:1001
 WORKDIR /app/apps/mercato
-RUN --network=none node /app/apps/mercato/scripts/mercato-cli.mjs --help
+RUN --network=none node /app/apps/mercato/scripts/mercato-cli.mjs entities --help
 ENTRYPOINT ["/usr/local/bin/om-recovery"]
 CMD ["node", "/app/packages/enterprise/bin/mercato-backup.mjs", "--help"]
 
