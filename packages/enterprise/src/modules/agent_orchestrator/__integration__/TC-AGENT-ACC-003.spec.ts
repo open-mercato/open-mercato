@@ -13,9 +13,9 @@ import { GATED_AGENT_ID, GATED_AGENT_INPUT, agentApiRunPath } from './helpers/ag
  * body; anything else means the door is enabled, and then a missing or forged
  * Bearer token must get the one minimal 401 and never a run.
  *
- * Minting a valid agent token needs a provisioned agent principal plus a
- * delegation grant; the valid-token / revoked-grant / scope-denied paths are
- * covered by the route unit tests (`api/agent-api/agents/[id]/run`).
+ * The valid-token / expired- and revoked-grant / scope-denied paths, which need
+ * a provisioned external principal plus a delegation grant, are covered by
+ * TC-AGENT-ACC-010 and the route unit tests (`api/agent-api/agents/[id]/run`).
  *
  * No records are created, so there is nothing to clean up.
  */
