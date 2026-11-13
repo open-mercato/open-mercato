@@ -48,7 +48,7 @@ export async function createVersionedVaultProvider(tenantIds: string[], options:
   const selectedTenants = new Set(tenantIds)
   if (requested.size !== selectedTenants.size || entries.some(([tenant]) => !selectedTenants.has(tenant))) return fail('ROTATION_VAULT_PIN_SCOPE_MISMATCH')
   const versions = new Map<string, number>()
-  for (const tenant of [...new Set(tenantIds)].sort()) {
+  for (const tenant of [...new Set(tenantIds)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)) {
     if (!tenantPattern.test(tenant) || !requested.has(tenant)) return fail('ROTATION_VAULT_PIN_REQUIRED')
     versions.set(tenant, requested.get(tenant)!)
   }
