@@ -1,10 +1,24 @@
 /** @jest-environment node */
 import { GET } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/export/route'
 import { actionLogListSchema } from '@open-mercato/core/modules/audit_logs/data/validators'
+import {
+  loadCustomerAuditRedactionContext,
+  redactCustomerAuditEntry,
+} from '@open-mercato/core/modules/customers/lib/auditRedaction'
 
 const mockRbac = { userHasAllFeatures: jest.fn() }
 const mockActionLogs = { list: jest.fn() }
 const mockEm = {}
+// Mirrors the real DI registration in `customers/di.ts` — the production
+// container resolves this exact shape; a missing token simulates the customers
+// module being disabled (see the "customers module disabled" test below).
+const mockCustomersAuditRedactionService = {
+  loadContext: loadCustomerAuditRedactionContext,
+  redactEntry: redactCustomerAuditEntry,
+}
+// Toggled by the "customers module disabled" test — mirrors Awilix throwing on
+// an unregistered token, which is exactly what `tryResolve` guards against.
+let customersModuleEnabled = true
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
@@ -16,6 +30,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (token === 'rbacService') return mockRbac
       if (token === 'actionLogService') return mockActionLogs
       if (token === 'em') return mockEm
+      if (token === 'customersAuditRedactionService') {
+        if (!customersModuleEnabled) throw new Error('AwilixResolutionError: Could not resolve customersAuditRedactionService')
+        return mockCustomersAuditRedactionService
+      }
       return null
     },
   })),
@@ -36,6 +54,7 @@ function makeRequest(url: string) {
 describe('GET /api/audit_logs/audit-logs/actions/export', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
+    customersModuleEnabled = true
     const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
       organizationId: 'org-1',
@@ -283,6 +302,161 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
     const csv = await res.text()
     expect(csv).not.toContain('third@example.com')
     expect(csv).not.toContain('Confidential Deal')
+  })
+
+  // Regression for the maintainer review on #8978 — the custom-field diff a
+  // command-bus update produces lands as a top-level `cf_<name>` key, not the
+  // nested `custom` key the earlier fix cleared from the snapshot.
+  it('strips a canonical cf_<name> custom-field diff from the exported rows when the viewer is not the author', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        {
+          id: 'action-3',
+          commandId: 'cmd-3',
+          actionLabel: 'Update interaction',
+          actorUserId: 'user-2',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          resourceKind: 'customers.interaction',
+          resourceId: 'interaction-3',
+          createdAt: new Date('2024-06-17T12:00:00.000Z'),
+          contextJson: null,
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+            },
+          },
+          changesJson: { cf_privateEmail: { from: 'old@example.test', to: 'new@example.test' } },
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+    expect(res.status).toBe(200)
+    const csv = await res.text()
+    expect(csv).not.toContain('old@example.test')
+    expect(csv).not.toContain('new@example.test')
+  })
+
+  // Regression for the maintainer review on #8978 — exporting a non-email (call)
+  // interaction's change history used to drop its real diff unconditionally.
+  it('keeps the real changes diff for a non-email (call) interaction', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        {
+          id: 'action-4',
+          commandId: 'cmd-4',
+          actionLabel: 'Update interaction',
+          actorUserId: 'user-2',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          resourceKind: 'customers.interaction',
+          resourceId: 'interaction-4',
+          createdAt: new Date('2024-06-18T12:00:00.000Z'),
+          contextJson: null,
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'call',
+              visibility: 'private',
+              authorUserId: 'user-2',
+            },
+          },
+          changesJson: { title: { from: 'Old call title', to: 'New call title' } },
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+    expect(res.status).toBe(200)
+    const csv = await res.text()
+    expect(csv).toContain('Old call title')
+    expect(csv).toContain('New call title')
+  })
+
+  // Regression for the maintainer review on #8978 — this generic route must not
+  // statically import CRM business logic (`packages/core/AGENTS.md` § Cross-Module
+  // Coupling). When the `customers` module is disabled (its DI service is never
+  // registered), the export degrades gracefully instead of throwing.
+  it('exports entries unredacted when the customers module is disabled', async () => {
+    customersModuleEnabled = false
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        {
+          id: 'action-5',
+          commandId: 'cmd-5',
+          actionLabel: 'Update interaction',
+          actorUserId: 'user-2',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          resourceKind: 'customers.interaction',
+          resourceId: 'interaction-5',
+          createdAt: new Date('2024-06-19T12:00:00.000Z'),
+          contextJson: null,
+          snapshotBefore: {
+            interaction: {
+              entityId: 'person-1',
+              interactionType: 'email',
+              visibility: 'private',
+              authorUserId: 'user-2',
+              title: 'Private subject',
+              body: 'Private body',
+            },
+          },
+          changesJson: { title: { from: 'Old private subject', to: 'Private subject' } },
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+    expect(res.status).toBe(200)
+    const csv = await res.text()
+    expect(csv).toContain('Private subject')
   })
 
   it('uses the canonical API-key subject for self-only exports', async () => {

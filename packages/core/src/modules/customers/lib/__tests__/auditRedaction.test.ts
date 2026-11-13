@@ -196,6 +196,122 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     expect(redacted.changesJson).toEqual({ status: { from: 'planned', to: 'done' } })
   })
 
+  // Regression for the maintainer review on #8978 — the command bus
+  // (`packages/shared/src/lib/commands/command-bus.ts`) flattens custom-field
+  // snapshot changes into top-level `cf_<name>` diff entries, not a nested
+  // `custom` key, so the earlier fix (clearing `snapshot.custom`) never touched
+  // this representation of the same private data.
+  it('strips canonical cf_<name> custom-field diffs from the changes diff when the row is hidden', () => {
+    const entry = interactionEntry({
+      changesJson: {
+        cf_privateEmail: { from: 'old@example.test', to: 'new@example.test' },
+        status: { from: 'planned', to: 'done' },
+      },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    expect(redacted.changesJson).toEqual({ status: { from: 'planned', to: 'done' } })
+  })
+
+  it('leaves cf_<name> custom-field diffs visible to the email author', () => {
+    const entry = interactionEntry({
+      changesJson: {
+        cf_privateEmail: { from: 'old@example.test', to: 'new@example.test' },
+        status: { from: 'planned', to: 'done' },
+      },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    expect(redacted.changesJson).toEqual({
+      cf_privateEmail: { from: 'old@example.test', to: 'new@example.test' },
+      status: { from: 'planned', to: 'done' },
+    })
+  })
+
+  // Regression for the maintainer review on #8978 — `redactChanges` used to run
+  // unconditionally for every `customers.interaction` entry, so authorized and
+  // non-email change histories lost real diffs (title/body/participants/
+  // linkedEntities) they were never hidden from this viewer in the first place.
+  it('leaves the changes diff untouched for a non-email (call) interaction', () => {
+    const entry = interactionEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'call',
+          visibility: 'private',
+          authorUserId: OWNER,
+        },
+      },
+      changesJson: { title: { from: 'Old call title', to: 'New call title' }, status: { from: 'planned', to: 'done' } },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    expect(redacted.changesJson).toEqual({
+      title: { from: 'Old call title', to: 'New call title' },
+      status: { from: 'planned', to: 'done' },
+    })
+  })
+
+  it('leaves the changes diff untouched for a shared email the viewer has a conversation-share grant for', () => {
+    const entry = interactionEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'private',
+          authorUserId: OWNER,
+        },
+      },
+      changesJson: { title: { from: 'Old subject', to: 'New subject' } },
+    })
+    const redacted = redactCustomerAuditEntry(
+      entry,
+      ctx({ sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }] }),
+    )
+    expect(redacted.changesJson).toEqual({ title: { from: 'Old subject', to: 'New subject' } })
+  })
+
+  it('leaves the changes diff untouched for the email author\'s own private email edit', () => {
+    const entry = interactionEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'private',
+          authorUserId: OWNER,
+        },
+      },
+      changesJson: { title: { from: 'Old subject', to: 'New subject' } },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    expect(redacted.changesJson).toEqual({ title: { from: 'Old subject', to: 'New subject' } })
+  })
+
+  it('redacts the changes diff when only the after-snapshot is a hidden email (visible-to-hidden transition)', () => {
+    const entry = interactionEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'call',
+          visibility: 'private',
+          authorUserId: OWNER,
+        },
+      },
+      snapshotAfter: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'private',
+          authorUserId: OWNER,
+          title: 'New private subject',
+        },
+      },
+      changesJson: {
+        interactionType: { from: 'call', to: 'email' },
+        title: { from: null, to: 'New private subject' },
+      },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    expect(redacted.changesJson).toEqual({ interactionType: { from: 'call', to: 'email' } })
+  })
+
   it('passes through entries for resource kinds it does not own', () => {
     const entry = { resourceKind: 'sales.order', snapshotBefore: { foo: 'bar' } }
     expect(redactCustomerAuditEntry(entry, ctx())).toBe(entry)

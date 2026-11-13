@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { isEmailHiddenFrom } from './visibilityFilter'
 import {
   listGrantsForViewer,
@@ -10,7 +11,7 @@ import {
 
 const logger = createLogger('customers')
 
-const REDACTED_INTERACTION_FIELDS = ['title', 'body', 'participants', 'linkedEntities', 'custom'] as const
+const REDACTED_INTERACTION_FIELDS: readonly string[] = ['title', 'body', 'participants', 'linkedEntities', 'custom']
 
 export type CustomerAuditRedactionContext = {
   viewerUserId: string | null
@@ -36,6 +37,10 @@ export async function loadCustomerAuditRedactionContext(
     return { viewerUserId, sharedConversations, sharedChannelIds }
   } catch (err) {
     logger.warn('[internal] failed to resolve CRM audit redaction context; failing closed', { err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'customers',
+      code: 'customers.audit_redaction_context_load_failed',
+    })
     return { viewerUserId, sharedConversations: [], sharedChannelIds: [] }
   }
 }
@@ -69,6 +74,21 @@ function isHiddenEmailInteraction(
 }
 
 /**
+ * Same predicate as {@link isHiddenEmailInteraction}, but reads straight from the
+ * `InteractionSnapshot`-shaped payload (`{ interaction: {...} }`) so callers can
+ * check a before/after snapshot without unpacking it first.
+ */
+function isInteractionSnapshotHidden(snapshot: unknown, ctx: CustomerAuditRedactionContext): boolean {
+  if (!snapshot || typeof snapshot !== 'object') return false
+  const record = snapshot as Record<string, unknown>
+  const interaction = record.interaction
+  if (!interaction || typeof interaction !== 'object') return false
+  const interactionRecord = interaction as Record<string, unknown>
+  const personEntityId = typeof interactionRecord.entityId === 'string' ? interactionRecord.entityId : null
+  return isHiddenEmailInteraction(interactionRecord, personEntityId, ctx)
+}
+
+/**
  * Redacts a single `InteractionSnapshot`-shaped audit payload (`{ interaction: {...}, custom: {...} }`,
  * the shape `customers.interaction` audit entries store). Mirrors the exact rule
  * {@link isEmailHiddenFrom} enforces on live CRM reads. `custom` is a sibling of
@@ -76,33 +96,49 @@ function isHiddenEmailInteraction(
  * `redactRecordFields` pass over `interaction`.
  */
 function redactInteractionSnapshot(snapshot: unknown, ctx: CustomerAuditRedactionContext): unknown {
-  if (!snapshot || typeof snapshot !== 'object') return snapshot
+  if (!isInteractionSnapshotHidden(snapshot, ctx)) return snapshot
   const record = snapshot as Record<string, unknown>
-  const interaction = record.interaction
-  if (!interaction || typeof interaction !== 'object') return snapshot
-  const interactionRecord = interaction as Record<string, unknown>
-  const personEntityId = typeof interactionRecord.entityId === 'string' ? interactionRecord.entityId : null
-  if (!isHiddenEmailInteraction(interactionRecord, personEntityId, ctx)) return snapshot
+  const interactionRecord = record.interaction as Record<string, unknown>
   const next = { ...record, interaction: redactRecordFields(interactionRecord) }
   if ('custom' in next) next.custom = null
   return next
 }
 
 /**
- * Removes the redacted fields (and their nested `interaction.*` form) from a
- * `changesJson` diff payload so a field-level change row cannot leak content
- * the snapshot redaction already hid.
+ * The command bus (`packages/shared/src/lib/commands/command-bus.ts`) flattens
+ * custom-field snapshot changes into top-level `cf_<name>` diff entries — a
+ * canonical custom-field diff never lands under the `custom`/`interaction.custom`
+ * keys `REDACTED_INTERACTION_FIELDS` names, so it needs its own check.
+ */
+function isCustomFieldChangeKey(key: string): boolean {
+  return key.startsWith('cf_')
+}
+
+function shouldRedactChangeKey(key: string): boolean {
+  if (isCustomFieldChangeKey(key)) return true
+  const bareKey = key.startsWith('interaction.') ? key.slice('interaction.'.length) : key
+  return isCustomFieldChangeKey(bareKey) || REDACTED_INTERACTION_FIELDS.includes(bareKey)
+}
+
+/**
+ * Removes the redacted fields — content fields, their nested `interaction.*`
+ * form, and canonical `cf_*` custom-field diffs — from a `changesJson` diff
+ * payload so a field-level change row cannot leak content the snapshot
+ * redaction already hid. Callers only invoke this once the interaction is
+ * confirmed hidden from the viewer (see {@link redactCustomerAuditEntry}); an
+ * authorized or non-email change history is returned untouched.
  */
 function redactChanges(changes: unknown): unknown {
   if (!changes || typeof changes !== 'object') return changes
   const record = { ...(changes as Record<string, unknown>) }
-  for (const field of REDACTED_INTERACTION_FIELDS) {
-    delete record[field]
-    delete record[`interaction.${field}`]
+  for (const key of Object.keys(record)) {
+    if (shouldRedactChangeKey(key)) delete record[key]
   }
   if (record.interaction && typeof record.interaction === 'object') {
     const nested = { ...(record.interaction as Record<string, unknown>) }
-    for (const field of REDACTED_INTERACTION_FIELDS) delete nested[field]
+    for (const key of Object.keys(nested)) {
+      if (shouldRedactChangeKey(key)) delete nested[key]
+    }
     record.interaction = nested
   }
   return record
@@ -164,11 +200,17 @@ export function redactCustomerAuditEntry<T extends RedactableAuditEntry>(
   ctx: CustomerAuditRedactionContext,
 ): T {
   if (entry.resourceKind === 'customers.interaction') {
+    // Apply the same before/after privacy decision to the diff: a hidden email on
+    // either side of the change must not leak its content through `changesJson`,
+    // but an authorized or non-email change history (a call-title edit, a shared
+    // email edit, the author's own private email edit) keeps its real diff.
+    const hidden = isInteractionSnapshotHidden(entry.snapshotBefore, ctx)
+      || isInteractionSnapshotHidden(entry.snapshotAfter, ctx)
     return {
       ...entry,
       snapshotBefore: redactInteractionSnapshot(entry.snapshotBefore, ctx),
       snapshotAfter: redactInteractionSnapshot(entry.snapshotAfter, ctx),
-      changesJson: redactChanges(entry.changesJson),
+      changesJson: hidden ? redactChanges(entry.changesJson) : entry.changesJson,
     }
   }
   if (entry.resourceKind === 'customers.person' || entry.resourceKind === 'customers.company') {

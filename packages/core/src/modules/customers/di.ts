@@ -7,6 +7,7 @@ import { createCalendarEventTypeRegistry } from './calendar-event-types'
 import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from './lib/calendar/eventTypeResolver'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
+import { loadCustomerAuditRedactionContext, redactCustomerAuditEntry } from './lib/auditRedaction'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
 // The CRUD factory derives resourceKind via singularize-the-second-segment of
@@ -89,6 +90,13 @@ export function register(container: AppContainer) {
         })
         return resolveCatalogEventType(catalog, input.key)?.behavior ?? null
       },
+    }),
+    // Optional integration point for `audit_logs` (generic infra, never statically
+    // imports CRM business logic — see `packages/core/AGENTS.md` § Cross-Module
+    // Coupling): resolved via a soft `tryResolve`, never a hard dependency.
+    customersAuditRedactionService: asValue({
+      loadContext: loadCustomerAuditRedactionContext,
+      redactEntry: redactCustomerAuditEntry,
     }),
   })
   // `crudMutationGuardService` is registered platform-wide in the shared

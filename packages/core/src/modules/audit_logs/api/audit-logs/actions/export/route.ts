@@ -16,10 +16,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
-import {
-  loadCustomerAuditRedactionContext,
-  redactCustomerAuditEntry,
-} from '@open-mercato/core/modules/customers/lib/auditRedaction'
+import { redactActionLogEntries } from '@open-mercato/core/modules/audit_logs/lib/customersAuditRedaction'
 import { loadAuditLogDisplayMaps } from '../../display'
 import { requireResolvedTenantScope } from '../../readScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -198,22 +195,25 @@ export async function GET(req: Request) {
     throw err
   }
   // The CRM owns private-email visibility (customers/lib/visibilityFilter.ts); the
-  // export must never show MORE than a live CRM read would (#8887).
-  const auditRedactionContext = await loadCustomerAuditRedactionContext(
+  // export must never show MORE than a live CRM read would (#8887). Redaction is an
+  // optional CRM enhancement resolved via DI — this generic route never statically
+  // imports CRM business logic (see `packages/core/AGENTS.md` § Cross-Module Coupling).
+  const entries = await redactActionLogEntries(
+    container,
     em,
     { tenantId: auth.tenantId ?? '', organizationId: organizationId ?? null },
     auth.sub,
+    entriesResult.items,
   )
-  const entries = entriesResult.items.map((entry: any) => redactCustomerAuditEntry(entry, auditRedactionContext))
 
   const { translate } = await resolveTranslations()
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: entries.map((entry: any) => entry.actorUserId).filter((value: any): value is string => Boolean(value)),
-    tenantIds: entries.map((entry: any) => entry.tenantId).filter((value: any): value is string => Boolean(value)),
-    organizationIds: entries.map((entry: any) => entry.organizationId).filter((value: any): value is string => Boolean(value)),
+    userIds: entries.map((entry) => entry.actorUserId).filter((value): value is string => Boolean(value)),
+    tenantIds: entries.map((entry) => entry.tenantId).filter((value): value is string => Boolean(value)),
+    organizationIds: entries.map((entry) => entry.organizationId).filter((value): value is string => Boolean(value)),
   }, { translate })
 
-  const rows = entries.flatMap((entry: any) => {
+  const rows = entries.flatMap((entry) => {
     const actionType = deriveActionLogActionType(entry)
     const actionLabel = actionType === 'system'
       ? entry.actionLabel ?? 'System'
