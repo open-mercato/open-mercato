@@ -148,8 +148,9 @@ COPY eslint.config.mjs ./
 
 
 # Build the app
-# Limit Node.js heap to 4GB and reduce worker count to avoid OOM in constrained Docker environments
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+# Limit the actual Next.js child heap to 4GB in constrained Docker environments.
+ENV NODE_OPTIONS="--max-old-space-size=4096" \
+    OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"
 RUN yarn build
 
 # Dev prebuild stage: install + build at NATIVE VM filesystem speed.
@@ -267,7 +268,8 @@ COPY eslint.config.mjs ./
 # build -> generate (writes packages/core/generated/) -> rebuild so core picks
 # up dist/generated — the same sequence dev-entrypoint.sh runs, done once here.
 # `yarn generate` degrades gracefully without a database (skips cache purge).
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV NODE_OPTIONS="--max-old-space-size=4096" \
+    OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"
 RUN yarn build:packages && yarn generate && yarn build:packages
 
 # Dev stage: lean runtime + /opt/prebuilt artifacts for volume seeding.
