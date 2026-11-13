@@ -354,7 +354,7 @@ Proposed clickable prototype (pending, not accepted): [`.ai/prototypes/per-tenan
 |---|---|
 | Provider throws / DB down while rendering a shell | Resolver catches, `reportError`, returns `null` → platform defaults; 30 s circuit avoids hammering. |
 | Stored `style` fails schema (e.g. after a contrast rule tightens) | Resolver drops `style`; logos/name still apply; settings page shows the failing pairs so the admin can fix. |
-| Admin saves, other app instances still cached | Cache invalidated by tag `tenant:{id}` through the shared DI cache (Redis/SQLite strategies are shared across instances); with the per-process memory strategy staleness is bounded by the 300 s TTL. |
+| Admin saves, other app instances still cached | Cache invalidated by tag `tenant-branding:{tenantId}` (never the shared `tenant:{id}` tag) through the shared DI cache (Redis/SQLite strategies are shared across instances); with the per-process memory strategy staleness is bounded by the 300 s TTL. |
 | Huge upload | Client rejects > 256 KB; server rejects body > 1 MB (413) and decoded > 256 KB (422). |
 | MIME spoofing (HTML labelled `image/png`) | Magic-byte check → 422; route also sends `nosniff` + sandbox CSP. |
 | Unknown / malformed `?tenant=` on login | Not a UUID → ignored; unknown tenant → `null` → platform defaults; no distinct error. |
@@ -473,3 +473,6 @@ Unit suites: `packages/shared/src/lib/branding/__tests__/*`, `packages/enterpris
 - **Cache**: Fixed — module-specific `tenant-branding:{tenantId}` tag; `varyByOrganization` added to the key contract.
 - **Commands**: Fixed — undo snapshots carry asset ids, not base64.
 - **Verdict**: Approved for implementation review
+
+### Re-review — 2026-11-13
+- **Cache**: Aligned the multi-instance edge-case row with the resolver and command contracts: invalidate `tenant-branding:{tenantId}`, never the shared `tenant:{id}` tag. Addresses the requested change from @haxiorz.
