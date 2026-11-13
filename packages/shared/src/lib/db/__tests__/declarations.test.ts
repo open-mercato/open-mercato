@@ -78,3 +78,16 @@ it('propagates storage provisioning failure before attempting later providers', 
   await expect(provisionDeclaredDatabaseStorage({ query: async () => undefined })).rejects.toThrow('storage failed')
   expect(later).not.toHaveBeenCalled()
 })
+
+it('requires an owner validator for explicit binding checks and propagates its refusal or outage', async () => {
+  const { validateDeclaredDatabaseBinding } = await import('../declarations')
+  const identity = { context: { kind: 'tenant' as const, tenantId, source: 'public-token' as const }, organization: { id: 'org' } }
+  expect(await validateDeclaredDatabaseBinding(identity, { requireValidator: true })).toBe(false)
+  const validate = jest.fn(async () => false)
+  registerDatabaseModuleDeclarations([{ moduleId: 'owner', declarations: { bindingValidators: [validate] } }])
+  expect(await validateDeclaredDatabaseBinding(identity, { requireValidator: true })).toBe(false)
+  validate.mockResolvedValueOnce(true)
+  expect(await validateDeclaredDatabaseBinding(identity, { requireValidator: true })).toBe(true)
+  validate.mockRejectedValueOnce(new Error('[internal] owner unavailable'))
+  await expect(validateDeclaredDatabaseBinding(identity, { requireValidator: true })).rejects.toThrow('owner unavailable')
+})

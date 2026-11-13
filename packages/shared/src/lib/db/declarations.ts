@@ -72,10 +72,15 @@ export async function resolveDeclaredDatabaseRequestContext(input: DatabaseReque
   if (providers.length > 1) throw new Error('[internal] Ambiguous database request identity providers')
   const identity = await providers[0]?.resolve(input)
   if (!identity) return { kind: 'identity', tenantId: null, source: 'identity', operation: 'unauthenticated-request' }
-  for (const validator of [...declarations().values()].flatMap((entry) => entry.bindingValidators ?? [])) {
-    if (!await validator(identity)) return { kind: 'identity', tenantId: null, source: 'identity', operation: 'invalid-request-binding' }
-  }
+  if (!await validateDeclaredDatabaseBinding(identity)) return { kind: 'identity', tenantId: null, source: 'identity', operation: 'invalid-request-binding' }
   return identity.context
+}
+
+export async function validateDeclaredDatabaseBinding(identity: DatabaseRequestIdentity, options: Readonly<{ requireValidator?: boolean }> = {}): Promise<boolean> {
+  const validators = [...declarations().values()].flatMap((entry) => entry.bindingValidators ?? [])
+  if (options.requireValidator && validators.length === 0) return false
+  for (const validator of validators) if (!await validator(identity)) return false
+  return true
 }
 
 export function databaseJobTenantContext(tenantId: unknown, operation: string): DatabaseExecutionContext {

@@ -4,12 +4,12 @@ import { registerDatabaseRuntimeAdapter, type DatabaseExecutionContext } from '@
 import { hasPersistedWorkspace, runOnboardingIdentity, runOnboardingTenant, withOnboardingTimeout } from '../modules/onboarding/lib/tenant-continuation'
 import { OnboardingRequest } from '../modules/onboarding/data/entities'
 
-const findOne = jest.fn()
+const validateBinding = jest.fn()
 const storage = new AsyncLocalStorage<{ context: DatabaseExecutionContext; active: boolean }>()
 const containers: unknown[] = []
 
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: (...args: unknown[]) => findOne(...args),
+jest.mock('@open-mercato/shared/lib/db/declarations', () => ({
+  validateDeclaredDatabaseBinding: (...args: unknown[]) => validateBinding(...args),
 }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => {
@@ -41,14 +41,16 @@ beforeEach(() => { jest.clearAllMocks(); containers.length = 0 })
 
 it('requires a live persisted tenant and its matching organization', async () => {
   const request = Object.assign(new OnboardingRequest(), { tenantId: 'tenant-a', organizationId: 'org-a' })
-  findOne.mockResolvedValueOnce({ id: 'tenant-a' }).mockResolvedValueOnce(null)
+  validateBinding.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
   expect(await hasPersistedWorkspace({} as EntityManager, request)).toBe(false)
-  expect(findOne).toHaveBeenLastCalledWith({}, 'Organization', {
-    id: 'org-a', tenant: 'tenant-a', isActive: true, deletedAt: null,
-  })
-  findOne.mockResolvedValueOnce(null)
+  expect(validateBinding).toHaveBeenCalledWith({
+    context: { kind: 'tenant', tenantId: 'tenant-a', source: 'public-token', operation: 'onboarding-binding' },
+    organization: { id: 'org-a' },
+  }, { requireValidator: true })
+  expect(await hasPersistedWorkspace({} as EntityManager, request)).toBe(true)
+  request.deletedAt = new Date()
   expect(await hasPersistedWorkspace({} as EntityManager, request)).toBe(false)
-  expect(findOne).toHaveBeenCalledTimes(3)
+  expect(validateBinding).toHaveBeenCalledTimes(2)
 })
 
 it('constructs each continuation container under its own live tenant invocation', async () => {
