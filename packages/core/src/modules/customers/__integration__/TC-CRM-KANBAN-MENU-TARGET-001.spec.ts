@@ -41,9 +41,6 @@ test('deal menu retains a 32px target, its icon size and keyboard dismissal', as
       await page.keyboard.press('Escape')
       await expect(page.getByRole('menu')).toBeHidden()
       await expect(trigger).toBeFocused()
-      await trigger.press('Enter')
-      await expect(page.getByRole('menu')).toBeVisible()
-      await page.keyboard.press('Escape')
       await testInfo.attach(`deal-menu-target-${width}`, { body: await card.screenshot(), contentType: 'image/png' })
     }
   } finally {

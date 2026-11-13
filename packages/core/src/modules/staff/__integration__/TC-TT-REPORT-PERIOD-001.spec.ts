@@ -22,7 +22,7 @@ test('report periods show distinct complete end dates on desktop and narrow scre
     cleanup.unshift({ path: '/api/customers/companies', id: customerId })
     const staffMemberId = await createRecord(request, '/api/staff/team-members', { displayName: name })
     const projectId = await createRecord(request, '/api/staff/timesheets/time-projects', {
-      name, customerId, status: 'active', currencyCode: 'EUR', billableByDefault: true,
+      name, code: `QA-RP-${Date.now()}`, customerId, status: 'active', currencyCode: 'EUR', billableByDefault: true,
     })
     const assignment = await apiRequest(request, 'POST', `/api/staff/timesheets/time-projects/${projectId}/employees`, {
       token, data: { staffMemberId, status: 'active', assignedStartDate: '2026-09-01' },
