@@ -4865,6 +4865,7 @@ const FieldControl = React.memo(function FieldControlImpl({
     field.type === 'text' ||
     field.type === 'password' ||
     field.type === 'number' ||
+    field.type === 'decimal' ||
     field.type === 'textarea' ||
     field.type === 'combobox' ||
     (field.type === 'select' && !builtin?.multiple)
