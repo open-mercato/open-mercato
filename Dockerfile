@@ -148,9 +148,11 @@ COPY eslint.config.mjs ./
 
 
 # Build the app
-# Limit the actual Next.js child heap to 4GB in constrained Docker environments.
+# Preserve the historical 8 GiB Next.js heap, including its TypeScript worker.
+# Operators may select another explicit web-build cap for their builder resources.
+ARG OM_BUILD_NODE_OPTIONS="--max-old-space-size=8192"
 ENV NODE_OPTIONS="--max-old-space-size=4096" \
-    OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"
+    OM_BUILD_NODE_OPTIONS=${OM_BUILD_NODE_OPTIONS}
 RUN yarn build
 
 # Dev prebuild stage: install + build at NATIVE VM filesystem speed.

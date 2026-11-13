@@ -4,6 +4,12 @@ The app Dockerfile's shared `recovery-tools` stage supplies Node24 and `psql`, `
 
 Corporate public root CAs in `docker/certs/*.crt`/`*.pem` are trusted before client downloads; the runtime retains `NODE_EXTRA_CA_CERTS`. `ALPINE_MIRROR` selects an explicitly reviewed internal mirror. No installer runs from an operator CLI command, and no TLS checks are disabled.
 
+## Web build memory
+
+The separate web `builder` stage retains the application's historical 8192 MiB Node heap for Next.js and its TypeScript worker. The full monorepo type-checking program can exceed a 4096 MiB heap; a lower cap can fail with a JavaScript heap error even after frontend compilation succeeds. Provide builder memory beyond the heap for native/compiler overhead.
+
+`--build-arg OM_BUILD_NODE_OPTIONS=--max-old-space-size=8192` explicitly selects the web-build default; an operator may choose another cap for adequately provisioned builder resources. This setting never skips type checking. The package-only `dev-build`/maintenance graph retains its existing resource settings and does not run the Next UI build, so it is unaffected by this web-stage argument.
+
 ## Select a prebuilt runtime and the correct stack
 
 Build the self-contained operator image explicitly. The `maintenance` target compiles framework packages and generates the application CLI/DI registry without building the Next.js web UI:

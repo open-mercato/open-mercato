@@ -50,3 +50,19 @@ test('standalone maintenance uses generated published modules before the separat
   assert.match(maintenance, /ENTRYPOINT \["\/usr\/local\/bin\/om-recovery"\]/)
   assert.match(maintenance, /CMD \["node", "\/app\/node_modules\/@open-mercato\/enterprise\/bin\/mercato-backup\.mjs", "--help"\]/)
 })
+
+test('web builders retain the 8 GiB Next TypeScript heap with an explicit build-argument override', () => {
+  const template = fs.readFileSync(path.join(repositoryRoot, 'packages/create-app/template/Dockerfile'), 'utf8')
+  for (const source of [dockerfile, template]) {
+    const web = stage(source, 'builder')
+    assert.match(web, /ARG OM_BUILD_NODE_OPTIONS="--max-old-space-size=8192"/)
+    assert.match(web, /OM_BUILD_NODE_OPTIONS=\$\{OM_BUILD_NODE_OPTIONS\}/)
+    assert.match(web, /RUN (?:NODE_ENV=production )?yarn build\b/)
+    assert.doesNotMatch(web, /OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"/)
+  }
+  const packages = stage(dockerfile, 'dev-build')
+  assert.match(packages, /OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"/)
+  assert.match(packages, /RUN yarn build:packages && yarn generate && yarn build:packages/)
+  assert.doesNotMatch(stage(dockerfile, 'maintenance'), /OM_BUILD_NODE_OPTIONS|next build/)
+  assert.doesNotMatch(stage(template, 'module-build'), /OM_BUILD_NODE_OPTIONS|next build/)
+})

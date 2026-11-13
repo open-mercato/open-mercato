@@ -64,7 +64,9 @@ COPY . .
 RUN yarn generate
 
 FROM module-build AS builder
-ENV OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"
+# Match the main app web-build heap; package-only maintenance does not use this stage.
+ARG OM_BUILD_NODE_OPTIONS="--max-old-space-size=8192"
+ENV OM_BUILD_NODE_OPTIONS=${OM_BUILD_NODE_OPTIONS}
 RUN NODE_ENV=production yarn build
 
 FROM recovery-tools AS dev
