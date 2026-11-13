@@ -23,17 +23,22 @@ The earlier `stabilize/main-2026-11-13` branch belongs to closed PR #9425. Prese
 ### Phase 3: Publish outcome
 3.1 Update evidence, release claim, promote the draft when complete, and apply automerge only after all CI and review gates pass.
 
+## Validation evidence
+
+Runner: local (no configured compose app running). Immutable install completed. Combobox unit/dialog suites: 45 tests passed. Existing ci-full selection regressions: 25 tests passed. No DS token, appearance, or public contract change.
+
 ## Risks
 Full suite may reveal additional failures after the compile blocker. UI changes require QA evidence and retain the QA merge gate. Remote CI is authoritative for runner-dependent checks. No production or base-branch mutations are authorized or planned. Local runner selection must follow the repository probe.
 
 ## Progress
+PR: #9455
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and repair
 
 - [ ] 1.1 Independently audit main failure history and existing full-suite selection
-- [ ] 1.2 Repair duplicate ComboboxInput declarations with regression coverage
+- [x] 1.2 Repair duplicate ComboboxInput declarations with regression coverage — 8d916f51fe
 
 ### Phase 2: Validate and review
 
