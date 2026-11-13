@@ -1,0 +1,26 @@
+{
+  "checks": [
+    {
+      "kind": "form",
+      "id": "ed9cb2d2-f4bb-4c0c-aa49-a948da7dc9e9",
+      "status": "archived",
+      "readback": 200
+    },
+    {
+      "kind": "auth/users",
+      "id": "91a1ed80-fbe5-4290-b516-021205a72b48",
+      "absentFromActiveList": true
+    },
+    {
+      "kind": "auth/users",
+      "id": "988f2d45-4a05-4ba8-9495-4ab6047d0a74",
+      "absentFromActiveList": true
+    },
+    {
+      "kind": "auth/roles",
+      "id": "8a0efc3d-0741-44c0-a0a6-34d27dacc939",
+      "absentFromActiveList": true
+    }
+  ],
+  "notes": "DELETE200 verified in browser session; form archives by contract and remains GET200/status archived, users and role absent from active lists. Initial404 expectation corrected."
+}
