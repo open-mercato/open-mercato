@@ -10,7 +10,7 @@ Maintainer Piotr Karwatka (@pkarw) approved the emergency security exception on 
 The existing setup service and customer credential schemas accept new passwords that fail the configured shared policy. A caller can create or replace a credential with a value prohibited by that policy. The existing PR closes those write paths; it does not rotate or invalidate stored credentials.
 
 ## Proposed Solution and Architecture
-Use `buildPasswordSchema` before hashing or persistence in setup, validate explicit derived-account overrides, and use the shared schema for customer signup, invitation acceptance, password reset, password change, admin creation and admin reset. Keep the existing customer bounds of at least eight and at most 128 characters. Keep non-production disposable CLI demo bypasses and the trusted prehashed-import path. No data model, route name, ACL, event, dependency, or UI architecture changes.
+Use `buildPasswordSchema` before hashing or persistence in setup, validate explicit derived-account overrides, and use the shared schema for customer signup, invitation acceptance, password reset, password change, admin creation and admin reset. Keep the existing customer bounds of at least eight and at most 128 characters. Keep non-production disposable CLI demo bypasses and the trusted prehashed-import path. The init command leaves absent development derived-password overrides absent, so disposable defaults are not misclassified as explicit inputs. Production init generates policy-compliant derived credentials before forwarding them to setup. No data model, route name, ACL, event, dependency, or UI architecture changes.
 
 ## Migration & Backward Compatibility
 **Emergency security exception approved by Piotr Karwatka (@pkarw) on 2026-11-13.** The production-bootstrap exception in `2026-11-06-production-bootstrap-credentials.md` explicitly excludes direct `auth setup` and customer API contracts and cannot be reused here.
@@ -31,3 +31,4 @@ Source changes retain shared mechanisms and introduce no schema or dependency ch
 - 2026-11-12: Recorded the existing PR implementation, precise contract scope, proposed security-exception argument and pending maintainer decision.
 
 - 2026-11-13: Recorded Piotr Karwatka’s scoped security-exception approval; validation and QA gates retained.
+- 2026-11-13: Repaired init credential forwarding so development defaults remain disposable and generated production derived credentials satisfy the configured policy.

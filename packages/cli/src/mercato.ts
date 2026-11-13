@@ -1264,12 +1264,13 @@ export async function run(argv = process.argv) {
       }
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
+      const isProduction = (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
-      if (!skipDemoUsers && adminEmailDerived && derivedSecrets.adminPassword) {
+      if (!skipDemoUsers && isProduction && adminEmailDerived && derivedSecrets.adminPassword) {
         process.env.OM_INIT_ADMIN_PASSWORD = derivedSecrets.adminPassword
       }
-      if (!skipDemoUsers && employeeEmailDerived && derivedSecrets.employeePassword) {
+      if (!skipDemoUsers && isProduction && employeeEmailDerived && derivedSecrets.employeePassword) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
       // Symmetrical with the passwords above: setupInitialTenant derives admin/employee

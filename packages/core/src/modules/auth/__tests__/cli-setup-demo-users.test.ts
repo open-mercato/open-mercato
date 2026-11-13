@@ -230,6 +230,33 @@ describe('mercato auth setup --include-demo-users', () => {
     },
   )
 
+  it('keeps development bootstrap demo logins usable', async () => {
+    const bcrypt = await import('bcryptjs')
+    process.env.NODE_ENV = 'development'
+    await setupCommand.run([
+      '--orgName', 'Acme', '--email', 'superadmin@acme.com', '--password', 'secret',
+      '--skip-password-policy', '--include-demo-users',
+    ])
+    expect(process.exitCode).toBeUndefined()
+    expect(persistedUsers.map((user) => user.email).sort()).toEqual([
+      'admin@acme.com', 'employee@acme.com', 'superadmin@acme.com',
+    ])
+    for (const user of persistedUsers) {
+      expect(await bcrypt.compare('secret', user.passwordHash!)).toBe(true)
+    }
+  })
+
+  it.each(['OM_INIT_ADMIN_PASSWORD', 'OM_INIT_EMPLOYEE_PASSWORD'])(
+    'rejects user-supplied weak %s in development',
+    async (key) => {
+      process.env.NODE_ENV = 'development'
+      process.env[key] = 'secret'
+      await expect(setupCommand.run([...BASE_ARGS, '--include-demo-users']))
+        .rejects.toThrow('Password does not meet the requirements.')
+      expect(persistedUsers).toHaveLength(0)
+    },
+  )
+
   it('rejects a weak plaintext password from a direct setup caller', async () => {
     const { setupInitialTenant } = await import('@open-mercato/core/modules/auth/lib/setup-app')
     const em = createTransactionalEntityManagerDouble({ findOne, findOneOrFail, create, find, persist, flush })

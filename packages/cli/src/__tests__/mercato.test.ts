@@ -1153,6 +1153,74 @@ describe('init command failure output', () => {
     }
   })
 
+  it('keeps development demo defaults out of explicit password overrides', async () => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    process.env.NODE_ENV = 'development'
+    delete process.env.OM_INIT_ADMIN_PASSWORD
+    delete process.env.OM_INIT_EMPLOYEE_PASSWORD
+    const authSetup = jest.fn().mockImplementation(async () => {
+      expect(process.env.OM_INIT_ADMIN_PASSWORD).toBeUndefined()
+      expect(process.env.OM_INIT_EMPLOYEE_PASSWORD).toBeUndefined()
+    })
+    mockInitDependencies({ authSetup })
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init'])).toBe(0)
+      expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--include-demo-users', '--skip-password-policy']))
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
+  it('preserves explicitly configured development derived passwords', async () => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    process.env.NODE_ENV = 'development'
+    process.env.OM_INIT_ADMIN_PASSWORD = 'Custom-Admin-937!'
+    process.env.OM_INIT_EMPLOYEE_PASSWORD = 'Custom-Employee-937!'
+    const authSetup = jest.fn().mockImplementation(async () => {
+      expect(process.env.OM_INIT_ADMIN_PASSWORD).toBe('Custom-Admin-937!')
+      expect(process.env.OM_INIT_EMPLOYEE_PASSWORD).toBe('Custom-Employee-937!')
+    })
+    mockInitDependencies({ authSetup })
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init'])).toBe(0)
+      expect(authSetup).toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
+  it.each(['production', 'PRODUCTION', ' production '])('forwards policy-compliant derived passwords with NODE_ENV=%s', async (nodeEnvironment) => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    process.env.NODE_ENV = nodeEnvironment
+    process.env.OM_PASSWORD_MIN_LENGTH = '32'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'Unique-Owner-937!'.repeat(3)
+    delete process.env.OM_INIT_ADMIN_PASSWORD
+    delete process.env.OM_INIT_EMPLOYEE_PASSWORD
+    const authSetup = jest.fn().mockImplementation(async () => {
+      const { buildPasswordSchema } = await import('@open-mercato/shared/lib/auth/passwordPolicy')
+      for (const password of [process.env.OM_INIT_ADMIN_PASSWORD, process.env.OM_INIT_EMPLOYEE_PASSWORD]) {
+        expect(buildPasswordSchema().safeParse(password).success).toBe(true)
+      }
+    })
+    mockInitDependencies({ authSetup })
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init'])).toBe(0)
+      expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--include-demo-users']))
+      expect(authSetup.mock.calls[0][0]).not.toContain('--skip-password-policy')
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
   it('passes --include-demo-users to auth setup by default', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
