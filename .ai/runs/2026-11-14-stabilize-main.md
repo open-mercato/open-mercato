@@ -43,14 +43,20 @@ Non-goals: speculative fixes, changes to public contracts, production operations
 
 Runner: GitHub Actions for the full suite. For evidence-only changes the local gate is a manual diff review; configured commands contain no docs linter. Targeted workflow regression tests will run locally if dependencies are available. If code changes become necessary, run the configured ordered validation gate or document a concrete environment blocker.
 
+## Evidence
+
+- Independent read-only audit `ea30054c-3fc8-4c18-9c4d-f4aa11bfdf00` confirmed no demonstrated CI or scope/concurrency defect. The parent re-read its evidence, verified the branch contains no child edits, and re-ran the two audit-named workflow tests (28/28 passed). No child branch was merged.
+
 ## Progress
+
+PR: #9497
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence and visibility
 
-- [ ] 1.1 Record the baseline and open the dedicated draft PR
-- [ ] 1.2 Dispatch an independent read-only audit of main CI and full-suite selection
+- [x] 1.1 Record the baseline and open the dedicated draft PR — 4459de1752
+- [x] 1.2 Dispatch an independent read-only audit of main CI and full-suite selection — 4459de1752
 
 ### Phase 2: Stabilize and verify
 
