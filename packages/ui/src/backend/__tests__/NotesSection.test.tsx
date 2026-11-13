@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { NotesSection, type NotesDataAdapter } from '../detail/NotesSection'
 import { dismissRecordConflict, getRecordConflictForTest } from '../conflicts'
@@ -396,6 +396,53 @@ describe('NotesSection', () => {
       const plain = screen.getByText('Warehouse A')
       expect(plain.closest('a')).toBeNull()
     })
+  })
+
+  it.each(['optimistic_lock_conflict', 'record_lock_conflict'])('keeps %s out of the content editor after surfacing its banner', async (code) => {
+    const conflict = Object.assign(new Error('record_modified'), {
+      status: 409,
+      body: { code, error: 'record_modified', currentUpdatedAt: '2026-06-02T00:00:00.000Z', expectedUpdatedAt: '2026-06-01T00:00:00.000Z' },
+    })
+    const adapter = createDataAdapter()
+    adapter.update = jest.fn(async () => { throw conflict })
+    renderWithProviders(<NotesSection {...baseProps(adapter)} disableMarkdown />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing note' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited note' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(adapter.update).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getRecordConflictForTest()).not.toBeNull())
+    expect(screen.queryByText('record_modified')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('Edited note')
+  })
+
+  it('keeps optimistic conflicts out of the appearance dialog after surfacing its banner', async () => {
+    const conflict = Object.assign(new Error('record_modified'), {
+      status: 409,
+      body: { code: OPTIMISTIC_LOCK_CONFLICT_CODE, error: 'record_modified', currentUpdatedAt: '2026-06-02T00:00:00.000Z', expectedUpdatedAt: '2026-06-01T00:00:00.000Z' },
+    })
+    const adapter = createDataAdapter()
+    adapter.update = jest.fn(async () => { throw conflict })
+    const { container } = renderWithProviders(<NotesSection {...baseProps(adapter)} disableMarkdown />)
+    await screen.findByText('Existing note')
+    const trigger = container.querySelector('svg.lucide-palette')?.closest('button')
+    expect(trigger).toBeInstanceOf(HTMLButtonElement)
+    fireEvent.click(trigger as HTMLButtonElement)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.keyDown(dialog, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(adapter.update).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getRecordConflictForTest()).not.toBeNull())
+    expect(within(dialog).queryByText('record_modified')).not.toBeInTheDocument()
+  })
+
+  it('preserves ordinary inline validation errors', async () => {
+    const adapter = createDataAdapter()
+    adapter.update = jest.fn(async () => { throw new Error('Validation refused') })
+    renderWithProviders(<NotesSection {...baseProps(adapter)} disableMarkdown />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing note' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited note' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ctrlKey: true })
+    expect(await screen.findByText('Validation refused')).toBeInTheDocument()
+    expect(getRecordConflictForTest()).toBeNull()
   })
 
   it('surfaces the unified conflict bar when a write fails with a 409', async () => {
