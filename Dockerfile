@@ -272,6 +272,16 @@ ENV NODE_OPTIONS="--max-old-space-size=4096" \
     OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"
 RUN yarn build:packages && yarn generate && yarn build:packages
 
+# Self-contained operator CLI image; package compilation and generation only, no Next UI build.
+FROM recovery-tools AS maintenance
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+COPY --from=dev-build --chown=1001:1001 /app /app
+USER 1001:1001
+WORKDIR /app/apps/mercato
+ENTRYPOINT ["/usr/local/bin/om-recovery"]
+CMD ["node", "/app/packages/enterprise/bin/mercato-backup.mjs", "--help"]
+
 # Dev stage: lean runtime + /opt/prebuilt artifacts for volume seeding.
 # Stage-to-stage COPY keeps a SINGLE copy of node_modules in the final image
 # (moving it within one stage would double the layer size).

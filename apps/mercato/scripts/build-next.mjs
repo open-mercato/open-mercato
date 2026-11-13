@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const child = spawn(process.execPath, [require.resolve('next/dist/bin/next'), 'build', ...process.argv.slice(2)], {
   stdio: 'inherit',
-  env: { ...process.env, NODE_OPTIONS: process.env.OM_BUILD_NODE_OPTIONS ?? '--max-old-space-size=8192' },
+  env: { ...process.env, NODE_ENV: 'production', NODE_OPTIONS: process.env.OM_BUILD_NODE_OPTIONS ?? '--max-old-space-size=8192' },
 })
 const signals = ['SIGINT', 'SIGTERM', 'SIGHUP']
 const forward = (signal) => child.kill(signal)

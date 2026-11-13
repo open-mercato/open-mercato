@@ -28,7 +28,7 @@ ENV OM_BACKUP_BINARIES_DIR=/usr/libexec/postgresql${POSTGRES_CLIENT_MAJOR} \
 COPY docker/scripts/recovery-entrypoint.sh /usr/local/bin/om-recovery
 RUN chmod 0755 /usr/local/bin/om-recovery
 
-FROM recovery-tools AS builder
+FROM recovery-tools AS module-build
 
 # Module registration is generated at build time; keep OSS defaults disabled.
 ARG OM_ENABLE_ENTERPRISE_MODULES=false
@@ -62,6 +62,8 @@ RUN yarn install
 
 COPY . .
 RUN yarn generate
+
+FROM module-build AS builder
 ENV OM_BUILD_NODE_OPTIONS="--max-old-space-size=4096"
 RUN NODE_ENV=production yarn build
 
@@ -108,6 +110,16 @@ RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 
 EXPOSE 3000 4101
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
+
+# Published framework dependencies and generated registry, without compiling the Next UI.
+FROM recovery-tools AS maintenance
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+COPY --from=module-build --chown=1001:1001 /app /app
+USER 1001:1001
+WORKDIR /app
+ENTRYPOINT ["/usr/local/bin/om-recovery"]
+CMD ["node", "/app/node_modules/@open-mercato/enterprise/bin/mercato-backup.mjs", "--help"]
 
 FROM recovery-tools AS runner
 
