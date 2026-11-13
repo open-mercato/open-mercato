@@ -2192,6 +2192,7 @@ export type CompanyOverview = {
       direction: 'up' | 'down' | 'unchanged'
     } | null
     ltvValue: number | null
+    ltvCurrency?: string | null
     completedDealsCount: number
     clientTenureYears: number | null
   }

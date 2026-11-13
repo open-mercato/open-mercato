@@ -23,10 +23,20 @@ const mockEm = {
   })),
 }
 
+const mockBaseCurrencyService = {
+  resolveBaseCurrency: jest.fn(),
+}
+
+let mockBaseCurrencyRegistered = false
+
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'rbacService') return { getGrantedFeatures: async () => ['customers.*'] }
+    if (token === 'baseCurrencyService') {
+      if (!mockBaseCurrencyRegistered) throw new Error('[internal] baseCurrencyService is not registered')
+      return mockBaseCurrencyService
+    }
     return null
   }),
 }
@@ -158,6 +168,8 @@ describe('GET /api/customers/companies/[id] — deal KPI status vocabulary (#466
     mockEm.count.mockReset()
     mockEm.count.mockResolvedValue(0)
     mockContainer.resolve.mockClear()
+    mockBaseCurrencyRegistered = false
+    mockBaseCurrencyService.resolveBaseCurrency.mockReset()
 
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -238,3 +250,154 @@ describe('GET /api/customers/companies/[id] — deal KPI status vocabulary (#466
     expect(kpis.ltvValue).toBeNull()
   })
 })
+
+// Regression for issue #8242: with no deal to read a currency from, the KPI bar fell back to a
+// hard-coded PLN. The route now reports the organization's base currency instead.
+describe('GET /api/customers/companies/[id] — deal KPI currency fallback (#8242)', () => {
+  beforeEach(() => {
+    jest.resetModules()
+    mockGetAuthFromRequest.mockReset()
+    mockFindWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockReset()
+    mockEm.count.mockReset()
+    mockEm.count.mockResolvedValue(0)
+    mockEm.find.mockReset()
+    mockEm.find.mockResolvedValue([])
+    mockBaseCurrencyRegistered = false
+    mockBaseCurrencyService.resolveBaseCurrency.mockReset()
+
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1', isApiKey: false })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({ filterIds: ['org-1'], selectedId: 'org-1', tenantId: 'tenant-1' })
+    mockResolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: false })
+    mockLoadCustomFieldValues.mockResolvedValue({})
+    mockResolveCompanyCustomFieldRouting.mockResolvedValue({})
+    mockMergeCompanyCustomFieldValues.mockReturnValue({})
+  })
+
+  it('falls back to the company organization base currency when the company has no deals', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.activeDealsCount).toBe(0)
+    expect(kpis.dealCurrency).toBe('USD')
+    expect(mockBaseCurrencyService.resolveBaseCurrency).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1'],
+    })
+  })
+
+  it('keeps the deal currency ahead of the base currency', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([{ id: 'deal-open', status: 'open', valueAmount: '500', valueCurrency: 'EUR' }])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.dealCurrency).toBe('EUR')
+  })
+
+  it('reports no currency when the base currency cannot be resolved', async () => {
+    mockCompany()
+    mockDealLinks([])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.dealCurrency).toBeNull()
+  })
+
+  it('skips a currencyless active deal and uses the next active deal currency', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([
+      { id: 'deal-no-currency', status: 'open', valueAmount: '500', valueCurrency: null },
+      { id: 'deal-eur', status: 'open', valueAmount: '700', valueCurrency: 'EUR' },
+    ])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.activeDealsCount).toBe(2)
+    expect(kpis.dealCurrency).toBe('EUR')
+    expect(mockBaseCurrencyService.resolveBaseCurrency).not.toHaveBeenCalled()
+  })
+
+  it('uses a closed deal currency when no active deal carries one', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([
+      { id: 'deal-open-no-currency', status: 'open', valueAmount: '500', valueCurrency: null },
+      { id: 'deal-won-blank', status: 'win', valueAmount: '300', valueCurrency: '  ' },
+      { id: 'deal-won-gbp', status: 'win', valueAmount: '900', valueCurrency: 'GBP' },
+    ])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.dealCurrency).toBe('GBP')
+    expect(mockBaseCurrencyService.resolveBaseCurrency).not.toHaveBeenCalled()
+  })
+
+  it('treats a blank deal currency as missing and falls back to the base currency', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([{ id: 'deal-blank', status: 'open', valueAmount: '500', valueCurrency: '' }])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.dealCurrency).toBe('USD')
+  })
+
+  it('labels the won total with the won deal currency, not the active deals currency', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([
+      { id: 'deal-won-gbp', status: 'win', valueAmount: '4000', valueCurrency: 'GBP' },
+      { id: 'deal-open-no-currency', status: 'open', valueAmount: '500', valueCurrency: null },
+      { id: 'deal-open-eur', status: 'open', valueAmount: '700', valueCurrency: 'EUR' },
+    ])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.dealCurrency).toBe('EUR')
+    expect(kpis.ltvValue).toBe(4000)
+    expect(kpis.ltvCurrency).toBe('GBP')
+    expect(mockBaseCurrencyService.resolveBaseCurrency).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the base currency for a won total whose deals carry no currency', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([
+      { id: 'deal-open-eur', status: 'open', valueAmount: '700', valueCurrency: 'EUR' },
+      { id: 'deal-won-no-currency', status: 'win', valueAmount: '900', valueCurrency: null },
+    ])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.dealCurrency).toBe('EUR')
+    expect(kpis.ltvCurrency).toBe('USD')
+    expect(mockBaseCurrencyService.resolveBaseCurrency).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports no won-total currency without a base lookup when nothing has been won', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([{ id: 'deal-open-eur', status: 'open', valueAmount: '700', valueCurrency: 'EUR' }])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.ltvValue).toBeNull()
+    expect(kpis.ltvCurrency).toBeNull()
+    expect(mockBaseCurrencyService.resolveBaseCurrency).not.toHaveBeenCalled()
+  })
+})
+
