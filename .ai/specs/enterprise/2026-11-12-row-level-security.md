@@ -80,6 +80,8 @@ The implemented proof covers checkout through database execution; application en
 
 ### Prototype boundaries
 
+The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
+
 - `packages/enterprise/src/lib/rls/poc/poolScope.ts` owns the prototype. It is not exported from the enterprise index, registered in module discovery, installed by DI, or imported by OSS runtime code.
 - `installRlsPoolScope` supports both Promise and callback `pool.connect`; `pool.query` uses the latter. Installation is idempotent. Install after existing pool instrumentation and dispose in reverse order. The live proof uses the application's error handlers, pool instrumentation and resolved timeout defaults.
 - The wrapper runs one setup query per checkout, not one transaction per HTTP request. It preserves current transaction lifecycle and pool limits. Latency overhead must be measured before production acceptance.
@@ -88,6 +90,8 @@ The implemented proof covers checkout through database execution; application en
 - Session tenant state may remain on idle clients. Safety depends on mandatory replacement before **every** reuse, including no-context reuse; removal/disposal is permitted only after traffic drains and pools close. Detached async tasks retain their ALS scope and must not outlive request/job ownership; production jobs establish new explicit contexts.
 
 ### Production bootstrap and scope propagation (planned)
+
+The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
 
 The current singleton factory has no enterprise pre-initialization extension to compose `onPoolCreated`. Do not reach into Kysely private fields, mutate an already initialized dialect or install from late module DI. A future implementation must first land a reviewed, edition-neutral configuration composition seam if one is required; all RLS behavior, scope resolution and policy code must remain in enterprise. This PR changes no OSS factory or public contract. If that seam cannot be supplied without violating the enterprise boundary, production rollout stops at the PoC rather than adding a hidden patch.
 
@@ -101,6 +105,8 @@ Before protected tables are enabled, cover:
 6. No-context behavior: protected-table reads return no rows and writes fail; callers that require a tenant should reject missing scope before DB access to avoid presenting false empty state as normal success.
 
 ## Data Models and policy lifecycle
+
+The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
 
 No production entities, columns, migrations, snapshots or table policies change in this PR. The disposable PoC creates a random schema, restricted login role and synthetic `records(id uuid, tenant_id uuid, label text)` table, then removes them in `finally`. It does not connect to the application database unless an operator explicitly supplies it; instructions require a disposable database.
 
@@ -120,11 +126,15 @@ Maintain an **enterprise-owned manifest** of reviewed tables with policy version
 
 ## API Contracts and UI/UX
 
+The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
+
 No HTTP route, command, ACL feature, event, public export or UI changes in this PR. The source exports are prototype internals under a `poc` path, not a supported consumer API. No screenshot/mockup is applicable to this infrastructure proof.
 
 Production activation must define operator configuration and startup validation before adding it. Validate pool mode, runtime-role privileges and every covered table/policy before serving protected work. No boolean session setting grants superadmin bypass. A superadmin choosing a tenant operates under that tenant; legitimate cross-tenant maintenance uses a separate audited role/path and is not silently carried over to ordinary requests.
 
 ## Migration & Backward Compatibility
+
+The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
 
 `BACKWARD_COMPATIBILITY.md` reviewed. This PR introduces no live schema or shared contracts and changes no existing runtime behavior. Future neutral bootstrap/migration hooks require separate compatibility review and additive integration. Rollout order: establish scope/role plumbing while policies remain disabled; validate entry points and manifest; enable policies on an explicit canary set; expand only after isolation and full application gates pass. Never remove the existing filters.
 
@@ -205,9 +215,49 @@ Activation is explicitly opt-in with `OM_TENANT_RLS=on`; absent/off preserves ex
 
 ### Additive neutral seams and compatibility
 
+Operator migration guidance ships in UPGRADE_NOTES.md and enterprise documentation: generate with tenant_boundaries enabled, provision a standalone restricted login with reviewed grants, configure direct/session mode and a distinct privileged maintenance connection, run the existing db:migrate before startup, validate, then start runtime traffic. Rollback drains work and applies exact-version policy rollback before disabling the adapter. Credentials never appear in examples or reports.
+
 Add `@open-mercato/shared/lib/db/runtime` for process-global registration of one database-runtime adapter and trusted execution-context resolvers. Its interfaces describe connection lifecycle, pool identity/purpose, execution source and tenant identity, plus migration preflight/completion; they contain no RLS policy or enterprise activation decisions. Existing callers get no-op behavior with no adapter. Add calls at concrete primary/independent pool construction, trusted auth/request/job/page/CLI boundaries and the existing migration lifecycle. New exports and optional hooks are additive contracts; existing HTTP/ACL/event/command payloads and database columns do not change.
 
 Registration precedes first pool initialization; reject incompatible or late replacement. Use global symbols for registration, ALS and pool state so duplicated module instances and API/full bootstrap share the same identity. Idempotent same-version registration retains the original adapter and pool ownership; configuration changes require drain/restart. Do not dispose guards until all work drains and pools close. Initializer failure destroys the client and fails startup, rather than leaking a slot or silently returning an unguarded client.
+
+### Concrete neutral runtime contract
+
+Synchronous bootstrap registration installs the adapter; it performs no database I/O. The additive shared contract is:
+
+```ts
+type DatabaseExecutionContext =
+  | Readonly<{ kind: 'tenant'; tenantId: string; source: DatabaseExecutionSource; operation?: string }>
+  | Readonly<{ kind: 'identity'; tenantId: string | null; source: 'identity'; operation?: string }>
+  | Readonly<{ kind: 'maintenance'; tenantId: null; source: 'maintenance' | 'cli' | 'scheduler'; operation: string }>
+type DatabaseInvocation = Readonly<{ token: symbol; isActive(): boolean }>
+type DatabaseContextResolution =
+  | Readonly<{ status: 'resolved'; context: DatabaseExecutionContext; invocation: DatabaseInvocation }>
+  | Readonly<{ status: 'absent' }>
+  | Readonly<{ status: 'unavailable'; error: Error }>
+type DatabasePoolDescriptor = Readonly<{
+  id: string; purpose: 'runtime' | 'maintenance' | 'transport'; tables: readonly string[] | 'primary'
+}>
+type DatabasePoolLifecycle = Readonly<{ ready(): Promise<void>; dispose(): void }>
+type DatabaseRuntimeAdapter = Readonly<{
+  id: string; version: string; configurationKey: string
+  configurePool(pool: object, descriptor: DatabasePoolDescriptor): DatabasePoolLifecycle
+  run<Result>(context: DatabaseExecutionContext, callback: () => Result): Result
+  connectionUrl?(purpose: 'runtime' | 'maintenance', defaultUrl: string): string
+  beforeMigrate?(): Promise<void>
+  afterMigrate?(): Promise<void>
+  recoverMigrationReindex?: boolean
+  storageMode?(descriptor: DatabaseStorageDescriptor): 'provision' | 'validate'
+}>
+```
+
+`DatabaseExecutionSource` is the closed union identity/api/page/portal/public-token/worker/event/scheduler/cli/maintenance. `DatabaseStorageDescriptor` has kind, resolved schema, exact table names and readonly scalar configuration (vector dimensions, index kind and migration table included). A neutral storage registry associates each descriptor with its provisioning implementation; privileged migration completion provisions registered storage through a maintenance connection, while runtime `storageMode` selects validate-only. Shared code never reads enterprise flags or selects a tenant.
+
+The registry is process-global and idempotent only for the same id/version/configurationKey; a different adapter/configuration or registration after a pool initialized throws an internal configuration error. Pool identity/purpose changes are rejected. `configurePool` installs guards synchronously; `ready` is awaited before publishing the initialized singleton. Concurrent `getOrm` calls share one initialization promise, and failure resets it only after closing the failed pool and disposing guards. Client setup/validation failure rejects acquisition and destroys the lease; it never silently falls through. The adapter may not expose protected query acquisition until role/catalog validation succeeds. Initial driver metadata/version queries use a per-pool bootstrap state (never a global exemption), clear tenant state and cannot read protected rows.
+
+`runWithDatabaseExecutionContext` delegates without changing sync/async callback return shape. The enterprise adapter creates a fresh invocation token for each top-level callback; identical nested tenant contexts reuse it, sibling/changed tenants cannot inherit it. Callback completion or rejection revokes ownership; streaming/event callbacks open explicit validated child invocations rather than borrowing a completed request. The resolver returns absent only outside a recognized request or with a verified unauthenticated identity; unavailable errors propagate and must not become an empty tenant result. Query ownership resolves the same request token as checkout, not just the same tenant UUID.
+
+For deferred RSC queries the enterprise request resolver caches canonical identity plus the invocation token in React request cache and registers revocation through Next's public `after` response-completion hook. Route audience comes from server-overwritten proxy pathname and registered page metadata, never an arbitrary tenant header. Both staff/customer cookies may coexist; the actual route's audience chooses which identity to verify. The resolver runs canonical lookups inside an explicit identity bootstrap scope to avoid recursion. Checkout fallback is enabled only after that pool's initial ORM readiness barrier; it does not recursively initialize ORM during driver setup. No raw client capability survives release: every checkout returns a distinct lease facade whose query and release closures capture that generation, even when PostgreSQL reuses the physical client. Retained old facades reject before SQL on both same-tenant and different-tenant recheckout. Tests cover response completion, streaming/cancellation, cold concurrent requests, canonical identity failure, and bound checkout/container counts; an unavailable response-completion hook blocks RSC activation rather than enabling an unrevocable scope.
 
 ### Trusted context propagation and deferred rendering
 
@@ -225,9 +275,9 @@ Capture an immutable scope at acquisition invocation, before waiting for the poo
 
 The first explicit canary is `customer_entities` (resolved application schema), whose non-null UUID tenant column and real people CRUD/commands/indexing/optimistic-lock/browser paths provide full integration evidence. Other customer profile/company/index/custom-field storage remains application-scoped and is explicitly classified as deferred; canary evidence never implies those tables are protected. Maintain an enterprise-owned inventory of known tables with exact tenant column/type/nullability, classification, policy version and rationale. Compare it with both ORM metadata and catalog tenant-bearing tables; new/unclassified tables block activation until reviewed. Mixed/global nullable-tenant tables, identity bootstrap, migration ledgers, transport and search infrastructure have explicit exclusions, not a general wildcard exemption.
 
-Validate non-superuser, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB and NOREPLICATION; inspect reachable role memberships, ownership, effective schema/database CREATE and table TRUNCATE/grant privileges, including PUBLIC/inherited grants. Reject unsupported inheritance/partitions, widening or unexpected policies, unsafe definer execution and ownership topology. Require ENABLE and FORCE RLS plus the exact canonical read/write tenant predicate; do not attempt arbitrary policy-expression equivalence.
+Supported catalog contract: PostgreSQL 16–18, ordinary non-partitioned canary tables without inheritance. Reject unknown server major versions and unsupported topology. The dedicated runtime login has no role memberships (including NOINHERIT/SET ROLE-reachable memberships), which conservatively excludes inherited or assumable owner/bypass roles. Validate non-superuser, NOBYPASSRLS, NOCREATEROLE, NOCREATEDB and NOREPLICATION; inspect reachable role memberships, ownership, effective schema/database CREATE and table TRUNCATE/grant privileges, including PUBLIC/inherited grants. Reject unsupported inheritance/partitions, widening or unexpected policies, unsafe definer execution and ownership topology. Require ENABLE and FORCE RLS and exactly one canonical ALL-command permissive policy for PUBLIC with both USING and WITH CHECK equal to the versioned PostgreSQL-normalized canonical tenant predicate. Reject any other policy, policy role/command drift, accessible dependent owner-rights views or application SECURITY DEFINER function outside an explicit reviewed allowlist. Catalog validation occurs once per pool startup/schema version, never per request; per-checkout scope replacement remains mandatory. Privileged DBA grant/policy mutation after verified startup is outside this omitted-predicate threat model and requires drain/revalidation. Do not attempt arbitrary policy-expression equivalence.
 
-Integrate privileged preflight and idempotent, advisory-locked policy reconciliation into the existing db:migrate lifecycle, after all module schema migrations succeed and before protected reindex work. Run reconciliation even with zero pending migrations; propagate failure. Include an explicit reversible canary migration and snapshot handling, with activation off preserving existing schema behavior. Never apply it to the user's database. Rollback stops traffic, drains/closes pools, reverts only the canary's reviewed policy version via maintenance role, validates catalog state, and restarts under coherent configuration.
+Integrate privileged preflight and idempotent, advisory-locked policy reconciliation into the existing db:migrate lifecycle. Preflight validates configuration, distinct maintenance credentials, topology and role privileges without requiring policies/tables that migrations have not installed yet. Only after every module schema migration succeeds, run storage provisioning, full table/inventory verification, exact canary reconciliation and validation on one advisory-locked maintenance connection, then dispatch protected reindex work. Run completion even with zero pending migrations; propagate failure. When `recoverMigrationReindex` is enabled, collect reindex declarations from executed migration histories as well as newly applied migrations; deduplicate/coalesce the resulting entity types and discharge only after successful reconciliation. A partial schema/reconciliation failure dispatches no protected reindex work and retains the declarations in the existing committed migration ledgers for a later successful retry. Disabled mode preserves the existing finally-based reindex recovery path. This deliberately trades repeat idempotent historical reindex requests at successful opt-in migrations for durable recovery without a new ledger. Include an explicit reversible canary migration and snapshot handling, with activation off preserving existing schema behavior. A no-op off-mode migration does not enroll a policy: subsequent on-mode completion reconciles regardless of ledger/pending state. Down validates the exact policy version before changing it; off/on/down/re-enable are integration cases. Never apply it to the user's database. Rollback stops traffic, drains/closes pools, reverts only the canary's reviewed policy version via maintenance role, validates catalog state, and restarts under coherent configuration.
 
 ### Independent pools and restricted-role readiness
 
