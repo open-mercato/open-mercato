@@ -19,7 +19,11 @@ export async function hasPersistedWorkspace(_em: EntityManager, request: Onboard
 export function runOnboardingTenant<Result>(tenantId: string, callback: (container: Awaited<ReturnType<typeof createRequestContainer>>) => Promise<Result>): Promise<Result> {
   return runWithFreshDatabaseExecutionContext({ kind: 'tenant', tenantId, source: 'public-token', operation: 'onboarding-continuation' }, async () => {
     const container = await createRequestContainer()
-    return callback(container)
+    try {
+      return await callback(container)
+    } finally {
+      await container.dispose()
+    }
   })
 }
 

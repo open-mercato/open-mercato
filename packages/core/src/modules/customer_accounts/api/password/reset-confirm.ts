@@ -42,30 +42,34 @@ export async function POST(req: Request) {
 
   return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: user.tenantId, source: 'public-token', operation: 'customer-password-reset' }, async () => {
     const tenantContainer = await createRequestContainer()
-    const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
-    const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
+    try {
+      const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
+      const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
 
-    const em = tenantContainer.resolve('em') as EntityManager
-    await em.transactional(async (trx) => {
-      await customerUserService.updatePassword(user, parsed.data.password, trx)
-      await customerSessionService.revokeAllUserSessions(user.id, trx)
-      await trx.nativeUpdate(
-        CustomerUser,
-        { id: user.id, emailVerifiedAt: null },
-        { emailVerifiedAt: new Date() },
-      )
-    })
+      const em = tenantContainer.resolve('em') as EntityManager
+      await em.transactional(async (trx) => {
+        await customerUserService.updatePassword(user, parsed.data.password, trx)
+        await customerSessionService.revokeAllUserSessions(user.id, trx)
+        await trx.nativeUpdate(
+          CustomerUser,
+          { id: user.id, emailVerifiedAt: null },
+          { emailVerifiedAt: new Date() },
+        )
+      })
 
-    await emitCustomerAccountsEvent('customer_accounts.password.changed', {
-      userId: user.id,
-      tenantId: user.tenantId,
-      organizationId: user.organizationId ?? null,
-      changedBy: 'reset',
-      changedById: null,
-      at: new Date().toISOString(),
-    }).catch(() => undefined)
+      await emitCustomerAccountsEvent('customer_accounts.password.changed', {
+        userId: user.id,
+        tenantId: user.tenantId,
+        organizationId: user.organizationId ?? null,
+        changedBy: 'reset',
+        changedById: null,
+        at: new Date().toISOString(),
+      }).catch(() => undefined)
 
-    return NextResponse.json({ ok: true })
+      return NextResponse.json({ ok: true })
+    } finally {
+      await tenantContainer.dispose()
+    }
   })
 }
 

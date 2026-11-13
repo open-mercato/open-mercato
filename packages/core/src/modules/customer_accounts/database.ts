@@ -33,10 +33,14 @@ export const databaseDeclarations: DatabaseModuleDeclarations = {
               import('@open-mercato/shared/lib/di/container'), import('@open-mercato/shared/lib/encryption/find'), import('./data/entities'),
             ])
             const container = await createRequestContainer()
-            const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
-            if (!await findOneWithDecryption(em, DomainMapping, {
-              hostname: normalized, status: 'active', tenantId: auth.tenantId, organizationId: auth.orgId,
-            })) return null
+            try {
+              const em = container.resolve<import('@mikro-orm/postgresql').EntityManager>('em')
+              if (!await findOneWithDecryption(em, DomainMapping, {
+                hostname: normalized, status: 'active', tenantId: auth.tenantId, organizationId: auth.orgId,
+              })) return null
+            } finally {
+              await container.dispose()
+            }
           }
         }
         const slug = input.pathname.match(/^\/([^/]+)\/portal(?:\/|$)/)?.[1]
