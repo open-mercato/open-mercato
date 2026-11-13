@@ -96,6 +96,13 @@ describe('PersonDetailTabs', () => {
     },
   )
 
+  it('marks the rail busy only while injected tabs are loading', () => {
+    const { rerender } = render(<PersonDetailTabs activeTab="activities" onTabChange={jest.fn()} isLoadingInjectedTabs>panel</PersonDetailTabs>)
+    expect(screen.getByTestId('detail-tabs-row')).toHaveAttribute('aria-busy', 'true')
+    rerender(<PersonDetailTabs activeTab="activities" onTabChange={jest.fn()} isLoadingInjectedTabs={false}>panel</PersonDetailTabs>)
+    expect(screen.getByTestId('detail-tabs-row')).toHaveAttribute('aria-busy', 'false')
+  })
+
   it('renders the icon declared on an injected tab placement', () => {
     render(
       <PersonDetailTabs

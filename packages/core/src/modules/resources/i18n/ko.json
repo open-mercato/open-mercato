@@ -519,6 +519,7 @@
   "resources.resources.unavailability.title.daily": "일별 이용 불가",
   "resources.resources.unavailability.title.once": "이용 불가",
   "resources.resources.unavailability.title.weekly": "주간 이용 불가",
+  "resources.resources.validation.capacityInvalid": "수용량은 0보다 큰 정수여야 합니다.",
   "resources.search.badge.attendee": "참석자",
   "resources.search.badge.availabilityRuleSet": "가용성 규칙 세트",
   "resources.search.badge.resource": "리소스",

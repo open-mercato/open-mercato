@@ -96,6 +96,7 @@ describe('CommandBus.undo TOCTOU race guard', () => {
 
     expect(undoMock).not.toHaveBeenCalled()
     expect(service.markUndone).not.toHaveBeenCalled()
+    expect(service.releaseUndoClaim).not.toHaveBeenCalled()
   })
 
   it('releases the claim when the undo handler fails so the action stays retryable', async () => {
