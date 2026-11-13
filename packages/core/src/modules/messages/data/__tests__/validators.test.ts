@@ -7,6 +7,18 @@ import {
 } from '../validators'
 
 describe('messages validators', () => {
+  it('does not expose the internal imported-message timestamp in the public compose schema', () => {
+    const result = composeMessageRequestSchema.parse({
+      subject: 'Subject',
+      body: 'Body',
+      visibility: 'public',
+      externalEmail: 'recipient@example.com',
+      sentAt: null,
+    })
+
+    expect(result).not.toHaveProperty('sentAt')
+  })
+
   it('rejects duplicate recipient ids during compose', () => {
     const result = composeMessageSchema.safeParse({
       subject: 'Subject',
@@ -231,6 +243,20 @@ describe('messages validators', () => {
       expect(result.success).toBe(false)
       expect(result.error?.issues.some((issue) => issue.path[0] === 'recipients')).toBe(true)
     })
+  })
+
+  it('preserves an internal unknown timestamp while stripping client timestamp authority', () => {
+    const input = {
+      subject: 'Timestamp boundary',
+      body: 'Internal message',
+      recipients: [{ userId: '550e8400-e29b-41d4-a716-446655440077', type: 'to' }],
+      sentAt: null,
+    }
+    const internal = composeMessageSchema.parse(input)
+    const publicRequest = composeMessageRequestSchema.parse(input)
+
+    expect(internal.sentAt).toBeNull()
+    expect(publicRequest).not.toHaveProperty('sentAt')
   })
 
   it('allows saving draft without recipients, subject, or body', () => {

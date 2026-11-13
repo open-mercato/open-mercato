@@ -1404,6 +1404,34 @@ These handles are declared via `useRegisteredComponent(handle, FallbackComponent
 
 ## Migration & Compatibility
 
+### Migration & Backward Compatibility — bundled edge ports (#7833)
+
+The opt-in `starters/docker/compose.fullapp.traefik.yml` overlay resets the
+inherited `app` and `documents-collab` host-port lists with `ports: !reset []`.
+The root compatibility duplicate has identical behavior. Both services remain
+on the shared Docker network; Traefik reaches the app's container port directly.
+This applies to production and development, including the dev splash listener.
+The collaboration service remains behind its existing opt-in profile.
+
+Operators need Docker Compose 2.24.4+, must recreate affected containers with
+their full deployment file/profile chain, and must move direct-port health
+probes to HTTPS. Documents collaboration needs a TLS WebSocket proxy and a
+public `wss://` client URL configured before rebuilding the app. Sidecar token
+and Origin authorization remains separate and unchanged. Base stacks without
+the bundled overlay retain their existing direct/external-proxy port mappings;
+an explicit final loopback-only overlay supports host-local proxies and
+diagnostics. No application API, schema, or custom-domain authorization changes.
+See `docker/traefik/README.md` and `UPGRADE_NOTES.md` for migration and examples.
+
+Regression coverage in `scripts/__tests__/fullapp-compose-traefik-ports.test.mjs`
+uses actual Compose merges for canonical/root production/development stacks,
+default/custom ports, collaboration profile isolation, external-proxy behavior,
+and deliberate private overrides. Root duplicate parity is checked separately.
+Deployment acceptance additionally checks HTTP-to-HTTPS redirect, customer
+ForwardAuth, public app-port unreachability, internal upstream reachability,
+and optional WSS collaboration. These live network checks require a running
+deployment and are not replaced by configuration assertions.
+
 ### Database Migration
 
 > **Note:** Per `AGENTS.md` ("Never hand-write migrations — update ORM entities, run `yarn db:generate`"), the actual migration is generated from the entity decorators. The SQL below is **illustrative only** — it documents the expected output shape so reviewers can confirm the indexes and constraints are right. Do not copy-paste this block into a migration file.
@@ -1559,15 +1587,17 @@ The `organization_id` column intentionally has no UNIQUE constraint — the sche
    - HTTP entrypoint (port 80) with redirect to HTTPS
    - HTTPS entrypoint (port 443) with TLS
    - Let's Encrypt ACME resolver using TLS-ALPN-01 challenge
-   - On-demand TLS with verification endpoint: `http://app:3000/api/customer-accounts/domain-check`
+   - ForwardAuth verification endpoint: `http://app:3000/api/customer_accounts/domain-check`
    - Certificate storage in `acme.json`
    - `X-Domain-Check-Secret` header forwarded in on-demand TLS verification request
-2. Update `docker-compose.yml`:
+2. Configure `starters/docker/compose.fullapp.traefik.yml` (opt-in overlay):
    - Add Traefik service with ports 80/443
    - Mount `acme.json` as persistent volume
    - Configure app service labels for Traefik routing
    - Network configuration for internal verification endpoint access
    - Environment variables for `DOMAIN_CHECK_SECRET`
+   - Reset inherited app and optional collaboration host-port publications so
+     public application traffic must pass through the bundled proxy
 
 ### Phase 4: Back Office UI
 
@@ -1905,6 +1935,12 @@ None.
 10. Canonical URLs + email-domain awareness.
 
 ## Changelog
+
+### 2026-10-26 — Private ports behind bundled Traefik (#7833)
+- Reset app and optional collaboration host-port publications in the canonical
+  and root compatibility overlays; retain base-stack external-proxy behavior.
+- Add real merged-Compose regression coverage and operator migration, private
+  override, WSS proxy, and deployment acceptance guidance.
 
 ### 2026-04-30 (rev 5) — Pre-implementation audit fixes
 

@@ -1,6 +1,8 @@
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { executeWmsCustomPostRoute } from '../../../inventory/helpers'
 import { reRunReservationInputSchema } from '../../../../commands/sales-order-assignment'
 
@@ -16,7 +18,15 @@ export async function POST(
   request: Request,
   routeContext: { params: { salesOrderId: string } },
 ) {
-  const parsedParams = paramsSchema.parse(routeContext.params)
+  const paramsResult = paramsSchema.safeParse(routeContext.params)
+  if (!paramsResult.success) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      { error: translate('wms.errors.validationFailed', 'Validation failed'), details: paramsResult.error.issues },
+      { status: 400 },
+    )
+  }
+  const parsedParams = paramsResult.data
   const body = await readJsonSafe<Record<string, unknown>>(request, {})
   const scopedRequest = new Request(request.url, {
     method: 'POST',
@@ -52,6 +62,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Validation failed', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Order not found', schema: errorSchema },
+        { status: 409, description: 'The sales order is cancelled and cannot hold a reservation', schema: errorSchema },
       ],
     },
   },

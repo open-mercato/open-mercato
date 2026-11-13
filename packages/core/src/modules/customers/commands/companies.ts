@@ -10,8 +10,9 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerAddress,
   CustomerComment,
@@ -33,6 +34,12 @@ import {
   type InteractionRestoreDetails,
 } from './interactionRestoreDetails'
 import {
+  labelAssignmentIndexEntries,
+  removeEntityLabelAssignments,
+  restoreEntityLabelAssignments,
+  type LabelAssignmentRestoreSnapshot,
+} from './entityLabelAssignments'
+import {
   companyCreateSchema,
   companyUpdateSchema,
   type CompanyCreateInput,
@@ -46,6 +53,7 @@ import {
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
+  shouldBumpOptimisticLockVersion,
   emitQueryIndexDeleteEvents,
   emitQueryIndexUpsertEvents,
   type QueryIndexEventEntry,
@@ -60,6 +68,7 @@ import { E } from '#generated/entities.ids.generated'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_ENTITY_ID, resolveCompanyCustomFieldRouting } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
@@ -131,8 +140,11 @@ type CompanyAddressSnapshot = {
   id: string
   name: string | null
   purpose: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -183,6 +195,7 @@ type CompanyInteractionSnapshot = {
   body: string | null
   status: string
   scheduledAt: Date | null
+  timezone?: string | null
   occurredAt: Date | null
   priority: number | null
   authorUserId: string | null
@@ -250,6 +263,7 @@ type CompanySnapshot = {
 type CompanyUndoPayload = {
   before?: CompanySnapshot | null
   after?: CompanySnapshot | null
+  labelAssignments?: LabelAssignmentRestoreSnapshot[]
 }
 
 async function loadCompanySnapshot(
@@ -350,8 +364,11 @@ async function loadCompanySnapshot(
       id: address.id,
       name: address.name ?? null,
       purpose: address.purpose ?? null,
+      companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,
@@ -407,6 +424,7 @@ async function loadCompanySnapshot(
         body: interaction.body ?? null,
         status: interaction.status,
         scheduledAt: interaction.scheduledAt ?? null,
+        timezone: interaction.timezone ?? null,
         occurredAt: interaction.occurredAt ?? null,
         priority: interaction.priority ?? null,
         authorUserId: interaction.authorUserId ?? null,
@@ -494,6 +512,15 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const organization = await findOneWithDecryption(
+      em,
+      Organization,
+      { id: parsed.organizationId, tenant: parsed.tenantId, deletedAt: null },
+      { fields: ['id'] },
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
+    if (!organization) throw forbidden()
+
     const nextInteractionName = parsed.nextInteraction?.name ? parsed.nextInteraction.name.trim() : null
     const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
     const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
@@ -795,15 +822,11 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
           profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
         }
 
-        // Profile columns and custom fields live outside CustomerEntity, so a save
-        // that only touches them never dirties the entity and its `updated_at` (the
-        // optimistic-lock version) would stay put — letting a stale second tab
-        // overwrite the change without a 409 (#7033). Bump it explicitly.
         const profileFieldsUpdated = [
           parsed.legalName, parsed.brandName, parsed.domain, parsed.websiteUrl,
           parsed.industry, parsed.sizeBucket, parsed.annualRevenue,
         ].some((value) => value !== undefined)
-        if (profileFieldsUpdated || Object.keys(custom).length > 0) {
+        if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
         }
       },
@@ -1003,7 +1026,10 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
   },
 }
 
-const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { entityId: string }> =
+const deleteCompanyCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[] }
+> =
   {
     id: 'customers.companies.delete',
     async prepare(input, ctx) {
@@ -1016,55 +1042,40 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const id = requireId(input, 'Company id required')
       const baseEm = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadCompanySnapshot(baseEm, id)
-      const entity = await baseEm.findOne(CustomerEntity, { id, deletedAt: null })
-      const record = assertFound(entity, 'Company not found')
-      ensureTenantScope(ctx, record.tenantId)
-      ensureOrganizationScope(ctx, record.organizationId)
 
-      const dependentScope = {
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      }
-      const personLinks = await baseEm.count(CustomerPersonCompanyLink, {
-        company: record,
-        deletedAt: null,
-        ...dependentScope,
-      })
-      const dealLinks = await baseEm.count(CustomerDealCompanyLink, {
-        company: record,
-      })
-      const directPeople = await baseEm.count(CustomerPersonProfile, {
-        company: record,
-        ...dependentScope,
-      })
-      if (personLinks > 0 || dealLinks > 0 || directPeople > 0) {
-        const { translate } = await resolveTranslations()
-        throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
-      }
+      const { record, profile, labelAssignments } = await baseEm.transactional(async (em) => {
+        // Lock the entity row first, before any dependent check or child
+        // cleanup, so a concurrent insert of a child row (label assignment,
+        // person link, deal link, direct person, etc.) serializes behind
+        // this transaction instead of racing the final delete with a 409
+        // FOREIGN_KEY_VIOLATION. See issue #7613.
+        const entity = await em.findOne(CustomerEntity, { id, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        const record = assertFound(entity, 'Company not found')
+        ensureTenantScope(ctx, record.tenantId)
+        ensureOrganizationScope(ctx, record.organizationId)
 
-      const profile = await baseEm.findOne(CustomerCompanyProfile, { entity: record })
-
-      await baseEm.transactional(async (em) => {
-        const recheckPersonLinks = await em.count(CustomerPersonCompanyLink, {
+        const dependentScope = {
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        }
+        const personLinks = await em.count(CustomerPersonCompanyLink, {
           company: record,
           deletedAt: null,
           ...dependentScope,
         })
-        const recheckDealLinks = await em.count(CustomerDealCompanyLink, {
+        const dealLinks = await em.count(CustomerDealCompanyLink, {
           company: record,
         })
-        const recheckDirectPeople = await em.count(CustomerPersonProfile, {
+        const directPeople = await em.count(CustomerPersonProfile, {
           company: record,
           ...dependentScope,
         })
-        if (recheckPersonLinks > 0 || recheckDealLinks > 0 || recheckDirectPeople > 0) {
+        if (personLinks > 0 || dealLinks > 0 || directPeople > 0) {
           const { translate } = await resolveTranslations()
-          throw buildCompanyHasDependentsError(translate, {
-            personLinks: recheckPersonLinks,
-            dealLinks: recheckDealLinks,
-            directPeople: recheckDirectPeople,
-          })
+          throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
         }
+
+        const profile = await em.findOne(CustomerCompanyProfile, { entity: record })
 
         await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
         // Soft-deleted person links keep their `company_entity_id` foreign key, so the hard
@@ -1087,6 +1098,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           await em.nativeDelete(CustomFieldValue, { entityId: COMPANY_ENTITY_ID, recordId: profile.id })
         }
         await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
+        const labelAssignments = await removeEntityLabelAssignments(em, record)
         const txEntity = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -1095,6 +1107,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
           { tenantId: record.tenantId, organizationId: record.organizationId },
         )
         if (txEntity) em.remove(txEntity)
+        return { record, profile, labelAssignments }
       })
 
       const indexDeletes: QueryIndexEventEntry[] = []
@@ -1179,11 +1192,12 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
 
       await emitQueryIndexDeleteEvents(ctx, [companyEntityIndexEntry(record)])
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
+      await emitQueryIndexDeleteEvents(ctx, labelAssignmentIndexEntries(record, labelAssignments))
       await emitQueryIndexUpsertEvents(ctx, memberUpserts)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
-      return { entityId: record.id }
+      return { entityId: record.id, labelAssignments }
     },
-    buildLog: async ({ snapshots }) => {
+    buildLog: async ({ result, snapshots }) => {
       const before = snapshots.before as CompanySnapshot | undefined
       if (!before) return null
       const { translate } = await resolveTranslations()
@@ -1197,6 +1211,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         payload: {
           undo: {
             before,
+            labelAssignments: result?.labelAssignments,
           } satisfies CompanyUndoPayload,
         },
       }
@@ -1286,6 +1301,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const beforeInteractions = (before as { interactions?: CompanyInteractionSnapshot[] }).interactions ?? []
 
       let dealMap = new Map<string, CustomerDeal>()
+      let restoredLabelAssignments: LabelAssignmentRestoreSnapshot[] = []
 
       await withAtomicFlush(em, [
         () => syncEntityTags(em, entity, before.tagIds),
@@ -1384,8 +1400,11 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
               entity,
               name: address.name,
               purpose: address.purpose,
+              companyName: address.companyName ?? null,
               addressLine1: address.addressLine1,
               addressLine2: address.addressLine2,
+              buildingNumber: address.buildingNumber ?? null,
+              flatNumber: address.flatNumber ?? null,
               city: address.city,
               region: address.region,
               postalCode: address.postalCode,
@@ -1424,6 +1443,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
               body: interaction.body,
               status: interaction.status,
               scheduledAt: interaction.scheduledAt,
+              timezone: interaction.timezone ?? null,
               occurredAt: interaction.occurredAt,
               priority: interaction.priority,
               authorUserId: interaction.authorUserId,
@@ -1439,6 +1459,9 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
             })
             em.persist(restoredInteraction)
           }
+        },
+        async () => {
+          restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
         },
       ], { transaction: true })
 
@@ -1539,6 +1562,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       }
       await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(entity)])
       await emitQueryIndexUpsertEvents(ctx, childUpserts)
+      await emitQueryIndexUpsertEvents(ctx, labelAssignmentIndexEntries(entity, restoredLabelAssignments))
       await emitQueryIndexUpsertEvents(ctx, memberUpserts)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
     },

@@ -17,6 +17,7 @@ import type { TaxCalculationService } from '@open-mercato/core/modules/sales/ser
 import {
   cloneJson,
   commandActorScope,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureSameScope,
   ensureSameTenant,
@@ -137,11 +138,15 @@ async function resolveSnapshotAssociations(
   return { variant, product, offer }
 }
 
-async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSnapshot | null> {
+async function loadPriceSnapshot(
+  em: EntityManager,
+  id: string,
+  scopeWhere: Record<string, unknown> = {},
+): Promise<PriceSnapshot | null> {
   const record = await findOneWithDecryption(
     em,
     CatalogProductPrice,
-    { id },
+    { id, ...scopeWhere },
     { populate: ['priceKind', 'product', 'variant', 'offer'] },
   )
   if (!record) return null
@@ -280,6 +285,24 @@ function resolveAmountInputFromParsed(
     return { amount: parsed.unitPriceGross, mode: 'gross' }
   }
   return null
+}
+
+function hasAmountChanged(incoming: unknown, current: string | null | undefined): incoming is number {
+  if (typeof incoming !== 'number' || !Number.isFinite(incoming)) return false
+  return numericStringToNumber(current) !== incoming
+}
+
+function resolveAmountInputForUpdate(
+  parsed: Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>>,
+  record: CatalogProductPrice
+): PriceAmountInput | null {
+  if (hasAmountChanged(parsed.unitPriceNet, record.unitPriceNet)) {
+    return { amount: parsed.unitPriceNet, mode: 'net' }
+  }
+  if (hasAmountChanged(parsed.unitPriceGross, record.unitPriceGross)) {
+    return { amount: parsed.unitPriceGross, mode: 'gross' }
+  }
+  return resolveAmountInputFromParsed(parsed)
 }
 
 function resolveAmountInputFromRecord(record: CatalogProductPrice): PriceAmountInput | null {
@@ -507,7 +530,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id)
+    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx))
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -520,8 +543,8 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     const record = await findOneWithDecryption(
       em,
       CatalogProductPrice,
-      { id: parsed.id },
-      { populate: ['priceKind'] },
+      { id: parsed.id, ...commandScopeWhere(ctx) },
+      { populate: ['priceKind', 'product'] },
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
@@ -639,7 +662,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureSameTenant(targetPriceKind, targetProduct.tenantId)
 
     const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
-    const amountInput = resolveAmountInputFromParsed(parsed)
+    const amountInput = resolveAmountInputForUpdate(parsed, record)
     const hasNetInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')
     const hasGrossInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceGross')
     const hasTaxRateInput = Object.prototype.hasOwnProperty.call(parsed, 'taxRate')
@@ -853,7 +876,7 @@ const deletePriceCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id)
+    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx))
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -863,7 +886,7 @@ const deletePriceCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductPrice, { id })
+    const record = await findOneWithDecryption(em, CatalogProductPrice, { id, ...commandScopeWhere(ctx) })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)

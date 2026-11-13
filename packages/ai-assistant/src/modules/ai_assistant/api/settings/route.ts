@@ -19,7 +19,7 @@ import {
 import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError } from '../../data/repositories/AiAgentRuntimeOverrideRepository'
 import { resolveModerationPolicy } from '../../lib/moderation-policy'
 import { AiTenantModelAllowlistRepository } from '../../data/repositories/AiTenantModelAllowlistRepository'
-import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-allowlist'
+import { isBaseurlAllowlisted, readBaseurlAllowlist, resolveAllowlistedBaseurl } from '../../lib/baseurl-allowlist'
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
 import { createModelFactory, resolveAllowRuntimeOverride } from '../../lib/model-factory'
 import {
@@ -269,12 +269,17 @@ export async function GET(req: NextRequest) {
           organizationId,
         })
 
+        const effectiveTenantOverride = tenantOverride
+          ? {
+              providerId: tenantOverride.providerId,
+              modelId: tenantOverride.modelId,
+              baseURL: resolveAllowlistedBaseurl(tenantOverride.baseURL),
+            }
+          : undefined
         const factory = createModelFactory(container)
         const defaultResolution = factory.resolveModel({
           tenantAllowlist: tenantAllowlistSnapshot,
-          tenantOverride: tenantOverride
-            ? { providerId: tenantOverride.providerId, modelId: tenantOverride.modelId, baseURL: tenantOverride.baseURL }
-            : undefined,
+          tenantOverride: effectiveTenantOverride,
         })
         resolvedDefault = {
           providerId: defaultResolution.providerId,
@@ -295,9 +300,9 @@ export async function GET(req: NextRequest) {
             ? {
                 providerId: agentOverrideRow.providerId ?? null,
                 modelId: agentOverrideRow.modelId ?? null,
-                baseURL: agentOverrideRow.baseUrl ?? null,
+                baseURL: resolveAllowlistedBaseurl(agentOverrideRow.baseUrl),
               }
-            : (tenantOverride ?? undefined)
+            : effectiveTenantOverride
           const agentResolution = factory.resolveModel({
             moduleId: agent.moduleId,
             agentDefaultModel: agent.defaultModel,
