@@ -216,9 +216,9 @@ export async function validatePgVectorStorage(connection: DatabaseStorageConnect
     `SELECT t.relname AS table_name, c.relname AS name, am.amname AS method,
       i.indisunique AS unique, i.indisprimary AS primary, i.indisvalid AND i.indisready AS valid,
       i.indpred IS NOT NULL AS partial, c.reloptions AS options,
-      ARRAY(SELECT COALESCE(a.attname, '<expression>') FROM unnest(i.indkey) WITH ORDINALITY k(attnum, position)
+      ARRAY(SELECT COALESCE(a.attname::text, '<expression>') FROM unnest(i.indkey) WITH ORDINALITY k(attnum, position)
         LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum ORDER BY k.position) AS columns,
-      ARRAY(SELECT o.opcname FROM unnest(i.indclass) WITH ORDINALITY k(opclass, position)
+      ARRAY(SELECT o.opcname::text FROM unnest(i.indclass) WITH ORDINALITY k(opclass, position)
         JOIN pg_opclass o ON o.oid = k.opclass ORDER BY k.position) AS operator_classes
      FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid JOIN pg_namespace n ON n.oid = t.relnamespace
      JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_am am ON am.oid = c.relam

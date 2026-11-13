@@ -46,6 +46,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.5-search | Integrate search-owned storage provisioning and restricted runtime pools | inline | done | bd37d270a4 merged; parent73 tests/search tsc |
 | 2 | 2.3-scheduler-discovery | Preserve scheduler exports and expose the neutral discovery contract | inline | done | this commit; scheduler declaration lifecycle tests |
 | 2 | 2.3-scheduler | Resolve persisted scheduler jobs before fresh tenant execution | inline | done | deaa13f99a merged; parent572+9 tests |
+| 2 | 2.5-vector-catalog | Decode PostgreSQL index catalog arrays as text in restricted readiness | inline | done | this commit; actual vector gate follows |
 | 2 | 2.5 | Classify and integrate independent search, vector and event pools | inline | todo | — |
 | 3 | 3.1-cli-lifecycle | Wire neutral migration preflight, completion and committed-history recovery | inline | done | this commit; CLI57 tests + typecheck |
 | 3 | 3.1 | Reconcile explicit canary policies through migrations with rollback | inline | done | this commit; runtime94/shared8; live PG17 16+25 checks, zero skips |

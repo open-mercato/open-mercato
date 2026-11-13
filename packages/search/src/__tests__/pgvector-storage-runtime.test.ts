@@ -94,6 +94,9 @@ describe('pgvector runtime pool integration', () => {
       tables: ['public.vector_search', 'public.vector_search_migrations', 'public.entity_indexes', 'public.custom_entities_storage'],
     })
     expect(data.query.mock.calls.every(([sql]) => sql.trim().startsWith('SELECT'))).toBe(true)
+    const catalogSql = data.query.mock.calls.find(([sql]) => sql.includes('FROM pg_index'))?.[0]
+    expect(catalogSql).toContain('a.attname::text')
+    expect(catalogSql).toContain('o.opcname::text')
     expect(data.release).toHaveBeenCalledTimes(1)
     await driver.close()
     expect(data.pool.end).toHaveBeenCalledTimes(1)
