@@ -15,6 +15,7 @@ The earlier `stabilize/main-2026-11-13` branch belongs to closed PR #9425. Prese
 ### Phase 1: Diagnose and repair
 1.1 Independently audit main failure history and existing full-suite selection (read-only child).
 1.2 Repair duplicate ComboboxInput declarations with regression coverage; address further demonstrated failures on this branch.
+1.3 Remove the footer-test setup race between tab navigation and opening dialogs, without weakening layout assertions.
 
 ### Phase 2: Validate and review
 2.1 Run the configured validation commands in order and obtain green PR CI including all 15 integration shards. Fix root causes and repeat as necessary.
@@ -24,6 +25,10 @@ The earlier `stabilize/main-2026-11-13` branch belongs to closed PR #9425. Prese
 3.1 Update evidence, release claim, promote the draft when complete, and apply automerge only after all CI and review gates pass.
 
 ## Validation evidence
+
+All eight configured commands pass locally, including the full 51-task unit gate and production app build. Local runner prerequisites: short TMPDIR passed through Turbo, and user-local Info-ZIP unzip (no dependency or workflow changes).
+
+PR CI 43437843458 passes builds, full unit/script/guard checks, Docker, timezone, durability, and 13 completed integration shards. Shard 7 reveals TC-CRM-7495 failing after its narrow-screen tab navigation unmounts the dialog; the correct deal was returned by search. Trace call@93 opens the modal at 656.8s; the pending `?tab=deals` RSC navigation started at 656.7s completes after the search, and the modal disappears. TC-CRM-7497 also flakes at the same tab-to-dialog transition. Both footer tests now start at `?tab=deals`; their layout and selection assertions remain intact. Managed ephemeral filtered verification passed all five TC-CRM-749* cases without retries, including both repaired footer tests (4.6s / 4.9s). The original remote run settled with all 14 other shards passing. Fresh full-suite validation follows the repair push.
 
 Runner: local (no configured compose app running). Immutable install completed. Combobox unit/dialog suites: 45 tests passed. Existing ci-full selection regressions: 25 tests passed. No DS token, appearance, or public contract change.
 
@@ -37,8 +42,10 @@ PR: #9455
 
 ### Phase 1: Diagnose and repair
 
-- [ ] 1.1 Independently audit main failure history and existing full-suite selection
+- [x] 1.1 Independently audit main failure history and existing full-suite selection — 959f274d68 (read-only audit accepted; 25 routing regressions rerun)
 - [x] 1.2 Repair duplicate ComboboxInput declarations with regression coverage — 8d916f51fe
+
+- [x] 1.3 Remove the footer-test setup race between tab navigation and opening dialogs — 9509d0ec81
 
 ### Phase 2: Validate and review
 
