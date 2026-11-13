@@ -1,5 +1,6 @@
 import type { CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { CATALOG_VARIANT_LABELS_ENDPOINT } from '../../lib/catalogVariantLabels'
 
 type PagedResponse<T> = {
   items: T[]
@@ -61,7 +62,7 @@ export async function loadWarehouseOptions(query?: string): Promise<CrudFieldOpt
 export async function loadCatalogVariantOptions(query?: string): Promise<CatalogVariantOption[]> {
   const params = buildQuery({ page: 1, pageSize: 25, search: query?.trim() || undefined })
   const call = await apiCall<PagedResponse<{ id?: string | null; name?: string | null; sku?: string | null }>>(
-    `/api/catalog/variants?${params}`,
+    `${CATALOG_VARIANT_LABELS_ENDPOINT}?${params}`,
   )
   if (!call.ok) return []
   return (call.result?.items ?? [])

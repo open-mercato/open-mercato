@@ -103,15 +103,11 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
-### WMS supervisor roles can identify catalog variants
+### WMS variant pickers read a label endpoint, not the catalog
 
-The seeded WMS `supervisor` role now includes the existing `catalog.products.view` feature so ASN and inventory variant pickers can load product identity. Catalog write features (`catalog.products.manage`, `catalog.variants.manage`) are not granted. New tenants receive the grant from WMS setup. Existing tenants do not until you run:
+WMS pickers and variant labels call `GET /api/wms/catalog-variant-labels`. The route requires `wms.view` and returns only `id`, `sku`, `name`, and `is_active`. It does not grant `catalog.products.view`, so a WMS supervisor still cannot call `GET /api/catalog/prices` or the rest of the catalog read API. No ACL sync is required.
 
-```bash
-yarn mercato auth sync-role-acls
-```
-
-The sync is additive and does not revoke features already on the role.
+If a pre-release of this change already added `catalog.products.view` to the seeded `supervisor` role, remove that feature from the role. `yarn mercato auth sync-role-acls` is additive and will not revoke it.
 
 ### Encryption maintenance safety confirmations (#6767)
 

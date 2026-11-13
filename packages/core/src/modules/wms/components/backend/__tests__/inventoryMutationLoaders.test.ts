@@ -24,7 +24,7 @@ describe('resolveCatalogVariantLabel', () => {
     await expect(resolveCatalogVariantLabel('variant-1')).resolves.toBeNull()
 
     expect(mockApiCall).toHaveBeenCalledWith(
-      expect.stringContaining('/api/catalog/variants?'),
+      expect.stringContaining('/api/wms/catalog-variant-labels?'),
       expect.objectContaining({ headers: { 'x-om-forbidden-redirect': '0' } }),
     )
   })
