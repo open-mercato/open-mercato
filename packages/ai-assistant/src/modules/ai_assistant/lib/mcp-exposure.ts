@@ -193,5 +193,5 @@ export function buildDirectMutationModeWarning(
   if (config.mutationMode !== 'direct') return null
   const mutationToolNames = listExposedMutationToolNames(config, tools)
   if (mutationToolNames.length === 0) return null
-  return `OM_MCP_MUTATION_MODE is "direct": ${mutationToolNames.length} mutation tool(s) run without approval over MCP and /tools/execute: ${mutationToolNames.join(', ')}. Set OM_MCP_MUTATION_MODE=approval to require human approval.`
+  return `OM_MCP_MUTATION_MODE is "direct": ${mutationToolNames.length} mutation tool(s) run without approval over MCP: ${mutationToolNames.join(', ')}. POST /api/ai_assistant/tools/execute refuses mutation tools in every mode. Set OM_MCP_MUTATION_MODE=approval to require human approval.`
 }

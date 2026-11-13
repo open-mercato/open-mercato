@@ -307,6 +307,8 @@ describe('direct mutation mode startup warning', () => {
     const warning = buildDirectMutationModeWarning(baseConfig, tools)
     expect(warning).toContain('catalog.delete_product, customers.update_person')
     expect(warning).toContain('OM_MCP_MUTATION_MODE=approval')
+    expect(warning).toContain('run without approval over MCP:')
+    expect(warning).toContain('tools/execute refuses mutation tools in every mode')
     expect(warning).not.toContain('sales.cancel_order')
   })
 
