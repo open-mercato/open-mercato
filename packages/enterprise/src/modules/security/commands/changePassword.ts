@@ -41,6 +41,7 @@ registerCommand({
         ctx.auth.sub,
         parsed.data.currentPassword,
         parsed.data.newPassword,
+        ctx.auth.sid,
       )
     } catch (error) {
       if (isPasswordServiceError(error)) {
