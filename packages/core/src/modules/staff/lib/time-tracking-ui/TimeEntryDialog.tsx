@@ -341,6 +341,7 @@ function DefaultTimeEntryDialog({
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const queryClient = useQueryClient()
   const canSeeMoney = hasFeature(payload?.grantedFeatures, RATES_FEATURE)
+  const canViewReports = hasFeature(payload?.grantedFeatures, 'staff.timesheets.reports.view')
   const isEdit = typeof entryId === 'string' && entryId.length > 0
 
   const [taskId, setTaskId] = React.useState<string | null>(null)
@@ -1559,7 +1560,7 @@ function DefaultTimeEntryDialog({
                 'This entry is closed in a report, so it can no longer be edited.',
               )}
             </AlertDescription>
-            {lockedReportId ? (
+            {lockedReportId && canViewReports ? (
               <Button
                 type="button"
                 variant="outline"

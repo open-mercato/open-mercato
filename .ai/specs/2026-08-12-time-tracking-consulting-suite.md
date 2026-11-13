@@ -562,6 +562,12 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 
 ---
 
+### Locked-entry report navigation (#7019)
+
+The entries list and entry dialog offer **Show the report** only when backend chrome grants `staff.timesheets.reports.view`, using the shared wildcard-aware feature matcher. Missing grants fail closed. The locked badge, explanation, and write restrictions remain visible to every entry reader. No API permission, response, schema, or component contract changes.
+
+Coverage: the entries-page and TimeEntryDialog unit suites cover absent/denied grants, explicit report access, and `staff.timesheets.*`, `staff.*`, and `*` grants. `TC-TT-035-locked-report-navigation` creates its own roles, users, project, entry and closed report; it checks the list affordance against the real guarded report API and cleans up all fixtures.
+
 ## Testing Coverage
 
 ### Unit
@@ -719,6 +725,7 @@ Every question the requirements left open — each one traced to the mockup note
 ## Changelog
 
 | Date | Change |
+| 2026-11-13 | #7019: gate locked-entry report navigation on `staff.timesheets.reports.view`; preserve the read-only lock notice. Unit permission matrix and TC-TT-035 cover denied/allowed navigation. |
 |---|---|
 | 2026-11-03 | #6990 / #8379: document additive whole-filter entry totals, rates redaction, structural project-access filter composition, footer/shared chip props, and self-contained live API boundary regressions in TC-STAFF-048. |
 | 2026-11-02 | #8448: bind access-request writes, authorization, deduplication and manager notification to validated request-selected scope; reject rejected/missing scope. Bootstrap integration waits for switcher completion, requiring a project reload only for fresh-cookie hydration, while preserving scope/confidentiality/acknowledgement assertions. |
