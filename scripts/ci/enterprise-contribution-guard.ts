@@ -8,6 +8,7 @@
 // exercises directly, with fakes standing in for the GitHub calls. Run
 // directly with `node` (no build step) — Node strips the type annotations.
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 export const ENTERPRISE_PREFIX = 'packages/enterprise/'
 
@@ -224,7 +225,7 @@ export async function main({ env = process.env }: { env?: NodeJS.ProcessEnv } = 
   return 1
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   main()
     .then((code) => {
       process.exitCode = code
