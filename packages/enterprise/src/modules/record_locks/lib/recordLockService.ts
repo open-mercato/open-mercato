@@ -1555,7 +1555,7 @@ export class RecordLockService {
       input.userId,
     ].join(':')
 
-    await em.getConnection().execute('select pg_advisory_xact_lock(hashtext(?))', [lockKey])
+    await em.execute('select pg_advisory_xact_lock(hashtext(?))', [lockKey])
   }
 
   private async findOwnedLockByToken(

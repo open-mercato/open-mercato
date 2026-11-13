@@ -33,6 +33,7 @@ function createService(
     persist: jest.fn(),
     flush: jest.fn(),
     transactional: jest.fn(),
+    execute,
     getConnection: jest.fn(() => connection),
   } as any
   em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
@@ -600,13 +601,19 @@ describe('RecordLockService.acquire', () => {
     )
   })
 
-  test('rejects new lock acquisition when the user active-lock quota is reached', async () => {
+  test('locks quota through the transaction manager before rejecting a reached quota', async () => {
     const cappedSettings = {
       ...DEFAULT_SETTINGS,
       strategy: 'pessimistic',
       maxActiveLocksPerUser: 2,
     } as RecordLockSettings & { maxActiveLocksPerUser: number }
     const { service, em } = createService(cappedSettings)
+    const transactionExecute = jest.fn().mockResolvedValue([])
+    em.transactional.mockImplementation(async (callback: (transaction: typeof em) => Promise<unknown>) => callback({
+      ...em,
+      execute: transactionExecute,
+      getConnection: () => { throw new Error('[internal] Transaction must retain its existing connection') },
+    }))
     const serviceAny = service as any
 
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue(null)
@@ -635,7 +642,7 @@ describe('RecordLockService.acquire', () => {
     expect(result.error).toBe('Active record lock limit reached')
     expect(result.lock).toBeNull()
     expect(em.transactional).toHaveBeenCalledTimes(1)
-    expect(em.getConnection().execute).toHaveBeenCalledWith(
+    expect(transactionExecute).toHaveBeenCalledWith(
       'select pg_advisory_xact_lock(hashtext(?))',
       ['record_locks:quota:60000000-0000-4000-8000-000000000001:70000000-0000-4000-8000-000000000001:40000000-0000-4000-8000-000000000001'],
     )
