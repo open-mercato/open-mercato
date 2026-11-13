@@ -25,6 +25,7 @@ type OffersResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 25
@@ -54,6 +55,7 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setLoading] = React.useState(true)
   const [sorting, setSorting] = React.useState<SortingState>([])
@@ -134,6 +136,7 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
       setRows(items.map(mapOfferRow))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
     } catch (err) {
       logger.error('sales.channels.offers', { err })
       flash(t('sales.channels.offers.errors.load', 'Failed to load offers.'), 'error')
@@ -174,9 +177,9 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
 
   const tableTitle = (
     <div>
-      <div className="text-lg font-semibold">
+      <h2 className="text-lg font-semibold">
         {t('sales.channels.offers.heading', 'Offers for {{name}}', { name: channelName || t('sales.channels.nav.title', 'Sales channels') })}
-      </div>
+      </h2>
       <p className="text-sm text-muted-foreground">
         {t('sales.channels.offers.subtitle', 'Override product presentation and pricing per channel.')}
       </p>
@@ -208,6 +211,7 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
         pageSize: PAGE_SIZE,
         total,
         totalPages,
+        totalIsCapped,
         onPageChange: setPage,
       }}
       refreshButton={{

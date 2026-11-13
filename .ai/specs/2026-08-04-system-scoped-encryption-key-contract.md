@@ -89,9 +89,10 @@ Scope when it is picked up:
 | `TenantDataEncryptionService` constructor | added optional `defaultEncryptionMaps` option | ADDITIVE — compliant |
 | CLI commands | added `entities backfill-system-encryption` | ADDITIVE — compliant |
 | DB schema | added nullable `onboarding_requests.email_hash` + unique constraint | ADDITIVE — compliant, reversible |
+| DB schema | dropped `onboarding_requests_email_unique`, replaced by a non-unique `onboarding_requests_email_idx` (PR #5336) | RELAXATION — no bridge constructible, see #4514 |
 | CLI behavior | `rotate-encryption-key` / `decrypt-database` now skip system-scoped entities | **behavior change** — see below |
 
-Nothing was removed, renamed or narrowed, so no deprecation bridge is required.
+Phase 1 and Phase 2 removed, renamed and narrowed nothing, so they required no deprecation bridge. The one later removal is the `onboarding_requests_email_unique` constraint, dropped by #5336 on the authority of #4514: once this spec moved `email` to `keyScope: 'system'` encryption, `encryptWithAesGcm` gave every write a fresh random IV, so two rows holding the same address could never collide and the constraint could not fire. A deprecation bridge is not constructible for a guarantee the database was no longer able to enforce, and the guarantee callers actually depend on — one pending request per address — moved to `onboarding_requests_email_hash_unique` in Phase 2 and is untouched. The dropped constraint's implicit index is replaced by an explicit non-unique index on `email`, so the legacy `(email = input AND email_hash IS NULL)` arm of the resubmission lookup stays indexable and the `$or` does not degrade to a sequential scan. Migration guidance for deployments carrying a downstream `INSERT ... ON CONFLICT (email)` is in `UPGRADE_NOTES.md`.
 
 **The one behavior change, and why it is not a break.** Before this work, tenant setup persisted an `encryption_maps` row for every declared map — system-scoped included — with a `tenant_id`. A *completed* onboarding row also carries a `tenant_id`, so `rotate-encryption-key --old-key` matched it, failed to decrypt `system:<entityId>` ciphertext with the old tenant key, fell through with the ciphertext still in its payload, and re-encrypted that ciphertext under the tenant DEK. The result was unreadable by runtime decryption and unrecoverable without a backup. Those commands therefore never had a *working* behavior on system-scoped rows to preserve; skipping them removes a data-loss path rather than removing a capability.
 
@@ -126,3 +127,4 @@ Deployments that skip step 3 are not broken: reads are plaintext-tolerant, `find
 ## Changelog
 
 - **2026-08-04** — spec created alongside PR #4160. Phases 1 and 2 implemented; Phase 3 open pending the answers above.
+- **2026-08-18** — recorded the follow-on schema relaxation from #4514 / PR #5336 in § Migration & Backward Compatibility: `onboarding_requests_email_unique` is dropped because Phase 1's non-deterministic `keyScope: 'system'` ciphertext made it unenforceable, and a non-unique `onboarding_requests_email_idx` replaces its implicit index so the resubmission `$or` stays indexable. Phase 3 is unaffected and still open.

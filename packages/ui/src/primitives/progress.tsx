@@ -67,6 +67,7 @@ const progressTrackVariants = cva(
     variants: {
       size: {
         sm: 'h-1',
+        md: 'h-1.5',
         default: 'h-2',
         lg: 'h-3',
       },
@@ -100,6 +101,7 @@ export interface ProgressProps
   tone?: ProgressTone
   /** Show the percentage badge on the right of the label row. */
   showValue?: boolean
+  valuePlacement?: 'top' | 'right'
   /** Optional label rendered above the bar. */
   label?: React.ReactNode
   /** Optional description rendered below the bar in muted text. */
@@ -114,6 +116,7 @@ export function Progress({
   size,
   tone,
   showValue,
+  valuePlacement = 'top',
   label,
   description,
   className,
@@ -121,7 +124,7 @@ export function Progress({
   ...props
 }: ProgressProps) {
   const percentage = Math.min(100, Math.max(0, Math.round((value / max) * 100)))
-  const hasLabelRow = label !== undefined || showValue === true
+  const hasLabelRow = label !== undefined || (showValue === true && valuePlacement === 'top')
   const bar = (
     <div
       role="progressbar"
@@ -141,7 +144,11 @@ export function Progress({
     </div>
   )
 
-  if (!hasLabelRow && description === undefined) return bar
+  const progressRow = showValue && valuePlacement === 'right'
+    ? <div data-slot="progress-value-row" className="flex w-full items-center gap-2">{bar}<span data-slot="progress-value" className="shrink-0 text-xs text-muted-foreground">{percentage}%</span></div>
+    : bar
+
+  if (!hasLabelRow && description === undefined) return progressRow
 
   return (
     <div data-slot="progress-wrapper" className="flex w-full flex-col gap-1.5">
@@ -150,7 +157,7 @@ export function Progress({
           <span data-slot="progress-label" className="min-w-0 truncate">
             {label}
           </span>
-          {showValue ? (
+          {showValue && valuePlacement === 'top' ? (
             <span
               data-slot="progress-value"
               className="shrink-0 text-muted-foreground"
@@ -160,7 +167,7 @@ export function Progress({
           ) : null}
         </div>
       ) : null}
-      {bar}
+      {progressRow}
       {description !== undefined ? (
         <div data-slot="progress-description" className="text-sm text-muted-foreground">
           {description}
@@ -179,6 +186,11 @@ const CIRCULAR_SIZE_MAP = {
   sm: { box: 32, stroke: 3, textClass: 'text-[10px]' },
   default: { box: 48, stroke: 4, textClass: 'text-xs' },
   lg: { box: 64, stroke: 5, textClass: 'text-sm' },
+  48: { box: 48, stroke: 6.72, textClass: 'text-xs' },
+  56: { box: 56, stroke: 4.48, textClass: 'text-xs' },
+  64: { box: 64, stroke: 5.12, textClass: 'text-sm' },
+  72: { box: 72, stroke: 5.76, textClass: 'text-sm' },
+  80: { box: 80, stroke: 6.4, textClass: 'text-sm' },
 } as const
 
 export type CircularProgressSize = keyof typeof CIRCULAR_SIZE_MAP

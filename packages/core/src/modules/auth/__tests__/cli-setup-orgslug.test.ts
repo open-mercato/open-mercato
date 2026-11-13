@@ -8,6 +8,7 @@ import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import cli from '@open-mercato/core/modules/auth/cli'
+import { createTransactionalEntityManagerDouble } from '../../../test-utils/transactionalEntityManagerDouble'
 
 jest.setTimeout(60_000)
 
@@ -42,13 +43,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (_: string) => {
       const baseEm = { findOne, findOneOrFail, create, find, persist, flush }
-      return {
-        ...baseEm,
-        transactional: async (cb: (tem: any) => any) => {
-          const tem = { ...baseEm }
-          return await cb(tem)
-        },
-      }
+      return createTransactionalEntityManagerDouble(baseEm)
     },
   }),
 }))

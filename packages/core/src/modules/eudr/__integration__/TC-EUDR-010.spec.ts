@@ -76,6 +76,11 @@ async function expectNoErrorState(page: Page): Promise<void> {
  */
 test.describe('TC-EUDR-010: Searchable product picker', () => {
   test('searches products by name fragment, saves the mapping, and never surfaces raw UUIDs', async ({ page, request }) => {
+    // The picker's own waits (30s for the search request, 30s for the post-save
+    // navigation) each exceed the config's 20s test budget, so on a loaded server
+    // the test timeout fires before any step gets to spend its allowance — this
+    // spec was flaky-on-retry in the standalone run for exactly that reason.
+    test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`
     const productTitle = `TC-EUDR-010 Product ${stamp}`
@@ -95,26 +100,39 @@ test.describe('TC-EUDR-010: Searchable product picker', () => {
       const productField = page.locator('[data-crud-field-id="productId"]').first()
       await expect(productField).toBeVisible()
 
-      const searchRequestPromise = page.waitForRequest((candidate) => {
-        const url = new URL(candidate.url())
-        return url.pathname.endsWith(CATALOG_PRODUCTS_PATH)
-          && (url.searchParams.get('search') ?? '').includes(stamp)
-      }, { timeout: 30_000 })
-      // The picker only queries once the search term reaches its minimum length,
-      // so there is no initial empty-query fetch to synchronise hydration on.
-      // Retry the fill until the value sticks — hydration can swap the input
-      // out from under a first-paint fill.
+      // The picker only queries once the search term reaches its minimum length, so
+      // there is no initial empty-query fetch to synchronise hydration on. A fill that
+      // lands on the pre-hydration input satisfies `toHaveValue` and is then wiped by
+      // the re-mount, so the debounce has nothing to send: the box ends up visibly
+      // empty ("Start typing to search.") while `waitForRequest` waits out its whole
+      // timeout. Asserting the value stuck is therefore not enough — retry the entire
+      // interaction until a search actually reaches the server, which a listener
+      // records regardless of which attempt produced it.
+      const observedSearchTerms: string[] = []
+      page.on('request', (candidate) => {
+        let url: URL
+        try {
+          url = new URL(candidate.url())
+        } catch {
+          return
+        }
+        if (!url.pathname.endsWith(CATALOG_PRODUCTS_PATH)) return
+        const search = url.searchParams.get('search') ?? ''
+        if (search.includes(stamp)) observedSearchTerms.push(search)
+      })
       const productInput = productField.locator('input').first()
       await expect(productInput).toBeEditable()
       await expect(async () => {
-        await productInput.fill(stamp)
-        await expect(productInput).toHaveValue(stamp)
-      }).toPass({ timeout: 15_000 })
-      const searchRequest = await searchRequestPromise
-      expect(
-        new URL(searchRequest.url()).searchParams.get('search'),
-        'typing in the product picker should trigger a server-side search request',
-      ).toContain(stamp)
+        if (observedSearchTerms.length === 0) {
+          await productInput.fill('')
+          await productInput.fill(stamp)
+          await expect(productInput).toHaveValue(stamp)
+        }
+        expect(
+          observedSearchTerms.length,
+          'typing in the product picker should trigger a server-side search request',
+        ).toBeGreaterThan(0)
+      }).toPass({ timeout: 30_000, intervals: [1_000, 2_000, 3_000] })
 
       const option = productField.getByRole('option').filter({ hasText: productTitle }).first()
       await expect(option, 'picker option should show the product name').toBeVisible({ timeout: 15_000 })

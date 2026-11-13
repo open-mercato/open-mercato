@@ -60,6 +60,7 @@ import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/cu
 import { E } from '#generated/entities.ids.generated'
 import {
   createAiApiOperationRunner,
+  expectedRecordVersionFor,
   type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { CatalogProduct, CatalogProductPrice } from '../data/entities'
@@ -248,9 +249,13 @@ const updateProductTool: CatalogAiToolDefinition = {
       method: 'PUT',
       path: '/catalog/products',
       body,
+      expectedUpdatedAt: expectedRecordVersionFor(ctx, row.id),
     })
     if (!response.success) {
-      throw new Error(response.error ?? `Failed to update product "${row.id}"`)
+      const error = new Error(response.error ?? `Failed to update product "${row.id}"`) as Error & { code?: string }
+      const code = (response.details as { code?: unknown } | undefined)?.code
+      if (typeof code === 'string' && code.length > 0) error.code = code
+      throw error
     }
 
     const after = await loadProductForScope(em, ctx, tenantId, row.id)
@@ -377,6 +382,7 @@ const bulkUpdateProductsTool: CatalogAiToolDefinition = {
           method: 'PUT',
           path: '/catalog/products',
           body,
+          expectedUpdatedAt: expectedRecordVersionFor(ctx, product.id),
         })
         if (!response.success) {
           const code =
@@ -553,6 +559,7 @@ const applyAttributeExtractionTool: CatalogAiToolDefinition = {
           method: 'PUT',
           path: '/catalog/products',
           body,
+          expectedUpdatedAt: expectedRecordVersionFor(ctx, product.id),
         })
         if (!response.success) {
           const code =
@@ -659,6 +666,16 @@ function mediaLabel(row: Attachment): string {
   return row.id
 }
 
+function mediaUpdatePatch(entry: {
+  altText?: string
+  caption?: string
+}): { altText?: string; caption?: string } {
+  return {
+    ...(entry.altText !== undefined ? { altText: entry.altText } : {}),
+    ...(entry.caption !== undefined ? { caption: entry.caption } : {}),
+  }
+}
+
 const updateProductMediaDescriptionsTool: CatalogAiToolDefinition = {
   name: 'catalog.update_product_media_descriptions',
   displayName: 'Update product media descriptions',
@@ -678,12 +695,14 @@ const updateProductMediaDescriptionsTool: CatalogAiToolDefinition = {
     for (const entry of input.mediaUpdates) {
       const media = await loadProductMediaForScope(em, ctx, tenantId, entry.mediaId)
       if (!media) continue
+      const before = mediaSnapshot(media)
       rows.push({
         recordId: media.id,
         entityType: 'catalog.product_media',
         label: mediaLabel(media),
         recordVersion: recordVersionFromUpdatedAt(media.createdAt ?? null),
-        before: mediaSnapshot(media),
+        before,
+        after: { ...before, ...mediaUpdatePatch(entry) },
       })
     }
     return rows
@@ -712,10 +731,7 @@ const updateProductMediaDescriptionsTool: CatalogAiToolDefinition = {
       const before = mediaSnapshot(media)
       touched.push({
         row: media,
-        patch: {
-          ...(entry.altText !== undefined ? { altText: entry.altText } : {}),
-          ...(entry.caption !== undefined ? { caption: entry.caption } : {}),
-        },
+        patch: mediaUpdatePatch(entry),
         before,
       })
     }

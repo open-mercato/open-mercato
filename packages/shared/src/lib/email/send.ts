@@ -1,22 +1,51 @@
-import { Resend } from 'resend'
 import React from 'react'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { parseBooleanWithDefault } from '../boolean'
-import { resolveDefaultEmailFromAddress } from './config'
+import {
+  isEmailDeliveryDisabled,
+  resolveDefaultEmailFromAddress,
+} from './config'
+import { getRegisteredEmailTransport } from './transport'
+
+export type EmailAttachment = {
+  filename: string
+  content: string
+  contentType?: string
+}
 
 export type SendEmailOptions = {
   to: string
   subject: string
-  react: React.ReactElement
+  react?: React.ReactElement
+  html?: string
+  text?: string
   from?: string
   replyTo?: string
-  attachments?: Array<{
-    filename: string
-    content: string
-    contentType?: string
-  }>
+  attachments?: EmailAttachment[]
+  tenantId?: string
+  organizationId?: string | null
+}
+
+export type ResolvedEmailPayload = {
+  to: string
+  subject: string
+  react?: React.ReactElement
+  html?: string
+  text?: string
+  from: string
+  /**
+   * True when `from` was filled in from the instance-wide environment defaults rather than chosen by
+   * the caller. Transports use this to decide whether a tenant's own configured sender may take
+   * precedence: `from` is never empty by the time it reaches a transport, so without this flag a
+   * per-tenant sender is unreachable. Absent means "caller chose it" for older transports.
+   */
+  fromIsInstanceDefault?: boolean
+  replyTo?: string
+  attachments?: EmailAttachment[]
+  tenantId?: string
+  organizationId?: string | null
 }
 
 type CapturedEmail = {
@@ -92,38 +121,31 @@ async function captureEmailForTests(options: SendEmailOptions): Promise<void> {
   await appendFile(capturePath, `${JSON.stringify(record)}\n`, 'utf8')
 }
 
-export async function sendEmail({ to, subject, react, from, replyTo, attachments }: SendEmailOptions) {
-  const emailDisabled =
-    parseBooleanWithDefault(process.env.OM_DISABLE_EMAIL_DELIVERY, false) ||
-    parseBooleanWithDefault(process.env.OM_TEST_MODE, false)
+export async function sendEmail(options: SendEmailOptions): Promise<void> {
+  await captureEmailForTests(options)
+  if (isEmailDeliveryDisabled()) return
 
-  await captureEmailForTests({ to, subject, react, from, replyTo, attachments })
-
-  if (emailDisabled) return
-
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) throw new Error('RESEND_API_KEY is not set')
-  const resend = new Resend(apiKey)
-  const fromAddr = from || resolveDefaultEmailFromAddress()
+  const fromAddr = options.from || resolveDefaultEmailFromAddress()
   if (!fromAddr) {
     throw new Error('EMAIL_FROM_NOT_CONFIGURED: set NOTIFICATIONS_EMAIL_FROM, EMAIL_FROM, or ADMIN_EMAIL')
   }
-  const payload = {
-    to,
-    subject,
+
+  const transport = getRegisteredEmailTransport()
+  if (!transport) {
+    throw new Error('EMAIL_TRANSPORT_NOT_CONFIGURED: enable an outbound email provider module')
+  }
+
+  await transport.send({
+    to: options.to,
+    subject: options.subject,
+    react: options.react,
+    html: options.html,
+    text: options.text,
     from: fromAddr,
-    react,
-    ...(replyTo ? { reply_to: replyTo } : {}),
-    ...(attachments?.length ? { attachments } : {}),
-  }
-  const result = await resend.emails.send(payload)
-  const errorMessage =
-    typeof (result as any)?.error === 'string'
-      ? (result as any).error
-      : typeof (result as any)?.error?.message === 'string'
-        ? (result as any).error.message
-        : null
-  if (errorMessage) {
-    throw new Error(`RESEND_SEND_FAILED: ${errorMessage}`)
-  }
+    fromIsInstanceDefault: !options.from,
+    replyTo: options.replyTo,
+    attachments: options.attachments,
+    tenantId: options.tenantId,
+    organizationId: options.organizationId,
+  })
 }

@@ -58,6 +58,15 @@ test('Dockerfile installs dependencies from workspace manifests before copying s
     )
   }
 
+  const documentsManifestCopies = dockerfile.match(
+    /(?:COPY|COPY --from=builder) (?:\/app\/)?packages\/documents\/package\.json \.\/packages\/documents\//g,
+  ) ?? []
+  assert.equal(
+    documentsManifestCopies.length,
+    3,
+    'Dockerfile should copy the Documents manifest in builder, dev, and runner stages',
+  )
+
   const manifestCopyIndex = dockerfile.indexOf('COPY packages/shared/package.json ./packages/shared/')
   const installIndex = dockerfile.indexOf('RUN yarn install --immutable')
   const sourceCopyIndex = dockerfile.indexOf('COPY packages/ ./packages/')
@@ -66,6 +75,29 @@ test('Dockerfile installs dependencies from workspace manifests before copying s
   assert.ok(installIndex > manifestCopyIndex, 'expected immutable install after manifest copies')
   assert.ok(sourceCopyIndex > installIndex, 'expected full source copy after immutable install')
   assert.doesNotMatch(dockerfile, /^RUN yarn install$/m)
+})
+
+test('production runtime image supports Chromium for Documents PDF export', async () => {
+  const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
+
+  assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
+  assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl sudo/)
+})
+
+test('production runtime Chromium install is opt-in via INSTALL_CHROMIUM build arg', async () => {
+  const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
+
+  assert.match(dockerfile, /ARG INSTALL_CHROMIUM=0/, 'runner stage should default INSTALL_CHROMIUM to 0')
+  assert.match(
+    dockerfile,
+    /if \[ "\$INSTALL_CHROMIUM" = "1" \]; then[\s\S]*?apk add --no-cache ca-certificates chromium openssl sudo/,
+    'chromium install should be guarded by the INSTALL_CHROMIUM build arg',
+  )
+  assert.match(
+    dockerfile,
+    /else[\s\S]*?apk add --no-cache ca-certificates openssl sudo/,
+    'opting out must still install the non-chromium runtime packages',
+  )
 })
 
 test('production Docker stage includes the telemetry workspace before focusing dependencies', async () => {
@@ -77,4 +109,30 @@ test('production Docker stage includes the telemetry workspace before focusing d
 
   assert.ok(telemetryManifestIndex >= 0, 'expected telemetry workspace manifest in the production stage')
   assert.ok(productionFocusIndex > telemetryManifestIndex, 'expected telemetry manifest before production focus')
+})
+
+test('preview build stages provide the upstream guides required by package builds', async () => {
+  const dockerfile = await readFile(new URL('../../docker/preview/Dockerfile', import.meta.url), 'utf8')
+  const requiredGuides = new Set()
+  for (const packageName of ['cli', 'create-app']) {
+    const buildScript = await readFile(new URL(`../../packages/${packageName}/build.mjs`, import.meta.url), 'utf8')
+    const guideLoop = buildScript.match(/for \(const file of (\[[^\]]+\])\)/)
+    assert.ok(guideLoop, `${packageName} must declare its upstream guide inputs`)
+    for (const guide of guideLoop[1].matchAll(/'([^']+)'/g)) requiredGuides.add(guide[1])
+  }
+
+  const stages = dockerfile.split(/^FROM /m).slice(1)
+  assert.equal(stages.length, 2)
+  for (const stage of stages) {
+    const buildIndex = stage.search(/^RUN yarn build(?:\s|:)/m)
+    assert.ok(buildIndex >= 0, 'expected a package build in each preview stage')
+    const availableFiles = new Set()
+    for (const copy of stage.slice(0, buildIndex).matchAll(/^COPY (.+) \.\/$/gm)) {
+      for (const source of copy[1].split(/\s+/)) availableFiles.add(source)
+    }
+    for (const guide of requiredGuides) {
+      assert.ok(availableFiles.has(guide), `${stage.split('\n')[0]} must copy ${guide} before building packages`)
+      assert.ok((await readFile(path.join(repoRoot, guide))).length > 0)
+    }
+  }
 })

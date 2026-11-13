@@ -27,11 +27,12 @@
  * are unchanged.
  */
 const findOneWithDecryptionMock = jest.fn()
+const findWithDecryptionMock = jest.fn(async () => [])
 const runMock = jest.fn()
 const createRunnerMock = jest.fn(() => ({ run: runMock }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: jest.fn(),
+  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
 }))
 
@@ -91,12 +92,15 @@ function makeMutationCtx(options: {
 
 const DEAL_ID = '8b1d0f8f-5c5c-4c5f-9c5c-9c5c9c5c9c5c'
 const STAGE_ID = 'a1b2c3d4-e5f6-4f01-8f02-0123456789ab'
+const WIN_STAGE_ID = 'd1b2c3d4-e5f6-4f01-8f02-0123456789ab'
 
 describe('customers.update_deal_stage — contract', () => {
   const tool = findTool('customers.update_deal_stage')
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockResolvedValue([])
     runMock.mockReset()
     createRunnerMock.mockClear()
   })
@@ -151,6 +155,8 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockResolvedValue([])
     runMock.mockReset()
     createRunnerMock.mockClear()
   })
@@ -181,15 +187,24 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
       before: {
         status: 'open',
         pipelineStageId: STAGE_ID,
+        closureOutcome: null,
+        lossReasonId: null,
+        lossNotes: null,
       },
       after: {
         status: 'open',
         pipelineStageId: targetStageId,
+        closureOutcome: null,
+        lossReasonId: null,
+        lossNotes: null,
       },
       display: {
         fieldLabels: {
           status: 'Status',
           pipelineStageId: 'Pipeline stage',
+          closureOutcome: 'Closure outcome',
+          lossReasonId: 'Loss reason',
+          lossNotes: 'Loss notes',
         },
         before: {
           status: 'Open',
@@ -202,6 +217,150 @@ describe('customers.update_deal_stage — loadBeforeRecord', () => {
       },
     })
   })
+
+  it('previews the terminal stage and derived closure outcome for a won status flip', async () => {
+    const updatedAt = new Date('2026-04-18T12:00:00Z')
+    const winStage = {
+      id: WIN_STAGE_ID,
+      pipelineId: 'c1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+      label: 'Win',
+      order: 7,
+    }
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      id: DEAL_ID,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      status: 'open',
+      pipelineStage: 'Prospect',
+      pipelineStageId: STAGE_ID,
+      pipelineId: winStage.pipelineId,
+      closureOutcome: null,
+      lossReasonId: null,
+      lossNotes: null,
+      updatedAt,
+    })
+    findWithDecryptionMock.mockResolvedValueOnce([winStage])
+    const ctx = makeMutationCtx()
+    const before = await tool.loadBeforeRecord!(
+      { dealId: DEAL_ID, toStage: 'won' } as any,
+      ctx as any,
+    )
+    expect(before).toEqual({
+      recordId: DEAL_ID,
+      entityType: 'customers.deal',
+      recordVersion: updatedAt.toISOString(),
+      before: {
+        status: 'open',
+        pipelineStageId: STAGE_ID,
+        closureOutcome: null,
+        lossReasonId: null,
+        lossNotes: null,
+      },
+      after: {
+        status: 'won',
+        pipelineStageId: WIN_STAGE_ID,
+        closureOutcome: 'won',
+        lossReasonId: null,
+        lossNotes: null,
+      },
+      display: {
+        fieldLabels: {
+          status: 'Status',
+          pipelineStageId: 'Pipeline stage',
+          closureOutcome: 'Closure outcome',
+          lossReasonId: 'Loss reason',
+          lossNotes: 'Loss notes',
+        },
+        before: {
+          status: 'Open',
+          pipelineStageId: 'Prospect',
+        },
+        after: {
+          status: 'Won',
+          pipelineStageId: 'Win',
+          closureOutcome: 'Won',
+        },
+      },
+    })
+  })
+
+  it('previews the cleared closure outcome and loss columns for a reopen status flip', async () => {
+    const updatedAt = new Date('2026-04-18T12:00:00Z')
+    const deal = {
+      id: DEAL_ID,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      status: 'won',
+      pipelineStage: 'Win',
+      pipelineStageId: WIN_STAGE_ID,
+      pipelineId: 'c1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+      closureOutcome: 'won',
+      lossReasonId: 'e1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+      lossNotes: 'Pricing objection',
+      updatedAt,
+    }
+    findOneWithDecryptionMock.mockResolvedValueOnce(deal)
+    const ctx = makeMutationCtx()
+    const before = await tool.loadBeforeRecord!(
+      { dealId: DEAL_ID, toStage: 'open' } as any,
+      ctx as any,
+    )
+    expect(before?.before).toEqual({
+      status: 'won',
+      pipelineStageId: WIN_STAGE_ID,
+      closureOutcome: 'won',
+      lossReasonId: 'e1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+      lossNotes: 'Pricing objection',
+    })
+    expect(before?.after).toEqual({
+      status: 'open',
+      pipelineStageId: WIN_STAGE_ID,
+      closureOutcome: null,
+      lossReasonId: null,
+      lossNotes: null,
+    })
+    expect(before?.display.after).toEqual({
+      status: 'Open',
+      pipelineStageId: 'Win',
+      closureOutcome: '—',
+    })
+  })
+
+  it.each(['Closed', 'CLOSED'])(
+    'previews closure state as preserved for the %s status spelling',
+    async (statusSpelling) => {
+      const updatedAt = new Date('2026-04-18T12:00:00Z')
+      const deal = {
+        id: DEAL_ID,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        status: 'lost',
+        pipelineStage: 'Lost',
+        pipelineStageId: WIN_STAGE_ID,
+        pipelineId: 'c1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+        closureOutcome: 'lost',
+        lossReasonId: 'e1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+        lossNotes: 'Pricing objection',
+        updatedAt,
+      }
+      findOneWithDecryptionMock.mockResolvedValueOnce(deal)
+      const ctx = makeMutationCtx()
+      const before = await tool.loadBeforeRecord!(
+        { dealId: DEAL_ID, toStage: statusSpelling } as any,
+        ctx as any,
+      )
+      // `closed` in any casing is not a reopen, so the approval card must not promise to
+      // clear the loss columns — and the update command must agree (see the matching
+      // case in commands/__tests__/deals.stage-transitions.test.ts).
+      expect(before?.after).toEqual({
+        status: statusSpelling,
+        pipelineStageId: WIN_STAGE_ID,
+        closureOutcome: 'lost',
+        lossReasonId: 'e1b2c3d4-e5f6-4f01-8f02-0123456789ab',
+        lossNotes: 'Pricing objection',
+      })
+    },
+  )
 
   it('returns null when the deal is missing', async () => {
     findOneWithDecryptionMock.mockResolvedValue(null)
@@ -258,6 +417,8 @@ describe('customers.update_deal_stage — prepare phase issues no API write', ()
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockResolvedValue([])
     runMock.mockReset()
     createRunnerMock.mockClear()
   })
@@ -287,6 +448,8 @@ describe('customers.update_deal_stage — handler delegates to API runner', () =
 
   beforeEach(() => {
     findOneWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockReset()
+    findWithDecryptionMock.mockResolvedValue([])
     runMock.mockReset()
     createRunnerMock.mockClear()
   })

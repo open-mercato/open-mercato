@@ -30,6 +30,7 @@ interface ListResponse {
   items: SsoConfigRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
   isSuperAdmin?: boolean
 }
 
@@ -185,7 +186,8 @@ export default function SsoConfigListPage() {
           </div>
         ) : (
           <DataTable<SsoConfigRow>
-            title={t('sso.admin.title', 'Single Sign-On')}
+        title={t('sso.admin.title', 'Single Sign-On')}
+        titleHeadingLevel={1}
             actions={canCreateNew ? (
               <Button asChild size="sm">
                 <Link href="/backend/sso/config/new">
@@ -220,6 +222,7 @@ export default function SsoConfigListPage() {
               pageSize: 50,
               total: data.total,
               totalPages: data.totalPages,
+              totalIsCapped: data?.totalIsCapped === true,
               onPageChange: setPage,
             }}
             isLoading={isLoading}

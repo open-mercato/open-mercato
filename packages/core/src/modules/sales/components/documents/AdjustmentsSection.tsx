@@ -9,6 +9,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { useSalesDocumentMutation } from './useSalesDocumentMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -23,7 +24,7 @@ import type { SectionAction } from '@open-mercato/core/modules/customers/compone
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { PriceWithCurrency } from '../PriceWithCurrency'
 import { AdjustmentDialog, type AdjustmentRowData, type AdjustmentSubmitPayload } from './AdjustmentDialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -41,6 +42,8 @@ type SalesDocumentAdjustmentsSectionProps = {
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onRowsChange?: (rows: AdjustmentRow[]) => void
+  /** Withdraws adjustment writes: on an external order they would all be refused. */
+  amountsReadOnly?: boolean
 }
 
 const FALLBACK_ADJUSTMENT_KIND_VALUES: SalesAdjustmentKind[] = [
@@ -60,9 +63,9 @@ function normalizeNumber(value: unknown, fallback = 0): number {
   return fallback
 }
 
-function formatPercent(value: number | null | undefined): string {
+export function formatPercent(value: number | null | undefined, locale?: string): string {
   if (value === null || value === undefined) return '—'
-  const formatter = new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 2 })
+  const formatter = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 })
   return formatter.format(value / 100)
 }
 
@@ -75,8 +78,11 @@ export function SalesDocumentAdjustmentsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onRowsChange,
+  amountsReadOnly = false,
 }: SalesDocumentAdjustmentsSectionProps) {
   const t = useT()
+  const runDocumentMutation = useSalesDocumentMutation(kind, documentId)
+  const locale = useLocale()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null
   const resolvedTenantId = tenantFromProps ?? tenantId ?? null
@@ -278,10 +284,14 @@ export function SalesDocumentAdjustmentsSection({
     setDialogOpen(true)
   }, [])
 
-  const handleEdit = React.useCallback((row: AdjustmentRow) => {
-    setActiveAdjustment(row)
-    setDialogOpen(true)
-  }, [])
+  const handleEdit = React.useCallback(
+    (row: AdjustmentRow) => {
+      if (amountsReadOnly) return
+      setActiveAdjustment(row)
+      setDialogOpen(true)
+    },
+    [amountsReadOnly]
+  )
 
   const handleCloseDialog = React.useCallback(() => {
     setDialogOpen(false)
@@ -293,10 +303,10 @@ export function SalesDocumentAdjustmentsSection({
     onActionChange({
       label: t('sales.documents.adjustments.add', 'Add adjustment'),
       onClick: handleOpenCreate,
-      disabled: false,
+      disabled: amountsReadOnly,
     })
     return () => onActionChange(null)
-  }, [handleOpenCreate, onActionChange, t])
+  }, [amountsReadOnly, handleOpenCreate, onActionChange, t])
 
   const handleFormSubmit = React.useCallback(
     async (values: AdjustmentSubmitPayload) => {
@@ -325,7 +335,7 @@ export function SalesDocumentAdjustmentsSection({
 
       const action = values.id ? updateCrud : createCrud
       try {
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             action(
@@ -338,7 +348,7 @@ export function SalesDocumentAdjustmentsSection({
                 errorMessage: t('sales.documents.adjustments.errorSave', 'Failed to save adjustment.'),
               }
             )
-        )
+        ), values.id ? { id: values.id, ...payload } : payload)
         if (result.ok) {
           await loadAdjustments()
           emitSalesDocumentTotalsRefresh({ documentId, kind })
@@ -366,6 +376,7 @@ export function SalesDocumentAdjustmentsSection({
       crudResourcePath,
       resolvedOrganizationId,
       resolvedTenantId,
+      runDocumentMutation,
       t,
     ]
   )
@@ -373,7 +384,7 @@ export function SalesDocumentAdjustmentsSection({
   const handleDelete = React.useCallback(
     async (row: AdjustmentRow) => {
       try {
-        const result = await withScopedApiRequestHeaders(
+        const result = await runDocumentMutation(() => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(documentUpdatedAt),
           () =>
             deleteCrud(crudResourcePath, {
@@ -385,7 +396,7 @@ export function SalesDocumentAdjustmentsSection({
               },
               errorMessage: t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'),
             })
-        )
+        ), { id: row.id, [documentKey]: documentId })
         if (result.ok) {
           await loadAdjustments()
           emitSalesDocumentTotalsRefresh({ documentId, kind })
@@ -396,7 +407,7 @@ export function SalesDocumentAdjustmentsSection({
         flash(t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'), 'error')
       }
     },
-    [crudResourcePath, documentId, documentKey, documentUpdatedAt, kind, loadAdjustments, resolvedOrganizationId, resolvedTenantId, t]
+    [crudResourcePath, documentId, documentKey, documentUpdatedAt, kind, loadAdjustments, resolvedOrganizationId, resolvedTenantId, runDocumentMutation, t]
   )
 
   const columns = React.useMemo<ColumnDef<AdjustmentRow>[]>(
@@ -433,7 +444,7 @@ export function SalesDocumentAdjustmentsSection({
       {
         id: 'rate',
         header: t('sales.documents.adjustments.rate', 'Rate'),
-        cell: ({ row }) => <span className="font-mono text-sm text-muted-foreground">{formatPercent(row.original.rate)}</span>,
+        cell: ({ row }) => <span className="font-mono text-sm text-muted-foreground">{formatPercent(row.original.rate, locale)}</span>,
       },
       {
         id: 'position',
@@ -441,30 +452,31 @@ export function SalesDocumentAdjustmentsSection({
         cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.position}</span>,
       },
     ],
-    [currencyCode, resolveKindLabel, t]
+    [currencyCode, locale, resolveKindLabel, t]
   )
 
   const showLoadingState = loading && rows.length === 0
 
   const renderRowActions = React.useCallback(
-    (row: AdjustmentRow) => (
-      <RowActions
-        items={[
-          {
-            id: 'edit',
-            label: t('ui.actions.edit', 'Edit'),
-            onSelect: () => handleEdit(row),
-          },
-          {
-            id: 'delete',
-            label: t('ui.actions.delete', 'Delete'),
-            destructive: true,
-            onSelect: () => handleDelete(row),
-          },
-        ]}
-      />
-    ),
-    [handleDelete, handleEdit, t]
+    (row: AdjustmentRow) =>
+      amountsReadOnly ? null : (
+        <RowActions
+          items={[
+            {
+              id: 'edit',
+              label: t('ui.actions.edit', 'Edit'),
+              onSelect: () => handleEdit(row),
+            },
+            {
+              id: 'delete',
+              label: t('ui.actions.delete', 'Delete'),
+              destructive: true,
+              onSelect: () => handleDelete(row),
+            },
+          ]}
+        />
+      ),
+    [amountsReadOnly, handleDelete, handleEdit, t]
   )
 
   return (
@@ -483,7 +495,7 @@ export function SalesDocumentAdjustmentsSection({
           columns={columns}
           isLoading={loading && rows.length > 0}
           embedded
-          onRowClick={handleEdit}
+          onRowClick={amountsReadOnly ? undefined : handleEdit}
           rowActions={renderRowActions}
           emptyState={
             <TabEmptyState
@@ -491,6 +503,7 @@ export function SalesDocumentAdjustmentsSection({
               description={t('sales.documents.empty.adjustments.description', 'Add discounts, fees, or taxes to refine totals.')}
               actionLabel={t('sales.documents.adjustments.add', 'Add adjustment')}
               onAction={handleOpenCreate}
+              disabled={amountsReadOnly}
             />
           }
         />

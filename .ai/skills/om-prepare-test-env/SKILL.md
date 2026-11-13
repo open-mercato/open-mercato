@@ -250,3 +250,21 @@ readiness gates run. The generated entrypoint retries the complete repository CL
 times only when the log contains the exact `waiting for container ports to be bound to the host`
 failure. Other failures still stop immediately, and Testcontainers/Ryuk retains ownership of any
 container created by the failed attempt.
+
+## Production-mode JWT safety guard — 2026-10-05
+
+The ephemeral runner starts the built app in production mode. The server rejects the CLI's
+published fallback `JWT_SECRET` as intentionally unsafe, so an entrypoint that leaves it unset can
+complete migrations and the entire build before the app exits at readiness. Generated entrypoints
+must export a long disposable, non-example `JWT_SECRET` when invoking
+`yarn test:integration:ephemeral:start`; keep the value machine-local in the gitignored entrypoint
+and never copy a real deployment secret. Prove the repair by re-running the generated up script
+through both cold and warm verification.
+
+The long-lived CLI owner must also be detached from the bootstrap shell (`nohup`, `setsid`, and
+closed stdin on POSIX). Merely appending `&`, or using `nohup` without a new session in a managed
+cockpit, lets the owner disappear when the generated up command exits; the detached Next server
+then keeps listening while its Testcontainers database is gone, so a shallow page probe lies.
+Retain the authenticated readiness probe, record the new-session owner PID, and add a teardown
+fallback that terminates only the listener on the descriptor's recorded app port when that owner
+has already disappeared.

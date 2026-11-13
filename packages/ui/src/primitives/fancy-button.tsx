@@ -21,21 +21,21 @@ const fancyTypeStyles: Record<
   },
   basic: {
     className:
-      'bg-background text-muted-foreground shadow-[0px_1px_3px_0px_rgba(14,18,27,0.12),0px_0px_0px_1px_var(--border,#ebebeb)] hover:bg-accent',
+      'bg-background text-foreground shadow-xs ring-1 ring-border hover:bg-accent',
     style: {},
   },
   primary: {
-    className: 'text-foreground hover:brightness-105',
+    className: 'text-brand-violet-foreground hover:shadow-md',
     style: {
       backgroundImage:
-        'linear-gradient(161.7deg, var(--brand-lime, #B4F372) 0%, #EEFB63 35.36%, var(--brand-violet, #BC9AFF) 70.72%)',
+        'linear-gradient(161.7deg, var(--brand-lime, #B4F372) 0%, var(--brand-yellow, #EEFB63) 35.36%, var(--brand-violet, #BC9AFF) 70.72%)',
     },
   },
   destructive: {
     className:
-      'border border-white/[0.12] text-white shadow-[0px_1px_2px_0px_rgba(14,18,27,0.24),0px_0px_0px_1px_var(--destructive,#dc2626)] hover:brightness-110',
+      'border border-status-error-solid bg-status-error-solid text-status-error-solid-foreground shadow-sm hover:shadow-md',
     style: {
-      backgroundImage: `${sheenGradient}, linear-gradient(90deg, var(--destructive, #dc2626) 0%, var(--destructive, #dc2626) 100%)`,
+      backgroundImage: 'linear-gradient(180deg, transparent 0%, rgb(0 0 0 / 0.12) 100%)',
     },
   },
 }

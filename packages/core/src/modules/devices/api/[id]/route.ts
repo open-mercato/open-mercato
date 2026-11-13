@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -45,7 +46,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     // Self devices are scoped to the caller's active organization, mirroring the list route and the
     // user-owned-resource convention (e.g. progress jobs): a device outside the current org context
     // reads as not-found. When there is no active org, scope by tenant only.
-    const currentOrganizationId = scope?.selectedId ?? auth.orgId ?? null
+    const currentOrganizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
     const em = container.resolve('em') as EntityManager
     const device = await findOneWithDecryption(
       em,
@@ -106,7 +107,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     // Same active-org scoping as PUT/the list route: a device outside the current org reads as not-found.
-    const currentOrganizationId = scope?.selectedId ?? auth.orgId ?? null
+    const currentOrganizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
     const em = container.resolve('em') as EntityManager
     const device = await findOneWithDecryption(
       em,

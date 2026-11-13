@@ -202,4 +202,58 @@ describe('customer labels route', () => {
       error: 'Customer label tables are missing. Run yarn db:migrate.',
     })
   })
+
+  it('rejects a punctuation-only label that cannot produce a slug with 400', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/customers/labels', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ label: "'", organizationId }),
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Label must contain at least one letter or number' })
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('maps body validation failures to 400 instead of 500', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/customers/labels', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ label: 'x'.repeat(121), organizationId }),
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Validation failed')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('maps query validation failures to 400 instead of 500', async () => {
+    const response = await GET(
+      new Request('http://localhost/api/customers/labels?entityId=not-a-uuid'),
+    )
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe('Validation failed')
+  })
+
+  it('still reports unexpected failures as 500', async () => {
+    commandBusExecuteMock.mockRejectedValueOnce(new Error('boom'))
+
+    const response = await POST(
+      new Request('http://localhost/api/customers/labels', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ label: 'Test label', organizationId }),
+      }),
+    )
+
+    expect(response.status).toBe(500)
+  })
 })

@@ -10,12 +10,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import {
   createAiApiOperationRunner,
+  type AiApiOperationRequest,
   type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../lib/interactionStatus'
+import { resolveCustomerInteractionFeatureFlags } from '../lib/interactionFeatureFlags'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../lib/interactionCompatibility'
+import { listActivitiesForScope, loadActivityForScope, type ActivityRecord } from './activity-read-model'
 import {
-  CustomerActivity,
   CustomerComment,
   CustomerDeal,
   CustomerDealCompanyLink,
@@ -77,41 +81,56 @@ async function loadDealForScope(
 /**
  * `CustomerDeal` does NOT carry a direct `entity` field — deals are linked
  * to people / companies via the `customer_deal_person_links` and
- * `customer_deal_company_links` tables. Comments however need a non-null
- * `entity_id` (the timeline owner) so this helper resolves the deal's
- * first linked person, then falls back to its first linked company. When
- * neither exists, the caller MUST instruct the operator to link a contact
- * before commenting on the deal.
+ * `customer_deal_company_links` tables. Comments and activities however need
+ * a non-null `entity_id` (the timeline owner) so this helper resolves the
+ * deal's primary linked person, then the oldest person, then the oldest company.
+ * When neither exists, the caller MUST instruct the operator to link a
+ * contact before writing to the deal.
+ *
+ * The relations are `CustomerDealPersonLink.person` and
+ * `CustomerDealCompanyLink.company` (#6119): populating them under any other
+ * name makes MikroORM reject the query, so every write failed even for a deal
+ * with linked contacts.
+ *
+ * The link tables carry no `tenant_id` / `organization_id` column either, so the
+ * deal id is the whole criterion — the same query `api/deals/[id]/route.ts` runs.
+ * Callers pass a deal already returned by `loadDealForScope`; that check is what
+ * keeps the lookup inside the caller's tenant and organization.
  */
-async function resolveDealCommentEntityId(
-  em: EntityManager,
-  ctx: CustomersToolContext,
-  tenantId: string,
-  dealId: string,
-): Promise<string | null> {
+async function resolveDealLinkedEntityId(em: EntityManager, dealId: string): Promise<string | null> {
   const personLink = await em.findOne(
     CustomerDealPersonLink,
-    { deal: dealId, tenantId } as never,
-    { populate: ['personEntity'] as never },
+    { deal: dealId } as never,
+    {
+      populate: ['person'] as never,
+      orderBy: { isPrimary: 'DESC', createdAt: 'ASC', id: 'ASC' },
+    },
   )
-  if (personLink) {
-    const linked = (personLink as unknown as { personEntity?: { id?: string | null } | null }).personEntity
-    if (linked && typeof linked === 'object' && typeof linked.id === 'string') return linked.id
-    const raw = (personLink as unknown as { personEntity?: unknown }).personEntity
-    if (typeof raw === 'string') return raw
-  }
+  const personId = linkedEntityIdOf(personLink, 'person')
+  if (personId) return personId
   const companyLink = await em.findOne(
     CustomerDealCompanyLink,
-    { deal: dealId, tenantId } as never,
-    { populate: ['companyEntity'] as never },
+    { deal: dealId } as never,
+    {
+      populate: ['company'] as never,
+      orderBy: { createdAt: 'ASC', id: 'ASC' },
+    },
   )
-  if (companyLink) {
-    const linked = (companyLink as unknown as { companyEntity?: { id?: string | null } | null }).companyEntity
-    if (linked && typeof linked === 'object' && typeof linked.id === 'string') return linked.id
-    const raw = (companyLink as unknown as { companyEntity?: unknown }).companyEntity
-    if (typeof raw === 'string') return raw
+  return linkedEntityIdOf(companyLink, 'company')
+}
+
+/** Id of a populated relation, or the raw foreign key when it was not loaded. */
+function linkedEntityIdOf(row: unknown, relation: 'person' | 'company'): string | null {
+  if (!row || typeof row !== 'object') return null
+  const value = (row as Record<string, unknown>)[relation]
+  if (value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string') {
+    return (value as { id: string }).id
   }
-  return null
+  return typeof value === 'string' ? value : null
+}
+
+function dealHasNoLinkedContactMessage(dealId: string, what: 'comment' | 'activity'): string {
+  return `Deal "${dealId}" has no linked person or company. Link a contact to the deal in the backoffice before adding ${what === 'comment' ? 'a comment' : 'an activity'}, or post the ${what} directly on the person/company record instead.`
 }
 
 async function loadCommentForScope(
@@ -134,35 +153,51 @@ async function loadCommentForScope(
   return row
 }
 
-async function loadActivityForScope(
-  em: EntityManager,
-  ctx: CustomersToolContext,
-  tenantId: string,
-  activityId: string,
-): Promise<CustomerActivity | null> {
-  const where: Record<string, unknown> = { id: activityId, tenantId }
-  if (ctx.organizationId) where.organizationId = ctx.organizationId
-  const row = await findOneWithDecryption<CustomerActivity>(
-    em,
-    CustomerActivity,
-    where as any,
-    undefined,
-    buildScope(ctx, tenantId),
-  )
-  if (!row || row.tenantId !== tenantId) return null
-  if (ctx.organizationId && row.organizationId !== ctx.organizationId) return null
-  return row
+async function runActivityOperation(ctx: CustomersToolContext, request: AiApiOperationRequest) {
+  const { tenantId } = assertTenantScope(ctx)
+  const flags = await resolveCustomerInteractionFeatureFlags(ctx.container, tenantId)
+  const executionContext = ctx as AiToolExecutionContext
+  if (flags.legacyAdapters) {
+    return createAiApiOperationRunner(executionContext).run(request)
+  }
+  const requiredFeatures = ['customers.interactions.manage']
+  if (!authorizeFeatures(requiredFeatures, {
+    grantedFeatures: ctx.userFeatures,
+    unrestricted: ctx.isSuperAdmin,
+  })) {
+    throw new Error('[internal] Canonical interaction management permission is required')
+  }
+  const { activityType, subject, ...body } = request.body ?? {}
+  const runner = createAiApiOperationRunner({
+    ...executionContext,
+    tool: { ...executionContext.tool, requiredFeatures },
+  })
+  return runner.run({
+    ...request,
+    path: '/customers/interactions',
+    body: {
+      ...body,
+      ...(activityType !== undefined ? { interactionType: activityType } : {}),
+      ...(subject !== undefined ? { title: subject } : {}),
+      ...(request.method === 'POST' ? {
+        source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+        status: body.occurredAt ? 'done' : 'planned',
+      } : {}),
+      ...(request.method === 'PUT' && body.occurredAt ? { status: 'done' } : {}),
+    },
+  })
+}
+
+function activitySnapshot(activity: ActivityRecord | null) {
+  return activity ? {
+    activityType: activity.activityType,
+    subject: activity.subject,
+    body: activity.body,
+    occurredAt: activity.occurredAt?.toISOString() ?? null,
+  } : null
 }
 
 function commentEntityIdOf(row: CustomerComment): string | null {
-  const ent = (row as any).entity
-  if (!ent) return null
-  if (typeof ent === 'string') return ent
-  if (typeof ent === 'object' && typeof ent.id === 'string') return ent.id
-  return null
-}
-
-function activityEntityIdOf(row: CustomerActivity): string | null {
   const ent = (row as any).entity
   if (!ent) return null
   if (typeof ent === 'string') return ent
@@ -195,33 +230,17 @@ const listActivitiesTool: CustomersAiToolDefinition = {
     const em = resolveEm(ctx)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const where: Record<string, unknown> = { tenantId }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    const entityId = input.personId ?? input.companyId ?? null
-    if (entityId) where.entity = entityId
-    if (input.dealId) where.deal = input.dealId
-    if (input.activityType) where.activityType = input.activityType
-    const [rows, total] = await Promise.all([
-      findWithDecryption<CustomerActivity>(
-        em,
-        CustomerActivity,
-        where as any,
-        { limit, offset, orderBy: { occurredAt: 'desc', createdAt: 'desc' } as any } as any,
-        buildScope(ctx, tenantId),
-      ),
-      em.count(CustomerActivity, where as any),
-    ])
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+    const { items: rows, total } = await listActivitiesForScope(em, ctx, tenantId, { ...input, limit, offset })
     return {
-      items: filtered.map((row) => ({
+      items: rows.map((row) => ({
         id: row.id,
         activityType: row.activityType,
         subject: row.subject ?? null,
         body: row.body ?? null,
         occurredAt: row.occurredAt ? new Date(row.occurredAt).toISOString() : null,
         authorUserId: row.authorUserId ?? null,
-        entityId: activityEntityIdOf(row),
-        dealId: (row as any).deal && typeof (row as any).deal === 'object' ? (row as any).deal.id : (row as any).deal ?? null,
+        entityId: row.entityId,
+        dealId: row.dealId,
         organizationId: row.organizationId ?? null,
         tenantId: row.tenantId ?? null,
         createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
@@ -493,11 +512,9 @@ const manageDealCommentTool: CustomersAiToolDefinition = {
       // people/companies via two link tables. Resolve the first available
       // person, then fall back to the first linked company. Only fail the
       // operation when the deal has no linked contacts at all.
-      const dealEntityId = await resolveDealCommentEntityId(em, ctx, tenantId, deal.id)
+      const dealEntityId = await resolveDealLinkedEntityId(em, deal.id)
       if (!dealEntityId) {
-        throw new Error(
-          `Deal "${deal.id}" has no linked person or company. Link a contact to the deal in the backoffice before adding a comment, or post the comment directly on the person/company record instead.`,
-        )
+        throw new Error(dealHasNoLinkedContactMessage(deal.id, 'comment'))
       }
       const body: Record<string, unknown> = {
         tenantId,
@@ -632,16 +649,14 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
     if (!existing) return null
     return {
       recordId: existing.id,
-      entityType: 'customers.customer_activity',
+      entityType: existing.entityType,
       recordVersion: recordVersionFromUpdatedAt(existing.updatedAt),
       before: {
         activityType: existing.activityType,
         subject: existing.subject ?? null,
         body: existing.body ?? null,
         occurredAt: existing.occurredAt ? new Date(existing.occurredAt).toISOString() : null,
-        dealId: (existing as any).deal && typeof (existing as any).deal === 'object'
-          ? (existing as any).deal.id
-          : (existing as any).deal ?? null,
+        dealId: existing.dealId,
       },
     }
   },
@@ -649,22 +664,18 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
     const { tenantId } = assertTenantScope(ctx)
     const input: ManageDealActivityInput = manageDealActivityInput.parse(rawInput)
     const em = resolveEm(ctx)
-    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
 
     if (input.operation === 'create') {
       const deal = await loadDealForScope(em, ctx, tenantId, input.dealId!)
       if (!deal) throw new Error(`Deal "${input.dealId}" is not accessible to the caller.`)
       const organizationId = deal.organizationId
       if (!organizationId) throw new Error(`Deal "${deal.id}" has no organization scope.`)
-      const dealEntity = (deal as unknown as { entity?: unknown }).entity
-      const entityId =
-        dealEntity && typeof dealEntity === 'object'
-          ? (dealEntity as { id?: string | null }).id ?? null
-          : typeof dealEntity === 'string'
-            ? dealEntity
-            : null
+      // Same rule as the comment tool (#6119): `CustomerDeal` has no `.entity`,
+      // the activity's timeline owner is the deal's first linked person, then
+      // its first linked company.
+      const entityId = await resolveDealLinkedEntityId(em, deal.id)
       if (!entityId) {
-        throw new Error(`Deal "${deal.id}" has no associated person/company; cannot attach an activity.`)
+        throw new Error(dealHasNoLinkedContactMessage(deal.id, 'activity'))
       }
       const body: Record<string, unknown> = {
         tenantId,
@@ -676,23 +687,19 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
       if (input.subject) body.subject = input.subject
       if (input.body) body.body = input.body
       if (input.occurredAt) body.occurredAt = input.occurredAt
-      const response = await runner.run({ method: 'POST', path: '/customers/activities', body })
+      const response = await runActivityOperation(ctx, { method: 'POST', path: '/customers/activities', body })
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to create activity')
       }
       const result = (response.data ?? {}) as { id?: string | null }
+      const created = result.id ? await loadActivityForScope(em, ctx, tenantId, result.id) : null
       return {
         operation: 'create' as const,
         activityId: result.id ?? null,
         dealId: deal.id,
         commandName: 'customers.activities.create',
         before: null,
-        after: {
-          activityType: input.activityType ?? null,
-          subject: input.subject ?? null,
-          body: input.body ?? null,
-          occurredAt: input.occurredAt ?? null,
-        },
+        after: activitySnapshot(created),
       }
     }
 
@@ -706,7 +713,7 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
       if (input.subject !== undefined) body.subject = input.subject
       if (input.body !== undefined) body.body = input.body
       if (input.occurredAt !== undefined) body.occurredAt = input.occurredAt
-      const response = await runner.run({ method: 'PUT', path: '/customers/activities', body })
+      const response = await runActivityOperation(ctx, { method: 'PUT', path: '/customers/activities', body })
       if (!response.success) {
         throw new Error(response.error ?? `Failed to update activity "${existing.id}"`)
       }
@@ -736,7 +743,7 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
     const existing = await loadActivityForScope(em, ctx, tenantId, input.activityId!)
     if (!existing) throw new Error(`Activity "${input.activityId}" is not accessible to the caller.`)
     const body: Record<string, unknown> = { id: existing.id }
-    const response = await runner.run({ method: 'DELETE', path: '/customers/activities', body })
+    const response = await runActivityOperation(ctx, { method: 'DELETE', path: '/customers/activities', body })
     if (!response.success) {
       throw new Error(response.error ?? `Failed to delete activity "${existing.id}"`)
     }
@@ -1121,17 +1128,15 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
     if (!existing) return null
     return {
       recordId: existing.id,
-      entityType: 'customers.customer_activity',
+      entityType: existing.entityType,
       recordVersion: recordVersionFromUpdatedAt(existing.updatedAt),
       before: {
         activityType: existing.activityType,
         subject: existing.subject ?? null,
         body: existing.body ?? null,
         occurredAt: existing.occurredAt ? new Date(existing.occurredAt).toISOString() : null,
-        entityId: activityEntityIdOf(existing),
-        dealId: (existing as any).deal && typeof (existing as any).deal === 'object'
-          ? (existing as any).deal.id
-          : (existing as any).deal ?? null,
+        entityId: existing.entityId,
+        dealId: existing.dealId,
       },
     }
   },
@@ -1139,7 +1144,6 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
     const { tenantId } = assertTenantScope(ctx)
     const input: ManageRecordActivityInput = manageRecordActivityInput.parse(rawInput)
     const em = resolveEm(ctx)
-    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
 
     if (input.operation === 'create') {
       const entityId = input.personId ?? input.companyId!
@@ -1164,11 +1168,12 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
       if (input.subject) body.subject = input.subject
       if (input.body) body.body = input.body
       if (input.occurredAt) body.occurredAt = input.occurredAt
-      const response = await runner.run({ method: 'POST', path: '/customers/activities', body })
+      const response = await runActivityOperation(ctx, { method: 'POST', path: '/customers/activities', body })
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to create activity')
       }
       const result = (response.data ?? {}) as { id?: string | null }
+      const created = result.id ? await loadActivityForScope(em, ctx, tenantId, result.id) : null
       return {
         operation: 'create' as const,
         activityId: result.id ?? null,
@@ -1176,12 +1181,7 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
         dealId,
         commandName: 'customers.activities.create',
         before: null,
-        after: {
-          activityType: input.activityType ?? null,
-          subject: input.subject ?? null,
-          body: input.body ?? null,
-          occurredAt: input.occurredAt ?? null,
-        },
+        after: activitySnapshot(created),
       }
     }
 
@@ -1195,7 +1195,7 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
       if (input.subject !== undefined) body.subject = input.subject
       if (input.body !== undefined) body.body = input.body
       if (input.occurredAt !== undefined) body.occurredAt = input.occurredAt
-      const response = await runner.run({ method: 'PUT', path: '/customers/activities', body })
+      const response = await runActivityOperation(ctx, { method: 'PUT', path: '/customers/activities', body })
       if (!response.success) {
         throw new Error(response.error ?? `Failed to update activity "${existing.id}"`)
       }
@@ -1225,7 +1225,7 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
     const existing = await loadActivityForScope(em, ctx, tenantId, input.activityId!)
     if (!existing) throw new Error(`Activity "${input.activityId}" is not accessible to the caller.`)
     const body: Record<string, unknown> = { id: existing.id }
-    const response = await runner.run({ method: 'DELETE', path: '/customers/activities', body })
+    const response = await runActivityOperation(ctx, { method: 'DELETE', path: '/customers/activities', body })
     if (!response.success) {
       throw new Error(response.error ?? `Failed to delete activity "${existing.id}"`)
     }

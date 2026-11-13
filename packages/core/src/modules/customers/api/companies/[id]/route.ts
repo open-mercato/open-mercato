@@ -1,8 +1,10 @@
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerEntity,
@@ -17,8 +19,6 @@ import {
   CustomerDealCompanyLink,
   CustomerDeal,
   CustomerTodoLink,
-  CustomerPersonCompanyLink,
-  CustomerPersonProfile,
   CustomerInteraction,
 } from '../../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -38,8 +38,10 @@ import {
   mapInteractionRecordToTodoSummary,
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
+import { countCustomerTodos } from '../../../lib/todoCompatibility'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -47,11 +49,12 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import {
-  filterActivePersonCompanyLinks,
-  withActiveCustomerPersonCompanyLinkFilter,
-} from '../../../lib/personCompanyLinkTable'
+  countCompanyPeopleUnion,
+  loadCompanyPeopleUnion,
+  type CompanyPersonUnionEntry,
+} from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
-import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   buildCollectionTags,
@@ -144,10 +147,6 @@ function parseIncludeParams(request: Request): Set<string> {
       .forEach((part) => tokens.add(part))
   })
   return tokens
-}
-
-function forbidden(message: string) {
-  return NextResponse.json({ error: message }, { status: 403 })
 }
 
 function notFound(message: string) {
@@ -458,18 +457,25 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     { populate: ['companyProfile'] },
     {
       tenantId: auth.tenantId ?? null,
-      organizationId: scope?.selectedId ?? auth.orgId ?? null,
+      organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
     },
   )
   if (!company) return notFound('Company not found')
 
-  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
-    return forbidden('Access denied')
-  }
+  // Existence oracle (issue #5504): a caller who holds customers.companies.view
+  // but whose scope excludes the record's organization must get the SAME
+  // response as for a non-existent id, so 403-when-present / 404-when-absent
+  // collapses to a uniform 404 not-found. The dispatcher already returns a
+  // uniform 403 for callers who lack the feature entirely.
+  const organizationReadDenied = denyCustomerDetailReadAsNotFound(
+    { scope, auth, organizationId: company.organizationId },
+    'Company not found',
+  )
+  if (organizationReadDenied) return organizationReadDenied
 
   const companyScope = {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
-    organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
+    organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
   }
 
   // Per-user email privacy (CRM email integration): exclude private email
@@ -481,9 +487,21 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // Mirrors the people detail route. API-key callers resolve to null
   // (no author match — shared/non-email rows only).
   const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+  // Company detail spans many Persons, so it uses the capped tenant-wide grant
+  // list rather than a per-Person lookup.
+  const companyEmailScope = {
+    tenantId: companyScope.tenantId,
+    organizationId: companyScope.organizationId,
+  }
+  const [companyShareGrants, companySharedChannelIds] = await Promise.all([
+    listGrantsForViewer(em, companyEmailScope, viewerUserId),
+    listSharedChannelIds(em, companyEmailScope, viewerUserId),
+  ])
   const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
     currentUserId: viewerUserId,
     userFeatures: undefined,
+    sharedConversations: companyShareGrants,
+    sharedChannelIds: companySharedChannelIds,
   })
 
   // Opt-in cache (#3664): the company existence + org read-access checks above
@@ -497,7 +515,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         tenantId: cacheTenantId,
         organizationId: companyScope.organizationId,
         companyId: company.id,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         filterIds: scope?.filterIds ?? null,
         allowedIds: scope?.allowedIds ?? null,
         isSuperAdmin: auth.isSuperAdmin === true,
@@ -508,7 +526,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     : null
   if (cache && cacheKey) {
     const cached = await runWithCacheTenant(cacheTenantId, () => cache.get(cacheKey))
-    if (cached) return NextResponse.json(cached)
+    if (cached) return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
   }
 
   const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
@@ -617,7 +635,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         em,
         container,
         auth,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         interactions: canonicalActiveInteractions,
         enrich: includeInteractions,
       })
@@ -654,7 +672,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         em,
         container,
         auth,
-        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        selectedOrganizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
         interactions: plannedPreviewRows,
         enrich: true,
       })
@@ -801,79 +819,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             deal.organizationId === company.organizationId,
         )
 
-  let relatedPeople: Array<{
-    entity: CustomerEntity
-    profile: CustomerPersonProfile | null
-    linkedAt: string | null
-  }> = []
+  const peopleUnionScope = {
+    tenantId: company.tenantId ?? auth.tenantId ?? null,
+    organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
+  }
+  let relatedPeople: CompanyPersonUnionEntry[] = []
   if (includePeople) {
-    const peopleDecryptionScope = {
-      tenantId: company.tenantId ?? auth.tenantId ?? null,
-      organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
-    }
-    const relatedPeopleById = new Map<
-      string,
-      { entity: CustomerEntity; profile: CustomerPersonProfile | null; linkedAt: string | null }
-    >()
-    const companyLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
-      em,
-      {
-        company: company.id,
-        organizationId: company.organizationId,
-        tenantId: company.tenantId,
-      },
-      'customers.companies.GET',
-    )
-    const companyLinks = filterActivePersonCompanyLinks(
-      await findWithDecryption(
-        em,
-        CustomerPersonCompanyLink,
-        companyLinkWhere,
-        {
-          populate: ['person', 'person.personProfile'],
-          orderBy: { isPrimary: 'desc', createdAt: 'asc' },
-        },
-        peopleDecryptionScope,
-      ),
-    )
-    companyLinks.forEach((link) => {
-      const entity = typeof link.person === 'string' ? null : link.person
-      if (!entity || entity.kind !== 'person' || entity.deletedAt) return
-      const personProfile =
-        entity.personProfile && typeof entity.personProfile !== 'string'
-          ? entity.personProfile
-          : null
-      relatedPeopleById.set(entity.id, {
-        entity,
-        profile: personProfile,
-        linkedAt: link.createdAt instanceof Date ? link.createdAt.toISOString() : null,
-      })
-    })
-
-    const profiles = await findWithDecryption(
-      em,
-      CustomerPersonProfile,
-      {
-        company: company.id,
-        tenantId: company.tenantId,
-        organizationId: company.organizationId,
-        entity: { deletedAt: null },
-      },
-      { populate: ['entity'] },
-      peopleDecryptionScope,
-    )
-    profiles.forEach((entry) => {
-      const entity = entry.entity as CustomerEntity | null
-      if (!entity || entity.kind !== 'person' || entity.deletedAt) return
-      if (!relatedPeopleById.has(entity.id)) {
-        relatedPeopleById.set(entity.id, {
-          entity,
-          profile: entry ?? null,
-          linkedAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
-        })
-      }
-    })
-    relatedPeople = Array.from(relatedPeopleById.values())
+    relatedPeople = await loadCompanyPeopleUnion(em, company, peopleUnionScope)
   }
 
   // Entity custom fields, profile custom fields, and the routing lookup do not
@@ -919,26 +871,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   // instead of a waterfall (issue #3203).
   const peopleCountQuery = includePeople
     ? Promise.resolve(relatedPeople.length)
-    : (async () => {
-        const peopleLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
-          em,
-          {
-            company: company.id,
-            organizationId: company.organizationId,
-            tenantId: company.tenantId,
-          },
-          'customers.companies.GET',
-        )
-        return filterActivePersonCompanyLinks(
-          await findWithDecryption(
-            em,
-            CustomerPersonCompanyLink,
-            peopleLinkWhere,
-            {},
-            { tenantId: company.tenantId, organizationId: company.organizationId },
-          ),
-        ).length
-      })()
+    : countCompanyPeopleUnion(em, company)
   const [
     activityCount,
     interactionCount,
@@ -963,19 +896,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       deletedAt: null,
       ...emailVisibilityFilter,
     }),
-    interactionFlags.unified
-      ? em.count(CustomerInteraction, {
-          entity: company.id,
-          organizationId: company.organizationId,
-          tenantId: company.tenantId,
-          deletedAt: null,
-          interactionType: 'task',
-        })
-      : em.count(CustomerTodoLink, {
-          entity: company.id,
-          organizationId: company.organizationId,
-          tenantId: company.tenantId,
-        }),
+    countCustomerTodos(em, {
+      entityId: company.id,
+      organizationId: company.organizationId,
+      tenantId: company.tenantId,
+    }, interactionFlags.unified),
     includeComments
       ? Promise.resolve(comments.length)
       : em.count(CustomerComment, {
@@ -1280,7 +1205,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     }
   }
 
-  return NextResponse.json(payload)
+  return NextResponse.json(await enrichCustomerDetailResponse(payload, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
 }
 
 const companyDetailQuerySchema = z.object({
@@ -1486,8 +1411,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid identifier', schema: companyDetailErrorSchema },
         { status: 401, description: 'Unauthorized', schema: companyDetailErrorSchema },
-        { status: 403, description: 'Forbidden for tenant/organization scope', schema: companyDetailErrorSchema },
-        { status: 404, description: 'Company not found', schema: companyDetailErrorSchema },
+        { status: 403, description: 'Forbidden — caller lacks the required feature', schema: companyDetailErrorSchema },
+        { status: 404, description: 'Company not found, or its organization is not in the caller’s scope', schema: companyDetailErrorSchema },
       ],
     },
   },

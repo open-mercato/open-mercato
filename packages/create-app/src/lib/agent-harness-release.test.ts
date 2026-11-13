@@ -11,10 +11,22 @@ const releaseScript = fileURLToPath(new URL('../../agentic/shared/scripts/run-ag
 const releaseSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/release-result.schema.json', import.meta.url))
 const targetValidationSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/target-validation-result.schema.json', import.meta.url))
 const executionSandboxScript = fileURLToPath(new URL('../../agentic/shared/scripts/execution-sandbox.mjs', import.meta.url))
+const releaseDoc = fileURLToPath(new URL('../../agentic/shared/ai/harness/RELEASE.md', import.meta.url))
 const monorepoNodeModules = fs.realpathSync(fileURLToPath(new URL('../../../../node_modules', import.meta.url)))
 const release = await import(pathToFileURL(releaseScript).href) as {
   buildReleasePlan: (input: Record<string, unknown>) => any
   effectiveCaseTimeout: (cases: Array<{ id: string; timeoutMs?: number }>, caseId: string, fallback: number) => number
+  deterministicInvocation: (input: { evaluator: string; root: string }) => { args: string[]; timeout: number }
+  DETERMINISTIC_STEP_TIMEOUT_MS: number
+  routingInvocation: (input: {
+    evaluator: string
+    root: string
+    step: { runner: string; lane: string; modelSelector: string; expectedCaseIds: string[] }
+    cases: Array<{ id: string; timeoutMs?: number }>
+    caseTimeout: number
+  }) => { args: string[]; timeout: number }
+  DEFAULT_CASE_TIMEOUT_MS: number
+  ROUTING_STEP_SLACK_MS: number
   aggregateQualityMetrics: (results: any[]) => any
   sanitizeReportText: (value: string, roots?: string[]) => string
   createMinimalValidationEnvironment: (tempRoot: string, pathValue?: string) => { env: NodeJS.ProcessEnv; toolReadRoots: string[] }
@@ -51,6 +63,11 @@ const isolatedLoopbackAvailable = (() => {
   } catch { return false }
 })()
 
+// This deliberately models a *lowered* operator budget rather than the shipped one. `cases.schema.json`
+// caps `timeoutMs` at exactly DEFAULT_CASE_TIMEOUT_MS, so at the shipped default a declared ceiling can
+// never exceed the fallback and the raise half of the property is unreachable; only an operator who
+// lowered --case-timeout can observe it. The 120000 ms fallback below is that lowered budget, not the
+// default the gate ships.
 test('case-local writable timeout raises but never lowers the operator timeout floor', () => {
   const cases = [{ id: 'OMH-184' }, { id: 'OMH-185', timeoutMs: 600_000 }]
   assert.equal(release.effectiveCaseTimeout(cases, 'OMH-184', 120_000), 120_000)
@@ -64,10 +81,97 @@ test('case-local writable timeout raises but never lowers the operator timeout f
 test('the release gate owns --case-timeout and rejects the evaluator flag --timeout (#5057)', () => {
   const help = spawnSync(process.execPath, [releaseScript, '--help'], { encoding: 'utf8' })
   assert.equal(help.status, 0, `${help.stdout}\n${help.stderr}`)
-  assert.match(help.stdout, /--case-timeout <ms>\s+Per-model invocation timeout floor \(default: 120000/)
+  assert.match(help.stdout, new RegExp(`--case-timeout <ms>\\s+Per-model invocation timeout floor for the routing, writable, and review lanes \\(default: ${release.DEFAULT_CASE_TIMEOUT_MS}\\)`))
+  // The help text's own claim that the model-free steps do not read this flag is the operator-facing
+  // half of #5184; pinning it keeps the sentence from outliving the behaviour it describes.
+  assert.match(help.stdout, /The model-free deterministic and fixture-preparation steps carry their own flat ceilings and do not read it\./)
+  assert.equal(release.DEFAULT_CASE_TIMEOUT_MS, 600_000)
+  // The help line derives from the constant, but RELEASE.md restates it as prose an operator reads
+  // before ever running --help. Left unpinned it is the one copy that can silently keep the old
+  // number after the constant moves, which is the drift class #5068 was opened to correct (#5078).
+  assert.match(
+    fs.readFileSync(releaseDoc, 'utf8'),
+    new RegExp(`\`--case-timeout\` \\(default ${release.DEFAULT_CASE_TIMEOUT_MS} ms\\)`),
+  )
   const rejected = spawnSync(process.execPath, [releaseScript, '--timeout', '600000'], { encoding: 'utf8' })
   assert.equal(rejected.status, 2, `${rejected.stdout}\n${rejected.stderr}`)
   assert.match(rejected.stderr, /unknown argument: --timeout/)
+})
+
+// The deterministic step invokes no model — it is the evaluator's own catalog validation — so its
+// process budget must not be derived from --case-timeout, whose help calls it a per-model floor.
+// Pin both halves of the invocation together: the argv that makes it deterministic, and a ceiling
+// that stays put no matter what an operator hands --case-timeout (#5184).
+test('the deterministic step budgets its process independently of the per-model case timeout (#5184)', () => {
+  const invocation = release.deterministicInvocation({ evaluator: '/app/scripts/evaluate-agent-harness.mjs', root: '/app' })
+  assert.deepEqual(invocation.args, ['/app/scripts/evaluate-agent-harness.mjs', '--root', '/app', '--all'])
+  assert.equal(invocation.args.includes('--runner'), false)
+  assert.equal(invocation.args.includes('--timeout'), false)
+  assert.equal(invocation.timeout, release.DETERMINISTIC_STEP_TIMEOUT_MS)
+  // 120000 ms is about 120x the slowest observed complete-catalog run (768-998 ms over the shipped
+  // catalog) and matches the flat allowance the gate already gives fixture preparation, the release
+  // path's other model-free step.
+  assert.equal(release.DETERMINISTIC_STEP_TIMEOUT_MS, 120_000)
+  // The invocation takes the evaluator and the root and nothing else, so no operator ceiling and no
+  // catalog size can reach it. Spell out what the old formula would have produced across the whole
+  // accepted --case-timeout range and over catalog sizes from a single case to ten times the
+  // present one, so a future edit that reintroduces the scaling has to break this assertion to do
+  // it. The assertion holds for any size, so catalog growth never makes these figures wrong.
+  for (const caseTimeout of [1_000, 120_000, 600_000, 3_600_000]) {
+    for (const caseCount of [1, 234, 2_340]) {
+      assert.notEqual(invocation.timeout, caseTimeout * Math.max(1, caseCount) + 60_000)
+    }
+  }
+  assert.equal(
+    release.deterministicInvocation({ evaluator: '/other/evaluate.mjs', root: '/other' }).timeout,
+    invocation.timeout,
+  )
+  // Everything above guards the helper; none of it reaches the call site the helper exists to
+  // protect, so a revert that reinstates the inline scaling while leaving the export in place would
+  // break no assertion. Pin the wiring in the release script's own source, the idiom this file
+  // already uses for execution-sandbox.mjs, so the regression #5184 names cannot come back green.
+  const releaseSource = fs.readFileSync(releaseScript, 'utf8')
+  assert.match(releaseSource, /const deterministic = deterministicInvocation\(\{ evaluator, root \}\)/)
+  assert.doesNotMatch(releaseSource, /caseTimeout \* Math\.max\(1, plan\.catalog\.caseCount\)/)
+})
+
+// The routing step feeds one operator value into two coupled budgets: the per-case ceiling the
+// evaluator receives as --timeout, and the step's own process budget, which is the sum of those
+// ceilings plus slack. Nothing pinned that pass-through, so RELEASE.md drifted away from it once
+// already; keeping both in one assertion is what makes a future divergence visible (#5078).
+test('the routing step passes the operator case timeout through and budgets its process as the sum of the case ceilings (#5078)', () => {
+  const evaluator = '/controller/evaluate-agent-harness.mjs'
+  const root = '/controller'
+  const cases = [{ id: 'OMH-001' }, { id: 'OMH-185', timeoutMs: 600_000 }]
+  const primary = {
+    runner: 'claude', lane: 'primary', modelSelector: 'sonnet', expectedCaseIds: ['OMH-001', 'OMH-185'],
+  }
+
+  const onDefault = release.routingInvocation({
+    evaluator, root, step: primary, cases, caseTimeout: release.DEFAULT_CASE_TIMEOUT_MS,
+  })
+  assert.deepEqual(onDefault.args, [
+    evaluator, '--root', root, '--runner', 'claude', '--all', '--model', 'sonnet', '--timeout', '600000',
+  ])
+  assert.equal(onDefault.timeout, 60_000 + 600_000 + 600_000)
+
+  const lowered = release.routingInvocation({ evaluator, root, step: primary, cases, caseTimeout: 120_000 })
+  assert.deepEqual(lowered.args.slice(-2), ['--timeout', '120000'])
+  assert.equal(lowered.timeout, 60_000 + 120_000 + 600_000)
+
+  const portability = release.routingInvocation({
+    evaluator, root, cases, caseTimeout: release.DEFAULT_CASE_TIMEOUT_MS,
+    step: { ...primary, lane: 'portability', runner: 'codex', modelSelector: 'default' },
+  })
+  assert.ok(!portability.args.includes('--all'), portability.args.join(' '))
+  assert.deepEqual(portability.args.slice(-2), ['--timeout', '600000'])
+  assert.equal(portability.timeout, 60_000 + 600_000 + 600_000)
+
+  // The slack is a second constant this budget is built from, so it gets the same treatment the
+  // default does: exported and pinned to its literal here, while the budget assertions above stay
+  // on hardcoded numbers. Deriving those from release.ROUTING_STEP_SLACK_MS would make them
+  // recompute the value they are checking and assert strictly less than they do now.
+  assert.equal(release.ROUTING_STEP_SLACK_MS, 60_000)
 })
 
 // The browser lane needs a launchable Chromium headless shell, which depends on host
@@ -249,6 +353,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   fs.mkdirSync(path.join(controller, 'node_modules', 'example'), { recursive: true })
   fs.mkdirSync(path.join(controller, '.ai', 'harness', 'results'), { recursive: true })
   fs.mkdirSync(path.join(controller, '.ai', 'framework-context'), { recursive: true })
+  fs.mkdirSync(path.join(controller, '.mercato', 'cache'), { recursive: true })
   fs.mkdirSync(path.join(controller, '.mercato', 'generated'), { recursive: true })
   fs.mkdirSync(path.join(controller, '.mercato', 'next'), { recursive: true })
   fs.mkdirSync(path.join(controller, 'build'), { recursive: true })
@@ -260,6 +365,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
   fs.writeFileSync(path.join(controller, '.ai', 'harness', 'results', 'old.json'), '{}\n')
   fs.writeFileSync(path.join(controller, '.ai', 'framework-context', 'old.txt'), 'context\n')
   fs.writeFileSync(path.join(controller, 'build', 'old.js'), 'build\n')
+  fs.writeFileSync(path.join(controller, '.mercato', 'cache', 'cache.db'), 'disposable cache\n')
   fs.writeFileSync(path.join(controller, '.mercato', 'generated', 'old.ts'), 'generated\n')
   fs.writeFileSync(path.join(controller, '.mercato', 'next', 'BUILD_ID'), 'build\n')
   fs.writeFileSync(path.join(controller, 'next-env.d.ts'), 'generated\n')
@@ -277,6 +383,7 @@ test('automatic target preparation clones only fresh source inputs and safely sh
     assert.equal(fs.existsSync(path.join(target, 'build')), false)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'harness', 'results')), false)
     assert.equal(fs.existsSync(path.join(target, '.ai', 'framework-context')), false)
+    assert.equal(fs.existsSync(path.join(target, '.mercato', 'cache')), false)
     assert.equal(fs.existsSync(path.join(target, '.mercato', 'generated')), false)
     assert.equal(fs.existsSync(path.join(target, '.mercato', 'next')), false)
     assert.equal(fs.existsSync(path.join(target, 'next-env.d.ts')), false)
@@ -501,7 +608,7 @@ test('externally prepared targets reject regular nested dependency trees before 
 
 test('every target validation command runs and failures retain actionable sanitized diagnostics', { skip: !targetSandboxAvailable }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-')))
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 console.error('called ' + process.argv[2])
 if (process.argv[2] === 'lint') { console.error('lint rule failed in ' + process.cwd()); process.exit(7) }
@@ -527,7 +634,7 @@ test('target validation hides host secrets and denies out-of-root reads and writ
   const secret = path.join(outside, 'secret.txt')
   const escapedWrite = path.join(outside, 'escaped.txt')
   fs.writeFileSync(secret, 'do-not-read')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 if (process.env.FAKE_PROVIDER_SECRET) process.exit(21)
@@ -555,7 +662,7 @@ test('target validation runs in an isolated copy and rejects ordinary source or 
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-source-write-')))
   fs.mkdirSync(path.join(target, 'src'))
   fs.writeFileSync(path.join(target, 'src', 'existing.ts'), 'export const original = true\n')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.mkdirSync('.mercato', { recursive: true })
@@ -580,11 +687,13 @@ fs.writeFileSync('package.json', '{"scripts":{"build":"true"}}\\n')
 
 test('target validation permits only explicit generated and build outputs inside its isolated copy', { skip: !targetSandboxAvailable }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-outputs-')))
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 const command = process.argv[2]
 if (command === 'generate') {
+  fs.mkdirSync('.mercato/cache', { recursive: true })
+  fs.writeFileSync('.mercato/cache/cache.db', 'disposable cache')
   fs.mkdirSync('.mercato/generated', { recursive: true })
   fs.writeFileSync('.mercato/generated/modules.generated.ts', 'export default []\\n')
 }
@@ -606,7 +715,7 @@ if (command === 'build') {
     const results = release.runTargetValidationSteps({ steps, target, timeout: 10_000, roots: [target], yarnCommand: fakeYarn })
     assert.deepEqual(results.map((entry) => entry.status), ['pass', 'pass', 'pass', 'pass'])
     assert.deepEqual(results.map((entry) => entry.resultPaths), [
-      ['.mercato/generated'], ['tsconfig.tsbuildinfo'], [], ['.mercato/next', 'next-env.d.ts'],
+      ['.mercato/cache', '.mercato/generated'], ['tsconfig.tsbuildinfo'], [], ['.mercato/next', 'next-env.d.ts'],
     ])
     assert.equal(fs.existsSync(path.join(target, '.mercato')), false)
     assert.equal(fs.existsSync(path.join(target, 'tsconfig.tsbuildinfo')), false)
@@ -617,7 +726,7 @@ if (command === 'build') {
 
 test('target validation rejects an escaping symlink even inside a declared build output', { skip: !targetSandboxAvailable }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-output-link-')))
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.mkdirSync('.mercato/next', { recursive: true })
@@ -642,7 +751,7 @@ test('foundation validation accepts an exact generated env copy without mutating
   fs.mkdirSync(path.join(target, 'node_modules', 'example'), { recursive: true })
   fs.writeFileSync(path.join(target, 'node_modules', 'example', 'sentinel.js'), 'original')
   fs.writeFileSync(path.join(target, '.env.example'), 'SAFE_EXAMPLE=1\n')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.copyFileSync('.env.example', '.env')
@@ -671,7 +780,7 @@ test('minimal validation environment omits provider secrets and process diagnost
   const environmentRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-env-')))
   const scalar = 'provider-scalar-must-not-persist'
   const databaseUrl = 'postgres://release-user:database-password@db.example.test:5432/app'
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 if (process.env.FAKE_PROVIDER_SECRET) process.exit(21)
 console.error(${JSON.stringify(`${scalar} ${databaseUrl}`)})
@@ -709,7 +818,7 @@ test('target validation cannot mutate nested files in shared dependencies', { sk
   fs.writeFileSync(nested, 'original')
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-deps-')))
   fs.symlinkSync(controllerDependencies, path.join(target, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.writeFileSync('node_modules/example/nested.js', 'tampered')
@@ -731,7 +840,7 @@ test('target validation fails closed when a regular dependency tree overlaps the
   const nested = path.join(target, 'node_modules', 'example', 'nested.js')
   fs.mkdirSync(path.dirname(nested), { recursive: true })
   fs.writeFileSync(nested, 'original')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.writeFileSync('node_modules/example/nested.js', 'tampered')
@@ -754,7 +863,7 @@ test('sandbox read-only descendants override a writable parent root', { skip: !t
   const nested = path.join(dependencyRoot, 'example', 'nested.js')
   fs.mkdirSync(path.dirname(nested), { recursive: true })
   fs.writeFileSync(nested, 'original')
-  const probe = path.join(target, 'sandbox-probe')
+  const probe = path.join(target, 'sandbox-probe.cjs')
   fs.writeFileSync(probe, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.writeFileSync('allowed.txt', 'allowed')
@@ -814,13 +923,14 @@ test('sandbox runtime mounts collapse nested read roots before Bubblewrap applie
 
 test('Linux Bubblewrap recreates only exact merged-usr root aliases', () => {
   const expected = [
-    ['/bin', 'usr/bin'],
-    ['/sbin', 'usr/sbin'],
-    ['/lib', 'usr/lib'],
-    ['/lib64', 'usr/lib64'],
-  ].flatMap(([alias, target]) => {
+    ['/bin', ['usr/bin']],
+    ['/sbin', ['usr/sbin', 'usr/bin']],
+    ['/lib', ['usr/lib']],
+    ['/lib64', ['usr/lib64', 'usr/lib']],
+  ].flatMap(([alias, targets]) => {
     try {
-      return fs.lstatSync(alias).isSymbolicLink() && fs.readlinkSync(alias) === target
+      const target = fs.lstatSync(alias).isSymbolicLink() ? fs.readlinkSync(alias) : ''
+      return targets.includes(target)
         ? ['--symlink', target, alias]
         : []
     } catch { return [] }
@@ -1025,7 +1135,7 @@ test('macOS validation resolves a lexical PATH node launcher without authorizing
   const launcherParent = path.join(launcherBase, 'xfs-deadbeef')
   fs.mkdirSync(launcherParent)
   const launcher = path.join(launcherParent, 'node')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(fs.realpathSync(process.execPath))}  "$@"\n`)
   fs.chmodSync(launcher, 0o755)
   fs.writeFileSync(fakeYarn, '#!/usr/bin/env node\nconsole.error("xfs-ok")\n')
@@ -1050,7 +1160,7 @@ test('macOS validation rejects a lookalike XFS node wrapper', { skip: process.pl
   const launcherParent = path.join(launcherBase, 'xfs-badc0de')
   fs.mkdirSync(launcherParent)
   const launcher = path.join(launcherParent, 'node')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(fs.realpathSync(process.execPath))} "$@"\n`)
   fs.chmodSync(launcher, 0o755)
   fs.writeFileSync(fakeYarn, '#!/usr/bin/env node\nrequire("node:fs").writeFileSync("unsafe.txt", "ran")\n')
@@ -1377,6 +1487,7 @@ test('persisted foundation process diagnostics use a minimal environment and red
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
   fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true })
   fs.mkdirSync(fakeBin)
+  fs.writeFileSync(path.join(fakeBin, 'package.json'), '{"type":"commonjs"}\n')
   const input = releaseInputs()
   const targets: Record<string, string> = {}
   for (const caseId of ['OMH-002', 'OMH-003']) {

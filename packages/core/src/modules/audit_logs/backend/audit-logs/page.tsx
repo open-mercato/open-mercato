@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
@@ -21,6 +21,7 @@ type ActionLogResponse = {
   pageSize: number
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type AccessLogResponse = {
@@ -30,6 +31,7 @@ type AccessLogResponse = {
   pageSize: number
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type TabOption = 'actions' | 'access'
@@ -48,11 +50,13 @@ export default function AuditLogsPage() {
   const [actionsPageSize, setActionsPageSize] = React.useState(DEFAULT_PAGE_SIZE)
   const [actionsTotal, setActionsTotal] = React.useState(0)
   const [actionsTotalPages, setActionsTotalPages] = React.useState(1)
+  const [actionsTotalIsCapped, setActionsTotalIsCapped] = React.useState(false)
   const actionsPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
   const [accessPage, setAccessPage] = React.useState(1)
   const [accessPageSize, setAccessPageSize] = React.useState(DEFAULT_PAGE_SIZE)
   const [accessTotal, setAccessTotal] = React.useState(0)
   const [accessTotalPages, setAccessTotalPages] = React.useState(1)
+  const [accessTotalIsCapped, setAccessTotalIsCapped] = React.useState(false)
   const accessPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
 
   const fetchActions = React.useCallback(async (page: number, pageSize: number) => {
@@ -95,6 +99,7 @@ export default function AuditLogsPage() {
     })
     setActionsTotal(actionsRes.total ?? (actionsRes.items?.length ?? 0))
     setActionsTotalPages(actionsRes.totalPages ?? 1)
+    setActionsTotalIsCapped(actionsRes.totalIsCapped === true)
     setAccessLogs(accessRes.items ?? [])
     const resolvedPage = accessRes.page ?? accessPageNum
     const resolvedPageSize = accessRes.pageSize ?? accessPageSizeNum
@@ -111,6 +116,7 @@ export default function AuditLogsPage() {
     })
     setAccessTotal(resolvedTotal)
     setAccessTotalPages(resolvedTotalPages)
+    setAccessTotalIsCapped(accessRes.totalIsCapped === true)
   }, [fetchActions, fetchAccess])
 
   const loadWithState = React.useCallback(async (
@@ -182,6 +188,7 @@ export default function AuditLogsPage() {
 
   return (
     <Page>
+      <PageHeader title={t('audit_logs.nav.title')} />
       <PageBody>
         <Tabs
           value={tab}
@@ -210,6 +217,7 @@ export default function AuditLogsPage() {
               pageSize: actionsPageSize,
               total: actionsTotal,
               totalPages: actionsTotalPages,
+              totalIsCapped: actionsTotalIsCapped,
               onPageChange: handleActionsPageChange,
             }}
           />
@@ -225,6 +233,7 @@ export default function AuditLogsPage() {
               pageSize: accessPageSize,
               total: accessTotal,
               totalPages: accessTotalPages,
+              totalIsCapped: accessTotalIsCapped,
               onPageChange: handleAccessPageChange,
             }}
           />

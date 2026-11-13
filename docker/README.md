@@ -2,20 +2,22 @@
 
 This directory contains Docker configuration for running **local development services** (PostgreSQL with pgvector and Redis) alongside your local Open Mercato installation.
 
+> **Note:** The compose files now live in [`starters/docker/`](../starters/docker/) — this directory keeps the Dockerfiles, entrypoints, and supporting assets they reference.
+
 > **Looking to run the full application stack with Docker?**
-> - **Prod:** `docker compose -f docker-compose.fullapp.yml up --build`
-> - **Dev (mounted source + watch):** `docker compose -f docker-compose.fullapp.dev.yml up --build`
+> - **Prod:** `docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build`
+> - **Dev (mounted source + watch):** `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build`
 >
 > See the [Docker Deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for full-stack instructions.
 
-This `docker-compose.yml` is ideal when you want to run the database and Redis in containers but develop the application locally with `yarn dev`.
+The infra compose file (`starters/docker/compose.infra.yml`, wrapped by `yarn infra:up` / `yarn infra:down`) is ideal when you want to run the database and Redis in containers but develop the application locally with `yarn dev`.
 
 ### Full app in dev mode (with watch)
 
 Run the entire stack in Docker with live reload:
 
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 The app container mounts the repo, runs `yarn dev` (packages watch + Next.js dev server), and does init/migrate + generate on start. Named volumes keep `node_modules` and `.next` in the container.
@@ -40,11 +42,11 @@ curl http://localhost:4096/global/health   # {"healthy":true,...}
 curl http://localhost:4096/mcp             # {"open-mercato":{"status":"connected"}}
 ```
 
-Two operational notes: OpenCode reads the key **once at startup** — after a DB reset, `mcp:ensure-api-key --rotate`, or anything else that rotates the key, run `docker compose restart opencode`. And after restarting only the `app` container (which re-runs install/build in the shared volumes), restart `mcp` too once the app is back up.
+Two operational notes: OpenCode reads the key **once at startup** — after a DB reset, `mcp:ensure-api-key --rotate`, or anything else that rotates the key, run `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode` (swap in the fullapp file for the prod stack). And after restarting only the `app` container (which re-runs install/build in the shared volumes), restart `mcp` too once the app is back up.
 
 ### Container auto-recovery (fullapp stacks)
 
-`docker-compose.fullapp.yml` runs a small `autoheal` sidecar that restarts containers whose healthcheck goes unhealthy. It covers `postgres`, `redis` and `meilisearch` — the services with meaningful healthchecks — via an `autoheal=true` label on each.
+`docker-compose.fullapp.yml` (and the create-app template's copy) runs a small `autoheal` sidecar that restarts containers whose healthcheck goes unhealthy. It covers `postgres`, `redis` and `meilisearch` — the services with meaningful healthchecks — via an `autoheal-<deploy-env>=true` label on each, e.g. `autoheal-prod=true` for `DEPLOY_ENV=prod`.
 
 It exists because Docker's `restart:` policy only reacts to a process that **exits**. A container that is still running but has stopped answering — wedged on a full disk, deadlocked, frozen — stays "up" forever as far as the restart policy is concerned. Only the healthcheck sees that, and only autoheal acts on it.
 
@@ -70,7 +72,11 @@ AUTOHEAL_CURL_TIMEOUT=90          # must exceed the stop timeout (see below)
 
 `AUTOHEAL_CURL_TIMEOUT` must stay above `AUTOHEAL_DEFAULT_STOP_TIMEOUT`. autoheal restarts containers with `curl --max-time $CURL_TIMEOUT`, and a wedged container burns the full stop timeout waiting on SIGTERM before Docker sends SIGKILL. If the two are equal, autoheal logs `Restarting container ... failed` on every restart even though the restart succeeded.
 
-Two operational notes. `autoheal` mounts the Docker socket **read-write**, which is effectively root on the host; the narrow `autoheal=true` label filter is what keeps it from touching unrelated containers on a shared host. And `app`, `mcp` and `opencode` are deliberately **not** covered — `app` has no healthcheck at all, and the `mcp`/`opencode` healthchecks are documented as visibility-only.
+The label **name** carries the deploy environment (`autoheal-${DEPLOY_ENV:-local}`) rather than the value, because autoheal filters on label name plus a literal `true` value and has no Compose project or network scoping. That is what makes several stacks sharing one Docker host safe: a `staging` sidecar only matches `staging` containers, even though it can see every container on the socket. One autoheal per stack is deliberate — a single host-wide sidecar is a different design with a different blast radius.
+
+Each monitored healthcheck also carries a `start_period` (`postgres` 300s, `meilisearch` 180s, `redis` 60s). Without one, Docker counts failed probes from the first probe onwards, so a service still recovering from the restart autoheal just issued is marked unhealthy again — and on a Postgres replaying WAL the loop is self-sustaining. Docker re-enters the start period on every restart, which protects exactly that window.
+
+Two operational notes. `autoheal` mounts the Docker socket **read-write**, which is effectively root on the host; the deploy-env-scoped label filter is what keeps it from touching unrelated *stacks*, but it does not constrain what a compromised sidecar could do with the socket. And `app`, `mcp` and `opencode` are deliberately **not** covered — `app` has no healthcheck at all, and the `mcp`/`opencode` healthchecks are documented as visibility-only.
 
 To verify it works on your own stack, wedge a service rather than killing it (a kill only tests the restart policy):
 
@@ -87,16 +93,16 @@ Note that some images run an init wrapper (meilisearch is `tini -- /bin/sh -c /b
 
 ```bash
 # Start all services
-docker compose up -d
+yarn infra:up
 
 # Stop all services
-docker compose down
+yarn infra:down
 
 # View logs
-docker compose logs -f
+docker compose --project-directory . -f starters/docker/compose.infra.yml logs -f
 
 # Restart services
-docker compose restart
+docker compose --project-directory . -f starters/docker/compose.infra.yml restart
 ```
 
 ## Services
@@ -121,17 +127,55 @@ If you're using an existing database volume (from before this setup), you may ne
 docker exec mercato-postgres psql -U postgres -d open_mercato -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
+## Running Several Stacks Side by Side
+
+Every container, volume, and network name in `docker-compose.yml` is prefixed
+with `${MERCATO_STACK:-mercato}`. Leave the variable unset and every name keeps
+its historical value (`mercato-postgres`, `mercato-postgres-data`,
+`mercato-network`, ...), so existing stacks and volumes are unaffected.
+
+Set it to run a second, fully independent stack alongside the first — useful
+when you keep two checkouts of the repo:
+
+```bash
+# .env in the second checkout's repo root (the compose interpolation channel)
+MERCATO_STACK=mercato2
+```
+
+**`MERCATO_STACK` renames things; it does not remap host ports.** A second stack
+also needs its own ports, or it will collide with the first on `5432`, `6379`,
+and friends:
+
+```bash
+MERCATO_STACK=mercato2
+POSTGRES_PORT=5433
+REDIS_PORT=6380
+MEILISEARCH_PORT=7701
+OPENCODE_PORT=4097
+LOCALSTACK_PORT=4567
+VERDACCIO_PORT=4874
+```
+
+Because the volume names are prefixed too, each stack gets its own database,
+cache, and search index — switching `MERCATO_STACK` points at different data,
+it does not migrate the old data across.
+
+Note that the `docker-compose.fullapp*.yml` stacks use a different scheme: a
+`${DEPLOY_ENV:-local}` **suffix** (`mercato-postgres-local`). `MERCATO_STACK`
+applies to the base `docker-compose.yml` services only.
+
 ## Data Persistence
 
-Data is stored in named Docker volumes:
+Data is stored in named Docker volumes (prefixed by `${MERCATO_STACK:-mercato}`,
+shown here at the default):
 - `mercato-postgres-data` - PostgreSQL data
 - `mercato-redis-data` - Redis data
 
 To completely reset and start fresh:
 
 ```bash
-docker compose down -v  # This will DELETE all data
-docker compose up -d
+docker compose --project-directory . -f starters/docker/compose.infra.yml down -v  # This will DELETE all data
+yarn infra:up
 yarn mercato init
 ```
 
@@ -142,6 +186,79 @@ Copy `.env.example` to `.env` and adjust as needed:
 ```bash
 cp .env.example .env
 ```
+
+The infra stack (`starters/docker/compose.infra.yml`) publishes Postgres, Redis,
+Meilisearch, OpenCode, Keycloak, LocalStack and Verdaccio on `127.0.0.1` only.
+They use dev-default credentials, and on Linux Docker-published ports bypass
+ufw/iptables `INPUT` rules, so binding to all interfaces would expose them on a
+VPS. To reach them from another machine, opt in explicitly with
+`INFRA_BIND_HOST` (a non-loopback value also requires a Redis password, see
+`packages/starter/README.md`; Verdaccio has its own `VERDACCIO_HOST`, below):
+
+```bash
+INFRA_BIND_HOST=0.0.0.0
+```
+
+### Local Verdaccio for standalone fullapp builds on native Linux
+
+A standalone app scaffolded with `--verdaccio` builds and runs its fullapp
+containers against `host.docker.internal:4873` (the template Dockerfile and
+dev entrypoint rewrite `localhost` registry URLs to that host). On Docker
+Desktop that reaches the loopback-bound registry. On native Linux,
+`host.docker.internal` maps to the Docker bridge gateway, which a `127.0.0.1`
+binding does not serve.
+
+Bind only the registry to the bridge gateway, and make Verdaccio advertise
+that address in package metadata. Verdaccio builds every `dist.tarball` URL
+from `VERDACCIO_PUBLIC_URL` (it overrides the request host), and Yarn downloads
+tarballs from that URL, so a `localhost` value would send a container's
+install to the container itself. The bridge address is reachable from the host
+and from containers, and is not published on public interfaces:
+
+```bash
+# Docker bridge gateway address, usually 172.17.0.1
+ip -4 -o addr show docker0 | awk '{print $4}' | cut -d/ -f1
+```
+
+Put the overrides in the `.env` at the **repository root**. `yarn infra:up`
+and the `docker compose --project-directory . -f starters/docker/compose.infra.yml`
+command above read the root `.env`, not one next to the compose file:
+
+```bash
+# <repo root>/.env
+VERDACCIO_HOST=172.17.0.1
+OM_VERDACCIO_PUBLIC_URL=http://172.17.0.1:4873
+```
+
+Host-side registry commands (`yarn registry:setup-user`, `yarn registry:publish`,
+`yarn test:create-app`, `yarn test:create-app:integration`) read `VERDACCIO_URL`
+from the process environment, not from `.env`. Export it in the shell that
+runs them:
+
+```bash
+export VERDACCIO_URL=http://172.17.0.1:4873
+yarn registry:publish
+```
+
+Scaffold with `--registry http://172.17.0.1:4873` instead of `--verdaccio` so
+the generated `.yarnrc.yml` already points at an address containers can reach.
+Recreate the registry container after changing `OM_VERDACCIO_PUBLIC_URL`
+(`docker compose ... up -d verdaccio`); Verdaccio rewrites tarball URLs when it
+serves metadata, so packages published earlier pick up the new address.
+The registry config allows anonymous publish of `@open-mercato/*`, so do not
+bind it to `0.0.0.0` on a machine reachable from the internet.
+
+Run the live route regression on a native-Linux Docker host:
+
+```bash
+OM_RUN_VERDACCIO_LINUX_SMOKE=1 node --test scripts/__tests__/verdaccio-linux-registry.test.mjs
+```
+
+It creates a separate registry, network and storage volume, checks the loopback
+default and explicit bridge binding, publishes a disposable fixture, and verifies
+advertised tarball download plus a cold Yarn 4.17.1 install from a container.
+It removes its own containers and volumes afterwards. The normal script suite
+skips this opt-in Docker check; it does not replace the standalone fullapp build.
 
 ## Windows + Docker Developer Command Cookbook
 
@@ -164,9 +281,9 @@ Windows users who develop through Docker can run any monorepo command using the 
 
 | Goal | Command | Notes |
 |------|---------|-------|
-| Start dev stack (detached) | `yarn docker:dev:up` | `docker-compose.fullapp.dev.yml`; mounted source + hot reload |
+| Start dev stack (detached) | `yarn docker:dev:up` | `starters/docker/compose.fullapp.dev.yml`; mounted source + hot reload |
 | Stop dev stack | `yarn docker:dev:down` | Stops and removes dev containers |
-| Start production-like stack (detached) | `yarn docker:up` | `docker-compose.fullapp.yml`; built image, no source mount |
+| Start production-like stack (detached) | `yarn docker:up` | `starters/docker/compose.fullapp.yml`; built image, no source mount |
 | Stop production-like stack | `yarn docker:down` | Stops and removes production containers |
 | Start ephemeral environment | `yarn docker:ephemeral` | Fresh DB on every restart; port 5000 |
 | Stop ephemeral environment | `yarn docker:ephemeral:down` | Tears down preview stack (all data lost) |
@@ -195,13 +312,14 @@ yarn docker:mercato eject currencies
 yarn docker:mercato test:integration
 ```
 
-> **Tip — custom compose file**: If you run a personalised stack (e.g. `docker-compose.fullapp.dev.local.yml`),
+> **Tip — custom compose file**: If you run a personalised stack (e.g. `starters/docker/compose.fullapp.dev.local.yml`),
 > the `docker:*` commands discover it automatically **without any extra configuration**, as long as the file name
-> matches `docker-compose.*dev*.local.yml` and lives in the repo root. Add it to `.gitignore` to keep it local.
+> matches `compose.*dev*.local.yml` and lives in `starters/docker/` (legacy root `docker-compose.*dev*.local.yml`
+> files are still discovered). Add it to `.gitignore` to keep it local.
 >
 > You can also force a specific compose file at any time with `DOCKER_COMPOSE_FILE`:
 > ```
-> DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck
+> DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.dev.local.yml yarn docker:typecheck
 > ```
 
 ### Script Compatibility Matrix
@@ -210,7 +328,7 @@ yarn docker:mercato test:integration
 |-------------|-------------|---------------------------|----------------|-------|
 | `dev` | works | `yarn docker:dev` | — | |
 | `dev:greenfield` | works | unsupported-by-design | unsupported-by-design | Not available as a Docker exec command — use `yarn docker:dev:up` instead (entrypoint handles the full init sequence automatically) |
-| `dev:ephemeral` | works | `yarn docker:ephemeral` | unsupported-by-design | Uses `docker-compose.preview.yaml`; fresh DB, port 5000 |
+| `dev:ephemeral` | works | `yarn docker:ephemeral` | unsupported-by-design | Uses `starters/docker/compose.preview.yml`; fresh DB, port 5000 |
 | `build:packages` | works | `yarn docker:build:packages` | unsupported-by-design | |
 | `generate` | works | `yarn docker:generate` | unsupported-by-design | Monorepo-only; not in runtime image |
 | `initialize` | works | `yarn docker:initialize` | unsupported-by-design | Monorepo-only |
@@ -232,13 +350,13 @@ yarn docker:mercato test:integration
 
 The helper checks for a running `app` service. Ensure the stack is up:
 ```
-docker compose -f docker-compose.fullapp.dev.yml ps
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml ps
 ```
 
-If you started the stack with a **custom compose file**, either name it `docker-compose.*dev*.local.yml`
-(auto-discovered) or set `DOCKER_COMPOSE_FILE` before the command:
+If you started the stack with a **custom compose file**, either name it `starters/docker/compose.*dev*.local.yml`
+(auto-discovered, as are legacy root `docker-compose.*dev*.local.yml` files) or set `DOCKER_COMPOSE_FILE` before the command:
 ```
-DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck
+DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.dev.local.yml yarn docker:typecheck
 ```
 
 **Compose file fails to parse / probe warning**
@@ -265,7 +383,7 @@ This skips install/build/generate on the next container restart only, then retur
 **Force a specific compose file**
 
 ```
-DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate
+DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.dev.yml yarn docker:generate
 ```
 
 ---
@@ -286,3 +404,16 @@ docker exec -it mercato-postgres psql -U postgres
 ```bash
 docker exec -it mercato-redis redis-cli
 ```
+
+**Image builds fail with TLS/certificate errors (corporate proxy):**
+Your network intercepts HTTPS with a corporate root CA that containers do not
+trust. Drop the CA as a PEM file into `docker/certs/` — both the app and
+opencode image builds pick it up. See `docker/certs/README.md`; the Windows
+launcher (`starters/docker/windows/start-windows.bat`) detects and repairs this
+automatically.
+
+## Production storage privilege smoke test
+
+Run `node docker/tests/storage-init-smoke.mjs` with Docker available. The test builds an isolated runtime fixture using the production Dockerfile's package installation and user/sudo configuration plus the real storage and Railway scripts. Yarn is stubbed, so no database is migrated and no application dependencies are installed.
+
+The only runtime sudo command is the root-owned `/usr/local/sbin/om-init-storage`, with no arguments. It changes ownership of the storage mount directory alone. Existing data must already be provisioned for UID/GID `1001:1001`; see the Railway deployment documentation for backup migration. Deployment maintainer review is required before releasing this startup change.

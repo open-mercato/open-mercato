@@ -4,6 +4,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'warranty_claims.claim.submitted',
     module: 'warranty_claims',
+    channels: ['in_app', 'email'],
     titleKey: 'warranty_claims.notifications.submitted.title',
     bodyKey: 'warranty_claims.notifications.submitted.body',
     icon: 'clipboard-check',
@@ -23,6 +24,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'warranty_claims.claim.assigned',
     module: 'warranty_claims',
+    channels: ['in_app', 'email'],
     titleKey: 'warranty_claims.notifications.assigned.title',
     bodyKey: 'warranty_claims.notifications.assigned.body',
     icon: 'user-check',
@@ -42,6 +44,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'warranty_claims.claim.status_changed',
     module: 'warranty_claims',
+    channels: ['in_app', 'email'],
     titleKey: 'warranty_claims.notifications.statusChanged.title',
     bodyKey: 'warranty_claims.notifications.statusChanged.body',
     icon: 'refresh-cw',
@@ -61,6 +64,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'warranty_claims.claim.escalated',
     module: 'warranty_claims',
+    channels: ['in_app', 'email'],
     titleKey: 'warranty_claims.notifications.escalated.title',
     bodyKey: 'warranty_claims.notifications.escalated.body',
     icon: 'alarm-clock',
@@ -80,6 +84,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'warranty_claims.claim.customer_replied',
     module: 'warranty_claims',
+    channels: ['in_app', 'email'],
     titleKey: 'warranty_claims.notifications.customerReplied.title',
     bodyKey: 'warranty_claims.notifications.customerReplied.body',
     icon: 'message-square-reply',

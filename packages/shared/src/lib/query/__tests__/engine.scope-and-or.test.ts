@@ -1,5 +1,15 @@
-import { BasicQueryEngine } from '../engine'
+import { BasicQueryEngine, clearColumnExistsCache } from '../engine'
 import { normalizeFilters } from '../join-utils'
+
+// The column-existence answer is memoized on the module, not the instance (#5605), and
+// the fixtures below declare mutually contradictory `information_schema.columns` shapes
+// for the same `scheduled_jobs` table. Without this clear, whichever test ran first
+// decides the scoping every later test sees — the automatic tenant/organization guard
+// would silently drop out of a query and the assertion for it would still be reading a
+// stale `false`.
+beforeEach(() => {
+  clearColumnExistsCache()
+})
 
 type FakeData = Record<string, any[]>
 

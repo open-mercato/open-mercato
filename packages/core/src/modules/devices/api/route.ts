@@ -5,6 +5,7 @@ import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-merca
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -20,7 +21,13 @@ import {
 } from '../data/validators'
 import { resolveDeviceActorUserId } from './auth'
 import { createDevicesCrudOpenApi, createPagedListResponseSchema } from './openapi'
-import { deviceListSchema, deviceListFields, deviceListSortFieldMap, deviceListItemSchema } from './deviceList'
+import {
+  deviceListSchema,
+  deviceListFields,
+  deviceListSortFieldMap,
+  deviceListItemSchema,
+  transformDeviceListItem,
+} from './deviceList'
 import { executeRegister, type DeviceMutationContext } from './deviceOps'
 
 const logger = createLogger('devices')
@@ -59,6 +66,8 @@ const crud = makeCrudRoute({
     // push_token is a secret and is never exposed via the list API.
     fields: deviceListFields,
     sortFieldMap: deviceListSortFieldMap,
+    // The query engine projects raw column names; expose them in camelCase like every other module.
+    transformItem: transformDeviceListItem,
     // Exports are off for the self-serve list. The factory enables them for every list that does not
     // declare `export` (resolveAvailableExportFormats falls back to csv/json/xml/markdown), and its
     // full-export branch replaces the filters with `{}` instead of calling `buildFilters`
@@ -104,7 +113,7 @@ export async function POST(req: Request) {
 
     const body = registerDeviceSchema.parse(await readJsonSafe(req, {}))
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
 
     // When the app doesn't send an explicit per-device locale, fall back to the request's
     // Accept-Language (the mobile client calls this with its own headers). Only on self-register —

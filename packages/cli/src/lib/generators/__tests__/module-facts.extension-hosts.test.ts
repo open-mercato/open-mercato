@@ -46,7 +46,17 @@ describe('module-facts extension host extraction', () => {
         'sales:sales_shipment_item',
         'sales:sales_note',
       ],
-      staff: ['staff:staff_team_member'],
+      // EP-43 registered the five time-tracking entities in staff's `ce.ts`; they carry
+      // no default field definitions, and `customFields` here means "declared in ce.ts",
+      // not "ships fields".
+      staff: [
+        'staff:staff_team_member',
+        'staff:staff_time_entry',
+        'staff:staff_time_project',
+        'staff:staff_time_report',
+        'staff:staff_time_tag',
+        'staff:staff_time_task',
+      ],
     }
 
     for (const [moduleId, expected] of Object.entries(expectedByModule)) {
@@ -99,10 +109,11 @@ describe('module-facts extension host extraction', () => {
     const catalog = extractModuleFacts({ moduleId: 'catalog', coreSrcRoot })
     expect(catalog.hostTokens.tableIds).toEqual([
       'catalog.categories.list',
+      'catalog.prices.list',
       'catalog.products.list',
     ])
 
     const sales = extractModuleFacts({ moduleId: 'sales', coreSrcRoot })
-    expect(sales.hostTokens.tableIds).toEqual(['sales.orders', 'sales.quotes'])
+    expect(sales.hostTokens.tableIds).toEqual(['sales.orders', 'sales.payments', 'sales.quotes'])
   })
 })

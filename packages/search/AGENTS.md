@@ -176,7 +176,6 @@ Use `buildSource` to generate text for embeddings. The returned text is converte
         title: ctx.record.name,
         subtitle: ctx.record.status,
         icon: 'lucide:file',
-        badge: 'Your Entity',
       },
       links: [
         { href: `/backend/your-module/${ctx.record.id}`, label: 'View', kind: 'primary' },
@@ -210,7 +209,6 @@ Presenter is resolved at **search time** using `formatResult`. When `formatResul
       title: ctx.record.display_name ?? ctx.record.name ?? 'Unknown',
       subtitle: ctx.record.email ?? ctx.record.status,
       icon: 'lucide:user',
-      badge: 'Customer',
     }
   },
 }
@@ -332,7 +330,14 @@ interface SearchResultPresenter {
   /** Icon identifier (e.g., 'lucide:user', 'user', 'building') */
   icon?: string
 
-  /** Badge/tag shown next to title (e.g., 'Customer', 'Deal') */
+  /**
+   * @deprecated Never rendered by any search UI; slated for removal in 0.11.0.
+   * Do not populate it. For an entity-type label add a
+   * `search.entityType.<module>.<entity>` key in your own module's `i18n/*.json`
+   * (dictionaries merge flat, so a `search.*` key resolves from any module), which
+   * all three surfaces do render; for per-record detail use `subtitle`.
+   * `VectorResultPresenter.badge` is deprecated on the same terms.
+   */
   badge?: string
 }
 ```
@@ -557,6 +562,7 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `OM_SEARCH_MAX_TOKENS_PER_FIELD` | When bounding token fan-out for one field | Default: `5000`. Maximum distinct token rows across all values of one field; `0` disables the limit. **Token strategy only** |
 | `OM_SEARCH_MAX_TOKENS_PER_RECORD` | When bounding token fan-out for one record | Default: `20000`. Maximum token rows across all fields in one indexed record; `0` disables the limit. **Token strategy only** |
 | `OM_SEARCH_TOKEN_PRESENCE_CACHE_MS` | When tuning the query engines' "does this entity have search tokens?" probe | Default: `30000` (ms); `0` disables. Process-level TTL cache in `@open-mercato/shared/lib/search/availability` — bounds how long a token purge or first-index is invisible to like/ilike routing. **Token strategy only** |
+| `OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY` | When base `customers:customer_entity` rows should stay searchable | Default: `false`. A customer is found through their person/company profile, which carries the detail-page link; the base row adds only a navigation-less duplicate, and one that superadmins saw while nobody else did (#5046). `false` filters the type out of token results; `true` restores the previous behavior, where both rows are returned and the presenter enricher merges the pair. **Read-side only** — the `search_tokens` rows are still written, because `findEntityIdsBySearchTokens` (People/Companies list search) and the query engines' encrypted `like`/`ilike` rewrite resolve ids through them. No reindex needed either way. Policy lives in `packages/core/src/modules/query_index/lib/search-entity-policy.ts`. **Token strategy only** |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
 | `OM_LOG_LEVEL` | When debugging presenter enrichment | Set to `debug` to surface presenter enricher diagnostics (replaces the former `DEBUG_SEARCH_ENRICHER` flag) |
 

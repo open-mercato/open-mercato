@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import {
   assertJwtSecretPolicy,
   deriveJwtAudienceSecret,
+  isUnsafeJwtSecret,
   signAudienceJwt,
   signJwt,
   verifyAudienceJwt,
@@ -468,5 +469,29 @@ describe('jwt helpers', () => {
       process.env.JWT_CUSTOMER_SECRET = 'b'.repeat(64)
       expect(() => assertJwtSecretPolicy()).not.toThrow()
     })
+
+    it('isUnsafeJwtSecret flags exactly the secrets the production policy refuses', () => {
+      expect(isUnsafeJwtSecret(undefined)).toBe(true)
+      expect(isUnsafeJwtSecret(null)).toBe(true)
+      expect(isUnsafeJwtSecret('   ')).toBe(true)
+      expect(isUnsafeJwtSecret('change-me-dev-secret')).toBe(true)
+      expect(isUnsafeJwtSecret('Your-Secure-JWT-Secret-Change-Me')).toBe(true)
+      expect(isUnsafeJwtSecret('a'.repeat(31))).toBe(true)
+      expect(isUnsafeJwtSecret('a'.repeat(32))).toBe(false)
+      expect(isUnsafeJwtSecret(strongSecret)).toBe(false)
+    })
+  })
+})
+
+describe('isMfaPendingJwtPayload', () => {
+  it('flags pending challenge payloads only', async () => {
+    const { isMfaPendingJwtPayload } = await import('../jwt')
+    expect(isMfaPendingJwtPayload({ mfa_pending: true, mfa_verified: false })).toBe(true)
+    expect(isMfaPendingJwtPayload({ mfa_pending: true })).toBe(true)
+    expect(isMfaPendingJwtPayload({ mfa_pending: true, mfa_verified: true })).toBe(false)
+    expect(isMfaPendingJwtPayload({ mfa_pending: false, mfa_verified: true })).toBe(false)
+    expect(isMfaPendingJwtPayload({})).toBe(false)
+    expect(isMfaPendingJwtPayload(null)).toBe(false)
+    expect(isMfaPendingJwtPayload('token')).toBe(false)
   })
 })

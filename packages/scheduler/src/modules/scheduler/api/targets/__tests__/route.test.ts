@@ -50,8 +50,8 @@ describe('GET /api/scheduler/targets', () => {
       orgId: 'org-1',
     })
     ;(getModules as jest.Mock).mockReturnValue([
-      { workers: [{ queue: 'z-queue' }] },
-      { workers: [{ queue: 'a-queue' }] },
+      { workers: [{ queue: 'z-queue' }, { queue: 'internal-queue' }] },
+      { workers: [{ queue: 'a-queue', schedulerSafe: true }] },
     ])
   })
 
@@ -60,14 +60,13 @@ describe('GET /api/scheduler/targets', () => {
     unregisterCommand(unsafeCommand.id)
   })
 
-  it('lists only scheduler-safe commands', async () => {
+  it('lists only scheduler-safe queues and commands', async () => {
     const response = await GET(new NextRequest('http://localhost/api/scheduler/targets'))
     const body = await response.json()
 
     expect(response.status).toBe(200)
     expect(body.queues).toEqual([
       { value: 'a-queue', label: 'a-queue' },
-      { value: 'z-queue', label: 'z-queue' },
     ])
     expect(body.commands).toEqual([
       { value: safeCommand.id, label: safeCommand.id },

@@ -38,6 +38,7 @@ type LogsResponse = {
   items: RuleExecutionLog[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function ExecutionLogsPage() {
@@ -45,6 +46,7 @@ export default function ExecutionLogsPage() {
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
@@ -76,6 +78,7 @@ export default function ExecutionLogsPage() {
       if (response) {
         setTotal(response.total || 0)
         setTotalPages(response.totalPages || 1)
+        setTotalIsCapped(response?.totalIsCapped === true)
       }
 
       return response?.items || []
@@ -237,7 +240,8 @@ export default function ExecutionLogsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('business_rules.logs.list.title')}
+        title={t('business_rules.logs.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={data || []}
           filters={filters}
@@ -246,7 +250,7 @@ export default function ExecutionLogsPage() {
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
           error={error ? t('business_rules.logs.messages.loadFailed') : undefined}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
     </Page>

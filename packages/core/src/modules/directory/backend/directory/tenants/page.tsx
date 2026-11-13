@@ -35,6 +35,7 @@ type TenantsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 
@@ -119,6 +120,7 @@ export default function DirectoryTenantsPage() {
   const rows = data?.items ?? []
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 0
+  const totalIsCapped = data?.totalIsCapped === true
 
   const deleteMutationContextId = 'directory-tenants-list:single-delete'
   const { runMutation: runDeleteMutation, retryLastMutation: retryDeleteMutation } = useGuardedMutation<{
@@ -175,7 +177,8 @@ export default function DirectoryTenantsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('directory.tenants.list.title', 'Tenants')}
+        title={t('directory.tenants.list.title', 'Tenants')}
+        titleHeadingLevel={1}
           actions={canManage ? (
             <Button asChild>
               <Link href="/backend/directory/tenants/create">{t('directory.tenants.list.actions.create', 'Create')}</Link>
@@ -213,7 +216,7 @@ export default function DirectoryTenantsPage() {
               createLabel={t('directory.tenants.list.actions.create', 'Create')}
             />
           )}
-          pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

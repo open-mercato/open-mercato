@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Pencil, Plus, Trash2, Truck } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -10,7 +11,7 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   emitSalesDocumentTotalsRefresh,
@@ -41,12 +42,8 @@ type SalesShipmentsSectionProps = {
   onAddComment?: (body: string) => Promise<void>
 }
 
-function formatDisplayDate(value: string | null | undefined): string | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
-}
+// One date formatter for this page rather than three with incompatible semantics.
+export { formatDisplayDate }
 
 const formatShipmentAddress = (metadata?: Record<string, unknown> | null): string | null => {
   if (!metadata || typeof metadata !== 'object') return null
@@ -123,6 +120,7 @@ export function SalesShipmentsSection({
   onAddComment,
 }: SalesShipmentsSectionProps) {
   const t = useT()
+  const locale = useLocale()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const resolvedOrganizationId = organizationIdProp ?? organizationId ?? null
@@ -486,8 +484,12 @@ export function SalesShipmentsSection({
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {shipments.map((shipment) => {
-            const shippedAt = formatDisplayDate(shipment.shippedAt)
-            const deliveredAt = formatDisplayDate(shipment.deliveredAt)
+            // `shippedAt` / `deliveredAt` are written from date inputs (`ShipmentDialog`), coerced
+            // by `z.coerce.date()` and stored as UTC midnight, and the dialog seeds itself back from
+            // `.slice(0, 10)` — the UTC day. Reading them locally names the previous day west of UTC
+            // and disagrees with that dialog on the same row.
+            const shippedAt = formatDisplayDate(toUtcDateInputValue(shipment.shippedAt), locale)
+            const deliveredAt = formatDisplayDate(toUtcDateInputValue(shipment.deliveredAt), locale)
             const addressSummary = formatShipmentAddress(shipment.metadata)
             const statusLabel =
               shipment.statusLabel ??

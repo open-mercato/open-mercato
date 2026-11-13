@@ -45,7 +45,7 @@ export default function OverridesTable() {
             const call = await apiCall<{
                 items: OverrideListResponse[];
                 total: number;
-                totalPages: number;
+                totalPages: number; totalIsCapped?: boolean;
                 page: number;
                 pageSize: number;
                 isSuperAdmin?: boolean
@@ -137,7 +137,8 @@ export default function OverridesTable() {
 
     return (
         <DataTable
-            title={t('feature_toggles.overrides.help.title', 'Feature Toggle Overrides')}
+      title={t('feature_toggles.overrides.help.title', 'Feature Toggle Overrides')}
+      titleHeadingLevel={1}
             columns={columns}
             filters={filters}
             filterValues={filterValues}
@@ -153,6 +154,7 @@ export default function OverridesTable() {
                 pageSize: featureTogglesData?.pageSize ?? 25,
                 total: featureTogglesData?.total ?? 0,
                 totalPages: featureTogglesData?.totalPages ?? 0,
+                totalIsCapped: featureTogglesData?.totalIsCapped === true,
                 onPageChange: handlePageChange,
             }}
             refreshButton={{

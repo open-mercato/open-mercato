@@ -1,4 +1,39 @@
-import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
+import {
+  isOrganizationAccessAllowed,
+  isUnrestrictedOrganizationScope,
+} from '@open-mercato/shared/lib/auth/organizationAccess'
+
+describe('isUnrestrictedOrganizationScope', () => {
+  it('allows super admins regardless of allowed organizations', () => {
+    expect(
+      isUnrestrictedOrganizationScope({
+        isSuperAdmin: true,
+        allowedOrganizationIds: [],
+      }),
+    ).toBe(true)
+  })
+
+  it('allows truly unrestricted non-superadmin scopes', () => {
+    expect(
+      isUnrestrictedOrganizationScope({
+        isSuperAdmin: false,
+        allowedOrganizationIds: null,
+      }),
+    ).toBe(true)
+  })
+
+  it.each([undefined, [] as string[], ['org-a']])(
+    'denies restricted non-superadmin scopes with allowedOrganizationIds=%p',
+    (allowedOrganizationIds) => {
+      expect(
+        isUnrestrictedOrganizationScope({
+          isSuperAdmin: false,
+          allowedOrganizationIds,
+        }),
+      ).toBe(false)
+    },
+  )
+})
 
 describe('isOrganizationAccessAllowed', () => {
   it('allows super admins regardless of scope', () => {

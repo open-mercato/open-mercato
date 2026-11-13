@@ -60,3 +60,40 @@ describe('customer_accounts portal address hydration (regression for issue #5457
     expect(source).toMatch(/from '(?:\.\.\/)+lib\/portalUrl'/)
   })
 })
+
+// The "Open Portal" action linked to `${origin}/portal`, but portal pages only
+// exist under `frontend/[orgSlug]/portal/**`, so the link always 404'd.
+const PORTAL_LINK_SURFACES = [
+  {
+    entrypoint: 'backend/customer_accounts/users/page.tsx',
+    client: 'backend/customer_accounts/users/PortalUsersPageClient.tsx',
+  },
+  {
+    entrypoint: 'backend/customer_accounts/settings/page.tsx',
+    client: 'backend/customer_accounts/settings/CustomerAccountsSettingsPageClient.tsx',
+  },
+]
+
+describe('customer_accounts "Open Portal" link (regression for issue #5668)', () => {
+  it.each(PORTAL_LINK_SURFACES)('$entrypoint resolves the organization slug on the server', ({ entrypoint }) => {
+    const source = readSource(entrypoint)
+    expect(source).toMatch(/resolveCurrentOrgPortalSlug\(\)/)
+    expect(source).toMatch(/portalOrgSlug=\{portalOrgSlug\}/)
+  })
+
+  it.each(PORTAL_LINK_SURFACES)('$client takes the slug as a prop and never links without it', ({ client }) => {
+    const source = readSource(client)
+    expect(source).toMatch(/portalOrgSlug\?: string \| null/)
+    expect(source).toMatch(/buildPortalRootUrl\(portalOrigin, portalOrgSlug\)/)
+    // A slugless call would rebuild the 404 link this regression is about.
+    expect(source).not.toMatch(/buildPortalRootUrl\(portalOrigin\)/)
+  })
+
+  // The slug resolver reaches for the EntityManager, so it must stay out of the
+  // module client components import — otherwise the ORM lands in the browser bundle.
+  it('keeps the ORM-backed slug lookup out of the client-imported portalUrl module', () => {
+    const source = readSource('lib/portalUrl.ts')
+    expect(source).not.toMatch(/@mikro-orm/)
+    expect(source).not.toMatch(/organizationLookup/)
+  })
+})

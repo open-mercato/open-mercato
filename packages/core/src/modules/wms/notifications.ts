@@ -4,6 +4,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'wms.inventory.low_stock',
     module: 'wms',
+    channels: ['in_app', 'email'],
     titleKey: 'wms.notifications.lowStock.title',
     bodyKey: 'wms.notifications.lowStock.body',
     icon: 'alert-triangle',
@@ -23,6 +24,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'wms.inventory.reservation_shortfall',
     module: 'wms',
+    channels: ['in_app', 'email'],
     titleKey: 'wms.notifications.reservationShortfall.title',
     bodyKey: 'wms.notifications.reservationShortfall.body',
     icon: 'alert-triangle',

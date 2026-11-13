@@ -23,6 +23,7 @@ import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { emitProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
@@ -71,6 +72,7 @@ type ClaimsResponse = {
   items?: ClaimRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
   page?: number
   pageSize?: number
   error?: string
@@ -410,6 +412,7 @@ export default function WarrantyClaimsPage() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const currentUserId = useCurrentUserId()
   const initialUrlStateRef = React.useRef<RestoredClaimListState | null>(null)
@@ -421,6 +424,7 @@ export default function WarrantyClaimsPage() {
   const [page, setPage] = React.useState(initialUrlState.page)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [tabCounts, setTabCounts] = React.useState<ClaimsTabCounts>({})
   const [search, setSearch] = React.useState(initialUrlState.search)
   const [filterValues, setFilterValues] = React.useState<FilterValues>(initialUrlState.filterValues)
@@ -508,6 +512,7 @@ export default function WarrantyClaimsPage() {
         setRows(items.map(normalizeClaimRow).filter((row): row is ClaimRow => row !== null))
         setTotal(typeof call.result?.total === 'number' ? call.result.total : items.length)
         setTotalPages(typeof call.result?.totalPages === 'number' ? call.result.totalPages : 1)
+        setTotalIsCapped(call.result?.totalIsCapped === true)
       } catch (error) {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : t('warranty_claims.list.error.load')
@@ -614,7 +619,7 @@ export default function WarrantyClaimsPage() {
   )
 
   const loadAssignableStaffOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
-    const page = await fetchAssignableStaffMembersPage(query ?? '', { pageSize: 24 })
+    const page = await fetchAssignableStaffMembersPage(query ?? '', { pageSize: 24, activeOrgId })
     const options = page.items.map((member) => ({
       value: member.userId,
       label: staffOptionLabel(member),
@@ -626,7 +631,7 @@ export default function WarrantyClaimsPage() {
       },
       ...options,
     ]
-  }, [t])
+  }, [activeOrgId, t])
 
   const formatAssigneeFilterValue = React.useCallback((value: string) => {
     if (value === UNASSIGNED_ASSIGNEE_VALUE) return t('warranty_claims.form.assigneeUserId.unassigned', 'Unassigned')
@@ -1255,6 +1260,7 @@ export default function WarrantyClaimsPage() {
               pageSize: PAGE_SIZE,
               total,
               totalPages,
+              totalIsCapped,
               onPageChange: setPage,
             }}
           />

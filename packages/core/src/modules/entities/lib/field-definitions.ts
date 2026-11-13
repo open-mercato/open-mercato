@@ -36,6 +36,7 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'formEditable',
   'listVisible',
   'indexed',
+  'encrypted',
   'priority',
   'editor',
   'input',
@@ -63,6 +64,12 @@ function normalizeValue(value: unknown): unknown {
 
 function configEquals(a: unknown, b: unknown): boolean {
   return JSON.stringify(normalizeValue(a ?? null)) === JSON.stringify(normalizeValue(b ?? null))
+}
+
+function hasEncryptionEnabled(definition: CustomFieldDef | null): boolean {
+  const config = definition?.configJson
+  if (!config || typeof config !== 'object') return false
+  return (config as Record<string, unknown>).encrypted === true
 }
 
 export async function ensureCustomFieldDefinitions(
@@ -101,6 +108,14 @@ export async function ensureCustomFieldDefinitions(
       for (const key of CONFIG_PASSTHROUGH_KEYS) {
         const value = field[key]
         if (value !== undefined) configJson[key] = value as unknown
+      }
+
+      // configJson is rebuilt from the declaration, so a field encrypted through the
+      // definitions API would lose the flag on the next install while its stored
+      // values stay ciphertext the read path no longer decrypts. Keep an enabled flag
+      // unless the declaration turns it off with an explicit `encrypted: false`.
+      if (configJson.encrypted === undefined && hasEncryptionEnabled(existing)) {
+        configJson.encrypted = true
       }
 
       if (!existing) {

@@ -131,6 +131,26 @@ describe('assertActorCanAccessUserTarget', () => {
     ).rejects.toMatchObject({ status: 404 })
   })
 
+  test('hides any tenanted target from a tenant-less non-superadmin actor as 404', async () => {
+    // The scope the caller passes is the ACTOR's. A caller that instead derives
+    // it from the target — as the user ACL route briefly did — compares the
+    // target against itself and this guard can never fail.
+    const em = makeEm()
+    mockFindOneWithDecryption.mockResolvedValueOnce({ id: targetUserId, tenantId: otherTenantId, organizationId: orgId })
+    const rbacService = makeRbac({ isSuperAdmin: false })
+
+    await expect(
+      assertActorCanAccessUserTarget({
+        em: em as never,
+        rbacService: rbacService as never,
+        actorUserId: actorId,
+        tenantId: null,
+        targetUserId,
+        organizationScope: { allowedIds: null },
+      }),
+    ).rejects.toMatchObject({ status: 404 })
+  })
+
   test('returns 403 for an org-restricted actor with an out-of-scope in-tenant target', async () => {
     const em = makeEm()
     mockFindOneWithDecryption.mockResolvedValueOnce({ id: targetUserId, tenantId, organizationId: 'other-org' })

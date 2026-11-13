@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -52,16 +52,11 @@ type ExecutionRun = {
   durationMs?: number
 }
 
-export default function ScheduleDetailPage() {
-  const params = useParams()
+export default function ScheduleDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
-  // Extract schedule ID from either params.id or params.slug
-  // When using catch-all routes, the ID is in params.slug[2]
-  const scheduleId = params.id 
-    ? (Array.isArray(params.id) ? params.id[0] : params.id)
-    : (Array.isArray(params.slug) && params.slug.length >= 3 ? params.slug[2] : undefined)
+  const scheduleId = params?.id
 
   const [schedule, setSchedule] = React.useState<ScheduleDetail | null>(null)
   const [runs, setRuns] = React.useState<ExecutionRun[]>([])
@@ -111,10 +106,13 @@ export default function ScheduleDetailPage() {
   }, [scheduleId, isAsyncStrategy])
 
   React.useEffect(() => {
-    if (scheduleId) {
-      fetchScheduleAndRuns()
+    if (!scheduleId) {
+      setLoading(false)
+      setError(t('scheduler.error.missing_schedule_id', 'No schedule selected.'))
+      return
     }
-  }, [scheduleId, fetchScheduleAndRuns])
+    fetchScheduleAndRuns()
+  }, [scheduleId, fetchScheduleAndRuns, t])
 
   const handleTriggerNow = async () => {
     if (!scheduleId || !schedule) return

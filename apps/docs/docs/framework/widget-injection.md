@@ -58,6 +58,28 @@ Supported positions:
 
 If `relativeTo` cannot be resolved, the item is appended.
 
+### Tab placements
+
+A widget mapped to a `detail:<module>.<entity>:tabs` spot with `placement.kind: 'tab'` becomes a tab of that detail page:
+
+- `groupId`: stable tab id (falls back to the widget id); used in `?tab=` URLs
+- `groupLabel`: translation key for the tab label (falls back to the widget title)
+- `icon`: optional lucide icon name (`'list-checks'`, `'ListChecks'` or `'lucide:list-checks'`) shown next to the label
+- `priority`: ordering hint, higher first, default `0`. The host's built-in tabs sit at `0`: a positive priority places the tab before them, a negative one after, and tabs sharing a priority keep their declaration order
+
+```ts
+'detail:customers.person:tabs': [
+  {
+    widgetId: 'workflows.injection.pending-work',
+    kind: 'tab',
+    groupId: 'pending-work',
+    groupLabel: 'workflows.pendingWork.title',
+    icon: 'list-checks',
+    priority: -10,
+  },
+],
+```
+
 ### i18n requirements for injected menus
 
 Every user-facing injected menu item should include:
@@ -449,6 +471,27 @@ Component replacement uses stable handle IDs:
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
 - **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
 
+### `wrapper` overrides must be pure
+
+The platform composes a `wrapper` override **at most once per `(wrapper, wrapped component)` pair** and caches the composed component, so that a wrapped subtree keeps a stable React identity instead of being torn down and remounted every time overrides re-resolve (a registry revision bump, a feature grant arriving after first paint).
+
+A wrapper must therefore be a pure function of `Original`. Read any dynamic value — a feature flag, the locale, tenant configuration, the clock, request state — **inside the render body of the component you return**, never at composition time:
+
+```tsx
+// ✅ the dynamic read happens on every render
+wrapper: (Original) => function WithBanner(props) {
+  const t = useT()
+  return <><Banner text={t('acme.notice')} /><Original {...props} /></>
+}
+
+// ❌ frozen at first composition — on the server the registry outlives the
+// request, so one tenant's value would render for everyone
+wrapper: (Original) => {
+  const label = readTenantConfig().label
+  return (props) => <><Banner text={label} /><Original {...props} /></>
+}
+```
+
 ## UMES Phase L — Integration Extension Widgets
 
 Phase L adds three specialized widget types for building integration modules: a multi-step wizard, pollable status badges, and an external ID mapping display.
@@ -657,6 +700,35 @@ export const injectionTable: ModuleInjectionTable = {
 
 export default injectionTable
 ```
+
+### Ordering a contributed tab
+
+On a `kind: 'tab'` spot, `priority` orders the contributed tab **against the host's
+built-in tabs**, not just against other contributed tabs. Built-in tabs sit at `0`:
+
+- a **positive** priority places the tab before every built-in tab
+- a **negative** priority places it after them
+- entries sharing a priority keep their declaration order, so omitting `priority`
+  leaves a contributed tab where it has always been — last
+
+```typescript
+export const injectionTable: ModuleInjectionTable = {
+  'detail:customers.company:tabs': [
+    {
+      widgetId: 'my_module.injection.overview-tab',
+      priority: 100,
+      kind: 'tab',
+      groupId: 'overview',
+      groupLabel: 'my_module.tabs.overview',
+    },
+  ],
+}
+```
+
+Ordering a tab first does not make it the tab the page opens on — hosts keep their
+own default. Link to `?tab=<groupId>` to land a user on a contributed tab.
+
+Hosts honouring this: company, person and deal detail pages in `customers`.
 
 ## Using Injection Spots in CRUD Forms
 

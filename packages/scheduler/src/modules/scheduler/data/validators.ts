@@ -4,6 +4,7 @@ import { validateInterval } from '../lib/intervalParser'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { isSchedulerSafeCommandId } from '../lib/scheduler-safe-commands'
+import { isSchedulerSafeQueue, validateSchedulerTargetPayload } from '../lib/safeQueueTargets'
 
 /**
  * Validate that a command exists in the command registry
@@ -14,6 +15,15 @@ function validateCommandExists(commandId: string): boolean {
 
 function validateCommandIsSchedulable(commandId: string): boolean {
   return isSchedulerSafeCommandId(commandId)
+}
+
+/**
+ * Validate that a queue was declared scheduler-safe by its owning worker.
+ * Internal and system-only workers (webhook processors, indexers, …) stay
+ * undiscoverable as schedule targets — see issue #5213.
+ */
+function validateSchedulerSafeQueue(queue: string | null | undefined): boolean {
+  return isSchedulerSafeQueue(queue)
 }
 
 /**
@@ -39,8 +49,6 @@ const scheduleBaseSchema = z.object({
   requireFeature: z.string().optional().nullable(),
   
   isEnabled: z.boolean().default(true),
-  sourceType: z.enum(['user', 'module']).default('user'),
-  sourceModule: z.string().optional().nullable(),
 })
 
 /**
@@ -120,12 +128,36 @@ export const scheduleCreateSchema = scheduleBaseSchema
       path: ['targetCommand'],
     }
   )
+  .refine(
+    (data) => {
+      if (data.targetType === 'queue' && data.targetQueue) {
+        return validateSchedulerSafeQueue(data.targetQueue)
+      }
+      return true
+    },
+    {
+      message: 'Target queue is not an approved scheduler target. Only workers that opted into scheduling can be selected.',
+      path: ['targetQueue'],
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.targetType === 'queue' && data.targetQueue) {
+        return validateSchedulerTargetPayload(data.targetQueue, data.targetPayload) === null
+      }
+      return true
+    },
+    {
+      message: 'Invalid target payload for the selected scheduler queue.',
+      path: ['targetPayload'],
+    }
+  )
 
 /**
  * Update schedule schema (all fields optional except id)
  */
 export const scheduleUpdateSchema = z.object({
-  id: z.uuid(),
+  id: z.guid(),
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(500).optional().nullable(),
   
@@ -214,12 +246,15 @@ export const scheduleUpdateSchema = z.object({
       path: ['targetCommand'],
     }
   )
+  // Queue-target safety and payload-shape rules for updates are enforced in the
+  // scheduler.jobs.update command against the stored row, so unchanged targets
+  // (always resent by the edit form) and legacy remediation stays possible (#5213).
 
 /**
  * Delete schedule schema
  */
 export const scheduleDeleteSchema = z.object({
-  id: z.uuid(),
+  id: z.guid(),
 })
 
 /**
@@ -228,7 +263,7 @@ export const scheduleDeleteSchema = z.object({
 export const scheduleListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  id: z.string().uuid().optional(),
+  id: z.guid().optional(),
   search: z.string().optional(),
   scopeType: z.enum(['system', 'organization', 'tenant']).optional(),
   isEnabled: z.string().optional().transform((val) => {
@@ -245,7 +280,7 @@ export const scheduleListQuerySchema = z.object({
  * Trigger schedule schema (manual execution)
  */
 export const scheduleTriggerSchema = z.object({
-  id: z.uuid(),
+  id: z.guid(),
 })
 
 /**
@@ -254,7 +289,7 @@ export const scheduleTriggerSchema = z.object({
 export const scheduleRunsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  scheduledJobId: z.uuid().optional(),
+  scheduledJobId: z.guid().optional(),
   status: z.enum(['running', 'completed', 'failed', 'skipped']).optional(),
   triggerType: z.enum(['scheduled', 'manual']).optional(),
   fromDate: z.string().datetime().optional(),

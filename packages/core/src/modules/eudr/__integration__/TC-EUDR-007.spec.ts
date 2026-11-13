@@ -237,6 +237,73 @@ async function createSubmittedStatement(
  * TC-EUDR-007: Due diligence statement lifecycle gates.
  */
 test.describe('TC-EUDR-007: Statement lifecycle', () => {
+  test('accepts a no-op referenceIssuedAt on create and keeps it server-managed (regression for #5508)', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomUUID()}`
+    const statementIds: string[] = []
+
+    try {
+      // An explicit null referenceIssuedAt equals the value a new draft takes, so a
+      // whole-object POST that echoes it must succeed instead of 400 immutable.
+      const nullIssuedAtId = await createStatement(request, token, `TC-EUDR-007 null issuedAt ${stamp}`, {
+        referenceIssuedAt: null,
+      })
+      statementIds.push(nullIssuedAtId)
+
+      // referenceIssuedAt is server-managed on create, so a serialized date-time is
+      // ignored (record stays a draft with a null issue date) rather than rejected.
+      const datetimeIssuedAtId = await createStatement(request, token, `TC-EUDR-007 datetime issuedAt ${stamp}`, {
+        referenceIssuedAt: new Date().toISOString(),
+      })
+      statementIds.push(datetimeIssuedAtId)
+
+      const rows = await readStatementsByIds(request, token, statementIds)
+      expect(rows.length, 'both created statements should be readable').toBe(2)
+      for (const row of rows) {
+        expect(row.status, 'a created statement is a draft').toBe('draft')
+        expect(row.referenceIssuedAt ?? null, 'create must not persist a reference issue date').toBeNull()
+      }
+    } finally {
+      for (const id of statementIds.reverse()) await deleteByCrudPath(request, token, STATEMENTS_PATH, id)
+    }
+  })
+
+  test('accepts a whole-object round trip on create (GET a draft, POST it back verbatim) (#5508)', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = `${Date.now()}-${randomUUID()}`
+    const statementIds: string[] = []
+
+    try {
+      const sourceId = await createStatement(request, token, `TC-EUDR-007 round-trip ${stamp}`)
+      statementIds.push(sourceId)
+
+      // The "serialize a whole object" client pattern from #5508: read the full row
+      // (which echoes the server-managed submittedAt/referenceIssuedAt plus timestamps
+      // and latestRisk) and POST it back verbatim minus id. It must be accepted, not
+      // 400 on a server-managed key.
+      const getResponse = await apiRequest(request, 'GET', `${STATEMENTS_PATH}?ids=${encodeURIComponent(sourceId)}`, { token })
+      expect(getResponse.status(), `GET source statement failed: ${getResponse.status()}`).toBe(200)
+      const getBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(getResponse)
+      const wholeObject = getBody?.items?.find((item) => item.id === sourceId)
+      expect(wholeObject, 'GET should return the created draft').toBeTruthy()
+      expect(wholeObject?.submittedAt ?? null, 'a fresh draft echoes a null submittedAt').toBeNull()
+
+      const { id: _omitId, ...payload } = wholeObject as Record<string, unknown>
+      const roundTripResponse = await apiRequest(request, 'POST', STATEMENTS_PATH, { token, data: payload })
+      expect(roundTripResponse.status(), `whole-object round-trip create should be accepted: ${roundTripResponse.status()}`).toBe(201)
+      const roundTripBody = await readJsonSafe<{ id?: string }>(roundTripResponse)
+      const roundTripId = expectId(roundTripBody?.id, 'round-trip create response should include id')
+      statementIds.push(roundTripId)
+
+      const created = await readStatementById(request, token, roundTripId)
+      expect(created?.status, 'round-trip create is a draft').toBe('draft')
+      expect(created?.referenceIssuedAt ?? null, 'round-trip create must not persist a reference issue date').toBeNull()
+      expect(created?.submittedAt ?? null, 'round-trip create must not persist submittedAt').toBeNull()
+    } finally {
+      for (const id of statementIds.reverse()) await deleteByCrudPath(request, token, STATEMENTS_PATH, id)
+    }
+  })
+
   test('requires valid transition order, complete submissions, and risk conclusion before submit', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = `${Date.now()}-${randomUUID()}`
@@ -254,7 +321,7 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         token,
         data: statementCreatePayload(`TC-EUDR-007 Invalid available ${stamp}`, { status: 'available' }),
       })
-      await expectErrorKey(invalidCreateResponse, 'invalidTransition')
+      await expectErrorKey(invalidCreateResponse, 'Invalid status transition.')
 
       const statementId = await createStatement(request, token, `TC-EUDR-007 Submit gate ${stamp}`)
       statementIds.push(statementId)
@@ -429,7 +496,7 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         id: submitted.statementId,
         quantityKg: 1600,
       })
-      await expectErrorKey(elapsedAmendResponse, 'amendWindowElapsed')
+      await expectErrorKey(elapsedAmendResponse, 'The amendment window has elapsed.')
 
       // Regression: an unchanged numeric echo (PG returns scale-padded numerics,
       // e.g. '100.000') must NOT count as an amendment — non-guarded fields stay
@@ -447,7 +514,7 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         id: submitted.statementId,
         referenceIssuedAt: new Date().toISOString(),
       })
-      await expectErrorKey(immutableIssuedAtResponse, 'referenceIssuedAtImmutable')
+      await expectErrorKey(immutableIssuedAtResponse, 'Reference issue date cannot be changed.')
 
       const fresh = await createSubmittedStatement(request, token, {
         supplierEntityId: supplierId,
@@ -500,7 +567,7 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         id: upstream.statementId,
         status: 'withdrawn',
       })
-      await expectErrorKey(referencedWithdrawResponse, 'referencedDownstream')
+      await expectErrorKey(referencedWithdrawResponse, 'This statement is referenced by a downstream statement.')
     } finally {
       for (const id of assessmentIds.reverse()) await deleteByCrudPath(request, token, RISK_ASSESSMENTS_PATH, id)
       for (const id of submissionIds.reverse()) await deleteByCrudPath(request, token, EVIDENCE_SUBMISSIONS_PATH, id)
@@ -531,16 +598,16 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
         id: archivedStatementId,
         title: `TC-EUDR-007 Archive edited ${stamp}`,
       })
-      await expectErrorKey(archivedEditResponse, 'archivedReadOnly')
+      await expectErrorKey(archivedEditResponse, 'Archived statements are read-only.')
       const archivedReopenResponse = await updateStatement(request, token, { id: archivedStatementId, status: 'draft' })
-      await expectErrorKey(archivedReopenResponse, 'invalidTransition')
+      await expectErrorKey(archivedReopenResponse, 'Invalid status transition.')
       const archivedDeleteResponse = await apiRequest(
         request,
         'DELETE',
         `${STATEMENTS_PATH}?id=${encodeURIComponent(archivedStatementId)}`,
         { token },
       )
-      await expectErrorKey(archivedDeleteResponse, 'archivedReadOnly')
+      await expectErrorKey(archivedDeleteResponse, 'Archived statements are read-only.')
 
       const assessedStatementId = await createStatement(request, token, `TC-EUDR-007 Latest risk ${stamp}`)
       statementIds.push(assessedStatementId)

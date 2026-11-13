@@ -1,13 +1,16 @@
+import { createAttachmentAccessContext } from './lib/access-runner'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { StorageDriverFactory } from './lib/drivers/driverFactory'
+import { DefaultAttachmentService } from './lib/attachment-service'
 import { createAttachmentQuotaService, type AttachmentQuotaService } from './lib/quota-service'
 import { scheduleAttachmentQuotaRecovery } from './lib/quota-recovery-queue'
 import { AttachmentTargetAccessService } from './lib/target-access-service'
 import { ScopedAttachmentUploadService } from './lib/scoped-upload-service'
 
 export function register(container: AppContainer) {
+  const accessContext = () => createAttachmentAccessContext(container)
   container.register({
     attachmentQuotaRecoveryScheduler: asValue(scheduleAttachmentQuotaRecovery),
     attachmentQuotaService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
@@ -16,7 +19,7 @@ export function register(container: AppContainer) {
       .scoped()
       .proxy(),
     attachmentTargetAccessService: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
-      new AttachmentTargetAccessService(em),
+      new AttachmentTargetAccessService(em, accessContext),
     )
       .scoped()
       .proxy(),
@@ -45,6 +48,22 @@ export function register(container: AppContainer) {
       new StorageDriverFactory(em),
     )
       .singleton()
+      .proxy(),
+    // The scoped upload service is handed over as a lazy resolver so module
+    // uploads share the public attachment route's single fenced reservation
+    // ledger, without dragging that service's own dependencies into every
+    // container that merely constructs an `attachmentService`.
+    attachmentService: asFunction((cradle: {
+      em: ConstructorParameters<typeof DefaultAttachmentService>[0]
+      storageDriverFactory: ConstructorParameters<typeof DefaultAttachmentService>[1]
+      attachmentScopedUploadService: ScopedAttachmentUploadService
+    }) => new DefaultAttachmentService(
+      cradle.em,
+      cradle.storageDriverFactory,
+      () => cradle.attachmentScopedUploadService ?? null,
+      accessContext,
+    ))
+      .scoped()
       .proxy(),
   })
 }

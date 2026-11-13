@@ -1,4 +1,4 @@
-import { type APIRequestContext } from '@playwright/test';
+import { request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 import { DEFAULT_CREDENTIALS, type Role } from './auth';
 
 const BASE_URL = process.env.BASE_URL?.trim() || null;
@@ -140,4 +140,36 @@ export async function postForm(
     },
     data: form.toString(),
   });
+}
+
+/**
+ * Runs `use` against a request context that shares no cookies with the caller's.
+ *
+ * The `request` fixture keeps a cookie jar, and `/api/auth/login` sets `auth_token`
+ * on it. Every later call through that fixture therefore carries the LAST logged-in
+ * user's session, even one that deliberately sends no Authorization header or an
+ * `ApiKey` one.
+ *
+ * A spec asserting "no credentials are rejected" or "this API key alone decides
+ * access" must therefore issue the request from a jar that never saw a login,
+ * rather than assuming the fixture's jar is empty. TC-DOCUMENTS-009 and
+ * TC-DOCUMENTS-018 both observably failed in the standalone lane — with the
+ * replayed cookie visible in the trace — while passing in the ephemeral one, and
+ * routing them through this helper fixed both.
+ */
+export async function withCredentialIsolatedRequest<T>(
+  use: (request: APIRequestContext) => Promise<T>,
+): Promise<T> {
+  // A hand-built context does not inherit the project's `use.baseURL` the way the
+  // `request` fixture does, so it has to repeat the config's own resolution — otherwise
+  // a relative path throws here on any run that leaves BASE_URL unset, while the same
+  // path works through the fixture.
+  const context = await playwrightRequest.newContext({
+    baseURL: BASE_URL ?? 'http://localhost:3000',
+  });
+  try {
+    return await use(context);
+  } finally {
+    await context.dispose();
+  }
 }

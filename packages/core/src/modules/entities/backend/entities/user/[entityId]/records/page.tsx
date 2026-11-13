@@ -36,6 +36,7 @@ type RecordsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function toCsvUrl(base: string, params: URLSearchParams) {
@@ -83,10 +84,10 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
   const [pageSize, setPageSize] = React.useState(50)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<Record<string, any>>({})
-  const [columns, setColumns] = React.useState<ColumnDef<any>[]>([])
   const [rawData, setRawData] = React.useState<any[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -100,10 +101,30 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     contextId: deleteMutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const { data: cfDefs = [] } = useCustomFieldDefs(entityId, {
+  const { data: customFieldDefs } = useCustomFieldDefs(entityId, {
     enabled: Boolean(entityId),
     keyExtras: [scopeVersion],
   })
+  const cfDefs = React.useMemo(() => customFieldDefs ?? [], [customFieldDefs])
+  const columns = React.useMemo<ColumnDef<any>[]>(() => {
+    const visibleDefs = filterCustomFieldDefs(cfDefs, 'list') as any
+    const maxVisible = 10
+    const cols: ColumnDef<any>[] = visibleDefs.map((d: any, idx: number) => ({
+      accessorKey: d.key,
+      header: d.label || d.key,
+      meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
+      cell: ({ getValue }: { getValue: () => unknown }) => {
+        const v = getValue() as any
+        if (d.kind === 'relation') {
+          return <RelationCell fieldKey={d.key} value={v} fallbackText={normalizeCell(v)} />
+        }
+        return <span className="inline-block max-w-60 truncate align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
+      },
+    }))
+    const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
+    if (!hasIdCol) cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
+    return cols
+  }, [cfDefs])
   const relationDefinitions = React.useMemo(
     () => filterCustomFieldDefs(cfDefs, 'list').filter(
       (definition): definition is CustomFieldDefDto => definition.kind === 'relation',
@@ -170,6 +191,7 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
           setRawData(j.items || [])
           setTotal(j.total)
           setTotalPages(j.totalPages)
+          setTotalIsCapped(j?.totalIsCapped === true)
         }
       } catch (e) {
         if (!cancelled) {
@@ -184,28 +206,6 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     if (entityId) run()
     return () => { cancelled = true }
   }, [entityId, page, pageSize, sorting, filterValues, scopeVersion, search, searchableFields])
-
-  // Build columns from custom field definitions only (no data round-trip)
-  React.useEffect(() => {
-    const visibleDefs = filterCustomFieldDefs(cfDefs, 'list') as any
-    const maxVisible = 10
-    const cols: ColumnDef<any>[] = visibleDefs.map((d: any, idx: number) => ({
-      accessorKey: d.key,
-      header: d.label || d.key,
-      meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
-      cell: ({ getValue }: { getValue: () => unknown }) => {
-        const v = getValue() as any
-        if (d.kind === 'relation') {
-          return <RelationCell fieldKey={d.key} value={v} fallbackText={normalizeCell(v)} />
-        }
-        return <span className="inline-block max-w-60 truncate align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
-      },
-    }))
-    // Ensure hidden 'id' column exists for sorting/state
-    const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
-    if (!hasIdCol) cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
-    setColumns(cols)
-  }, [cfDefs])
 
   // Search is server-side (see fetch effect); render the fetched page as-is so
   // pagination totals and exports stay consistent with the active search (#3229).
@@ -397,7 +397,8 @@ export RECORD_ID="<record uuid>"`}</code></pre>
         <RelationDisplaysProvider displaysByField={relationDisplaysByField}>
           <DataTable
             stickyActionsColumn
-            title={`Records: ${entityId}`}
+          title={`Records: ${entityId}`}
+          titleHeadingLevel={1}
             entityId={entityId}
             actions={actions}
             columns={columns}
@@ -467,7 +468,7 @@ export RECORD_ID="<record uuid>"`}</code></pre>
             onSearchChange={(v) => { setSearch(v); setPage(1) }}
             onFiltersApply={(vals) => { setFilterValues(vals); setPage(1) }}
             onFiltersClear={() => { setFilterValues({}); setPage(1) }}
-            pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+            pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
             isLoading={loading}
           />
         </RelationDisplaysProvider>

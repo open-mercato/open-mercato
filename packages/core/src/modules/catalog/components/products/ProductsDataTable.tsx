@@ -20,7 +20,8 @@ import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { E } from '#generated/entities.ids.generated'
@@ -86,16 +87,14 @@ type ProductsResponse = {
   items?: ProductRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 25
 const ENTITY_ID = E.catalog.catalog_product
 
-function formatDate(value?: string): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleDateString()
+function formatDate(value: string | undefined, locale: string | undefined): string {
+  return formatDisplayDateTime(value, locale) ?? '—'
 }
 
 function renderOffers(offers: OfferInfo[] | undefined): React.ReactNode {
@@ -171,12 +170,14 @@ export default function ProductsDataTable({
   onSnapshotChange,
 }: ProductsDataTableProps = {}) {
   const t = useT()
+  const dateLocale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<ProductRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [search, setSearch] = React.useState('')
@@ -193,8 +194,8 @@ export default function ProductsDataTable({
     setReloadToken((token) => token + 1)
   })
   const [customFieldsetFilter, setCustomFieldsetFilter] = React.useState<string | null>(null)
-  const { data: customFieldDefs = [] } = useCustomFieldDefs(ENTITY_ID, {
-    keyExtras: [scopeVersion, reloadToken],
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(ENTITY_ID, {
+    keyExtras: [scopeVersion],
   })
   const [channelOptionsCache, setChannelOptionsCache] = React.useState<Record<string, FilterOption>>({})
   const [categoryOptionsCache, setCategoryOptionsCache] = React.useState<Record<string, FilterOption>>({})
@@ -465,11 +466,11 @@ export default function ProductsDataTable({
       {
         accessorKey: 'updated_at',
         header: t('catalog.products.table.updatedAt'),
-        cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatDate(row.original.updated_at)}</span>,
+        cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatDate(row.original.updated_at, dateLocale)}</span>,
       },
     ]
     return applyCustomFieldVisibility(base, customFieldDefs)
-  }, [customFieldDefs, productTypeLabelMap, t])
+  }, [customFieldDefs, productTypeLabelMap, t, dateLocale])
 
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value)
@@ -505,8 +506,9 @@ export default function ProductsDataTable({
   )
 
   const handleRefresh = React.useCallback(() => {
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [])
+  }, [refetchCustomFieldDefs])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -598,6 +600,7 @@ export default function ProductsDataTable({
         setRows(normalized)
         setTotal(typeof payload.total === 'number' ? payload.total : normalized.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload.totalIsCapped === true)
       } catch (error) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -662,9 +665,10 @@ export default function ProductsDataTable({
   return (
     <>
       <DataTable<ProductRow>
-        title={t('catalog.products.page.title', 'Products & services')}
+      title={t('catalog.products.page.title', 'Products & services')}
+      titleHeadingLevel={1}
         entityId={ENTITY_ID}
-        customFieldFilterKeyExtras={[scopeVersion, reloadToken]}
+        customFieldFilterKeyExtras={[scopeVersion]}
         refreshButton={{
           label: t('catalog.products.actions.refresh', 'Refresh'),
           onRefresh: handleRefresh,
@@ -712,17 +716,21 @@ export default function ProductsDataTable({
           // dependency on the host page.
           total,
           totalMatching: total,
+          // `total` is a floor when the server capped the count, so the
+          // merchandising widget must not present it as an exact match count.
+          totalIsCapped,
         }}
         pagination={{
           page,
           pageSize: PAGE_SIZE,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
           cacheStatus,
         }}
         exporter={exportConfig}
-        isLoading={isLoading}
+        isLoading={isLoading || customFieldDefsLoading}
         perspective={{ tableId: extensionPoints.hosts.productsTable.tableId }}
         stickyActionsColumn
         rowActions={(row) => (

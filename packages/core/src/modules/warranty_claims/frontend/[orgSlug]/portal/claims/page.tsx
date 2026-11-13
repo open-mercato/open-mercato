@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { ChevronRight, Plus, ShieldCheck } from 'lucide-react'
+import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -39,6 +40,7 @@ type PortalClaimsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null, fallback: string, locale: string): string {
@@ -63,6 +65,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
   const [pageSize, setPageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState('')
@@ -70,11 +73,13 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
   const [stateGroup, setStateGroup] = React.useState<'all' | 'open' | 'resolved'>('all')
   const [tabCounts, setTabCounts] = React.useState<Partial<Record<'all' | 'open' | 'resolved', number>>>({})
 
+  // Leaving an authenticated page for the login page crosses the public/authenticated
+  // boundary, so it must be a full page load — see `replaceWithPageReload`.
   React.useEffect(() => {
     if (!loading && !user) {
-      router.replace(`/${params.orgSlug}/portal/login`)
+      replaceWithPageReload(`/${params.orgSlug}/portal/login`)
     }
-  }, [loading, user, router, params.orgSlug])
+  }, [loading, user, params.orgSlug])
 
   const statusFilter = typeof filterValues.status === 'string' ? filterValues.status : ''
 
@@ -102,6 +107,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
         setRows(res.result.items)
         setTotal(res.result.total)
         setTotalPages(res.result.totalPages)
+        setTotalIsCapped(res.result.totalIsCapped === true)
       })
       .catch(() => {
         if (!cancelled) {
@@ -271,6 +277,7 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
           pageSize,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
           onPageSizeChange: (nextPageSize) => {
             setPageSize(nextPageSize)

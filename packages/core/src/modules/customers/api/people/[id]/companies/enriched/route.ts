@@ -178,8 +178,11 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       throw notFound(translate('customers.errors.person_not_found', 'Person not found'))
     }
 
+    // Existence oracle (#5504): deny a cross-org read as not-found — identical to
+    // the parent-not-found above — so it cannot reveal that a person exists in an
+    // organization the caller cannot see.
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: person.organizationId })) {
-      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+      throw notFound(translate('customers.errors.person_not_found', 'Person not found'))
     }
 
     const entityScope = { tenantId: auth.tenantId, organizationId: person.organizationId }
@@ -383,6 +386,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: err.issues }, { status: 400 })
     }
     logger.error('/companies/enriched] GET failed', { component: 'people/[id', err })
     return NextResponse.json({ error: translate('customers.errors.internal', 'Internal server error') }, { status: 500 })

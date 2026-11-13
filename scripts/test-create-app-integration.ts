@@ -1,7 +1,10 @@
 import fs from 'node:fs'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
@@ -20,6 +23,8 @@ import {
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
 const CREATE_APP_BIN = createAppBin(ROOT)
+// tar is a dependency of create-app, not of the root workspace, so it is resolved from that package.
+const tar = createRequire(path.join(ROOT, 'packages', 'create-app', 'package.json'))('tar') as typeof import('tar')
 const ROOT_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version as string
 
 const green = (value: string) => `\x1b[32m${value}\x1b[0m`
@@ -96,6 +101,21 @@ function writeStandaloneEnv(appDir: string): void {
     'NODE_ENV=test',
     'OM_TEST_MODE=1',
     'OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in',
+    // Registers the network-free `push_stub` channel adapter (inert unless a
+    // delivery row carries provider='push_stub'). Mirrors the ephemeral harness,
+    // which sets it on both the app server and the Playwright process; without it
+    // TC-PUSH-003 resolves no adapter and every delivery lands in `failed`.
+    'OM_ENABLE_PUSH_STUB_ADAPTER=1',
+    // Documents collaboration. NEXT_PUBLIC_* is inlined at build time, so it must be
+    // in the app .env before the build; the sidecar the Playwright process starts
+    // verifies the tokens this app mints, so both halves share one secret.
+    'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws://127.0.0.1:4101',
+    'DOCUMENTS_COLLAB_JWT_SECRET_V2=local-standalone-documents-collab-v2-secret-32b',
+    // Required for the loopback collab URL above to be accepted: the server runs
+    // with NODE_ENV=production and resolveDocumentsCollaborationEndpoint() rejects a
+    // loopback ws:// host there unless this opts in. App-side only — in the Playwright
+    // process the same variable opts TC-DOCUMENTS-017's realtime spec in instead.
+    'OM_DOCUMENTS_COLLAB_INTEGRATION=1',
     'OM_DISABLE_EMAIL_DELIVERY=1',
     'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
@@ -201,6 +221,200 @@ async function stopStandaloneEphemeralApp(child: ChildProcessWithoutNullStreams 
   ])
 }
 
+// --template case (spec .ai/specs/2026-11-04-create-app-template-flag.md, "Integration test"). The scaffolded app
+// is packed as a GitHub-style tarball and served with a templates.json index and the three GitHub API routes from
+// 127.0.0.1, so the CLI runs its real index, download, archive and finalizing code against a fixture template.
+const TEMPLATE_FIXTURE_REPO = 'om-integration/app-template'
+const TEMPLATE_FIXTURE_SHA = '0123456789abcdef0123456789abcdef01234567'
+const TEMPLATE_FIXTURE_SLUG = 'integration-template'
+const TEMPLATE_HOLD_SLUG = 'integration-hold'
+const TEMPLATE_HOLD_REASON = 'Held by the create-app integration fixture.'
+const TEMPLATE_ENV_KEY = 'OM_INTEGRATION_TEMPLATE_KEY'
+
+type TemplateFixtureServer = {
+  baseUrl: string
+  requests: string[]
+  close: () => Promise<void>
+}
+
+async function packTemplateFixture(scaffoldDir: string, tempRoot: string): Promise<Buffer> {
+  const fixtureRoot = path.join(tempRoot, 'template-fixture')
+  const topDir = `om-integration-app-template-${TEMPLATE_FIXTURE_SHA.slice(0, 7)}`
+  const treeDir = path.join(fixtureRoot, topDir)
+  fs.cpSync(scaffoldDir, treeDir, {
+    recursive: true,
+    filter: (source) => {
+      const name = path.basename(source)
+      return name !== 'node_modules' && name !== '.env'
+    },
+  })
+  writeJson(path.join(treeDir, 'mercato-template.json'), {
+    schema: 1,
+    name: TEMPLATE_FIXTURE_SLUG,
+    description: 'Fixture template for the create-app integration test.',
+    openMercato: ROOT_VERSION,
+    env: [{ name: TEMPLATE_ENV_KEY, description: 'Declared by the integration fixture.' }],
+  })
+  const archivePath = path.join(tempRoot, 'template-fixture.tar.gz')
+  await tar.c({ cwd: fixtureRoot, gzip: true, file: archivePath, portable: true }, [topDir])
+  return fs.readFileSync(archivePath)
+}
+
+function templateIndexEntry(slug: string, github: string, sha: string, status: string, reason: string | null) {
+  return {
+    slug,
+    github,
+    status,
+    reason,
+    useCase: 'starter',
+    summary: 'Fixture template for the create-app integration test.',
+    ref: 'main',
+    source: { sha, syncedAt: new Date().toISOString(), facts: null },
+    verified: null,
+  }
+}
+
+async function startTemplateFixtureServer(archive: Buffer): Promise<TemplateFixtureServer> {
+  const index = {
+    schema: 1,
+    generatedAt: new Date().toISOString(),
+    templates: [
+      templateIndexEntry(TEMPLATE_FIXTURE_SLUG, TEMPLATE_FIXTURE_REPO, TEMPLATE_FIXTURE_SHA, 'active', null),
+      templateIndexEntry(TEMPLATE_HOLD_SLUG, 'om-integration/held-template', 'f'.repeat(40), 'hold', TEMPLATE_HOLD_REASON),
+    ],
+  }
+  const requests: string[] = []
+  const sendJson = (response: http.ServerResponse, status: number, body: unknown) => {
+    response.writeHead(status, { 'content-type': 'application/json' })
+    response.end(JSON.stringify(body))
+  }
+  const server = http.createServer((request, response) => {
+    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
+    requests.push(pathname)
+    const repoApi = `/api/repos/${TEMPLATE_FIXTURE_REPO}`
+    if (pathname === '/templates.json') return sendJson(response, 200, index)
+    if (pathname === repoApi) return sendJson(response, 200, { default_branch: 'main' })
+    if (pathname === `${repoApi}/commits/main`) return sendJson(response, 200, { sha: TEMPLATE_FIXTURE_SHA })
+    if (pathname === `${repoApi}/tarball/${TEMPLATE_FIXTURE_SHA}`) {
+      response.writeHead(200, { 'content-type': 'application/x-gzip', 'content-length': String(archive.byteLength) })
+      response.end(archive)
+      return
+    }
+    sendJson(response, 404, { message: 'Not Found' })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  const { port } = server.address() as AddressInfo
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    requests,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  }
+}
+
+/** Runs create-mercato-app without blocking the event loop, so the fixture server in this process can answer. */
+function runCreateAppAsync(args: string[], env: NodeJS.ProcessEnv): Promise<{ status: number | null; output: string }> {
+  console.log(`\n$ node ${[CREATE_APP_BIN, ...args].join(' ')}`)
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [CREATE_APP_BIN, ...args], {
+      cwd: ROOT,
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let output = ''
+    const collect = (chunk: Buffer) => {
+      const text = chunk.toString()
+      process.stdout.write(text)
+      output += text
+    }
+    child.stdout.on('data', collect)
+    child.stderr.on('data', collect)
+    child.once('error', reject)
+    child.once('close', (status) => resolve({ status, output: output.replace(/\u001b\[[0-9;]*m/g, '') }))
+  })
+}
+
+function assertOutputIncludes(output: string, expected: string, label: string): void {
+  if (!output.includes(expected)) {
+    throw new Error(`${label}: expected the output to include "${expected}"`)
+  }
+  console.log(green(`✔ ${label}`))
+}
+
+async function runTemplateImportCase(params: {
+  scaffoldDir: string
+  tempRoot: string
+  installEnv: NodeJS.ProcessEnv
+}): Promise<void> {
+  console.log(cyan('Creating an app from a locally served app template (--template)'))
+  const archive = await packTemplateFixture(params.scaffoldDir, params.tempRoot)
+  const server = await startTemplateFixtureServer(archive)
+  const templateAppDir = path.join(params.tempRoot, 'template-app')
+  try {
+    const env: NodeJS.ProcessEnv = {
+      OM_TEMPLATES_URL: `${server.baseUrl}/templates.json`,
+      OM_CREATE_APP_GITHUB_API_BASE_URL: `${server.baseUrl}/api`,
+      GITHUB_TOKEN: '',
+    }
+    const created = await runCreateAppAsync(
+      [templateAppDir, '--template', TEMPLATE_FIXTURE_SLUG, '--skip-agentic-setup', '--registry', VERDACCIO_URL, '--no-init-git'],
+      env,
+    )
+    if (created.status !== 0) {
+      throw new Error(`create-mercato-app --template ${TEMPLATE_FIXTURE_SLUG} failed with status ${created.status ?? 'unknown'}`)
+    }
+    assertOutputIncludes(created.output, `${TEMPLATE_FIXTURE_REPO}@${TEMPLATE_FIXTURE_SHA}`, 'Template output names owner/repo@sha')
+    assertOutputIncludes(created.output, '--registry and --verdaccio do not apply to app templates', 'Template output warns about --registry')
+    assertOutputIncludes(created.output, TEMPLATE_ENV_KEY, 'Template next steps list the declared env key')
+
+    const packageJson = readJson<{ name?: string; openMercatoTemplate?: unknown }>(path.join(templateAppDir, 'package.json'))
+    if (packageJson.name !== 'template-app') {
+      throw new Error(`Template app package.json name was not rewritten: ${String(packageJson.name)}`)
+    }
+    const provenance = JSON.stringify(packageJson.openMercatoTemplate)
+    const expectedProvenance = JSON.stringify({ repo: TEMPLATE_FIXTURE_REPO, ref: 'main', sha: TEMPLATE_FIXTURE_SHA })
+    if (provenance !== expectedProvenance) {
+      throw new Error(`Template app provenance is ${provenance}, expected ${expectedProvenance}`)
+    }
+    console.log(green('✔ Template app package.json has the new name and its provenance'))
+    if (fs.existsSync(path.join(templateAppDir, 'mercato-template.json'))) {
+      throw new Error('Template app still contains mercato-template.json')
+    }
+    console.log(green('✔ Template app has no mercato-template.json'))
+    const yarnConfig = fs.readFileSync(path.join(templateAppDir, '.yarnrc.yml'), 'utf8')
+    if (!yarnConfig.includes(`npmRegistryServer: "${VERDACCIO_URL}"`)) {
+      throw new Error('Template app .yarnrc.yml no longer matches the template snapshot')
+    }
+    console.log(green('✔ Template app keeps the .yarnrc.yml of its snapshot'))
+
+    const heldDir = path.join(params.tempRoot, 'held-app')
+    const requestsBefore = server.requests.length
+    const held = await runCreateAppAsync([heldDir, '--template', TEMPLATE_HOLD_SLUG, '--no-init-git'], env)
+    if (held.status === 0) {
+      throw new Error(`create-mercato-app --template ${TEMPLATE_HOLD_SLUG} succeeded on a hold entry`)
+    }
+    assertOutputIncludes(held.output, TEMPLATE_HOLD_REASON, 'Hold entry refused with its reason')
+    if (fs.existsSync(heldDir)) {
+      throw new Error('A refused hold entry left a target directory behind')
+    }
+    if (server.requests.slice(requestsBefore).some((pathname) => pathname.startsWith('/api/'))) {
+      throw new Error('A refused hold entry made a GitHub API request')
+    }
+    console.log(green('✔ Hold entry left no directory and made no GitHub request'))
+  } finally {
+    await server.close()
+  }
+
+  // As the printed next steps say: cp .env.example .env, then install and generate (no second build, to keep the lane short).
+  const envExample = path.join(templateAppDir, '.env.example')
+  if (fs.existsSync(envExample)) fs.copyFileSync(envExample, path.join(templateAppDir, '.env'))
+  runCommand('yarn', ['install'], { cwd: templateAppDir, env: params.installEnv })
+  runCommand('yarn', ['generate'], { cwd: templateAppDir, env: params.installEnv })
+  console.log(green('✔ App created from the template installs and generates'))
+}
+
 function ensurePlaywrightBrowsersInstalled(): void {
   const failure = findChromiumPreflightFailure({
     resolveManagedExecutablePath: () => chromium.executablePath(),
@@ -235,6 +449,12 @@ async function main(): Promise<void> {
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Second half of the pairing above: with AUTO_SPAWN_WORKERS=false the
+    // `push-deliveries` job runs in a drain child of THIS process, which never
+    // reads the scaffolded app's .env.
+    OM_ENABLE_PUSH_STUB_ADAPTER: '1',
+    NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101',
+    DOCUMENTS_COLLAB_JWT_SECRET_V2: 'local-standalone-documents-collab-v2-secret-32b',
     OM_DISABLE_EMAIL_DELIVERY: '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
     ENABLE_CRUD_API_CACHE: 'true',
@@ -269,6 +489,12 @@ async function main(): Promise<void> {
       throw new Error(`Scaffolded standalone app does not use the published Verdaccio registry: ${VERDACCIO_URL}`)
     }
     console.log(green(`✔ Scaffolded standalone app uses Verdaccio at ${VERDACCIO_URL}`))
+
+    await runTemplateImportCase({
+      scaffoldDir: appDir,
+      tempRoot,
+      installEnv: standaloneInstallEnv,
+    })
 
     writeStandaloneEnv(appDir)
     ensureEnterpriseDependency(appDir)

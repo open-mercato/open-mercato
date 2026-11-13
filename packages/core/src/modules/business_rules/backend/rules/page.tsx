@@ -42,6 +42,7 @@ type RulesResponse = {
   items: Rule[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function RulesListPage() {
@@ -49,6 +50,7 @@ export default function RulesListPage() {
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -82,6 +84,7 @@ export default function RulesListPage() {
       if (response) {
         setTotal(response.total || 0)
         setTotalPages(response.totalPages || 1)
+        setTotalIsCapped(response?.totalIsCapped === true)
       }
 
       return response?.items || []
@@ -129,7 +132,8 @@ export default function RulesListPage() {
       flash(t('business_rules.messages.updated'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules'] })
     } else {
-      flash(t('business_rules.messages.updateFailed'), 'error')
+      const serverError = (result.result as { error?: unknown } | null)?.error
+      flash(typeof serverError === 'string' && serverError ? serverError : t('business_rules.messages.updateFailed'), 'error')
     }
   }
 
@@ -328,7 +332,8 @@ export default function RulesListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('business_rules.list.title')}
+        title={t('business_rules.list.title')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/rules/create">
@@ -352,7 +357,7 @@ export default function RulesListPage() {
               createLabel={t('business_rules.actions.create')}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
       {ConfirmDialogElement}

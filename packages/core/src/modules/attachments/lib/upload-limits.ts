@@ -39,11 +39,15 @@ export function resolveAttachmentMaxBytes(fieldMaxAttachmentSizeMb?: number | nu
   return Math.min(defaultMaxBytes, Math.floor(fieldMaxAttachmentSizeMb * 1024 * 1024))
 }
 
+export function resolveAttachmentMultipartMaxBytes(): number {
+  return resolveDefaultAttachmentMaxUploadBytes() + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES
+}
+
 export function isMultipartRequestWithinUploadLimit(contentLengthHeader: string | null): boolean {
   if (!contentLengthHeader) return true
   const contentLength = Number(contentLengthHeader)
-  if (!Number.isFinite(contentLength) || contentLength <= 0) return true
-  return contentLength <= (resolveDefaultAttachmentMaxUploadBytes() + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES)
+  if (!Number.isSafeInteger(contentLength) || contentLength <= 0) return false
+  return contentLength <= resolveAttachmentMultipartMaxBytes()
 }
 
 export class MultipartUploadLimitError extends Error {

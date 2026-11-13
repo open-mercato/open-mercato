@@ -21,6 +21,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type Row = {
   id: string
@@ -348,10 +349,10 @@ export default function UsersListPage() {
     return p.toString()
   }, [filterValues.name, page, search, organizationId, normalizedRoleIds])
 
-  const { data: usersData, isLoading } = useQuery({
+  const { data: usersData, isLoading, isPending, isFetching, isError, errorUpdatedAt, refetch } = useQuery({
     queryKey: ['users', params, scopeVersion],
     queryFn: async () => {
-      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; isSuperAdmin?: boolean }>(
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; totalIsCapped?: boolean; isSuperAdmin?: boolean }>(
         `/api/auth/users?${params}`,
       )
       if (!call.ok) {
@@ -361,9 +362,11 @@ export default function UsersListPage() {
     },
   })
 
+  const hasLoadError = isError || (isPending && errorUpdatedAt > 0)
   const rows = usersData?.items || []
   const total = usersData?.total || 0
   const totalPages = usersData?.totalPages || 1
+  const totalIsCapped = usersData?.totalIsCapped === true
   const isSuperAdmin = !!usersData?.isSuperAdmin
   const rowsWithOrgNames: Row[] = React.useMemo(() => rows.map(row => ({
     ...row,
@@ -376,10 +379,10 @@ export default function UsersListPage() {
   )
   const columns = React.useMemo<ColumnDef<Row>[]>(() => {
     const base: ColumnDef<Row>[] = [
-      { accessorKey: 'email', header: 'Email' },
+      { accessorKey: 'email', header: t('auth.users.list.columns.email', 'Email') },
       { accessorKey: 'name', header: t('auth.users.list.columns.name', 'Display name') },
-      { accessorKey: 'organizationName', header: 'Organization' },
-      { accessorKey: 'roles', header: 'Roles', cell: ({ row }) => (row.original.roles || []).join(', ') },
+      { accessorKey: 'organizationName', header: t('auth.users.list.columns.organization', 'Organization') },
+      { accessorKey: 'roles', header: t('auth.users.list.columns.roles', 'Roles'), cell: ({ row }) => (row.original.roles || []).join(', ') },
       {
         accessorKey: 'isConfirmed',
         header: t('auth.users.list.columns.status', 'Status'),
@@ -391,7 +394,7 @@ export default function UsersListPage() {
       },
     ]
     if (showTenantColumn) {
-      base.splice(1, 0, { accessorKey: 'tenantName', header: 'Tenant' })
+      base.splice(1, 0, { accessorKey: 'tenantName', header: t('auth.users.list.columns.tenant', 'Tenant') })
     }
     return base
   }, [showTenantColumn, t])
@@ -423,7 +426,8 @@ export default function UsersListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('auth.users.list.title', 'Users')}
+        title={t('auth.users.list.title', 'Users')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/users/create">{t('common.create', 'Create')}</Link>
@@ -456,8 +460,18 @@ export default function UsersListPage() {
               { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
-          isLoading={isLoading}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          isLoading={isLoading && !hasLoadError}
+          error={hasLoadError ? (
+            <ErrorMessage
+              label={t('auth.users.list.error.load', 'Failed to load users')}
+              action={(
+                <Button type="button" variant="outline" disabled={isFetching} onClick={() => { void refetch() }}>
+                  {t('auth.users.list.actions.retry', 'Retry')}
+                </Button>
+              )}
+            />
+          ) : null}
         />
       </PageBody>
       {ConfirmDialogElement}

@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 // Regression for issue #4667: `activeDeals` / `wonDeals` tested for `won` / `lost` / `closed`,
-// a vocabulary no writer persists. A deal closed through useDealClosure (`win` / `loose`) was
+// a vocabulary no writer persists. A deal closed through useDealClosure (`win` / `lost`) was
 // therefore still reported as active, and completedDealsCount / ltvValue read 0.
 
 const mockGetAuthFromRequest = jest.fn()
@@ -17,6 +17,10 @@ const mockEm = {
   findOne: jest.fn(),
   find: jest.fn(),
   count: jest.fn(),
+  createQueryBuilder: jest.fn(() => ({
+    select: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+  })),
 }
 
 const mockContainer = {

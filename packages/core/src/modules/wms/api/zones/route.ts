@@ -79,6 +79,10 @@ const crud = makeCrudRoute({
       }
       return filters
     },
+    // Zones had no decorator before this route gained custom fields, so there is no
+    // legacy consumer reading top-level `cf_*`/`cf:*` — take the canonical single-shape
+    // response (#1769) rather than emitting both forms.
+    decorateCustomFields: { entityIds: [E.wms.warehouse_zone], stripPrefixedKeys: true },
   },
   hooks: {
     afterList: async (payload, ctx) => {
@@ -122,6 +126,16 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
+// Mirrors `CustomFieldDisplayEntry` from @open-mercato/shared/lib/crud/custom-fields, so
+// the generated OpenAPI documents how to read an entry instead of an opaque record.
+const customFieldDisplayEntrySchema = z.object({
+  key: z.string(),
+  label: z.string().nullable(),
+  value: z.unknown(),
+  kind: z.string().nullable(),
+  multi: z.boolean(),
+})
+
 const zoneListItemSchema = z.object({
   id: z.string().uuid().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
@@ -134,6 +148,8 @@ const zoneListItemSchema = z.object({
   priority: z.number().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
+  customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+  customFields: z.array(customFieldDisplayEntrySchema).optional(),
 })
 
 export const openApi = createWmsCrudOpenApi({
