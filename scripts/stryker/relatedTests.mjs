@@ -19,7 +19,9 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /**
  * A Jest check that throws is treated as uncovered rather than propagated. The
@@ -110,6 +112,6 @@ function main() {
   process.stdout.write(`uncovered=${uncovered.join(',')}\n`)
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   main()
 }

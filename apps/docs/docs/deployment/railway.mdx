@@ -403,3 +403,15 @@ Copy the exact records printed by the CLI and verify them with your DNS provider
 ### A second project was created
 
 Confirm that the repository contains the expected `.mercato/railway.json`, or the local `.mercato/railway.json.local` when using `--no-track`. Restore the correct state file before deploying again. Inspect duplicate projects carefully and use cleanup only from the repository whose state points to the project you intend to delete.
+
+### Storage volume ownership
+
+The monorepo production image runs as `omuser` (UID/GID `1001:1001`). Its Railway entrypoint invokes a root-owned, argument-free helper to assign only the fixed `/app/apps/mercato/storage` mount directory to that user. The helper refuses a missing directory or a symlink at that path; it does not recurse into attachments, follow links, accept another path, or grant general privileged `chown`.
+
+Fresh empty volumes initialize at the same path. Existing attachments and the `.initialized` marker already owned by `1001:1001` remain readable and writable. Initialization and subsequent migrations still execute as the application user.
+
+When restoring storage from a backup with different ownership, stop the application and have a trusted operator provision the restored files and directories for `1001:1001` before restarting. Review links and mount boundaries during that offline operation; startup no longer recursively repairs imported ownership. Do not restore the previous unrestricted sudoers rule.
+
+The create-app Docker template has no runtime sudo grant and retains its existing non-root startup. Provision externally mounted standalone-app storage for UID/GID `1001:1001` before launch.
+
+Run `node docker/tests/storage-init-smoke.mjs` from the repository root to exercise the production privilege configuration in an isolated Alpine runtime fixture. It checks fresh and repeated startup with stubbed Yarn commands, existing attachment writes, refusal of arbitrary privileged commands and arguments, immutable helper/parent paths, and symlink/hard-link containment. This focused check does not build or boot the complete application image or connect to Railway.

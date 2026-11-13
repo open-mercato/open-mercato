@@ -582,7 +582,7 @@ export async function loadCustomFieldValues(opts: {
   for (const row of cfRows) {
     organizationCandidates.add(row.organizationId ? String(row.organizationId) : null)
   }
-  const orgList = Array.from(organizationCandidates)
+  const orgNonNull = Array.from(organizationCandidates).filter((orgId): orgId is string => orgId !== null)
 
   const defs = allKeys.length
     ? await em.find(CustomFieldDef, {
@@ -591,7 +591,9 @@ export async function loadCustomFieldValues(opts: {
         deletedAt: null,
         isActive: true,
         ...(tenantList.length ? { tenantId: tenantFilter.tenantId } : {}),
-        organizationId: { $in: orgList as any },
+        ...(orgNonNull.length
+          ? { $or: [{ organizationId: { $in: orgNonNull } }, { organizationId: null }] }
+          : { organizationId: null }),
       })
     : []
 

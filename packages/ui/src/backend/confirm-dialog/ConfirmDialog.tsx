@@ -140,17 +140,22 @@ export function ConfirmDialog({
     if (!dialog) return;
 
     const handleCancel = (e: Event) => {
-      // Prevent close if loading
-      if (loading) {
-        e.preventDefault();
-        return;
-      }
+      // Always prevent the native default action so the dialog's own
+      // open/closed state is only ever driven by our `open`-state effect —
+      // otherwise the browser closes the <dialog> on its own, desyncing it
+      // from React and leaving a later showModal() unable to reopen it.
+      e.preventDefault();
+      if (loading) return;
       requestClose();
     };
 
     dialog.addEventListener("cancel", handleCancel);
     return () => dialog.removeEventListener("cancel", handleCancel);
-  }, [loading, requestClose]);
+    // `portalTarget` is included because the dialog only mounts into the
+    // portal once `portalTarget` is set (second render) — without it in the
+    // deps, this effect's first run captures a null `dialogRef.current` and
+    // never re-attaches the listener once the dialog actually exists.
+  }, [loading, requestClose, portalTarget]);
 
   React.useEffect(() => {
     if (!open) return;

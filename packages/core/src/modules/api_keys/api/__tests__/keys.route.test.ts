@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { features } from '../../acl'
-import { RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { RoleAcl, User } from '@open-mercato/core/modules/auth/data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const secretFixture = { secret: 'omk_test.secret', prefix: 'omk_testpref' }
@@ -94,11 +94,12 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn((args) => mockResolveScope(args)),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: jest.fn(async () => ({
-    translate: (_key: string, fallback: string) => fallback,
-  })),
-}))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => {
+  const { createFallbackTranslator } = jest.requireActual('@open-mercato/shared/lib/i18n/translate')
+  return {
+    resolveTranslations: jest.fn(async () => ({ translate: createFallbackTranslator({}) })),
+  }
+})
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
@@ -130,7 +131,9 @@ describe('API Keys route', () => {
     jest.clearAllMocks()
     mockDataEngine.__queue.length = 0
     mockFindOneWithDecryption.mockReset()
-    mockFindOneWithDecryption.mockResolvedValue(null)
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => (
+      entity === User ? { organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' } : null
+    ))
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.transactional.mockImplementation((cb) => cb(mockEm))
     mockCommandBus.execute.mockImplementation(async (commandId, options) => {
@@ -290,6 +293,63 @@ describe('API Keys route', () => {
       'api_keys.keys.create',
       expect.objectContaining({ input: expect.objectContaining({ organizationId: null }) }),
     )
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalledWith(
+      expect.anything(), User, expect.anything(), expect.anything(), expect.anything(),
+    )
+  })
+
+  it.each([
+    ['inherited', {}, false],
+    ['explicit', { organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }, false],
+    ['superadmin', { organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }, true],
+  ])('rejects an unusable %s organization before saving or returning a key', async (_selection, input, isSuperAdmin) => {
+    const auth = {
+      sub: 'user-1',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      orgId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      actorOrgId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      isSuperAdmin,
+    }
+    mockGetAuthFromCookies.mockResolvedValue(auth)
+    mockGetAuthFromRequest.mockResolvedValue(auth)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin })
+    mockResolveScope.mockResolvedValue({
+      selectedId: auth.orgId,
+      filterIds: [auth.orgId],
+      allowedIds: null,
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/api_keys/keys', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Unusable organization key', ...input }),
+    }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'api_keys.errors.organizationMustMatchCreator',
+      fieldErrors: { organizationId: 'api_keys.errors.organizationMustMatchCreator' },
+    })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      User,
+      { id: auth.sub, tenantId: auth.tenantId, deletedAt: null },
+      { fields: ['organizationId'] },
+      { tenantId: auth.tenantId, organizationId: null },
+    )
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('accepts an uppercase UUID for the creator organization', async () => {
+    mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: null, allowedIds: null })
+    const response = await postHandler(new Request('http://localhost/api/api_keys/keys', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Own organization key', organizationId: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA' }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockCommandBus.execute).toHaveBeenCalledWith('api_keys.keys.create', expect.anything())
   })
 
   it('rejects a tenant-scoped API key when the actor has an organization allowlist', async () => {
@@ -400,6 +460,7 @@ describe('API Keys route', () => {
   })
 
   it('preserves unrestricted (null allowlist) creation for a non-superadmin', async () => {
+    mockFindOneWithDecryption.mockResolvedValueOnce({ organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' })
     mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: null, allowedIds: null })
     const res = await postHandler(
       new Request('http://localhost/api/api_keys/keys', {
@@ -420,7 +481,8 @@ describe('API Keys route', () => {
     )
   })
 
-  it('allows a superadmin to create across organizations despite an empty allowlist', async () => {
+  it('allows a superadmin to create in their own organization despite an empty allowlist', async () => {
+    mockFindOneWithDecryption.mockResolvedValueOnce({ organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' })
     const superAdminAuth = {
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',

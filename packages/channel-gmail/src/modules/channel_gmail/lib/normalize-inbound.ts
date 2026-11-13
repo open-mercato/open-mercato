@@ -31,7 +31,7 @@ export interface NormalizeInboundGmailOptions {
   /** Gmail `internalDate`: when Gmail received the message. Wins over the MIME Date header. */
   receivedAt?: Date
   /** Used only when neither `receivedAt` nor a usable Date header is available. */
-  fallbackDate?: Date
+  fallbackDate?: Date | null
 }
 
 export async function normalizeInboundGmailMessage(

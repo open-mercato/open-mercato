@@ -15,6 +15,7 @@ import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { SalesOrder, SalesShipment, SalesShipmentItem } from '../../data/entities'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -104,10 +105,14 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 function makeEm() {
   const world = () => (globalThis as any).__lineGuardWorld
   const em: any = {
+    getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
     fork: function () {
       return this
     },
     transactional: async (cb: (tx: unknown) => Promise<unknown>) => cb(em),
+    begin: jest.fn(async () => {}),
+    commit: jest.fn(async () => {}),
+    rollback: jest.fn(async () => {}),
     find: jest.fn(async (entityClass: unknown) => {
       const entityName = (entityClass as { name?: string })?.name ?? ''
       if (entityName === 'SalesOrderLine') return [world().orderLine]

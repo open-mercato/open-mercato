@@ -29,6 +29,21 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   apiCallOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => unknown) => run()),
+}))
+
+// TimerBar now also reads the shared timesheet preference to seed its picker
+// (#3750). Stubbed as settled-and-empty so this spec keeps asserting only the
+// guarded-mutation and running-timer behaviour it was written for.
+jest.mock('../useTimesheetPreference', () => ({
+  useTimesheetPreference: () => ({
+    lastProjectId: null,
+    updatedAt: null,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    save: jest.fn().mockResolvedValue(undefined),
+  }),
 }))
 
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
@@ -70,8 +85,6 @@ describe('TimerBar guarded mutations', () => {
     await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
     expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
-        resourceKind: 'staff.timesheets.time_entry',
-        resourceId: 'staff-1',
         staffMemberId: 'staff-1',
         action: 'timer-start',
         retryLastMutation: mockRetryLastMutation,
@@ -81,6 +94,9 @@ describe('TimerBar guarded mutations', () => {
         timeProjectId: 'project-1',
       }),
     }))
+    const startContext = (mockRunMutation.mock.calls[0] as unknown as [{ context: Record<string, unknown> }])[0].context
+    expect(startContext).not.toHaveProperty('resourceKind')
+    expect(startContext).not.toHaveProperty('resourceId')
     expect(mockApiCallOrThrow).toHaveBeenCalledWith(
       '/api/staff/timesheets/time-entries/start-timer',
       expect.objectContaining({ method: 'POST' }),
@@ -135,9 +151,8 @@ describe('TimerBar guarded mutations', () => {
     await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
     expect(mockRunMutation).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
-        resourceKind: 'staff.timesheets.time_entry',
-        resourceId: 'entry-1',
         staffMemberId: 'staff-1',
+        action: 'timer-stop',
         retryLastMutation: mockRetryLastMutation,
       }),
       mutationPayload: {

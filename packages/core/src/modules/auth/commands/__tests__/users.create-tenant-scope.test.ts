@@ -26,6 +26,8 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   }
 })
 
+jest.mock('@open-mercato/shared/lib/email/send', () => ({ sendEmail: jest.fn(async () => undefined) }))
+
 const mockFindOneWithDecryption = jest.fn()
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
@@ -34,6 +36,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import '@open-mercato/core/modules/auth/commands/users'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
 const tenantA = '11111111-1111-4111-8111-111111111111'
@@ -47,7 +51,13 @@ type CreateOrmEntity = jest.Mock<Promise<Record<string, unknown>>, [{ entity: un
 function makeCtx(opts: { isSuperAdmin?: boolean; tenantId?: string | null; systemActor?: boolean } = {}): {
   ctx: CommandRuntimeContext
   createOrmEntity: CreateOrmEntity
+  begin: jest.Mock
+  commit: jest.Mock
+  rollback: jest.Mock
 } {
+  const begin = jest.fn(async () => undefined)
+  const commit = jest.fn(async () => undefined)
+  const rollback = jest.fn(async () => undefined)
   const em: Record<string, unknown> = {
     fork: () => em,
     findOne: async () => null,
@@ -55,9 +65,9 @@ function makeCtx(opts: { isSuperAdmin?: boolean; tenantId?: string | null; syste
     count: async () => 0,
     nativeDelete: async () => 0,
     flush: async () => {},
-    begin: async () => {},
-    commit: async () => {},
-    rollback: async () => {},
+    begin,
+    commit,
+    rollback,
   }
   const createOrmEntity: CreateOrmEntity = jest.fn(async ({ data }) => ({ id: newUserId, ...data }))
   const dataEngine = {
@@ -87,7 +97,7 @@ function makeCtx(opts: { isSuperAdmin?: boolean; tenantId?: string | null; syste
     request: undefined as never,
     systemActor: opts.systemActor,
   }
-  return { ctx, createOrmEntity }
+  return { ctx, createOrmEntity, begin, commit, rollback }
 }
 
 function getHandler<T = unknown>(id: string): CommandHandler<Record<string, unknown>, T> {
@@ -111,6 +121,9 @@ const createInput = (organizationId: string) => ({
 
 beforeEach(() => {
   mockFindOneWithDecryption.mockReset()
+  jest.mocked(sendEmail).mockClear()
+  jest.mocked(emitCrudSideEffects).mockClear()
+  jest.mocked(setCustomFieldsIfAny).mockClear()
 })
 
 describe('auth.users.create tenant scope', () => {
@@ -148,5 +161,47 @@ describe('auth.users.create tenant scope', () => {
 
     await expect(handler.execute(createInput(orgInTenantB), ctx)).resolves.toBeTruthy()
     expect(createOrmEntity).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+describe('auth.users.create transaction boundary', () => {
+  test('rolls back creation and suppresses side effects when the validated role disappears', async () => {
+    const roleId = '88888888-8888-4888-8888-888888888888'
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce({ id: orgInTenantA, tenant: { id: tenantA } })
+      .mockResolvedValueOnce({ id: roleId, name: 'temporary-role', tenantId: tenantA })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+    const { ctx, createOrmEntity, begin, commit, rollback } = makeCtx({ systemActor: true })
+
+    await expect(getHandler('auth.users.create').execute({
+      email: 'rollback@example.com',
+      organizationId: orgInTenantA,
+      roles: [roleId],
+      sendInviteEmail: true,
+    }, ctx)).rejects.toMatchObject({ status: 400 })
+
+    expect(createOrmEntity).toHaveBeenCalledTimes(1)
+    expect(begin).toHaveBeenCalledTimes(1)
+    expect(begin.mock.invocationCallOrder[0]).toBeLessThan(createOrmEntity.mock.invocationCallOrder[0])
+    expect(commit).not.toHaveBeenCalled()
+    expect(rollback).toHaveBeenCalledTimes(1)
+    expect(setCustomFieldsIfAny).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(sendEmail).not.toHaveBeenCalled()
+  })
+
+  test('commits creation without roles before publishing creation side effects', async () => {
+    mockOrganizationInTenant(tenantA)
+    const { ctx, createOrmEntity, begin, commit, rollback } = makeCtx({ systemActor: true })
+
+    await getHandler('auth.users.create').execute(createInput(orgInTenantA), ctx)
+
+    expect(begin).toHaveBeenCalledTimes(1)
+    expect(begin.mock.invocationCallOrder[0]).toBeLessThan(createOrmEntity.mock.invocationCallOrder[0])
+    expect(commit).toHaveBeenCalledTimes(1)
+    expect(commit.mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(emitCrudSideEffects).mock.invocationCallOrder[0])
+    expect(rollback).not.toHaveBeenCalled()
   })
 })

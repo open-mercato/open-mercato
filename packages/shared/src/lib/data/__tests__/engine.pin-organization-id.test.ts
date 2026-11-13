@@ -1,8 +1,13 @@
+jest.mock('../../db/advisoryLock', () => ({
+  withAdvisoryXactLock: async <T>(em: unknown, _key: string, work: (txEm: unknown) => Promise<T>): Promise<T> => work(em),
+}))
+
 import { registerEntityIds } from '../../encryption/entityIds'
 
 const setRecordCustomFieldsMock = jest.fn(async () => undefined)
 
 jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/entities/lib/helpers'),
   setRecordCustomFields: (...args: unknown[]) => setRecordCustomFieldsMock(...args),
 }))
 

@@ -58,6 +58,8 @@ describe('gmail-history-sync worker behaviour', () => {
     deadLetterLookup: jest.Mock = jest.fn(async () => null),
   ) {
     const em = {
+      fork: jest.fn(),
+      transactional: jest.fn(),
       findOne: jest.fn(async (entity: unknown) =>
         entity === ChannelIngestDeadLetter ? deadLetterLookup() : channel,
       ),
@@ -65,6 +67,8 @@ describe('gmail-history-sync worker behaviour', () => {
       create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
       persist: jest.fn(),
     }
+    em.fork.mockReturnValue(em)
+    em.transactional.mockImplementation((callback: (transaction: typeof em) => Promise<unknown>) => callback(em))
     const ctx = {
       jobId: 'job-1',
       attemptNumber: 1,
@@ -95,6 +99,42 @@ describe('gmail-history-sync worker behaviour', () => {
       ...overrides,
     }
   }
+
+
+  it('discards a stale page and its drain when another writer advanced the cursor', async () => {
+    const initial = baseChannel({ channelState: { historyId: '100' } })
+    const current = baseChannel({ channelState: { historyId: '300', pushStatus: 'active' } })
+    const { ctx, em } = makeCtx(initial, { applyPushNotification: async () => ({
+      messages: [], nextCursor: Buffer.from(JSON.stringify({ historyId: '200' })).toString('base64'), hasMore: true,
+    }) })
+    em.findOne.mockResolvedValueOnce(initial).mockResolvedValue(current)
+    await handler(makeJob(), ctx)
+    expect(current.channelState).toEqual({ historyId: '300', pushStatus: 'active' })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('preserves push keys updated during fetch and removes completed drain tokens', async () => {
+    const initial = baseChannel({ channelState: { historyId: '100', pendingHistoryPageToken: 'old-page', pushStatus: 'active' } })
+    const current = baseChannel({ channelState: { historyId: '100', pendingHistoryPageToken: 'old-page', pushStatus: 'inactive', watchExpirationMs: null } })
+    const { ctx, em } = makeCtx(initial, { applyPushNotification: async () => ({
+      messages: [], nextCursor: Buffer.from(JSON.stringify({ historyId: '200' })).toString('base64'),
+    }) })
+    em.findOne.mockResolvedValueOnce(initial).mockResolvedValue(current)
+    await handler(makeJob(), ctx)
+    expect(current.channelState).toEqual({ historyId: '200', pushStatus: 'inactive', watchExpirationMs: null })
+    expect(current.lastPolledAt).toBeInstanceOf(Date)
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not drain after a failed cursor commit', async () => {
+    const { ctx, em } = makeCtx(baseChannel(), { applyPushNotification: async () => ({
+      messages: [], nextCursor: Buffer.from('{}').toString('base64'), hasMore: true,
+    }) })
+    em.flush.mockRejectedValueOnce(new Error('commit failed'))
+    await handler(makeJob(), ctx)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
 
   // (a) early-returns when the channel is missing.
   it('skips when channel is not found', async () => {

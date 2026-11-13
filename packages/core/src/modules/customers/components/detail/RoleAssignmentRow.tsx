@@ -39,6 +39,8 @@ interface RoleAssignmentRowProps {
   entityId: string
   onRemoved: () => void
   onUpdated: () => void
+  /** Opens the shared assignment dialog in reassign mode; without it the row falls back to its inline lookup. */
+  onChangeUser?: () => void
 }
 
 function formatAssignedAt(value: string | undefined, t: ReturnType<typeof useT>): string | null {
@@ -60,6 +62,7 @@ export function RoleAssignmentRow({
   entityId,
   onRemoved,
   onUpdated,
+  onChangeUser,
 }: RoleAssignmentRowProps) {
   const t = useT()
   const activeOrgId = useCurrentOrganization()?.id ?? null
@@ -227,15 +230,22 @@ export function RoleAssignmentRow({
             variant="ghost"
             size="sm"
             className="h-auto w-full justify-start px-2 py-1 text-xs sm:ml-auto sm:w-auto"
-            onClick={() => setChangingUser((current) => !current)}
+            onClick={() => {
+              if (onChangeUser) {
+                onChangeUser()
+                return
+              }
+              setChangingUser((current) => !current)
+            }}
           >
             {t('customers.roles.changeUser', 'Change user')}
           </Button>
         </div>
 
-        {changingUser ? (
+        {changingUser && !onChangeUser ? (
           <div className="mt-4 border-t pt-4">
             <LookupSelect
+              defaultOpen
               value={role.userId}
               onChange={async (userId) => {
                 await handleUserChange(userId)

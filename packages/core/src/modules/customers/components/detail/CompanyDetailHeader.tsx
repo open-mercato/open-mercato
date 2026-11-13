@@ -29,6 +29,7 @@ type CompanyDetailHeaderProps = {
   onDelete: () => Promise<void>
   isDirty: boolean
   isSaving: boolean
+  actions?: React.ReactNode
   onFocusField?: (fieldName: string) => void
   onDataReload?: () => void
 }
@@ -57,6 +58,7 @@ export function CompanyDetailHeader({
   onDelete,
   isDirty,
   isSaving,
+  actions,
   onFocusField,
   onDataReload,
 }: CompanyDetailHeaderProps) {
@@ -199,6 +201,7 @@ export function CompanyDetailHeader({
         {/* Right side: actions */}
         <div className="flex w-full shrink-0 flex-col items-start gap-3 sm:w-auto sm:items-end">
           <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+            {actions}
             <SendObjectMessageDialog
               object={{
                 entityModule: 'customers',
