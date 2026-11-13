@@ -237,6 +237,7 @@ type DatabaseContextResolution =
   | Readonly<{ status: 'unavailable'; error: Error }>
 type DatabasePoolDescriptor = Readonly<{
   id: string; purpose: 'runtime' | 'maintenance' | 'transport'; tables: readonly string[] | 'primary'
+  metadata?(): readonly DatabaseTableMetadata[] | undefined
 }>
 type DatabasePoolLifecycle = Readonly<{ ready(): Promise<void>; dispose(): void }>
 type DatabaseRuntimeAdapter = Readonly<{
@@ -252,6 +253,8 @@ type DatabaseRuntimeAdapter = Readonly<{
 ```
 
 `DatabaseExecutionSource` is the closed union identity/api/page/portal/public-token/worker/event/scheduler/cli/maintenance. `DatabaseStorageDescriptor` has kind, resolved schema, exact table names and readonly scalar configuration (vector dimensions, index kind and migration table included). A neutral storage registry associates each descriptor with its provisioning implementation; privileged migration completion provisions registered storage through a maintenance connection, while runtime `storageMode` selects validate-only. Shared code never reads enterprise flags or selects a tenant.
+
+DatabaseTableMetadata carries the actual discovered schema/table and tenant column/type/nullability. The primary descriptor exposes it after ORM discovery and before ready; the canary must match active ORM metadata as well as catalog state, so a manifest for an unused schema cannot falsely claim protection.
 
 The registry is process-global and idempotent only for the same id/version/configurationKey; a different adapter/configuration or registration after a pool initialized throws an internal configuration error. Pool identity/purpose changes are rejected. `configurePool` installs guards synchronously; `ready` is awaited before publishing the initialized singleton. Concurrent `getOrm` calls share one initialization promise, and failure resets it only after closing the failed pool and disposing guards. Client setup/validation failure rejects acquisition and destroys the lease; it never silently falls through. The adapter may not expose protected query acquisition until role/catalog validation succeeds. Initial driver metadata/version queries use a per-pool bootstrap state (never a global exemption), clear tenant state and cannot read protected rows.
 

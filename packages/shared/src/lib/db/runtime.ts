@@ -23,6 +23,15 @@ export type DatabasePoolDescriptor = Readonly<{
   id: string
   purpose: 'runtime' | 'maintenance' | 'transport'
   tables: readonly string[] | 'primary'
+  metadata?(): readonly DatabaseTableMetadata[] | undefined
+}>
+
+export type DatabaseTableMetadata = Readonly<{
+  schema: string
+  table: string
+  tenantColumn: string | null
+  tenantType: string | null
+  tenantNullable: boolean | null
 }>
 
 export type DatabasePoolLifecycle = Readonly<{

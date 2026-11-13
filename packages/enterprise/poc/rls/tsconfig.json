@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["run.ts"],
+  "include": ["run.ts", "catalog.run.ts"],
   "exclude": ["node_modules", "dist"]
 }

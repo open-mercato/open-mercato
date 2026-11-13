@@ -5,7 +5,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { performance } from 'node:perf_hooks'
 import { getSslConfig } from './ssl'
-import { beginDatabaseInitialization, configureDatabasePool, resolveDatabaseConnectionUrl, type DatabasePoolLifecycle } from './runtime'
+import { beginDatabaseInitialization, configureDatabasePool, resolveDatabaseConnectionUrl, type DatabasePoolLifecycle, type DatabaseTableMetadata } from './runtime'
 import { createLogger } from '../logger'
 import {
   getTelemetryRuntime,
@@ -372,6 +372,7 @@ async function initializeOrm(): Promise<AppMikroORM> {
   const clientUrl = resolveDatabaseConnectionUrl('runtime', defaultClientUrl)
   const requiresRuntimeValidation = beginDatabaseInitialization()
   let createdPool: (ObservablePool & { ended?: boolean; end(): Promise<void> }) | undefined
+  let runtimeTables: readonly DatabaseTableMetadata[] | undefined
 
   // Parse connection pool settings from environment
   const {
@@ -441,6 +442,7 @@ async function initializeOrm(): Promise<AppMikroORM> {
         disposePoolInstrumentation = instrumentPrimaryPool(pool)
         databasePoolLifecycle = configureDatabasePool(pool, {
           id: 'primary', purpose: 'runtime', tables: 'primary',
+          metadata: () => runtimeTables,
         })
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
           logger.info('pg pool created with options', {
@@ -456,6 +458,17 @@ async function initializeOrm(): Promise<AppMikroORM> {
 
   try {
     if (requiresRuntimeValidation) {
+      runtimeTables = Object.freeze([...initialized.getMetadata().getAll().values()].flatMap((metadata) => {
+        if (!metadata.tableName || metadata.embeddable || metadata.abstract) return []
+        const tenant = Object.values(metadata.properties).find((property) => property.fieldNames?.includes('tenant_id'))
+        return [Object.freeze({
+          schema: metadata.schema ?? initialized.config.get('schema') ?? 'public',
+          table: metadata.tableName,
+          tenantColumn: tenant ? 'tenant_id' : null,
+          tenantType: tenant?.columnTypes?.[0] ?? null,
+          tenantNullable: tenant ? Boolean(tenant.nullable) : null,
+        })]
+      }))
       initialized.em.getKysely()
       if (!databasePoolLifecycle) throw new Error('[internal] Database driver did not register its runtime pool')
     }

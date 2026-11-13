@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { AppMikroORM, ObservablePool } from '../mikro'
+import type { DatabasePoolDescriptor } from '../runtime'
 
 const runtimeKey = Symbol.for('@open-mercato/shared.databaseRuntime.v1')
 const globals = globalThis as Record<symbol, unknown>
@@ -27,13 +28,20 @@ async function prepare(ready: () => Promise<void>, calls: string[]) {
     end: jest.fn(async () => { calls.push('end'); pool.ended = true }),
   })
   let initializePool: () => void = () => undefined
+  const metadata = new Map<string, unknown>()
+  let descriptor: DatabasePoolDescriptor | undefined
   const initialized = {
     em: { getKysely: jest.fn(() => initializePool()) },
+    getMetadata: () => ({ getAll: () => metadata }),
+    config: { get: () => 'public' },
     close: jest.fn(async () => { calls.push('close') }),
   } as unknown as AppMikroORM
   runtime.registerDatabaseRuntimeAdapter({
     id: 'test', version: '1', configurationKey: 'test',
-    configurePool: () => ({ ready, dispose: () => { calls.push('dispose') } }),
+    configurePool: (_pool, configuredDescriptor) => {
+      descriptor = configuredDescriptor
+      return { ready, dispose: () => { calls.push('dispose') } }
+    },
     run: (_context, callback) => callback(),
   })
   const initialize = jest.spyOn(MikroORM, 'init').mockImplementation(async (options) => {
@@ -43,8 +51,27 @@ async function prepare(ready: () => Promise<void>, calls: string[]) {
   })
   const { getOrm, registerOrmEntities } = await import('../mikro')
   registerOrmEntities([])
-  return { getOrm, initialize, initialized, pool, runtime }
+  return { getOrm, initialize, initialized, pool, runtime, metadata, descriptor: () => descriptor }
 }
+
+it('exposes actual active ORM table metadata before the readiness barrier', async () => {
+  const setup = await prepare(async () => {
+    expect(setup.descriptor()?.metadata?.()).toEqual([
+      { schema: 'active_schema', table: 'records', tenantColumn: 'tenant_id', tenantType: 'uuid', tenantNullable: false },
+      { schema: 'public', table: 'globals', tenantColumn: null, tenantType: null, tenantNullable: null },
+    ])
+    expect(Object.isFrozen(setup.descriptor()?.metadata?.())).toBe(true)
+    expect(Object.isFrozen(setup.descriptor()?.metadata?.()?.[0])).toBe(true)
+  }, [])
+  setup.metadata.set('record', { schema: 'active_schema', tableName: 'records', properties: {
+    tenantId: { fieldNames: ['tenant_id'], columnTypes: ['uuid'], nullable: false },
+  } })
+  setup.metadata.set('global', { tableName: 'globals', properties: {} })
+  setup.metadata.set('abstract', { tableName: 'excluded', abstract: true, properties: {} })
+  await setup.getOrm()
+  await setup.initialized.close(true)
+  setup.runtime.configureDatabasePool(setup.pool, { id: 'primary', purpose: 'runtime', tables: 'primary' }).dispose()
+})
 
 it('shares initialization and never publishes the ORM before asynchronous runtime validation passes', async () => {
   let allowReady: () => void = () => undefined

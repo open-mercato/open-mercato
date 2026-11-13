@@ -7,12 +7,14 @@ import { test } from 'node:test'
 const execute = promisify(execFile)
 const databaseUrl = process.env.OM_RLS_POC_DATABASE_URL?.trim()
 
-async function verifyProof(context, runtimeBoundary) {
-  const expectedChecks = runtimeBoundary ? 16 : 13
+async function verifyProof(context, mode) {
+  const runtimeBoundary = mode === 'runtime'
+  const catalogBoundary = mode === 'catalog'
+  const expectedChecks = catalogBoundary ? 21 : runtimeBoundary ? 16 : 13
   let output
   try {
     const result = await execute(process.execPath, [
-      '--import', 'tsx', fileURLToPath(new URL('./run.ts', import.meta.url)),
+      '--import', 'tsx', fileURLToPath(new URL(catalogBoundary ? './catalog.run.ts' : './run.ts', import.meta.url)),
       ...(runtimeBoundary ? ['--runtime'] : []),
     ], {
       cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
@@ -29,8 +31,12 @@ async function verifyProof(context, runtimeBoundary) {
   const passed = output.split('\n').filter((line) => line.startsWith('PASS '))
   for (const line of passed) context.diagnostic(line)
   assert.equal(passed.length, expectedChecks)
-  assert.ok(passed.includes('PASS disposable schema and role are removed'))
-  assert.ok(output.includes(`${runtimeBoundary ? 'Enterprise RLS runtime proof' : 'Enterprise RLS PoC'}: ${expectedChecks} checks passed; disposable fixtures only.`))
+  if (catalogBoundary) {
+    assert.ok(output.includes(`Enterprise RLS catalog proof: ${expectedChecks} checks passed; disposable fixtures removed.`))
+  } else {
+    assert.ok(passed.includes('PASS disposable schema and role are removed'))
+    assert.ok(output.includes(`${runtimeBoundary ? 'Enterprise RLS runtime proof' : 'Enterprise RLS PoC'}: ${expectedChecks} checks passed; disposable fixtures only.`))
+  }
 }
 
 const options = {
@@ -39,7 +45,10 @@ const options = {
 }
 
 test('enterprise RLS prototype isolates real pooled database operations and removes its fixtures', options,
-  (context) => verifyProof(context, false))
+  (context) => verifyProof(context, 'prototype'))
 
 test('enterprise RLS runtime guards reject stale leases and escaped ORM transactions', options,
-  (context) => verifyProof(context, true))
+  (context) => verifyProof(context, 'runtime'))
+
+test('enterprise RLS catalog rejects unsafe roles and policy drift and verifies reconciliation and rollback', options,
+  (context) => verifyProof(context, 'catalog'))
