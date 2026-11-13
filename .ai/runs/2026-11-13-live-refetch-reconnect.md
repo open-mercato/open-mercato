@@ -58,4 +58,4 @@ Make browser live-refresh consumers survive event-bridge reconnect gaps: export 
 
 ### Phase 3: Documentation
 
-- [ ] 3.1 Document the no-replay contract and the new hooks
+- [x] 3.1 Document the no-replay contract and the new hooks — 4a4630cf45
