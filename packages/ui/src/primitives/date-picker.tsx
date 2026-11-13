@@ -15,6 +15,8 @@ import { useDateFnsLocale } from './date-locale'
 
 export type DatePickerFooter = 'apply-cancel' | 'today-clear' | 'none'
 
+export type DatePickerDismissBehavior = 'discard' | 'commit'
+
 export type DatePickerProps = {
   value?: Date | null
   onChange: (value: Date | null) => void
@@ -30,7 +32,8 @@ export type DatePickerProps = {
   /**
    * Footer mode in the popover.
    * - `'apply-cancel'` (default, Figma-aligned): selecting a day stages a draft;
-   *   Apply commits and closes; Cancel reverts and closes.
+   *   Apply commits and closes; Cancel reverts and closes. What other closes
+   *   do with the draft is controlled by `dismissBehavior`.
    * - `'today-clear'`: legacy behavior — Today commits today, Clear sets null.
    * - `'none'`: no footer; selecting a day commits immediately and closes.
    */
@@ -42,6 +45,17 @@ export type DatePickerProps = {
    * - In `footer='none'`: always `true` (popover always closes after selection).
    */
   closeOnSelect?: boolean
+  /**
+   * What happens to an unapplied draft when the popover closes without Apply
+   * or Cancel (pressing or tabbing outside it, clicking the trigger). Only
+   * meaningful when `footer='apply-cancel'`.
+   * - `'discard'` (default): the draft is dropped; `onChange` is not called.
+   * - `'commit'`: a draft that differs from `value` is committed via
+   *   `onChange`. Escape still discards. Use in forms that are saved by a
+   *   separate Save action, so a picked day is not lost when the user clicks
+   *   Save without pressing Apply.
+   */
+  dismissBehavior?: DatePickerDismissBehavior
   /**
    * Whether to show the "Today" link in `footer='today-clear'` mode. Default `true`.
    * Only meaningful when `footer='today-clear'`.
@@ -87,6 +101,10 @@ function applyTimeToDate(base: Date, time: string): Date {
   return next
 }
 
+function isSameInstant(left: Date | null, right: Date | null): boolean {
+  return (left ? left.getTime() : null) === (right ? right.getTime() : null)
+}
+
 function startOfDay(date: Date): Date {
   const next = new Date(date)
   next.setHours(0, 0, 0, 0)
@@ -104,6 +122,7 @@ export function DatePicker({
   onOpenChange,
   footer = 'apply-cancel',
   closeOnSelect,
+  dismissBehavior = 'discard',
   showTodayButton = true,
   showClearButton = true,
   withTime = false,
@@ -142,9 +161,12 @@ export function DatePicker({
   const isInteractive = !disabled && !readOnly
   const useDraft = footer === 'apply-cancel'
 
+  const valueTime = value ? value.getTime() : null
+  const dismissedWithEscapeRef = React.useRef(false)
+
   React.useEffect(() => {
-    if (open) setDraft(value ?? null)
-  }, [open, value])
+    if (open) setDraft(valueTime === null ? null : new Date(valueTime))
+  }, [open, valueTime])
 
   const resolvedFormat = withTime
     ? resolvePublicDateTimeFormat(locale, displayFormat)
@@ -198,6 +220,23 @@ export function DatePicker({
     setOpen(false)
   }, [value, setOpen])
 
+  const handlePopoverOpenChange = React.useCallback(
+    (next: boolean) => {
+      const dismissedWithEscape = dismissedWithEscapeRef.current
+      dismissedWithEscapeRef.current = false
+      const commitsOnDismiss = useDraft && dismissBehavior === 'commit'
+      if (!next && commitsOnDismiss && !dismissedWithEscape && !isSameInstant(draft, value ?? null)) {
+        onChange(draft)
+      }
+      setOpen(next)
+    },
+    [useDraft, dismissBehavior, draft, value, onChange, setOpen],
+  )
+
+  const handleEscapeKeyDown = React.useCallback(() => {
+    dismissedWithEscapeRef.current = true
+  }, [])
+
   const handleToday = React.useCallback(() => {
     const today = withTime ? new Date() : startOfDay(new Date())
     onChange(today)
@@ -221,7 +260,7 @@ export function DatePicker({
   const selectedDate = useDraft ? draft : value
 
   return (
-    <Popover open={open} onOpenChange={isInteractive ? setOpen : undefined}>
+    <Popover open={open} onOpenChange={isInteractive ? handlePopoverOpenChange : undefined}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -253,7 +292,11 @@ export function DatePicker({
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align={align} className={cn('w-auto p-0', popoverClassName)}>
+      <PopoverContent
+        align={align}
+        className={cn('w-auto p-0', popoverClassName)}
+        onEscapeKeyDown={handleEscapeKeyDown}
+      >
         <Calendar
           mode="single"
           selected={selectedDate ?? undefined}

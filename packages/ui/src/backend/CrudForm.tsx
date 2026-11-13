@@ -4881,6 +4881,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'date' && (
         <DatePicker
+          dismissBehavior="commit"
           value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
           disabled={disabled}
@@ -4895,6 +4896,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'datetime-local' && (
         <DateTimePicker
+          dismissBehavior="commit"
           value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? format(date, "yyyy-MM-dd'T'HH:mm") : undefined)}
           disabled={disabled}
@@ -4909,6 +4911,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'datepicker' && (
         <DatePicker
+          dismissBehavior="commit"
           value={typeof value === 'string' && value ? parseISO(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? format(date, 'yyyy-MM-dd') : undefined)}
           disabled={disabled}
@@ -4923,6 +4926,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'datetime' && (
         <DateTimePicker
+          dismissBehavior="commit"
           value={typeof value === 'string' && value ? new Date(value) : value instanceof Date ? value : null}
           onChange={(date) => setValue(field.id, date ? date.toISOString() : undefined)}
           disabled={disabled}

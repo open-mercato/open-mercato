@@ -23,6 +23,7 @@ import {
   DatePicker as DatePickerPrimitive,
   type DatePickerProps as DatePickerPrimitivePropsBase,
   type DatePickerFooter,
+  type DatePickerDismissBehavior,
 } from '../../primitives/date-picker'
 
 export type DatePickerProps = DatePickerPrimitivePropsBase
@@ -32,4 +33,4 @@ export function DatePicker(props: DatePickerProps) {
   return <DatePickerPrimitive {...props} />
 }
 
-export type { DatePickerFooter }
+export type { DatePickerFooter, DatePickerDismissBehavior }

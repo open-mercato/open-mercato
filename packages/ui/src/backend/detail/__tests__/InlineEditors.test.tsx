@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import {
   InlineMultilineEditor,
@@ -89,6 +89,48 @@ describe('InlineTextEditor date types — DS unification (no native date input)'
     activateEditor()
     expect(document.querySelector('[data-slot="date-picker-trigger"]')).toBeInTheDocument()
     expect(document.querySelector('input[type="datetime-local"]')).toBeNull()
+  })
+
+  it('does not save a picked but unapplied day when the picker is dismissed by clicking away', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    renderWithProviders(
+      <div>
+        <InlineTextEditor
+          label="Date"
+          value="2026-05-09"
+          emptyLabel="No date"
+          type="date"
+          inputType="date"
+          onSave={onSave}
+        />
+        <button type="button">Elsewhere</button>
+      </div>,
+      { dict: {} },
+    )
+    activateEditor()
+    const trigger = document.querySelector('[data-slot="date-picker-trigger"]') as HTMLElement
+    await act(async () => {
+      fireEvent.click(trigger)
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    const dayButton = within(screen.getByRole('grid')).getByText('15').closest('button')
+    if (!dayButton) throw new Error('Day 15 button not found')
+    await act(async () => {
+      fireEvent.click(dayButton)
+    })
+    const elsewhere = screen.getByRole('button', { name: 'Elsewhere' })
+    await act(async () => {
+      fireEvent.pointerDown(elsewhere, { button: 0 })
+      fireEvent.mouseDown(elsewhere, { button: 0 })
+      elsewhere.focus()
+      fireEvent.pointerUp(elsewhere, { button: 0 })
+      fireEvent.mouseUp(elsewhere, { button: 0 })
+      fireEvent.click(elsewhere, { button: 0 })
+    })
+    expect(screen.queryByRole('grid')).not.toBeInTheDocument()
+    expect(onSave).not.toHaveBeenCalled()
   })
 
   it('non-date inputType still renders a raw input (regression: text editing path unchanged)', () => {

@@ -1878,7 +1878,7 @@ const [stage, setStage] = React.useState<string>(initialStage)
 ## DatePicker
 
 ```typescript
-import { DatePicker, type DatePickerProps, type DatePickerFooter } from '@open-mercato/ui/primitives/date-picker'
+import { DatePicker, type DatePickerProps, type DatePickerFooter, type DatePickerDismissBehavior } from '@open-mercato/ui/primitives/date-picker'
 ```
 
 Single-date popover trigger per Figma `446:7413` (368×432 popover; trigger styled as Figma `Date Selector [1.1]`). Subsumes the legacy `backend/inputs/DatePicker` and `backend/inputs/DateTimePicker` via the `withTime` prop; both legacy paths are kept as `@deprecated` re-export shims so existing imports stay zero-diff. Built on the shared `Calendar` primitive, so month navigation comes from `Calendar`'s `MonthCaption` (paged prev/next month buttons with a centred caption pill, `goToMonth` from `useDayPicker()`).
@@ -1903,7 +1903,7 @@ const [date, setDate] = React.useState<Date | null>(null)
 
 | `footer` | Behaviour |
 |---|---|
-| `'apply-cancel'` (default, Figma-aligned) | Selecting a day stages a draft inside the popover. `Apply` commits and closes; `Cancel` reverts and closes. |
+| `'apply-cancel'` (default, Figma-aligned) | Selecting a day stages a draft inside the popover. `Apply` commits and closes; `Cancel` reverts and closes. Other closes (pressing or tabbing outside, clicking the trigger, `Escape`) follow `dismissBehavior` — by default they drop the draft. |
 | `'today-clear'` | Legacy footer with link-style `Today` / `Clear` buttons. Selecting a day commits immediately (set `closeOnSelect={false}` to keep the popover open). Toggle individual buttons with `showTodayButton` / `showClearButton`. |
 | `'none'` | No footer; selecting a day commits and closes. |
 
@@ -1912,9 +1912,10 @@ const [date, setDate] = React.useState<Date | null>(null)
 | Prop | Type | Default | Notes |
 |---|---|---|---|
 | `value` | `Date \| null` | — | Controlled value. `null` renders the placeholder. |
-| `onChange` | `(value: Date \| null) => void` | — | Called on Apply / immediate commit / Clear / Today. |
+| `onChange` | `(value: Date \| null) => void` | — | Called on Apply / immediate commit / Clear / Today, and — with `dismissBehavior="commit"` — on an outside/trigger close with a changed draft. |
 | `footer` | `'apply-cancel' \| 'today-clear' \| 'none'` | `'apply-cancel'` | Footer mode (see table above). |
 | `closeOnSelect` | `boolean` | `footer === 'today-clear'` | Only meaningful in `'today-clear'` mode. |
+| `dismissBehavior` | `'discard' \| 'commit'` | `'discard'` | `'apply-cancel'` mode only. What a close without Apply/Cancel does with the draft. `'discard'` drops it (apply-only contract). `'commit'` calls `onChange` with a draft that differs from `value` when the user presses/tabs outside or clicks the trigger; `Escape` and `Cancel` still discard. `CrudForm` date fields use `'commit'` so a day picked before clicking Save is saved (#9093); keep `'discard'` where `onChange` persists immediately (e.g. inline editors). |
 | `showTodayButton` / `showClearButton` | `boolean` | `true` | `'today-clear'` mode only. |
 | `withTime` | `boolean` | `false` | Renders an `HH:MM` `TimeInput` row under the calendar; combines into a single `Date`. |
 | `minuteStep` | `number` | `1` | Forwarded to `TimeInput` when `withTime`. |
