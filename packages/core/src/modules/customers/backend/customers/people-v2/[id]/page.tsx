@@ -221,6 +221,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const {
     plannedActivities,
+    plannedLoadFailed,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,
@@ -584,6 +585,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                         entityId={personId}
                         entityName={personName}
                         plannedActivities={plannedActivities}
+                        plannedLoadFailed={plannedLoadFailed}
+                        onRetryPlannedLoad={() => { void loadPlannedActivities() }}
                         onActivityCreated={() => { void handleActivityCreated() }}
                         onScheduleRequested={openNewScheduleDialog}
                         onMarkDone={handleMarkDone}

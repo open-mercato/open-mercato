@@ -172,4 +172,27 @@ describe('PlannedActivitiesSection', () => {
     expect(screen.queryByText(/^Jutro /)).toBeNull()
     expect(screen.queryByText(/Tomorrow/)).toBeNull()
   })
+
+  describe('load failure', () => {
+    it('shows the error and retry when nothing has loaded', () => {
+      const onRetryLoad = jest.fn()
+      renderWithProviders(<PlannedActivitiesSection activities={[]} loadFailed onRetryLoad={onRetryLoad} />)
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed to load planned activities.')
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(onRetryLoad).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the loaded rows under the error', () => {
+      renderWithProviders(
+        <PlannedActivitiesSection activities={[makeActivity({ id: 'int-1', title: 'Kept row' })]} loadFailed onRetryLoad={() => {}} />,
+      )
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.getByText('Kept row')).toBeInTheDocument()
+    })
+
+    it('renders nothing for an empty list that loaded fine', () => {
+      const { container } = renderWithProviders(<PlannedActivitiesSection activities={[]} />)
+      expect(container).toBeEmptyDOMElement()
+    })
+  })
 })

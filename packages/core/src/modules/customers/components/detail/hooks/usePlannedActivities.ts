@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
 import type { InteractionSummary } from '../types'
 import { useInteractionMutations, type GuardedMutationRunner } from './useInteractionMutations'
@@ -26,6 +27,8 @@ export type UsePlannedActivitiesOptions = {
 
 export type UsePlannedActivitiesResult = {
   plannedActivities: InteractionSummary[]
+  /** The last read failed. `plannedActivities` then still holds what the last good read returned. */
+  plannedLoadFailed: boolean
   activityRefreshKey: number
   loadPlannedActivities: (options?: LoadPlannedActivitiesOptions) => Promise<void>
   handleActivityCreated: () => Promise<void>
@@ -72,7 +75,9 @@ export function usePlannedActivities({
   onAfterChange,
 }: UsePlannedActivitiesOptions): UsePlannedActivitiesResult {
   const [plannedActivities, setPlannedActivities] = React.useState<InteractionSummary[]>([])
+  const [plannedLoadFailed, setPlannedLoadFailed] = React.useState(false)
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
+  const latestLoadRef = React.useRef(0)
   const scopeId = 'dealId' in scope ? scope.dealId : scope.entityId
   const scopeKind = 'dealId' in scope ? 'dealId' : 'entityId'
   const url = React.useMemo(
@@ -80,14 +85,25 @@ export function usePlannedActivities({
     [scopeId, scopeKind],
   )
 
+  React.useEffect(() => {
+    latestLoadRef.current += 1
+    setPlannedActivities([])
+    setPlannedLoadFailed(false)
+  }, [url])
+
   const loadPlannedActivities = React.useCallback(async (options: LoadPlannedActivitiesOptions = {}) => {
     if (!url) return
+    const loadId = ++latestLoadRef.current
     try {
       const items = await fetchPlannedActivities(url, options.cache === true)
+      if (loadId !== latestLoadRef.current) return
       setPlannedActivities(items)
+      setPlannedLoadFailed(false)
     } catch (err) {
-      logger.warn('load planned activities failed', { component: logContext, err })
-      setPlannedActivities([])
+      if (loadId !== latestLoadRef.current) return
+      logger.error('load planned activities failed', { component: logContext, err })
+      getTelemetryRuntime()?.reportError(err, { module: 'customers', code: 'customers.planned_activities_load_failed' })
+      setPlannedLoadFailed(true)
     }
   }, [logContext, url])
 
@@ -118,6 +134,7 @@ export function usePlannedActivities({
 
   return {
     plannedActivities,
+    plannedLoadFailed,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,

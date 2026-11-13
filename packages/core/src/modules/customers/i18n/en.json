@@ -3037,6 +3037,7 @@
   "customers.timeline.planned.canceled": "Activity canceled",
   "customers.timeline.planned.completed": "Activity completed",
   "customers.timeline.planned.error": "Failed to complete activity",
+  "customers.timeline.planned.loadFailed": "Failed to load planned activities.",
   "customers.timeline.planned.markDone": "Mark done",
   "customers.timeline.planned.overdue": "Overdue",
   "customers.timeline.planned.overdueCount": "overdue",

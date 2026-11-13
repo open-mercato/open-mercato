@@ -3037,6 +3037,7 @@
   "customers.timeline.planned.canceled": "Aktywność anulowana",
   "customers.timeline.planned.completed": "Aktywność ukończona",
   "customers.timeline.planned.error": "Nie udało się ukończyć aktywności",
+  "customers.timeline.planned.loadFailed": "Nie udało się załadować zaplanowanych aktywności.",
   "customers.timeline.planned.markDone": "Oznacz jako wykonane",
   "customers.timeline.planned.overdue": "Zaległe",
   "customers.timeline.planned.overdueCount": "zaległe",

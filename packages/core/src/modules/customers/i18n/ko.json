@@ -3037,6 +3037,7 @@
   "customers.timeline.planned.canceled": "활동이 취소되었습니다",
   "customers.timeline.planned.completed": "활동이 완료되었습니다",
   "customers.timeline.planned.error": "활동을 완료 처리하지 못했습니다",
+  "customers.timeline.planned.loadFailed": "예정된 활동을 불러오지 못했습니다.",
   "customers.timeline.planned.markDone": "완료 처리",
   "customers.timeline.planned.overdue": "기한 초과",
   "customers.timeline.planned.overdueCount": "기한 초과",
