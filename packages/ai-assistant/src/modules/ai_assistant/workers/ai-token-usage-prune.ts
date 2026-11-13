@@ -1,6 +1,8 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
+import { runAiMaintenanceTenant } from '../database'
+import { isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
 
 const logger = createLogger('ai_assistant')
 
@@ -19,6 +21,7 @@ export const metadata: WorkerMeta = {
 
 export interface TokenUsagePruneRunOptions {
   em: EntityManager
+  tenantId?: string
   /** Override for deterministic tests. Defaults to `new Date()`. */
   now?: Date
   /** Override retention days (default from env). */
@@ -50,19 +53,21 @@ async function pruneOldEvents(
   connection: ReturnType<EntityManager['getConnection']>,
   cutoff: Date,
   batchSize: number,
+  tenantId?: string,
 ): Promise<number> {
   let totalDeleted = 0
-  for (;;) {
+  for (let batch = 0; batch < 1000; batch += 1) {
     const result = await connection.execute(
       `
       delete from ai_token_usage_events
       where id in (
         select id from ai_token_usage_events
         where created_at < ?
+        ${tenantId ? 'and tenant_id = ?' : ''}
         limit ?
       )
       `,
-      [cutoff, batchSize],
+      tenantId ? [cutoff, tenantId, batchSize] : [cutoff, batchSize],
       'run',
     ) as { affectedRows?: number; rowCount?: number } | undefined
     const deleted = result?.affectedRows ?? result?.rowCount ?? 0
@@ -82,6 +87,7 @@ async function reconcileSessionCounts(
   connection: ReturnType<EntityManager['getConnection']>,
   now: Date,
   trailingDays: number,
+  tenantId?: string,
 ): Promise<number> {
   const trailingStart = new Date(now)
   trailingStart.setUTCDate(trailingStart.getUTCDate() - trailingDays)
@@ -105,9 +111,10 @@ async function reconcileSessionCounts(
         or (d.organization_id is not null and e.organization_id = d.organization_id)
       )
     where d.day >= ?::date
+    ${tenantId ? 'and d.tenant_id = ?' : ''}
     group by d.id
     `,
-    [from],
+    tenantId ? [from, tenantId] : [from],
     'all',
   )
 
@@ -120,8 +127,8 @@ async function reconcileSessionCounts(
       ? parseInt(row.computed_session_count, 10)
       : (row.computed_session_count as number) ?? 0
     await connection.execute(
-      `update ai_token_usage_daily set session_count = ?, updated_at = now() where id = ?`,
-      [computed, rowId],
+      `update ai_token_usage_daily set session_count = ?, updated_at = now() where id = ?${tenantId ? ' and tenant_id = ?' : ''}`,
+      tenantId ? [computed, rowId, tenantId] : [computed, rowId],
       'run',
     )
     reconciled += 1
@@ -153,14 +160,14 @@ export async function runTokenUsagePrune(
 
   let eventsDeleted = 0
   try {
-    eventsDeleted = await pruneOldEvents(connection, cutoff, batchSize)
+    eventsDeleted = await pruneOldEvents(connection, cutoff, batchSize, options.tenantId)
   } catch (error) {
     logger.error('Failed to prune old events', { err: error })
   }
 
   let dailyRowsReconciled = 0
   try {
-    dailyRowsReconciled = await reconcileSessionCounts(connection, now, RECONCILE_TRAILING_DAYS)
+    dailyRowsReconciled = await reconcileSessionCounts(connection, now, RECONCILE_TRAILING_DAYS, options.tenantId)
   } catch (error) {
     logger.error('Failed to reconcile session counts', { err: error })
   }
@@ -179,5 +186,15 @@ export default async function handle(
   ctx: HandlerContext,
 ): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
-  await runTokenUsagePrune({ em })
+  if (!isDatabaseRuntimeEnabled()) {
+    await runTokenUsagePrune({ em })
+    return
+  }
+  const tenants: unknown = await em.getConnection().execute('select distinct tenant_id from ai_token_usage_events union select distinct tenant_id from ai_token_usage_daily')
+  if (!Array.isArray(tenants)) throw new Error('[internal] Invalid AI usage tenant discovery result')
+  for (const row of tenants as Array<{ tenant_id: string }>) {
+    await runAiMaintenanceTenant({ tenantId: row.tenant_id }, em, async (tenantEm) => {
+      await runTokenUsagePrune({ em: tenantEm, tenantId: row.tenant_id })
+    })
+  }
 }

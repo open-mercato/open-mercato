@@ -1,4 +1,4 @@
-import { databaseJobTenantContext, type DatabaseModuleDeclarations } from '@open-mercato/shared/lib/db/declarations'
+import { databaseJobTenantContext, resolveDeclaredDatabaseJobContext, type DatabaseModuleDeclarations } from '@open-mercato/shared/lib/db/declarations'
 
 export const databaseDeclarations: DatabaseModuleDeclarations = {
   jobProviders: [{
@@ -9,13 +9,24 @@ export const databaseDeclarations: DatabaseModuleDeclarations = {
         throw new Error('[internal] Invalid persisted event envelope')
       }
       const options = envelope.options
-      if (!options || typeof options !== 'object' || !('tenantId' in options)) {
-        throw new Error('[internal] Persisted event requires its verified tenant options')
+      if (!options || typeof options !== 'object') {
+        throw new Error('[internal] Persisted event requires its verified options')
       }
-      if (input.metadata?.tenantId != null && input.metadata.tenantId !== options.tenantId) {
+      const tenantId = 'tenantId' in options ? options.tenantId : undefined
+      if (input.metadata?.tenantId != null && input.metadata.tenantId !== tenantId) {
         throw new Error('[internal] Conflicting persisted event tenant identities')
       }
-      return databaseJobTenantContext(options.tenantId, envelope.event)
+      if (tenantId == null) {
+        const context = await resolveDeclaredDatabaseJobContext({
+          queue: `event:${envelope.event}`,
+          workerIds: [],
+          payload: 'payload' in envelope ? envelope.payload : undefined,
+          metadata: input.metadata,
+        })
+        if (context.kind !== 'maintenance') throw new Error('[internal] Global event requires an explicit maintenance classifier')
+        return context
+      }
+      return databaseJobTenantContext(tenantId, envelope.event)
     },
   }],
 }
