@@ -63,8 +63,9 @@ async function handleGet(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid tenant id.' }, { status: 400 })
   }
 
+  const requestedTenantId = parsed.data.tenantId
   const loginTenantCookie = readCookie(req, ONBOARDING_LOGIN_TENANT_COOKIE)
-  if (!loginTenantCookie || loginTenantCookie !== parsed.data.tenantId) {
+  if (!loginTenantCookie || loginTenantCookie !== requestedTenantId) {
     return NextResponse.json({ ok: false, error: 'Not authorized for this tenant.' }, { status: 403 })
   }
 
@@ -82,12 +83,12 @@ async function handleGet(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const service = new OnboardingService(em)
-  const request = await service.findLatestByTenantId(parsed.data.tenantId)
+  const request = await service.findLatestByTenantId(requestedTenantId)
   if (!request) {
     return NextResponse.json({ ok: false, error: 'Onboarding request not found.' }, { status: 404 })
   }
 
-  if (request.tenantId !== parsed.data.tenantId || !await hasPersistedWorkspace(em, request)) {
+  if (request.tenantId !== requestedTenantId || !await hasPersistedWorkspace(em, request)) {
     return NextResponse.json({ ok: false, error: 'Onboarding request not found.' }, { status: 404 })
   }
   return runOnboardingTenant(request.tenantId!, async (container) => {
@@ -149,7 +150,7 @@ async function handleGet(req: Request) {
       status: request.status,
       ready,
       emailSent,
-      tenantId: request.tenantId ?? parsed.data.tenantId,
+      tenantId: request.tenantId ?? requestedTenantId,
       loginUrl,
     })
   }
