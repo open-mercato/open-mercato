@@ -697,7 +697,7 @@ describe('GmailChannelAdapter OAuth flow', () => {
         }),
       )
       stubProfile(async () => ({ emailAddress: '', historyId: '100' }))
-      await expect(exchange()).rejects.toThrow()
+      await expect(exchange()).rejects.toThrow('could not resolve the mailbox address')
     })
 
     it('does not call the Gmail profile when userinfo returns the address', async () => {
