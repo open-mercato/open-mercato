@@ -11,7 +11,7 @@ Open Mercato Enterprise Edition adds capabilities designed for teams running hig
 - **Security controls** such as hardened password change, multi-factor authentication (MFA), and sudo re-authentication.
 - **Enterprise-grade controls** for operating larger organizations with stronger safety rails.
 - **[Encrypted backup and recovery](../deployment/enterprise-backup-recovery)** with resumable PostgreSQL backups, authenticated archive verification, and quarantined restore/exercise workflows. Archive decryption and application data-key recovery require separate custody.
-- **[Protected key rotation and data verification](../user-guide/key-rotation-protection)** adds a verified encrypted recovery backup and an independent, complete persisted-data comparison to Core tenant key rotation. Both protections are commercial features; Core requires an explicit per-invocation risk acknowledgment when they are unavailable.
+- **[Protected key rotation and data verification](../user-guide/key-rotation-protection)** adds a verified encrypted recovery backup and an independent, complete persisted-data comparison to Core tenant key rotation. It supports derived-root rotation, derived↔Vault migration and exact-version Vault→Vault DEK rotation for one or an explicitly selected all-tenant scope. Both protections are commercial features; Core requires an explicit per-invocation risk acknowledgment when they are unavailable.
 - **Additional enterprise modules** that can be enabled on top of the OSS core.
 
 ## Feature availability

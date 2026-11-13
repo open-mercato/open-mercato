@@ -17,25 +17,63 @@ Before starting, stop all application replicas, workers and schedulers. Use a de
 
 The maintenance role must have server-provisioned, nonzero `statement_timeout` of at most 15 minutes and `lock_timeout` of at most 30 seconds. Preflight verifies these bounds without changing pooled session settings. The whole run has a six-hour default deadline (`OM_ROTATION_DEADLINE_SECONDS`, maximum 24 hours); cancellation closes the dedicated maintenance connection and aborts owned native children. A statement interrupted after commit is reconciled on explicit resume, not assumed rolled back.
 
-Prepare the following private files and absolute directories on the maintenance host:
+### OS-aware recovery defaults
 
-| Setting | Purpose |
+The CLI detects macOS, Linux and containers, discovers a trusted matching PostgreSQL 16/17/18 client trio, and resolves private recovery locations. Explicit settings win; an explicitly empty or invalid path refuses instead of silently using a default. The resolver never generates keys, grants commercial rights, selects a database/provider or changes admission settings.
+
+| Environment | Default recovery root |
 |---|---|
-| `PGSERVICEFILE`, `PGPASSFILE` | Explicit libpq services and credentials for the source; owner-only password file, no passwords in argv. |
-| `OM_ROTATION_BACKUP_SOURCE_SERVICE` | Source service name. Its real cluster/database identity must match the app EntityManager's database. |
-| `OM_BACKUP_BINARIES_DIR` | Matching supported PostgreSQL client binaries directory. |
-| `OM_ROTATION_RECIPIENTS_FILE` | Reviewed age X25519 recipients, including recovery custody. |
-| `OM_ROTATION_IDENTITIES_FILE` | Independently retained identities that can decrypt the backup and verification artifacts. |
-| `OM_ROTATION_BACKUP_OUTPUT`, `OM_ROTATION_BACKUP_WORKSPACE` | Private backup artifact and resumable-work directories. |
-| `OM_ROTATION_ARTIFACT_ROOT` | Private encrypted expected-data artifacts directory. |
-| `OM_ROTATION_TRUST_ROOT` | Separate physical owner-only directory for trusted run roots, timestamp-intent anchors and operator reports. It must not be inside the artifact directory or vice versa. |
-| `OM_ROTATION_KMS_PROVIDER` | Explicit `derived` or `vault` target provider; protected rotation never uses the fallback-capable provider factory. |
+| macOS | `~/Library/Application Support/Open Mercato/recovery` |
+| Linux | `$XDG_STATE_HOME/open-mercato/recovery`, or `~/.local/state/open-mercato/recovery` |
+| Docker/container | `/var/lib/open-mercato/recovery`, on a validated persistent mount |
 
-For a derived target, retain the selected `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` or `TENANT_DATA_ENCRYPTION_KEY` in approved custody. For Vault, explicitly configure `VAULT_ADDR`, `VAULT_TOKEN` and `VAULT_KV_PATH`; its pinned DEKs must already exist. Supply the previous derived root using `TENANT_DATA_ENCRYPTION_OLD_KEY`, never a command-line key. Neither backup nor verification exports application DEKs. A source/target pair with identical concrete key material refuses as a no-op. Unsupported historical ownership/codec/global-fallback scopes refuse before mutation; system-key records and independent inner secret envelopes are outside tenant rotation and must be handled by their owners before any root-key retirement.
+Set `OM_RECOVERY_ROOT` to a private persistent root when needed, especially to separate applications. Defaults beneath it are `backups`, `workspace`, `rotation-artifacts`, `rotation-trust` and `custody`. Native libpq defaults are `~/.pg_service.conf` and `~/.pgpass`; containers use `custody/pg_service.conf` and `custody/pgpass`. Containers refuse overlay/tmpfs or temporary recovery storage. See [Docker recovery](https://github.com/open-mercato/open-mercato/blob/develop/docker/RECOVERY.md) when operating the checkout's container wrapper.
+
+| Optional override | Resolved purpose |
+|---|---|
+| `OM_BACKUP_BINARIES_DIR` | Trusted matching PostgreSQL client directory; otherwise discovered from PATH and OS installation locations |
+| `PGSERVICEFILE`, `PGPASSFILE` | Private libpq configuration/credentials |
+| `OM_ROTATION_BACKUP_OUTPUT`, `OM_ROTATION_BACKUP_WORKSPACE` | Backup output and resumable workspace |
+| `OM_ROTATION_ARTIFACT_ROOT`, `OM_ROTATION_TRUST_ROOT` | Separate physical private expected-data/trust directories; neither nested inside the other |
+| `OM_ROTATION_RECIPIENTS_FILE`, `OM_ROTATION_IDENTITIES_FILE` | Recovery recipients/identities; otherwise `custody/recipients.txt` and `custody/identity.txt` |
+| `OM_ROTATION_SOURCE_VAULT_VERSIONS_FILE`, `OM_ROTATION_TARGET_VAULT_VERSIONS_FILE` | Exact version manifests; otherwise `custody/rotation-source-vault-versions.json` and `custody/rotation-target-vault-versions.json` |
+
+Files must already exist with owner-only permissions. Directory defaults are created privately when the operation needs them. The required `OM_ROTATION_BACKUP_SOURCE_SERVICE` identifies a reviewed libpq service whose real cluster/database identity matches the app EntityManager. This identity, credentials and custody cannot be guessed by OS detection. Provision archive recovery identities using the [operator-only archive-key procedure](../deployment/enterprise-backup-recovery#operator-only-archive-key-provisioning); archive age identities and application encryption keys have different purposes.
+
+### Explicit source and target providers
+
+All four Enterprise routes are supported. Set `OM_ROTATION_SOURCE_PROVIDER` and `OM_ROTATION_TARGET_PROVIDER` to `derived` or `vault`. Source defaults to `derived` for compatibility. Existing `OM_ROTATION_KMS_PROVIDER` remains a target-selector alias; remove it or make it equal to the explicit target selector. Conflicting selectors refuse.
+
+| Route | Source custody | Target selection |
+|---|---|---|
+| Derived → derived | Previous derived root | A different retained derived root |
+| Derived → Vault | Previous derived root | Preprovisioned current Vault DEKs, with exact versions |
+| Vault → derived | Retained exact old Vault versions | A different retained derived root |
+| Vault → Vault | Retained exact old Vault versions | New current Vault versions, at the same or a separate location |
+
+A derived source uses `TENANT_DATA_ENCRYPTION_OLD_KEY`. This is a **root secret**, not a raw per-tenant DEK: the service derives each tenant's key from it. Never paste an exported Vault DEK into that variable. For a Vault source, unset this old-derived-root variable; providing both source mechanisms refuses. A derived target uses `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` when present, otherwise `TENANT_DATA_ENCRYPTION_KEY`. The fallback setting takes precedence, including during the later application restart; remove stale/conflicting values deliberately.
+
+For each Vault role configure `OM_ROTATION_SOURCE_VAULT_ADDR`, `OM_ROTATION_SOURCE_VAULT_TOKEN`, `OM_ROTATION_SOURCE_VAULT_KV_PATH` and the source version file; the corresponding `OM_ROTATION_TARGET_VAULT_*` settings select the target. Target address/token/path may instead use existing `VAULT_ADDR`, `VAULT_TOKEN`, `VAULT_KV_PATH` (path default `secret/data`). Source credentials/location are independent and have no implicit target fallback. Addresses must be HTTPS origins without credentials, path, query or fragment; HTTP is accepted only for literal `127.0.0.1`/`::1` isolated fixtures. Redirects are refused. Use already provisioned read-only runtime credentials and trusted TLS, never a production dev/root token.
+
+This adapter reads **Vault KV v2 raw 32-byte application DEKs**, not Vault Transit keys. With HTTP key path `secret/data/app-keys`, a tenant lives at `secret/data/app-keys/tenant_key_TENANT_UUID`. In Vault CLI syntax that is `-mount=secret` and logical path `app-keys/tenant_key_TENANT_UUID`: do not insert a second `/data`. See the [KV v2 API](https://developer.hashicorp.com/vault/api-docs/secret/kv/kv-v2).
+
+Each owner-only version file has exactly the selected tenant inventory and no defaults, wildcards, extra tenants or omitted tenants:
+
+```json
+{
+  "schemaVersion": 1,
+  "versions": {
+    "11111111-1111-4111-8111-111111111111": 2,
+    "33333333-3333-4333-8333-333333333333": 5
+  }
+}
+```
+
+Use separate source and target manifests. Versions can differ by tenant. Source reads precisely its retained version. Target reads both its selected version and current latest, requiring their version and concrete key bytes to agree on every refresh and before durable completion. Endpoint, key path and a bounded digest of the exact sorted version map are bound into verification/resume. Missing/destroyed versions, changed selections, changed latest keys or provider errors refuse without fallback or key provisioning.
 
 ## Invoke the command safely
 
-Inject the previous derived root through `TENANT_DATA_ENCRYPTION_OLD_KEY` and the selected target provider credentials through your secret manager. Do not put key bytes in arguments or screenshots. Enable `TENANT_DATA_ENCRYPTION` in the application environment, and set the Enterprise capability/rights flags and private file paths listed above before bootstrapping the CLI.
+Inject only the selected source and target provider credentials through your secret manager. For a derived source, use `TENANT_DATA_ENCRYPTION_OLD_KEY`; for a Vault source, use the explicit source Vault settings and retained versions. Do not put key bytes in arguments or screenshots. Enable `TENANT_DATA_ENCRYPTION` in the application environment, and set the Enterprise capability/rights flags and private file paths listed above before bootstrapping the CLI.
 
 With the offline fence already provisioned and the previous/target keys independently retained, inspect the intended scope first:
 
@@ -57,9 +95,177 @@ When Enterprise protection is unavailable, the corresponding explicit Core risk 
 mercato entities rotate-encryption-key --tenant TENANT_UUID --acknowledge-unprotected-key-rotation
 ```
 
-This last command authorizes unprotected mutation and provides neither Enterprise protection. Use it only with an independently tested recovery plan and retained keys; it is not a way to continue a failed protected run. The initial refusal displays a red error on a color-capable terminal; noninteractive/`NO_COLOR` output retains the `ERROR` text.
+This last command authorizes unprotected mutation and provides neither Enterprise protection. It retains the legacy previous-derived-root interface and does not enable the Enterprise Vault-source adapter. Use it only with an independently tested recovery plan and retained keys; it is not a way to continue a failed protected run. The initial refusal displays a red error on a color-capable terminal; noninteractive/`NO_COLOR` output retains the `ERROR` text.
+
+## Create and select the new keys, step by step
+
+The rotation command does **not** generate a root/DEK, overwrite Vault, delete versions, release the fence or deploy a new application configuration. Perform key provisioning as an explicitly authorized operator, with all writers stopped and the database fence in place **before changing Vault latest**. Pause independent Vault DEK provisioning/rotation automation from staging the pinned target through verification and controlled application cutover: the database fence does not freeze Vault. Latest-refresh checks detect observed drift, not changes made after the command returns. Rehearse the complete route on disposable data first.
+
+### 1. Retain the old source and archive custody
+
+For a derived source, retain the exact previous root separately and inject it as `TENANT_DATA_ENCRYPTION_OLD_KEY` through the secret manager. For a Vault source, record the current version for each selected tenant before staging any replacement; retain those versions and the source read credentials/location. Do not print `vault kv get` output: it includes the DEK.
+
+Use metadata-only inspection under your reviewed provisioning credential:
+
+```sh
+vault kv metadata get -format=json -mount=secret app-keys/tenant_key_TENANT_UUID
+```
+
+Review mount/per-key `max_versions` and `delete_version_after` before writing. A new version can permanently evict old versions when retention is exhausted; a per-key zero may inherit the mount policy. Ensure every version needed by existing data **and historical backups** remains recoverable, with independent escrow where required. Do not blindly set a retention value or delete/destroy an old version. See [Vault version metadata](https://developer.hashicorp.com/vault/docs/commands/kv/metadata).
+
+### 2. Prepare a new derived target, when selected
+
+Have the secret manager generate a new high-entropy root. If an approved local provisioning procedure needs a private input file, this operator-only example creates a new file without displaying its contents or putting the secret in argv:
+
+```sh
+node -e 'const fs=require("node:fs"),c=require("node:crypto");fs.writeFileSync(process.argv[1],c.randomBytes(48).toString("base64")+"\n",{mode:0o600,flag:"wx"})' /PRIVATE/new-derived-root
+```
+
+Use an owner-only parent directory. Import the value through your approved secret-manager workflow into the target `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` or `TENANT_DATA_ENCRYPTION_KEY`; do not paste it into chat, shell arguments or screenshots. Record which variable is active: `FALLBACK_KEY` wins over `KEY`. This file contains a root, not one tenant's DEK. Keep it in independent custody; the tool neither reads this arbitrary file automatically nor deletes it afterward.
+
+### 3. Prepare new Vault DEKs, when selected
+
+For every selected tenant, generate a fresh 32-byte DEK using the reviewed provisioning process. The Vault KV JSON field must be named `key` and contain canonical base64. This operator-only example writes a new private JSON file without displaying the DEK:
+
+```sh
+node -e 'const fs=require("node:fs"),c=require("node:crypto");fs.writeFileSync(process.argv[1],JSON.stringify({key:c.randomBytes(32).toString("base64")}),{mode:0o600,flag:"wx"})' /PRIVATE/new-tenant-dek.json
+```
+
+Authenticate the Vault CLI through its approved token helper/secret-manager integration. Use the target's reviewed address and a separate provisioning credential; rotation itself receives read-only credentials. For a **new separate target path**, CAS zero requires that no version exists:
+
+```sh
+vault kv put -format=json -mount=secret -cas=0 app-keys-new/tenant_key_TENANT_UUID @/PRIVATE/new-tenant-dek.json
+```
+
+For **same-path Vault rotation**, first record old version `N`; then stage the new key with `-cas=N` at that same logical path. For example, when the observed current version is exactly 2:
+
+```sh
+vault kv put -format=json -mount=secret -cas=2 app-keys/tenant_key_TENANT_UUID @/PRIVATE/new-tenant-dek.json
+```
+
+Capture the returned version metadata and require the write to succeed. A CAS conflict stops the procedure; do not automatically update the expected version and retry. Repeat with a distinct new DEK for each tenant. The new target version becomes latest while the pinned source version stays retained. File input/CAS syntax is documented by [Vault `kv put`](https://developer.hashicorp.com/vault/docs/commands/kv/put). Never use `key=SECRET` on the command line.
+
+### 4. Write exact version manifests
+
+For a single-tenant invocation, each selected Vault-role manifest contains only that canonical tenant UUID. For all tenants, obtain the exact inventory with a read-only source query, then close the diagnostic connection before starting the CLI:
+
+```sql
+SELECT tenant_id::text
+FROM (
+  SELECT tenant_id FROM encryption_maps WHERE tenant_id IS NOT NULL
+  UNION
+  SELECT tenant_id FROM custom_entities_storage WHERE tenant_id IS NOT NULL
+) selected
+ORDER BY tenant_id;
+```
+
+The supported inventory is at most 10,000 tenants and the ordinary metadata/coverage bounds still apply. Record the actual old and new version per tenant; do not assume every tenant is at version 1. Put them into the separate owner-only `schemaVersion:1` manifests shown above. For a same-path tenant moving from version 2 to version 3, the source manifest selects 2 and target selects 3. Derived roles need no version manifest. No role may use a wildcard/default version or a manifest for a different scope.
+
+### 5. Configure the chosen route
+
+Inject secrets through the secret manager before CLI bootstrap. Unset a conflicting legacy `OM_ROTATION_KMS_PROVIDER` alias. These examples show selectors and nonsecret locations only:
+
+**Derived → derived**
+
+```sh
+export OM_ROTATION_SOURCE_PROVIDER=derived
+export OM_ROTATION_TARGET_PROVIDER=derived
+```
+
+Supply the retained previous root through `TENANT_DATA_ENCRYPTION_OLD_KEY` and the distinct new target root through the intended target variable. For a derived target, remove ordinary `VAULT_ADDR`/`VAULT_TOKEN` selection from the future application profile: the normal application factory prefers a healthy Vault when configured. The maintenance selector does not change that factory.
+
+**Derived → Vault**
+
+```sh
+export OM_ROTATION_SOURCE_PROVIDER=derived
+export OM_ROTATION_TARGET_PROVIDER=vault
+export VAULT_ADDR=https://vault.example.com
+export VAULT_KV_PATH=secret/data/app-keys-new
+```
+
+Inject the previous derived root, target Vault token and exact target-version manifest. Ordinary `VAULT_*` settings must point to the selected target for later application use. Retain the old root separately before removing unwanted active `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`/`TENANT_DATA_ENCRYPTION_KEY` fallback settings; otherwise a Vault failure could select a derived fallback unrelated to the new ciphertext.
+
+**Vault → derived**
+
+```sh
+export OM_ROTATION_SOURCE_PROVIDER=vault
+export OM_ROTATION_TARGET_PROVIDER=derived
+export OM_ROTATION_SOURCE_VAULT_ADDR=https://old-vault.example.com
+export OM_ROTATION_SOURCE_VAULT_KV_PATH=secret/data/app-keys-old
+unset TENANT_DATA_ENCRYPTION_OLD_KEY
+unset VAULT_ADDR VAULT_TOKEN VAULT_KV_PATH
+```
+
+Inject the source-role read token and exact source-version manifest, plus the distinct target derived root. The source-role `OM_ROTATION_SOURCE_VAULT_*` settings preserve access to old DEKs even when ordinary application Vault selection is disabled. Make the application profile use that exact new derived root and precedence; merely setting a fallback root while leaving healthy ordinary Vault selection active is insufficient.
+
+**Vault → Vault, same path or separate locations**
+
+```sh
+export OM_ROTATION_SOURCE_PROVIDER=vault
+export OM_ROTATION_TARGET_PROVIDER=vault
+export OM_ROTATION_SOURCE_VAULT_ADDR=https://vault.example.com
+export OM_ROTATION_SOURCE_VAULT_KV_PATH=secret/data/app-keys
+export VAULT_ADDR=https://vault.example.com
+export VAULT_KV_PATH=secret/data/app-keys
+unset TENANT_DATA_ENCRYPTION_OLD_KEY
+```
+
+Inject independently reviewed source/target read tokens and both exact manifests. Same-path rotation reads the old source version and writes rows under the already staged current target version. For separate prefixes or clusters, change the source-role address/path and ordinary target address/path accordingly; source and target credentials remain independent. Explicit `OM_ROTATION_TARGET_VAULT_*` overrides may use a separate maintenance token, but the future application's ordinary `VAULT_*` location must resolve to the same selected target DEKs. The tool does not perform this deployment or cutover.
+
+### 6. Preview and execute the declared scope
+
+Single tenant:
+
+```sh
+mercato entities rotate-encryption-key --tenant TENANT_UUID --dry-run
+mercato entities rotate-encryption-key --tenant TENANT_UUID
+```
+
+For an explicitly authorized **all-tenant** operation, omit both tenant and organization restrictions; there is no `--all-tenants` flag:
+
+```sh
+mercato entities rotate-encryption-key --dry-run
+mercato entities rotate-encryption-key
+```
+
+All selected tenants must share the declared old derived root for a derived source. If old roots differ, use separately authorized per-tenant runs with the correct source root. Vault source manifests can select mixed old versions per tenant. A dry run is read-only scope preparation, not proof that all protected preflight/backup/provider checks will pass. Missing keys, equal old/new concrete keys or failed protection never trigger an unprotected fallback.
+
+### 7. Inspect, rehearse and release separately
+
+Require a successful invocation, matching durable coordinator `passed` state and a trusted report with equal expected/compared row, field and byte counts. Retain the coordinator ID, keys and recovery references. Check the intended normal application target configuration on the isolated rehearsal, including Vault latest and derived-root precedence. Restart every replica/worker when eventually releasing maintenance so old process-local DEK/Vault TTL caches are discarded. Release the original connection limit and resume writers only after the operator's independent application/recovery review.
+
+The normal application Vault KMS reads latest; there is no ordinary `VAULT_KV_VERSION` selector. Historical ciphertext recovery therefore needs a separately rehearsed quarantine configuration or an explicitly authorized new protected migration from retained source versions to an application-compatible target. Do not roll back live Vault versions, delete keys or restore over live data to make a failed run appear successful.
 
 ## Execution and verification
+
+### Use the AI operator skill
+
+The optional `om-rotate-encryption-keys` skill can prepare a maintenance plan,
+preview a scope, execute an authorized protected rotation, resume an existing run
+or inspect trusted reports. Example requests:
+
+```text
+$om-rotate-encryption-keys prepare for tenant TENANT_UUID in my maintenance app
+$om-rotate-encryption-keys dry-run for tenant TENANT_UUID and organization ORG_UUID
+$om-rotate-encryption-keys rotate the already approved offline scope using the configured target provider
+$om-rotate-encryption-keys resume coordinator COORDINATOR_UUID using the original custody and scope
+$om-rotate-encryption-keys report on the existing trusted coordinator record
+```
+
+The skill discovers the installed CLI and package version; in a verified checkout
+it can use `yarn mercato` instead of an installed `mercato`. A global skill
+installation supplies instructions, not a CLI, license, database fence or keys.
+Its bundled references remain available outside this checkout.
+
+Specific authorization already provided is reused; the agent asks only for missing
+required scope, target or offline-maintenance authorization. A generic rotation
+request is never consent to unprotected Core mutation. The skill does not add the
+risk-acknowledgment option automatically, assert ungranted commercial rights,
+terminate sessions, manufacture a passing fence, release admission or retire keys.
+Preparation and report inspection do not execute a rotation. Keep key bytes out
+of prompts and retain recovery artifacts in operator-controlled storage.
+
+### What the protected command verifies
 
 The protected flow verifies offline fencing and key/provider identity, creates and verifies a quiesced whole-database encrypted backup, seals a complete logical baseline, performs bounded rotation and checks committed values back. An independent final scan then compares every declared row/value and exact coverage with the frozen baseline, using only pinned target keys for final decryption. The baseline seals canonical typed values using keyed HMAC-SHA-256, so randomized replacement ciphertext can change while the logical value remains identical. Coverage includes selected mapped scalar fields and supported custom documents; system-key records and independent inner envelopes are excluded explicitly. Encrypted bounded chunks and streaming comparisons avoid loading the entire database into memory. This is a full comparison, not a quick sampled checksum. Ciphertext equality, row counts alone and sampling never produce a passing result.
 
