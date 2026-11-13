@@ -138,42 +138,52 @@ async function cleanUp(request: APIRequestContext, world: World): Promise<void> 
   }
 }
 
-test.describe('TC-TT-034: moving a time entry to another project drops the old project\'s task', () => {
-  test('a project-only PUT clears the old project task and undo restores both', async ({ request }) => {
-    skipIfUndoTestsDisabled()
-    const stamp = randomUUID().slice(0, 8)
-    const world: World = {
-      token: await getAuthToken(request, 'admin'),
-      customerId: null,
-      staffMemberId: null,
-      selfMemberCreated: false,
-      projectIds: [],
-      taskIds: [],
-      entryIds: [],
-    }
+function emptyWorld(token: string): World {
+  return { token, customerId: null, staffMemberId: null, selfMemberCreated: false, projectIds: [], taskIds: [], entryIds: [] }
+}
 
+async function setUpEntryOnProjectA(
+  request: APIRequestContext,
+  world: World,
+  stamp: string,
+): Promise<{ projectA: string; projectB: string; taskOnA: string; entryId: string }> {
+  await ensureSelfStaffMember(request, world, `QATT34 Member ${stamp}`)
+  world.customerId = await readCreatedId(
+    await apiRequest(request, 'POST', CUSTOMERS_PATH, { token: world.token, data: { displayName: `QATT34 Customer ${stamp}` } }),
+    `POST ${CUSTOMERS_PATH}`,
+  )
+  const projectA = await createProject(request, world, `QATT34 Project A ${stamp}`, `QT34A-${stamp}`)
+  const projectB = await createProject(request, world, `QATT34 Project B ${stamp}`, `QT34B-${stamp}`)
+  const taskOnA = await createTask(request, world, projectA, `QATT34 Task A ${stamp}`)
+  const entryId = await createEntry(request, world, taskOnA, `QATT34 entry ${stamp}`)
+  expect(await readEntry(request, world.token, entryId)).toEqual({ taskId: taskOnA, timeProjectId: projectA })
+  return { projectA, projectB, taskOnA, entryId }
+}
+
+test.describe('TC-TT-034: moving a time entry to another project drops the old project task', () => {
+  test('a project-only PUT clears the task of the previous project', async ({ request }) => {
+    const world = emptyWorld(await getAuthToken(request, 'admin'))
     try {
-      await ensureSelfStaffMember(request, world, `QATT34 Member ${stamp}`)
-      world.customerId = await readCreatedId(
-        await apiRequest(request, 'POST', CUSTOMERS_PATH, { token: world.token, data: { displayName: `QATT34 Customer ${stamp}` } }),
-        `POST ${CUSTOMERS_PATH}`,
-      )
-      const projectA = await createProject(request, world, `QATT34 Project A ${stamp}`, `QT34A-${stamp}`)
-      const projectB = await createProject(request, world, `QATT34 Project B ${stamp}`, `QT34B-${stamp}`)
-      const taskOnA = await createTask(request, world, projectA, `QATT34 Task A ${stamp}`)
-
-      const foreignEntry = await createEntry(request, world, taskOnA, `QATT34 foreign ${stamp}`)
-      expect(await readEntry(request, world.token, foreignEntry)).toEqual({ taskId: taskOnA, timeProjectId: projectA })
-
-      const undoToken = await moveEntryToProject(request, world.token, foreignEntry, projectB)
+      const { projectB, entryId } = await setUpEntryOnProjectA(request, world, randomUUID().slice(0, 8))
+      await moveEntryToProject(request, world.token, entryId, projectB)
       expect(
-        await readEntry(request, world.token, foreignEntry),
+        await readEntry(request, world.token, entryId),
         'The task of project A must not stay on an entry billed under project B',
       ).toEqual({ taskId: null, timeProjectId: projectB })
+    } finally {
+      await cleanUp(request, world)
+    }
+  })
 
+  test('undo of the project move restores both the project and the task', async ({ request }) => {
+    skipIfUndoTestsDisabled()
+    const world = emptyWorld(await getAuthToken(request, 'admin'))
+    try {
+      const { projectA, projectB, taskOnA, entryId } = await setUpEntryOnProjectA(request, world, randomUUID().slice(0, 8))
+      const undoToken = await moveEntryToProject(request, world.token, entryId, projectB)
       await undoOk(request, world.token, undoToken, 'undo the project move')
       expect(
-        await readEntry(request, world.token, foreignEntry),
+        await readEntry(request, world.token, entryId),
         'Undo puts the entry back on project A with its task',
       ).toEqual({ taskId: taskOnA, timeProjectId: projectA })
     } finally {
