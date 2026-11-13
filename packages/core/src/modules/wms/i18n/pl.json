@@ -1185,6 +1185,7 @@
   "wms.errors.salesOrder.reRunReservationCancelled": "Anulowane zamówienie nie może mieć rezerwacji zapasu.",
   "wms.errors.trackingRequired": "Dla tego produktu wymagane są dane partii lub numeru seryjnego.",
   "wms.errors.unauthorized": "Brak autoryzacji",
+  "wms.errors.validationFailed": "Walidacja nie powiodła się",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Alert niskiego zapasu — dostępne: {availableQuantity}, punkt zamówienia: {reorderPoint}, zapas bezpieczeństwa: {safetyStock}",
   "wms.notifications.lowStock.renderer.available": "Dostępne",

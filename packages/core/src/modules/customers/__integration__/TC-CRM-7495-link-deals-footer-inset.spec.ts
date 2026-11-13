@@ -56,9 +56,9 @@ async function expectFooterInset(page: Page, dialog: Locator, label: string) {
 }
 
 async function openLinkDealsDialog(page: Page, companyId: string, dealTitle: string) {
-  await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'commit' });
+  await page.goto(`/backend/customers/companies-v2/${companyId}?tab=deals`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('tab', { name: /^deals/i }).click();
+  await expect(page.getByRole('tab', { name: /^deals/i })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('button', { name: 'Link existing deal' }).click();
   const dialog = page.getByRole('dialog', { name: /^Link deal/ });
   await expect(dialog).toBeVisible();

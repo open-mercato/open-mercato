@@ -22,6 +22,7 @@ const logger = createLogger('shared').child({ component: 'orm' })
 export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
 
 let ormInstance: AppMikroORM | null = null
+let ormInitialization: Promise<AppMikroORM> | null = null
 let disposePoolInstrumentation: (() => void) | undefined
 
 // Use globalThis so standalone apps survive duplicated shared package module instances.
@@ -355,6 +356,16 @@ export async function getOrm() {
   if (ormInstance) {
     return ormInstance
   }
+
+  if (!ormInitialization) {
+    ormInitialization = initializeOrm().finally(() => {
+      ormInitialization = null
+    })
+  }
+  return ormInitialization
+}
+
+async function initializeOrm(): Promise<AppMikroORM> {
 
   const entities = getOrmEntities()
   const clientUrl = process.env.DATABASE_URL
