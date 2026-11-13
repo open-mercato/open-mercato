@@ -17,7 +17,7 @@ Open Questions raised while drafting were resolved with the most reversible, sma
 
 | # | Question | Applied default | Rationale |
 |---|---|---|---|
-| Q1 | Split the OSS provider contract and the Enterprise module into two specs? | **No — one spec, two phases.** Phase 1 (OSS seam) ships alone and is inert; Phase 2+ (Enterprise) depends on it. | The seam has no user value without a provider and exists only for this feature; phasing gives independent shippability without a second document. |
+| Q1 | Split the OSS provider contract and the Enterprise module into two specs? | **No — one spec, phased.** Phase 1 (OSS seam) ships as its own OSS PR and is inert; Phases 2–4 (Enterprise) depend on it. | The brief mandates a single enterprise spec with minimal OSS seams. The fresh-context scope review recommended a split (the seam also serves custom providers). If maintainers prefer, Phase 1 can be lifted verbatim into an OSS spec under `.ai/specs/` without design changes. |
 | Q2 | Who owns the OSS default provider — `directory` (as #7317 proposed) or `shared`? | **`shared` DI defaults register a no-op provider** (`noopTenantBrandingProvider`). The existing `Organization.logoUrl` behaviour of the backend nav stays where it is and is used whenever the provider returns no logo. | Smallest OSS surface; no new `directory` subscribers; nav output with nothing registered stays byte-identical. |
 | Q3 | Branding granularity: tenant, organization, or host? | **Tenant-level, one profile per tenant.** No `organization_id` column in v1; organization overrides and host mapping are deferred. Backend precedence: tenant profile logo → selected organization's `logoUrl` (today) → platform logo. | Tenant is the commercial unit of a multi-tenant deployment; org-level overrides can be added later as an additive column + resolver rule. |
 | Q4 | Logo storage: attachments module or the profile row? | **Profile row** — validated base64 PNG/JPEG/WebP, ≤ 256 KB decoded per logo, served from a same-origin public route `GET /api/branding_profiles/logo/{tenantId}/{variant}?v={hash}`. | Works offline and on the unauthenticated login page; `attachmentService.createScoped` writes private partitions only, and a public partition would add a cross-module write path for two small images. |
@@ -112,6 +112,7 @@ export type TenantBrandingResolveInput = {
 export interface TenantBrandingProvider {
   resolve(input: TenantBrandingResolveInput): Promise<TenantBranding | null>
   varyByHost?: boolean
+  varyByOrganization?: boolean  // adds organizationId to the cache key
   id: string                    // cache-key profile, e.g. 'noop' | 'branding_profiles'
 }
 
@@ -129,9 +130,9 @@ export function invalidateTenantBrandingCache(
 3. **Resolver semantics** (`resolveTenantBranding`):
    - `tenantId === null` → `null` without calling the provider.
    - Resolves `tenantBrandingProvider` from DI; missing key → no-op.
-   - Cache via DI `cache`: key `tenant-branding:{providerId}:{tenantId}:{surface}[:{host}]`, tags `['tenant:{tenantId}', 'tenant-branding']`, TTL 300 s; caches `null` too (negative cache) so un-branded tenants cost one lookup per 5 min.
+   - Cache via DI `cache`: key `tenant-branding:{providerId}:{tenantId}:{surface}[:{organizationId} when varyByOrganization][:{host} when varyByHost]`, tags `['tenant-branding:{tenantId}', 'tenant-branding']` (never the shared `tenant:{id}` tag, so invalidation does not flush other modules' caches), TTL 300 s; caches `null` too (negative cache) so un-branded tenants cost one lookup per 5 min.
    - Provider call wrapped in a 2 s timeout; on throw/timeout: `reportError`, return `null`, and remember the failure in-process for 30 s (circuit) per tenant.
-   - Validates field-by-field: invalid `style` (schema/contrast) drops only `style`; invalid logo `src` (must be a root-relative path, or a `data:image/(png|jpeg|webp);base64,` URL ≤ 350 000 chars) drops only that logo; `productName` trimmed, 1–60 chars, control chars stripped. `https://` URLs are **accepted for custom providers** but never produced by the enterprise module (offline).
+   - Validates field-by-field: invalid `style` (strict schema: only allow-listed token names, values matching `^#[0-9a-f]{6}$`, contrast) drops only `style` — this is also the CSS-injection guard, because `brandStyleCss` only ever serialises schema-parsed values (it already calls `schema.parse`) and therefore cannot emit `<`, `}` or `;` from provider input; invalid logo `src` (must be a root-relative path, or a `data:image/(png|jpeg|webp);base64,` URL ≤ 350 000 chars) drops only that logo; `productName` trimmed, 1–60 chars, control chars stripped. `https://` URLs are **accepted for custom providers** but never produced by the enterprise module (offline).
 4. **DI default**: `packages/shared/src/lib/di/container.ts` registers `tenantBrandingProvider: asValue(noopTenantBrandingProvider)` next to the existing platform defaults.
 5. **Server style component**: `@open-mercato/ui/theme/TenantBrandStyle` — a server component `({ branding, nonce })` rendering `<style id="om-tenant-brand" nonce={nonce}>` with `brandStyleCss(branding.style)`; renders nothing when `style` is absent.
 6. **Shell wiring** (all props optional; absent → today's output):
@@ -181,7 +182,7 @@ flowchart LR
 
 Takeaway: every shell asks one resolver; the resolver asks one DI key; the enterprise module is the only thing that answers it with real data. Removing the module returns every shell to the no-op path.
 
-**Request flow (backend first paint):** layout → `resolveTenantBranding` → cache hit (≈ 0 ms) or provider → `findOneWithDecryption(em, BrandingProfile, { tenantId, deletedAt: null, isActive: true }, {}, { tenantId })` → map to `TenantBranding` (logos become `/api/branding_profiles/logo/{tenantId}/{light|dark}?v={hash}`) → `<TenantBrandStyle>` + `AppShell initialBrand` → HTML. The browser fetches the logo from the same origin (cached `immutable`).
+**Request flow (backend first paint):** layout → `resolveTenantBranding` → cache hit (≈ 0 ms) or provider → `findOneWithDecryption(em, BrandingProfile, { tenantId, deletedAt: null, isActive: true }, {}, { tenantId })` + one `fields: ['id','sha256']` query for the referenced assets → map to `TenantBranding` (logos become `/api/branding_profiles/logo/{tenantId}/{light|dark}?v={hash}`) → `<TenantBrandStyle>` + `AppShell initialBrand` → HTML. The browser fetches the logo from the same origin (cached `immutable`).
 
 **Surface toggles:** the provider returns `null` for `auth` when `applyToLogin=false`, and for `portal` when `applyToPortal=false`. Inactive tenants (`Tenant.isActive=false`) resolve `null` for every surface.
 
@@ -193,7 +194,7 @@ acl.ts              features
 setup.ts            defaultRoleFeatures (admin → view+manage)
 di.ts               overrides tenantBrandingProvider
 events.ts           createModuleEvents: branding_profiles.profile.{saved,reset}
-data/entities.ts    BrandingProfile
+data/entities.ts    BrandingProfile, BrandingLogoAsset
 data/validators.ts  zod: profileUpsertSchema, logoDataUrlSchema, hexColor
 lib/palette.ts      deriveBrandStyle({ primary, accent }) → BrandStyle + contrast report
 lib/logo.ts         decode + magic-byte sniff + size/hash
@@ -220,18 +221,31 @@ __tests__/, __integration__/
 | `primary_color` | text, null | `#RRGGBB`; null → platform default |
 | `accent_color` | text, null | `#RRGGBB`; null → platform default |
 | `style` | jsonb, null | derived `BrandStyle` (`version`, `light`, `dark`, `seeds`); `logo: null` always; recomputed on save, validated against the shared schema |
-| `logo_light` | text, null | `data:image/(png|jpeg|webp);base64,…`, ≤ 256 KB decoded |
-| `logo_light_hash` | text, null | sha256 hex prefix (16 chars) of decoded bytes — cache-busting `v` |
-| `logo_dark` / `logo_dark_hash` | text, null | same rules |
+| `logo_light_asset_id` | uuid, null | FK id → `branding_logo_assets.id` (same tenant) |
+| `logo_dark_asset_id` | uuid, null | FK id → `branding_logo_assets.id` (same tenant) |
 | `apply_to_login` | boolean, default true | |
 | `apply_to_portal` | boolean, default true | |
 | `is_active` | boolean, default true | |
 | `created_at`, `updated_at`, `deleted_at` | timestamptz | `updated_at` drives optimistic locking |
 
+### `BrandingLogoAsset` → table `branding_logo_assets` (immutable)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `tenant_id` | uuid, not null | index; every read filters it |
+| `mime_type` | text | `image/png` \| `image/jpeg` \| `image/webp` |
+| `content_base64` | text | decoded size ≤ 256 KB |
+| `sha256` | text | full hex digest; first 16 chars are the cache-busting `v` |
+| `byte_size`, `width`, `height` | int | width/height from the client, sanity-checked against PNG/WebP headers when parseable |
+| `created_at` | timestamptz | |
+
+Assets are write-once. The profile references them by id, so the profile row stays small (the provider reads only the profile plus the two asset `sha256` values, never the blobs), and undo snapshots hold asset ids, not base64. On every save the command deletes the tenant's assets that are unreferenced **and** older than 30 days (undo retention), bounded to that tenant.
+
 - No `organization_id` (Q3): the entity is tenant-scoped; every query filters `tenant_id` from the authenticated scope, never from the body.
 - No ORM relations; `tenant_id` is a plain FK id.
 - **Sensitive data:** none — branding is public by design (shown pre-login). No encryption map; reads still use `findOneWithDecryption` per project rule.
-- Migration: one new table + partial unique index. Reversible by dropping the table.
+- Migration: two new tables + partial unique index on `branding_profiles(tenant_id) where deleted_at is null`. Reversible by dropping the table.
 
 ## API Contracts
 
@@ -283,14 +297,14 @@ Soft-deletes the profile (reset to defaults). `200 { ok: true }`; undo restores 
 ### `GET /api/branding_profiles/logo/{tenantId}/{variant}` — public (`requireAuth: false`)
 
 - `variant ∈ { light, dark }`; `tenantId` must be a UUID.
-- Returns the decoded bytes with the stored MIME, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `ETag: "<hash>"`, and `Cache-Control: public, max-age=31536000, immutable` when `?v` equals the current hash (else `public, max-age=300`).
+- Reads only the referenced `branding_logo_assets` row (tenant-filtered). Returns the decoded bytes with the stored MIME, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `ETag: "<hash>"`, and `Cache-Control: public, max-age=31536000, immutable` when `?v` equals the current hash (else `public, max-age=300`).
 - `404` for no profile, inactive profile/tenant, missing variant (dark falls back to nothing; the shell decides). No auth needed because the login page is anonymous; the response reveals nothing beyond what `/api/directory/tenants/lookup` already reveals for a known tenant UUID.
 
 ### Commands
 
 | Command id | Undo | Side effects |
 |---|---|---|
-| `branding_profiles.profile.save` | restores the previous snapshot (or soft-deletes when created) | emits `branding_profiles.profile.saved`; `invalidateTenantBrandingCache(tenantId)` after commit (reversible: undo re-invalidates) |
+| `branding_profiles.profile.save` | restores the previous snapshot — scalar fields + asset ids (or soft-deletes when created) | emits `branding_profiles.profile.saved`; `invalidateTenantBrandingCache(tenantId)` (tag `tenant-branding:{tenantId}`) after commit (reversible: undo re-invalidates) |
 | `branding_profiles.profile.reset` | restores the snapshot | emits `branding_profiles.profile.reset`; invalidates cache |
 
 ### Events
@@ -346,8 +360,10 @@ Proposed clickable prototype (pending, not accepted): [`.ai/prototypes/per-tenan
 | Risk | Severity | Affected area | Mitigation | Residual |
 |---|---|---|---|---|
 | Shell regression for apps that register nothing | High | every OSS app | No-op default; resolver short-circuits on `null`; unit test asserts nav `brand` byte-identical; integration test asserts default login HTML unchanged | Low |
-| Cross-tenant branding leak via cache key | High | multi-tenant deployments | Key includes `tenantId` and surface; tenant derived only from auth/cookie/org lookup; integration test TC-BRAND-007 | Low |
+| Cross-tenant / cross-org branding leak via cache key | High | multi-tenant deployments | Key includes `tenantId`, surface, and `organizationId` whenever a provider declares `varyByOrganization`; tenant derived only from auth/cookie/org lookup; integration test TC-BRAND-007 | Low |
 | Stored XSS via logo | High | login/backend/portal | Raster-only, magic-byte check, served with `nosniff` + sandbox CSP, rendered only via `<img>` | Low |
+| CSS injection via `<style>` on the anonymous login page | High | login/backend/portal | Only strict-schema-parsed tokens (allow-listed names, `#RRGGBB` values) are serialised; unit test feeds `</style><script>` and `red;}body{` payloads and asserts they are dropped | Very low |
+| Base64 blobs inflating rows, cache misses and the undo log | Medium | DB, command log | Write-once `branding_logo_assets` table referenced by id; provider never reads blobs; snapshots hold ids | Low |
 | Unreadable brand colours | Medium | all users of a tenant | Server-side shared schema (4.5:1) + client contrast table; Save disabled on fail | Low |
 | SSR latency on every backend request | Medium | backend TTFB | 300 s cache incl. negative cache; single indexed query on miss; 2 s timeout | Low |
 | Standalone apps with customised layouts don't get first-paint branding | Medium | standalone adopters | Template mirror + `UPGRADE_NOTES.md` entry; nav still brands the sidebar after load | Medium (documented) |
@@ -379,7 +395,7 @@ Per `BACKWARD_COMPATIBILITY.md`:
 ### Phase 1 — OSS seam (inert by default)
 
 1. Create `packages/shared/src/lib/branding/brand-style.ts` (schema, type, `contrastRatio`, `pickReadableForeground`, `brandStyleCss(style, { selectorPrefix })`); make `packages/ui/src/theme/brand-style.ts` re-export it; gallery preview passes `selectorPrefix: 'html'`. Unit tests: WCAG reference pairs, prefix output, re-export identity.
-2. Create `packages/shared/src/lib/branding/tenantBranding.ts` (types, `noopTenantBrandingProvider`, `resolveTenantBranding`, `invalidateTenantBrandingCache`). Unit tests: null tenant short-circuit, cache hit/miss/negative cache, timeout → null + `reportError`, 30 s circuit, field-level validation drops only invalid parts, tenant isolation of keys.
+2. Create `packages/shared/src/lib/branding/tenantBranding.ts` (types, `noopTenantBrandingProvider`, `resolveTenantBranding`, `invalidateTenantBrandingCache`). Unit tests: null tenant short-circuit, CSS-injection payloads dropped, `varyByOrganization` key separation, cache hit/miss/negative cache, timeout → null + `reportError`, 30 s circuit, field-level validation drops only invalid parts, tenant isolation of keys.
 3. Register `tenantBrandingProvider` (no-op) in `packages/shared/src/lib/di/container.ts`.
 4. Add `packages/ui/src/theme/TenantBrandStyle.tsx`; add `darkLogo` to `BackendChromeBrand`, `initialBrand` to `AppShell`, dark/light switching + `unoptimized` in `ShellLogo`; `branding` prop on `PortalLayoutShell`/`PortalShell`. Unit tests (RTL): renders nothing without branding; light/dark classes.
 5. `GET /api/auth/admin/nav`: consult the resolver for surface `backend` before the org-logo fallback. Unit test: no-op provider → byte-identical payload snapshot.
@@ -388,7 +404,7 @@ Per `BACKWARD_COMPATIBILITY.md`:
 ### Phase 2 — Enterprise data, provider, API
 
 7. Scaffold `packages/enterprise/src/modules/branding_profiles/` (`index.ts`, `acl.ts`, `setup.ts`, `events.ts`, i18n stubs); enable it in `apps/mercato/src/modules.ts` base enterprise list; `yarn generate`.
-8. `data/entities.ts` + `data/validators.ts`; `yarn db:generate`, keep only the `branding_profiles` migration + snapshot (do **not** run `yarn db:migrate` without asking).
+8. `data/entities.ts` (`BrandingProfile`, `BrandingLogoAsset`) + `data/validators.ts`; `yarn db:generate`, keep only the `branding_profiles` / `branding_logo_assets` migration + snapshot (do **not** run `yarn db:migrate` without asking).
 9. `lib/palette.ts` (`deriveBrandStyle`: light primary as given; hover = OKLCH L−0.06; dark primary L ≥ 0.65; foregrounds auto-picked; accent → `--brand-violet*`; returns `{ style, contrast[] }`) and `lib/logo.ts` (decode, magic bytes, size, hash). Unit tests with fixed fixtures (dark brand, pastel, mid-luminance valley, achromatic).
 10. `lib/provider.ts` + `di.ts` override; respects `applyToLogin`/`applyToPortal`/`isActive`/tenant active. Unit tests.
 11. `commands/profile.ts` (save/reset with undo snapshots, cache invalidation after commit, events).
@@ -439,3 +455,12 @@ Unit suites: `packages/shared/src/lib/branding/__tests__/*`, `packages/enterpris
 ## Changelog
 
 - **2026-11-13** — Initial enterprise spec (from #7317): OSS `tenantBrandingProvider` seam with no-op default, Enterprise `branding_profiles` module, admin settings page with WCAG validation and live preview, SSR first-paint branding on login/backend/portal, offline-only storage and test plan.
+
+### Review — 2026-11-13
+- **Reviewer**: Agent (fresh-context scope-cohesion subagent + author checklist pass)
+- **Scope**: Reviewer verdict SPLIT (OSS seam vs enterprise module). Kept as one phased spec per the brief; recorded under Q1 as an override option.
+- **Security**: Fixed — CSS-injection guard made explicit (strict schema before `<style>` serialisation); logos raster-only with magic bytes + sandbox CSP.
+- **Performance**: Fixed — logos moved to write-once `branding_logo_assets`; provider no longer reads blobs.
+- **Cache**: Fixed — module-specific `tenant-branding:{tenantId}` tag; `varyByOrganization` added to the key contract.
+- **Commands**: Fixed — undo snapshots carry asset ids, not base64.
+- **Verdict**: Approved for implementation review
