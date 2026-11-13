@@ -5,6 +5,13 @@ import { captureLogs } from './support/captureLogs'
 
 const createSessionApiKeyMock = jest.fn()
 const deleteSessionApiKeyMock = jest.fn()
+jest.mock('../lib/guardrails/guardrailService', () => {
+  const actual = jest.requireActual('../lib/guardrails/guardrailService')
+  return {
+    ...actual,
+    persistVerdict: async (_ctx: unknown, _scope: unknown, args: { verdict: { checks: unknown[] } }) => args.verdict.checks,
+  }
+})
 jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   generateSessionToken: () => 'sess_runner_test_token',
   createSessionApiKey: (...args: unknown[]) => {
@@ -113,7 +120,7 @@ function makeHarness() {
   const rbacService = {
     loadAcl: async () => ({ isSuperAdmin: false, features: ['agent_orchestrator.agents.run'] }),
   }
-  const em = {}
+  const em = { fork: () => ({}) }
   // Shared cross-process correlation store — the runner opens a row, the fake
   // client's submit_outcome (resolving the SAME store from the container)
   // completes it, and the runner polls it back.

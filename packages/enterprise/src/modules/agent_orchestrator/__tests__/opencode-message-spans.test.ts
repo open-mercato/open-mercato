@@ -1,5 +1,12 @@
 const SESSION_TOKEN = 'sess_msg_test_token'
 
+jest.mock('../lib/guardrails/guardrailService', () => {
+  const actual = jest.requireActual('../lib/guardrails/guardrailService')
+  return {
+    ...actual,
+    persistVerdict: async (_ctx: unknown, _scope: unknown, args: { verdict: { checks: unknown[] } }) => args.verdict.checks,
+  }
+})
 jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   generateSessionToken: () => 'sess_msg_test_token',
   createSessionApiKey: () => Promise.resolve({ keyId: 'key-1', secret: 'omk_x', sessionToken: 'sess_msg_test_token' }),

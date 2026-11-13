@@ -8,6 +8,13 @@
  */
 const createSessionApiKeyMock = jest.fn()
 const deleteSessionApiKeyMock = jest.fn()
+jest.mock('../lib/guardrails/guardrailService', () => {
+  const actual = jest.requireActual('../lib/guardrails/guardrailService')
+  return {
+    ...actual,
+    persistVerdict: async (_ctx: unknown, _scope: unknown, args: { verdict: { checks: unknown[] } }) => args.verdict.checks,
+  }
+})
 jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   generateSessionToken: () => 'sess_trace_test_token',
   createSessionApiKey: (...args: unknown[]) => {

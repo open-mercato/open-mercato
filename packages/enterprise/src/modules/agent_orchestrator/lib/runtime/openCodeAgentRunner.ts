@@ -393,6 +393,8 @@ export class OpenCodeAgentRunner {
         ? await this.runIntegrityPipeline({ entry, ctx, commandCtx, runId, businessInput, capturedOutcome, capturedToolCalls })
         : null
       integrityRawOutputKey = integrity?.rawOutputKey ?? null
+      const outputGuardResults =
+        integrity?.guardResults ?? (await this.runOutputGuardrails({ entry, ctx, commandCtx, runId, capturedOutcome }))
 
       // Defense in depth: re-validate the captured outcome against the schema
       // even though submit_outcome already validated it server-side.
@@ -425,7 +427,7 @@ export class OpenCodeAgentRunner {
           confidence: deriveEnvelopeConfidence(result.proposal),
           workflowInstanceId: ctx.workflowInstanceId ?? null,
           stepId: ctx.stepId ?? null,
-          ...(integrity ? { guardResults: integrity.guardResults } : {}),
+          guardResults: outputGuardResults,
         })
       }
 
@@ -539,6 +541,63 @@ export class OpenCodeAgentRunner {
         })
       }
     }
+  }
+
+  /**
+   * Runs the agent's base output guardrails (schema + `tool_scope`) on the
+   * submitted outcome of an agent WITHOUT `integrity` rules, persisting one
+   * `AgentGuardrailCheck` row per check like the native runner does for its final
+   * output. `attemptedTools` stays empty for the same reason as in
+   * `runIntegrityPipeline`; grounding is not evaluated because an OpenCode run
+   * surfaces no citable sources. A schema block keeps the pre-existing
+   * re-validation failure (`OpenCodeRunFailedError`).
+   */
+  private async runOutputGuardrails(args: {
+    entry: AgentRegistryEntry
+    ctx: AgentRunCtx
+    commandCtx: ReturnType<typeof buildCommandContext>
+    runId: string
+    capturedOutcome: unknown
+  }): Promise<GuardResults> {
+    const { entry, ctx, commandCtx, runId } = args
+    let verdict: Awaited<ReturnType<GuardrailService['checkOutput']>>
+    let guardResults: GuardResults
+    try {
+      verdict = await new GuardrailService(this.container).checkOutput({
+        capability: entry.id,
+        schema: entry.schema,
+        output: args.capturedOutcome,
+        allowedTools: resolveAgentEffectiveTools(entry),
+        attemptedTools: [],
+      })
+      const guardEm = this.container.resolve<EntityManager>('em').fork()
+      guardResults = await persistVerdict(
+        { em: guardEm },
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId, agentRunId: runId },
+        { verdict, capability: entry.id, phase: 'output', proposalId: null },
+      )
+    } catch (err) {
+      await failRun(this.commandBus, commandCtx, {
+        runId,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
+    if (verdict.result === 'block') {
+      const parsed = entry.schema.safeParse(args.capturedOutcome)
+      const detail = parsed.success ? 'guardrail block' : parsed.error.message
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      const blocked = verdict.blockedReason
+      if (!blocked || blocked.kind === 'schema') {
+        throw new OpenCodeRunFailedError(entry.id, `outcome failed re-validation: ${detail}`)
+      }
+      throw new AgentGuardrailBlockedError(entry.id, detail, {
+        phase: blocked.phase,
+        kind: blocked.kind,
+        guardrailSetVersion: GUARDRAIL_SET_VERSION,
+      })
+    }
+    return guardResults
   }
 
   /**

@@ -357,11 +357,12 @@ describe('OpenCodeAgentRunner output pipeline', () => {
     expect(guardResults?.find((check) => check.kind === 'evidence_quote')?.result).toBe('warn')
   })
 
-  it('keeps schema-only behavior for an agent without integrity rules', async () => {
-    const entry = registerOpenCodeAgent('opencode.no_integrity_agent')
+  it('runs the base output guardrails for an agent without integrity rules', async () => {
+    const entry = registerOpenCodeAgent('opencode.no_integrity_agent', undefined, ['customers.get_deal'])
     const harness = makeHarness()
+    const toolParts = [{ callId: 'call-1', tool: 'bash', input: { command: 'ls' }, output: 'out/' }]
 
-    const result = await makeRunner(harness, makeClient(harness.container, RAW_OUTCOME)).run(
+    const result = await makeRunner(harness, makeClient(harness.container, RAW_OUTCOME, toolParts)).run(
       entry,
       { content: CONTENT },
       runCtx,
@@ -371,9 +372,65 @@ describe('OpenCodeAgentRunner output pipeline', () => {
     expect(harness.calls.find((call) => call.id === 'agent_orchestrator.runs.complete')?.input.output).toEqual(
       RAW_OUTCOME,
     )
-    expect(persistVerdictMock).not.toHaveBeenCalled()
+    expect(persistVerdictMock).toHaveBeenCalledTimes(1)
+    const persisted = persistVerdictMock.mock.calls[0][2] as PersistedVerdict
+    expect(persisted.phase).toBe('output')
+    expect(persisted.verdict.result).toBe('pass')
+    expect(persisted.verdict.checks.map((check) => [check.kind, check.result])).toEqual([
+      ['schema', 'pass'],
+      ['tool_scope', 'pass'],
+    ])
     expect(putArtifactMock).not.toHaveBeenCalled()
     expect(syncIntegritySetsMock).not.toHaveBeenCalled()
     expect(emitRunReviewRequestedMock).not.toHaveBeenCalled()
+  })
+
+  it('passes the base guard results to the proposal of an agent without integrity rules', async () => {
+    const id = 'opencode.no_integrity_proposal_agent'
+    const entry: AgentRegistryEntry = getAgentEntry(id) ?? {
+      id,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'proposal',
+      schema: z.object({
+        kind: z.literal('proposal'),
+        proposal: z.object({
+          actions: z.array(z.object({ type: z.string(), payload: z.record(z.string(), z.unknown()) })).min(1),
+          confidence: z.number(),
+          rationale: z.string(),
+        }),
+      }),
+      tools: [],
+      skills: [],
+      subAgents: [],
+      label: 'OpenCode base guardrail proposal agent',
+      description: 'Proposal agent without integrity rules.',
+      instructions: 'propose',
+      runtime: 'opencode',
+    }
+    if (!getAgentEntry(id)) registerFileAgent(entry)
+    const harness = makeHarness()
+    const outcome = {
+      kind: 'proposal',
+      proposal: { actions: [{ type: 'set_stage', payload: { stage: 'won' } }], confidence: 0.9, rationale: 'Signed.' },
+    }
+
+    await makeRunner(harness, makeClient(harness.container, outcome)).run(entry, { content: CONTENT }, runCtx)
+
+    const proposal = harness.calls.find((call) => call.id === 'agent_orchestrator.proposals.create')
+    const guardResults = proposal?.input.guardResults as Array<{ kind: string; result: string }> | undefined
+    expect(guardResults?.map((check) => check.kind)).toEqual(['schema', 'tool_scope'])
+  })
+
+  it('fails the run when persisting the base guardrail verdict throws', async () => {
+    const entry = registerOpenCodeAgent('opencode.no_integrity_persist_fail_agent')
+    const harness = makeHarness()
+    persistVerdictMock.mockRejectedValue(new Error('[internal] db down'))
+
+    await expect(
+      makeRunner(harness, makeClient(harness.container, RAW_OUTCOME)).run(entry, { content: CONTENT }, runCtx),
+    ).rejects.toThrow('db down')
+
+    expect(harness.calls.some((call) => call.id === 'agent_orchestrator.runs.fail')).toBe(true)
+    expect(harness.calls.some((call) => call.id === 'agent_orchestrator.runs.complete')).toBe(false)
   })
 })
