@@ -18,7 +18,7 @@ async function detail(context: APIRequestContext, id: string) {
   return detailSchema.parse(await response.json())
 }
 
-test('TC-RLS-005: People HTTP preserves custom fields, encryption, guards and command audit under FORCE RLS', async ({ playwright }) => {
+test('TC-RLS-005: People HTTP preserves custom fields, encryption, guards and command audit under FORCE RLS', async ({ playwright }, testInfo) => {
   test.setTimeout(240_000)
   expect(isTenantDataEncryptionEnabled(), 'Required encryption acceptance: use TENANT_DATA_ENCRYPTION=yes').toBe(true)
   expect(Boolean(process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY?.trim() || process.env.TENANT_DATA_ENCRYPTION_KEY?.trim() || (process.env.VAULT_ADDR && process.env.VAULT_TOKEN)),
@@ -165,6 +165,9 @@ test('TC-RLS-005: People HTTP preserves custom fields, encryption, guards and co
         expect(commands.filter((entry) => entry.command_id === `customers.people.${command}` && entry.execution_state === 'done' && entry.actor_user_id === actor.userId)).toHaveLength(1)
       }
     }
+  } catch (error) {
+    await testInfo.attach('restricted-server-log', { body: await runtime.serverLog(), contentType: 'text/plain' })
+    throw error
   } finally {
     try { await Promise.all(contexts.map((context) => context.dispose())) } finally {
       try { await fixtures?.cleanup() } finally { await runtime.stop() }
