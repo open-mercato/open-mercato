@@ -1,0 +1,11 @@
+{
+  "images": [
+    {
+      "name": "docker-maintenance-verify-f1d.png",
+      "bytes": 153927,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/93119bf9d051728429f64cbc49b2ffa9a3ac8cb3/pr-9333/docker-maintenance-verify-f1d.png"
+    }
+  ],
+  "sourceBoundary": "Exactf1d complete maintenance CLI actual TTY result excerpt; separate10-case143-row interrupted restore/resume proof. See image caption.",
+  "privacy": "Only reviewed small PNG and sanitized reports; no archives/dumps/keys/raw logs."
+}

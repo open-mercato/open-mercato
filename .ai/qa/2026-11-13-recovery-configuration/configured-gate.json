@@ -1,0 +1,50 @@
+{
+  "runner": "local",
+  "node": "24.22.2",
+  "results": [
+    {
+      "command": "yarn build:packages",
+      "exitCode": 0,
+      "seconds": 62.036
+    },
+    {
+      "command": "yarn generate",
+      "exitCode": 0,
+      "seconds": 10.346
+    },
+    {
+      "command": "yarn build:packages",
+      "exitCode": 0,
+      "seconds": 0.613
+    },
+    {
+      "command": "yarn i18n:check-sync",
+      "exitCode": 0,
+      "seconds": 1.055
+    },
+    {
+      "command": "yarn i18n:check-usage",
+      "exitCode": 0,
+      "seconds": 2.661
+    },
+    {
+      "command": "yarn typecheck",
+      "exitCode": 0,
+      "seconds": 2.816
+    },
+    {
+      "command": "yarn test",
+      "exitCode": 0,
+      "seconds": 357.621
+    },
+    {
+      "command": "yarn build:app",
+      "exitCode": 0,
+      "seconds": 95.692
+    }
+  ],
+  "sourceHead": "724b6cb37eb98fcf5ce472b1b2090fdb5f704897",
+  "productionAndGeneratedFilesUnchangedAfterGate": true,
+  "executedBy": "canonical validation agent; parent combines exact ordered execution and source/contract review",
+  "scope": "Configured local validation, not a required-CI or deployment-custody replacement. Only reports/plan follow the production freeze."
+}

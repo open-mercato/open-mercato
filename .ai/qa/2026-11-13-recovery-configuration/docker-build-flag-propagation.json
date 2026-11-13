@@ -1,0 +1,92 @@
+[
+  {
+    "stage": "monorepo-builder",
+    "explicitOptIn": false,
+    "actualDockerArgEnvResult": {
+      "umbrella": "false",
+      "backups": "false"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "monorepo-builder",
+    "explicitOptIn": true,
+    "actualDockerArgEnvResult": {
+      "umbrella": "true",
+      "backups": "true"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "monorepo-dev-build",
+    "explicitOptIn": false,
+    "actualDockerArgEnvResult": {
+      "umbrella": "false",
+      "backups": "false"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "monorepo-dev-build",
+    "explicitOptIn": true,
+    "actualDockerArgEnvResult": {
+      "umbrella": "true",
+      "backups": "true"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "monorepo-dev",
+    "explicitOptIn": false,
+    "actualDockerArgEnvResult": {
+      "umbrella": "false",
+      "backups": "false"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "monorepo-dev",
+    "explicitOptIn": true,
+    "actualDockerArgEnvResult": {
+      "umbrella": "true",
+      "backups": "true"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "template-builder",
+    "explicitOptIn": false,
+    "actualDockerArgEnvResult": {
+      "umbrella": "false",
+      "backups": "false"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "template-builder",
+    "explicitOptIn": true,
+    "actualDockerArgEnvResult": {
+      "umbrella": "true",
+      "backups": "true"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "template-dev",
+    "explicitOptIn": false,
+    "actualDockerArgEnvResult": {
+      "umbrella": "false",
+      "backups": "false"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  },
+  {
+    "stage": "template-dev",
+    "explicitOptIn": true,
+    "actualDockerArgEnvResult": {
+      "umbrella": "true",
+      "backups": "true"
+    },
+    "scope": "Extracted unmodified ARG/ENV instructions executed in actual Docker; not full app build"
+  }
+]
