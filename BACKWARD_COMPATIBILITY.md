@@ -654,4 +654,4 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 ## File-agent attachment read authorization (2026-11-10, #9117)
 
-STABLE: nonempty inputs require `userId`, `attachments.view` and owner access; empty inputs unchanged. Bridges retain disclosure. [Migration, data limits and spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waiver awaits named human-maintainer acknowledgment on #9127.
+STABLE: nonempty inputs require `userId`, `attachments.view` and owner access; empty inputs unchanged. Bridges retain disclosure. [Migration, data limits and spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waived by @pkarw on 2026-11-13.

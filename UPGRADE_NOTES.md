@@ -24,8 +24,9 @@ model input, and cached OCR from earlier unauthorized runs are not revoked or
 erased by this change; assess affected run artifacts and retention using your
 existing incident process. Rolling back restores the authorization bypass.
 
-The emergency security exception requires named human-maintainer acknowledgment
-before merge; the automated fix does not supply that approval. See the
+Maintainer @pkarw explicitly acknowledged the steps 1–3 security exception on
+2026-11-13 in the task conversation; [the acknowledgment is recorded on the PR](https://github.com/open-mercato/open-mercato/pull/9127#issuecomment-6852864115).
+QA sign-off remains separate. See the
 [migration and compatibility specification](.ai/specs/enterprise/agent-orchestrator/next/2026-06-26-agent-attachments-and-artifacts.md#migration--backward-compatibility).
 ## Production Compose tenant encryption key (#7231)
 

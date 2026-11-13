@@ -327,8 +327,9 @@ file effects. `opencode-runner.test.ts` checks direct/workflow principal
 propagation and failure before prompting. The two suites pass 26 tests; the
 original stager fails 13 of the new 16 policy tests. No live HTTP/Playground QA
 is claimed. Full test/app-build validation remains incomplete after bounded
-runs. **Named human-maintainer security-exception acknowledgment remains
-required before merge; this document does not grant it.**
+runs. **Maintainer @pkarw explicitly acknowledged the steps 1–3 security exception
+on 2026-11-13 in the task conversation, [recorded on the PR](https://github.com/open-mercato/open-mercato/pull/9127#issuecomment-6852864115).
+QA sign-off remains required; this acknowledgment does not supply it.**
 
 ## Implementation Plan
 
