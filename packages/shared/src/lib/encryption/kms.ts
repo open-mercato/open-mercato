@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { writeKmsWarning } from './kms-warning-presentation'
 import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
 import { parseBooleanToken } from '../boolean'
@@ -408,18 +409,7 @@ export function buildDerivedKeyFallbackBannerLines(opts: DerivedSecret): string[
 function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   if (process.env.NODE_ENV === 'test' || loggedDerivedKeyFallbackBanner) return
   loggedDerivedKeyFallbackBanner = true
-  const redBg = '\x1b[41m'
-  const white = '\x1b[97m'
-  const reset = '\x1b[0m'
-  const width = 110
-  const border = `${redBg}${white}${'━'.repeat(width)}${reset}`
-  const body = buildDerivedKeyFallbackBannerLines(opts)
-  const bannerLines = [
-    border,
-    ...body.map((line) => `${redBg}${white} ${line.padEnd(width - 2, ' ')} ${reset}`),
-    border,
-  ]
-  process.stderr.write(bannerLines.join('\n') + '\n')
+  writeKmsWarning(buildDerivedKeyFallbackBannerLines(opts))
   logger.warn('Using derived tenant encryption keys (Vault unavailable / no DEK)', {
     fallbackSource: opts.envName,
   })
