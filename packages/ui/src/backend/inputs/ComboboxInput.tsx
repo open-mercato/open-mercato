@@ -34,7 +34,6 @@ export type ComboboxInputProps = {
   allowCustomValues?: boolean
   clearable?: boolean
   clearLabel?: string
-  id?: string
   'aria-describedby'?: string
   'aria-invalid'?: boolean
   'aria-required'?: boolean
