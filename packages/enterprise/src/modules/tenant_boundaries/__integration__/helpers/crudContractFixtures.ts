@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
+import { expect, type APIRequestContext } from '@playwright/test'
+import { z } from 'zod'
 import type { RlsLiveRuntime } from './liveRuntime'
 
 export async function createCrudContractFixtures(runtime: RlsLiveRuntime) {
@@ -11,7 +13,7 @@ export async function createCrudContractFixtures(runtime: RlsLiveRuntime) {
   const cleanup = async () => {
     const failures: unknown[] = []
     try {
-      for (const table of ['custom_field_values', 'custom_field_defs', 'access_logs', 'action_logs', 'customer_people']) {
+      for (const table of ['record_lock_conflicts', 'record_locks', 'custom_field_values', 'custom_field_defs', 'access_logs', 'action_logs', 'customer_people']) {
         try { await admin.query(`delete from ${table} where tenant_id=any($1::uuid[])`, [tenantIds]) } catch (error) { failures.push(error) }
       }
       try {
@@ -39,5 +41,44 @@ export async function createCrudContractFixtures(runtime: RlsLiveRuntime) {
   } catch (error) {
     try { await cleanup() } catch (cleanupError) { throw new AggregateError([error, cleanupError], '[internal] CRUD fixture setup and cleanup failed') }
     throw error
+  }
+}
+
+export async function withPessimisticPersonLock(context: APIRequestContext, resourceId: string, assertDenied: () => Promise<void>) {
+  const settingsResponse = await context.get('/api/record_locks/settings')
+  expect(settingsResponse.status()).toBe(200)
+  const { settings } = z.object({ settings: z.record(z.string(), z.unknown()) }).parse(await settingsResponse.json())
+  let lockToken: string | undefined
+  try {
+    const configured = await context.post('/api/record_locks/settings', { data: {
+      ...settings, enabled: true, strategy: 'pessimistic', enabledResources: ['customers.person'], timeoutSeconds: 300,
+    } })
+    expect(configured.status()).toBe(200)
+    expect(await configured.json()).toMatchObject({ settings: {
+      enabled: true, strategy: 'pessimistic', enabledResources: ['customers.person'],
+    } })
+    const acquired = await context.post('/api/record_locks/acquire', { data: { resourceKind: 'customers.person', resourceId } })
+    expect(acquired.status()).toBe(200)
+    const body = z.object({
+      ok: z.literal(true), enabled: z.literal(true), resourceEnabled: z.literal(true),
+      strategy: z.literal('pessimistic'), acquired: z.literal(true),
+      lock: z.object({ token: z.string().min(1) }),
+    }).parse(await acquired.json())
+    lockToken = body.lock.token
+    await assertDenied()
+  } finally {
+    try {
+      if (lockToken) {
+        const released = await context.post('/api/record_locks/release', { data: {
+          resourceKind: 'customers.person', resourceId, token: lockToken, reason: 'cancelled',
+        } })
+        expect(released.status()).toBe(200)
+        expect(await released.json()).toMatchObject({ ok: true, released: true })
+      }
+    } finally {
+      const restored = await context.post('/api/record_locks/settings', { data: settings })
+      expect(restored.status()).toBe(200)
+      expect(await restored.json()).toMatchObject({ settings })
+    }
   }
 }

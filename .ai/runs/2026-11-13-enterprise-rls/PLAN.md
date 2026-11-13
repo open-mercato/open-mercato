@@ -54,6 +54,7 @@ Engine: om-auto-continue-pr-loop
 | 3 | 3.1-cli-lifecycle | Wire neutral migration preflight, completion and committed-history recovery | inline | done | this commit; CLI57 tests + typecheck |
 | 3 | 3.1 | Reconcile explicit canary policies through migrations with rollback | inline | done | this commit; runtime94/shared8; live PG17 16+25 checks, zero skips |
 | 3 | 3.1-orchestration | Verify actual dbMigrate failure/retry and policy re-enable on disposable PostgreSQL | inline | done | 14ca3ecc90; parent 8 checks, zero skips |
+| 3 | 3.2-configured-guard | Assert authenticated pessimistic mutation denial preserves tenant data and audit | inline | todo | 6c9253d0cb; focused checks pass, native live pending |
 | 3 | 3.2 | Add self-contained canary CRUD and cross-tenant HTTP integration tests | inline | todo | — |
 | 3 | 3.3 | Add dispatcher, job retry and maintenance integration coverage | inline | done | b5b6602014; parent actual disposable Redis/PostgreSQL1 pass, five checks, cleanup verified; prior dispatcher/CLI live |
 | 3 | 3.4-browser-spec | Add actual self-contained People browser CRUD, foreign absence and stale-edit coverage | inline | done | 5856241fba; parent discovery/typecheck; live execution pending |

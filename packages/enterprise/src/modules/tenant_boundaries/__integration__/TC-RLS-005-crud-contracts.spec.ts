@@ -5,7 +5,7 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { startRlsLiveRuntime } from './helpers/liveRuntime'
-import { createCrudContractFixtures } from './helpers/crudContractFixtures'
+import { createCrudContractFixtures, withPessimisticPersonLock } from './helpers/crudContractFixtures'
 
 const detailSchema = z.object({
   person: z.object({ id: z.string().uuid(), displayName: z.string(), updatedAt: z.string(), tenantId: z.string().uuid(), organizationId: z.string().uuid() }),
@@ -38,6 +38,13 @@ test('TC-RLS-005: People HTTP preserves custom fields, encryption, guards and co
       ]))
       contexts.push(await playwright.request.newContext({ baseURL: runtime.baseUrl, extraHTTPHeaders: { Authorization: `Bearer ${actor.token}` }, timeout: 30_000 }))
     }
+    expect(runtime.selectedAdmin.tenantId).toBe(runtime.first.tenantId)
+    expect(runtime.selectedAdmin.orgId).toBe(runtime.first.orgId)
+    expect(runtime.selectedAdmin.userId).not.toBe(runtime.first.userId)
+    const lockOwner = await playwright.request.newContext({
+      baseURL: runtime.baseUrl, extraHTTPHeaders: { Authorization: `Bearer ${runtime.selectedAdmin.token}` }, timeout: 30_000,
+    })
+    contexts.push(lockOwner)
     const anonymous = await playwright.request.newContext({ baseURL: runtime.baseUrl, timeout: 30_000 })
     contexts.push(anonymous)
     const records: { id: string; name: string; secret: string }[] = []
@@ -91,6 +98,29 @@ test('TC-RLS-005: People HTTP preserves custom fields, encryption, guards and co
       expect(denied.status()).toBe(401)
       expect(await fixtures.person(own.id)).toEqual(beforeGuard)
       expect(await fixtures.commands(actor.tenantId, own.id)).toEqual(auditBeforeGuard)
+      if (index === 0) {
+        await withPessimisticPersonLock(lockOwner, own.id, async () => {
+          const valuesBeforeGuard = await fixtures!.values(actor.tenantId)
+          for (const method of ['PUT', 'DELETE'] as const) {
+            const guarded = await context.fetch(`/api/customers/people${method === 'DELETE' ? `?id=${own.id}` : ''}`, {
+              method, headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: initial.person.updatedAt },
+              ...(method === 'PUT' ? { data: {
+                id: own.id, displayName: 'Guard denied',
+                customFields: { [fixtures!.key]: 'guard-denied', [fixtures!.secretKey]: 'guard-denied-secret' },
+              } } : {}),
+            })
+            expect(guarded.status()).toBe(423)
+            expect(await guarded.json()).toMatchObject({
+              code: 'record_locked',
+              lock: { resourceKind: 'customers.person', resourceId: own.id, lockedByUserId: runtime.selectedAdmin.userId, strategy: 'pessimistic' },
+            })
+            expect(await fixtures!.person(own.id)).toEqual(beforeGuard)
+            expect(await fixtures!.values(actor.tenantId)).toEqual(valuesBeforeGuard)
+            expect(await fixtures!.commands(actor.tenantId, own.id)).toEqual(auditBeforeGuard)
+            expect(await detail(context, own.id)).toEqual(initial)
+          }
+        })
+      }
       const updatedSecret = `${own.secret}-updated`
       const updated = await context.put('/api/customers/people', { headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: initial.person.updatedAt }, data: {
         id: own.id, displayName: `${own.name} updated`, customFields: { [fixtures.key]: `updated-${index}`, [fixtures.secretKey]: updatedSecret },
