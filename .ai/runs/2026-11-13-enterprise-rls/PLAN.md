@@ -62,7 +62,7 @@ Engine: om-auto-continue-pr-loop
 | 3 | 3.5 | Benchmark checkout overhead and pool pressure | inline | done | this commit; live PG17 24 paired cases/12000 acquisitions; pool1/3/10; actual JSON and analysis |
 | 4 | 4.0 | Remove PoC code and retain production regression coverage | inline | done | 3b4195bffa + parent live verification |
 | 4 | 4.1 | Run full repository and integration validation gates | inline | todo | — |
-| 4 | 4.2 | Complete independent code and security review with fixes | inline | todo | — |
+| 4 | 4.2 | Complete independent code and security review with fixes | inline | in_progress | review244: four majors; scheduler335c fixed; onboarding/customer9b and AI/paymentf53 remediation active |
 | 4 | 4.3 | Publish full implementation results and finalize PR | inline | todo | — |
 
 ## Goal
