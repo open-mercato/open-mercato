@@ -88,6 +88,8 @@ import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serv
 import { withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
 import { surfaceRecordConflict } from './conflicts'
+import { ErrorMessage } from './detail/ErrorMessage'
+import { useRevealError } from './utils/useRevealError'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
@@ -925,6 +927,9 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   const submittingRef = React.useRef(false)
   const deletingRef = React.useRef(false)
   const [formError, setFormError] = React.useState<string | null>(null)
+  const [rejectedSubmit, setRejectedSubmit] = React.useState(0)
+  const rejectionRef = React.useRef<HTMLDivElement>(null)
+  useRevealError(rejectionRef, rejectedSubmit || null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfDefinitions, setCfDefinitions] = React.useState<CustomFieldDefDto[]>([])
   const [cfMetadata, setCfMetadata] = React.useState<CustomFieldDefinitionsPayload | null>(null)
@@ -2560,7 +2565,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   }, [formId, formReadOnly])
 
   const lastFocusedFieldRef = React.useRef<string | null>(null)
-  const lastErrorFieldRef = React.useRef<string | null>(null)
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -2613,75 +2617,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       }
     }
   }, [disableInitialFocus, firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
-
-  React.useEffect(() => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') return
-    const entries = Object.entries(errors)
-    if (!entries.length) {
-      lastErrorFieldRef.current = null
-      return
-    }
-    const [fieldId] = entries[0]
-    if (!fieldId || lastErrorFieldRef.current === fieldId) return
-
-    const form = document.getElementById(formId)
-    if (!form) return
-
-    // Don't steal focus if the user is already typing inside the form. The auto-focus
-    // is meant for "submit failed, jump to first invalid field" — not for "user is
-    // editing one error field and our focus jumps to a different remaining error
-    // each keystroke as the errors object shrinks". Keystrokes would otherwise land
-    // in the wrong input.
-    const active = document.activeElement
-    if (active instanceof HTMLElement && form.contains(active)) {
-      lastErrorFieldRef.current = fieldId
-      return
-    }
-
-    const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
-    const target =
-      container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
-      form.querySelector<HTMLElement>(`[name="${fieldId}"]`) ??
-      container ??
-      null
-
-    if (target && typeof target.focus === 'function') {
-      target.focus()
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-        try {
-          target.select()
-        } catch {}
-      }
-      lastErrorFieldRef.current = fieldId
-    }
-  }, [errors, formId])
-
-  // When an injection widget blocks save (e.g. the SEO helper), the blocking
-  // reason is easy to miss if the relevant field or the widget panel is off-screen.
-  // Deliberately scroll to the first field-mapped error, falling back to the
-  // injection widget region when the widget only returns a message.
-  const scrollToInjectionBlockedTarget = React.useCallback(
-    (fieldErrors?: Record<string, string>) => {
-      if (typeof document === 'undefined') return
-      const form = document.getElementById(formId)
-      if (!form) return
-      let target: HTMLElement | null = null
-      for (const fieldId of fieldErrors ? Object.keys(fieldErrors) : []) {
-        const fieldContainer = form.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
-        if (fieldContainer) {
-          target = fieldContainer
-          break
-        }
-      }
-      if (!target) {
-        target = form.querySelector<HTMLElement>('[data-crud-injection-region]')
-      }
-      if (target && typeof target.scrollIntoView === 'function') {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }
-    },
-    [formId],
-  )
 
   const updateEditedFieldMarker = React.useCallback((
     id: string,
@@ -3119,6 +3054,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     if (submittingRef.current) return
     submittingRef.current = true
+    let saved = false
     try {
     setFormError(null)
     setErrors({})
@@ -3163,6 +3099,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       }
       const transformedErrors = await transformValidationErrors(requiredErrors)
       setErrors(transformedErrors)
+      if (!Object.keys(transformedErrors).length) setFormError(highlightedMessage)
       flash(highlightedMessage, 'error')
       return
     }
@@ -3195,6 +3132,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
             for (const [ek, ev] of Object.entries(result.fieldErrors)) mapped[ek.replace(/^cf_/, '')] = String(ev)
             const transformedErrors = await transformValidationErrors(mapped)
             setErrors((prev) => ({ ...prev, ...translateValidationErrors(transformedErrors) }))
+            if (!Object.keys(transformedErrors).length) setFormError(highlightedMessage)
           } else {
             const transformedErrors = await transformValidationErrors(
               Object.fromEntries(
@@ -3202,6 +3140,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               ),
             )
             setErrors((prev) => ({ ...prev, ...translateValidationErrors(transformedErrors) }))
+            if (!Object.keys(transformedErrors).length) setFormError(highlightedMessage)
           }
           flash(highlightedMessage, 'error')
           return
@@ -3234,6 +3173,9 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         }
         const transformedErrors = await transformValidationErrors(fieldErrors)
         setErrors(translateValidationErrors(transformedErrors))
+        if (!Object.keys(transformedErrors).length) {
+          setFormError(translateValidationMessage(res.error.issues[0]?.message ?? highlightedMessage))
+        }
         flash(highlightedMessage, 'error')
         return
       }
@@ -3290,20 +3232,29 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           } catch {
             // ignore event dispatch failures
           }
+          let firstFieldError: string | undefined
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
             const transformedErrors = await transformValidationErrors(result.fieldErrors)
-            setErrors(translateValidationErrors(transformedErrors))
+            const translatedErrors = translateValidationErrors(transformedErrors)
+            setErrors(translatedErrors)
+            firstFieldError = Object.values(translatedErrors).find((message) => message.length > 0)
           }
-          const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+          const message = translateValidationMessage(result.message)
+            || firstFieldError
+            || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
-          scrollToInjectionBlockedTarget(result.fieldErrors)
+          setFormError(message)
           setPending(false)
           return
         }
         injectionRequestHeaders = result.requestHeaders
       } catch (err) {
         logger.error('Error in onBeforeSave', { err })
-        flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        const message = err instanceof Error && err.message
+          ? translateValidationMessage(err.message)
+          : t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+        setFormError(message)
+        flash(message, 'error')
         setPending(false)
         return
       }
@@ -3338,7 +3289,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         await triggerInjectionEvent('onSave', submitValues, injectionContext)
       } catch (err) {
         logger.error('Error in onSave', { err })
-        flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        const message = err instanceof Error && err.message
+          ? translateValidationMessage(err.message)
+          : t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+        setFormError(message)
+        flash(message, 'error')
         setPending(false)
         return
       }
@@ -3368,6 +3323,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         }
       }
 
+      saved = true
       markFormAsClean(valuesRef.current as Record<string, unknown>)
       keepSubmitNavigationBypassAlive()
       try {
@@ -3452,6 +3408,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     }
     } finally {
       submittingRef.current = false
+      if (!saved) setRejectedSubmit((attempt) => attempt + 1)
     }
   }
 
@@ -4088,7 +4045,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               )}
               {hasSecondaryColumn ? <div className={densityStackMd} data-crud-injection-region>{col2Content}</div> : null}
             </div>
-            {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
+            {rejectedSubmit > 0 && (formError || Object.values(errors)[0]) ? (
+              <div ref={rejectionRef} tabIndex={-1} className="scroll-mt-24" data-crud-form-error>
+                <ErrorMessage label={formError || Object.values(errors)[0]} />
+              </div>
+            ) : null}
             {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}
@@ -4186,7 +4147,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                 )
               })}
             </div>
-            {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
+            {rejectedSubmit > 0 && (formError || Object.values(errors)[0]) ? (
+              <div ref={rejectionRef} tabIndex={-1} className="scroll-mt-24" data-crud-form-error>
+                <ErrorMessage label={formError || Object.values(errors)[0]} />
+              </div>
+            ) : null}
             {renderFooterActions ? (
               <FormFooter
                 embedded={embedded}

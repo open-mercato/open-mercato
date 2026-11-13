@@ -486,6 +486,13 @@ export async function loginStaffInBrowser(page: BrowserPage, person: { email: st
     data: form.toString(),
   })
   expect(response.ok(), `staff login failed: ${response.status()}`).toBeTruthy()
+  const body = await readJsonSafe<{ token?: string }>(response)
+  if (typeof body?.token !== 'string') throw new Error('[internal] Staff browser login did not return a token')
+  const { tenantId, organizationId } = getTokenContext(body.token)
+  const cookies = []
+  if (tenantId) cookies.push({ name: 'om_selected_tenant', value: tenantId, url: baseUrl(), sameSite: 'Lax' as const })
+  if (organizationId) cookies.push({ name: 'om_selected_org', value: organizationId, url: baseUrl(), sameSite: 'Lax' as const })
+  if (cookies.length) await page.context().addCookies(cookies)
   await acknowledgeGlobalNotices(page)
   await page.goto('/backend', { waitUntil: 'domcontentloaded' })
   await page.waitForURL(/\/backend/, { timeout: 60_000 })
