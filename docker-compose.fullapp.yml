@@ -162,6 +162,9 @@ services:
     build:
       context: .
       args:
+        - OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES:-false}
+        - OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
+        - POSTGRES_CLIENT_MAJOR=${POSTGRES_CLIENT_MAJOR:-17}
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
         # Optional internal Alpine mirror for proxy-blocked corporate networks
         # (empty = official CDN; see the Dockerfile builder stage comment).
@@ -188,6 +191,7 @@ services:
         INIT_COMMAND='yarn mercato init' sh /app/docker/scripts/init-or-migrate.sh
         yarn start
     volumes:
+      - recovery_data:/var/lib/open-mercato/recovery
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/apps/mercato/storage
       - mcp_shared:/run/mcp-shared:ro
@@ -210,6 +214,8 @@ services:
       # Prevents V8 from growing toward total host RAM before GC kicks in.
       # Override in .env to tune for your host: --max-old-space-size=6144 suits 16 GB+ servers.
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=3072}
+      OM_ENABLE_ENTERPRISE_MODULES: ${OM_ENABLE_ENTERPRISE_MODULES:-false}
+      OM_ENABLE_ENTERPRISE_MODULES_BACKUPS: ${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
       PORT: ${CONTAINER_PORT:-3000}
       TELEMETRY_BACKEND: ${TELEMETRY_BACKEND:-}
@@ -477,6 +483,8 @@ services:
       - mercato-network-fullapp
 
 volumes:
+  recovery_data:
+    name: mercato-recovery-data-${DEPLOY_ENV:-local}
   postgres_data:
     name: mercato-postgres-data-${DEPLOY_ENV:-local}
   redis_data:
