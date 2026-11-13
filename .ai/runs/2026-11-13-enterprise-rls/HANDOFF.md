@@ -2,7 +2,7 @@
 
 Branch: cez/82462d87
 PR: https://github.com/open-mercato/open-mercato/pull/9424 (draft)
-Current step: 2.2-rsc; PLAN.md remains authoritative for all remaining work.
+Current step: 2.2-rsc and remaining public continuations; PLAN.md remains authoritative for all remaining work.
 
 ## Completed
 
@@ -12,7 +12,9 @@ Accepted child 3b4195bffa removed the prototype source/unit tests and dual-mode 
 
 ## Next action and verification limits
 
-Run the native tenant_boundaries suite again after module generation. Attempt 3 built packages/application and reached Playwright, but stopped before assertions: legacy catalog_product_option_values was missing from the ORM-only inventory. Catalog now explicitly declares four retained legacy option tables; generic generation adds declared non-ORM storage and produces 346 entries. Unknown tables still fail closed and diagnostics report all missing names. Typechecks, builds, generation and 74 runtime units pass; live RSC has not passed yet.
+Native attempt6 retry app is ready; test owner71754/session64558 remains active with log /tmp/rls-82462-live-rsc-6.log. First run failed before fixture creation on database timeout. No live RSC assertion pass claimed. Serialize package builds/generators with the native runner and its retries.
+
+Latest e094c81303 storefront/buyer continuation:119 tests/9 suites and core typecheck pass. Login/tokens 009655ef56/2637311d63:27 tests/3 suites and core typecheck pass. Signup/invitation a485df41a5:9 tests pass. Module-owned catalog declarations d324542332 produce347 inventory entries. All pushed. Checkpoint4 posted as comment6856414615; full gates remain required.
 
 ## Remaining
 

@@ -16,3 +16,5 @@ Steps1.1 through1.4 verified: 33 shared/73 enterprise tests, both typechecks, en
 
 ## 2026-11-13T10:45:00Z — checkpoint 2 / Phase 1 closed
 Step1.5 committed762a2d0ccc; startup registration and real guarded readiness verified. Enterprise79 tests, shared bootstrap5, CLI generator7, typechecks/build/generation/template pass; PG16–18 each3live tests including23 catalog checks pass. No UI changed. Next2.1 trusted API identity and continuation.
+
+Checkpoint4: verified public continuations committed/pushed;119 storefront and27 login/token tests pass. Native RSC retry pending. PR comment6856414615; no live RSC/concurrency completion claim.
