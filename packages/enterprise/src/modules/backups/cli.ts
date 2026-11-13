@@ -5,7 +5,7 @@ import { bytes } from './lib/engine/streams'
 import { parseArgs } from 'node:util'
 import { isAbsolute } from 'node:path'
 import { runBackupCli } from './lib/engine/cli/main'
-const commands = ['preflight', 'create', 'status', 'verify', 'restore', 'exercise'] as const
+const commands = ['configure', 'preflight', 'create', 'status', 'verify', 'restore', 'exercise'] as const
 const cli: ModuleCli[] = commands.map((command) => ({
   command,
   async run(rest) {

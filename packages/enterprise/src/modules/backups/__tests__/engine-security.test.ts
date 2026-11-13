@@ -1,4 +1,4 @@
-import { mkdtemp, chmod, mkdir, writeFile, readFile,rm, symlink } from 'node:fs/promises'
+import { mkdtemp, chmod, mkdir, writeFile, readFile, readdir,rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { contained, privateDirectory, readBoundedFile } from '../lib/engine/artifacts'
@@ -7,6 +7,8 @@ import { acquireBackupLock } from '../lib/engine/lock'
 import { generateX25519Identity, identityToRecipient } from '../lib/engine/crypto'
 import type { BackupSource } from '../lib/engine/types'
 import { randomUUID } from 'node:crypto'
+import { BackupError } from '../lib/engine/errors'
+import * as recoveryConfiguration from '../../../lib/recovery-configuration'
 
 describe('recovery security boundary', () => {
   let root: string
@@ -50,7 +52,7 @@ describe('recovery security boundary', () => {
     expect(await runBackupCli(['status',root],{stdout:()=>{},stderr:(text)=>output.push(text)})).toBe(3)
     expect(output.join('')).toContain('BACKUP_ENTERPRISE_RIGHTS_REQUIRED')
   })
-  test('interrupted JSON creation preserves the durable run id and a safe exact CLI resume command', async () => {
+  test.each(['explicit', 'defaults'])('interrupted JSON creation preserves effective %s paths in its exact resume command', async mode => {
     for(const key of rights) process.env[key]='true'
     const identity=await generateX25519Identity()
     const recipientsPath=join(root,'recipients');await writeFile(recipientsPath,await identityToRecipient(identity),{mode:0o600})
@@ -66,13 +68,64 @@ describe('recovery security boundary', () => {
       },async sequences(){return []},async boundary(){return {identity:{clusterIncarnation:'fixture',databaseOid:'99',serverMajor:16,encoding:'UTF8',collation:'C'},evidence:{xmax:'999',xipList:[]}}},async close(){}
     }},async close(){}}
     const output:string[]=[]
-    const exit=await runBackupCli(['create','--json','--progress','none','--source-service','fixture','--recipients-file',recipientsPath,'--output',join(root,'out'),'--workspace',join(root,'workspace')],{stdout:(text)=>output.push(text),stderr:()=>{},signal:controller.signal,sourceFactory:()=>source})
+    const planned = await recoveryConfiguration.resolveRecoveryConfiguration({ overrides: { backupOutput: join(root,'out'), backupWorkspace: join(root,'workspace'), recipientsFile: recipientsPath, serviceFile: join(root,'service'), passwordFile: join(root,'password') }, discoverBinaries: false })
+    planned.binaries = { directory: '/selected/postgresql17/bin', major: 17, source: 'platform-search' }
+    planned.provenance.backupOutput = planned.provenance.backupWorkspace = planned.provenance.recipientsFile = 'platform-default'
+    const resolver = mode === 'defaults' ? jest.spyOn(recoveryConfiguration, 'resolveRecoveryConfiguration').mockResolvedValue(planned) : undefined
+    let exit: number
+    try {
+      exit=await runBackupCli(['create','--json','--progress','none','--source-service','fixture', ...(mode === 'explicit' ? ['--recipients-file',recipientsPath,'--output',join(root,'out'),'--workspace',join(root,'workspace')] : [])],{stdout:(text)=>output.push(text),stderr:()=>{},signal:controller.signal,sourceFactory:()=>source})
+    } finally { resolver?.mockRestore() }
     const result=JSON.parse(output[0])
     expect(result.command).toBe('create');expect(result.runId).toBe(result.backupId)
     expect(exit).toBe(143);expect(result.status).toBe('interrupted');expect(result.backupId).toMatch(/^[a-f0-9-]{36}$/)
     expect(result.resumeCommand).toContain("'--source-service' 'fixture'")
     expect(result.resumeCommand).toContain("'--trusted-partial-sha256'")
     expect(result.partialStateSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.resumeCommand).toContain(`'--output' '${join(root,'out')}'`)
+    expect(result.resumeCommand).toContain(`'--workspace' '${join(root,'workspace')}'`)
+    expect(result.resumeCommand).toContain(`'--recipients-file' '${recipientsPath}'`)
+    if (mode === 'defaults') {
+      expect(result.resumeCommand).toContain("'--binaries-dir' '/selected/postgresql17/bin'")
+      expect(result.resumeCommand).toContain(`PGSERVICEFILE='${join(root,'service')}' PGPASSFILE='${join(root,'password')}'`)
+      expect(result.resumeCommand).not.toContain('--identity-file')
+    }
+  })
+  test.each(['public-custody', 'symlink-base'])('implicit 0600 recipients refuse %s before opening source or creating artifacts', async unsafe => {
+    for (const key of rights) process.env[key] = 'true'
+    const priorRoot = process.env.OM_RECOVERY_ROOT
+    const actual = join(root, 'actual'), plannedRoot = unsafe === 'symlink-base' ? join(root, 'alias') : actual
+    await mkdir(actual, { mode: 0o700 })
+    await mkdir(join(actual, 'custody'), { mode: 0o700 })
+    if (unsafe === 'symlink-base') await symlink(actual, plannedRoot)
+    else await chmod(join(actual, 'custody'), 0o777)
+    await writeFile(join(actual, 'custody', 'recipients.txt'), 'private-file-with-unsafe-ancestor', { mode: 0o600 })
+    process.env.OM_RECOVERY_ROOT = plannedRoot
+    const open = jest.fn(), sourceFactory = jest.fn(() => ({ open, close: jest.fn() }))
+    const stdout: string[] = []
+    try {
+      expect(await runBackupCli(['create', '--source-service', 'fixture', '--json', '--progress', 'json'], { sourceFactory, stdout: value => stdout.push(value), stderr: () => {} })).toBe(3)
+      expect(JSON.parse(stdout[0]).error.code).toBe('RECOVERY_PRIVATE_DIRECTORY_REQUIRED')
+      expect(sourceFactory).not.toHaveBeenCalled(); expect(open).not.toHaveBeenCalled()
+      expect(await readdir(actual)).toEqual(['custody'])
+    } finally { if (priorRoot === undefined) delete process.env.OM_RECOVERY_ROOT; else process.env.OM_RECOVERY_ROOT = priorRoot }
+  })
+  test.each(['restore', 'exercise'])('%s checks only its actual durable workspace, not unused default output', async command => {
+    for (const key of rights) process.env[key] = 'true'
+    const identityFile = join(root, 'identity.txt')
+    await writeFile(identityFile, await generateX25519Identity(), { mode: 0o600 })
+    const plan = await recoveryConfiguration.resolveRecoveryConfiguration({ overrides: { backupWorkspace: join(root, 'workspace'), identityFile }, discoverBinaries: false })
+    plan.container = true
+    plan.durablePaths.backupOutput = plan.durablePaths.base = false
+    plan.missingPrerequisites.push({ code: 'RECOVERY_PERSISTENT_MOUNT_REQUIRED', field: 'backupOutput' }, { code: 'RECOVERY_PERSISTENT_MOUNT_REQUIRED', field: 'base' })
+    const resolver = jest.spyOn(recoveryConfiguration, 'resolveRecoveryConfiguration').mockResolvedValue(plan)
+    const targetFactory = jest.fn(() => { throw new BackupError('FIXTURE_TARGET_BOUNDARY', 3) })
+    const stdout: string[] = []
+    try {
+      expect(await runBackupCli([command, '--target-service', 'authorized-isolated-target', '--workspace', join(root, 'workspace'), '--identity-file', identityFile, '--artifact', join(root, 'artifact'), '--trusted-manifest-sha256', 'a'.repeat(64), '--confirm-target', 'fresh-fixture-challenge', '--json', '--progress', 'json'], { targetFactory, stdout: text => stdout.push(text), stderr: () => {} })).toBe(3)
+      expect(targetFactory).toHaveBeenCalledWith(expect.objectContaining({ targetService: 'authorized-isolated-target', workspace: join(root, 'workspace') }))
+      expect(JSON.parse(stdout[0]).error.code).toBe('FIXTURE_TARGET_BOUNDARY')
+    } finally { resolver.mockRestore() }
   })
   test('invalid options preserve the requested single-object JSON error protocol',async()=>{
     const output:string[]=[]

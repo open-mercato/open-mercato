@@ -1,6 +1,6 @@
 {
   "backups.cli.error": "ERROR: 복구 명령이 거부되었거나 완료되지 않았습니다.",
-  "backups.cli.help": "암호화 백업 및 격리 복구: preflight, create, status, verify, restore, exercise.",
+  "backups.cli.help": "암호화 백업 및 격리 복구: configure, preflight, create, status, verify, restore, exercise.",
   "backups.cli.unencrypted": "UNENCRYPTED: 이 백업에는 모든 테넌트의 읽을 수 있는 데이터가 포함됩니다.",
   "backups.cli.unencryptedPrompt": "읽을 수 있는 백업을 확인하려면 UNENCRYPTED를 입력하세요: ",
   "backups.presentation.assurance.created": "생성만 완료했습니다. 검증 및 복원은 수행하지 않았습니다.",
@@ -10,6 +10,7 @@
   "backups.presentation.assurance.quarantined": "격리 환경으로 복원했습니다. 운영 전환은 승인되지 않았습니다.",
   "backups.presentation.assurance.status": "상태는 정보 제공용이며 재개 또는 검증을 위한 신뢰를 부여하지 않습니다.",
   "backups.presentation.assurance.verified": "전체 아티팩트 무결성을 검증했습니다. 복원은 수행하지 않았습니다.",
+  "backups.presentation.command.configure": "복구 구성",
   "backups.presentation.command.create": "데이터베이스 백업",
   "backups.presentation.command.exercise": "복구 훈련",
   "backups.presentation.command.preflight": "백업 사전 점검",
@@ -17,6 +18,7 @@
   "backups.presentation.command.status": "백업 상태",
   "backups.presentation.command.verify": "백업 검증",
   "backups.presentation.completed": "완료",
+  "backups.presentation.configurationPlan": "구성 계획만 표시합니다. 데이터베이스, 라이선스 또는 키 보관 자료는 생성하지 않았습니다.",
   "backups.presentation.error": "오류",
   "backups.presentation.expected": "예상 결과",
   "backups.presentation.info": "정보",

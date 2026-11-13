@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { resolveRecoveryConfiguration, requireRecoveryDirectories, requireRecoveryCustodyFile, RecoveryConfigurationError, type RecoveryConfiguration, type RecoveryOverrides } from '@open-mercato/enterprise/lib/recovery-configuration'
 import { parseArgs } from 'node:util'
 import { createInterface } from 'node:readline/promises'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -37,7 +38,8 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     if (structuredProgress) io.stderr(JSON.stringify({ schemaVersion: 1, type: 'phase.changed', runId: latestProgress?.runId ?? requestId, phase, entity: text, rowsDone: '0', rowsTotal: '0', rowsTotalExact: false, bytesDone: '0', chunksDone: 0, at: new Date().toISOString() }) + '\n')
     else presentation.status('warn', text)
   }
-  const commands=['preflight','create','status','verify','restore','exercise','help']
+  let configuration: RecoveryConfiguration | undefined
+  const commands=['configure','preflight','create','status','verify','restore','exercise','help']
   let command=commands.includes(argv[0])?argv[0]:'unknown'
   let json = argv.includes('--json')
   const abort = new AbortController()
@@ -66,11 +68,32 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
       io.stdout(json ? JSON.stringify({ schemaVersion: 1, command: 'help', runId:requestId, status: 'completed', help: backupTranslation('backups.cli.help'), warnings: [] }) + '\n' : backupTranslation('backups.cli.help') + '\n')
       return 0
     }
+    const configure = async () => {
+      const overrides: RecoveryOverrides = {}
+      if (values.output !== undefined) overrides.backupOutput = values.output
+      if (values.workspace !== undefined) overrides.backupWorkspace = values.workspace
+      if (values['binaries-dir'] !== undefined) overrides.binariesDir = values['binaries-dir']
+      if (values['recipients-file'] !== undefined) overrides.recipientsFile = values['recipients-file']
+      if (values['identity-file'] !== undefined) overrides.identityFile = values['identity-file']
+      return resolveRecoveryConfiguration({ overrides, signal, discoverBinaries: command === 'configure' || !io.sourceFactory && !io.targetFactory })
+    }
     if (io.appWrapper && json) throw new BackupError('BACKUP_USE_STANDALONE_FOR_JSON', 2)
+    if (command === 'configure') {
+      configuration = await configure()
+      const mode = values.progress ?? (process.stderr.isTTY ? 'tty' : 'plain')
+      if (!['tty', 'plain', 'json', 'verbose', 'none'].includes(mode)) throw new BackupError('BACKUP_INVALID_PROGRESS', 2)
+      structuredProgress = mode === 'json'
+      presentation = createCliPresentation({ mode: mode as CliProgressMode, output: terminalOutput })
+      presentation.title(backupTranslation('backups.presentation.command.configure'))
+      presentation.result(backupTranslation('backups.presentation.configurationPlan'), Object.entries(configuration.paths).map(([field, path]) => `${field}: ${path}`).concat(configuration.missingPrerequisites.map(item => `${item.code}: ${item.field}`)), configuration.missingPrerequisites.length ? 'warn' : 'ok')
+      io.stdout(JSON.stringify({ schemaVersion: 1, command, runId: requestId, status: 'completed', assurance: 'configuration-plan-only', ...configuration, warnings: configuration.missingPrerequisites.map(item => item.code) }) + '\n')
+      return 0
+    }
     if (!parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false) || !parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_BACKUPS, false) || !parseBooleanWithDefault(process.env.OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED, false)) throw new BackupError('BACKUP_ENTERPRISE_RIGHTS_REQUIRED', 3)
     const resumeCommand = (name: string, id: string, partialDigest?: string): string => {
       const args = [name]
-      for (const [key, value] of Object.entries(values)) {
+      const effective = { ...values, output: configuration?.paths.backupOutput ?? values.output, workspace: configuration?.paths.backupWorkspace ?? values.workspace, 'binaries-dir': configuration?.binaries.directory ?? values['binaries-dir'] }
+      for (const [key, value] of Object.entries(effective)) {
         if (['resume', 'confirm-target', 'help', 'trusted-partial-sha256'].includes(key)) continue
         if (value === true) args.push(`--${key}`)
         else if (typeof value === 'string') args.push(`--${key}`, value)
@@ -78,9 +101,10 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
       args.push('--resume', id)
       if (name === 'create' && partialDigest) args.push('--trusted-partial-sha256', partialDigest)
       if (name === 'restore' || name === 'exercise') args.push('--confirm-target', '<fresh-confirmation-challenge>')
-      return 'mercato-backup ' + args.map(shellQuote).join(' ')
+      const bindings = configuration ? `PGSERVICEFILE=${shellQuote(configuration.paths.serviceFile)} PGPASSFILE=${shellQuote(configuration.paths.passwordFile)} ` : ''
+      return bindings + 'mercato-backup ' + args.map(shellQuote).join(' ')
     }
-    const required = (key: keyof typeof values) => { const value = values[key]; if (typeof value !== 'string' || !value) throw new BackupError('BACKUP_REQUIRED_OPTION', 2); return value }
+    const required = (key: keyof typeof values) => { const value = values[key] ?? (key === 'output' ? configuration?.paths.backupOutput : key === 'workspace' ? configuration?.paths.backupWorkspace : undefined); if (typeof value !== 'string' || !value) throw new BackupError('BACKUP_REQUIRED_OPTION', 2); return value }
     const number = (key: keyof typeof values, fallback: number) => { const value = values[key]; if (value === undefined) return fallback; if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new BackupError('BACKUP_INVALID_NUMBER', 2); const n = Number(value); if (!Number.isSafeInteger(n)) throw new BackupError('BACKUP_INVALID_NUMBER', 2); return n }
     if(typeof values.report==='string'){if(!isAbsolute(values.report))throw new BackupError('BACKUP_ABSOLUTE_PATH_REQUIRED',2);await privateDirectory(dirname(values.report));if(!['restore','exercise'].includes(command)&&await lstat(values.report).catch(()=>null))throw new BackupError('BACKUP_REPORT_ALREADY_EXISTS',3)}
     if(values['verify-mode']!==undefined&&!['full','streaming'].includes(values['verify-mode']))throw new BackupError('BACKUP_INVALID_VERIFY_MODE',2)
@@ -90,7 +114,18 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     const deadline = number('deadline-seconds', 21600)
     if (jobs < 1 || jobs > 8 || deadline < 1 || deadline > 86400) throw new BackupError('BACKUP_INVALID_RESOURCE_OPTION', 2)
     timeout = setTimeout(() => abort.abort('deadline'), deadline * 1000); timeout.unref()
-    const native: NativeOptions = { sourceService: typeof values['source-service'] === 'string' ? values['source-service'] : undefined, targetService: typeof values['target-service'] === 'string' ? values['target-service'] : undefined, binariesDir: typeof values['binaries-dir'] === 'string' ? values['binaries-dir'] : process.env.OM_BACKUP_BINARIES_DIR ?? '', serviceFile: process.env.PGSERVICEFILE ?? '', passwordFile: process.env.PGPASSFILE ?? '', jobs, signal: signal, deadlineSeconds: deadline, workspace: typeof values.workspace === 'string' ? values.workspace : undefined, maxStagingBytes: number('max-staging-bytes', 1024 * 1024 * 1024) }
+    configuration = await configure()
+    const validDefaultFile = (field: 'recipientsFile' | 'identityFile') => {
+      if (configuration!.missingPrerequisites.some(item => item.field === field)) return false
+      requireRecoveryCustodyFile(configuration!, field)
+      return true
+    }
+    if ((command === 'create' || command === 'status') && values['recipients-file'] === undefined && (configuration.provenance.recipientsFile !== 'platform-default' || validDefaultFile('recipientsFile'))) values['recipients-file'] = configuration.paths.recipientsFile
+    if (values['identity-file'] === undefined && (['status', 'verify', 'restore', 'exercise'].includes(command) || values.resume !== undefined || command === 'preflight' && operation !== 'create') && (configuration.provenance.identityFile !== 'platform-default' || validDefaultFile('identityFile'))) values['identity-file'] = configuration.paths.identityFile
+    if (['create', 'restore', 'exercise', 'verify'].includes(command)) requireRecoveryDirectories(configuration, ['backupWorkspace', ...(command === 'create' ? ['backupOutput'] as const : [])])
+    for (const field of ['serviceFile', 'passwordFile'] as const) if (configuration.container && configuration.provenance[field] === 'platform-default' && !configuration.missingPrerequisites.some(item => item.field === field)) requireRecoveryCustodyFile(configuration, field)
+    const selectedWorkspace = values.workspace ?? configuration.paths.backupWorkspace
+    const native: NativeOptions = { sourceService: typeof values['source-service'] === 'string' ? values['source-service'] : undefined, targetService: typeof values['target-service'] === 'string' ? values['target-service'] : undefined, binariesDir: configuration.binaries.directory ?? values['binaries-dir'] ?? process.env.OM_BACKUP_BINARIES_DIR ?? '', serviceFile: configuration.paths.serviceFile, passwordFile: configuration.paths.passwordFile, jobs, signal: signal, deadlineSeconds: deadline, workspace: selectedWorkspace, maxStagingBytes: number('max-staging-bytes', 1024 * 1024 * 1024) }
     if (values['verify-mode'] && !['full', 'streaming'].includes(values['verify-mode'])) throw new BackupError('BACKUP_INVALID_VERIFY_MODE', 2)
     const progressMode = values.progress ?? (process.stderr.isTTY ? 'tty' : 'plain')
     if (!['tty', 'plain', 'json', 'verbose', 'none'].includes(String(progressMode))) throw new BackupError('BACKUP_INVALID_PROGRESS', 2)
@@ -121,11 +156,17 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     let result: unknown
     if (command === 'status') {
       if (!artifact) throw new BackupError('BACKUP_REQUIRED_ARTIFACT', 2)
-      result = await getBackupStatus(artifact,{identities,workspace:typeof values.workspace==='string'?values.workspace:undefined,identityFile:typeof values['identity-file']==='string'?values['identity-file']:undefined,sourceService:native.sourceService,recipientsFile:typeof values['recipients-file']==='string'?values['recipients-file']:undefined,trustedManifestSha256:typeof values['trusted-manifest-sha256']==='string'?values['trusted-manifest-sha256']:undefined})
-      if (typeof values.workspace === 'string' && basename(artifact).endsWith('.partial')) result = { ...result as object, ...await trustedPartialStatus(artifact, values.workspace, basename(artifact).slice(1,-8)) }
+      const partialId = /^\.([a-f0-9-]{36})\.partial$/.exec(basename(artifact))?.[1]
+      const defaultRunIdentity = partialId ? await lstat(resolve(selectedWorkspace, `${partialId}.identity`)).catch(() => undefined) : undefined
+      const statusWorkspace = values.workspace ?? (defaultRunIdentity ? selectedWorkspace : undefined)
+      if (statusWorkspace) requireRecoveryDirectories(configuration, ['backupWorkspace'])
+      result = await getBackupStatus(artifact,{identities,workspace:statusWorkspace,identityFile:typeof values['identity-file']==='string'?values['identity-file']:undefined,sourceService:native.sourceService,recipientsFile:typeof values['recipients-file']==='string'?values['recipients-file']:undefined,trustedManifestSha256:typeof values['trusted-manifest-sha256']==='string'?values['trusted-manifest-sha256']:undefined})
+      if (typeof statusWorkspace === 'string' && basename(artifact).endsWith('.partial')) result = { ...result as object, ...await trustedPartialStatus(artifact, statusWorkspace, basename(artifact).slice(1,-8)) }
+      if (result && typeof result === 'object' && 'resumeCommand' in result && typeof result.resumeCommand === 'string') result.resumeCommand = `PGSERVICEFILE=${shellQuote(configuration.paths.serviceFile)} PGPASSFILE=${shellQuote(configuration.paths.passwordFile)} ` + result.resumeCommand + (configuration.binaries.directory ? ` '--binaries-dir' ${shellQuote(configuration.binaries.directory)}` : '')
     } else if (command === 'verify') {
       if (!artifact) throw new BackupError('BACKUP_REQUIRED_ARTIFACT', 2)
-      const verified = await verifyBackup({ artifact, trustedManifestSha256: required('trusted-manifest-sha256'), identities, signal: signal, progress, binariesDir: native.binariesDir, workspace: typeof values.workspace === 'string' ? values.workspace : undefined, maxStagingBytes: native.maxStagingBytes })
+      if (values.workspace === undefined) await privateDirectory(selectedWorkspace, true)
+      const verified = await verifyBackup({ artifact, trustedManifestSha256: required('trusted-manifest-sha256'), identities, signal: signal, progress, binariesDir: native.binariesDir, workspace: selectedWorkspace, maxStagingBytes: native.maxStagingBytes })
       result = { backupId: verified.manifest.backupId, consistency: verified.index.consistency, encryption: verified.manifest.encryption.mode }
     } else if (command === 'preflight') {
       if(operation==='restore'||operation==='exercise'){
@@ -194,7 +235,7 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     return 0
   } catch (error) {
     const inputFailure = error && typeof error === 'object' && (('code' in error && String(error.code).startsWith('ERR_PARSE_ARGS')) || ('name' in error && ['ZodError', 'SyntaxError'].includes(String(error.name))))
-    const failure = signal.aborted ? new BackupError(signal.reason === 'deadline' ? 'BACKUP_DEADLINE' : 'BACKUP_INTERRUPTED', signal.reason === 'SIGTERM' ? 143 : signal.reason === 'deadline' ? 5 : 130, true) : error instanceof BackupError ? error : inputFailure ? new BackupError('BACKUP_INVALID_INPUT',2) : new BackupError('BACKUP_INVALID_INPUT_OR_FAILURE', 1)
+    const failure = signal.aborted ? new BackupError(signal.reason === 'deadline' ? 'BACKUP_DEADLINE' : 'BACKUP_INTERRUPTED', signal.reason === 'SIGTERM' ? 143 : signal.reason === 'deadline' ? 5 : 130, true) : error instanceof RecoveryConfigurationError ? new BackupError(error.code, error.code.includes('INVALID') || error.code.includes('UNSUPPORTED') ? 2 : 3) : error instanceof BackupError ? error : inputFailure ? new BackupError('BACKUP_INVALID_INPUT',2) : new BackupError('BACKUP_INVALID_INPUT_OR_FAILURE', 1)
     if (error instanceof BackupError && signal.aborted) failure.context = error.context
     render?.suspend()
     const output = { schemaVersion: 1, command,runId:failure.context.restoreRunId??failure.context.backupId??requestId,status: [130, 143].includes(failure.exitCode) ? 'interrupted' : failure.resumable ? 'resumable' : failure.exitCode === 2 || failure.exitCode === 3 ? 'refused' : 'failed', error: { code: failure.code, messageKey: 'backups.cli.error' }, warnings: [], ...failure.context }

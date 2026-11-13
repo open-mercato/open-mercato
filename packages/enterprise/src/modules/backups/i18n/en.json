@@ -1,6 +1,6 @@
 {
   "backups.cli.error": "ERROR: recovery command refused or incomplete.",
-  "backups.cli.help": "Encrypted backup and isolated recovery: preflight, create, status, verify, restore, exercise.",
+  "backups.cli.help": "Encrypted backup and isolated recovery: configure, preflight, create, status, verify, restore, exercise.",
   "backups.cli.unencrypted": "UNENCRYPTED: this backup contains readable data from every tenant.",
   "backups.cli.unencryptedPrompt": "Type UNENCRYPTED to confirm readable backup: ",
   "backups.presentation.assurance.created": "Created only: verification and restore have not been performed.",
@@ -10,6 +10,7 @@
   "backups.presentation.assurance.quarantined": "Restored into quarantine. Promotion is not approved.",
   "backups.presentation.assurance.status": "Status is informational and does not grant resume or verification trust.",
   "backups.presentation.assurance.verified": "Full artifact integrity verified; no restore was performed.",
+  "backups.presentation.command.configure": "Recovery configuration",
   "backups.presentation.command.create": "Database backup",
   "backups.presentation.command.exercise": "Recovery exercise",
   "backups.presentation.command.preflight": "Backup preflight",
@@ -17,6 +18,7 @@
   "backups.presentation.command.status": "Backup status",
   "backups.presentation.command.verify": "Backup verification",
   "backups.presentation.completed": "Completed",
+  "backups.presentation.configurationPlan": "Configuration plan only; no database, license or key custody was created.",
   "backups.presentation.error": "ERROR",
   "backups.presentation.expected": "Expected",
   "backups.presentation.info": "INFO",

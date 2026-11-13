@@ -72,3 +72,30 @@ test('JSON progress on interactive stdin refuses unconfirmed plaintext backup wi
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('configure is a read-only plan without rights, key creation, database access or implicit provisioning', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'backup-configure-'))
+  const previous = process.env.OM_ENABLE_ENTERPRISE_MODULES
+  const stdout: string[] = [], stderr: string[] = []
+  const sourceFactory = jest.fn(), targetFactory = jest.fn()
+  try {
+    delete process.env.OM_ENABLE_ENTERPRISE_MODULES
+    const code = await runBackupCli(['configure', '--json', '--progress', 'json', '--output', join(root, 'archive'), '--workspace', join(root, 'workspace'), '--binaries-dir', join(root, 'missing-clients')], { stdout: text => stdout.push(text), stderr: text => stderr.push(text), sourceFactory, targetFactory })
+    expect(code).toBe(0)
+    expect(stdout).toHaveLength(1); expect(stderr).toEqual([])
+    expect(JSON.parse(stdout[0])).toMatchObject({ schemaVersion: 1, command: 'configure', status: 'completed', assurance: 'configuration-plan-only', paths: { backupOutput: join(root, 'archive'), backupWorkspace: join(root, 'workspace') }, provenance: { backupOutput: 'argument', backupWorkspace: 'argument' }, missingPrerequisites: expect.arrayContaining([{ code: 'RECOVERY_POSTGRES_CLIENTS_REQUIRED', field: 'binariesDir', path: join(root, 'missing-clients') }]) })
+    expect(sourceFactory).not.toHaveBeenCalled(); expect(targetFactory).not.toHaveBeenCalled()
+    expect(await readdir(root)).toEqual([])
+    expect(process.env.OM_ENABLE_ENTERPRISE_MODULES).toBeUndefined()
+  } finally {
+    if (previous === undefined) delete process.env.OM_ENABLE_ENTERPRISE_MODULES; else process.env.OM_ENABLE_ENTERPRISE_MODULES = previous
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test('configure preserves the application wrapper refusal of machine JSON', async () => {
+  const stdout: string[] = []
+  expect(await runBackupCli(['configure', '--json', '--progress', 'json'], { appWrapper: true, stdout: value => stdout.push(value), stderr: () => {} })).toBe(2)
+  expect(JSON.parse(stdout[0]).error.code).toBe('BACKUP_USE_STANDALONE_FOR_JSON')
+})
