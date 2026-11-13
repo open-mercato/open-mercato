@@ -1,7 +1,10 @@
 /** Bounded JSON decoding for maintenance: numeric tokens must not pass through IEEE-754. */
 export function parseRotationJson(text: string, numeric?: (source: string) => unknown): unknown {
   const unsupported = () => new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-  if (Buffer.byteLength(text) > 1024 * 1024) throw unsupported()
+  // A UTF-16 code unit needs at most three UTF-8 bytes (a surrogate pair
+  // needs four for two units). Short inputs therefore provably fit without
+  // rescanning them; longer inputs retain the exact byte-size check.
+  if (text.length > Math.floor(1024 * 1024 / 3) && Buffer.byteLength(text) > 1024 * 1024) throw unsupported()
   let depth = 0; let nodes = 0
   for (let offset = 0; offset < text.length; offset++) {
     const token = text[offset]

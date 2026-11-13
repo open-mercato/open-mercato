@@ -1,4 +1,4 @@
-import { ExactJsonNumber, canonicalValue, canonicalRow, keyedDigest, keyedRowDigest, type LogicalValue, type VerificationRow } from '../canonical'
+import { ExactJsonNumber, canonicalValue, canonicalRow, keyedDigest, keyedRowDigest, keyedRowDigestAndSize, type LogicalValue, type VerificationRow } from '../canonical'
 const key = Buffer.alloc(32, 7)
 test.each([
   ['row-v1', '73b579e02a286f290f02c9d3e1d49d402052d85930fa02da643b8fe531598e68'],
@@ -136,4 +136,46 @@ test('ill-formed UTF-16 cannot collide with a valid replacement character in UTF
   }
   expect(keyedRowDigest(key, row(replacement))).toHaveLength(64)
   expect(keyedRowDigest(key, row(String.fromCodePoint(0x1f600)))).toHaveLength(64)
+})
+
+
+test('adaptive row hashing preserves old frames around the large-leaf threshold and scratch boundaries', () => {
+  const values: LogicalValue[] = [
+    'x'.repeat(2048), 'x'.repeat(2049), 'x'.repeat(65536),
+    '日'.repeat(683), '日本語😀'.repeat(8192),
+    Object.assign(Object.create(null), { ['__proto__']: 'x'.repeat(65536), constructor: [false, null, -0, new ExactJsonNumber('9007199254740993.0001')] }),
+    { prefix: Array.from({ length: 220 }, (_, index) => `日本語-${index}`), large: '😀'.repeat(4096), suffix: [new ExactJsonNumber('1.0000000000000000001'), '\u0000', true] },
+  ]
+  for (const value of values) {
+    const candidate = row(value)
+    const expected = oldRow(candidate)
+    expect(keyedRowDigestAndSize(key, candidate)).toEqual({ digest: keyedDigest(key, 'row-v1', expected), bytes: expected.length })
+  }
+})
+
+test('small wide rows and mixed large rows preserve sorted frames without changing caller data', () => {
+  const columns = Array.from({ length: 200 }, (_, index) => ({ name: `field-${String(199 - index).padStart(3, '0')}`, type: 'jsonb', value: { unicode: '日', exact: new ExactJsonNumber('1.00'), index, empty: null } }))
+  for (const includeLarge of [false, true]) {
+    const candidate: VerificationRow = { ...row(null), columns: includeLarge ? [...columns, { name: 'large', type: 'text', value: 'x'.repeat(65536) }] : [...columns] }
+    const original = candidate.columns.map(column => ({ ...column }))
+    const expected = oldRow(candidate)
+    expect(keyedRowDigestAndSize(key, candidate)).toEqual({ digest: keyedDigest(key, 'row-v1', expected), bytes: expected.length })
+    expect(candidate.columns).toEqual(original)
+  }
+})
+
+test('large leaves do not bypass validation of later logical values, names or the exact row cap', () => {
+  const high = String.fromCharCode(0xd800)
+  for (const invalid of [NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, high, Object.create({ inherited: true })] as LogicalValue[]) {
+    expect(() => keyedRowDigest(key, row({ a: 'x'.repeat(65536), z: invalid }))).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+  }
+  expect(() => keyedRowDigest(key, row({ a: 'x'.repeat(65536), [high]: 'invalid name' }))).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+  const duplicate = { ...row(null), columns: [{ name: 'repeat', type: 'text', value: 'x'.repeat(65536) }, { name: 'repeat', type: 'text', value: 'other' }] }
+  expect(() => keyedRowDigest(key, duplicate)).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
+  const overhead = oldRow(row('')).length
+  const atLimit = row('x'.repeat(1024 * 1024 - overhead))
+  const expected = oldRow(atLimit)
+  expect(expected.length).toBe(1024 * 1024)
+  expect(keyedRowDigestAndSize(key, atLimit)).toEqual({ digest: keyedDigest(key, 'row-v1', expected), bytes: expected.length })
+  expect(() => keyedRowDigest(key, row('x'.repeat(1024 * 1024 - overhead + 1)))).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
 })

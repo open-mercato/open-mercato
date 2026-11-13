@@ -95,18 +95,29 @@ export function sameDigest(expected: string, actual: string): boolean {
     && timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(actual, 'hex'))
 }
 
-function encodedSize(value: LogicalValue): number {
-  if (value instanceof ExactJsonNumber) return 5 + Buffer.byteLength(value.canonical)
-  if (value === null) return 5
-  if (typeof value === 'boolean') return 6
-  if (typeof value === 'string') return 5 + Buffer.byteLength(wellFormedText(value))
-  if (typeof value === 'number') {
+type EncodingPlan = { payloadLengths: number[]; hasLargeLeaf: boolean }
+
+function encodedSize(value: LogicalValue, plan?: EncodingPlan): number {
+  const position = plan?.payloadLengths.length ?? 0
+  plan?.payloadLengths.push(0)
+  let size: number
+  if (value instanceof ExactJsonNumber) size = 5 + Buffer.byteLength(value.canonical)
+  else if (value === null) size = 5
+  else if (typeof value === 'boolean') size = 6
+  else if (typeof value === 'string') size = 5 + Buffer.byteLength(wellFormedText(value))
+  else if (typeof value === 'number') {
     if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-    return 5 + Buffer.byteLength(Object.is(value, -0) ? '-0' : String(value))
+    size = 5 + Buffer.byteLength(Object.is(value, -0) ? '-0' : String(value))
+  } else if (Array.isArray(value)) size = 5 + value.reduce<number>((total, entry) => total + encodedSize(entry, plan), 0)
+  else {
+    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+    size = 5 + Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0).reduce((total, name) => total + encodedSize(name, plan) + encodedSize(value[name], plan), 0)
   }
-  if (Array.isArray(value)) return 5 + value.reduce<number>((size, entry) => size + encodedSize(entry), 0)
-  if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-  return 5 + Object.keys(value).sort((left, right) => left < right ? -1 : left > right ? 1 : 0).reduce((size, key) => size + encodedSize(key) + encodedSize(value[key]), 0)
+  if (plan) {
+    plan.payloadLengths[position] = size - 5
+    if ((value instanceof ExactJsonNumber || typeof value === 'string') && size - 5 > 2048) plan.hasLargeLeaf = true
+  }
+  return size
 }
 
 function writeCanonical(value: LogicalValue, output: Buffer, offset: number): number {
@@ -126,14 +137,64 @@ function writeCanonical(value: LogicalValue, output: Buffer, offset: number): nu
   return offset
 }
 
+function updateCoalesced(hmac: ReturnType<typeof createHmac>, value: LogicalValue, payloadLengths: readonly number[], expectedSize: number): void {
+  const scratch = Buffer.allocUnsafe(4096)
+  let used = 0
+  let position = 0
+  let emitted = 0
+  const flush = () => {
+    if (used) { hmac.update(scratch.subarray(0, used)); used = 0 }
+  }
+  const header = (tag: string, length: number) => {
+    if (used + 5 > scratch.length) flush()
+    scratch[used] = tag.charCodeAt(0)
+    scratch.writeUInt32BE(length, used + 1)
+    used += 5
+    emitted += 5
+  }
+  const leaf = (text: string, bytes: number) => {
+    if (bytes > 2048) { flush(); hmac.update(text, 'utf8') }
+    else {
+      if (used + bytes > scratch.length) flush()
+      const written = scratch.write(text, used)
+      if (written !== bytes) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+      used += written
+    }
+    emitted += bytes
+  }
+  const visit = (entry: LogicalValue): void => {
+    const length = payloadLengths[position++]
+    if (length === undefined) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+    if (entry instanceof ExactJsonNumber) { header('j', length); leaf(entry.canonical, length) }
+    else if (entry === null) header('0', length)
+    else if (typeof entry === 'boolean') { header('b', length); leaf(entry ? '1' : '0', length) }
+    else if (typeof entry === 'string') { header('s', length); leaf(entry, length) }
+    else if (typeof entry === 'number') { header('n', length); leaf(Object.is(entry, -0) ? '-0' : String(entry), length) }
+    else if (Array.isArray(entry)) { header('a', length); for (const child of entry) visit(child) }
+    else {
+      header('o', length)
+      for (const name of Object.keys(entry).sort((left, right) => left < right ? -1 : left > right ? 1 : 0)) { visit(name); visit(entry[name]) }
+    }
+  }
+  try {
+    visit(value)
+    flush()
+    if (position !== payloadLengths.length || emitted !== expectedSize) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+  } finally { scratch.fill(0) }
+}
+
 export function keyedRowDigestAndSize(key: Buffer, row: VerificationRow): { digest: string; bytes: number } {
   const value = rowValue(row)
-  const size = encodedSize(value)
+  const plan: EncodingPlan = { payloadLengths: [], hasLargeLeaf: false }
+  const size = encodedSize(value, plan)
   if (size > 1024 * 1024) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
-  const encoded = Buffer.allocUnsafe(size)
-  if (writeCanonical(value, encoded, 0) !== size) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
   const hmac = createHmac('sha256', key).update(domainFrame('row-v1'))
-  hmac.update(encoded)
+  if (plan.hasLargeLeaf) updateCoalesced(hmac, value, plan.payloadLengths, size)
+  else {
+    const encoded = Buffer.allocUnsafe(size)
+    if (writeCanonical(value, encoded, 0) !== size) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+    hmac.update(encoded)
+  }
   return { digest: hmac.digest('hex'), bytes: size }
 }
 

@@ -10,6 +10,19 @@ test('bounds structural nesting and breadth before JSON.parse allocates objects'
   expect(() => parseRotationJson(JSON.stringify('a'.repeat(1024 * 1024)))).toThrow('COVERAGE_UNSUPPORTED')
 })
 
+test('UTF-16 size shortcut retains the exact UTF-8 limit for short and long multibyte JSON', () => {
+  const short = '"' + '\u0800'.repeat(Math.floor(1024 * 1024 / 3) - 2) + '"'
+  expect(parseRotationJson(short)).toBe(JSON.parse(short))
+  // These inputs exceed the conservative UTF-16 threshold, yet fit exactly
+  // one MiB in UTF-8. They must use the byte bound, not a character rejection.
+  for (const value of ['\u0800'.repeat(349524) + 'aa', '😀'.repeat(262143) + 'aa', 'a'.repeat(1024 * 1024 - 2)]) {
+    const atLimit = '"' + value + '"'
+    expect(Buffer.byteLength(atLimit)).toBe(1024 * 1024)
+    expect(parseRotationJson(atLimit)).toBe(value)
+    expect(() => parseRotationJson('"' + value + 'a"')).toThrow('COVERAGE_UNSUPPORTED')
+  }
+})
+
 
 test.each(['{hello', '[Street] foo', '{"unterminated', 'hello', '00123'])('preserves non-JSON TEXT %s', value => {
   expect(parseRotationFieldValue(value)).toBe(value)
