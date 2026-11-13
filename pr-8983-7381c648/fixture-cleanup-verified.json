@@ -1,0 +1,32 @@
+[
+  {
+    "kind": "claim",
+    "id": "44ac6fb5-7e47-4a03-a5c9-3c49a37753ba",
+    "absent": true
+  },
+  {
+    "kind": "claim",
+    "id": "90d1b687-ef29-4d53-8954-240f81aea933",
+    "absent": true
+  },
+  {
+    "kind": "claim",
+    "id": "da3a5cf7-e7fc-4a8b-9d6c-1570add5f595",
+    "absent": true
+  },
+  {
+    "kind": "claim",
+    "id": "efd746a3-6565-4812-88a5-e1047b21e354",
+    "absent": true
+  },
+  {
+    "kind": "claim",
+    "id": "9fdd19fe-b28c-463b-800a-3b5765380c4d",
+    "absent": true
+  },
+  {
+    "kind": "form",
+    "id": "3f6539f6-d5b0-47dc-9a63-81bb62cb4eec",
+    "status": "archived"
+  }
+]
