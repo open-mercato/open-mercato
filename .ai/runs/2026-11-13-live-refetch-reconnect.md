@@ -53,8 +53,8 @@ Make browser live-refresh consumers survive event-bridge reconnect gaps: export 
 
 ### Phase 2: Consumers
 
-- [ ] 2.1 Replace hand-written reconnect literals with the constants
-- [ ] 2.2 Move the two portal detail pages onto usePortalLiveRefetch with component tests
+- [x] 2.1 Replace hand-written reconnect literals with the constants — 6f951f0838
+- [x] 2.2 Move the two portal detail pages onto usePortalLiveRefetch with component tests — 4468baa357
 
 ### Phase 3: Documentation
 
