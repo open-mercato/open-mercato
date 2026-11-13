@@ -5,15 +5,23 @@ export const MIN_PACKED_COLUMN_WIDTH_PX = 64
 export const DEFAULT_MAX_PACKED_COLUMNS = 3
 export const MIN_COLLAPSE_LIMIT_COLUMNS = 2
 
+const UNINDEXED_CLUSTER = -1
+
 export type PackedCalendarItem = {
   item: CalendarItem
   column: number
   columns: number
-  cluster: number
+  /**
+   * Index of the overlap cluster `packOverlaps` placed the item in. Optional so
+   * entries built with the original three fields keep working: without it,
+   * `collapseDenseClusters` groups hidden events by their time ranges alone.
+   */
+  cluster?: number
 }
 
 export type PackedOverflow = {
   cluster: number
+  group: number
   items: CalendarItem[]
   column: number
   columns: number
@@ -84,9 +92,13 @@ export function resolveMaxPackedColumns(usableWidthPx: number | null): number {
 
 /**
  * Collapses clusters wider than `maxColumns` into the first `maxColumns - 1`
- * regular columns plus one overflow slot that lists every remaining event.
- * Clusters that already fit are returned untouched. The limit never drops below
- * two columns: a pair is never folded, and a denser cluster keeps one visible event.
+ * regular columns plus one overflow column. Hidden events are grouped only
+ * with the hidden events they overlap in time, so each "+N more" slot covers
+ * its own time range and never pulls a later meeting away from its start. A
+ * hidden event that overlaps no other hidden event is drawn in place in the
+ * overflow column. Clusters that already fit are returned untouched. The limit
+ * never drops below two columns: a pair is never folded, and a denser cluster
+ * keeps one visible event.
  */
 export function collapseDenseClusters(packed: PackedCalendarItem[], maxColumns: number): DenseLayout {
   const limit = Math.max(MIN_COLLAPSE_LIMIT_COLUMNS, Math.floor(maxColumns))
@@ -103,30 +115,58 @@ export function collapseDenseClusters(packed: PackedCalendarItem[], maxColumns: 
       visible.push({ ...entry, columns: limit })
       continue
     }
-    const bucket = hiddenByCluster.get(entry.cluster)
+    const clusterKey = entry.cluster ?? UNINDEXED_CLUSTER
+    const bucket = hiddenByCluster.get(clusterKey)
     if (bucket) bucket.push(entry)
-    else hiddenByCluster.set(entry.cluster, [entry])
+    else hiddenByCluster.set(clusterKey, [entry])
   }
 
   const overflow: PackedOverflow[] = []
   for (const [cluster, entries] of hiddenByCluster) {
-    let startMs = Number.POSITIVE_INFINITY
-    let endMs = Number.NEGATIVE_INFINITY
-    for (const entry of entries) {
-      startMs = Math.min(startMs, entry.item.start.getTime())
-      endMs = Math.max(endMs, entry.item.end.getTime())
-    }
-    overflow.push({
-      cluster,
-      items: entries.map((entry) => entry.item),
-      column: visibleColumns,
-      columns: limit,
-      start: new Date(startMs),
-      end: new Date(endMs),
+    const groups = groupOverlappingEntries(entries)
+    groups.forEach((group, groupIndex) => {
+      if (group.entries.length === 1) {
+        visible.push({ ...group.entries[0], column: visibleColumns, columns: limit })
+        return
+      }
+      overflow.push({
+        cluster,
+        group: groupIndex,
+        items: group.entries.map((entry) => entry.item),
+        column: visibleColumns,
+        columns: limit,
+        start: new Date(group.startMs),
+        end: new Date(group.endMs),
+      })
     })
   }
 
+  visible.sort((first, second) => {
+    const startDelta = first.item.start.getTime() - second.item.start.getTime()
+    if (startDelta !== 0) return startDelta
+    return first.column - second.column
+  })
+
   return { visible, overflow }
+}
+
+type OverlapGroup = { entries: PackedCalendarItem[]; startMs: number; endMs: number }
+
+function groupOverlappingEntries(entries: PackedCalendarItem[]): OverlapGroup[] {
+  const sorted = [...entries].sort((first, second) => first.item.start.getTime() - second.item.start.getTime())
+  const groups: OverlapGroup[] = []
+  for (const entry of sorted) {
+    const startMs = entry.item.start.getTime()
+    const endMs = entry.item.end.getTime()
+    const current = groups[groups.length - 1]
+    if (current && startMs < current.endMs) {
+      current.entries.push(entry)
+      current.endMs = Math.max(current.endMs, endMs)
+      continue
+    }
+    groups.push({ entries: [entry], startMs, endMs })
+  }
+  return groups
 }
 
 /**
