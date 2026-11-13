@@ -29,6 +29,8 @@ import {
  *   6. Company history can be sorted by name in both directions and back to newest.
  *   7. Person and company planned lists keep scheduled activities in a custom open
  *      status and leave out done and canceled ones.
+ *   8. A failed planned read on a person or company shows an error, keeps the rows
+ *      already loaded and recovers on retry.
  */
 
 type InteractionInput = {
@@ -450,4 +452,80 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })
+
+  for (const scenario of [
+    { kind: 'person', tabPath: (id: string) => `/backend/customers/people-v2/${id}?tab=activities`, api: '/api/customers/people' },
+    { kind: 'company', tabPath: (id: string) => historyPath(id), api: '/api/customers/companies' },
+  ]) {
+    test(`a failed planned read on a ${scenario.kind} shows an error and recovers on retry`, async ({ page, request }) => {
+      test.slow()
+      const stamp = Date.now()
+      let token: string | null = null
+      let ownerId: string | null = null
+      const interactionIds: string[] = []
+
+      try {
+        token = await getAuthToken(request, 'admin')
+        ownerId = scenario.kind === 'person'
+          ? await createPersonFixture(request, token, {
+              firstName: 'QA',
+              lastName: `TC7494p-${stamp}`,
+              displayName: `QA TC-CRM-7494 Planned ${stamp}`,
+            })
+          : await createCompanyFixture(request, token, `QA TC-CRM-7494 Planned ${stamp}`)
+        const firstTitle = `QA 7494 planned first ${stamp}`
+        const secondTitle = `QA 7494 planned second ${stamp}`
+        interactionIds.push(await createInteraction(request, token, {
+          entityId: ownerId, interactionType: 'meeting', title: firstTitle, body: 'First', status: 'planned',
+          scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        }))
+        interactionIds.push(await createInteraction(request, token, {
+          entityId: ownerId, interactionType: 'meeting', title: secondTitle, body: 'Second', status: 'planned',
+          scheduledAt: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+        }))
+
+        let plannedFails = true
+        await page.route((url) => url.pathname === '/api/customers/interactions', async (route) => {
+          const isPlannedRead = route.request().method() === 'GET'
+            && new URL(route.request().url()).searchParams.has('excludeStatus')
+          if (plannedFails && isPlannedRead) {
+            await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Injected failure' }) })
+            return
+          }
+          await route.fallback()
+        })
+
+        await login(page, 'admin')
+        await page.goto(scenario.tabPath(ownerId), { waitUntil: 'domcontentloaded' })
+
+        const failure = page.getByRole('alert').filter({ hasText: /Failed to load planned activities/ })
+        await expect(failure, 'a failed first read is visible').toBeVisible({ timeout: 30_000 })
+        await expect(historyTitle(page), 'history stays independent of the planned read').toBeVisible({ timeout: 30_000 })
+        await expect(plannedRow(page, firstTitle)).toHaveCount(0)
+
+        plannedFails = false
+        await failure.getByRole('button', { name: /^Retry$/ }).click()
+        await expect(plannedRow(page, firstTitle)).toBeVisible({ timeout: 15_000 })
+        await expect(plannedRow(page, secondTitle)).toBeVisible()
+        await expect(failure).toHaveCount(0)
+
+        plannedFails = true
+        const completed = page.waitForResponse((response) =>
+          response.url().includes('/api/customers/interactions/complete') && response.request().method() === 'POST')
+        await page.getByRole('button', { name: /^Mark done$/ }).first().click()
+        expect((await completed).ok()).toBeTruthy()
+        await expect(failure, 'a failed refresh is visible').toBeVisible({ timeout: 15_000 })
+        await expect(plannedRow(page, secondTitle), 'loaded rows stay on screen').toBeVisible()
+
+        plannedFails = false
+        await failure.getByRole('button', { name: /^Retry$/ }).click()
+        await expect(failure).toHaveCount(0, { timeout: 15_000 })
+        await expect(plannedRow(page, firstTitle), 'the completed row leaves after the retry').toHaveCount(0)
+        await expect(plannedRow(page, secondTitle)).toBeVisible()
+      } finally {
+        for (const id of interactionIds) await deleteInteraction(request, token, id)
+        await deleteEntityIfExists(request, token, scenario.api, ownerId)
+      }
+    })
+  }
 })

@@ -22,6 +22,8 @@ type ActivityLogTabProps = {
   entityId: string
   entityName?: string | null
   plannedActivities: InteractionSummary[]
+  plannedLoadFailed?: boolean
+  onRetryPlannedLoad?: () => void
   onActivityCreated?: () => void
   onScheduleRequested: () => void
   /** @deprecated The per-type "Add new" menu was replaced by the shared composer and its Schedule action (#7494); the prop is ignored. Remove after one minor cycle. */
@@ -54,6 +56,8 @@ export function ActivityLogTab({
   entityId,
   entityName,
   plannedActivities,
+  plannedLoadFailed,
+  onRetryPlannedLoad,
   onActivityCreated,
   onScheduleRequested,
   onMarkDone,
@@ -92,6 +96,8 @@ export function ActivityLogTab({
       />
       <PlannedActivitiesSection
         activities={plannedActivities}
+        loadFailed={plannedLoadFailed}
+        onRetryLoad={onRetryPlannedLoad}
         onComplete={onMarkDone ? (interactionId) => { void onMarkDone(interactionId) } : undefined}
         onSchedule={onScheduleRequested}
         onEdit={onEditActivity}

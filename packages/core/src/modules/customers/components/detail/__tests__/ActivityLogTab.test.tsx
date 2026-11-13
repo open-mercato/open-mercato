@@ -124,4 +124,20 @@ describe('ActivityLogTab', () => {
     )
     expect(lastProps(timelineMock)).toMatchObject({ addActionLabel: 'Custom add', emptyState: { title: 'Nothing here', actionLabel: 'Add one' } })
   })
+
+  it('passes the planned load failure and retry to the planned section', () => {
+    const onRetryPlannedLoad = jest.fn()
+    render(
+      <ActivityLogTab
+        entityId="company-1"
+        plannedActivities={[]}
+        plannedLoadFailed
+        onRetryPlannedLoad={onRetryPlannedLoad}
+        onScheduleRequested={() => {}}
+        onEditActivity={() => {}}
+      />,
+    )
+    expect(lastProps(plannedMock).loadFailed).toBe(true)
+    expect(lastProps(plannedMock).onRetryLoad).toBe(onRetryPlannedLoad)
+  })
 })

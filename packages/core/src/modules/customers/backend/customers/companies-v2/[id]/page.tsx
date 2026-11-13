@@ -206,6 +206,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const {
     plannedActivities,
+    plannedLoadFailed,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,
@@ -572,6 +573,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     entityId={companyId}
                     entityName={companyName}
                     plannedActivities={plannedActivities}
+                    plannedLoadFailed={plannedLoadFailed}
+                    onRetryPlannedLoad={() => { void loadPlannedActivities() }}
                     onActivityCreated={() => { void handleActivityCreated() }}
                     onScheduleRequested={openNewScheduleDialog}
                     onMarkDone={handleMarkDone}

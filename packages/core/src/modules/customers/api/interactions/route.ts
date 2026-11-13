@@ -12,6 +12,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -355,7 +356,7 @@ function applyInteractionListFilters(
   if (query.dealId) q = q.where('deal_id', '=', query.dealId)
   if (query.status) q = q.where('status', '=', query.status)
   if (query.excludeStatus) {
-    const excludedStatuses = query.excludeStatus.split(',').map((status) => status.trim()).filter(Boolean)
+    const excludedStatuses = parseCommaSeparatedList(query.excludeStatus)
     if (excludedStatuses.length > 0) q = q.where('status', 'not in', excludedStatuses)
   }
   if (query.interactionType) q = q.where('interaction_type', '=', query.interactionType)
