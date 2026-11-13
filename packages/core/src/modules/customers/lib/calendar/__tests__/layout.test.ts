@@ -4,6 +4,7 @@ import {
   packOverlaps,
   packedColumnGeometry,
   resolveMaxPackedColumns,
+  type PackedCalendarItem,
 } from '../layout'
 import { makeCalendarItem } from './fixtures'
 
@@ -263,6 +264,41 @@ describe('collapseDenseClusters', () => {
     const packed = packOverlaps(['x', 'y', 'z', 'w'].map((id) => makeCalendarItem({ id, start: at(9), end: at(10) })))
     const { overflow } = collapseDenseClusters(packed, 3)
     expect(overflow[0].items).toHaveLength(2)
+  })
+})
+
+describe('collapseDenseClusters with entries built without a cluster index', () => {
+  function legacyBurst(prefix: string, hour: number): PackedCalendarItem[] {
+    return ['a', 'b', 'c', 'd'].map((suffix, column) => ({
+      item: makeCalendarItem({ id: `${prefix}-${suffix}`, start: at(hour), end: at(hour + 1) }),
+      column,
+      columns: 4,
+    }))
+  }
+
+  it('accepts the original three-field shape and leaves fitting entries untouched', () => {
+    const packed: PackedCalendarItem[] = [
+      { item: makeCalendarItem({ id: 'solo', start: at(9), end: at(10) }), column: 0, columns: 1 },
+    ]
+    const { visible, overflow } = collapseDenseClusters(packed, 3)
+    expect(visible).toEqual(packed)
+    expect(overflow).toEqual([])
+  })
+
+  it('folds a dense burst into one overflow slot', () => {
+    const { visible, overflow } = collapseDenseClusters(legacyBurst('morning', 10), 3)
+    expect(visible.map((entry) => entry.item.id)).toEqual(['morning-a', 'morning-b'])
+    expect(overflow).toHaveLength(1)
+    expect(overflow[0].items.map((item) => item.id)).toEqual(['morning-c', 'morning-d'])
+  })
+
+  it('keeps bursts hours apart in separate overflow slots with distinct keys', () => {
+    const { overflow } = collapseDenseClusters([...legacyBurst('morning', 10), ...legacyBurst('evening', 17)], 3)
+    expect(overflow.map((entry) => [entry.start, entry.end])).toEqual([
+      [at(10), at(11)],
+      [at(17), at(18)],
+    ])
+    expect(new Set(overflow.map((entry) => `${entry.cluster}-${entry.group}`)).size).toBe(2)
   })
 })
 

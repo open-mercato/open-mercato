@@ -5,11 +5,18 @@ export const MIN_PACKED_COLUMN_WIDTH_PX = 64
 export const DEFAULT_MAX_PACKED_COLUMNS = 3
 export const MIN_COLLAPSE_LIMIT_COLUMNS = 2
 
+const UNINDEXED_CLUSTER = -1
+
 export type PackedCalendarItem = {
   item: CalendarItem
   column: number
   columns: number
-  cluster: number
+  /**
+   * Index of the overlap cluster `packOverlaps` placed the item in. Optional so
+   * entries built with the original three fields keep working: without it,
+   * `collapseDenseClusters` groups hidden events by their time ranges alone.
+   */
+  cluster?: number
 }
 
 export type PackedOverflow = {
@@ -108,9 +115,10 @@ export function collapseDenseClusters(packed: PackedCalendarItem[], maxColumns: 
       visible.push({ ...entry, columns: limit })
       continue
     }
-    const bucket = hiddenByCluster.get(entry.cluster)
+    const clusterKey = entry.cluster ?? UNINDEXED_CLUSTER
+    const bucket = hiddenByCluster.get(clusterKey)
     if (bucket) bucket.push(entry)
-    else hiddenByCluster.set(entry.cluster, [entry])
+    else hiddenByCluster.set(clusterKey, [entry])
   }
 
   const overflow: PackedOverflow[] = []
