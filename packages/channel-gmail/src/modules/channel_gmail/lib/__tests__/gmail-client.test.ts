@@ -400,3 +400,37 @@ describe('FetchGmailApiClient.getMessageHeaders', () => {
     expect(calls).toBe(1)
   })
 })
+
+describe('FetchGmailApiClient.getProfile request options', () => {
+  const originalFetch = globalThis.fetch
+  const originalSetTimeout = globalThis.setTimeout
+  const originalRandom = Math.random
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    globalThis.setTimeout = originalSetTimeout
+    Math.random = originalRandom
+    setGmailApiClient(null)
+  })
+
+  it('applies the per-call retry cap and timeout', async () => {
+    setGmailApiClient(null)
+    Math.random = () => 0
+    const scheduledDelays: number[] = []
+    globalThis.setTimeout = ((callback: () => void, ms?: number) => {
+      scheduledDelays.push(typeof ms === 'number' ? ms : 0)
+      return originalSetTimeout(callback, ms)
+    }) as unknown as typeof globalThis.setTimeout
+    let calls = 0
+    globalThis.fetch = (async () => {
+      calls += 1
+      return fakeResponse({ status: 503, statusText: 'Service Unavailable', body: '' })
+    }) as typeof fetch
+
+    await expect(
+      getGmailApiClient().getProfile({ accessToken: 'token' }, { maxRetries: 1, timeoutMs: 10_000 }),
+    ).rejects.toMatchObject({ name: 'GmailApiError', status: 503 })
+    expect(calls).toBe(2)
+    expect(scheduledDelays).toEqual([10_000, 500, 10_000])
+  })
+})
