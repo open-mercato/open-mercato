@@ -49,6 +49,17 @@ For a documentation-only result, manually review the diff and run the existing C
 - Branch-protection required-check lookup returned HTTP 404 (required status checks not enabled); use every reported PR check as a gate, accepting only documented non-applicable skips.
 - CI history audit: dispatched task `d930c118-fd33-4b10-abdd-1cbc33aa5459` (read-only).
 
+## Diagnosis and full-suite outcome
+
+- The read-only CI-history audit made no tracked changes; its branch has no diff against the baseline main commit. No merge was necessary.
+- Historical CI runs [43228227205](https://github.com/open-mercato/open-mercato/actions/runs/43228227205), [43232077194](https://github.com/open-mercato/open-mercato/actions/runs/43232077194), and [43236858055](https://github.com/open-mercato/open-mercato/actions/runs/43236858055) failed the starter encryption preflight regression assertion. Supplied encryption/Vault configuration was being supplemented with an unwanted fallback key.
+- Existing fix [825240d58b](https://github.com/open-mercato/open-mercato/commit/825240d58be64077215060bbc46e6e23144cfa8e) (#9356) is an ancestor of this branch. The parent inspected its diff and historical failed log, then repeated the audit's five-case source comparison: historical source generated unwanted fallback keys in four cases; current source generated none. Supplied fallback preservation passed in both versions.
+- The full local encryption-preflight test could not load missing shared-package build output in the audit environment. This is a local validation limit; the fixed assertion's repository test passed in subsequent main CI, and this PR's Test scripts gate passed.
+- PR full-suite run [43401554192](https://github.com/open-mercato/open-mercato/actions/runs/43401554192) passed on `7a474e288a451800b9be5c0d6d9ee5f60aad3765`: all 15 integration shards, package/app preparation, full typecheck/unit/script tests, lint, DS lint, Docker build, documents multi-instance, core-timezone, and merge-coverage. CodeQL, contribution guard, CLA, and mutation scope checks also passed. Dependency audit and mutation execution/comment were non-applicable skips for this documentation-only diff.
+- No code or workflow changes were needed. The configured local build/generate/typecheck/unit/app gate is not rerun for this documentation-only result; CI supplies the full requested runtime verification.
+- Main Snapshot Release [43396497321](https://github.com/open-mercato/open-mercato/actions/runs/43396497321) remains pending at this evidence update. Snapshot publication passed; standalone integration tests are still running. This is separate from the successful main and PR CI suites; do not claim it passed or apply automerge while it remains unsettled.
+- The final independent review and latest-head verification remain required. Administrative documentation pushes trigger another full PR run.
+
 ## Risks
 
 - Historical failures can be obsolete; do not change passing code based only on old logs.
@@ -64,11 +75,11 @@ PR: #9425
 
 ### Phase 1: Diagnose
 
-- [ ] 1.1 Audit current and recent main CI failures independently; verify current scope/concurrency regression checks in the parent task.
+- [x] 1.1 Audit current and recent main CI failures independently; verify current scope/concurrency regression checks in the parent task.
 
 ### Phase 2: Stabilize and validate
 
-- [ ] 2.1 Fix reproduced root causes if any, with regression tests; run the stabilization PR's full CI suite and record all checks, skips, and limits.
+- [x] 2.1 Fix reproduced root causes if any, with regression tests; run the stabilization PR's full CI suite and record all checks, skips, and limits.
 
 ### Phase 3: Review and hand off
 
