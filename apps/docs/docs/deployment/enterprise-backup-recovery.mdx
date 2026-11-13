@@ -92,7 +92,7 @@ escrow_custody_dir='/absolute/offline/escrow/new-backup-key'
 
 Exchange **public recipients only**, using an authenticated channel. On the operator machine, create a new mode 0600 `recipients.txt` containing the operator and escrow public lines, one per line; never copy the escrow private identity to the backup producer. The CLI accepts one to ten recipients. Keep a retained record of each original recipient set and its matching archive identities; recovery exercises use separately authorized escrow custody.
 
-Changing recipients affects new backups; it does not re-encrypt old archives. Resume uses the original authenticated recipient set. Retain old archive identities and historic application DEKs/provider versions independently for every retained recovery point. Neither new archive keys nor a successful backup rotate application encryption keys or authorize retiring old keys. Follow the [protected-rotation guide](../user-guide/key-rotation-protection) for application-key changes.
+Changing recipients affects new backups; it does not re-encrypt old archives. Resume uses the original authenticated recipient set. Retain old archive identities and historic application DEKs/provider versions independently for every retained recovery point. Neither new archive keys nor a successful backup rotate application encryption keys or authorize retiring old keys. Application-key changes use the [protected-rotation guide and implementation in companion PR #9334](https://github.com/open-mercato/open-mercato/pull/9334).
 
 ## Create and verify
 
