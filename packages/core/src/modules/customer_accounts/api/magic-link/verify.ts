@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { magicLinkVerifySchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -35,9 +36,6 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
-  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
-  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
   const result = await customerTokenService.verifyEmailToken(parsed.data.token, 'magic_link')
   if (!result) {
@@ -49,58 +47,66 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Account not found or deactivated' }, { status: 401 })
   }
 
-  // Auto-verify email on magic link login
-  if (!user.emailVerifiedAt) {
-    await em.nativeUpdate(CustomerUser, { id: user.id }, { emailVerifiedAt: new Date() })
-    user.emailVerifiedAt = new Date()
-  }
+  return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: user.tenantId, source: 'public-token', operation: 'customer-magic-link' }, async () => {
+    const tenantContainer = await createRequestContainer()
+    const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
+    const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
+    const customerRbacService = tenantContainer.resolve('customerRbacService') as CustomerRbacService
+    const em = tenantContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  await customerUserService.resetFailedAttempts(user)
-  await customerUserService.updateLastLoginAt(user)
+    // Auto-verify email on magic link login
+    if (!user.emailVerifiedAt) {
+      await em.nativeUpdate(CustomerUser, { id: user.id }, { emailVerifiedAt: new Date() })
+      user.emailVerifiedAt = new Date()
+    }
 
-  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
-    tenantId: user.tenantId,
-    organizationId: user.organizationId,
-  })
+    await customerUserService.resetFailedAttempts(user)
+    await customerUserService.updateLastLoginAt(user)
 
-  const ip = getClientIp(req, 0)
-  const userAgent = req.headers.get('user-agent') || null
-  const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+    const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+      tenantId: user.tenantId,
+      organizationId: user.organizationId,
+    })
 
-  void emitCustomerAccountsEvent('customer_accounts.login.success', {
-    id: user.id,
-    email: user.email,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId,
-  }).catch(() => undefined)
+    const ip = getClientIp(req, 0)
+    const userAgent = req.headers.get('user-agent') || null
+    const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
 
-  const res = NextResponse.json({
-    ok: true,
-    user: {
+    await emitCustomerAccountsEvent('customer_accounts.login.success', {
       id: user.id,
       email: user.email,
-      displayName: user.displayName,
-      emailVerified: true,
-    },
-    resolvedFeatures,
-  })
+      tenantId: user.tenantId,
+      organizationId: user.organizationId,
+    }).catch(() => undefined)
 
-  res.cookies.set('customer_auth_token', jwt, {
-    httpOnly: true,
-    path: '/',
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 60 * 60 * 8,
-  })
-  res.cookies.set('customer_session_token', rawToken, {
-    httpOnly: true,
-    path: '/',
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 60 * 60 * 24 * 30,
-  })
+    const res = NextResponse.json({
+      ok: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        emailVerified: true,
+      },
+      resolvedFeatures,
+    })
 
-  return res
+    res.cookies.set('customer_auth_token', jwt, {
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 60 * 60 * 8,
+    })
+    res.cookies.set('customer_session_token', rawToken, {
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 60 * 60 * 24 * 30,
+    })
+
+    return res
+  })
 }
 
 const loginSuccessSchema = z.object({

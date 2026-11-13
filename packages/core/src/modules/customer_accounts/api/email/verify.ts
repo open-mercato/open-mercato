@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { emailVerifySchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -24,22 +25,26 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
-  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
   const result = await customerTokenService.verifyEmailToken(parsed.data.token, 'email_verification')
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
 
-  await em.nativeUpdate(CustomerUser, { id: result.userId, tenantId: result.tenantId }, { emailVerifiedAt: new Date() })
+  return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: result.tenantId, source: 'public-token', operation: 'customer-email-verification' }, async () => {
+    const tenantContainer = await createRequestContainer()
+    const em = tenantContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  void emitCustomerAccountsEvent('customer_accounts.email.verified', {
-    userId: result.userId,
-    recipientUserId: result.userId,
-    tenantId: result.tenantId,
-  }).catch(() => undefined)
+    await em.nativeUpdate(CustomerUser, { id: result.userId, tenantId: result.tenantId }, { emailVerifiedAt: new Date() })
 
-  return NextResponse.json({ ok: true })
+    await emitCustomerAccountsEvent('customer_accounts.email.verified', {
+      userId: result.userId,
+      recipientUserId: result.userId,
+      tenantId: result.tenantId,
+    }).catch(() => undefined)
+
+    return NextResponse.json({ ok: true })
+  })
 }
 
 const successSchema = z.object({ ok: z.literal(true) })

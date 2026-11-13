@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { passwordResetConfirmSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -28,7 +29,6 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
 
   const result = await customerTokenService.verifyPasswordResetToken(parsed.data.token)
   if (!result) {
@@ -40,27 +40,33 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
 
-  const em = container.resolve('em') as EntityManager
-  await em.transactional(async (trx) => {
-    await customerUserService.updatePassword(user, parsed.data.password, trx)
-    await customerSessionService.revokeAllUserSessions(user.id, trx)
-    await trx.nativeUpdate(
-      CustomerUser,
-      { id: user.id, emailVerifiedAt: null },
-      { emailVerifiedAt: new Date() },
-    )
+  return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: user.tenantId, source: 'public-token', operation: 'customer-password-reset' }, async () => {
+    const tenantContainer = await createRequestContainer()
+    const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
+    const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
+
+    const em = tenantContainer.resolve('em') as EntityManager
+    await em.transactional(async (trx) => {
+      await customerUserService.updatePassword(user, parsed.data.password, trx)
+      await customerSessionService.revokeAllUserSessions(user.id, trx)
+      await trx.nativeUpdate(
+        CustomerUser,
+        { id: user.id, emailVerifiedAt: null },
+        { emailVerifiedAt: new Date() },
+      )
+    })
+
+    await emitCustomerAccountsEvent('customer_accounts.password.changed', {
+      userId: user.id,
+      tenantId: user.tenantId,
+      organizationId: user.organizationId ?? null,
+      changedBy: 'reset',
+      changedById: null,
+      at: new Date().toISOString(),
+    }).catch(() => undefined)
+
+    return NextResponse.json({ ok: true })
   })
-
-  void emitCustomerAccountsEvent('customer_accounts.password.changed', {
-    userId: user.id,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId ?? null,
-    changedBy: 'reset',
-    changedById: null,
-    at: new Date().toISOString(),
-  }).catch(() => undefined)
-
-  return NextResponse.json({ ok: true })
 }
 
 const successSchema = z.object({ ok: z.literal(true) })
