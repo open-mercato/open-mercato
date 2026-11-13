@@ -167,6 +167,8 @@ Ordinary CI tests: `yarn workspace @open-mercato/enterprise test --runInBand --t
 
 Live proof: set `OM_RLS_POC_DATABASE_URL` to a disposable PostgreSQL database with role/schema creation rights, then run `yarn tsx packages/enterprise/poc/rls/run.ts`. No app migrations or application fixtures are required. The script uses a fresh restricted role and verifies its non-owner/non-bypass attributes before assertions.
 
+Automated integration entrypoint: with the same disposable database opt-in, run `node --test packages/enterprise/poc/rls/integration.test.mjs`. It executes the proof under a bounded subprocess and requires all 13 checks, including verified removal of its schema and role. Without the URL it explicitly skips. Both concurrent batches drain before teardown; pools close before their scope wrappers are removed, and the success summary follows cleanup. Forced termination may prevent fixture teardown, so the database must remain disposable. This adds no CI pipeline or application entry-point activation.
+
 The live proof exercises real MikroORM ORM reads and flush, raw connection queries, Kysely reads, explicit transactions, rollback, callback `pool.query`, same-client tenant replacement, absent-context denial, denied writes, setup failure recovery, concurrent tenants and the old autocommit failure. Concurrency includes 60 pooled reads and 60 mixed ORM/Kysely transactions; a bounded barrier proves three simultaneous physical backends serving both tenants. Mixed operations cover inserts, updates, cross-tenant update/delete denial, committed deletes and 20 deliberate rollbacks. A privileged exact-row comparison verifies the 30 surviving new rows and unchanged seed rows after all work drains. Ordinary unit tests use mocks and do not claim database isolation coverage. This PR adds no endpoint, so HTTP/browser tests for production entry points belong to the activation phase below.
 
 The ordered full local gate is exactly `.ai/agentic.config.json`: `build:packages → generate → build:packages → i18n:check-sync → i18n:check-usage → typecheck → test → build:app`. The PR must also request existing `ci-full` behavior to run all GitHub CI shards. No pipeline/workflow definition changes are part of this task. Results and any external/baseline failures are recorded separately; an isolated proof cannot be reported as full-CI success.
@@ -199,6 +201,7 @@ Enterprise commercial scope is explicit in title, path and code placement. No pr
 
 ## Changelog
 
+- 2026-11-13: Added repeatable opt-in database integration execution, verified fixture removal, and drained concurrent reads before pool teardown. Production phases remain gated.
 - 2026-11-12: Extended the executable proof with concurrent mixed ORM/Kysely transactions, explicit backend overlap, rollback/delete outcomes and exact persisted-row verification.
 - 2026-11-12: Initial enterprise-only proposal based on current MikroORM 7.1/Kysely connection management; included isolated PoC and explicit staged production gates.
 

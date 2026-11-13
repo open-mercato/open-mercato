@@ -153,7 +153,7 @@ try {
   })
   const parallelOrm = await openOrm(3)
   await check('60 overlapping tenant requests stay isolated through a pool of 3', async () => {
-    await Promise.all(Array.from({ length: 60 }, (_, index) => {
+    const outcomes = await Promise.allSettled(Array.from({ length: 60 }, (_, index) => {
       const tenant = index % 2 === 0 ? tenantA : tenantB
       return runWithRlsTenant(tenant, async () => {
         const em = parallelOrm.em.fork({ clear: true, freshEventManager: true })
@@ -161,6 +161,9 @@ try {
         assert.deepEqual(await labels(em), tenant === tenantA ? ['A'] : ['B'])
       })
     }))
+    for (const outcome of outcomes) {
+      if (outcome.status === 'rejected') throw outcome.reason
+    }
     assert.deepEqual(await labels(parallelOrm.em.fork()), [])
   })
   await check('60 concurrent mixed transactions isolate writes, commits, rollbacks and deletes across 3 simultaneous backends', async () => {
@@ -246,14 +249,24 @@ try {
   await check('nested tenant switching is rejected', async () => {
     assert.throws(() => runWithRlsTenant(tenantA, () => runWithRlsTenant(tenantB, () => undefined)), /Cannot change RLS tenant/)
   })
-  process.stdout.write(`Enterprise RLS PoC: ${checks} checks passed; disposable fixtures only.\n`)
 } finally {
+  const closed = await Promise.allSettled(orms.map((orm) => orm.close(true)))
   for (const dispose of disposers.reverse()) dispose()
-  await Promise.allSettled(orms.map((orm) => orm.close(true)))
   try {
     await admin.query(`drop schema if exists "${schema}" cascade`)
     await admin.query(`drop role if exists "${role}"`)
+    await check('disposable schema and role are removed', async () => {
+      const remaining = await admin.query<{ schema_exists: boolean; role_exists: boolean }>(
+        'select exists(select 1 from pg_namespace where nspname = $1) as schema_exists, exists(select 1 from pg_roles where rolname = $2) as role_exists',
+        [schema, role],
+      )
+      assert.deepEqual(remaining.rows, [{ schema_exists: false, role_exists: false }])
+    })
   } finally {
     await admin.end()
   }
+  for (const outcome of closed) {
+    if (outcome.status === 'rejected') throw outcome.reason
+  }
 }
+process.stdout.write(`Enterprise RLS PoC: ${checks} checks passed; disposable fixtures only.\n`)
