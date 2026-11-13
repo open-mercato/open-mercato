@@ -18,6 +18,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { flash } from '../FlashMessages'
 import { surfaceRecordConflict } from '../conflicts'
+import { extractOptimisticLockConflict, extractRecordLockConflict } from '../utils/optimisticLock'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
@@ -898,7 +899,7 @@ function NotesSectionImpl<C = unknown>({
         err instanceof Error
           ? err.message
           : label('appearance.error', 'Failed to update appearance.')
-      setAppearanceDialogError(message)
+      setAppearanceDialogError(extractOptimisticLockConflict(err) || extractRecordLockConflict(err) ? null : message)
     } finally {
       setAppearanceDialogSaving(false)
     }
@@ -925,7 +926,7 @@ function NotesSectionImpl<C = unknown>({
     } catch (err) {
       const message =
         err instanceof Error ? err.message : label('updateError', 'Failed to update note')
-      setContentError(message)
+      setContentError(extractOptimisticLockConflict(err) || extractRecordLockConflict(err) ? null : message)
     } finally {
       setContentSavingId(null)
     }

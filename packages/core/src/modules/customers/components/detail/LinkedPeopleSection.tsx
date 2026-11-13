@@ -506,6 +506,7 @@ export function LinkedPeopleSection<
     const emptyStateAction = onEmptyStateAction ?? onAddPerson
     return (
       <>
+        {header}
         <EmptyState
           icon={<Users className="h-10 w-10 text-muted-foreground" />}
           title={emptyState.title}
