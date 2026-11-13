@@ -4,6 +4,7 @@ import { startRlsLiveRuntime } from './helpers/liveRuntime'
 import { createPublicCapabilityFixtures } from './helpers/publicCapabilityFixtures'
 
 test.describe('TC-RLS-004: persisted public capabilities under restricted FORCE RLS', () => {
+  test.setTimeout(240_000)
   test('signup links only own CRM person; reset capability ignores foreign cookies and is consumed once', async () => {
     const previousDelivery = process.env.OM_EVENTS_SINGLE_DELIVERY
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'

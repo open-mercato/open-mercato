@@ -55,7 +55,7 @@ Engine: om-auto-continue-pr-loop
 | 3 | 3.2 | Add self-contained canary CRUD and cross-tenant HTTP integration tests | inline | todo | — |
 | 3 | 3.3 | Add dispatcher, job retry and maintenance integration coverage | inline | done | native dispatcher/concurrency plus actual event worker retry/CLI PG17; 16+27 live checks |
 | 3 | 3.4-browser-spec | Add actual self-contained People browser CRUD, foreign absence and stale-edit coverage | inline | done | 5856241fba; parent discovery/typecheck; live execution pending |
-| 3 | 3.4 | Verify canary browser flow and publish working-app screenshots | inline | todo | — |
+| 3 | 3.4 | Verify canary browser flow and publish working-app screenshots | inline | done | actual People1 pass/8 images; native teardown143 disclosed |
 | 3 | 3.5-concurrency-oracle | Match physical deletion and distinguish contract errors from isolation violations | inline | done | this commit; focused TypeScript pass; live rerun required |
 | 3 | 3.5-concurrency | Verify tenant isolation at 20, 30, 50 and 100 concurrent users and publish analysis | inline | done | this commit; actual 2000 operations, zero errors/leaks, sentinel checks pass |
 | 3 | 3.5 | Benchmark checkout overhead and pool pressure | inline | done | this commit; live PG17 24 paired cases/12000 acquisitions; pool1/3/10; actual JSON and analysis |
