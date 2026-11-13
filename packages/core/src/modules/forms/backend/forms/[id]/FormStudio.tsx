@@ -387,6 +387,11 @@ export function FormStudio({ formId }: { formId: string }) {
     versionUpdatedAtRef.current = version?.updatedAt ?? null
   }, [version?.updatedAt])
 
+  const runMutationRef = React.useRef(runMutation)
+  React.useEffect(() => {
+    runMutationRef.current = runMutation
+  }, [runMutation])
+
   const reload = React.useCallback(async () => {
     setIsLoading(true)
     setLoadError(null)
@@ -405,7 +410,7 @@ export function FormStudio({ formId }: { formId: string }) {
 
     if (!draft) {
       // No draft yet — fork one automatically so the studio always has a draft.
-      const forkCall = await runMutation({
+      const forkCall = await runMutationRef.current({
         operation: () => apiCall<{ versionId: string }>(
           `/api/forms/${encodeURIComponent(formId)}/versions/fork`,
           { method: 'POST', body: JSON.stringify({}) },
@@ -441,7 +446,7 @@ export function FormStudio({ formId }: { formId: string }) {
       undoController.clear()
     }
     setIsLoading(false)
-  }, [formId, runMutation, undoController])
+  }, [formId, undoController])
 
   React.useEffect(() => {
     void reload()
