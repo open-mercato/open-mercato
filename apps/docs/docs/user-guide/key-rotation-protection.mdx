@@ -9,6 +9,25 @@ description: Prepare an offline Enterprise rotation, verify persisted data, and 
 
 Core acknowledgment neither creates an Enterprise backup nor verifies rotation correctness. Keep a tested independent backup and every previous key. For an explicitly unprotected Core invocation, disable the optional backup module for that invocation and pass the acknowledgment; a failed protected run never silently downgrades.
 
+## Automatic Enterprise protection sequence
+
+With the licensed Enterprise protection module enabled and commercial rights
+attested, one normal protected rotation invocation performs these steps:
+
+1. Prove the offline fence, database identity and selected key/provider bindings.
+2. Create an encrypted, quiesced whole-database backup and verify it **before
+   rewriting application data**.
+3. Seal the logical baseline, rotate the declared data scope, and independently
+   compare persisted data against the original baseline before durable completion.
+
+You do **not** run a separate manual backup command for this normal protected
+invocation. You must still provision the private archive recipients/identities,
+source libpq service, keys and offline fence described below. Backup creation or
+verification failure, identity mismatch or admission refusal stops the protected
+flow without an unprotected fallback. Retain its recovery material after success.
+A prior independent restore rehearsal remains a separate prerequisite for knowing
+that your retained archive and application keys support recovery.
+
 ## Enterprise prerequisites
 
 ### Key-domain cutover prerequisite
@@ -73,7 +92,7 @@ A derived source uses `TENANT_DATA_ENCRYPTION_OLD_KEY`. This is a **root secret*
 
 For each Vault role configure `OM_ROTATION_SOURCE_VAULT_ADDR`, `OM_ROTATION_SOURCE_VAULT_TOKEN`, `OM_ROTATION_SOURCE_VAULT_KV_PATH` and the source version file; the corresponding `OM_ROTATION_TARGET_VAULT_*` settings select the target. Target address/token/path may instead use existing `VAULT_ADDR`, `VAULT_TOKEN`, `VAULT_KV_PATH` (path default `secret/data`). Source credentials/location are independent and have no implicit target fallback. Addresses must be HTTPS origins without credentials, path, query or fragment; HTTP is accepted only for literal `127.0.0.1`/`::1` isolated fixtures. Redirects are refused. Use already provisioned read-only runtime credentials and trusted TLS, never a production dev/root token.
 
-This adapter reads **Vault KV v2 raw 32-byte application DEKs**, not Vault Transit keys. With HTTP key path `secret/data/app-keys`, a tenant lives at `secret/data/app-keys/tenant_key_TENANT_UUID`. In Vault CLI syntax that is `-mount=secret` and logical path `app-keys/tenant_key_TENANT_UUID`: do not insert a second `/data`. See the [KV v2 API](https://developer.hashicorp.com/vault/api-docs/secret/kv/kv-v2).
+This adapter reads **Vault KV v2 raw 32-byte application DEKs**, not Vault Transit keys, Vault unseal/recovery keys or Vault server seal rotation. With HTTP key path `secret/data/app-keys`, a tenant lives at `secret/data/app-keys/tenant_key_TENANT_UUID`. In Vault CLI syntax that is `-mount=secret` and logical path `app-keys/tenant_key_TENANT_UUID`: do not insert a second `/data`. See the [KV v2 API](https://developer.hashicorp.com/vault/api-docs/secret/kv/kv-v2).
 
 Each owner-only version file has exactly the selected tenant inventory and no defaults, wildcards, extra tenants or omitted tenants:
 
@@ -253,6 +272,145 @@ All selected tenants must share the declared old derived root for a derived sour
 Require a successful invocation, matching durable coordinator `passed` state and a trusted report with equal expected/compared row, field and byte counts. Retain the coordinator ID, keys and recovery references. Check the intended normal application target configuration on the isolated rehearsal, including Vault latest and derived-root precedence. Restart every replica/worker when eventually releasing maintenance so old process-local DEK/Vault TTL caches are discarded. Release the original connection limit and resume writers only after the operator's independent application/recovery review.
 
 The normal application Vault KMS reads latest; there is no ordinary `VAULT_KV_VERSION` selector. Historical ciphertext recovery therefore needs a separately rehearsed quarantine configuration or an explicitly authorized new protected migration from retained source versions to an application-compatible target. Do not roll back live Vault versions, delete keys or restore over live data to make a failed run appear successful.
+
+## Scenario index and runbooks
+
+Choose one provider route and one scope below. Every route uses the same
+[offline prerequisites](#enterprise-prerequisites), [key provisioning procedure](#create-and-select-the-new-keys-step-by-step)
+and [protected command](#6-preview-and-execute-the-declared-scope). The route selectors
+configure maintenance only; they do not deploy the application's target configuration.
+
+| Scenario | Runbook |
+|---|---|
+| Replace a derived root | [Derived → derived](#derived-to-derived-runbook) |
+| Move derived encryption into Vault KV v2 | [Derived → Vault](#derived-to-vault-runbook) |
+| Move retained Vault DEKs into derived encryption | [Vault → derived](#vault-to-derived-runbook) |
+| Replace DEKs at the existing Vault paths | [Vault → Vault, same path](#vault-to-vault-same-path-runbook) |
+| Move to another Vault prefix, mount or cluster | [Vault → Vault, separate location](#vault-to-vault-separate-location-runbook) |
+| One tenant, all tenants, mixed versions or different old roots | [Scope runbooks](#scope-runbooks) |
+| Change backup recipients without changing application encryption | [Archive recipients](#archive-recipient-change-is-a-separate-operation) |
+| Interruptions and provider/custody failures | [Failure decision table](#failure-decision-table) |
+
+### Derived → derived runbook {#derived-to-derived-runbook}
+
+1. Retain the exact previous derived root and every historical recovery dependency.
+   [Prepare a distinct new root](#2-prepare-a-new-derived-target-when-selected).
+2. Select `derived` for both roles using [route configuration](#5-configure-the-chosen-route).
+   Inject the old root as `TENANT_DATA_ENCRYPTION_OLD_KEY`; inject the target through
+   the chosen target variable, accounting for `FALLBACK_KEY` precedence.
+3. Preview and execute the reviewed scope. If old roots differ by tenant, use the
+   phased procedure below instead of one all-tenant invocation.
+4. Keep ordinary application Vault selection disabled for the derived target.
+   Complete the entire changed-root domain before [release review](#7-inspect-rehearse-and-release-separately).
+
+### Derived → Vault runbook {#derived-to-vault-runbook}
+
+1. Retain the old derived root and establish the fence before changing Vault latest.
+2. [Stage distinct tenant DEKs](#3-prepare-new-vault-deks-when-selected) with reviewed
+   CAS and retention. Pause Vault DEK automation through controlled cutover.
+3. Select source `derived`, target `vault`; inject the old root, target read token
+   and exact target version manifest. Preview and execute the reviewed scope.
+4. Validate the future ordinary `VAULT_*` application profile against those current
+   target DEKs. Retain the old root separately before removing unwanted active
+   derived fallback settings; release only after whole-domain coverage review.
+
+### Vault → derived runbook {#vault-to-derived-runbook}
+
+1. Retain the old Vault endpoint, path, read access and exact per-tenant versions.
+   Prepare a distinct new derived root; do not export a Vault DEK as an old root.
+2. Select source `vault`, target `derived`; inject the source role settings and
+   exact source manifest, unset `TENANT_DATA_ENCRYPTION_OLD_KEY`, and configure the
+   target root with the intended precedence. Preview and execute the reviewed scope.
+3. Disable ordinary application Vault selection for the future target profile;
+   the source-role settings remain available for protected maintenance/recovery.
+4. Complete every tenant/org affected by the shared derived target profile before
+   app restart. Retain the source versions and credentials for historical recovery.
+
+### Vault → Vault, same path runbook {#vault-to-vault-same-path-runbook}
+
+1. Under the fence, record each tenant's current version and check retention
+   before staging. Keep Vault provisioning/rotation automation paused.
+2. CAS-stage a new DEK at each existing path using its observed version, as shown
+   in [Vault provisioning](#3-prepare-new-vault-deks-when-selected). A CAS conflict
+   stops the procedure. Never replace the recorded old version with the new one.
+3. Select `vault` for both roles at the same endpoint/path. Write separate exact
+   source and target manifests: for example, tenant A may use old 1 → new 2 while
+   tenant B uses old 4 → new 5. The target must still be current latest.
+4. Preview and execute the reviewed scope. Require final persisted-data verification
+   and whole-domain coverage; then perform independent cutover review and restart
+   all app replicas/workers to discard cached old DEKs. Retain old versions.
+
+### Vault → Vault, separate location runbook {#vault-to-vault-separate-location-runbook}
+
+1. Retain the old endpoint/path, exact source versions and read credentials. Prepare
+   the reviewed destination prefix, mount or cluster, including trusted TLS.
+2. Stage distinct new DEKs at destination paths using the provisioning procedure;
+   CAS zero applies only to a genuinely new path. Record exact current target
+   versions and keep destination DEK automation paused.
+3. Select `vault` for both roles, with independent source and target locations,
+   read tokens and manifests. Do not change the source selection to the destination.
+4. Preview and execute the reviewed scope. Validate ordinary application `VAULT_*`
+   settings against the destination before controlled cutover; maintenance-only
+   overrides do not update the app. Retain old-cluster access and versions for
+   recovery, including backups created before migration.
+
+These Vault scenarios operate on KV v2 application DEKs. They do not rotate Vault
+Transit keys, unseal/recovery shares, server seals, tokens or TLS credentials.
+
+### Scope runbooks
+
+- **One tenant:** use `--tenant TENANT_UUID` for preview and execution. Each Vault
+  manifest contains exactly that tenant. A tenant-wide result still covers only
+  the declared supported data, not excluded system-key records or inner envelopes.
+- **All tenants:** explicitly authorize the inventory, then omit both `--tenant`
+  and `--org` using the [commands above](#6-preview-and-execute-the-declared-scope).
+  There is no `--all-tenants` flag. Build exact manifests from the documented SQL
+  inventory; mixed old/current version numbers are supported per tenant, with no
+  wildcard/default version. One derived-source invocation requires one shared old root.
+- **Different previous derived roots:** keep the entire application offline; preview
+  and execute separately authorized per-tenant phases with each tenant's actual
+  previous root and the same intended target profile. Keep each phase's original
+  coordinator/artifacts for its own resume. Do not restart apps between phases or
+  infer completion of unprocessed tenants from a passing phase.
+- **Organization restriction:** add `--org ORGANIZATION_UUID` only for the intended
+  scope, preserving it on resume. A DEK remains tenant-wide: the other organizations
+  may still contain old ciphertext. Finish all affected organizations under the
+  same target while fenced; an org-only pass cannot authorize tenant/app cutover.
+
+For every scope, apply the [key-domain cutover prerequisite](#key-domain-cutover-prerequisite).
+Excluded system-key and independent inner-secret owners must establish compatibility
+with the future profile separately. Do not broaden mutation scope without authorization.
+
+### Archive-recipient change is a separate operation
+
+Changing application roots/DEKs does not re-encrypt an existing backup or change its
+age recipients. Changing archive recipients does not rotate application ciphertext.
+Follow [Enterprise backup recovery](../deployment/enterprise-backup-recovery) for
+recipient provisioning and a new archive under the reviewed recipient set. Keep
+original identities for existing archives and interrupted runs; retain the matching
+historical application keys too. Never edit an existing backup's metadata or swap
+its recipient configuration to bypass a resume binding. Rehearse full verification
+and isolated recovery before independently retiring any custody material.
+
+### Failure decision table
+
+Keep the maintenance fence and all original recovery material in every failed or
+incomplete case. A failure is never permission to retry unprotected.
+
+| Observation | Required response |
+|---|---|
+| Missing/destroyed source version or missing source access | Stop. Recover the retained version/access through the reviewed custody procedure; never substitute latest. If original inputs cannot be restored, use operator-led quarantine recovery. |
+| Missing target version, invalid manifest or incomplete tenant inventory | Stop; do not generate keys or fill defaults automatically. Correct the reviewed configuration before a new attempt; an existing run must retain its original bindings. |
+| Authentication, TLS, timeout or provider error | Restore reviewed access/connectivity without switching providers or logging secret responses. Resume only with the original inputs when still eligible. |
+| Target latest changes, even while the pinned old target version remains readable | Keep Vault automation paused and stop cutover. Do not repin an existing run or roll live latest back automatically. Review recovery using retained keys; final verification must not be treated as passed. |
+| Interrupted command, original database process and bindings intact | Follow [explicit resume](#interruption-and-failure) with the original coordinator ID, baseline, journal, artifacts, scope and keys. Recheck original backup and perform the full final scan. |
+| Changed key/provider/version selection, scope/schema, or PostgreSQL restart/replacement | Original resume is refused. Preserve evidence and custody; use a separately authorized quarantined restore/exercise and recovery decision, not a replacement baseline over partly rotated data. |
+| Conflicting report, damaged artifacts or failed persisted-data comparison | Keep the fence, retain the original record and investigate. Never edit trusted files, delete locks or use row counts alone to manufacture success. |
+
+Only matching durable passed state, exact verification coverage, tested recovery,
+whole-key-domain completion and independent app/inner-owner review can support a
+separately authorized application cutover. No scenario automatically releases the
+fence, deploys a profile or retires old keys.
 
 ## Execution and verification
 

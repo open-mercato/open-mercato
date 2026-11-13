@@ -94,6 +94,106 @@ Exchange **public recipients only**, using an authenticated channel. On the oper
 
 Changing recipients affects new backups; it does not re-encrypt old archives. Resume uses the original authenticated recipient set. Retain old archive identities and historic application DEKs/provider versions independently for every retained recovery point. Neither new archive keys nor a successful backup rotate application encryption keys or authorize retiring old keys. Follow the [protected-rotation guide](../user-guide/key-rotation-protection) for application-key changes.
 
+## Scenario index and runbooks
+
+These procedures keep artifact authenticity, archive identity custody, application
+keys and target authorization separate. Use the existing command examples linked
+below; copy the exact resume command emitted for your own interrupted run rather
+than inventing a run ID, target, digest or confirmation.
+
+| Scenario | Procedure and success boundary |
+|---|---|
+| Prepare an encrypted backup | [Preflight, create and verify](#create-and-verify); retain the creation digest independently. |
+| Inspect a completed or partial run | [Status and create resume](#status-and-create-resume-runbook); display counts are advisory. |
+| Resume an interrupted backup | Authenticate the original preparation/workspace and retain its original source, recipients and chunk bindings. |
+| Recover into a separate target | [Restore/exercise and resume](#restore-exercise-and-resume-runbook); obtain a fresh target challenge. |
+| Rehearse data and application-key recovery | [Recovery rehearsal](#rehearse-recovery-before-relying-on-it); include separately held historical test DEKs and canaries. |
+| Replace archive recipients | [Recipient change](#archive-recipient-change-runbook); create new archives, retain old identities. |
+| Artifact, key or recovery validation fails | [Failure/quarantine decisions](#failure-and-quarantine-runbook); no automatic promotion or fallback. |
+| Rotate/migrate application roots or Vault DEKs | Follow [protected application-key rotation](../user-guide/key-rotation-protection); archive recipient changes do not rotate application data. |
+
+### Preflight, create and verify runbook
+
+1. Review the detected private persistent paths, matching PostgreSQL clients,
+   source service and custody files. Explicitly authorize the source and output.
+   Establish the declared consistency/maintenance conditions yourself; preflight
+   does not stop writers or create a maintenance fence.
+2. Use `preflight --operation create` against that source, then follow
+   [Create and verify](#create-and-verify) to produce the encrypted artifact.
+   Retain `backupId`, artifact location and `manifestSha256` independently.
+3. Run full artifact `verify` with the independently trusted digest and retained
+   archive identity. Successful creation or decryption alone is not authenticity
+   proof. Retain historical application keys: verification does not decrypt every
+   application's field ciphertext or prove historical key recovery.
+4. Keep a separately rehearsed recovery plan and retain the archive/custody.
+   A backup does not authorize source mutation, target promotion or key retirement.
+
+### Status and create resume runbook
+
+1. Use the [status example](#resume-safely) for the original artifact/workspace.
+   Aggregate counts are advisory; they do not verify the artifact or authorize
+   resume. Use the original private workspace or reviewed recovery identity for
+   authenticated/decrypted details.
+2. For an interrupted create, preserve the emitted run ID/resume command, source
+   service, workspace, output, recipients and chunk settings. Follow
+   [Resume safely](#resume-safely); do not replace the recipient set, reset a
+   journal or bypass a live lock. Resume uses authenticated original preparation.
+3. Cross-host partial recovery needs the independently transported trusted partial
+   digest plus escrow identity when the original workspace identity is unavailable.
+   If the required trust is lost, start a fresh backup rather than adopt the partial.
+4. Quiesced keyset continuation also requires the original PostgreSQL postmaster
+   lifetime. A restart/replacement invalidates that proof; preserve the old partial
+   and start a fresh backup. Inspect the resulting consistency label without
+   upgrading it, then fully verify the completed artifact.
+
+### Restore, exercise and resume runbook {#restore-exercise-and-resume-runbook}
+
+1. Explicitly authorize and provision a separate empty, isolated target as described
+   in [Isolated recovery](#isolated-recovery). Never use the source or a live target.
+2. Run preflight with the correct `--operation restore` or `--operation exercise`,
+   original artifact/digest, identity, workspace and exact target service. Inspect
+   its target identity and obtain a fresh challenge before the corresponding write.
+3. Supply that challenge using `--confirm-target` for restore/exercise. Prefer full
+   verification before writes; streaming verification can discover later corruption
+   after earlier target chunks loaded and does not make a failed target releasable.
+4. After interruption, keep the same artifact, target, workspace and authenticated
+   journal. Repeat the operation's preflight for a **fresh** challenge and use the
+   exact emitted resume instructions; never reuse an expired confirmation or clear
+   committed markers. Matching committed chunks are not applied twice.
+5. Require durable reports and the intended checks. Use the
+   [exercise procedure](#rehearse-recovery-before-relying-on-it) for row counts,
+   migrations and independently held historical-key canaries; `keyRecovery: not-tested`
+   does not prove application-key recovery. `promotionReady` remains false even
+   after successful checks. Any production cutover is a separate reviewed decision.
+
+### Archive recipient change runbook
+
+1. Provision and authenticate the reviewed new public recipient set using the
+   [archive-key procedure](#operator-only-archive-key-provisioning). Keep private
+   identities in separate custody; never include them in command arguments/logs.
+2. Use the new set for a **new** encrypted backup. Do not edit/relabel existing
+   archives or swap the original set for an interrupted create/resume.
+3. Fully verify and rehearse the new artifact with its independent digest and
+   appropriate recovery identity. Retain old archive identities and historical
+   application roots/DEKs/provider versions for every retained older archive.
+4. For application-key changes, use [protected application-key rotation](../user-guide/key-rotation-protection) separately. Neither operation
+   retires old keys or proves recovery of the other's custody domain.
+
+### Failure and quarantine runbook
+
+| Failure | Safe next step |
+|---|---|
+| Missing/wrong identity or missing historical application key | Restore reviewed custody/access without substituting keys. Archive verification alone cannot prove application-key recovery. |
+| Untrusted digest, damaged chunk/schema or conflicting artifact metadata | Refuse recovery writes; preserve the original artifact/digest and investigate a separately controlled copy. Never generate a new trusted digest from the suspect artifact. |
+| Source identity, original preparation or resume binding mismatch | Stop; do not repoint the existing run or reset its journal. Use a separately reviewed fresh backup or recovery plan. |
+| Target identity/challenge mismatch or expired challenge | Stop writes; run the correct operation's preflight and independently inspect the intended target before supplying a fresh challenge. |
+| Interrupted restore/exercise or failed checks after some target writes | Keep the target quarantined and its journal/report intact. Resume only the matching run after review; never promote or overwrite production to retry. |
+| Canary/key-recovery, FK, migration or row-count validation fails | Keep quarantine, inspect the durable failure report and correct the reviewed recovery cause. Do not turn partial success or `keyRecovery: not-tested` into release approval. |
+
+Keep backups, workspaces, journals and key files in operator-controlled storage.
+Publish only small redacted reports/screenshots. Neither status, checksums, a restore
+success nor a passing rehearsal automatically promotes a target or retires custody.
+
 ## Create and verify
 
 Put one to ten age X25519 public recipients in a recipients file. Include an independently controlled offline escrow recipient. Private identities and application DEKs belong in separate custody domains; an archive identity cannot decrypt tenant field ciphertext.
