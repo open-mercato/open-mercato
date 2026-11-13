@@ -15,7 +15,13 @@ import { createTenantMigrationHooks } from '../../src/lib/rls/runtime/migrations
 import { Migration20261113160000 } from '../../src/modules/tenant_boundaries/migrations/Migration20261113160000'
 import { registerDatabaseModuleDeclarations } from '@open-mercato/shared/lib/db/declarations'
 import { registerDatabaseRuntimeAdapter } from '@open-mercato/shared/lib/db/runtime'
-import { runWithTenantBoundary } from '../../src/lib/rls/runtime/scope'
+import { currentTenantBoundaryScope, runWithTenantBoundary } from '../../src/lib/rls/runtime/scope'
+import { createPerJobWorkerHandler } from '../../../cli/src/lib/worker-job-handler'
+import { createEventBus } from '../../../events/src/bus'
+import eventsWorker from '../../../events/src/modules/events/workers/events.worker'
+import { databaseDeclarations as eventsDatabase } from '../../../events/src/modules/events/database'
+import { runDatabaseCliCommand } from '@open-mercato/shared/lib/db/cli'
+import type { EventBus } from '../../../events/src/types'
 
 const databaseUrl = process.env.OM_RLS_TEST_DATABASE_URL
 assert.ok(databaseUrl, 'Set OM_RLS_TEST_DATABASE_URL to an explicitly disposable PostgreSQL database')
@@ -324,6 +330,78 @@ try {
       await listener.end()
       publishing.dispose()
       listening.dispose()
+    }
+  })
+
+  await check('actual queue event retries and CLI scopes use restricted tenants and separate maintenance before container creation', async () => {
+    const adapter = createTenantBoundaryAdapter({ enabled: true, poolMode: 'direct', schema, manifestPath }, {
+      DATABASE_URL: runtimeUrl.toString(), OM_TENANT_RLS_MAINTENANCE_DATABASE_URL: maintenanceUrl.toString(),
+    }, `${suffix}-entrypoints`)
+    registerDatabaseRuntimeAdapter(adapter)
+    const jobPool = new Pool({ connectionString: runtimeUrl.toString(), max: 1, connectionTimeoutMillis: 5_000, query_timeout: 10_000 })
+    const maintenancePool = new Pool({ connectionString: maintenanceUrl.toString(), max: 1, connectionTimeoutMillis: 5_000, query_timeout: 10_000 })
+    const runtimeLifecycle = adapter.configurePool(jobPool, { id: 'entrypoint-runtime', purpose: 'runtime', tables: [`${schema}.records`] })
+    const maintenanceLifecycle = adapter.configurePool(maintenancePool, { id: 'entrypoint-maintenance', purpose: 'maintenance', tables: 'primary' })
+    registerDatabaseModuleDeclarations([
+      { moduleId: 'events', declarations: eventsDatabase },
+      { moduleId: 'entrypoint-fixture', declarations: { bindingValidators: [async (identity) => {
+        assert.equal(currentTenantBoundaryScope()?.context.kind, 'identity')
+        const result = await jobPool.query(`select id from ${relation} where tenant_id=$1`, [identity.context.tenantId])
+        return result.rowCount === 1
+      }] } },
+    ])
+    const invocations: NonNullable<ReturnType<typeof currentTenantBoundaryScope>>[] = []
+    let disposals = 0
+    let deliveries = 0
+    let fail = true
+    const factory = async () => {
+      const scope = currentTenantBoundaryScope()!
+      assert.equal(scope.context.kind, 'tenant')
+      invocations.push(scope)
+      let bus: EventBus
+      const resolve = <Result,>(name: string): Result => {
+        if (name === 'eventBus') return bus as Result
+        if (name === 'em') return { clear: () => assert.equal(currentTenantBoundaryScope(), scope) } as Result
+        throw new Error('[internal] Unknown fixture service')
+      }
+      bus = createEventBus({ resolve, queueStrategy: 'local' })
+      bus.on('fixture.event', async () => {
+        const rows = await jobPool.query<{ id: string; actor: string }>(`select id,current_user as actor from ${relation}`)
+        assert.deepEqual(rows.rows, [{ id: scope.context.tenantId === tenantA ? rowA : rowB, actor: role }])
+        deliveries += 1
+        if (fail) { fail = false; throw new Error('[internal] Deliberate event retry') }
+      }, { persistent: true, id: 'fixture:persistent' })
+      return { resolve, dispose: async () => { await new Promise<void>((resolve) => setImmediate(resolve)); assert.equal(currentTenantBoundaryScope(), scope); disposals += 1 } }
+    }
+    try {
+      await runtimeLifecycle.ready()
+      await maintenanceLifecycle.ready()
+      const handler = createPerJobWorkerHandler([{ id: 'events:worker', queue: 'events', concurrency: 2, handler: (job, context) => eventsWorker(job as Parameters<typeof eventsWorker>[0], context as Parameters<typeof eventsWorker>[1]) }], factory)
+      const job = (tenantId: string) => ({ id: randomUUID(), createdAt: new Date().toISOString(), payload: { event: 'fixture.event', payload: { tenantId }, options: { tenantId } } })
+      const context = { queueName: 'events', jobId: 'fixture', attemptNumber: 1 }
+      await assert.rejects(async () => handler(job(tenantA), context), /subscriber.*failed/i)
+      await Promise.all([handler(job(tenantA), { ...context, attemptNumber: 2 }), handler(job(tenantB), context)])
+      const beforeRejected = invocations.length
+      await assert.rejects(async () => handler(job(randomUUID()), context), /persisted active tenant/)
+      await assert.rejects(async () => handler({ ...job(tenantA), metadata: { tenantId: tenantB } }, context), /Conflicting/)
+      assert.equal(invocations.length, beforeRejected)
+      assert.equal(deliveries, 3)
+      assert.equal(disposals, 3)
+      assert.equal(new Set(invocations.map((scope) => scope.invocation.token)).size, 3)
+      assert.ok(invocations.every((scope) => !scope.invocation.isActive()))
+      await runDatabaseCliCommand({ command: 'fixture', databaseAccess: 'tenant-or-maintenance', run: async () => {
+        assert.deepEqual((await jobPool.query(`select id from ${relation}`)).rows, [{ id: rowA }])
+      } }, ['--tenant', tenantA], 'fixture:tenant')
+      await runDatabaseCliCommand({ command: 'fixture', databaseAccess: 'maintenance', run: async () => {
+        const result = await maintenancePool.query<{ id: string; actor: string }>(`select id,current_user as actor from ${relation} order by id`)
+        assert.deepEqual(result.rows, [rowA, rowB].sort().map((id) => ({ id, actor: maintenanceRole })))
+      } }, [], 'fixture:maintenance')
+    } finally {
+      await Promise.all([jobPool.end(), maintenancePool.end()])
+      runtimeLifecycle.dispose()
+      maintenanceLifecycle.dispose()
+      delete (globalThis as Record<symbol, unknown>)[Symbol.for('@open-mercato/shared.databaseRuntime.v1')]
+      delete (globalThis as Record<symbol, unknown>)[Symbol.for('@open-mercato/shared.databaseModuleDeclarations.v1')]
     }
   })
 
