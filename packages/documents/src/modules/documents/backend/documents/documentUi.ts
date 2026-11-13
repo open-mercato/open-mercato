@@ -1,3 +1,4 @@
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { DocumentCapabilities } from '../../lib/capabilities'
 
 export type { DocumentCapabilities } from '../../lib/capabilities'
@@ -127,8 +128,6 @@ export function normalizeDocumentContent(payload: unknown): DocumentContent {
   }
 }
 
-export function formatDateTime(value: string | null | undefined, fallback: string): string {
-  if (!value) return fallback
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? fallback : date.toLocaleString()
+export function formatDateTime(value: string | null | undefined, fallback: string, locale?: string): string {
+  return formatDisplayDateTime(value, locale) ?? fallback
 }

@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { Building2, CalendarClock, Check, ChevronDown, FileText, Save, Trash2, Users, Workflow } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
@@ -12,6 +13,7 @@ import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { formatFallbackLabel } from './utils'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
+import { formatCalendarDay } from '../../lib/displayDate'
 
 type DealAssociation = {
   id: string
@@ -60,11 +62,9 @@ function formatCurrency(amount: string | null, currency: string | null): string 
   }
 }
 
-function formatDate(value: string | null): string | null {
+function formatDate(value: string | null, locale: string): string | null {
   if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatDisplayDate(value, locale)
 }
 
 type HeaderChipVariant = 'info' | 'warning' | 'success' | 'error' | 'neutral'
@@ -200,12 +200,13 @@ export function DealDetailHeader({
   actions,
 }: DealDetailHeaderProps) {
   const t = useT()
+  const locale = useLocale()
   const amountLabel = React.useMemo(
     () => formatCurrency(deal.valueAmount, deal.valueCurrency),
     [deal.valueAmount, deal.valueCurrency],
   )
-  const createdAtLabel = React.useMemo(() => formatDate(deal.createdAt), [deal.createdAt])
-  const expectedCloseLabel = React.useMemo(() => formatDate(deal.expectedCloseAt), [deal.expectedCloseAt])
+  const createdAtLabel = React.useMemo(() => formatDate(deal.createdAt, locale), [deal.createdAt, locale])
+  const expectedCloseLabel = React.useMemo(() => formatCalendarDay(deal.expectedCloseAt, locale), [deal.expectedCloseAt, locale])
   const { data: statusDictionary } = useCustomerDictionary('deal-statuses', 0, deal.organizationId ?? null)
   const statusEntry = deal.status ? statusDictionary?.map?.[deal.status] : null
   const companyLabel = React.useMemo(() => {

@@ -4,7 +4,8 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ExternalLink, FileText, Plus } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
@@ -77,7 +78,7 @@ function ClaimRow({ claim }: { claim: ClaimListItem }) {
   const locale = useLocale()
   const href = claim.id ? `/backend/warranty_claims/${claim.id}` : '/backend/warranty_claims'
   const relativeUpdatedAt = formatRelativeTime(claim.updatedAt, { locale })
-  const absoluteUpdatedAt = formatDateTime(claim.updatedAt)
+  const absoluteUpdatedAt = formatDisplayDateTime(claim.updatedAt)
   return (
     <li className="rounded-md border border-border bg-card px-3 py-2">
       <div className="flex items-start justify-between gap-3">

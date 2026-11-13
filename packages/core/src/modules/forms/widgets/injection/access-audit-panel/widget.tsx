@@ -20,7 +20,8 @@ import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import {
   FORMS_DRAWER_REFRESH_EVENT,
   type FormsDrawerWidgetContext,
@@ -46,6 +47,7 @@ const PURPOSE_VARIANT: Record<AccessAuditPurpose, 'info' | 'success' | 'warning'
 
 export function AccessAuditPanelWidget({ context }: AccessAuditPanelProps) {
   const t = useT()
+  const locale = useLocale()
   const submissionId = typeof context?.submissionId === 'string' ? context.submissionId : null
   const [rows, setRows] = React.useState<FormattedAuditRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
@@ -110,7 +112,7 @@ export function AccessAuditPanelWidget({ context }: AccessAuditPanelProps) {
                 <span className="truncate font-mono text-muted-foreground">{row.actorShort}</span>
                 {row.timestampMs != null ? (
                   <time className="text-muted-foreground" dateTime={new Date(row.timestampMs).toISOString()}>
-                    {new Date(row.timestampMs).toLocaleString()}
+                    {formatDisplayDateTime(new Date(row.timestampMs), locale)}
                   </time>
                 ) : null}
               </div>

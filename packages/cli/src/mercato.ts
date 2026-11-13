@@ -8,6 +8,7 @@ import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import { getPgSessionConfig } from '@open-mercato/shared/lib/db/session'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { formatInitSummary } from './lib/init-summary'
 import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
@@ -293,7 +294,7 @@ async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
   maintenanceUrl.pathname = '/postgres'
 
   const { Client } = await import('pg')
-  const adminClient = new Client({ connectionString: maintenanceUrl.toString(), ssl: getSslConfig() })
+  const adminClient = new Client({ connectionString: maintenanceUrl.toString(), ssl: getSslConfig(), ...getPgSessionConfig() })
 
   try {
     await adminClient.connect()
@@ -1098,7 +1099,7 @@ export async function run(argv = process.argv) {
         }
         const dbExists = await ensureDatabaseExists(dbUrl)
         if (!dbExists) return 1
-        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig(), ...getPgSessionConfig() })
         try {
           await client.connect()
           // Collect all user tables in the configured schema (uses search_path from DATABASE_URL)
@@ -1176,7 +1177,7 @@ export async function run(argv = process.argv) {
         const { Client } = await import('pg')
         const dbExists = await ensureDatabaseExists(dbUrl)
         if (!dbExists) return 1
-        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
+        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig(), ...getPgSessionConfig() })
         try {
           await client.connect()
           const tableCheck = await client.query<{ regclass: string | null }>(
@@ -1319,7 +1320,7 @@ export async function run(argv = process.argv) {
       // Query DB to get tenant/org IDs using pg directly
       const { Client } = await import('pg')
       const dbUrl = process.env.DATABASE_URL
-      const pgClient = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
+      const pgClient = new Client({ connectionString: dbUrl, ssl: getSslConfig(), ...getPgSessionConfig() })
       await pgClient.connect()
       const orgResult = await pgClient.query(
         `SELECT o.id as org_id, o.tenant_id FROM organizations o

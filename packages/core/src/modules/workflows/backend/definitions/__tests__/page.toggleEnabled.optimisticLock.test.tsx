@@ -35,6 +35,7 @@ jest.mock('@open-mercato/ui/backend/conflicts', () => ({
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: (...args: unknown[]) => flashMock(...args) }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))
 

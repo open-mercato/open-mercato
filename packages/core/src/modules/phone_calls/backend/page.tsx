@@ -10,8 +10,8 @@ import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useProgressPoll } from '@open-mercato/ui/backend/progress/useProgressPoll'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { PHONE_CALL_RESOURCE_KIND } from '@open-mercato/shared/modules/phone_calls/types'
 
 type PhoneCallRow = {
@@ -74,6 +74,7 @@ function formatDuration(seconds: number | null): string {
 
 export default function PhoneCallsPage() {
   const t = useT()
+  const locale = useLocale()
   const [rows, setRows] = React.useState<PhoneCallRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -243,7 +244,7 @@ export default function PhoneCallsPage() {
     {
       accessorKey: 'started_at',
       header: t('phone_calls.calls.columns.started', 'Started'),
-      cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDateTime(row.original.started_at) ?? '—'}</span>,
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDisplayDateTime(row.original.started_at, locale) ?? '—'}</span>,
     },
     {
       accessorKey: 'duration_seconds',
@@ -262,7 +263,7 @@ export default function PhoneCallsPage() {
         )
       },
     },
-  ], [t])
+  ], [locale, t])
 
   return (
     <Page>

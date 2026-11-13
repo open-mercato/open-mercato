@@ -7,9 +7,10 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 const MANAGE_FEATURE = 'configs.cache.manage'
 
@@ -38,6 +39,7 @@ type FetchState = {
 
 export function CachePanel() {
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [state, setState] = React.useState<FetchState>({ loading: true, error: null, stats: null })
   const [canManage, setCanManage] = React.useState(false)
@@ -276,7 +278,7 @@ export function CachePanel() {
                 {t(
                   'configs.cache.generatedAt',
                   'Stats generated {{timestamp}}',
-                  { timestamp: new Date(stats.generatedAt).toLocaleString() }
+                  { timestamp: formatDisplayDateTime(stats.generatedAt, locale) ?? stats.generatedAt }
                 )}
               </p>
               <p className="text-xs text-muted-foreground">

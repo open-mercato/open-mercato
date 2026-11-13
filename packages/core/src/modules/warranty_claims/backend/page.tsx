@@ -27,7 +27,8 @@ import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromePr
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { emitProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { Plus } from 'lucide-react'
 import {
   fetchAssignableStaffMembersPage,
@@ -1078,7 +1079,7 @@ export default function WarrantyClaimsPage() {
         header: t('warranty_claims.list.column.updatedAt'),
         meta: { maxWidth: '96px' },
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground" title={formatDateTime(row.original.updatedAt) ?? undefined}>
+          <span className="text-sm text-muted-foreground" title={formatDisplayDateTime(row.original.updatedAt) ?? undefined}>
             {formatRelativeTime(row.original.updatedAt, { locale }) ?? t('warranty_claims.common.noValue')}
           </span>
         ),

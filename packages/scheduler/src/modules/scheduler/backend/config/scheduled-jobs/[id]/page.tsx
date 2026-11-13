@@ -15,9 +15,10 @@ import { JobLogsModal } from '../../../../components/JobLogsModal'
 import { ExecutionDetailsDialog } from '../../../../components/ExecutionDetailsDialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { formatDistanceToNow } from 'date-fns'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type ScheduleDetail = {
   id: string
@@ -55,6 +56,7 @@ type ExecutionRun = {
 export default function ScheduleDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scheduleId = params?.id
 
@@ -184,9 +186,9 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
       header: t('scheduler.execution.started', 'Started'),
       cell: ({ row }) => (
         <div>
-          <div className="text-sm">{new Date(row.original.startedAt).toLocaleString()}</div>
+          <div className="text-sm">{formatDisplayDateTime(row.original.startedAt, locale)}</div>
           <div className="text-xs text-muted-foreground">
-            {formatDistanceToNow(new Date(row.original.startedAt), { addSuffix: true })}
+            {formatRelativeTime(row.original.startedAt, { locale })}
           </div>
         </div>
       ),
@@ -381,9 +383,9 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">{t('scheduler.field.next_run', 'Next Run')}</dt>
                     <dd className="text-sm mt-1">
-                      {new Date(schedule.nextRunAt).toLocaleString()}
+                      {formatDisplayDateTime(schedule.nextRunAt, locale)}
                       <div className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(schedule.nextRunAt), { addSuffix: true })}
+                        {formatRelativeTime(schedule.nextRunAt, { locale })}
                       </div>
                     </dd>
                   </div>
@@ -392,9 +394,9 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">{t('scheduler.details.last_run', 'Last Run')}</dt>
                     <dd className="text-sm mt-1">
-                      {new Date(schedule.lastRunAt).toLocaleString()}
+                      {formatDisplayDateTime(schedule.lastRunAt, locale)}
                       <div className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(schedule.lastRunAt), { addSuffix: true })}
+                        {formatRelativeTime(schedule.lastRunAt, { locale })}
                       </div>
                     </dd>
                   </div>

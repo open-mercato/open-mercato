@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Code, X, Trash2 } from 'lucide-react'
 import { JsonView } from 'react-json-view-lite'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 export interface DebugEvent {
   id: string
@@ -129,6 +130,7 @@ function DebugEventRow({ event }: { event: DebugEvent }) {
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', {
+      timeZone: resolveDisplayTimeZone(),
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',

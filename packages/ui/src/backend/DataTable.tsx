@@ -45,6 +45,7 @@ import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
 import { parseISO } from 'date-fns/parseISO'
 import { formatDisplayDateTime } from '../primitives/date-format'
+import { useDateLocaleSettings } from '../primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -1849,6 +1850,7 @@ function DataTableImpl<T extends RowData>({
   // Locale-aware for the same reason the detail fields are: with no env override a table cell and
   // the field beside it must not disagree about the convention. An env override still wins.
   const dateLocale = useLocale()
+  const dateLocaleSettings = useDateLocaleSettings()
 
   const tryParseDate = (v: unknown): Date | null => {
     if (v == null) return null
@@ -1871,6 +1873,18 @@ function DataTableImpl<T extends RowData>({
       return isNaN(d.getTime()) ? null : d
     }
     return null
+  }
+
+  // The formatter needs the original string, not the parsed `Date`: a bare `yyyy-MM-dd` (or a
+  // zone-less wall time) is recognised there as floating and kept on its day, while a parsed `Date`
+  // would be treated as an instant and shifted into the configured time zone.
+  const formatDateCell = (raw: unknown): string | null => {
+    const parsed = tryParseDate(raw)
+    if (!parsed) return null
+    const fromString = typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(raw.trim())
+      ? formatDisplayDateTime(raw.trim(), dateLocale, dateLocaleSettings)
+      : null
+    return fromString ?? formatDisplayDateTime(parsed, dateLocale, dateLocaleSettings)
   }
 
   // Guess date columns once using first non-empty row
@@ -4023,8 +4037,7 @@ function DataTableImpl<T extends RowData>({
                       let content: React.ReactNode
                       if (isDateCol) {
                         const raw = cell.getValue() as any
-                        const d = tryParseDate(raw)
-                        content = d ? (formatDisplayDateTime(d, dateLocale) ?? raw) : (raw as any)
+                        content = formatDateCell(raw) ?? (raw as any)
                       } else {
                         content = flexRender(cell.column.columnDef.cell, cell.getContext())
                       }
@@ -4046,8 +4059,7 @@ function DataTableImpl<T extends RowData>({
                       if (metaTooltipContent) {
                         tooltipText = metaTooltipContent(row.original)
                       } else if ((isDateCol || columnId.endsWith('_at')) && cellValue != null) {
-                        const parsedDate = tryParseDate(cellValue)
-                        tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale) ?? String(cellValue)) : String(cellValue)
+                        tooltipText = formatDateCell(cellValue) ?? String(cellValue)
                       } else {
                         tooltipText = cellValue != null ? String(cellValue) : undefined
                       }

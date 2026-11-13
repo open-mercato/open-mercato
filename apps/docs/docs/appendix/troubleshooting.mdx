@@ -43,6 +43,20 @@ The native monorepo dev runtime can start multiple PostgreSQL-backed processes a
 
 If you continue to hit connection limits, verify that background workers and migrations use the same pool settings, and confirm that your database `max_connections` value comfortably exceeds the aggregate pool size across all applications connecting to it.
 
+### Database Session Time Zone
+
+By default each connection uses the PostgreSQL server's `TimeZone` setting. Set `OM_DB_DEFAULT_TIMEZONE` to an IANA zone name to pin it for every connection the platform opens: the application pool, workers, the scheduler, CLI migrations, the events bridge and pgvector.
+
+```bash
+OM_DB_DEFAULT_TIMEZONE=Europe/Warsaw
+```
+
+- Stored values are not affected: every timestamp column is `timestamptz` and is read and written as UTC.
+- SQL that depends on the session zone is affected: `date_trunc` day and week buckets on dashboards, `CURRENT_DATE` comparisons such as overdue deals, and `::date` casts. Choose the zone your reports should use before enabling it on an existing deployment.
+- An invalid value stops connection setup with an error naming `OM_DB_DEFAULT_TIMEZONE`, instead of PostgreSQL rejecting every connection with `invalid value for parameter "TimeZone"`.
+- An `options=` query parameter in `DATABASE_URL` takes precedence over the session flags the platform sets (this also drops the idle session timeout). If your connection string needs `options`, add `-c TimeZone=<zone>` there instead.
+- Check the effective value with `SHOW TimeZone;` from the application, or set `OM_DB_POOL_DEBUG=1` to log it as `sessionTimeZone` when the pool starts.
+
 ## Dev Memory Usage (`🧠 Memory ... RSS`)
 
 The dev runtime prints a `🧠 Memory ... RSS (peak ...)` line that measures the **process-tree RSS** rooted at the app runtime — so the Next.js dev server, the auto-spawned queue workers, and the scheduler are all included in the number. A high idle RSS often reflects per-queue runner overhead rather than Next.js itself.

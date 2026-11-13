@@ -97,6 +97,7 @@ async function settleWithin(work: Promise<unknown>, timeoutMs: number): Promise<
   }
 }
 
+// The browser-zone day: the timer's `date` must match the clock its start instant is read back in.
 function getToday(): string {
   const now = new Date()
   const year = now.getFullYear()

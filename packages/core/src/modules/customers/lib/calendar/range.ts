@@ -7,20 +7,26 @@ import { endOfWeek } from 'date-fns/endOfWeek'
 import { startOfDay } from 'date-fns/startOfDay'
 import { startOfMonth } from 'date-fns/startOfMonth'
 import { startOfWeek } from 'date-fns/startOfWeek'
+import type { FirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/types'
+import { resolveWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import type { CalendarRange, CalendarView } from '../../components/calendar/types'
 
-const MONDAY_WEEK = { weekStartsOn: 1 as const }
-
-export function getVisibleRange(view: CalendarView, anchor: Date, agendaHorizonDays: number): CalendarRange {
+export function getVisibleRange(
+  view: CalendarView,
+  anchor: Date,
+  agendaHorizonDays: number,
+  weekStartsOn: FirstDayOfWeek = resolveWeekStartsOn(),
+): CalendarRange {
+  const week = { weekStartsOn }
   switch (view) {
     case 'day':
       return { from: startOfDay(anchor), to: endOfDay(anchor) }
     case 'week':
-      return { from: startOfWeek(anchor, MONDAY_WEEK), to: endOfWeek(anchor, MONDAY_WEEK) }
+      return { from: startOfWeek(anchor, week), to: endOfWeek(anchor, week) }
     case 'month':
       return {
-        from: startOfWeek(startOfMonth(anchor), MONDAY_WEEK),
-        to: endOfWeek(endOfMonth(anchor), MONDAY_WEEK),
+        from: startOfWeek(startOfMonth(anchor), week),
+        to: endOfWeek(endOfMonth(anchor), week),
       }
     case 'agenda':
       return { from: startOfDay(anchor), to: endOfDay(addDays(anchor, agendaHorizonDays)) }

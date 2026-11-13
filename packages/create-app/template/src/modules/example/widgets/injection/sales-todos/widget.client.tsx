@@ -6,7 +6,8 @@ import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/u
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
@@ -23,6 +24,7 @@ type WidgetContext = {
 
 export default function SalesTodosWidget({ context }: InjectionWidgetComponentProps<WidgetContext>) {
   const t = useT()
+  const locale = useLocale()
   const [items, setItems] = React.useState<TodoItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -152,7 +154,7 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500" />
           SSE Event received: <code className="font-mono">{lastEvent.id}</code>
           <span className="text-blue-500/70">
-            {new Date(lastEvent.timestamp).toLocaleTimeString()}
+            {formatDisplayTime(new Date(lastEvent.timestamp), locale)}
           </span>
         </div>
       ) : null}

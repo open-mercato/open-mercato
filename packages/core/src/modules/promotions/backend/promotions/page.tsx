@@ -40,8 +40,11 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatPromotionCalendarDate } from '../../components/promotionDates'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
+import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
+import { promotionCalendarDate } from '../../components/promotionDates'
 
 const PAGE_SIZE = 50
 const RESOURCE_KIND = 'promotions.promotion'
@@ -79,6 +82,14 @@ type OrderPatchResponse = {
 function sameOrder(a: PromotionRow[], b: PromotionRow[]): boolean {
   if (a.length !== b.length) return false
   return a.every((row, index) => row.id === b[index]?.id)
+}
+
+// Promotion windows are calendar dates, so they render in the tenant's date format but in UTC:
+// a promotion starting on the 15th must not show the 14th in a zone west of UTC.
+function formatDate(value: string | null, locale: string, settings: ResolvedDateLocaleSettings): string | null {
+  const dateOnly = promotionCalendarDate(value)
+  if (!dateOnly) return null
+  return formatDisplayDate(`${dateOnly}T00:00:00.000Z`, locale, { ...settings, timeZone: 'UTC' })
 }
 
 function isFilterValueActive(value: unknown): boolean {
@@ -121,6 +132,8 @@ function PromotionCard({
   onDelete,
 }: PromotionCardProps) {
   const t = useT()
+  const locale = useLocale()
+  const dateLocaleSettings = useDateLocaleSettings()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
     disabled: !canDrag,
@@ -129,8 +142,8 @@ function PromotionCard({
     transform: CSS.Transform.toString(transform),
     transition,
   }
-  const startsLabel = formatPromotionCalendarDate(row.startsAt)
-  const endsLabel = formatPromotionCalendarDate(row.endsAt)
+  const startsLabel = formatDate(row.startsAt, locale, dateLocaleSettings)
+  const endsLabel = formatDate(row.endsAt, locale, dateLocaleSettings)
   const windowLabel = startsLabel || endsLabel
     ? [
         startsLabel ? t('promotions.list.card.starts', 'Starts {date}', { date: startsLabel }) : null,

@@ -1,6 +1,7 @@
 import * as React from 'react'
 import type { ActivityType } from './fieldConfig'
 import { isDateRequired, resolveScheduleActivityType } from './fieldConfig'
+import { scheduleTimeZone, scheduleWallTimeToInstant, toScheduleWallTime } from './scheduleWallTime'
 
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
@@ -88,43 +89,42 @@ function padDatePart(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-function isSameLocalDay(left: Date, right: Date): boolean {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  )
+function wallClock(date: string, minutesOfDay: number): { date: string; time: string } {
+  return { date, time: `${padDatePart(Math.floor(minutesOfDay / 60))}:${padDatePart(minutesOfDay % 60)}` }
 }
 
-function nextSlotAfter(now: Date): Date {
-  const next = new Date(now)
-  next.setSeconds(0, 0)
-  next.setMinutes(next.getMinutes() + (DEFAULT_SLOT_MINUTES - (next.getMinutes() % DEFAULT_SLOT_MINUTES)))
-  if (!isSameLocalDay(next, now)) {
-    next.setHours(NEXT_DAY_START_HOUR, 0, 0, 0)
-  }
-  return next
+function nextDay(date: string): string {
+  const next = new Date(`${date}T00:00:00Z`)
+  next.setUTCDate(next.getUTCDate() + 1)
+  return next.toISOString().slice(0, 10)
 }
 
 /**
  * Default start moment for a newly created activity of `type`, always strictly
- * after `now` so a brand-new record is never born overdue (#5940).
+ * after `now` so a brand-new record is never born overdue (#5940). The working-day
+ * hours and slots are read on the wall clock of `timeZone` (the configured display
+ * zone by default), the clock the dialog shows.
  */
-export function resolveDefaultActivityStart(type: ActivityType, now: Date): Date {
+export function resolveDefaultActivityStart(type: ActivityType, now: Date, timeZone: string = scheduleTimeZone()): Date {
+  const today = toScheduleWallTime(now, timeZone)
+  const [hours, minutes] = today.time.split(':').map(Number)
+  const minuteOfDay = hours * 60 + minutes
+  const toInstant = (wall: { date: string; time: string }) => scheduleWallTimeToInstant(wall.date, wall.time, timeZone)
   if (type === 'task') {
-    const endOfWorkingDay = new Date(now)
-    endOfWorkingDay.setHours(TASK_DEFAULT_HOUR, 0, 0, 0)
-    if (endOfWorkingDay.getTime() > now.getTime()) return endOfWorkingDay
+    const endOfWorkingDay = toInstant(wallClock(today.date, TASK_DEFAULT_HOUR * 60))
+    if (endOfWorkingDay && endOfWorkingDay.getTime() > now.getTime()) return endOfWorkingDay
   }
-  return nextSlotAfter(now)
+  const slot = minuteOfDay + (DEFAULT_SLOT_MINUTES - (minuteOfDay % DEFAULT_SLOT_MINUTES))
+  const next = slot < 24 * 60 ? wallClock(today.date, slot) : wallClock(nextDay(today.date), NEXT_DAY_START_HOUR * 60)
+  return toInstant(next) ?? new Date(now.getTime() + DEFAULT_SLOT_MINUTES * 60_000)
 }
 
 function formatLocalDateInput(date: Date): string {
-  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`
+  return toScheduleWallTime(date).date
 }
 
 function formatLocalTimeInput(date: Date): string {
-  return `${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`
+  return toScheduleWallTime(date).time
 }
 
 interface UseScheduleFormStateParams {
@@ -180,8 +180,8 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         // `occurredAt` stays the fallback for purely historical entries (a logged call
         // or note) that never had a `scheduledAt`, so editing those still restores
         // their actual moment instead of falling back to "today" (#1807).
-        // Keep seed values in the user's local timezone, matching the cluster-E
-        // local-day convention.
+        // Seed on the wall clock of the configured display zone, the zone the
+        // activity cards render in, so the dialog shows the time the card shows.
         const sourceTimestamp = editData.scheduledAt ?? editData.occurredAt ?? null
         const seedDate = sourceTimestamp ? new Date(sourceTimestamp) : null
         const seedDateValid = seedDate !== null && !Number.isNaN(seedDate.getTime())

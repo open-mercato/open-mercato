@@ -20,7 +20,7 @@ import {
 import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { createCurrencyFormatters } from '../../../lib/formatters'
+import { createCurrencyFormatters, formatDateBucketLabel } from '../../../lib/formatters'
 import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -44,31 +44,6 @@ async function fetchRevenueTrendData(settings: RevenueTrendSettings, fetchWidget
   }
 
   return fetchWidgetData<WidgetDataResponse>(body)
-}
-
-function formatDate(dateStr: string | null, granularity: DateGranularity, locale?: string): string {
-  if (!dateStr) return '--'
-  try {
-    const date = new Date(dateStr)
-    const localeStr = locale ?? undefined
-    switch (granularity) {
-      case 'day':
-      case 'week':
-        return date.toLocaleDateString(localeStr, { month: 'short', day: 'numeric' })
-      case 'month':
-        return date.toLocaleDateString(localeStr, { month: 'short', year: 'numeric' })
-      case 'quarter': {
-        const quarter = Math.floor(date.getMonth() / 3) + 1
-        return `Q${quarter} ${date.getFullYear()}`
-      }
-      case 'year':
-        return date.toLocaleDateString(localeStr, { year: 'numeric' })
-      default:
-        return date.toLocaleDateString(localeStr, { month: 'short', day: 'numeric' })
-    }
-  } catch {
-    return String(dateStr)
-  }
 }
 
 const GRANULARITY_OPTIONS: { value: DateGranularity; labelKey: string }[] = [
@@ -133,7 +108,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         return aTime - bTime
       })
       const chartData = sortedData.map((item) => ({
-        date: formatDate(item.groupKey as string | null, hydrated.granularity, locale),
+        date: formatDateBucketLabel(item.groupKey as string | null, hydrated.granularity, locale),
         Revenue: item.value ?? 0,
       }))
       setData(chartData)

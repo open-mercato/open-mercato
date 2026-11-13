@@ -17,7 +17,8 @@ import { CrudForm, type CrudField, type CrudFormGroup, type CrudCustomFieldRende
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { z } from 'zod'
 import { E } from '#generated/entities.ids.generated'
@@ -70,9 +71,7 @@ function formatFileSize(value: number): string {
 }
 
 function humanDate(value: string, locale?: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString(locale ?? undefined)
+  return formatDisplayDateTime(value, locale) ?? value
 }
 
 function buildFilterSignature(values: FilterValues): string {
@@ -754,6 +753,7 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
 
 export function AttachmentLibrary() {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -961,7 +961,7 @@ export function AttachmentLibrary() {
           const createdAt = row.original.createdAt
           return (
             <div className="text-sm text-muted-foreground">
-              {createdAt ? humanDate(createdAt) : '—'}
+              {createdAt ? humanDate(createdAt, locale) : '—'}
             </div>
           )
         },
@@ -988,7 +988,7 @@ export function AttachmentLibrary() {
         },
       },
     ]
-  }, [t])
+  }, [locale, t])
 
   const openMetadataDialog = React.useCallback((row: AttachmentRow) => {
     setSelectedRow(row)

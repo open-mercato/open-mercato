@@ -9,6 +9,8 @@
 import * as React from 'react'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { setClientDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 import { AssignMembersDialog, type AssignMembersDialogLabels } from '../AssignMembersDialog'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -124,5 +126,25 @@ describe('AssignMembersDialog confirm button', () => {
 
     const confirmButton = screen.getByRole('button', { name: new RegExp(labels.confirm) })
     expect(within(confirmButton).queryByRole('status')).toBeNull()
+  })
+})
+
+describe('AssignMembersDialog default start date', () => {
+  const noEnv = { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null }
+
+  beforeEach(() => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'Asia/Tokyo' }, env: noEnv }))
+  })
+
+  afterEach(() => setClientDateLocaleSettings(null))
+
+  it.each([
+    ['2026-07-20T22:30:00.000Z', '2026-07-20'],
+    ['2026-07-21T02:00:00.000Z', '2026-07-21'],
+  ])('defaults to the UTC day the server compares assignments with at %s', (now, expected) => {
+    jest.setSystemTime(new Date(now))
+    const { container } = renderDialog()
+
+    expect((container.querySelector('input[type="date"]') as HTMLInputElement).value).toBe(expected)
   })
 })

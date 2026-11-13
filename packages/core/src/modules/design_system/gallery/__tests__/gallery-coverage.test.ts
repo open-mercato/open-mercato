@@ -14,6 +14,9 @@ import { galleryFamilies } from '../registry'
 const NON_COMPONENT: Record<string, string> = {
   'date-format.ts': 'Date formatting helpers, no visual component.',
   'date-locale.ts': 'Locale resolution helpers for the date/time pickers, no visual component.',
+  'date-locale-settings.tsx': 'Date/locale settings context provider and hooks, no visual component.',
+  'date-locale-store.ts': 'Client-side store backing the date/locale settings helpers, no visual component.',
+  'date-fns-locales.ts': 'Server-safe date-fns locale map for the date/time helpers, no visual component.',
   'date-picker-helpers.ts': 'Shared date-picker parsing/formatting helpers, no visual component.',
   'notification-stack.tsx': 'Imperative stacking host for notification primitives, no standalone visual.',
 }

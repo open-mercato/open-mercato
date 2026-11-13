@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { Info } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import type { CompanyOverview, PersonOverview } from '../formConfig'
 
 type HighlightItemProps = {
@@ -35,16 +36,16 @@ function HighlightItem({ label, value, href, hint }: HighlightItemProps) {
   )
 }
 
-function formatNextInteraction(at: string | null | undefined, name: string | null | undefined): string | null {
+function formatNextInteraction(at: string | null | undefined, name: string | null | undefined, locale: string): string | null {
   if (!at) return null
-  const date = new Date(at)
-  if (Number.isNaN(date.getTime())) return null
-  const formatted = date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  const formatted = formatDisplayDate(at, locale)
+  if (!formatted) return null
   return name && name.trim().length ? `${formatted} — ${name.trim()}` : formatted
 }
 
 export function CompanyHighlightsSummary({ data }: { data: CompanyOverview }) {
   const t = useT()
+  const locale = useLocale()
   const { company } = data
   const isLegacy = data.interactionMode !== 'canonical'
   const nextInteractionHint = isLegacy
@@ -68,7 +69,7 @@ export function CompanyHighlightsSummary({ data }: { data: CompanyOverview }) {
       />
       <HighlightItem
         label={t('customers.companies.detail.highlights.nextInteraction', 'Next interaction')}
-        value={formatNextInteraction(company.nextInteractionAt, company.nextInteractionName)}
+        value={formatNextInteraction(company.nextInteractionAt, company.nextInteractionName, locale)}
         hint={nextInteractionHint}
       />
     </div>
@@ -77,6 +78,7 @@ export function CompanyHighlightsSummary({ data }: { data: CompanyOverview }) {
 
 export function PersonHighlightsSummary({ data }: { data: PersonOverview }) {
   const t = useT()
+  const locale = useLocale()
   const { person, company } = data
   const isLegacy = data.interactionMode !== 'canonical'
   const nextInteractionHint = isLegacy
@@ -100,7 +102,7 @@ export function PersonHighlightsSummary({ data }: { data: PersonOverview }) {
       />
       <HighlightItem
         label={t('customers.people.detail.highlights.nextInteraction', 'Next interaction')}
-        value={formatNextInteraction(person.nextInteractionAt, person.nextInteractionName)}
+        value={formatNextInteraction(person.nextInteractionAt, person.nextInteractionName, locale)}
         hint={nextInteractionHint}
       />
       <HighlightItem

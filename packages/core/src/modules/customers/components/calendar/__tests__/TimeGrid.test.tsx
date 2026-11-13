@@ -35,7 +35,7 @@ function renderGrid(days: TimeGridProps['days'], onCreateRange = jest.fn()) {
     )
   }
 
-  const view = renderWithProviders(<React.StrictMode><CalendarScreen /></React.StrictMode>)
+  const view = renderWithProviders(<React.StrictMode><CalendarScreen /></React.StrictMode>, { locale: 'pl' })
   const layers = Array.from(view.container.querySelectorAll<HTMLDivElement>('.cursor-cell'))
   expect(layers).toHaveLength(days)
   return { ...view, layers, onCreateRange }

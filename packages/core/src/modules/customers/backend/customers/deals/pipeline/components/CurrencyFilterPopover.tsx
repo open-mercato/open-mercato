@@ -9,7 +9,8 @@ import {
 } from '@open-mercato/ui/primitives/popover'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, todayInZone } from '@open-mercato/ui/primitives/date-format'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { ChipButton } from './ChipButton'
 
@@ -57,6 +58,7 @@ export function CurrencyFilterPopover({
   onApply,
 }: CurrencyFilterPopoverProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<string | null>(selectedCurrency)
 
@@ -191,7 +193,7 @@ export function CurrencyFilterPopover({
                   t,
                   'customers.deals.kanban.currencyFilter.footerCredit',
                   'NBP mid conversion rate · {date}',
-                  { date: formatToday() },
+                  { date: formatToday(locale) },
                 )}
               </p>
             </div>
@@ -299,12 +301,8 @@ function formatAmount(amount: number): string {
   }).format(Math.round(amount))
 }
 
-function formatToday(): string {
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-  }).format(new Date())
+function formatToday(locale: string): string {
+  return formatDisplayDate(todayInZone(), locale) ?? ''
 }
 
 export default CurrencyFilterPopover

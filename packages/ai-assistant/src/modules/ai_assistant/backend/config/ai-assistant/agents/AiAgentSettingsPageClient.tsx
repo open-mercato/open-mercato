@@ -19,7 +19,8 @@ import {
   Wand2,
   Wrench,
 } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -1950,6 +1951,7 @@ function LoopPolicySection({ agent }: { agent: AgentSettings }) {
 
 function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const [overrideFlags, setOverrideFlags] = React.useState<Record<PromptSectionId, boolean>>(() => ({
     role: false,
@@ -2431,7 +2433,7 @@ function AgentDetailPanel({ agent }: { agent: AgentSettings }) {
                     {t('ai_assistant.agents.override.versionLabel', 'Version')} {entry.version}
                   </span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {new Date(entry.updatedAt).toLocaleString()}
+                    {formatDisplayDateTime(entry.updatedAt, locale)}
                   </span>
                 </div>
                 <Badge variant="neutral" className="font-mono text-xs">

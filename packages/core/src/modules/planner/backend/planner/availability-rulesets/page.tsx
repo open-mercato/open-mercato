@@ -19,7 +19,7 @@ import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverE
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('planner').child({ component: 'availability-rulesets-page' })
@@ -195,7 +195,7 @@ export default function PlannerAvailabilityRuleSetsPage() {
       header: labels.table.updatedAt,
       meta: { priority: 3 },
       cell: ({ row }) => row.original.updatedAt
-        ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
+        ? <span className="text-xs text-muted-foreground">{formatDisplayDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
   ], [labels.table.name, labels.table.timezone, labels.table.updatedAt])

@@ -6,13 +6,14 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type {
   SystemStatusSnapshot,
   SystemStatusItem,
   SystemStatusState,
   SystemStatusRuntimeMode,
 } from '../lib/system-status.types'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 const API_PATH = '/api/configs/system-status'
 const ENV_GUIDE_URL = 'https://docs.openmercato.com/docs/framework/operations/system-status#managing-variables'
@@ -94,6 +95,7 @@ type FetchState = {
 
 export function SystemStatusPanel() {
   const t = useT()
+  const locale = useLocale()
   const [state, setState] = React.useState<FetchState>({ loading: true, error: null, snapshot: null })
 
   const loadSnapshot = React.useCallback(async () => {
@@ -185,7 +187,7 @@ export function SystemStatusPanel() {
           {t(
             'configs.systemStatus.generatedAt',
             'Snapshot generated {{timestamp}}',
-            { timestamp: new Date(snapshot.generatedAt).toLocaleString() }
+            { timestamp: formatDisplayDateTime(snapshot.generatedAt, locale) ?? snapshot.generatedAt }
           )}
         </p>
       </header>

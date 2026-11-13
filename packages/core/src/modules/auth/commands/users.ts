@@ -77,6 +77,7 @@ import {
   requireTransactionalReplayEntityManager,
 } from '@open-mercato/core/modules/auth/lib/commandReplay'
 import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { userTimeZoneSchema } from '@open-mercato/shared/lib/date-locale/validation'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
 const USER_REDO_LOG = Symbol('auth.users.redoLog')
@@ -106,6 +107,7 @@ type SerializedUser = {
   roles: string[]
   name: string | null
   isConfirmed: boolean
+  timezone?: string | null
   custom?: Record<string, unknown>
 }
 
@@ -124,6 +126,7 @@ type UserUndoSnapshot = {
   passwordHash?: string | null
   name: string | null
   isConfirmed: boolean
+  timezone?: string | null
   roles: string[]
   acls: UserAclSnapshot[]
   custom?: Record<string, unknown>
@@ -209,6 +212,7 @@ const updateSchema = z.object({
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
   isConfirmed: z.boolean().optional(),
+  timezone: userTimeZoneSchema,
 })
 
 export const userCrudEvents: CrudEventsConfig = {
@@ -847,6 +851,9 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
               if (parsed.isConfirmed !== undefined) {
                 entity.isConfirmed = parsed.isConfirmed
               }
+              if (parsed.timezone !== undefined) {
+                entity.timezone = parsed.timezone
+              }
               if (hashed) entity.passwordHash = hashed
             },
           })
@@ -956,7 +963,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     )
     const afterSnapshots = captureUserSnapshots(result, afterRoles, undefined, afterCustom)
     const after = afterSnapshots.view
-    const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['email', 'organizationId', 'tenantId', 'name', 'isConfirmed'])
+    const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['email', 'organizationId', 'tenantId', 'name', 'isConfirmed', 'timezone'])
     if (before && !arrayEquals(before.roles, afterRoles)) {
       changes.roles = { from: before.roles, to: afterRoles }
     }
@@ -1041,6 +1048,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
             }
             if ('name' in replayInput) entity.name = before.name ?? null
             if ('isConfirmed' in replayInput) entity.isConfirmed = before.isConfirmed
+            if ('timezone' in replayInput) entity.timezone = before.timezone ?? null
           },
         })
 
@@ -1306,8 +1314,10 @@ function normalizeUserReplaySnapshot(snapshot: UserUndoSnapshot): UserUndoSnapsh
   // in `action_logs`), so comparing it against a live snapshot that still carries
   // the hash would report every password-bearing account as changed and refuse
   // the replay.
+  // Snapshots recorded before `timezone` existed carry no key; an unset zone is `null` either way.
   return withoutPasswordHash({
     ...snapshot,
+    timezone: snapshot.timezone ?? null,
     roles: [...snapshot.roles].sort((left, right) => left.localeCompare(right)),
     acls: normalizeUserAclSnapshots(snapshot.acls),
   }) as UserUndoSnapshot
@@ -1320,6 +1330,7 @@ function toUserUpdateReplayState(snapshot: UserUndoSnapshot): SerializedUser {
     tenantId: snapshot.tenantId,
     roles: [...snapshot.roles].sort((left, right) => left.localeCompare(right)),
     name: snapshot.name,
+    timezone: snapshot.timezone ?? null,
     isConfirmed: snapshot.isConfirmed,
     ...(snapshot.custom && Object.keys(snapshot.custom).length ? { custom: snapshot.custom } : {}),
   }
@@ -1346,6 +1357,7 @@ function deriveUserUpdateReplayInput(
     input.organizationId = after.organizationId
   }
   if (before.name !== after.name) input.name = after.name
+  if ((before.timezone ?? null) !== (after.timezone ?? null)) input.timezone = after.timezone ?? null
   if (before.isConfirmed !== after.isConfirmed) input.isConfirmed = after.isConfirmed
   if (!arrayEquals(before.roles, after.roles)) input.roles = after.roles
   return input
@@ -1357,7 +1369,7 @@ function isSelfProfileReplay(
   userId: string,
 ): boolean {
   if (!ctx.auth?.sub || ctx.auth.sub !== userId) return false
-  const allowedKeys = new Set(['id', 'email', 'password'])
+  const allowedKeys = new Set(['id', 'email', 'password', 'timezone'])
   return Object.keys(input).every((key) => allowedKeys.has(key) || input[key] === undefined)
 }
 
@@ -1765,6 +1777,7 @@ function serializeUser(user: User, roles: string[], custom?: Record<string, unkn
     roles,
     name: user.name ? String(user.name) : null,
     isConfirmed: Boolean(user.isConfirmed),
+    timezone: user.timezone ?? null,
   }
   if (custom && Object.keys(custom).length) payload.custom = custom
   return payload
@@ -1786,6 +1799,7 @@ function captureUserSnapshots(
       passwordHash: user.passwordHash ? String(user.passwordHash) : null,
       name: user.name ? String(user.name) : null,
       isConfirmed: Boolean(user.isConfirmed),
+      timezone: user.timezone ?? null,
       roles: [...roles],
       acls,
       ...(custom && Object.keys(custom).length ? { custom } : {}),

@@ -10,6 +10,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { statusBadgeVariant } from '../../../components/formConfig'
 import { EUDR_SUBMISSION_STATUSES } from '../../../data/validators'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('eudr')
 
@@ -53,8 +54,7 @@ function resolveCompanyId(context: unknown, data: unknown): string | null {
 
 function formatDate(value: string | null, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? emptyLabel : date.toLocaleDateString(locale || undefined)
+  return formatDisplayDate(value, locale || undefined) ?? emptyLabel
 }
 
 async function loadSupplierCompliance(supplierEntityId: string): Promise<SupplierCompliance | null> {

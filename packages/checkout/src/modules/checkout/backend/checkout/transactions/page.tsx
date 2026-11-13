@@ -3,7 +3,8 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extension-points'
 import { useSearchParams } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -42,10 +43,9 @@ type LinkListResponse = {
   items?: Array<Record<string, unknown>>
 }
 
-function formatDate(value: string | null | undefined): string {
+function formatDate(value: string | null | undefined, locale: string): string {
   if (!value) return '—'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
+  return formatDisplayDate(value, locale) ?? value
 }
 
 function formatAmount(amount: number | null | undefined, currencyCode: string): string {
@@ -59,6 +59,7 @@ function formatAmount(amount: number | null | undefined, currencyCode: string): 
 
 export default function CheckoutTransactionsPage() {
   const t = useT()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const initialLinkId = React.useMemo(() => {
     const raw = searchParams.get('linkId')
@@ -219,11 +220,11 @@ export default function CheckoutTransactionsPage() {
       {
         accessorKey: 'createdAt',
         header: t('checkout.admin.transactions.columns.date'),
-        cell: ({ row }) => formatDate(row.original.createdAt),
+        cell: ({ row }) => formatDate(row.original.createdAt, locale),
       },
     )
     return baseColumns
-  }, [canViewPii, t])
+  }, [canViewPii, locale, t])
 
   return (
     <Page>

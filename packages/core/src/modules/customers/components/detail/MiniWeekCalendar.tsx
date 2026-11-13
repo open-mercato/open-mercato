@@ -3,13 +3,17 @@
 import * as React from 'react'
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { fromZonedTime } from 'date-fns-tz'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import type { FirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/types'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
+import { useDateLocaleSettings, useDisplayTimeZone, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import type { InteractionSummary } from './types'
 import { loadLegacyActivitiesInRange } from './legacyActivities'
-import { isSameDay } from '../../lib/localDay'
+import { isSameDay, toLocalZonedDate } from '../../lib/localDay'
 
 interface MiniWeekCalendarProps {
   entityId: string
@@ -17,29 +21,29 @@ interface MiniWeekCalendarProps {
   refreshRef?: React.RefObject<(() => void) | null>
 }
 
-function getWeekDays(baseDate: Date): Date[] {
+export function getWeekDays(baseDate: Date, weekStartsOn: FirstDayOfWeek): Date[] {
   const day = baseDate.getDay()
-  const monday = new Date(baseDate)
-  monday.setDate(baseDate.getDate() - ((day === 0 ? 7 : day) - 1))
-  monday.setHours(0, 0, 0, 0)
+  const weekStart = new Date(baseDate)
+  weekStart.setDate(baseDate.getDate() - ((day - weekStartsOn + 7) % 7))
+  weekStart.setHours(0, 0, 0, 0)
   const days: Date[] = []
   for (let i = 0; i < 7; i++) {
-    const d = new Date(monday)
-    d.setDate(monday.getDate() + i)
+    const d = new Date(weekStart)
+    d.setDate(weekStart.getDate() + i)
     days.push(d)
   }
   return days
 }
 
-function getDayLabels(t: ReturnType<typeof useT>): string[] {
+function getDayLabelsByWeekday(t: ReturnType<typeof useT>): string[] {
   return [
+    t('customers.calendar.day.sun', 'SUN'),
     t('customers.calendar.day.mon', 'MON'),
     t('customers.calendar.day.tue', 'TUE'),
     t('customers.calendar.day.wed', 'WED'),
     t('customers.calendar.day.thu', 'THU'),
     t('customers.calendar.day.fri', 'FRI'),
     t('customers.calendar.day.sat', 'SAT'),
-    t('customers.calendar.day.sun', 'SUN'),
   ]
 }
 
@@ -60,7 +64,11 @@ function dotColorForType(type: string, isToday: boolean): string {
 
 export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef }: MiniWeekCalendarProps) {
   const t = useT()
-  const today = React.useMemo(() => new Date(), [])
+  const locale = useLocale()
+  const formatLocale = useDateLocaleSettings().locale ?? locale
+  const timeZone = useDisplayTimeZone()
+  const weekStartsOn = useWeekStartsOn()
+  const today = React.useMemo(() => toLocalZonedDate(new Date()), [])
   const [weekOffset, setWeekOffset] = React.useState(0)
   const [events, setEvents] = React.useState<InteractionSummary[]>([])
 
@@ -70,16 +78,16 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
     return d
   }, [today, weekOffset])
 
-  const weekDays = React.useMemo(() => getWeekDays(baseDate), [baseDate])
+  const weekDays = React.useMemo(() => getWeekDays(baseDate, weekStartsOn), [baseDate, weekStartsOn])
   const weekStart = weekDays[0]
   const weekEnd = weekDays[6]
 
   const monthLabel = React.useMemo(() => {
-    const month = baseDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    const month = new Intl.DateTimeFormat(formatLocale, { month: 'long', year: 'numeric' }).format(baseDate)
     return weekOffset === 0
       ? t('customers.calendar.thisWeek', 'This week') + ' — ' + month
       : month
-  }, [baseDate, t, weekOffset])
+  }, [baseDate, formatLocale, t, weekOffset])
 
   const [refreshKey, setRefreshKey] = React.useState(0)
   const refresh = React.useCallback(() => setRefreshKey((k) => k + 1), [])
@@ -91,11 +99,13 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
   React.useEffect(() => {
     if (!entityId) return
     const controller = new AbortController()
-    const rangeStart = new Date(weekStart)
-    rangeStart.setHours(0, 0, 0, 0)
-    const rangeEnd = new Date(weekEnd)
-    rangeEnd.setDate(rangeEnd.getDate() + 2)
-    rangeEnd.setHours(23, 59, 59, 999)
+    const rangeStartWallClock = new Date(weekStart)
+    rangeStartWallClock.setHours(0, 0, 0, 0)
+    const rangeEndWallClock = new Date(weekEnd)
+    rangeEndWallClock.setDate(rangeEndWallClock.getDate() + 2)
+    rangeEndWallClock.setHours(23, 59, 59, 999)
+    const rangeStart = fromZonedTime(rangeStartWallClock, timeZone)
+    const rangeEnd = fromZonedTime(rangeEndWallClock, timeZone)
 
     function isWithinRange(item: InteractionSummary): boolean {
       const rawDate = item.scheduledAt ?? item.occurredAt ?? item.createdAt
@@ -156,14 +166,14 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
       }
     })()
     return () => controller.abort()
-  }, [entityId, weekStart, weekEnd, useCanonicalInteractions, refreshKey])
+  }, [entityId, weekStart, weekEnd, timeZone, useCanonicalInteractions, refreshKey])
 
   const eventsByDay = React.useMemo(() => {
     const map = new Map<string, InteractionSummary[]>()
     for (const event of events) {
       const dateStr = event.scheduledAt ?? event.occurredAt ?? event.createdAt
       if (!dateStr) continue
-      const key = new Date(dateStr).toDateString()
+      const key = toLocalZonedDate(dateStr).toDateString()
       const list = map.get(key) ?? []
       list.push(event)
       map.set(key, list)
@@ -187,16 +197,17 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
         ? ''
         : offset === 1
           ? t('customers.calendar.tomorrow', 'Tomorrow') + ' '
-          : d.toLocaleDateString(undefined, { weekday: 'short' }) + ' '
+          : new Intl.DateTimeFormat(formatLocale, { weekday: 'short' }).format(d) + ' '
       for (const ev of dayEvents) {
         if (result.length >= 3) break
         result.push({ event: ev, dayLabel: label, isToday: isActiveDay })
       }
     }
     return result
-  }, [eventsByDay, activeDay, t])
+  }, [eventsByDay, activeDay, formatLocale, t])
 
-  const dayLabels = getDayLabels(t)
+  const dayLabelsByWeekday = getDayLabelsByWeekday(t)
+  const dayLabels = weekDays.map((day) => dayLabelsByWeekday[day.getDay()])
 
   return (
     <div className="rounded-lg border border-border/60 p-4">
@@ -268,7 +279,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
         <div className="mt-3 space-y-1.5 border-t pt-3">
           {summaryEvents.map(({ event, dayLabel, isToday: isActiveDay }) => {
             const dateStr = event.scheduledAt ?? event.occurredAt ?? event.createdAt
-            const time = dateStr ? new Date(dateStr).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''
+            const time = dateStr ? formatDisplayTime(dateStr, locale) ?? '' : ''
             return (
               <div key={event.id} className="flex items-center gap-2 text-xs">
                 <span className={cn('size-1.5 rounded-full shrink-0', INTERACTION_TYPE_COLORS[event.interactionType] ?? (isActiveDay ? INTERACTION_TYPE_FALLBACK_COLOR : 'bg-muted-foreground'))} />

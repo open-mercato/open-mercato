@@ -56,8 +56,18 @@ export const DATE_RANGE_OPTIONS: DateRangeOption[] = [
   { value: 'last_90_days', labelKey: 'dashboards.analytics.dateRange.last90Days' },
 ]
 
-export function resolveDateRange(preset: DateRangePreset, referenceDate: Date = new Date()): DateRange {
+export type ResolveDateRangeOptions = {
+  /** 0 = Sunday … 6 = Saturday. Defaults to Monday, the long-standing behavior. */
+  weekStartsOn?: 0 | 1 | 2 | 3 | 4 | 5 | 6
+}
+
+export function resolveDateRange(
+  preset: DateRangePreset,
+  referenceDate: Date = new Date(),
+  options: ResolveDateRangeOptions = {},
+): DateRange {
   const today = referenceDate
+  const weekStartsOn = options.weekStartsOn ?? 1
 
   switch (preset) {
     case 'today':
@@ -69,11 +79,11 @@ export function resolveDateRange(preset: DateRangePreset, referenceDate: Date = 
     }
 
     case 'this_week':
-      return { start: startOfWeek(today, { weekStartsOn: 1 }), end: endOfWeek(today, { weekStartsOn: 1 }) }
+      return { start: startOfWeek(today, { weekStartsOn }), end: endOfWeek(today, { weekStartsOn }) }
 
     case 'last_week': {
       const lastWeek = subWeeks(today, 1)
-      return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) }
+      return { start: startOfWeek(lastWeek, { weekStartsOn }), end: endOfWeek(lastWeek, { weekStartsOn }) }
     }
 
     case 'this_month':

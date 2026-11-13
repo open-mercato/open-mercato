@@ -72,7 +72,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (key: string, fallback?: string) => fallback ?? key
-  return { useT: () => translate }
+  return { useLocale: () => 'en', useT: () => translate }
 })
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/dictionaryAppearance', () => ({

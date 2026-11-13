@@ -7,6 +7,9 @@ import { ProjectTeamDrawer } from '../ProjectTeamDrawer'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { setClientDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 
 const mockConfirm = jest.fn(async () => true)
 const mockRunMutation = jest.fn(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
@@ -272,6 +275,37 @@ describe('ProjectTeamDrawer', () => {
     )
     await waitFor(() => { expect(onSaved).toHaveBeenCalled() })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('starts a new assignment on the browser day, not the configured zone day', async () => {
+    const now = new Date('2026-07-20T22:30:00.000Z')
+    const browserDay = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-')
+    const configuredZone = browserDay === '2026-07-20' ? 'Asia/Tokyo' : 'Pacific/Honolulu'
+    const noEnv = { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null }
+    jest.useFakeTimers({ now, doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate', 'queueMicrotask', 'nextTick'] })
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: configuredZone }, env: noEnv }))
+    try {
+      expect(todayInZone(configuredZone, now)).not.toBe(browserDay)
+      renderDrawer()
+
+      fireEvent.click(await screen.findByRole('checkbox', { name: /Assign Tomasz Iwan/ }))
+      await waitFor(() => { expect(screen.getByText('being added')).toBeInTheDocument() })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => { expect(mockCreateCrud).toHaveBeenCalled() })
+      expect(mockCreateCrud).toHaveBeenCalledWith(
+        `staff/timesheets/time-projects/${PROJECT_ID}/employees`,
+        expect.objectContaining({ staffMemberId: 'tomasz', assignedStartDate: browserDay }),
+        expect.anything(),
+      )
+    } finally {
+      jest.useRealTimers()
+      setClientDateLocaleSettings(null)
+    }
   })
 
   // T2.12: re-dating updates the membership row in place. The create+delete pair

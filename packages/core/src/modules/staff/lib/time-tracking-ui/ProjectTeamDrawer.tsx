@@ -39,6 +39,7 @@ import {
   type AssignedMember,
   type AssignmentState,
 } from './projectTeamAssignment'
+import { todayIso } from './timesheetPeriod'
 
 const logger = createLogger('staff').child({ component: 'ProjectTeamDrawer' })
 
@@ -119,13 +120,6 @@ function toAssignedMember(row: ApiRow): AssignedMember | null {
     startDate: toIsoDate(readString(row, 'assigned_start_date', 'assignedStartDate')),
     endDate: toIsoDate(readString(row, 'assigned_end_date', 'assignedEndDate')),
   }
-}
-
-function todayIsoDate(): string {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
 }
 
 /**
@@ -497,7 +491,7 @@ export function ProjectTeamDrawer({
   // project aggregate itself, so no expected-updated-at header applies here.
   const persistChanges = React.useCallback(async () => {
     const employeesPath = `staff/timesheets/time-projects/${projectId}/employees`
-    const startDate = todayIsoDate()
+    const startDate = todayIso()
 
     for (const staffMemberId of changes.additions) {
       await createCrud(employeesPath, {
