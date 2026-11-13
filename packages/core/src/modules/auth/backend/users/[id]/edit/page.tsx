@@ -145,6 +145,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   // untouched (e.g. inherited/unrestricted) ACL instead of risking a scoped-grant
   // refusal after the primary user write has already persisted (#8714).
   const aclBaselineRef = React.useRef<AclData | null>(null)
+  // A stable identity is required here: AclEditor's data-fetch effect depends on this
+  // callback, and a fresh inline function on every render would re-trigger that
+  // effect (and therefore refetch the ACL) on every re-render of this page.
+  const handleAclBaselineChange = React.useCallback((data: AclData) => {
+    aclBaselineRef.current = data
+  }, [])
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [actorResolved, setActorResolved] = React.useState(false)
@@ -440,7 +446,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             value={aclData}
             onChange={setAclData}
             onVersionChange={setAclUpdatedAt}
-            onBaselineChange={(data) => { aclBaselineRef.current = data }}
+            onBaselineChange={handleAclBaselineChange}
             userRoles={initialUser?.roles || []}
             currentUserIsSuperAdmin={actorIsSuperAdmin}
             tenantId={selectedTenantId ?? null}

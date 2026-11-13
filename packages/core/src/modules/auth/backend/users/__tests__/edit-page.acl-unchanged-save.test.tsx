@@ -169,4 +169,28 @@ describe('users edit page — unchanged ACL is not resubmitted on save', () => {
     const aclCalls = updateCrudMock.mock.calls.filter(([resource]) => resource === 'auth/users/acl')
     expect(aclCalls).toHaveLength(1)
   })
+
+  it('passes a stable onBaselineChange identity across re-renders of the acl group', async () => {
+    // `onBaselineChange` must not be a fresh inline function on every page render:
+    // AclEditor's data-fetch effect depends on it, so an unstable reference would
+    // re-trigger that effect (and refetch the ACL) on every re-render of this page.
+    mockUsersResponse({ id: 'user-1', email: 'admin@acme.com', roles: [], roleIds: [], isConfirmed: true, updatedAt: '2026-01-01T00:00:00.000Z' })
+
+    renderWithProviders(<EditUserPage params={{ id: 'user-1' }} />)
+
+    await waitFor(() => expect(crudFormPropsCapture.current?.onSubmit).toBeTruthy())
+
+    const aclGroup = (crudFormPropsCapture.current!.groups as Array<Record<string, any>>).find((g) => g.id === 'acl')
+    const firstElement = aclGroup!.component()
+
+    act(() => {
+      firstElement.props.onChange({ isSuperAdmin: false, features: ['auth.acl.manage'], organizations: null })
+    })
+    await waitFor(() => expect(crudFormPropsCapture.current).not.toBe(null))
+
+    const aclGroupAfterRerender = (crudFormPropsCapture.current!.groups as Array<Record<string, any>>).find((g) => g.id === 'acl')
+    const secondElement = aclGroupAfterRerender!.component()
+
+    expect(secondElement.props.onBaselineChange).toBe(firstElement.props.onBaselineChange)
+  })
 })
