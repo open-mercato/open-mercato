@@ -653,3 +653,11 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Discord credential ownership and routing (2026-11-13, #9018)
+
+STABLE service behavior and HTTP route: Discord credential validation rejects mismatched token/application/key tuples and REST overrides without authenticated application metadata. The public interactions route rejects multiple verifying channels with 401 rather than choosing a tenant. Continuing either unsafe behavior through a bridge preserves cross-tenant interaction disclosure and impersonation; the rejection is limited to unverifiable ownership. The optional `DiscordRestClient.getCurrentApplication` method is structurally additive.
+
+Clients must implement the authenticated lookup in custom REST overrides and submit matching credentials. Operators must audit stored connections, deactivate duplicate active channels and reconnect mismatched ones; stored records are not repaired automatically. See [upgrade notes](UPGRADE_NOTES.md#discord-credential-ownership-and-ambiguous-routing-9018) and [specification](.ai/specs/2026-06-19-discord-communication-channel-integration.md#migration--backward-compatibility--credential-ownership-and-routing-9018).
+
+Emergency exception requested for steps 1–3. Named human maintainer approval is still required before merge and has not been granted by this automated run. QA, review and validation gates remain mandatory.
