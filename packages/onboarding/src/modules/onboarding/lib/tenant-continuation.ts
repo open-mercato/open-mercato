@@ -10,10 +10,11 @@ export function runOnboardingIdentity<Result>(callback: () => Result): Result {
 
 export async function hasPersistedWorkspace(_em: EntityManager, request: OnboardingRequest): Promise<boolean> {
   if (request.deletedAt || !request.tenantId || !request.organizationId) return false
-  return validateDeclaredDatabaseBinding({
-    context: { kind: 'tenant', tenantId: request.tenantId, source: 'public-token', operation: 'onboarding-binding' },
-    organization: { id: request.organizationId },
-  }, { requireValidator: true })
+  return runWithFreshDatabaseExecutionContext({ kind: 'identity', tenantId: request.tenantId, source: 'identity', operation: 'onboarding-binding' }, () =>
+    validateDeclaredDatabaseBinding({
+      context: { kind: 'tenant', tenantId: request.tenantId, source: 'public-token', operation: 'onboarding-binding' },
+      organization: { id: request.organizationId },
+    }, { requireValidator: true }))
 }
 
 export function runOnboardingTenant<Result>(tenantId: string, callback: (container: Awaited<ReturnType<typeof createRequestContainer>>) => Promise<Result>): Promise<Result> {
