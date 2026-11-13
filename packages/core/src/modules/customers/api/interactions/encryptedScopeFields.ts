@@ -12,7 +12,9 @@ const MAP_LOOKUP_CONCURRENCY = 8
  * SQL ordering against the others' ciphertext.
  *
  * Returns the fields that are encrypted in at least one organization of the scope, so the
- * caller can take the decrypting path whenever any row in scope needs it.
+ * caller can take the decrypting path whenever any row in scope needs it. A `null`
+ * organization asks the service for its tenant-wide policy, which already aggregates every
+ * organization's map: an unrestricted scope passes `[null]` instead of listing organizations.
  */
 export async function resolveEncryptedFieldsAcrossOrganizations(params: {
   service: QueryEncryptionService | null | undefined
