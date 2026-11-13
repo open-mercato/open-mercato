@@ -33,9 +33,9 @@ function fixture(t, wrapper) {
   return { dir, env, script: path.join(dir, 'scripts/build-next.mjs') }
 }
 for (const wrapper of wrappers) {
-  test(`${wrapper}: host default, explicit container heap and literal arguments`, (t) => {
+  test(`${wrapper}: host default, explicit web/container heaps and literal arguments`, (t) => {
     const f = fixture(t, wrapper)
-    for (const options of [undefined, '--max-old-space-size=4096']) {
+    for (const options of [undefined, '--max-old-space-size=8192', '--max-old-space-size=4096']) {
       const env = { ...f.env, ...(options === undefined ? {} : { OM_BUILD_NODE_OPTIONS: options }) }
       const r = spawnSync(process.execPath, [f.script, '--webpack', 'path with spaces', '$literal'], { cwd: f.dir, env, encoding: 'utf8' })
       assert.equal(r.status, 0, r.stderr)
