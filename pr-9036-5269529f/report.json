@@ -1,0 +1,241 @@
+{
+  "runId": "5269529f-abb0-476b-aca6-a9b4262a3bcd-9036",
+  "mode": "pr",
+  "target": {
+    "prNumber": 9036,
+    "title": "Activity deletion from customer detail timelines",
+    "branch": "fix/crm-activity-timeline-delete",
+    "headSha": "5ff239b66be09e51006f7ab56eb166db9ab2432a"
+  },
+  "verdict": "FAIL",
+  "coverageVerdict": "PARTIAL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:34505",
+    "role": "demo admin for UI; own fresh narrow tenant viewer for refusal",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "runner": "local",
+    "production": true,
+    "enterpriseFlags": true,
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Cold/warm exact-head production app; browser doctor and UI company creation",
+      "expected": "Runnable exact PR code and useful loading/empty states",
+      "observed": "Production CLI at34505 cold/warm ready; Chromium launched; fresh company created via UI; empty activity history and loading indicator observed",
+      "result": "PASS",
+      "screenshot": "step-01-created-company.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "UI log a fresh call on company Activity log",
+      "expected": "History, planned card, calendar and activity total show the call",
+      "observed": "POST201; history1, planned call, day marker1 and activity total1",
+      "result": "PASS",
+      "screenshot": "step-02-live-call.png"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Open row overflow and cancel destructive confirmation with Escape",
+      "expected": "Delete lives in menu; cancellation preserves the activity",
+      "observed": "Edit/Delete activity in overflow; translated confirmation; Escape dismisses without deletion",
+      "result": "PASS",
+      "screenshot": "step-04-confirm.png"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Confirm canonical delete and wait10.5seconds",
+      "expected": "History, planned card, day marker and parent count all remove the deleted activity",
+      "observed": "DELETE200 and history0, but planned call remains, calendar1 event and parent activity total1. Confirmed on production build",
+      "result": "FAIL",
+      "screenshot": "step-05-after-delete-10s.png"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "API: authenticated readback; reload company",
+      "expected": "Record remains absent; screen reconciles",
+      "observed": "Bearer GET200 excludes id; reload clears planned card, marker and total. Initial cookie-only401 was corrected and is not absence evidence",
+      "result": "PASS",
+      "screenshot": "step-06-after-reload.png"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "Historical-only fixture then delete through actual UI",
+      "expected": "Adapter bridges and deletes without false version conflict",
+      "observed": "Own isolated DB inserted only customer_activities row; UI DELETE/api/customers/activities200, no optimistic version header; adapter GET200 excludes row; DB shows canonical same-id soft-deleted bridge",
+      "result": "PASS",
+      "screenshot": "step-08-historical-only-deleted.png"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "API: repeat delete, fresh narrow viewer and anonymous control",
+      "expected": "Clear404; viewer can read but cannot delete; anonymous401",
+      "observed": "Repeated DELETE404; own narrow tenant actor GET200/DELETE403; anonymous401. Fresh user and final role deleted200; disposable DB teardown removes initial failed-setup role",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Explicit Polish375x812: menu, confirmation and Escape",
+      "expected": "Translated deletion text and reachable cancellation",
+      "observed": "Dziennik aktywności/Otwórz akcje/Usuń aktywność/Usunąć aktywność?/Anuluj visible; Escape preserves another own historical fixture",
+      "result": "PASS",
+      "screenshot": "step-10-polish-delete-confirm.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Narrow viewport containment",
+      "expected": "Content stays within375px",
+      "observed": "document.scrollWidth632px at375px. Same overflow recorded in prior9036 QA; no new overflow attribution to legacy-adapter commit",
+      "result": "FAIL",
+      "screenshot": "step-09-polish-narrow.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "Static locale-key audit in module and app",
+      "expected": "Six new deletion keys in en/pl/es/de/ko; no app overrides",
+      "observed": "All30 entries present; no shadowing app keys",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "Focused units and shipped native integration via CLI",
+      "expected": "Changed call-site tests pass",
+      "observed": "25/25 focused Jest across3 suites PASS; TC-CRM-4273 via authoritative CLI PASS1/1 (216995ms). Native test checks history only and misses stale planned card/count",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "Remaining applicable complex checks",
+      "expected": "Full shared-consumer and lifecycle/permissions matrix",
+      "observed": "Not exercised after confirmed defect: person/deal/older timeline hosts and other shared RowActions modules; second distinct editor stale write; cross-tenant controls; full-record save comparison; undo/redo, double-submit, Cmd/Ctrl+Enter after error; forced request failure/retry; long content and exhaustive loading/permission UI matrix",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Source read-only. No QA approval/failure/pipeline label requested or applied. Existing screenshots label retained with fresh evidence.",
+    "Legacy-only SQL fixture is setup for an historical state the current API cannot create; actual deletion and primary creation were UI-driven. API-only boundaries explicitly marked.",
+    "No amount input changed; decimal-comma test is inapplicable. English and explicitly selected Polish exercised; remaining supported locale keys statically audited.",
+    "Known parent refresh finding remains after this commit. New historical-only deletion path passed; this does not constitute approval of the whole PR.",
+    "Initial create-form attempt preceded client readiness; after settled controls, actual UI POST201 and navigation succeeded. Initial narrow-user fixture400 was corrected with company DB scope and policy-compliant disposable password, then fresh controls passed. These harness corrections are not reported as product bugs.",
+    "Teardown initially included the local code-mode tool helper due to overly broad cwd selection; helper recovered. Filter repaired to require recorded owner descendants before signalling. No sibling environment or source changed; actual test app/DB stopped and root email-capture runtime file restored."
+  ],
+  "cleanup": {
+    "ownedProcessCount": 11,
+    "survivingOwnedPids": [],
+    "appListening": false,
+    "databaseListening": false,
+    "containerExists": false,
+    "descriptorStatus": "stopped"
+  },
+  "screenshots": [
+    {
+      "file": "step-01-created-company.png",
+      "bytes": 128999,
+      "dimensions": [
+        1440,
+        1125
+      ],
+      "sha256": "17a35f05d6b8ee048799fec029832456f658226c3e139ee7c66a0b5304923ec6"
+    },
+    {
+      "file": "step-02-live-call.png",
+      "bytes": 175935,
+      "dimensions": [
+        1440,
+        1525
+      ],
+      "sha256": "6c537369b2f6a09097711d35e93ce35499646bbfacf3a055bef140e052bd0f39"
+    },
+    {
+      "file": "step-03-delete-menu.png",
+      "bytes": 169991,
+      "dimensions": [
+        1440,
+        1387
+      ],
+      "sha256": "be5e021bfd1fc567ae0db72642c02707a3b4877078729638dd27b681fd7a9d71"
+    },
+    {
+      "file": "step-04-confirm.png",
+      "bytes": 180766,
+      "dimensions": [
+        1440,
+        1471
+      ],
+      "sha256": "126727969aab92bcfee84b9aa729355b273faec7b04b132de11f6496fc9dd48f"
+    },
+    {
+      "file": "step-05-after-delete-10s.png",
+      "bytes": 163865,
+      "dimensions": [
+        1440,
+        1492
+      ],
+      "sha256": "984a60adf16e4b3740504bb145bc9487c11499f1e027ef3fa64197cd05aded1b"
+    },
+    {
+      "file": "step-06-after-reload.png",
+      "bytes": 155420,
+      "dimensions": [
+        1440,
+        1451
+      ],
+      "sha256": "416731266030ad2b32ef6e0d44240720f91966a01092dc42b770708e2e8dab25"
+    },
+    {
+      "file": "step-07-historical-only-confirm.png",
+      "bytes": 144686,
+      "dimensions": [
+        1440,
+        1146
+      ],
+      "sha256": "3ac773f5eb3854b47d54c446215cfc7bad6ad117fd05f1d5fa6fba1d7ccdc699"
+    },
+    {
+      "file": "step-08-historical-only-deleted.png",
+      "bytes": 155420,
+      "dimensions": [
+        1440,
+        1451
+      ],
+      "sha256": "416731266030ad2b32ef6e0d44240720f91966a01092dc42b770708e2e8dab25"
+    },
+    {
+      "file": "step-09-polish-narrow.png",
+      "bytes": 241957,
+      "dimensions": [
+        632,
+        4592
+      ],
+      "sha256": "cbe893139028849397d31a84e65254c5143c6f384ac671bf43451ea49a81e9cd"
+    },
+    {
+      "file": "step-10-polish-delete-confirm.png",
+      "bytes": 247128,
+      "dimensions": [
+        632,
+        4771
+      ],
+      "sha256": "680325040d550c9682b37a3e288fea24a3c1979a5d644f47c9c687ac6ecea8f0"
+    }
+  ]
+}
