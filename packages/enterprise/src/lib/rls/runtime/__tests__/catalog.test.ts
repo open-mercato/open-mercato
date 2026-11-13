@@ -102,7 +102,10 @@ describe('reviewed table inventory', () => {
   })
 
   it('rejects an unclassified SQL table or newly discovered ORM entity', () => {
-    expect(() => assertTenantTableInventory(manifest, [table, { ...table, table: 'unreviewed', oid: 43 }], 'runtime')).toThrow('unclassified')
+    expect(() => assertTenantTableInventory(manifest, [table,
+      { ...table, table: 'unreviewed', oid: 43 },
+      { ...table, schema: 'extension', table: 'unreviewed_extension', oid: 44 },
+    ], 'runtime')).toThrow('public.unreviewed, extension.unreviewed_extension')
     expect(() => assertTenantOrmInventory(manifest, [{ schema: 'public', table: 'unreviewed', tenantColumn: 'tenant_id', tenantType: 'uuid', tenantNullable: false }])).toThrow('unclassified')
   })
 

@@ -78,6 +78,14 @@ try {
       policyVersion: classification === 'enforced' ? 1 : null,
     })
   }
+  for (const [owner, declaration] of declarations) {
+    for (const table of declaration.storageTables ?? []) {
+      if (entries.some((entry) => entry.schema === table.schema && entry.table === table.table)) {
+        throw new Error('[internal] Declared storage table conflicts with discovered ORM metadata')
+      }
+      entries.push({ ...table, owner, policyVersion: null })
+    }
+  }
   entries.sort((left, right) => `${left.schema}.${left.table}`.localeCompare(`${right.schema}.${right.table}`))
   const identities = entries.map((entry) => `${entry.schema}.${entry.table}`)
   if (new Set(identities).size !== entries.length) throw new Error('[internal] RLS inventory has conflicting table identities')

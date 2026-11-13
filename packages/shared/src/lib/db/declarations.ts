@@ -1,4 +1,4 @@
-import type { DatabaseExecutionContext } from './runtime'
+import type { DatabaseExecutionContext, DatabaseTableMetadata } from './runtime'
 
 export type DatabaseRequestInput = Readonly<{
   pathname: string
@@ -20,6 +20,10 @@ export type DatabaseModuleDeclarations = Readonly<{
   requestProviders?: readonly DatabaseRequestProvider[]
   bindingValidators?: readonly DatabaseBindingValidator[]
   tableClassification?: 'identity'
+  storageTables?: readonly Readonly<DatabaseTableMetadata & {
+    classification: 'identity' | 'mixed' | 'global' | 'deferred' | 'transport'
+    reason: string
+  }>[]
   tables?: readonly Readonly<{
     table: string
     classification: 'enforced' | 'identity' | 'mixed' | 'global' | 'deferred' | 'transport'

@@ -48,7 +48,7 @@ test.describe('TC-RLS-001: deferred request lifetime on the real Next applicatio
         contexts.push(context)
         await context.addCookies([{ name: 'auth_token', value: actor.token, url: runtime.baseUrl }])
         const page = await context.newPage()
-        await page.goto(runtime.baseUrl + '/backend/tenant-boundaries/integration-probe')
+        await page.goto(runtime.baseUrl + '/backend/customers/integration-probe')
         await expect(page.getByTestId('tenant-boundary-probe')).toBeVisible()
         const result = resultSchema.parse(JSON.parse(await page.getByTestId('tenant-boundary-probe').innerText()))
         expect(result.tenantId).toBe(actor.tenantId)
@@ -69,7 +69,7 @@ test.describe('TC-RLS-001: deferred request lifetime on the real Next applicatio
         { name: 'customer_auth_token', value: runtime.customerToken, url: runtime.baseUrl },
       ])
       const page = await context.newPage()
-      await page.goto(`${runtime.baseUrl}/${runtime.second.slug}/portal/tenant-boundaries-probe`)
+      await page.goto(`${runtime.baseUrl}/${runtime.second.slug}/portal/customers-integration-probe`)
       await expect(page.getByTestId('tenant-boundary-probe')).toBeVisible()
       const portal = resultSchema.parse(JSON.parse(await page.getByTestId('tenant-boundary-probe').innerText()))
       expect(portal.rows.map((row) => row.id)).toEqual([runtime.second.customerId])
@@ -80,7 +80,7 @@ test.describe('TC-RLS-001: deferred request lifetime on the real Next applicatio
         { name: 'om_selected_tenant', value: runtime.second.tenantId, url: runtime.baseUrl },
         { name: 'om_selected_org', value: runtime.second.orgId, url: runtime.baseUrl },
       ])
-      await page.goto(runtime.baseUrl + '/backend/tenant-boundaries/integration-probe')
+      await page.goto(runtime.baseUrl + '/backend/customers/integration-probe')
       await expect(page.getByTestId('tenant-boundary-probe')).toBeVisible()
       const selected = resultSchema.parse(JSON.parse(await page.getByTestId('tenant-boundary-probe').innerText()))
       expect(selected.rows.map((row) => row.id)).toEqual([runtime.second.customerId])
@@ -91,7 +91,7 @@ test.describe('TC-RLS-001: deferred request lifetime on the real Next applicatio
 
   test('revokes a canceled streamed render before its delayed canary query', async () => {
     const requestId = randomUUID()
-    const pending = requestHttp(runtime.baseUrl + '/backend/tenant-boundaries/integration-probe', {
+    const pending = requestHttp(runtime.baseUrl + '/backend/customers/integration-probe', {
       headers: {
         cookie: `auth_token=${runtime.first.token}`, 'x-rls-probe-id': requestId,
         'x-rls-probe-record-ids': JSON.stringify([runtime.first.customerId, runtime.second.customerId]), 'x-rls-probe-delay': '1000',

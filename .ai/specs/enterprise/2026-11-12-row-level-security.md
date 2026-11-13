@@ -80,7 +80,7 @@ The implemented proof covers checkout through database execution; application en
 
 ### Prototype boundaries
 
-The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
+The prototype-only statements in this section describe the original proof, whose source has now been removed; they are historical rather than current operator instructions. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
 
 - `packages/enterprise/src/lib/rls/poc/poolScope.ts` owns the prototype. It is not exported from the enterprise index, registered in module discovery, installed by DI, or imported by OSS runtime code.
 - `installRlsPoolScope` supports both Promise and callback `pool.connect`; `pool.query` uses the latter. Installation is idempotent. Install after existing pool instrumentation and dispose in reverse order. The live proof uses the application's error handlers, pool instrumentation and resolved timeout defaults.
@@ -91,7 +91,7 @@ The prototype-only statements in this section describe the original proof. For f
 
 ### Production bootstrap and scope propagation (planned)
 
-The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
+The prototype-only statements in this section describe the original proof, whose source has now been removed; they are historical rather than current operator instructions. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
 
 The current singleton factory has no enterprise pre-initialization extension to compose `onPoolCreated`. Do not reach into Kysely private fields, mutate an already initialized dialect or install from late module DI. A future implementation must first land a reviewed, edition-neutral configuration composition seam if one is required; all RLS behavior, scope resolution and policy code must remain in enterprise. This PR changes no OSS factory or public contract. If that seam cannot be supplied without violating the enterprise boundary, production rollout stops at the PoC rather than adding a hidden patch.
 
@@ -106,7 +106,7 @@ Before protected tables are enabled, cover:
 
 ## Data Models and policy lifecycle
 
-The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
+The prototype-only statements in this section describe the original proof, whose source has now been removed; they are historical rather than current operator instructions. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
 
 No production entities, columns, migrations, snapshots or table policies change in this PR. The disposable PoC creates a random schema, restricted login role and synthetic `records(id uuid, tenant_id uuid, label text)` table, then removes them in `finally`. It does not connect to the application database unless an operator explicitly supplies it; instructions require a disposable database.
 
@@ -126,7 +126,7 @@ Maintain an **enterprise-owned manifest** of reviewed tables with policy version
 
 ## API Contracts and UI/UX
 
-The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
+The prototype-only statements in this section describe the original proof, whose source has now been removed; they are historical rather than current operator instructions. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
 
 No HTTP route, command, ACL feature, event, public export or UI changes in this PR. The source exports are prototype internals under a `poc` path, not a supported consumer API. No screenshot/mockup is applicable to this infrastructure proof.
 
@@ -134,7 +134,7 @@ Production activation must define operator configuration and startup validation 
 
 ## Migration & Backward Compatibility
 
-The prototype-only statements in this section describe the original proof. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
+The prototype-only statements in this section describe the original proof, whose source has now been removed; they are historical rather than current operator instructions. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
 
 `BACKWARD_COMPATIBILITY.md` reviewed. This PR introduces no live schema or shared contracts and changes no existing runtime behavior. Future neutral bootstrap/migration hooks require separate compatibility review and additive integration. Rollout order: establish scope/role plumbing while policies remain disabled; validate entry points and manifest; enable policies on an explicit canary set; expand only after isolation and full application gates pass. Never remove the existing filters.
 
@@ -171,15 +171,13 @@ Rollback is an operational sequence: stop protected work, drain and close all af
 
 Runner: **local** (neither documented compose app probe had a running app). A dedicated PostgreSQL 16 container is used for the live proof; the application database is untouched.
 
-Harness typecheck: `yarn tsc --project packages/enterprise/poc/rls/tsconfig.json --noEmit` (the dedicated config includes the operator harness, which is outside the package source glob).
+Production regression harness typecheck: `yarn tsc --project packages/enterprise/tests/rls/tsconfig.json --noEmit`.
 
-Ordinary CI tests: `yarn workspace @open-mercato/enterprise test --runInBand --testPathPatterns=poolScope.test.ts`.
+Runtime unit tests: `yarn jest --config packages/enterprise/jest.config.cjs --runInBand --testPathPatterns=src/lib/rls/runtime`.
 
-Live proof: set `OM_RLS_POC_DATABASE_URL` to a disposable PostgreSQL database with role/schema creation rights, then run `yarn tsx packages/enterprise/poc/rls/run.ts`. No app migrations or application fixtures are required. The script uses a fresh restricted role and verifies its non-owner/non-bypass attributes before assertions.
+Live production regressions: set `OM_RLS_TEST_DATABASE_URL` privately to an explicitly disposable administrative PostgreSQL database, then run `timeout 240 node --test packages/enterprise/tests/rls/integration.test.mjs`. The runner requires 16 runtime checks and 23 catalog checks, including cleanup, with bounded subprocesses. Missing opt-in produces two skips, which are not isolation evidence. The catalog harness changes PUBLIC TEMP privileges, so discard the database afterward. See `packages/enterprise/tests/rls/README.md` for operator commands and limits. The prototype implementation, prototype unit tests and dual-mode selector have been removed.
 
-Automated integration entrypoint: with the same disposable database opt-in, run `node --test packages/enterprise/poc/rls/integration.test.mjs`. It executes the proof under a bounded subprocess and requires all 13 checks, including verified removal of its schema and role. Without the URL it explicitly skips. Both concurrent batches drain before teardown; pools close before their scope wrappers are removed, and the success summary follows cleanup. Forced termination may prevent fixture teardown, so the database must remain disposable. This adds no CI pipeline or application entry-point activation.
-
-The live proof exercises real MikroORM ORM reads and flush, raw connection queries, Kysely reads, explicit transactions, rollback, callback `pool.query`, same-client tenant replacement, absent-context denial, denied writes, setup failure recovery, concurrent tenants and the old autocommit failure. Concurrency includes 60 pooled reads and 60 mixed ORM/Kysely transactions; a bounded barrier proves three simultaneous physical backends serving both tenants. Mixed operations cover inserts, updates, cross-tenant update/delete denial, committed deletes and 20 deliberate rollbacks. A privileged exact-row comparison verifies the 30 surviving new rows and unchanged seed rows after all work drains. Ordinary unit tests use mocks and do not claim database isolation coverage. This PR adds no endpoint, so HTTP/browser tests for production entry points belong to the activation phase below.
+The live proof exercises real MikroORM ORM reads and flush, raw connection queries, Kysely reads, explicit transactions, rollback, callback `pool.query`, same-client tenant replacement, absent-context denial, denied writes, setup failure recovery, concurrent tenants and the old autocommit failure. Concurrency includes 60 pooled reads and 60 mixed ORM/Kysely transactions; a bounded barrier proves three simultaneous physical backends serving both tenants. Mixed operations cover inserts, updates, cross-tenant update/delete denial, committed deletes and 20 deliberate rollbacks. A privileged exact-row comparison verifies the 30 surviving new rows and unchanged seed rows after all work drains. Ordinary unit tests use mocks and do not claim database isolation coverage. These storage regressions do not replace the HTTP, worker and browser acceptance gates below.
 
 The ordered full local gate is exactly `.ai/agentic.config.json`: `build:packages → generate → build:packages → i18n:check-sync → i18n:check-usage → typecheck → test → build:app`. The PR must also request existing `ci-full` behavior to run all GitHub CI shards. No pipeline/workflow definition changes are part of this task. Results and any external/baseline failures are recorded separately; an isolated proof cannot be reported as full-CI success.
 
@@ -330,3 +328,7 @@ Prototype code must be removed before completion. Retain relevant coverage as pr
 Run independently authenticated users at concurrency 20, 30, 50, and 100 against the restricted runtime role. Assert own-tenant reads/writes and rejection or invisibility of foreign reads/writes, check invocation cleanup and connection reuse, record error counts and latency distributions, and disclose pool configuration and limitations. Publish actual results in PR comments and an analysis document linked to this enterprise specification. A synthetic connection-only benchmark does not replace real request isolation evidence.
 
 After implementation and gates pass, a separate subagent resolves base-branch conflicts and verifies merge readiness. The PR stays draft while production scope or acceptance evidence remains incomplete.
+
+### Production regression migration — 2026-11-13
+
+Removed the obsolete pool-scope prototype and its tests. Production-only regressions now live in `packages/enterprise/tests/rls`; the parent independently reran 74 runtime unit tests, harness typechecking and both live PostgreSQL 17 regressions: 16 runtime and 23 catalog assertions, zero skips. Fixture schemas and roles were removed. These results do not establish completion of application propagation or concurrent-user acceptance.
