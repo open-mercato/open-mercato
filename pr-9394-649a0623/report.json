@@ -1,0 +1,335 @@
+{
+  "runId": "649a0623-0644-4e30-a576-433cf1a57ecf",
+  "mode": "pr",
+  "target": {
+    "prNumber": 9394,
+    "title": "Preserve API-key expiry dates and translate load failures",
+    "branch": "carry/pr-9255-expiry-load-error-ef325af4",
+    "headSha": "c45f99c974fc15dc28e7cbe1a7ca0477759613d3"
+  },
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:41173",
+    "role": "admin and two own tenant-bound manager/no-feature users",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "runner": "local",
+    "production": true,
+    "rayonThreads": 2,
+    "rssGuardGiB": 21,
+    "peakOwnedRssGiB": 10.81,
+    "appBuildSeconds": 162
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Cold EN login and list",
+      "expected": "Useful shell, English list and no unexpected500",
+      "observed": "Login and changed list loaded in production; initial loading state observed",
+      "result": "PASS",
+      "screenshot": "step-01-default-en.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "UI create picked expiry and double-submit",
+      "expected": "One key, selected Jan1 preserved, all fields intact",
+      "observed": "Single POST; Jan1 2027 stored UTC midnight and displayed Jan1 in New York; description/org/manager role preserved; secret screen closed",
+      "result": "PASS",
+      "screenshot": "step-03-picked-new-york.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "Explicit instant/null/offset/long/DST/leap UI",
+      "expected": "Picked days stay dates; real instants keep local clock; null em dash",
+      "observed": "NewYork timestamp10:30AM, offset11:30PM, leapFeb29, DSTMar14, null— andlong name present; supplementary fixtures API-only",
+      "result": "PASS",
+      "screenshot": "step-04-instant-null-long-en.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "Explicit Polish UI switch",
+      "expected": "Polish heading/columns/dates no raw changed-screen keys",
+      "observed": "Selected Polski via profile menu, heading Klucze API, picked1sty2027, localized clock values",
+      "result": "PASS",
+      "screenshot": "step-05-polish-new-york.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "Live timezone/locale expiry matrix",
+      "expected": "4zones x2locales x6 values preserve calendar dates and local instants",
+      "observed": "48 assertions passed including offset/DST/leap/null; fresh Chromium contexts",
+      "result": "PASS",
+      "screenshot": "step-06-kiritimati-polish.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Polish empty search",
+      "expected": "Translated empty state",
+      "observed": "No matching records, translated Klucze API empty state",
+      "result": "PASS",
+      "screenshot": "step-07-empty-polish.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "Polish loading and recovery",
+      "expected": "Translated useful loading then rows",
+      "observed": "Delayed real GET displays Polish loading, six rows recover",
+      "result": "PASS",
+      "screenshot": "step-08-loading-polish.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Polish network failure and same-page recovery",
+      "expected": "Translated error; search retries successfully without reload and no stale error after10s",
+      "observed": "Browser-aborted list GET shows Nie udało się wczytać kluczy API, never Failed to fetch; later successful search recovers all six rows and flash clears",
+      "result": "PASS",
+      "screenshot": "step-09-polish-network-error.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "10reloads and whole-record integrity",
+      "expected": "10/10 stable expiry with no mutation to other fields",
+      "observed": "10 real reloads preserve picked day and entire API record unchanged",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "390px narrow long-content expiry",
+      "expected": "Picked day and actions reachable by table scroll",
+      "observed": "390px viewport, expiry scrolled into view; essential selected day fits",
+      "result": "PASS",
+      "screenshot": "step-11-narrow-expiry.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "Own no-feature tenant-bound actor",
+      "expected": "UI denies and direct list/create/delete403 with allowed control200",
+      "observed": "Denied page hides table; three direct APIs403; own manager list200; no global superadmin used as negative actor",
+      "result": "PASS",
+      "screenshot": "step-12-no-permission.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "Delete/cancel/repeat and secret revocation",
+      "expected": "Escape preserves whole record; CtrlEnter deletes; repeated delete404; old secret401",
+      "observed": "Whole record identical after cancel, dialog initial Cancel focused; keyboard delete succeeds; key auth now401/repeat404; LastUsed retained clock before deletion",
+      "result": "PASS",
+      "screenshot": "step-13-delete-confirm.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "Two actors stale delete and recovery",
+      "expected": "Second delete404, no unrelated mutations; keyboard/search/reload usable",
+      "observed": "Manager dialog opened before admin API deleted; stale double-confirm404 with Not found, no500; focused Search accepts keyboard input; reload removes stale row; picked whole record identical",
+      "result": "PASS",
+      "screenshot": "step-14-stale-refusal.png"
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "Two actors live ACL revocation and keyboard retry",
+      "expected": "Revoked delete403 preserves record; restored ACL permits retry; no stale error after10s",
+      "observed": "Admin revoked own manager role while dialog open; manager CtrlEnter403, full record unchanged; after restore focused search/dialog keyboard retry succeeded and error cleared after10s",
+      "result": "PASS",
+      "screenshot": "step-15-acl-refusal.png"
+    },
+    {
+      "step": 15,
+      "priority": "P1",
+      "action": "10 repeated Polish network failures/recoveries",
+      "expected": "10/10 localized failures and successful real retry",
+      "observed": "Ten browser abort/search-recovery cycles passed, dismissed localized flash, no raw English errors",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 16,
+      "priority": "P1",
+      "action": "Expiry clock visual accessibility",
+      "expected": "Full explicit timestamp remains reachable",
+      "observed": "Expiry column resized through its semantic separator; clock remains full DOM text and can be revealed by column resize",
+      "result": "PASS",
+      "screenshot": "step-16-expanded-expiry-clock.png"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "Final exploratory after-success check",
+      "expected": "Narrow row action usable; no stale error or hidden record mutation",
+      "observed": "390px action bound inside viewport,10s clean screen after repeated recovery, picked whole record unchanged",
+      "result": "PASS",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": false,
+  "validation": [
+    {
+      "command": "timeout 900 yarn install --immutable",
+      "result": "exit0; optional cpu-features native build warning"
+    },
+    {
+      "command": "yarn build:packages -> yarn generate -> yarn build:packages; authoritative ephemeral CLI with --force-rebuild --no-reuse-env and TURBO_FORCE=true",
+      "result": "fresh worktree-local forced package builds42/42 twice, fresh production app build162s, authenticated readiness and warm reuse passed"
+    },
+    {
+      "command": "timeout 180 yarn jest --config packages/core/jest.config.cjs <page.loadError.test.tsx> <expiryDisplay.test.ts> --runInBand",
+      "result": "2 suites /7 tests passed",
+      "log": "seven-focused-tests.log"
+    },
+    {
+      "command": "timeout 180 yarn jest --config packages/core/jest.config.cjs packages/core/src/modules/api_keys --runInBand",
+      "result": "15 suites /89 tests passed",
+      "log": "api-keys-jest.log"
+    },
+    {
+      "command": "timeout 120 yarn jest --config packages/ui/jest.config.cjs date-format --runInBand",
+      "result": "1 suite /31 tests passed",
+      "log": "date-format-jest.log"
+    },
+    {
+      "command": "timeout 90 yarn workspace @open-mercato/core typecheck",
+      "result": "exit0",
+      "log": "core-typecheck.log"
+    },
+    {
+      "command": "timeout 90 yarn eslint <four changed API-key files>",
+      "result": "exit0; existing Next pages-directory configuration warning",
+      "log": "focused-lint.log"
+    },
+    {
+      "command": "timeout 480 yarn mercato test:integration TC-APIKEY",
+      "result": "12 passed,215.8s; reused same exact-head production app, self-contained tenant/org/role/user fixtures",
+      "log": "native-apikey.log"
+    },
+    {
+      "command": "TZ=<NewYork|Kiritimati|Warsaw|UTC> node oracle.mjs",
+      "result": "220 independent Intl date/time/null/invalid assertions passed in all five locales",
+      "log": "oracle-results.log"
+    },
+    {
+      "command": "configured Playwright1.61.1 Chromium provider open/snapshot/interact/assert/screenshot/close",
+      "result": "17 browser checks,48 live expiry matrix assertions,10 reloads,10 Polish error/recovery cycles;15 published PNGs"
+    }
+  ],
+  "screenshots": [
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-01-default-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-03-picked-new-york.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-04-instant-null-long-en.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-05-polish-new-york.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-06-kiritimati-polish.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-07-empty-polish.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-08-loading-polish.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-09-polish-network-error.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-10-polish-recovered.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-11-narrow-expiry.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-12-no-permission.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-13-delete-confirm.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-14-stale-refusal.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-15-acl-refusal.png",
+    "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9394-649a0623/pr-9394-649a0623/step-16-expanded-expiry-clock.png"
+  ],
+  "notes": [
+    "Cross-tenant and foreign-organization reads/deletes, tenant-wide visibility and expiry validation were exercised through the native self-contained API tests, not a second tenant browser. Own tenant-bound allowed/denied users and two actor stale/ACL workflows were exercised in real browser sessions.",
+    "Role/user/ACL setup and explicit timestamp/offset/DST/leap fixtures used product APIs. UI create/date picker, locale selection, empty/loading/error/search recovery, denied view, delete/cancel/keyboard/retry/narrow paths were exercised. Role-management UI itself is outside the changed screen.",
+    "Automatic focus after refused deletion was observed on MAIN/BODY. Search was explicitly refocused and asserted, initial dialog Cancel focus was asserted, and keyboard retries worked. Detailed automatic return-target/tab-order behavior was not audited.",
+    "Actual authentication across the selected-day UTC-midnight boundary was not awaited. Display behavior changes only; existing expiry semantics remain unchanged, as the linked issue distinguishes from its display fix. Future-key authentication and deletion revocation were exercised; native API tests reject past expiry.",
+    "Only EN/PL were exercised in the live UI. All five existing loadFailed dictionary entries (en/pl/es/de/ko) are nonempty; no new locale keys are added. The independent helper oracle covers all five locales.",
+    "Full repository global lint/typecheck/all-module tests were not run. Scoped lint/core typecheck/module and date tests/native API-key integration and forced production build passed. Evidence-only run grants no QA approval or merge readiness.",
+    "Transient picker-closing screenshot step-02 was omitted from publication; saved create behavior is verified by actual UI request/whole-record assertions and step-03. Generated secret screens were never captured."
+  ],
+  "findings": [],
+  "cleanup": {
+    "aliveOwnedPids": [],
+    "ownedContainerRunning": false,
+    "port41173Open": false,
+    "sourceStatus": ""
+  },
+  "fixtureCleanup": [
+    {
+      "kind": "keys",
+      "id": "06c4d3d2-4891-40b1-9073-0a5f74470e95",
+      "status": 200
+    },
+    {
+      "kind": "keys",
+      "id": "fc912fe8-5e46-42b3-aedf-3408764334c3",
+      "status": 200
+    },
+    {
+      "kind": "keys",
+      "id": "d6974c65-0d58-4c87-bc86-c7f995a93cce",
+      "status": 200
+    },
+    {
+      "kind": "keys",
+      "id": "946e2d0d-c238-4a51-af9f-90f8002093f7",
+      "status": 200
+    },
+    {
+      "kind": "keys",
+      "id": "65d33330-400f-4c96-896d-dbadf126aad4",
+      "status": 200
+    },
+    {
+      "kind": "keys",
+      "id": "aa769aac-bec5-452a-a16c-31fccfe299b5",
+      "status": 200
+    },
+    {
+      "kind": "keys",
+      "id": "e2dda264-eca6-4371-89c3-36db7d25779d",
+      "status": 404
+    },
+    {
+      "kind": "keys",
+      "id": "0c484f96-9e28-4d73-80f1-bc680bfa232b",
+      "status": 404
+    },
+    {
+      "kind": "keys",
+      "id": "dde2d8f1-16f1-4c94-bf84-c193744cfba1",
+      "status": 404
+    },
+    {
+      "kind": "users",
+      "id": "5f1bb266-5b70-40bb-b601-df50bfd7a3ff",
+      "status": 200
+    },
+    {
+      "kind": "users",
+      "id": "a7cdaa56-aa63-4c3d-8812-1dbe2d7badbf",
+      "status": 200
+    },
+    {
+      "kind": "roles",
+      "id": "c0f725ea-b9fc-4c9f-b261-c0d807035e84",
+      "status": 200
+    },
+    {
+      "kind": "roles",
+      "id": "4fb6bfec-a252-4817-8a02-0a420a4ec08b",
+      "status": 200
+    }
+  ],
+  "claim": {
+    "run": "qa-649a0623-0644-4e30-a576-433cf1a57ecf",
+    "lockSha": "c8efe669974da64a1c0d975cf6cda12e80b266a6",
+    "commentId": "6848376559",
+    "status": "held for publication; owned in-progress/comment cleanup and exact-SHA lease release follow publication"
+  },
+  "sourceDiff": "zero after restoring only owned runtime email-capture output"
+}
