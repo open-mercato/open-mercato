@@ -574,6 +574,146 @@ describe('GmailChannelAdapter OAuth flow', () => {
     expect((result.credentials as { refreshToken: string }).refreshToken).toBe('new-refresh')
   })
 
+  describe('exchangeOAuthCode mailbox identity', () => {
+    const tokenResponse = async () => ({
+      access_token: 'new-access',
+      refresh_token: 'new-refresh',
+      expires_in: 3600,
+      scope: 'https://www.googleapis.com/auth/gmail.modify',
+      token_type: 'Bearer',
+    })
+
+    type ProfileCall = { accessToken: string; options: Parameters<GmailApiClient['getProfile']>[1] }
+
+    function stubProfile(getProfile: GmailApiClient['getProfile']): ProfileCall[] {
+      const calls: ProfileCall[] = []
+      setGmailApiClient({
+        listHistory: async () => ({ historyId: '0' }),
+        listMessages: async () => ({}),
+        getMessageRaw: async () => ({ id: 'x', threadId: 'x', raw: '' }) as GmailGetMessageRawResponse,
+        sendRawMessage: async () => ({ id: 'x', threadId: 'x' }),
+        getProfile: async (auth, options) => {
+          calls.push({ accessToken: auth.accessToken, options })
+          return getProfile(auth, options)
+        },
+        trashMessage: async () => undefined,
+        watchInbox: async () => ({ historyId: '0' }),
+        stopWatch: async () => undefined,
+      })
+      return calls
+    }
+
+    function captureTelemetry(): string[] {
+      const codes: string[] = []
+      registerTelemetryRuntime({
+        reportError: (_error: unknown, context?: { code?: string }) => {
+          if (context?.code) codes.push(context.code)
+        },
+      } as unknown as TelemetryRuntime)
+      return codes
+    }
+
+    afterEach(() => {
+      resetTelemetryRuntime()
+    })
+
+    function exchange() {
+      return getGmailChannelAdapter().exchangeOAuthCode!({
+        code: 'code-1',
+        redirectUri: 'https://example.com/cb',
+        credentials: clientCredentials,
+        scope: { tenantId: 't', organizationId: 'o' },
+      })
+    }
+
+    it('falls back to the Gmail profile address when the userinfo lookup fails', async () => {
+      setGoogleOAuthClient(
+        stubOAuth({
+          exchangeCode: tokenResponse,
+          fetchUserInfo: async () => {
+            throw new Error('Gmail userinfo fetch failed: 503 Service Unavailable')
+          },
+        }),
+      )
+      const telemetryCodes = captureTelemetry()
+      const profileCalls = stubProfile(async () => ({ emailAddress: 'alice@gmail.com', historyId: '100' }))
+      const result = await exchange()
+      expect(profileCalls).toEqual([{ accessToken: 'new-access', options: { maxRetries: 1, timeoutMs: 10_000 } }])
+      expect(telemetryCodes).toEqual(['channel_gmail.userinfo_fetch_failed'])
+      expect(result.externalIdentifier).toBe('alice@gmail.com')
+      expect(result.displayName).toBe('alice@gmail.com')
+      expect((result.credentials as { email?: string }).email).toBe('alice@gmail.com')
+    })
+
+    it('falls back to the Gmail profile address when userinfo returns no email', async () => {
+      setGoogleOAuthClient(
+        stubOAuth({
+          exchangeCode: tokenResponse,
+          fetchUserInfo: async () => ({ name: 'Alice' }),
+        }),
+      )
+      const telemetryCodes = captureTelemetry()
+      stubProfile(async () => ({ emailAddress: 'alice@gmail.com', historyId: '100' }))
+      const result = await exchange()
+      expect(telemetryCodes).toEqual([])
+      expect(result.externalIdentifier).toBe('alice@gmail.com')
+      expect(result.displayName).toBe('Alice')
+      expect((result.credentials as { email?: string }).email).toBe('alice@gmail.com')
+    })
+
+    it('fails the exchange instead of connecting without an address when no lookup resolves one', async () => {
+      setGoogleOAuthClient(
+        stubOAuth({
+          exchangeCode: tokenResponse,
+          fetchUserInfo: async () => {
+            throw new Error('Gmail userinfo fetch failed: 503 Service Unavailable')
+          },
+        }),
+      )
+      stubProfile(async () => {
+        throw new GmailApiError('Gmail API GET failed: 503', 503, 'Service Unavailable')
+      })
+      await expect(exchange()).rejects.toThrow()
+    })
+
+    it('fails the exchange when userinfo has no email and the Gmail profile is refused', async () => {
+      setGoogleOAuthClient(
+        stubOAuth({
+          exchangeCode: tokenResponse,
+          fetchUserInfo: async () => ({ name: 'Alice' }),
+        }),
+      )
+      stubProfile(async () => {
+        throw new GmailApiError('Gmail API GET failed: 403', 403, 'Insufficient Permission')
+      })
+      await expect(exchange()).rejects.toThrow()
+    })
+
+    it('fails the exchange when the Gmail profile returns an empty address', async () => {
+      setGoogleOAuthClient(
+        stubOAuth({
+          exchangeCode: tokenResponse,
+          fetchUserInfo: async () => ({}),
+        }),
+      )
+      stubProfile(async () => ({ emailAddress: '', historyId: '100' }))
+      await expect(exchange()).rejects.toThrow()
+    })
+
+    it('does not call the Gmail profile when userinfo returns the address', async () => {
+      setGoogleOAuthClient(
+        stubOAuth({
+          exchangeCode: tokenResponse,
+          fetchUserInfo: async () => ({ email: 'alice@gmail.com', name: 'Alice' }),
+        }),
+      )
+      const profileCalls = stubProfile(async () => ({ emailAddress: 'other@gmail.com', historyId: '100' }))
+      const result = await exchange()
+      expect(profileCalls).toEqual([])
+      expect(result.externalIdentifier).toBe('alice@gmail.com')
+    })
+  })
+
   it('refreshCredentials keeps the existing refresh token when Google does not return a new one', async () => {
     setGoogleOAuthClient(
       stubOAuth({

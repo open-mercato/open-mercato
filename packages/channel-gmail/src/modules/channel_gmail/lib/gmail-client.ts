@@ -135,7 +135,7 @@ export interface GmailApiClient {
     headerNames: string[],
     options?: GmailRequestOptions,
   ): Promise<GmailGetMessageHeadersResponse>
-  getProfile(auth: GmailApiAuth): Promise<GmailProfileResponse>
+  getProfile(auth: GmailApiAuth, options?: GmailRequestOptions): Promise<GmailProfileResponse>
   trashMessage(auth: GmailApiAuth, messageId: string): Promise<void>
   /** Spec C — `gmail.users.watch` registers a Pub/Sub topic for push delivery. */
   watchInbox(auth: GmailApiAuth, input: GmailWatchInput): Promise<GmailWatchResponse>
@@ -198,9 +198,9 @@ class FetchGmailApiClient implements GmailApiClient {
     })
   }
 
-  async getProfile(auth: GmailApiAuth): Promise<GmailProfileResponse> {
+  async getProfile(auth: GmailApiAuth, options?: GmailRequestOptions): Promise<GmailProfileResponse> {
     const url = new URL(`${GMAIL_API_BASE}/users/me/profile`)
-    return this.requestJson<GmailProfileResponse>(auth, url, 'GET')
+    return this.requestJson<GmailProfileResponse>(auth, url, 'GET', undefined, options)
   }
 
   async trashMessage(auth: GmailApiAuth, messageId: string): Promise<void> {
