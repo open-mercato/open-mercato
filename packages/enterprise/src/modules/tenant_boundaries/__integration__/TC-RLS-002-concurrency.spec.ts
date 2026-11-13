@@ -22,6 +22,7 @@ function analysis(results: LevelResult[], configuration: { poolMax: number; rlsE
     '| Users | Peak HTTP | Requests | p50 ms | p95 ms | Errors | Isolation violations | Rows unchanged |',
     '|---:|---:|---:|---:|---:|---:|---:|---|',
     ...results.map((result) => `| ${result.concurrency} | ${result.peakInFlight} | ${result.samples.length} | ${result.p50Ms.toFixed(2)} | ${result.p95Ms.toFixed(2)} | ${result.errors} | ${result.isolationViolations} | ${result.retainedRowsUnchanged} |`),
+    'Observed backendConnections is a post-level snapshot across all pools using the fixture role, including independent event/search pools; it is not the primary ORM pool size or peak active SQL count.',
     'Latency covers the full HTTP response body; privileged persisted-row verification is excluded. Errors include unexpected status, malformed response, timeout and transport failure. Isolation violations count foreign-read contents, unexpected record IDs in own reads or accepted foreign writes; own deletion/name oracle failures count as errors. No tokens, database URLs or request bodies are included.',
   ].join('\n')
 }
@@ -132,7 +133,6 @@ test('TC-RLS-002: distinct authenticated users remain isolated at 20/30/50/100 c
         expect.soft(result.distinctUsers).toBe(concurrency)
         expect.soft(result.tenants).toBe(2)
         expect.soft(result.peakInFlight).toBe(concurrency)
-        expect.soft(result.backendConnections).toBeLessThanOrEqual(poolMax)
         expect.soft(result.backendConnections).toBeGreaterThan(0)
         expect.soft(result.errors).toBe(0)
         expect.soft(result.isolationViolations).toBe(0)
