@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -104,6 +105,7 @@ export async function evaluateAttachmentAccess(input: {
   action: AttachmentAccessAction
   context?: AttachmentAccessContext | null
   requireAuthForPublic?: boolean
+  requirePrivateReadFeature?: boolean
 }): Promise<AttachmentAccessResult> {
   const { auth, attachment, partition, action, context } = input
   const baseline = checkAttachmentAccess(auth, attachment as Attachment, partition as AttachmentPartition, { requireAuthForPublic: input.requireAuthForPublic })
@@ -121,7 +123,10 @@ export async function evaluateAttachmentAccess(input: {
     matchesAttachmentAccessSelector(target.targetPartition, partition.code)
   ))].filter((requirement) => matchesAttachmentAccessTargets(requirement.targetEntity, targets))
   const resolvers = registry.resolvers.filter((resolver) => matchesAttachmentAccessResolver(resolver, partition.code, targets, action))
-  if (!requirements.length && !resolvers.length) return { ok: true, protected: false }
+  const hasOwnerPolicy = requirements.length > 0 || resolvers.length > 0
+  const requiresReadFeature = input.requirePrivateReadFeature === true && !partition.isPublic
+    && (action === 'read' || action === 'render')
+  if (!hasOwnerPolicy && !requiresReadFeature) return { ok: true, protected: false }
   if (!auth) return deny(401, 'authentication_required')
   for (const requirement of requirements) {
     const requiredTargets = targets.filter((target) => matchesAttachmentAccessSelector(requirement.targetEntity, target.entityId))
@@ -145,6 +150,9 @@ export async function evaluateAttachmentAccess(input: {
   }
   const liveBaseline = checkAttachmentAccess({ ...auth, roles: [], isSuperAdmin: subject.isSuperAdmin }, attachment as Attachment, partition as AttachmentPartition, { requireAuthForPublic: input.requireAuthForPublic })
   if (!liveBaseline.ok) return deny(403, 'current_scope')
+  if (requiresReadFeature && !authorizeFeatures(['attachments.view'], {
+    grantedFeatures: subject.userFeatures, unrestricted: subject.isSuperAdmin,
+  })) return deny(403, 'read_feature_required')
   for (const resolver of resolvers) {
     const controller = new AbortController()
     let cache = context.resolverCaches.get(resolver.id)
@@ -179,5 +187,5 @@ export async function evaluateAttachmentAccess(input: {
       return deny(error instanceof AccessTimeout ? 504 : 403, error instanceof AccessTimeout ? 'resolver_timeout' : 'resolver_failed', resolver.id)
     }
   }
-  return { ok: true, protected: true }
+  return { ok: true, protected: hasOwnerPolicy || requiresReadFeature }
 }

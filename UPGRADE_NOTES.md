@@ -1,5 +1,27 @@
 # Upgrade Notes
 
+## Private attachment reads require the read capability (#8760)
+
+Private original files, forced downloads, inline content and derived images now
+require current `attachments.view` permission. Successful private byte responses
+use `Cache-Control: private, no-store`, including cached thumbnails.
+Same-scope authentication or knowing an attachment ID no longer suffices;
+`attachments.manage` alone does not grant read access. Existing covering wildcards
+and live superadmin grants follow the consolidated feature policy. Owner-policy
+denials still apply, and public partition behavior and tenant/org isolation remain.
+
+**Clients:** use an authenticated principal with the intended read grant and handle
+403 responses. **Operators:** audit role, user and API-key ACLs before rollout,
+grant read only to intended readers, deploy all byte-serving instances together,
+and purge affected previously cached private responses where possible. No database
+migration or stored-file rewrite is required. Previously downloaded content cannot
+be recalled. A binary rollback reopens the bypass; block private byte routes at the
+deployment boundary before an unavoidable rollback.
+
+This intentional security tightening requires named human maintainer approval of
+the Emergency Security Exception before merge; automated review cannot grant it.
+[Policy and migration specification](.ai/specs/2026-11-05-private-attachment-read-permission.md).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app
