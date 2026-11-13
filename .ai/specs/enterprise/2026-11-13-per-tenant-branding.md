@@ -337,7 +337,16 @@ Layout: two columns on ≥ lg (form left, sticky preview right), stacked on smal
 - DS: semantic tokens only; the preview's brand colours are applied via CSS variables, not hard-coded classes. All strings via i18n keys `branding_profiles.*`.
 - Accessibility: colour inputs have text equivalents; contrast results are text, not colour-only; logo previews have alt text from the product name.
 
-Proposed clickable prototype (pending, not accepted): [`.ai/prototypes/per-tenant-branding/index.html`](../../prototypes/per-tenant-branding/index.html).
+Proposed clickable prototype (pending, not accepted): [`.ai/prototypes/per-tenant-branding/index.html`](../../prototypes/per-tenant-branding/index.html). It has 10 screens covering US-B1 to US-B12, works fully offline, and computes contrast live. Rendered proposal stills:
+
+| Screen | Image |
+|---|---|
+| First run (empty state) | [mockup-01-light.png](assets/per-tenant-branding/mockup-01-light.png) |
+| Editor + live preview (light / dark) | [mockup-02-light.png](assets/per-tenant-branding/mockup-02-light.png), [mockup-02-dark.png](assets/per-tenant-branding/mockup-02-dark.png) |
+| Contrast failure, Save disabled | [mockup-03-light.png](assets/per-tenant-branding/mockup-03-light.png) |
+| Branded login (first paint) | [mockup-07-light.png](assets/per-tenant-branding/mockup-07-light.png) |
+| Branded backend, light + dark | [mockup-08-light.png](assets/per-tenant-branding/mockup-08-light.png) |
+| Branded portal | [mockup-09-light.png](assets/per-tenant-branding/mockup-09-light.png) |
 
 ## Edge Cases & Failure Scenarios
 
