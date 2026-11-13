@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { readJsonSafe as readBrowserJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 
 export const integrationMeta = { dependsOnModules: ['documents', 'notifications'] }
 
@@ -178,7 +179,7 @@ test.describe('TC-DOCUMENTS-023: mention sharing feedback in real browser', () =
       await grantDialog.getByRole('button', { name: 'Share & notify' }).click()
       const mentionResponse = await mentionCreated
       expect(mentionResponse.status(), 'mention save should return 201').toBe(201)
-      const mentionResponseBody = await readJsonSafe<{ id?: string }>(mentionResponse)
+      const mentionResponseBody = await readBrowserJsonSafe<{ id?: string }>(await mentionResponse.text())
       const mentionCommentId = expectId(mentionResponseBody?.id, 'mention comment id')
 
       await expect(page.getByText("Some mentioned users don't have access and weren't notified.")).toBeVisible({ timeout: 10_000 })
