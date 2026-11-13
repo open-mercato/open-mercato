@@ -191,7 +191,11 @@ function makeEm(world: World, entities: Entities) {
     fork: jest.fn(),
     findOne: jest.fn(async (cls: unknown, where: Record<string, unknown>) => {
       if (cls === entities.StaffTimeProject) {
-        return world.projects.find((row) => row.id === where.id && !row.deletedAt && matchesScope(row, where)) ?? null
+        return (
+          world.projects.find(
+            (row) => row.id === String(where.id).toLowerCase() && !row.deletedAt && matchesScope(row, where),
+          ) ?? null
+        )
       }
       if (cls === entities.StaffTimeTask) {
         return (
@@ -593,7 +597,7 @@ describe('staff timesheets extended time-entry write path (T4.1)', () => {
       const { update, entities } = await loadCommands()
       const entry = entryRow({ timeProjectId: PROJECT_ID, taskId: TASK_ID })
       const world: World = {
-        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID, currencyCode: 'EUR' })],
+        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID })],
         tasks: [{ id: TASK_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: PROJECT_ID, deletedAt: null }],
         entries: [entry],
         created: [],
@@ -650,6 +654,25 @@ describe('staff timesheets extended time-entry write path (T4.1)', () => {
       await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID }, ctx)
 
       expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
+      expect(entry.taskId).toBe(TASK_ID)
+    })
+
+    it('keeps the task when the new project id is the task project written in upper case', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: HIDDEN_PROJECT_ID, taskId: TASK_ID })
+      const world: World = {
+        projects: [projectRow({ id: HIDDEN_PROJECT_ID })],
+        tasks: [
+          { id: TASK_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: HIDDEN_PROJECT_ID, deletedAt: null },
+        ],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID.toUpperCase() }, ctx)
+
       expect(entry.taskId).toBe(TASK_ID)
     })
 

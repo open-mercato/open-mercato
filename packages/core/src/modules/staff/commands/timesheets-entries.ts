@@ -1960,7 +1960,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
               undefined,
               { tenantId: entry.tenantId, organizationId: entry.organizationId },
             ),
-            nextProjectId,
+            project?.id ?? null,
           )
         : false
 

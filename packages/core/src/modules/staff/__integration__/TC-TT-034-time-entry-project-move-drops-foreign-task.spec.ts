@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteGeneralEntityIfExists, expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { expectOperation, skipIfUndoTestsDisabled, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
@@ -9,7 +9,7 @@ export const integrationMeta = {
 }
 
 /**
- * TC-TT-034 — Moving a time entry to another project drops the old project's task (#ISSUE).
+ * TC-TT-034 — Moving a time entry to another project drops the old project's task.
  *
  * A PUT that names only a new `timeProjectId` used to keep the stored `taskId`,
  * leaving the hours billed on one project while the task rollups counted them
@@ -45,7 +45,7 @@ type EntryRow = {
   timeProjectId?: string | null
 }
 
-async function readCreatedId(response: Awaited<ReturnType<typeof apiRequest>>, context: string): Promise<string> {
+async function readCreatedId(response: APIResponse, context: string): Promise<string> {
   expect(response.ok(), `${context} should succeed: ${response.status()}`).toBeTruthy()
   return expectId((await readJsonSafe<{ id?: string }>(response))?.id, `${context} should return an id`)
 }
@@ -122,10 +122,10 @@ async function moveEntryToProject(
   token: string,
   entryId: string,
   timeProjectId: string,
-): Promise<string> {
+): Promise<APIResponse> {
   const response = await apiRequest(request, 'PUT', ENTRIES_PATH, { token, data: { id: entryId, timeProjectId } })
   expect(response.ok(), `PUT ${ENTRIES_PATH} should move the entry: ${response.status()}`).toBeTruthy()
-  return expectOperation(response, 'move entry to another project').undoToken
+  return response
 }
 
 async function cleanUp(request: APIRequestContext, world: World): Promise<void> {
@@ -180,7 +180,8 @@ test.describe('TC-TT-034: moving a time entry to another project drops the old p
     const world = emptyWorld(await getAuthToken(request, 'admin'))
     try {
       const { projectA, projectB, taskOnA, entryId } = await setUpEntryOnProjectA(request, world, randomUUID().slice(0, 8))
-      const undoToken = await moveEntryToProject(request, world.token, entryId, projectB)
+      const moved = await moveEntryToProject(request, world.token, entryId, projectB)
+      const { undoToken } = expectOperation(moved, 'move entry to another project')
       await undoOk(request, world.token, undoToken, 'undo the project move')
       expect(
         await readEntry(request, world.token, entryId),
