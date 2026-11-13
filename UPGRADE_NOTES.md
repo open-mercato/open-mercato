@@ -115,6 +115,7 @@ Reinstall behavior is unchanged: monorepo `yarn dev:greenfield` resets the confi
 The development diagnostics banner’s Retry button now invokes runtime recovery; a page reload alone no longer leaves the historical incident as the only outcome. Existing generation/health checks still determine whether recovery succeeded.
 
 The CLI starts Next development processes with `NODE_ENV=development` so development CSP/debugging features work. Production server and background-process environment behavior is unchanged.
+
 ## Search writes honor entity strategy pins (#5930)
 
 SearchService direct and bulk writes now honor each registered entity's existing
