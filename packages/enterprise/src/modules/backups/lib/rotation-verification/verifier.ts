@@ -1,8 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { canonicalValue, keyedDigest, keyFingerprint, sameDigest, type VerificationRow } from './canonical'
+import { canonicalValue, keyedDigest, keyedRowDigestAndSize, keyFingerprint, rowIdentity, sameDigest, type VerificationRow } from './canonical'
 import { RotationArtifactStore } from './store'
-import { fingerprintRows, type FingerprintedRow } from './row-fingerprints'
 
 const headerSchema = z.object({
   schemaVersion: z.literal(1), runId: z.string().uuid(), binding: z.string().length(64),
@@ -62,14 +61,18 @@ export async function prepareRotationVerification(dataset: RotationDataset, stor
     records = []
   }
   try {
-    for await (const row of fingerprintRows(phaseSignal => dataset.rows('before', phaseSignal), runKey, signal)) {
+    // This public empty value has identical bytes for every row without metadata.
+    // Keep its MAC local to this invocation and its fresh run key.
+    const emptyMetadataDigest = keyedDigest(runKey, 'metadata-v1', canonicalValue({}))
+    for await (const row of dataset.rows('before', signal)) {
       interrupted(signal)
-      const identity = row.identity
+      const identity = rowIdentity(row)
       if (identity === previousIdentity) throw new Error('[internal] ROTATION_DUPLICATE_IDENTITY')
       previousIdentity = identity
-      totalBytes += BigInt(row.bytes)
-      records.push({ identity, digest: row.digest, bytes: row.bytes, fields: row.fields, metadata: row.metadataDigest })
-      count++; fields += row.fields
+      const measured = keyedRowDigestAndSize(runKey, row)
+      totalBytes += BigInt(measured.bytes)
+      records.push({ identity, digest: measured.digest, bytes: measured.bytes, fields: row.columns.length, metadata: row.metadata === undefined ? emptyMetadataDigest : keyedDigest(runKey, 'metadata-v1', canonicalValue(row.metadata ?? {})) })
+      count++; fields += row.columns.length
       if (records.length === 500) await flush()
     }
     await flush()
@@ -91,7 +94,7 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
   if (header.runId !== prepared.runId) throw new Error('[internal] ROTATION_BINDING_CHANGED')
   const runKey = await store.read('run-key')
   if (runKey.length !== 32) throw new Error('[internal] ROTATION_ARTIFACT_INVALID')
-  let iterator: AsyncIterator<FingerprintedRow> | undefined
+  let iterator: AsyncIterator<VerificationRow> | undefined
   let rows = 0; let fields = 0; let comparedBytes = 0n
   try {
     await dataset.assertFence()
@@ -100,8 +103,9 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
     if (keys.provider !== (await dataset.binding()).provider) throw new Error('[internal] ROTATION_PROVIDER_CHANGED')
     if (!sameDigest(header.targetFingerprint, keyFingerprint(runKey, keys.target)) || !sameDigest(header.sourceFingerprint, keyFingerprint(runKey, keys.source))) throw new Error('[internal] ROTATION_KEY_CHANGED')
     await store.write('checkpoint', Buffer.from(JSON.stringify({ runId: header.runId, status: 'verifying' })))
-    iterator = fingerprintRows(phaseSignal => dataset.rows('after', phaseSignal), runKey, signal)[Symbol.asyncIterator]()
+    iterator = dataset.rows('after', signal)[Symbol.asyncIterator]()
     const root = createHash('sha256')
+    const emptyMetadataDigest = keyedDigest(runKey, 'metadata-v1', canonicalValue({}))
     for (let chunk = 0; chunk < header.chunks; chunk++) {
       interrupted(signal)
       const chunkBytes = await store.read(chunkName(chunk))
@@ -109,14 +113,14 @@ export async function verifyRotationData(prepared: PreparedRotation, dataset: Ro
       for (const expected of expectedSchema.parse(JSON.parse(chunkBytes.toString()))) {
         interrupted(signal)
         const next = await iterator.next()
-        const measured = next.done ? undefined : next.value
-        if (next.done || !measured || measured.bytes !== expected.bytes || measured.identity !== expected.identity || measured.fields !== expected.fields || !sameDigest(expected.digest, measured.digest)) throw new Error('[internal] ROTATION_DATA_MISMATCH')
-        const metadata = next.value.metadataDigest
+        const measured = next.done ? undefined : keyedRowDigestAndSize(runKey, next.value)
+        if (next.done || !measured || measured.bytes !== expected.bytes || rowIdentity(next.value) !== expected.identity || next.value.columns.length !== expected.fields || !sameDigest(expected.digest, measured.digest)) throw new Error('[internal] ROTATION_DATA_MISMATCH')
+        const metadata = next.value.metadata === undefined ? emptyMetadataDigest : keyedDigest(runKey, 'metadata-v1', canonicalValue(next.value.metadata ?? {}))
         if (!sameDigest(expected.metadata, metadata)) {
-          const intent = next.value.intent
-          if (!intent || !sameDigest(expected.metadata, intent.before)
-            || !sameDigest(metadata, intent.after)
-            || !sameDigest(intent.mac, intent.actualMac)) {
+          const intent = next.value.metadataIntent
+          if (!intent || !sameDigest(expected.metadata, keyedDigest(runKey, 'metadata-v1', canonicalValue(intent.before)))
+            || !sameDigest(metadata, keyedDigest(runKey, 'metadata-v1', canonicalValue(intent.after)))
+            || !sameDigest(intent.mac, keyedDigest(runKey, 'metadata-intent-v1', canonicalValue([expected.identity, intent.before, intent.after])))) {
             throw new Error('[internal] ROTATION_METADATA_MISMATCH')
           }
         }

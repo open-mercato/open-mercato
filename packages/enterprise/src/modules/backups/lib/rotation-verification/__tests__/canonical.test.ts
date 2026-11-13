@@ -1,5 +1,4 @@
-import { createHmac } from 'node:crypto'
-import { ExactJsonNumber, canonicalValue, canonicalRow, encodeRowDigestFrame, rowDigestDomainPrefix, keyedDigest, keyedRowDigest, type LogicalValue, type VerificationRow } from '../canonical'
+import { ExactJsonNumber, canonicalValue, canonicalRow, keyedDigest, keyedRowDigest, type LogicalValue, type VerificationRow } from '../canonical'
 const key = Buffer.alloc(32, 7)
 test.each([
   ['row-v1', '73b579e02a286f290f02c9d3e1d49d402052d85930fa02da643b8fe531598e68'],
@@ -137,24 +136,4 @@ test('ill-formed UTF-16 cannot collide with a valid replacement character in UTF
   }
   expect(keyedRowDigest(key, row(replacement))).toHaveLength(64)
   expect(keyedRowDigest(key, row(String.fromCodePoint(0x1f600)))).toHaveLength(64)
-})
-
-test('transferable row frames preserve exact old HMAC bytes without sharing Buffer pools', () => {
-  const pooled = Buffer.allocUnsafe(128); pooled.fill(0xa5)
-  const snapshot = Buffer.from(pooled)
-  for (const value of [null, '', '\u0000\ufeff\ufffd日本語🙂', new ExactJsonNumber('9007199254740993.00001'), { nested: [true, null, 'value'] }]) {
-    const input = row(value)
-    const encoded = encodeRowDigestFrame(input)
-    expect(encoded.frame).toBeInstanceOf(ArrayBuffer)
-    expect(encoded.bytes).toBe(encoded.frame.byteLength)
-    expect(Buffer.from(encoded.frame)).toEqual(canonicalRow(input))
-    expect(createHmac('sha256', key).update(rowDigestDomainPrefix()).update(Buffer.from(encoded.frame)).digest('hex')).toBe(keyedRowDigest(key, input))
-    const moved = structuredClone(encoded.frame, { transfer: [encoded.frame] })
-    expect(encoded.frame.byteLength).toBe(0)
-    expect(moved.byteLength).toBe(encoded.bytes)
-    expect(pooled).toEqual(snapshot)
-  }
-  const first = rowDigestDomainPrefix(); first.fill(0)
-  expect(Buffer.from(rowDigestDomainPrefix()).toString('hex')).toBe('6400000006726f772d7631')
-  expect(() => encodeRowDigestFrame(row('x'.repeat(1024 * 1024)))).toThrow('ROTATION_COVERAGE_UNSUPPORTED')
 })

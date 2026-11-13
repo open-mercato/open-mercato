@@ -55,7 +55,7 @@ test('streams a full multi-chunk roundtrip and writes no plaintext baseline to d
   }
 })
 
-test('worker baseline chunks and root exactly match the previous synchronous row protocol', async () => {
+test('baseline chunks and root exactly match the original synchronous row protocol', async () => {
   const { dataset, store } = fixture()
   await prepareRotationVerification(dataset, store)
   const runKey = await store.read('run-key')
