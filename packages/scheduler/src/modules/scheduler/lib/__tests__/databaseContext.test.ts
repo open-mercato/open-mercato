@@ -126,7 +126,7 @@ import type { JobContext, QueuedJob } from '@open-mercato/queue'
 
 
 test('actual queue dispatcher resolves scheduler ownership before fresh per-attempt containers and cleanup', async () => {
-  registerDatabaseModuleDeclarations([{ moduleId: 'scheduler', declarations: database }])
+  registerDatabaseModuleDeclarations([{ moduleId: 'scheduler', declarations: database }, { moduleId: 'fixture-binding', declarations: { bindingValidators: [async () => true] } }])
   const executionScopes: NonNullable<ReturnType<typeof scopes.getStore>>[] = []
   const cleanupScopes: NonNullable<ReturnType<typeof scopes.getStore>>[] = []
   const createContainer = jest.fn(async () => {

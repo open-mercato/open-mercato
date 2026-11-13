@@ -35,6 +35,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.3-job-foundation | Resolve persisted job identities before containers and bind canonical event envelopes | inline | done | this commit; CLI9/shared18/events180 tests + package tsc |
 | 2 | 2.3-boundary-foundation | Verify maintenance pool ownership and effective asynchronous invocation lifetimes | inline | done | this commit; 16 shared/86 runtime/185 events/9 CLI tests; PG17 16+24 checks |
 | 2 | 2.3-coalescing-fix | Preserve accepted trailing broadcasts in a fresh validated invocation | inline | done | this commit; 21 event tests and events/enterprise typechecks |
+| 2 | 2.3-worker-binding | Validate persisted tenant bindings before queue containers and await disposal | inline | done | this commit; targeted worker and scheduler tests |
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
 | 2 | 2.4-foundation | Declare owner-local CLI access and restrict setup hook continuations | inline | done | this commit; CLI82/shared30/auth19 + shared/CLI tsc |
 | 2 | 2.4-bootstrap | Preserve generic bootstrap registrations before lightweight supervisor probes | inline | done | this commit; CLI79 tests and CLI tsc |

@@ -1,5 +1,5 @@
 import { isDatabaseRuntimeEnabled, runWithFreshDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
-import { resolveDeclaredDatabaseJobContext } from '@open-mercato/shared/lib/db/declarations'
+import { resolveDeclaredDatabaseJobContext, validateDeclaredDatabaseBinding } from '@open-mercato/shared/lib/db/declarations'
 import type { JobContext, JobHandler } from '@open-mercato/queue'
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
 import {
@@ -9,6 +9,7 @@ import {
 
 export type WorkerJobContainer = {
   resolve: <T = unknown>(name: string) => T
+  dispose?: () => void | Promise<void>
 }
 
 export type WorkerJobContainerFactory = () => Promise<WorkerJobContainer>
@@ -55,10 +56,15 @@ export function createPerJobWorkerHandler(
           // Best-effort: clearing the identity map is a memory optimization and
           // must never mask a job's own outcome.
         }
+        await container.dispose?.()
       }
     }
     if (!isDatabaseRuntimeEnabled()) return execute()
     const context = await resolveDeclaredDatabaseJobContext({ queue: ctx.queueName, workerIds: workers.map((worker) => worker.id), payload: job.payload, metadata: job.metadata })
+    if (context.kind === 'tenant') {
+      const valid = await runWithFreshDatabaseExecutionContext({ kind: 'identity', tenantId: context.tenantId, source: 'identity', operation: 'worker-tenant-binding' }, () => validateDeclaredDatabaseBinding({ context }, { requireValidator: true }))
+      if (!valid) throw new Error('[internal] Worker requires a persisted active tenant')
+    }
     return runWithFreshDatabaseExecutionContext(context, execute)
   }
 }
