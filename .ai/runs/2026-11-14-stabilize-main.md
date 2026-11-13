@@ -47,6 +47,12 @@ Runner: GitHub Actions for the full suite. For evidence-only changes the local g
 
 - Independent read-only audit `ea30054c-3fc8-4c18-9c4d-f4aa11bfdf00` confirmed no demonstrated CI or scope/concurrency defect. The parent re-read its evidence, verified the branch contains no child edits, and re-ran the two audit-named workflow tests (28/28 passed). No child branch was merged.
 
+- [Dedicated PR CI 43524930435](https://github.com/open-mercato/open-mercato/actions/runs/43524930435) at `4459de175233cd5b7b3c726761f8c5fd8247360c` passed all 24 applicable jobs, including every integration shard, package/app/Docker builds, unfiltered typecheck/unit tests, lint, timezone, collaboration, and coverage merge. Dependency audit was intentionally skipped by its manifest/lockfile scope filter. All other applicable PR checks passed. No source or workflow fix was necessary.
+- Runner: local for 42/42 targeted workflow regression tests (full scope, concurrency, coverage fail-closed, cache isolation) and the 28/28 audit recheck. The documentation-only local gate is a manual Markdown and whitespace review; there is no configured Markdown linter. Broad validation is evidenced by the dedicated PR's full GitHub Actions suite.
+- Effective main ruleset requires `scope`, `guard`, `prepare`, `lint`, `ds-lint`, `test`, `audit-scope`, and `documents-multi-instance`. This run additionally gates handoff on every applicable reported check and all 15 shards.
+- Main Snapshot Release `43511764426` at the baseline SHA has published successfully; its standalone integration remains pending as of 2026-11-13T23:47Z. Older failed manual preview/deployment runs are not current-main CI regressions. Do not equate the green CI suite with all historical workflows being green.
+- Completion-only documentation commits must receive fresh CI at the final pushed head. Live final review/check results will be linked in the PR body and outcome comment; do not treat the initial run as proof of a later head.
+
 ## Progress
 
 PR: #9497
