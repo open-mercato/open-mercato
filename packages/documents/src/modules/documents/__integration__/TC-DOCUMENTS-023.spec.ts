@@ -178,7 +178,7 @@ test.describe('TC-DOCUMENTS-023: mention sharing feedback in real browser', () =
       await grantDialog.getByRole('button', { name: 'Share & notify' }).click()
       const mentionResponse = await mentionCreated
       expect(mentionResponse.status(), 'mention save should return 201').toBe(201)
-      const mentionResponseBody = await mentionResponse.json().catch(() => null) as { id?: string } | null
+      const mentionResponseBody = await readJsonSafe<{ id?: string }>(mentionResponse)
       const mentionCommentId = expectId(mentionResponseBody?.id, 'mention comment id')
 
       await expect(page.getByText("Some mentioned users don't have access and weren't notified.")).toBeVisible({ timeout: 10_000 })
