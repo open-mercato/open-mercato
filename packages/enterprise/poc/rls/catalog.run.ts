@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import type { BoundaryClient } from '../../src/lib/rls/runtime/pool'
 import { quoteBoundaryIdentifier } from '../../src/lib/rls/runtime/config'
 import { assertTenantTableInventory, parseTenantTableManifest, readTenantCatalog } from '../../src/lib/rls/runtime/manifest'
 import { verifyRuntimeDatabaseRole } from '../../src/lib/rls/runtime/roles'
 import { reconcileTenantTablePolicies, rollbackTenantTablePolicies, tenantPolicyName, verifyTenantTablePolicies } from '../../src/lib/rls/runtime/policies'
+import { createTenantBoundaryAdapter } from '../../src/lib/rls/runtime/registration'
+import { runWithTenantBoundary } from '../../src/lib/rls/runtime/scope'
 
 const databaseUrl = process.env.OM_RLS_POC_DATABASE_URL
 assert.ok(databaseUrl, 'Set OM_RLS_POC_DATABASE_URL to an explicitly disposable PostgreSQL database')
@@ -13,6 +18,8 @@ const suffix = randomUUID().replaceAll('-', '')
 const schema = `rls_catalog_${suffix}`
 const role = `rls_catalog_${suffix}`
 const password = randomUUID()
+const directory = await mkdtemp(path.join(tmpdir(), 'om-rls-catalog-'))
+const manifestPath = path.join(directory, 'manifest.json')
 const admin = new Pool({ connectionString: databaseUrl, max: 3, connectionTimeoutMillis: 5_000, query_timeout: 15_000 })
 const runtimeUrl = new URL(databaseUrl)
 runtimeUrl.username = role
@@ -53,6 +60,7 @@ const verifyPolicy = () => withClient(runtime, (client) => verifyTenantTablePoli
 const reconcile = () => withClient(admin, (client) => reconcileTenantTablePolicies(client, manifest, role))
 
 try {
+  await writeFile(manifestPath, JSON.stringify(manifest))
   const database = (await admin.query<{ name: string }>('select current_database() as name')).rows[0].name
   await admin.query(`revoke temporary on database ${quoteBoundaryIdentifier(database)} from public`)
   await admin.query(`create role ${quoteRole} login password '${password}' nosuperuser nobypassrls nocreaterole nocreatedb noreplication noinherit`)
@@ -184,6 +192,41 @@ try {
     })
   })
 
+  await check('the registered production adapter verifies actual ORM metadata before tenant queries', async () => {
+    const guarded = new Pool({ connectionString: runtimeUrl.toString(), max: 1, connectionTimeoutMillis: 5_000 })
+    const adapter = createTenantBoundaryAdapter({ enabled: true, poolMode: 'direct', schema, manifestPath }, {}, suffix)
+    const lifecycle = adapter.configurePool(guarded, {
+      id: 'primary', purpose: 'runtime', tables: 'primary',
+      metadata: () => [{ schema, table: 'records', tenantColumn: 'tenant_id', tenantType: 'uuid', tenantNullable: false }],
+    })
+    try {
+      await lifecycle.ready()
+      assert.deepEqual((await guarded.query(`select label from ${relation}`)).rows, [])
+      await runWithTenantBoundary({ kind: 'tenant', tenantId: tenantA, source: 'api' }, async () => {
+        assert.deepEqual((await guarded.query(`select label from ${relation}`)).rows, [{ label: 'A' }])
+      })
+    } finally { await guarded.end(); lifecycle.dispose() }
+  })
+
+  await check('production readiness refuses unsafe roles and incomplete installed policies', async () => {
+    for (const failure of ['role', 'policy']) {
+      if (failure === 'role') await admin.query(`alter role ${quoteRole} createrole`)
+      else await admin.query(`alter table ${relation} no force row level security`)
+      const guarded = new Pool({ connectionString: runtimeUrl.toString(), max: 1, connectionTimeoutMillis: 5_000 })
+      const adapter = createTenantBoundaryAdapter({ enabled: true, poolMode: 'direct', schema, manifestPath }, {}, `${suffix}-${failure}`)
+      const lifecycle = adapter.configurePool(guarded, { id: 'fixture', purpose: 'runtime', tables: [`${schema}.records`] })
+      try {
+        await assert.rejects(lifecycle.ready(), failure === 'role' ? /unsafe/ : /enabled and forced/)
+        await assert.rejects(guarded.query(`select label from ${relation}`), failure === 'role' ? /unsafe/ : /enabled and forced/)
+      } finally {
+        await guarded.end()
+        lifecycle.dispose()
+        if (failure === 'role') await admin.query(`alter role ${quoteRole} nocreaterole`)
+        else await reconcile()
+      }
+    }
+  })
+
   await check('unknown widening policies block startup and reconciliation without being overwritten', async () => {
     await admin.query(`create policy unexpected_widening on ${relation} using(true) with check(true)`)
     try {
@@ -235,6 +278,6 @@ try {
     await admin.query(`drop role if exists ${quoteRole}`)
     const remaining = await admin.query('select exists(select 1 from pg_namespace where nspname=$1) as schema_exists, exists(select 1 from pg_roles where rolname=$2) as role_exists', [schema, role])
     assert.deepEqual(remaining.rows, [{ schema_exists: false, role_exists: false }])
-  } finally { await admin.end() }
+  } finally { await admin.end(); await rm(directory, { recursive: true, force: true }) }
 }
 process.stdout.write(`Enterprise RLS catalog proof: ${checks} checks passed; disposable fixtures removed.\n`)

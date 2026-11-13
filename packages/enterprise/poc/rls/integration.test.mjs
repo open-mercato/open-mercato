@@ -10,7 +10,7 @@ const databaseUrl = process.env.OM_RLS_POC_DATABASE_URL?.trim()
 async function verifyProof(context, mode) {
   const runtimeBoundary = mode === 'runtime'
   const catalogBoundary = mode === 'catalog'
-  const expectedChecks = catalogBoundary ? 21 : runtimeBoundary ? 16 : 13
+  const expectedChecks = catalogBoundary ? 23 : runtimeBoundary ? 16 : 13
   let output
   try {
     const result = await execute(process.execPath, [

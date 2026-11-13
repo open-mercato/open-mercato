@@ -15,8 +15,8 @@ Engine: om-auto-continue-pr-loop
 | 1 | 1.1-review-fix | Define activation lifetime contracts and executable step exits | inline | done | 6946667369 |
 | 1 | 1.2 | Add edition-neutral database lifecycle and execution scope hooks | inline | done | 390002aa6d |
 | 1 | 1.3 | Implement enterprise scoped pool ownership and topology guards | inline | done | ad9284c457 |
-| 1 | 1.4 | Implement table manifest, effective policy and runtime role verification | inline | done | this commit |
-| 1 | 1.5 | Register enterprise enforcement before ORM initialization | inline | todo | — |
+| 1 | 1.4 | Implement table manifest, effective policy and runtime role verification | inline | done | 86a5570e49 |
+| 1 | 1.5 | Register enterprise enforcement before ORM initialization | inline | done | this commit |
 | 2 | 2.1 | Propagate trusted API identity before authorization and handler queries | inline | todo | — |
 | 2 | 2.2 | Cover page, portal and public-token execution contexts | inline | todo | — |
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
