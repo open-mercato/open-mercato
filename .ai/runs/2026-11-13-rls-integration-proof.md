@@ -28,12 +28,14 @@ The test URL must identify a disposable PostgreSQL database with schema/role cre
 
 ## Progress
 
+PR: #9424
+
 > Convention: `- [ ]` pending, `- [x]` done. Append a commit SHA when a step lands. Do not rename step titles.
 
 ### Phase 1: Repeatable integration evidence
 
-- [ ] 1.1 Add bounded automated PostgreSQL integration execution with explicit disposable-database opt-in and fixture cleanup assertions.
-- [ ] 1.2 Drain concurrent work before teardown, close pools before removing scope wrappers, and update operator/spec documentation.
+- [x] 1.1 Add bounded automated PostgreSQL integration execution with explicit disposable-database opt-in and fixture cleanup assertions. — 4349cbf789
+- [x] 1.2 Drain concurrent work before teardown, close pools before removing scope wrappers, and update operator/spec documentation. — 4349cbf789
 
 ### Phase 2: Verify and publish
 
