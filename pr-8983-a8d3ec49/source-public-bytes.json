@@ -1,0 +1,278 @@
+[
+  {
+    "name": "forms-conflict-false-saved.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-conflict-false-saved.png",
+    "sha256": "61000df0e3104cfa8b741852b6949df73553c3c0f74bf7ff1948ab29b0c1167b",
+    "bytes": 249389
+  },
+  {
+    "name": "forms-de-1280.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-de-1280.png",
+    "sha256": "be8c45f4fc84a7fabbfcd46ed2626c545fa581a7f5e54c9e646e8e58eea572a9",
+    "bytes": 275551
+  },
+  {
+    "name": "forms-de-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-de-375.png",
+    "sha256": "ebf2bfcb7d08de3767cf6a7fbba0a9e5e85d952b00bcc3ca96092bf7db3c2956",
+    "bytes": 216013
+  },
+  {
+    "name": "forms-en-1280.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-en-1280.png",
+    "sha256": "bfa786e1d9b0a6c10937d11b43cc3d5ad15b0811f63071fdce2ff2340fbea1af",
+    "bytes": 240640
+  },
+  {
+    "name": "forms-en-375-multilocale.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-en-375-multilocale.png",
+    "sha256": "9ca2b63b8fffdecd99eb73a8f61143ad919a73f45c96a594432d27f1256b66cd",
+    "bytes": 196403
+  },
+  {
+    "name": "forms-en-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-en-375.png",
+    "sha256": "3c5a29a22f09a59f7519e337545afd4a35a583330ff1ff27827f767f941b4048",
+    "bytes": 193309
+  },
+  {
+    "name": "forms-en-desktop-default.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-en-desktop-default.png",
+    "sha256": "0d48fec7996d76d85e45c57886416df54401bc06672ee6e193d26bf3ea04cb9f",
+    "bytes": 247800
+  },
+  {
+    "name": "forms-es-1280.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-es-1280.png",
+    "sha256": "c22b7845af157452cdec1cf538c8d13191f4024c81c706c5aaaef5352cb7c102",
+    "bytes": 279167
+  },
+  {
+    "name": "forms-es-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-es-375.png",
+    "sha256": "9ea354378d37ca752a948230d5ef51f278d82a520651961472bd3257305754a7",
+    "bytes": 219631
+  },
+  {
+    "name": "forms-history-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-history-375.png",
+    "sha256": "0fc47ee482c553b473b5c6315de7ac344d8805eaacb43cccb1eec98b8f11a205",
+    "bytes": 12197
+  },
+  {
+    "name": "forms-history-loaded-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-history-loaded-375.png",
+    "sha256": "e2f2dcd506e37550300df9678a3a932530e3beeb6caa3a0f59dd6d9594247550",
+    "bytes": 32946
+  },
+  {
+    "name": "forms-ko-1280.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-ko-1280.png",
+    "sha256": "323d7d0cdb77ea8d1b6a0476626e73134ca949f512fadc47d1bfc060bb1dcb93",
+    "bytes": 227359
+  },
+  {
+    "name": "forms-ko-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-ko-375.png",
+    "sha256": "6c894c88b2293fa93de24c6ee883c6ed8f2805161112f8bb5f0658438e9648ac",
+    "bytes": 192337
+  },
+  {
+    "name": "forms-load-error.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-load-error.png",
+    "sha256": "b3f3c72461e0bf933070e6ea5306ca03fb95072060c87db96e10700a6415f1d1",
+    "bytes": 59690
+  },
+  {
+    "name": "forms-loading.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-loading.png",
+    "sha256": "5f167376a970818df4b8d5652d720118e5db22328b1b3c103a7edf6643c977f2",
+    "bytes": 19204
+  },
+  {
+    "name": "forms-no-design-permission-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-no-design-permission-375.png",
+    "sha256": "355a47774703cae2829f792d9d221fadaa45c98dd93ca3ac84cdc8cc29156fb2",
+    "bytes": 19646
+  },
+  {
+    "name": "forms-pl-1280.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-pl-1280.png",
+    "sha256": "999c84be25f89e43f6ad219ccf537c96ad3b32826c65f1d628837634e9679a57",
+    "bytes": 274876
+  },
+  {
+    "name": "forms-pl-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-pl-375.png",
+    "sha256": "f256d3f7c2c1286aab0a2c82c9795eca7d1c5bdb7efbd253e5c83906514bd230",
+    "bytes": 214208
+  },
+  {
+    "name": "forms-publish-dialog-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-publish-dialog-375.png",
+    "sha256": "1bc221d6eddc904499051db622e8ae6d484c7388ac1903e0ed1d365f930c6e97",
+    "bytes": 148683
+  },
+  {
+    "name": "forms-publish-error-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-publish-error-375.png",
+    "sha256": "c01f30041c2cd66eebd77e7839f48f888b2ab799c396294b9e992d9cb83dda37",
+    "bytes": 166854
+  },
+  {
+    "name": "forms-publish-retry-success-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-publish-retry-success-375.png",
+    "sha256": "1a4afbb5b6d62bd43394455c400fec3e1e51554477d74b82ed4a2c9d7727fd86",
+    "bytes": 38460
+  },
+  {
+    "name": "forms-toolbar-undo-redo.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-toolbar-undo-redo.png",
+    "sha256": "e5b0d538efdb99a8b4099eae5656ea11f48fc43b49145163b0ea01a34823e0d8",
+    "bytes": 183593
+  },
+  {
+    "name": "forms-two-user-conflict.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/forms-two-user-conflict.png",
+    "sha256": "ddcd9532c5fbce6dcb21105f152afc731ddc23c4a062efb5fe85a655b20b9cdd",
+    "bytes": 254174
+  },
+  {
+    "name": "warranty-core_return-en-1280-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-core_return-en-1280-sticky.png",
+    "sha256": "820d5f9b64babc6dfe27e04e87fae24827e1cd1cd160f8918b8ba8953322f275",
+    "bytes": 177074
+  },
+  {
+    "name": "warranty-core_return-pl-375-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-core_return-pl-375-sticky.png",
+    "sha256": "7a7d5e8815aaa6c6b2d3aef7d987834026fed44373d02403a398bb61f21cbf0b",
+    "bytes": 133205
+  },
+  {
+    "name": "warranty-draft-sticky-occlusion.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-draft-sticky-occlusion.png",
+    "sha256": "6e6a94f50c60c2a51a415ffad1f44963f14fe5f500cfee7cac8e74bdc1b913f6",
+    "bytes": 170549
+  },
+  {
+    "name": "warranty-empty.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-empty.png",
+    "sha256": "42e4e89c3c6252359481149dfc4da2748a9aa96830be81c0d566d4afc8670a56",
+    "bytes": 110158
+  },
+  {
+    "name": "warranty-en-approved-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-en-approved-sticky.png",
+    "sha256": "eb6a63c119b311e7f6562b8e474e9ac172eed25aedb7c2792fbf5505efdd8fc3",
+    "bytes": 185468
+  },
+  {
+    "name": "warranty-en-draft-scroll.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-en-draft-scroll.png",
+    "sha256": "83199383e3a86eb3b16ac5bcae6862f9ccf4735cf8eabb1d932ef148ee3bab8a",
+    "bytes": 170207
+  },
+  {
+    "name": "warranty-en-draft.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-en-draft.png",
+    "sha256": "f300ff00893ef99e086390769de7f04aaf8259aa2582e05f330f0c49fd2ec4ae",
+    "bytes": 114383
+  },
+  {
+    "name": "warranty-en-resolved-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-en-resolved-sticky.png",
+    "sha256": "2e9f131b9ff6871c2eded767bdea604dffbac811de4699074e6f02d349e797ca",
+    "bytes": 172686
+  },
+  {
+    "name": "warranty-en-submitted.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-en-submitted.png",
+    "sha256": "e4761c1f0d6b678db1e6ee41ecb776871d0e61ec1e84b5f22437c29f5d1d3cd8",
+    "bytes": 173272
+  },
+  {
+    "name": "warranty-load-error.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-load-error.png",
+    "sha256": "89638d4c387753e4d54eb09a55189079c7f1dde2f2e97c720951748c3810d146",
+    "bytes": 21954
+  },
+  {
+    "name": "warranty-no-permission-375.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-no-permission-375.png",
+    "sha256": "610e1840db7f21725fcfd6723cc7671d27430dd09310138ea3b6143af274dbb6",
+    "bytes": 19753
+  },
+  {
+    "name": "warranty-pl-approved-375-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-pl-approved-375-sticky.png",
+    "sha256": "61957320ce070aa30cdd61fe319163dbd8b5b9092920f26c857998c220684876",
+    "bytes": 147814
+  },
+  {
+    "name": "warranty-pl-comma-amounts.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-pl-comma-amounts.png",
+    "sha256": "4d29f4aab26534fcb58d4e3271e4b632a75f916af4a438a48bf555fbe4a72be0",
+    "bytes": 157213
+  },
+  {
+    "name": "warranty-pl-resolved-375-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-pl-resolved-375-sticky.png",
+    "sha256": "9801c7191ab05f931c18fe7636613b8ac767e602fde69262a6b19b945bbdabdc",
+    "bytes": 132343
+  },
+  {
+    "name": "warranty-return-en-1280-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-return-en-1280-sticky.png",
+    "sha256": "b6c39785fb5a2479494f8435fa83b50acead348851e9a7a11f26c82f50559e7f",
+    "bytes": 173216
+  },
+  {
+    "name": "warranty-return-pl-375-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-return-pl-375-sticky.png",
+    "sha256": "0da129d94aa8b0beae6e611c5cde71d831ad5c1f4b137c525b240b2d5fad4e60",
+    "bytes": 131184
+  },
+  {
+    "name": "warranty-two-user-conflict.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-two-user-conflict.png",
+    "sha256": "5a19ca552b4b1c5c1425b0067305b291e7dcf07d9a7d7d7e03c2842da7467424",
+    "bytes": 97560
+  },
+  {
+    "name": "warranty-vendor_recovery-en-1280-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-vendor_recovery-en-1280-sticky.png",
+    "sha256": "88bf12b413f0de7ab57a0f1e9c0ee05a3d08e125910ea85c90861f4a02c6682f",
+    "bytes": 166916
+  },
+  {
+    "name": "warranty-vendor_recovery-pl-375-sticky.png",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/warranty-vendor_recovery-pl-375-sticky.png",
+    "sha256": "ce3a0a4edf8fb5efd1f821cba2ae4476f7ddbb5927b72859ce7524223725fc3d",
+    "bytes": 128274
+  },
+  {
+    "name": "report.json",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/report.json",
+    "sha256": "d16e022b7cd070c70a768c38bf89f663b913168409c2522e06e4428c3b487863",
+    "bytes": 31950
+  },
+  {
+    "name": "report.md",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/report.md",
+    "sha256": "520833d4cc49acf5607a50e3e2567a98340c18761318da7c2439ef3b9d69e06b",
+    "bytes": 20965
+  },
+  {
+    "name": "image-manifest.json",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/image-manifest.json",
+    "sha256": "b5e687def0ac68f05b21c6a6a67712be08e86bfb9706d2eb9bf0fdbd6c4b25aa",
+    "bytes": 6442
+  },
+  {
+    "name": "native-results.json",
+    "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-8983-7381c648/pr-8983-7381c648/native-results.json",
+    "sha256": "4a0f4f7b1214a9c185318007dcce9d93cba94f42c9ac0ae71fa3db4d6f34cc70",
+    "bytes": 58077
+  }
+]
