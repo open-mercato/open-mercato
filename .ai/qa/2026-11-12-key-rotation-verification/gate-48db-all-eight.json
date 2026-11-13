@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "48db5f3af0d09d5e8353116796b02b5b52f7b45b",
+  "bundleSha256": "799c0be42ec3ed9faa6840bb3b66941578ff28e85079d3bb022b27134d2522e5",
+  "recordedUtc": "2026-11-13T10:16:42.069457+00:00",
+  "runner": "local Node24.22.2; exact configured command order; unmeasured window",
+  "commands": [
+    {
+      "step": 1,
+      "command": "yarn build:packages",
+      "status": "passed",
+      "log": "/tmp/om-9334-gate-48db-1.log"
+    },
+    {
+      "step": 2,
+      "command": "yarn generate",
+      "status": "passed",
+      "log": "/tmp/om-9334-gate-48db-2.log"
+    },
+    {
+      "step": 3,
+      "command": "yarn build:packages",
+      "status": "passed",
+      "log": "/tmp/om-9334-gate-48db-3.log"
+    },
+    {
+      "step": 4,
+      "command": "yarn i18n:check-sync",
+      "status": "passed",
+      "log": "/tmp/om-9334-gate-48db-4.log"
+    },
+    {
+      "step": 5,
+      "command": "yarn i18n:check-usage",
+      "status": "passed",
+      "log": "/tmp/om-9334-gate-48db-5.log"
+    },
+    {
+      "step": 6,
+      "command": "yarn typecheck",
+      "status": "passed",
+      "log": "/tmp/om-9334-gate-48db-6.log"
+    },
+    {
+      "step": 7,
+      "command": "yarn test",
+      "status": "passed",
+      "log": "/tmp/om-9334-gate-48db-7.log"
+    },
+    {
+      "step": 8,
+      "command": "yarn build:app",
+      "status": "passed",
+      "log": "/tmp/om-9334-gate-48db-8.log"
+    }
+  ],
+  "allEightPassed": true,
+  "fullTest": {
+    "tasksPassed": 51,
+    "tasksTotal": 51,
+    "elapsed": "5m27.947s",
+    "assertionsOrFixturesWeakened": false
+  },
+  "appBuildElapsed": "21.836s",
+  "targetedIntegration": {
+    "nativeDatasetAndLocalCancellation": "71/71PASS67.567s",
+    "canonicalVerifierCoordinator": "73/73PASS6.769s",
+    "coordinatorDetectOpenHandles": "26/26PASS4.783s",
+    "crashAndJournalDetectOpenHandles": "44/44PASS16.627s",
+    "sharedParser": "20/20PASS0.251s",
+    "strictTypeScriptInclusive": "passed",
+    "actualCoreCli": "3/3PASS7.711s"
+  },
+  "reviews": "Parent and independent canonical_sync source/design review passed; no blockers/major findings",
+  "scope": "Actual Core CLI functional proof uses the application-container factory boundary with production DI/ORM/engines. Standalone benchmark resource proof does not establish whole-application bootstrap RSS.",
+  "historicalPerformance": "Prior-source f89 small cases passed; f89 large data/throughput/RSS passed but total overhead failed by4962.570ms. All records retained; these do not replace new-source measurements.",
+  "releaseAcceptance": false,
+  "remaining": "Fresh consistent48db1/20GiB warm/cold and near-limit-row matrix, concluding review/report."
+}
