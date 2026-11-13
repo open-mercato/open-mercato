@@ -8,6 +8,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { exchangeRateCreateSchema, exchangeRateUpdateSchema } from '../../data/validators'
 import {
   createCurrenciesCrudOpenApi,
@@ -151,12 +153,19 @@ export async function GET(req: Request) {
   const em = container.resolve('em') as EntityManager
 
   const { id, page, pageSize, sortField, sortDir, fromCurrencyCode, toCurrencyCode, isActive, source, type } = parsed.data
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const { organizationIds } = resolveOrganizationScopeFilter(scope, auth)
+  if (organizationIds && organizationIds.length === 0) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
+  }
   const where: FilterQuery<ExchangeRate> = {
     tenantId: auth.tenantId,
     deletedAt: null,
   }
-  if (auth.orgId) {
-    where.organizationId = auth.orgId
+  if (organizationIds && organizationIds.length === 1) {
+    where.organizationId = organizationIds[0]
+  } else if (organizationIds && organizationIds.length > 1) {
+    where.organizationId = { $in: organizationIds }
   }
 
   if (id) where.id = id

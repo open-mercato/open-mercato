@@ -2,14 +2,21 @@
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '22222222-2222-4222-8222-222222222222'
+const otherOrgId = '33333333-3333-4333-8333-333333333333'
 
 const em = {
   findAndCount: jest.fn(),
-} as { findAndCount: jest.Mock }
+  find: jest.fn(),
+} as { findAndCount: jest.Mock; find: jest.Mock }
+
+const rbac = {
+  loadAcl: jest.fn(),
+}
 
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
+    if (name === 'rbacService') return rbac
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -47,6 +54,11 @@ const makeRate = (i: number) => ({
 describe('GET /api/currencies/exchange-rates pagination', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    em.find.mockImplementation(async (_entity: unknown, filter: { id?: { $in?: string[] } }) => {
+      const ids = Array.isArray(filter?.id?.$in) ? filter.id.$in : []
+      return ids.map((id) => ({ id, descendantIds: [] }))
+    })
+    rbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, organizations: [orgId, otherOrgId] })
   })
 
   it('pushes limit and offset to findAndCount instead of slicing in memory', async () => {
@@ -94,6 +106,18 @@ describe('GET /api/currencies/exchange-rates pagination', () => {
     )
     const body = (await res.json()) as { items: { id: string }[] }
     expect(body.items.map((it) => it.id)).toEqual(rates.map((r) => r.id))
+  })
+
+  it('scopes the read to the organization selected through the om_selected_org cookie', async () => {
+    em.findAndCount.mockResolvedValue([[], 0])
+    await GET(
+      new Request('http://localhost/api/currencies/exchange-rates?page=1&pageSize=50', {
+        headers: { cookie: `om_selected_org=${otherOrgId}` },
+      }),
+    )
+    expect(em.findAndCount.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ organizationId: otherOrgId }),
+    )
   })
 
   it('filters and serializes average-rate provenance', async () => {
