@@ -1,0 +1,45 @@
+{
+  "at": "2026-11-13T14:38:28.289Z",
+  "owner": {
+    "pid": 3719069,
+    "startTicks": "49748933",
+    "startedAt": "2026-11-13T14:24:35.105Z",
+    "head": "3041b04654766bb0e5696c4c13e82b781bdcdf2e",
+    "root": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worker-worktrees/a8d3ec49/pr-8983",
+    "pgid": 3719069
+  },
+  "processes": [
+    {
+      "pid": 3719069,
+      "startTicks": "49748933"
+    },
+    {
+      "pid": 3719103,
+      "startTicks": "49748989"
+    },
+    {
+      "pid": 3722847,
+      "startTicks": "49773678"
+    },
+    {
+      "pid": 3722860,
+      "startTicks": "49773736"
+    },
+    {
+      "pid": 3722872,
+      "startTicks": "49773792"
+    },
+    {
+      "pid": 3723283,
+      "startTicks": "49774420"
+    },
+    {
+      "pid": 3723290,
+      "startTicks": "49774424"
+    }
+  ],
+  "allRecordedStopped": true,
+  "ownedDatabaseContainersRemoved": [
+    "a71bdfe9a9cb"
+  ]
+}
