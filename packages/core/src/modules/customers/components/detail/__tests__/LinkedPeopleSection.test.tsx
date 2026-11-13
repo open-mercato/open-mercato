@@ -120,4 +120,79 @@ describe('LinkedPeopleSection', () => {
       await waitFor(() => expect(requestedSorts(loadPage)).toContain('name-desc'))
     })
   })
+
+  describe('recency sort in a container too narrow for the Linked column', () => {
+    const measuredWidth = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    const scrollIntoView = Element.prototype.scrollIntoView
+
+    function measureContainerAs(width: number) {
+      measuredWidth.mockImplementation(() => ({
+        width,
+        height: 0,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: 0,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }))
+    }
+
+    beforeAll(() => {
+      Element.prototype.scrollIntoView = jest.fn()
+    })
+
+    afterEach(() => {
+      measuredWidth.mockReset()
+    })
+
+    afterAll(() => {
+      measuredWidth.mockRestore()
+      Element.prototype.scrollIntoView = scrollIntoView
+    })
+
+    it('offers a compact sort control that can request the recent order at phone width', async () => {
+      measureContainerAs(390)
+      const loadPage = trackedLoadPage()
+      renderSection({ loadPage: loadPage as LinkedPeopleSectionProps['loadPage'] })
+      await screen.findByText('Avery Stone')
+
+      expect(screen.queryByRole('columnheader', { name: /^Linked/ })).toBeNull()
+      const sortControl = screen.getByRole('combobox', { name: 'Sort order' })
+      fireEvent.keyDown(sortControl, { key: 'Enter' })
+      fireEvent.click(await screen.findByRole('option', { name: 'Sort: Recently linked' }))
+
+      await waitFor(() => expect(requestedSorts(loadPage).at(-1)).toBe('recent'))
+      expect(loadPage).toHaveBeenLastCalledWith(expect.objectContaining({ sort: 'recent', page: 1 }))
+    })
+
+    it('lists only the sort modes the host allows', async () => {
+      measureContainerAs(390)
+      renderSection({ availableSorts: ['name-asc', 'recent'] })
+      await screen.findByText('Avery Stone')
+
+      fireEvent.keyDown(screen.getByRole('combobox', { name: 'Sort order' }), { key: 'Enter' })
+
+      const options = (await screen.findAllByRole('option')).map((option) => option.textContent)
+      expect(options).toEqual(['Sort: Name A-Z', 'Sort: Recently linked'])
+    })
+
+    it('keeps the sort in the Linked header, with no extra control, once the column fits', async () => {
+      measureContainerAs(640)
+      renderSection()
+      await screen.findByText('Avery Stone')
+
+      expect(columnHeader('Linked')).toBeInTheDocument()
+      expect(screen.queryByRole('combobox', { name: 'Sort order' })).toBeNull()
+    })
+
+    it('offers no compact control to a host that does not allow the recent order', async () => {
+      measureContainerAs(390)
+      renderSection({ availableSorts: ['name-asc', 'name-desc'], showLinkedDate: false })
+      await screen.findByText('Avery Stone')
+
+      expect(screen.queryByRole('combobox', { name: 'Sort order' })).toBeNull()
+    })
+  })
 })

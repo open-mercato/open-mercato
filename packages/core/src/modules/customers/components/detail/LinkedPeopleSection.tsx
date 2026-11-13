@@ -9,6 +9,7 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import {
   readVersionedIdSet,
   writeVersionedIdSet,
@@ -148,6 +149,12 @@ const PHONE_COLUMN_WIDTH_PX = 144
 const LIFECYCLE_COLUMN_WIDTH_PX = 128
 const SOURCE_COLUMN_WIDTH_PX = 160
 const LINKED_COLUMN_WIDTH_PX = 112
+
+const SORT_LABELS: Record<LinkedPeopleSortMode, { key: string; fallback: string }> = {
+  'name-asc': { key: 'customers.linkedPeople.sortNameAsc', fallback: 'Sort: Name A-Z' },
+  'name-desc': { key: 'customers.linkedPeople.sortNameDesc', fallback: 'Sort: Name Z-A' },
+  recent: { key: 'customers.linkedPeople.sortRecent', fallback: 'Sort: Recently linked' },
+}
 
 function toSortMode(sorting: SortingState, fallback: LinkedPeopleSortMode): LinkedPeopleSortMode {
   const [primary] = sorting
@@ -391,6 +398,20 @@ export function LinkedPeopleSection<
     [defaultSortMode, sortOptions],
   )
 
+  // The Linked header is the only place the table offers the recency sort. Once the column
+  // collapses out of a narrow container the choice moves to a compact control, so a phone
+  // width still reaches every mode the host allows.
+  const linkedColumnVisible = showLinkedDate
+    && (containerBreakpoint === null || containerBreakpoint >= EMAIL_LINKED_MIN_CONTAINER_PX)
+  const showCompactSort = recentSortable && !linkedColumnVisible
+  const handleCompactSortChange = React.useCallback(
+    (value: string) => {
+      const requested = sortOptions.find((option) => option === value)
+      if (requested) setSorting(toSortingState(requested))
+    },
+    [sortOptions],
+  )
+
   const columns = React.useMemo<ColumnDef<LinkedPersonSummary>[]>(() => {
     const fits = (minContainerWidth: number) =>
       containerBreakpoint === null || containerBreakpoint >= minContainerWidth
@@ -398,7 +419,7 @@ export function LinkedPeopleSection<
     const showPhone = fits(PHONE_MIN_CONTAINER_PX)
     const showLifecycle = fits(LIFECYCLE_MIN_CONTAINER_PX)
     const showSource = fits(SOURCE_MIN_CONTAINER_PX)
-    const showLinked = showLinkedDate && fits(EMAIL_LINKED_MIN_CONTAINER_PX)
+    const showLinked = linkedColumnVisible
     const emailWidth = fits(PHONE_MIN_CONTAINER_PX) ? EMAIL_COLUMN_WIDE_WIDTH_PX : EMAIL_COLUMN_WIDTH_PX
     const reservedWidth = ACTIONS_COLUMN_WIDTH_PX + CELL_PADDING_PX
       + (showEmail ? emailWidth : 0)
@@ -470,7 +491,7 @@ export function LinkedPeopleSection<
       ...(showSource ? [sourceColumn] : []),
       ...(showLinked ? [linkedColumn] : []),
     ]
-  }, [containerBreakpoint, nameSortable, recentSortable, showLinkedDate, translate])
+  }, [containerBreakpoint, linkedColumnVisible, nameSortable, recentSortable, translate])
 
   const linkAction = (
     <Button
@@ -544,6 +565,24 @@ export function LinkedPeopleSection<
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                {showCompactSort ? (
+                  <Select value={sortMode} onValueChange={handleCompactSortChange}>
+                    <SelectTrigger
+                      size="sm"
+                      aria-label={translate('customers.linkedPeople.sortLabel', 'Sort order')}
+                      className="w-auto"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sortOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {translate(SORT_LABELS[option].key, SORT_LABELS[option].fallback)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
                 {linkAction}
                 {addPersonAction}
               </div>
