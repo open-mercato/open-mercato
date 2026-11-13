@@ -236,6 +236,26 @@ describe('syncAgentPrincipals', () => {
     expect(mockEmit).toHaveBeenCalledTimes(1)
   })
 
+  it('leaves other agents principals enabled on a single-agent sync', async () => {
+    const container = createContainer(em)
+    await syncAgentPrincipals(container, SCOPE, {
+      agents: [
+        agent('customers.deal_checker', { roleFeatures: ['customers.deals.view'] }),
+        agent('customers.people_checker', { roleFeatures: ['customers.people.view'] }),
+      ],
+      featureCatalog: CATALOG,
+    })
+
+    const single = await syncAgentPrincipals(container, SCOPE, {
+      agents: [agent('customers.deal_checker', { roleFeatures: ['customers.deals.view'] })],
+      featureCatalog: CATALOG,
+      disableUndeclared: false,
+    })
+    expect(single.disabled).toEqual([])
+    expect(single.synced).toEqual(['customers.deal_checker'])
+    expect(em.rows(AgentPrincipal).every((row) => row.enabled)).toBe(true)
+  })
+
   it('reuses an existing live principal created outside the declaration without touching its ACL', async () => {
     const externalRole = em.ensureRole('agent:customers.deal_checker', 'tenant-A')
     em.rows(AgentPrincipal).push({

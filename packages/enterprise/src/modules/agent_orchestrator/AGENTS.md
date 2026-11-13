@@ -322,6 +322,7 @@ agents/<agent_id>/
 | `/executions`, `/executions/:id` | GET | `processes.view` | The ONE business-execution surface: derived status, milestones reached, proposals, outcome |
 | `/identity/well-known`, `/identity/token`, `/identity/agent/auth` | GET/POST | public / no-user-auth | OAuth discovery, client-credentials, ID-JAG |
 | `/identity/grants/:id/revoke` | POST | `identity.manage` | Revoke a delegation grant |
+| `/agents/:id/principal/sync` | POST | `identity.manage` | Sync ONE agent's declared principal in the selected organization (never disables other agents' principals) |
 
 Every route file MUST export `openApi`. Custom write routes MUST wire the mutation-guard contract.
 

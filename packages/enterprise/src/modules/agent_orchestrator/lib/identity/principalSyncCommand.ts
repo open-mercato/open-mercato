@@ -109,6 +109,35 @@ export async function runPrincipalSync(
   return { outcomes, totals }
 }
 
+export type AgentPrincipalSyncOutcome = 'created' | 'synced' | 'reused'
+
+export type SingleAgentPrincipalSyncResult = {
+  outcome: AgentPrincipalSyncOutcome
+  droppedFeatures: string[]
+}
+
+/**
+ * Reconciles ONE declaring agent's principal in one organization (the agent
+ * detail "Sync principal" action). Other agents' principals are left untouched,
+ * so it never disables an undeclared principal the way a full sync does.
+ */
+export async function syncSingleAgentPrincipal(
+  sync: PrincipalSyncDeps['sync'],
+  scope: AgentPrincipalScope,
+  agent: NonNullable<SyncAgentPrincipalsOptions['agents']>[number],
+): Promise<SingleAgentPrincipalSyncResult> {
+  if (!agent.principal) {
+    throw new Error('[internal] agent declares no principal')
+  }
+  const result = await sync(scope, { agents: [agent], disableUndeclared: false })
+  const outcome: AgentPrincipalSyncOutcome = result.created.includes(agent.id)
+    ? 'created'
+    : result.reused.includes(agent.id)
+      ? 'reused'
+      : 'synced'
+  return { outcome, droppedFeatures: result.droppedFeatures[agent.id] ?? [] }
+}
+
 function formatIds(ids: readonly string[]): string {
   return ids.length > 0 ? ids.join(', ') : '-'
 }

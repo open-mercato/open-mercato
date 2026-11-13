@@ -8,7 +8,7 @@ import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { formatNumber, type AgentDetailView, type SkillDetailView } from '../../../../components/types'
+import { formatNumber, type AgentDetailView, type AgentPrincipalView, type SkillDetailView } from '../../../../components/types'
 import { TokenUsageCard } from './workspacePrimitives'
 import { AgentAccessSection } from './AgentAccessSection'
 import { guardrailKindLabelKey } from '../../../../components/guardrailEvidence'
@@ -18,9 +18,10 @@ type ConfigurationTabProps = {
   agent: AgentDetailView
   runtimeTokens: RuntimeTokenUsage | null
   onSkillClick: (skill: SkillDetailView) => void
+  onPrincipalChange?: (principal: AgentPrincipalView | null) => void
 }
 
-export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: ConfigurationTabProps) {
+export function ConfigurationTab({ agent, runtimeTokens, onSkillClick, onPrincipalChange }: ConfigurationTabProps) {
   const t = useT()
   const locale = useLocale()
   const defaultValue = t('agent_orchestrator.agentDetail.defaultValue', 'Default')
@@ -147,7 +148,7 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
           </section>
         ) : null}
 
-        <AgentAccessSection principal={agent.principal} />
+        <AgentAccessSection principal={agent.principal} agentId={agent.id} onPrincipalChange={onPrincipalChange} />
 
         <section className="space-y-2">
           <SectionHeader title={t('agent_orchestrator.agentDetail.tokens.runtimeTitle', 'Token usage')} />

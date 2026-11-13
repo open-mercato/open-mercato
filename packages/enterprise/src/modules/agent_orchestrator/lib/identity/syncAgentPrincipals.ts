@@ -23,6 +23,11 @@ export type SyncAgentPrincipalsOptions = {
   agents?: readonly AgentRegistryEntry[]
   /** Concrete feature ids a principal may hold; defaults to the bootstrapped module ACL catalog. */
   featureCatalog?: Iterable<string> | null
+  /**
+   * Disable declaratively named principals of agents outside `agents` (default
+   * true). A single-agent sync passes false so other agents stay untouched.
+   */
+  disableUndeclared?: boolean
 }
 
 export type SyncAgentPrincipalsResult = {
@@ -212,6 +217,11 @@ export async function syncAgentPrincipals(
     result.created.push(agent.id)
   }
 
+  if (options.disableUndeclared === false) {
+    await emitRegisteredPrincipals(registered, scope)
+    return result
+  }
+
   const live = await findWithDecryption(
     em,
     AgentPrincipal,
@@ -233,6 +243,14 @@ export async function syncAgentPrincipals(
     await em.flush()
   }
 
+  await emitRegisteredPrincipals(registered, scope)
+  return result
+}
+
+async function emitRegisteredPrincipals(
+  registered: readonly AgentPrincipal[],
+  scope: AgentPrincipalScope,
+): Promise<void> {
   for (const principal of registered) {
     await emitAgentOrchestratorEvent(
       'agent_orchestrator.agent_principal.registered',
@@ -240,12 +258,10 @@ export async function syncAgentPrincipals(
         agentPrincipalId: principal.id,
         agentDefinitionId: principal.agentDefinitionId,
         source: 'declaration',
-        tenantId,
-        organizationId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
       },
       { persistent: true },
     )
   }
-
-  return result
 }
