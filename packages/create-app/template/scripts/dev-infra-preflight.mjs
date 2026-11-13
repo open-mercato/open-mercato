@@ -6,6 +6,8 @@
 // `packages/starter` directory exists.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import path from 'node:path'
+import { parseEnv } from 'node:util'
 import net from 'node:net'
 import readline from 'node:readline'
 
@@ -243,7 +245,7 @@ export async function requestExistingServicesConsent(problem, {
   for (const entry of problem.ports ?? problem.services ?? []) {
     const identity = colors.service(entry.containerName || entry.service)
     const state = diagnosticText(entry.state || 'unknown')
-    log(`   ⚠️  ${identity}${entry.port ? ` on port ${colors.port(entry.port)}` : ''}: ${state}${entry.health ? ` (${diagnosticText(entry.health)})` : ''}`)
+    log(`   ❗ ${identity}${entry.port ? ` on port ${colors.port(entry.port)}` : ''}: ${state}${entry.health ? ` (${diagnosticText(entry.health)})` : ''}`)
     log(`       ${listenerSummary(entry, colors)}`)
     if (entry.containerName && (state === 'restarting' || entry.health === 'unhealthy')) log(`       Inspect the restart/health failure: ${colors.command(`docker logs ${diagnosticText(entry.containerName)}`)}`)
   }
@@ -265,7 +267,7 @@ export async function requestExistingServicesConsent(problem, {
     const answer = await (question ? question(prompt) : new Promise((resolve) => reader.question(prompt, resolve)))
     if (!/^(y|yes)$/i.test(String(answer).trim())) return false
     log('')
-    log('   ⚠️  Continuing with the services configured in .env.')
+    log('   ❗ Continuing with the services configured in .env.')
     if (configuredServices) {
       log('       Configured services will not be started, stopped or reconfigured.')
     } else {
@@ -321,6 +323,12 @@ function remediationFor(problem, platform, { wsl = false, databaseUrlFile = '.en
       return [
         'Your user may not talk to the Docker engine. Add it to the docker group (sudo usermod -aG docker "$USER"), log out and back in, then re-run.',
       ]
+    case 'unsafe-binding':
+      return [
+        problem.detail,
+        'Set INFRA_BIND_HOST=127.0.0.1, or set a nonempty REDIS_PASSWORD before exposing infrastructure beyond this machine.',
+        'Keep the Redis password synchronized with REDIS_URL and every *_REDIS_URL used by the app.',
+      ]
     case 'port-conflict':
       return [
         ...problem.ports.flatMap((entry) => [
@@ -365,6 +373,7 @@ const PROBLEM_TITLES = {
   'daemon-unresponsive': 'The Docker engine is not responding.',
   'daemon-permission': 'No permission to use the Docker engine.',
   'port-conflict': 'Infrastructure ports are already in use.',
+  'unsafe-binding': 'Refusing an unsafe infrastructure host binding.',
   unhealthy: 'Infrastructure services did not become healthy.',
   'compose-failed': 'Starting the infrastructure containers failed.',
 }
@@ -422,6 +431,7 @@ export async function startInfraServices({
   services,
   upArgs = [],
   cwd,
+  env = process.env,
   beforeUp,
   detect = detectDockerRuntime,
   spawnSyncImpl = spawnSync,
@@ -432,6 +442,22 @@ export async function startInfraServices({
   protectExistingServices = false,
   log = console.log,
 }) {
+  if (services.some((entry) => entry.service === 'redis')) {
+    let settings
+    try {
+      let dotEnv = {}
+      try { dotEnv = parseEnv(fs.readFileSync(path.join(cwd ?? process.cwd(), '.env'), 'utf8')) }
+      catch (error) { if (error.code !== 'ENOENT') throw error }
+      settings = { ...dotEnv, ...env }
+    } catch {
+      return { ok: false, problem: { code: 'unsafe-binding', detail: 'Cannot read infrastructure configuration before checking Redis exposure.' } }
+    }
+    const host = String(settings.INFRA_BIND_HOST ?? '').trim().toLowerCase().replace(/^\[|\]$/g, '') || '127.0.0.1'
+    const loopback = host === 'localhost' || host === '::1' || (net.isIP(host) === 4 && host.split('.')[0] === '127')
+    if (!loopback && !String(settings.REDIS_PASSWORD ?? '').trim()) {
+      return { ok: false, problem: { code: 'unsafe-binding', detail: 'Redis would be reachable beyond loopback without a configured password. No Docker command was run.' } }
+    }
+  }
   const runtime = detect()
   if (!runtime.ok) return { ok: false, problem: { code: runtime.code, detail: runtime.detail } }
 
@@ -483,4 +509,90 @@ export async function startInfraServices({
     return { ok: false, problem: { code: 'unhealthy', services: unhealthy, logsCommand } }
   }
   return { ok: false, problem: { code: 'compose-failed' } }
+}
+
+const LOOPBACK_DATABASE_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+
+export function listComposeContainerNames({ composeArgs = (extra) => ['compose', ...extra], cwd, spawnSyncImpl = spawnSync } = {}) {
+  const ps = spawnSyncImpl('docker', composeArgs(['ps', '--all', '--format', 'json']), { cwd, encoding: 'utf8', timeout: INFRA_PROBE_TIMEOUT_MS, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+  if (ps?.error || (ps?.status ?? 1) !== 0) return null
+  return new Set(parseComposePsOutput(ps.stdout).map((entry) => String(entry?.Name ?? '').replace(/^\//, '')).filter(Boolean))
+}
+
+function databaseEndpoint(raw) {
+  if (!String(raw ?? '').trim()) return null
+  try {
+    const url = new URL(raw)
+    const port = Number.parseInt(url.port || '5432', 10)
+    return { host: url.hostname.toLowerCase(), port }
+  } catch {
+    return null
+  }
+}
+
+// Default service choice when `yarn setup` gets no service flag:
+//   configured services answer + verify (and are not another project's
+//   containers)                         -> reuse   (same as --no-infra)
+//   nothing answers, Docker usable      -> compose (same as --infra)
+//   ports held by something unusable    -> random  (same as --random-ports)
+//   Docker unusable, nothing usable     -> mode null + problem (stop)
+// Never writes anything; `verifyConnections` is injected because it needs
+// the project's database drivers.
+export async function selectDefaultServiceMode({
+  databaseUrl,
+  services,
+  verifyConnections,
+  composeArgs,
+  cwd,
+  detect = detectDockerRuntime,
+  portProbe = probeTcpPort,
+  containerProbe = findContainerPortOwners,
+  listOwnContainers = () => listComposeContainerNames({ composeArgs, cwd }),
+} = {}) {
+  const database = databaseEndpoint(databaseUrl)
+  if (database && !LOOPBACK_DATABASE_HOSTS.has(database.host)) {
+    return { mode: 'reuse', reason: `DATABASE_URL points at ${database.host}; using the services configured in .env.` }
+  }
+  const postgresPort = database?.port ?? services.find((entry) => entry.service === 'postgres')?.port ?? 5432
+  const candidates = [{ service: 'postgres', port: postgresPort }, ...services.filter((entry) => !(entry.service === 'postgres' && entry.port === postgresPort))]
+  const answering = []
+  for (const entry of candidates) {
+    if (await portProbe(entry.port)) answering.push(entry)
+  }
+  const runtime = detect()
+  const dockerProblem = runtime.ok ? null : { code: runtime.code, detail: runtime.detail }
+  const portList = candidates.map((entry) => `${entry.service} :${entry.port}`).join(', ')
+  if (answering.length === 0) {
+    if (runtime.ok) return { mode: 'compose', reason: `Nothing answers on the configured ports (${portList}); starting this app's Docker Compose services on them.` }
+    return { mode: null, problem: dockerProblem, reason: `Nothing answers on the configured service ports (${portList}) and Docker is not available.` }
+  }
+  let ownOnly = false
+  if (runtime.ok) {
+    const own = listOwnContainers()
+    const owners = containerProbe(answering)
+    const foreign = owners.filter((owner) => !own?.has(owner.containerName))
+    if (foreign.length > 0) {
+      const [first] = foreign
+      return { mode: 'random', reason: `Port ${first.port} (${first.service}) belongs to container ${first.containerName || 'unknown'} of another project; starting an isolated stack on free ports so its data is never touched.` }
+    }
+    ownOnly = Boolean(own) && answering.every((entry) => owners.some((owner) => owner.port === entry.port && own.has(owner.containerName)))
+  }
+  let failure = null
+  if (answering.some((entry) => entry.port === postgresPort)) {
+    try {
+      await verifyConnections()
+      return { mode: 'reuse', reason: runtime.ok
+        ? 'The services configured in .env answer and their credentials verified; reusing them.'
+        : `Docker is not available (${runtime.detail ?? runtime.code}), but the services configured in .env answer and their credentials verified; using them (same as --no-infra).` }
+    } catch (error) {
+      if (error?.kind === 'dependency') return { mode: 'reuse', deferredVerification: true, reason: 'The services configured in .env answer; their credentials are verified once dependencies are installed.' }
+      failure = error
+    }
+  }
+  const why = failure
+    ? `the service on the configured ports did not accept the configured settings (${String(failure.message ?? failure).replace(/^\[setup\]\s*/, '')})`
+    : `port ${answering[0].port} (${answering[0].service}) is in use while PostgreSQL does not answer at :${postgresPort}`
+  if (!runtime.ok) return { mode: null, problem: dockerProblem, reason: `Configured services are not usable: ${why}.` }
+  if (ownOnly) return { mode: 'compose', reason: `This app's Docker Compose services hold the configured ports but are not usable yet; re-running them on the configured ports.` }
+  return { mode: 'random', reason: `Configured ports are occupied: ${why}. Starting an isolated stack on free ports instead.` }
 }

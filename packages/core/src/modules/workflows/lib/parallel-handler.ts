@@ -21,6 +21,8 @@
 
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
@@ -37,8 +39,11 @@ import {
 } from './async-activity-wait'
 import * as stepHandler from './step-handler'
 import { branchToken, mergeTokenContext, type ExecutionToken } from './execution-token'
-import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
+import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry, resolveStepFailureHandling } from './error-routing'
+import { findDefinitionForInstance } from './find-definition'
 import { isSafeMappingTargetPath, safeGetNestedValue } from './safe-mapping-path'
+
+const logger = createLogger('workflows')
 
 export interface AdvanceBranchesResult {
   outcome: 'joined' | 'waiting' | 'failed'
@@ -272,17 +277,70 @@ export async function resumeBranchAfterActivities(
     if (instance) {
       branch.currentStepId = pending.toStepId
       await em.flush()
-      await stepHandler.executeStep(
+      const evalContext = {
+        workflowContext: { ...(instance.context || {}), ...(branch.contextNamespace || {}) },
+        userId: normalizeWorkflowUserId(instance.metadata?.initiatedBy) ?? undefined,
+      }
+      const stepResult = await stepHandler.executeStep(
         em,
         instance,
         pending.toStepId,
-        {
-          workflowContext: { ...(instance.context || {}), ...(branch.contextNamespace || {}) },
-          userId: normalizeWorkflowUserId(instance.metadata?.initiatedBy) ?? undefined,
-        },
+        evalContext,
         container,
         branch,
       )
+      if (stepResult.status === 'FAILED') {
+        const token = branchToken(instance, branch)
+        const definition = await findDefinitionForInstance(em, instance)
+        const handling = resolveStepFailureHandling(definition?.definition, pending.toStepId)
+        if (handling.kind === 'continue') {
+          await logWorkflowEvent(em, {
+            workflowInstanceId: instance.id,
+            branchInstanceId: branch.id,
+            eventType: 'ERROR_DIRECTIVE_APPLIED',
+            eventData: {
+              stepId: pending.toStepId,
+              directive: 'continueWithFallback',
+              error: stepResult.error,
+              hasFallbackValue: handling.fallbackValue !== undefined,
+            },
+            userId: evalContext.userId,
+            tenantId: instance.tenantId,
+            organizationId: instance.organizationId,
+          })
+          if (handling.fallbackValue !== undefined) {
+            mergeTokenContext(token, { [pending.toStepId]: handling.fallbackValue })
+            await em.flush()
+          }
+        } else {
+          const error = stepResult.error || 'Step execution failed'
+          try {
+            const routed = await followBranchErrorRoute(em, container, instance, branch, token, {
+              failedStepId: pending.toStepId,
+              error,
+              errorRoute: handling.kind === 'route' && handling.transition.toStepId
+                ? { transitionId: handling.transition.transitionId, toStepId: handling.transition.toStepId }
+                : undefined,
+            }, evalContext)
+            if (!routed) {
+              await failBranch(em, instance, branch, error)
+            } else if (branch.currentStepId === branch.joinStepId) {
+              await completeBranchAtJoin(em, instance, branch)
+            }
+          } catch (error) {
+            await failBranch(em, instance, branch, error instanceof Error ? error.message : String(error))
+            try {
+              getTelemetryRuntime()?.reportError(error, {
+                module: 'workflows',
+                code: 'workflows.branch_resume_error_route_failed',
+                attributes: { instanceId: instance.id, branchInstanceId: branch.id },
+              })
+            } catch (reportingError) {
+              logger.warn('Failed to report branch resume error', { err: reportingError })
+            }
+          }
+        }
+      }
     }
   }
 

@@ -68,6 +68,38 @@ test('runStreaming preserves nonzero exits and reports spawn errors', async () =
   await assert.rejects(runStreaming(path.join(os.tmpdir(), 'mercato-nonexistent-command'), [], { logs: stubLogs() }), /could not be executed/)
 })
 
+test('interrupting an ephemeral build unwinds through service cleanup before exiting', { skip: process.platform === 'win32' ? 'requires POSIX signal delivery' : false }, (t) => {
+  const repoRoot = temporaryRepo(t)
+  const envFile = path.join(repoRoot, '.env')
+  const original = 'DATABASE_URL=postgres://original/db\n'
+  fs.writeFileSync(envFile, original)
+  const script = `
+    import fs from 'node:fs'
+    import { runStreaming } from ${JSON.stringify(new URL('../compose.mjs', import.meta.url).href)}
+    import { runSteps, workspaceBuildStep } from ${JSON.stringify(new URL('../steps.mjs', import.meta.url).href)}
+    const envFile = ${JSON.stringify(envFile)}
+    const original = fs.readFileSync(envFile, 'utf8')
+    const ctx = {
+      repoRoot: ${JSON.stringify(repoRoot)}, flags: { serviceMode: 'ephemeral' }, log() {},
+      runStreamingImpl: (_command, _args, options) => runStreaming(process.execPath,
+        ['-e', "process.kill(process.ppid, 'SIGTERM'); setInterval(() => {}, 1000)"], options),
+    }
+    process.once('SIGTERM', () => { ctx.cancelled = true })
+    fs.writeFileSync(envFile, 'DATABASE_URL=postgres://ephemeral/db\\n')
+    try {
+      const outcome = await runSteps([workspaceBuildStep], ctx)
+      if (outcome.ok) throw new Error('interrupted setup unexpectedly succeeded')
+    } finally {
+      fs.writeFileSync(envFile, original)
+    }
+    process.exitCode = 143
+  `
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 15_000 })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 143, result.stderr)
+  assert.equal(fs.readFileSync(envFile, 'utf8'), original)
+})
+
 test('runSteps keeps progress visible, folds routine details, and suspends toggles for prompts', async () => {
   const visible = []
   const originalLog = (...args) => visible.push(args.join(' '))
@@ -159,6 +191,8 @@ test('database setup does not mark pending or failed migrations as complete', as
   const invocations = []
   const ctx = {
     repoRoot, env: {}, flags: { noInfra: true }, log() {},
+    assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
     dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
     runStreamingImpl: async (_command, args) => { invocations.push(args[0]); return migration.promise },
   }
@@ -178,12 +212,48 @@ test('database setup records successful migration but never a failed initializat
   const repoRoot = temporaryRepo(t)
   const ctx = {
     repoRoot, env: {}, flags: { noInfra: true }, log() {},
+    assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
     dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
     runStreamingImpl: async (_command, args) => args[0] === 'db:migrate' ? 0 : 3,
   }
   await assert.rejects(databaseStep.apply(ctx), /initialize.*failed \(exit 3\)/)
   assert.equal(fs.readFileSync(path.join(repoRoot, STARTER_STATE_DIR, ctx.dbMigrationsMarker), 'utf8'), 'fingerprint\n')
   assert.equal(fs.existsSync(path.join(repoRoot, STARTER_STATE_DIR, ctx.dbMarker)), false)
+})
+
+test('database setup keeps the initialization credentials visible when output is folded', async (t) => {
+  const repoRoot = temporaryRepo(t)
+  const rule = `\u001b[48;2;57;62;70m${'━'.repeat(30)}\u001b[0m`
+  const panel = [
+    rule,
+    `\u001b[48;2;57;62;70m${' '.repeat(30)}\u001b[0m`,
+    `\u001b[48;2;57;62;70m  🔑 DEVELOPMENT ACCOUNTS      \u001b[0m`,
+    `\u001b[48;2;57;62;70m     Email:     admin@acme.com\u001b[0m`,
+    `\u001b[48;2;57;62;70m     Password:  secret        \u001b[0m`,
+    rule,
+  ]
+  const folded = []
+  const visible = []
+  const logs = { interactive: true, raw: (chunk) => folded.push(chunk), suspend() {}, resume() {}, resumeActivity() {} }
+  const ctx = {
+    repoRoot, env: {}, flags: { noInfra: true }, log() {}, logs,
+    promptLog: (line) => visible.push(line),
+    assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
+    dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
+    runStreamingImpl: async (_command, args, options) => {
+      if (args[0] === 'initialize') {
+        const output = ['Seeding demo data...', ...panel, 'Done.\n'].join('\n')
+        options.logs.raw(output.slice(0, 120))
+        options.logs.raw(output.slice(120))
+      }
+      return 0
+    },
+  }
+  await databaseStep.apply(ctx)
+  assert.ok(folded.join('').includes('Password:  secret'))
+  assert.deepEqual(visible, panel.map((line) => `   ${line}`))
 })
 
 test('infrastructure awaits asynchronous image preparation before streaming compose up', async () => {

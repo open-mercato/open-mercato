@@ -49,7 +49,7 @@
     }
   },
   "optionalDependencies": {
-    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api": "~1.9.1",
     "@opentelemetry/api-logs": "^0.220.0",
     "@opentelemetry/core": "^2.9.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.220.0",
