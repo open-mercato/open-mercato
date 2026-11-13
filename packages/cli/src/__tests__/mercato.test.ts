@@ -12,8 +12,12 @@ import { pathIncludes } from '../lib/__tests__/path-helpers'
 
 type MockChildAutoExit = { code: number | null; signal?: NodeJS.Signals | null } | undefined
 type MockChildSpawnRouter = (args: string[]) => MockChildAutoExit
+type MockChildKillExitCodeRouter = (args: string[]) => number | undefined
 
-function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
+function buildMockChildProcessModule(
+  routeAutoExit: MockChildSpawnRouter,
+  routeKillExitCode: MockChildKillExitCodeRouter = () => undefined,
+) {
   const { EventEmitter } = jest.requireActual('node:events')
 
   const createChild = (spawnargs: string[], autoExit?: MockChildAutoExit) => {
@@ -27,6 +31,14 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
     child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
       child.killed = true
       if (child.exitCode !== null || child.signalCode !== null) {
+        return true
+      }
+      const handledExitCode = routeKillExitCode(spawnargs.slice(1))
+      if (typeof handledExitCode === 'number') {
+        child.exitCode = handledExitCode
+        queueMicrotask(() => {
+          child.emit('exit', handledExitCode, null)
+        })
         return true
       }
       child.signalCode = signal
@@ -65,6 +77,37 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
   }
 }
 
+const nextExitsWithCodeWhenKilled = (exitCode: number): MockChildKillExitCodeRouter => (args) =>
+  pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? exitCode : undefined
+
+async function runServerAndSendSignal(
+  mercato: typeof import('../mercato'),
+  command: 'start' | 'dev',
+  signal: 'SIGINT' | 'SIGTERM',
+): Promise<number> {
+  const listenersBefore = new Set(process.listeners(signal))
+  try {
+    const pending = mercato.run(['node', 'mercato', 'server', command])
+    const { spawn } = await import('child_process')
+    const nextSpawned = () => (spawn as jest.Mock).mock.calls.some((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes(command),
+    )
+    for (let attempt = 0; attempt < 1000 && !nextSpawned(); attempt += 1) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    expect(nextSpawned()).toBe(true)
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    process.emit(signal, signal)
+    return await pending
+  } finally {
+    for (const listener of process.listeners(signal)) {
+      if (!listenersBefore.has(listener)) process.removeListener(signal, listener)
+    }
+  }
+}
+
 const eventsWorkerFixture: Pick<Module, 'id' | 'workers'> = {
   id: 'events',
   workers: [
@@ -85,6 +128,92 @@ const schedulerCliFixture: Pick<Module, 'id' | 'cli'> = {
       run: jest.fn(),
     },
   ],
+}
+
+function mockServerFileSystem(extra: Record<string, unknown> = {}) {
+  jest.doMock('node:fs', () => {
+    const actual = jest.requireActual('node:fs')
+    return {
+      ...actual,
+      existsSync: jest.fn((candidate: string) =>
+        pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+      ),
+      ...extra,
+    }
+  })
+}
+
+function mockDevServerEnvironment() {
+  mockServerFileSystem({ unlinkSync: jest.fn() })
+  jest.doMock('../lib/generators', () => ({
+    generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+  }))
+  jest.doMock('../lib/resolver', () => ({
+    resolveEnvironment: () => ({ appDir: '/tmp/test-app', rootDir: '/tmp/test-root' }),
+    createResolver: () => ({}),
+  }))
+}
+
+function mockStartServerEnvironment() {
+  mockServerFileSystem()
+  jest.doMock('../lib/resolver', () => ({
+    resolveEnvironment: () => ({ appDir: '/tmp/test-app', rootDir: '/tmp/test-root' }),
+  }))
+  jest.doMock('../lib/server-start-lock', () => ({
+    acquireServerStartLock: jest.fn(() => ({ release: jest.fn() })),
+  }))
+}
+
+function registerShutdownExitCodeTests(command: 'start' | 'dev', mockEnvironment: () => void) {
+  it.each([
+    ['SIGTERM', 143],
+    ['SIGINT', 130],
+  ] as const)('exits cleanly when Next.js handles %s itself and exits with code %i during shutdown', async (signal, nextExitCode) => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    mockEnvironment()
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule(() => undefined, nextExitsWithCodeWhenKilled(nextExitCode)),
+    )
+
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([eventsWorkerFixture as Module])
+    const exitCode = await runServerAndSendSignal(mercato, command, signal)
+
+    expect(exitCode).toBe(0)
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    const { spawn } = await import('child_process')
+    const spawnMock = spawn as jest.Mock
+    const nextChild = spawnMock.mock.results.find((_result, index) =>
+      pathIncludes(spawnMock.mock.calls[index][1]?.[0] ?? '', 'next/dist/bin/next'),
+    )?.value
+    expect(nextChild?.exitCode).toBe(nextExitCode)
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('still fails when Next.js exits with code 143 without a shutdown request', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    mockEnvironment()
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: 143 } : undefined,
+      ),
+    )
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'server', command])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('exited unexpectedly with exit code 143.'))
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 }
 
 describe('mercato CLI module registration', () => {
@@ -1850,6 +1979,8 @@ describe('server dev managed process exits', () => {
     consoleLogSpy.mockRestore()
   })
 
+  registerShutdownExitCodeTests('dev', mockDevServerEnvironment)
+
   it('retries the Next.js dev server once when it exits before reporting ready', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
@@ -2595,6 +2726,8 @@ describe('server start managed process exits', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  registerShutdownExitCodeTests('start', mockStartServerEnvironment)
 
   it('restarts the managed dev runtime when an app env file changes', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()

@@ -576,6 +576,8 @@ function isExpectedManagedExitSignal(signal: NodeJS.Signals | null): boolean {
   return signal === 'SIGINT' || signal === 'SIGTERM'
 }
 
+const SHUTDOWN_SIGNAL_EXIT_CODES = new Set([130, 143])
+
 function isExpectedManagedExit(
   result: ManagedProcessExitResult,
   options: { stopping?: boolean } = {},
@@ -585,7 +587,8 @@ function isExpectedManagedExit(
   // Queue workers handle SIGINT/SIGTERM themselves so they can close queue
   // resources before exiting. That graceful path calls process.exit(0), which
   // reports as { code: 0, signal: null } to the supervising server process.
-  return options.stopping === true && result.code === 0
+  if (options.stopping !== true) return false
+  return result.code === 0 || (result.code !== null && SHUTDOWN_SIGNAL_EXIT_CODES.has(result.code))
 }
 
 function formatManagedProcessExitStatus(result: ManagedProcessExitResult): string {
