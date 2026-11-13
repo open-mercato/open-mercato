@@ -96,6 +96,7 @@ export async function seedDashboardDefaultsForTenant(
 }
 
 const seedDefaults: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'seed-defaults',
   async run(rest) {
     const args = parseArgs(rest)
@@ -129,6 +130,7 @@ const seedDefaults: ModuleCli = {
 }
 
 const enableAnalyticsWidgets: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'enable-analytics-widgets',
   async run(rest) {
     const args = parseArgs(rest)
@@ -165,6 +167,7 @@ const enableAnalyticsWidgets: ModuleCli = {
 }
 
 const seedAnalytics: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'seed-analytics',
   async run(rest) {
     const args = parseArgs(rest)
@@ -204,6 +207,7 @@ const seedAnalytics: ModuleCli = {
 }
 
 const debugAnalytics: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'debug-analytics',
   async run(rest) {
     const args = parseArgs(rest)

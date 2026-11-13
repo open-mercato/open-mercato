@@ -2726,6 +2726,7 @@ async function warnIfStressTestSchemaChanged(db: Kysely<any>) {
 }
 
 const seedDictionaries: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'seed-dictionaries',
   async run(rest) {
     const args = parseArgs(rest)
@@ -2747,6 +2748,7 @@ const seedDictionaries: ModuleCli = {
 }
 
 const seedExamples: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'seed-examples',
   async run(rest) {
     const args = parseArgs(rest)
@@ -2770,6 +2772,7 @@ const seedExamples: ModuleCli = {
 }
 
 const seedStressTest: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'seed-stresstest',
   async run(rest) {
     const args = parseArgs(rest)
@@ -3128,6 +3131,7 @@ async function backfillInteractions(
 }
 
 const interactionsBackfill: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'interactions:backfill',
   async run(rest) {
     const args = parseArgs(rest)
