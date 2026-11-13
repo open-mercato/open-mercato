@@ -37,6 +37,8 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.3-boundary-foundation | Verify maintenance pool ownership and effective asynchronous invocation lifetimes | inline | done | this commit; 16 shared/86 runtime/185 events/9 CLI tests; PG17 16+24 checks |
 | 2 | 2.3-coalescing-fix | Preserve accepted trailing broadcasts in a fresh validated invocation | inline | done | this commit; 21 event tests and events/enterprise typechecks |
 | 2 | 2.3-worker-binding | Validate persisted tenant bindings before queue containers and await disposal | inline | done | this commit; targeted worker and scheduler tests |
+| 2 | 2.3-global-owners | Classify global reindex and nested jobs with exact owner-local providers | inline | done | 57762fc381; parent18 suites/186 tests |
+| 2 | 2.3-binding-disposal | Dispose persisted directory binding containers before scope completion | inline | done | c6c95d1fe0; three tests |
 | 2 | 2.3 | Propagate worker, subscriber and scheduler tenant contexts | inline | todo | — |
 | 2 | 2.4-foundation | Declare owner-local CLI access and restrict setup hook continuations | inline | done | this commit; CLI82/shared30/auth19 + shared/CLI tsc |
 | 2 | 2.4-bootstrap | Preserve generic bootstrap registrations before lightweight supervisor probes | inline | done | this commit; CLI79 tests and CLI tsc |
@@ -47,7 +49,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.3-scheduler-discovery | Preserve scheduler exports and expose the neutral discovery contract | inline | done | this commit; scheduler declaration lifecycle tests |
 | 2 | 2.3-scheduler | Resolve persisted scheduler jobs before fresh tenant execution | inline | done | deaa13f99a merged; parent572+9 tests |
 | 2 | 2.5-vector-catalog | Decode PostgreSQL index catalog arrays as text in restricted readiness | inline | done | this commit; actual vector gate follows |
-| 2 | 2.5 | Classify and integrate independent search, vector and event pools | inline | todo | — |
+| 2 | 2.5 | Classify and integrate independent search, vector and event pools | inline | done | live pgvector6 + PG17 transport/catalog27; parent search73/storage35 tests |
 | 3 | 3.1-cli-lifecycle | Wire neutral migration preflight, completion and committed-history recovery | inline | done | this commit; CLI57 tests + typecheck |
 | 3 | 3.1 | Reconcile explicit canary policies through migrations with rollback | inline | done | this commit; runtime94/shared8; live PG17 16+25 checks, zero skips |
 | 3 | 3.2 | Add self-contained canary CRUD and cross-tenant HTTP integration tests | inline | todo | — |

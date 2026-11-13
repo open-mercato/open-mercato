@@ -1,7 +1,7 @@
 # Enterprise PostgreSQL Row-Level Security
 
 Edition: **Enterprise only — commercial specification and implementation.**
-Status: full production implementation in progress on PR #9424; the isolated proof is complete. Activation remains opt-in until the final integration and security gates pass.
+Status: production implementation on PR #9424; final application, repository and security acceptance gates are in progress. Activation is opt-in.
 Source: [issue #244](https://github.com/open-mercato/open-mercato/issues/244); previous attempt: [PR #419](https://github.com/open-mercato/open-mercato/pull/419).
 
 ## TLDR
@@ -14,20 +14,20 @@ The original design PR established the isolated proof. On 2026-11-13 the user ex
 
 | Question | Chosen answer | Reason |
 | --- | --- | --- |
-| Q1. Global activation or proof first? | Isolated, unregistered enterprise PoC first; staged production work follows. | Validates the failed connection premise without breaking current application paths. |
+| Q1. Activation scope? | Opt-in production runtime with an explicit `customer_entities` canary. | The original isolated proof is removed; staged enrollment retains application filters. |
 | Q2. Pooling mode? | Direct PostgreSQL or session-compatible pooling only for reservation mode. | Session GUCs are not safe with a transaction-pooling proxy. Such deployments must refuse activation pending a separate transaction-local design. |
 | Q3. Also implement row/organization authorization? | Tenant isolation only; retain current organization and permission enforcement. | Own/team/all record access is an independent capability; it is not part of #244. |
 | Q4. Change dependencies to use newer ORM RLS APIs? | Use installed MikroORM 7.1.14 and Kysely 0.29.5; no dependency upgrade. | Keeps this proposal tied to current application state. Re-evaluate native support when the repository upgrades. |
-| Q5. Ship code in a spec PR? | Include only the explicitly requested enterprise prototype and tests. | Maintainer request overrides the usual document-only spec workflow. |
+| Q5. Implementation scope? | Full implementation and integration coverage on PR #9424. | Explicit user instruction on 2026-11-13 supersedes the earlier proof-only scope. |
 | Q6. Automatically bypass RLS for superadmins or system jobs? | No tenant-role bypass; cross-tenant maintenance needs a distinct privileged execution boundary. | An application boolean/GUC must not silently turn off the database boundary. |
 
-These are reversible defaults for this prototype. No default authorizes production activation, a public contract change or removal of existing tenant filters.
+Production deployment, migrations against a user database and removal of existing tenant filters remain outside this implementation task.
 
 ## Overview and Problem Statement
 
 Application scoping remains essential, but a missing `tenant_id` predicate can expose another tenant's records. RLS provides a second enforcement layer only if queries execute on the same physical connection as the intended tenant setting and the database role cannot bypass policies.
 
-PR #419 set transaction-local GUCs from selected CRUD/query paths. Its discussion identified two fundamental gaps: an autocommit `set_config(..., true)` expires before the next statement, and separate pooled statements need not use the same connection. It also missed manual endpoints, jobs and maintenance. This PoC includes a negative control reproducing the first failure with a pool of one. The historical review is evidence of those design gaps; it is not evidence that every current CI failure has the same cause.
+PR #419 set transaction-local GUCs from selected CRUD/query paths. Its discussion identified two fundamental gaps: an autocommit `set_config(..., true)` expires before the next statement, and separate pooled statements need not use the same connection. It also missed manual endpoints, jobs and maintenance. The production regression suite retains a negative control reproducing the first failure with a pool of one. The historical review is evidence of those design gaps; it is not evidence that every current CI failure has the same cause.
 
 ## Current application state
 
@@ -54,9 +54,9 @@ This is a database protection against omitted application predicates, not SQL in
 
 | Alternative | Decision for now |
 | --- | --- |
-| `SET LOCAL` before an unrelated autocommit query | Reject; the setting expires and/or is on another connection. Reproduced by the PoC negative control. |
+| `SET LOCAL` before an unrelated autocommit query | Reject; the setting expires and/or is on another connection. Reproduced by the retained regression negative control. |
 | One transaction around every HTTP request | Reject as default; holds connections during non-DB work, changes commit/side-effect timing, complicates streaming and existing transactions. |
-| Native `onReserveConnection` alone | Reject in the installed version for production use; a rejected initializer can leak a checked-out client. The PoC wraps the underlying pool and owns failure release. |
+| Native `onReserveConnection` alone | Reject in the installed version for production use; a rejected initializer can leak a checked-out client. The enterprise adapter wraps the underlying pool and owns failure release. |
 | Pool `connect` event / connection creation hook | Reject; creation occurs once, while tenant context changes between reservations. |
 | Entity subscriber / CRUD-only interception | Reject; does not cover autocommit reads and raw SQL before execution. |
 | Upgrade to MikroORM 7.2 session-context RLS APIs | Revisit after an independently verified upgrade; not available in the installed 7.1 API. |
@@ -68,41 +68,27 @@ PostgreSQL [RLS documentation](https://www.postgresql.org/docs/current/ddl-rowse
 
 ```mermaid
 flowchart LR
-  A[Planned trusted HTTP / job / CLI scope] --> B[Enterprise tenant ALS]
-  B --> C[PoC pool checkout wrapper]
-  C --> D[Same pg client: set or clear tenant]
+  A[Verified HTTP / RSC / job / CLI identity] --> B[Neutral execution contract]
+  B --> C[Enterprise invocation and checkout adapter]
+  C --> D[Same physical client: replace tenant setting]
   D --> E[Existing ORM / Kysely / raw query]
-  E --> F[PoC RLS-protected fixture table]
+  E --> F[Reviewed FORCE tenant policy]
   D -->|setup fails| G[Destroy client and reject]
 ```
 
-The implemented proof covers checkout through database execution; application entry-point wiring is planned.
+The enterprise runtime owns enforcement, invocation lifetimes and policy validation. Shared infrastructure exposes neutral additive lifecycle contracts. Each domain module supplies its own `database.ts` declarations; generated discovery registers them without a central business-module map. Retained transaction and client handles remain bound to their original live invocation and lease generation.
 
-### Prototype boundaries
+### Production bootstrap and scope propagation
 
-The prototype-only statements in this section describe the original proof, whose source has now been removed; they are historical rather than current operator instructions. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
+Generator bootstrap registration precedes ORM creation in application and CLI entry points. Primary runtime and privileged maintenance ORM instances are separate. Runtime pools receive the enterprise adapter before readiness; startup validates roles, manifests and exact effective policies. An absent adapter preserves disabled-mode behavior.
 
-- `packages/enterprise/src/lib/rls/poc/poolScope.ts` owns the prototype. It is not exported from the enterprise index, registered in module discovery, installed by DI, or imported by OSS runtime code.
-- `installRlsPoolScope` supports both Promise and callback `pool.connect`; `pool.query` uses the latter. Installation is idempotent. Install after existing pool instrumentation and dispose in reverse order. The live proof uses the application's error handlers, pool instrumentation and resolved timeout defaults.
-- The wrapper runs one setup query per checkout, not one transaction per HTTP request. It preserves current transaction lifecycle and pool limits. Latency overhead must be measured before production acceptance.
-- `runWithRlsTenant` validates UUIDs, normalizes case, captures immutable scope and rejects nested tenant changes. Separate top-level concurrent scopes remain independent.
-- Pinned clients/transaction EMs must stay within their original tenant scope. The prototype does **not** detect escaped objects reused under another top-level scope; rejecting nested ALS changes alone does not solve that. Production must bind/validate client transaction ownership, reject switches on retained clients, and audit every raw connection escape before activation.
-- Session tenant state may remain on idle clients. Safety depends on mandatory replacement before **every** reuse, including no-context reuse; removal/disposal is permitted only after traffic drains and pools close. Detached async tasks retain their ALS scope and must not outlive request/job ownership; production jobs establish new explicit contexts.
-
-### Production bootstrap and scope propagation (planned)
-
-The prototype-only statements in this section describe the original proof, whose source has now been removed; they are historical rather than current operator instructions. For full implementation, the Production activation design below is authoritative; it adds neutral hooks and an opt-in canary policy without changing existing route/payload/column contracts.
-
-The current singleton factory has no enterprise pre-initialization extension to compose `onPoolCreated`. Do not reach into Kysely private fields, mutate an already initialized dialect or install from late module DI. A future implementation must first land a reviewed, edition-neutral configuration composition seam if one is required; all RLS behavior, scope resolution and policy code must remain in enterprise. This PR changes no OSS factory or public contract. If that seam cannot be supplied without violating the enterprise boundary, production rollout stops at the PoC rather than adding a hidden patch.
-
-Before protected tables are enabled, cover:
-
-1. HTTP tenant establishment after trusted identity resolution and before tenant-scoped authorization queries, including manual routes, portal/public token flows and selected-tenant superadmin paths. Do not trust a raw request header/query tenant value.
-2. Page/server-render paths that create containers outside the API dispatcher.
-3. Worker, subscriber and scheduler work, establishing a scope per trusted payload. Global polling reads use an explicitly inventoried maintenance connection; per-tenant handling then uses the restricted tenant role.
-4. CLI, initialization, migrations, tenant provisioning, reindexing and encryption maintenance. These are distinct operations, never an implicit `tenantId=null` bypass.
-5. Independent search/vector/event pools: classify each table/query first, then install the same enterprise context adapter or an explicit maintenance-role boundary. An unclassified pool blocks coverage claims.
-6. No-context behavior: protected-table reads return no rows and writes fail; callers that require a tenant should reject missing scope before DB access to avoid presenting false empty state as normal success.
+1. Canonical JWT/API-key identity is resolved before tenant authorization and handler queries. Selected tenant and organization values require persisted binding checks.
+2. Deferred server rendering resolves a stable request invocation through neutral hooks. Audience selection and completion/cancellation are covered by actual Next integration tests.
+3. Verified public tokens, portal accounts and storefront bindings create bounded tenant continuations before fresh containers. Awaited subscribers finish inside those continuations.
+4. Workers resolve exact owner declarations and persisted bindings before container creation. Global scheduler discovery and global reindex use explicit maintenance, followed by fresh tenant continuations.
+5. CLI migrations, initialization, storage provisioning and maintenance require an explicitly distinct maintenance login. Missing tenant scope cannot select privileged access.
+6. Search/vector and event pools declare their storage or transport purpose. Active vector readiness is SELECT-only; provisioning belongs to the privileged lifecycle. Event transport accepts only exact declared notification statements.
+7. No-context protected reads return no rows and writes fail. Required tenant entry points reject missing or ambiguous identity before database access.
 
 ## Data Models and policy lifecycle
 
@@ -175,7 +161,7 @@ Production regression harness typecheck: `yarn tsc --project packages/enterprise
 
 Runtime unit tests: `yarn jest --config packages/enterprise/jest.config.cjs --runInBand --testPathPatterns=src/lib/rls/runtime`.
 
-Live production regressions: set `OM_RLS_TEST_DATABASE_URL` privately to an explicitly disposable administrative PostgreSQL database, then run `timeout 240 node --test packages/enterprise/tests/rls/integration.test.mjs`. The runner requires 16 runtime checks and 23 catalog checks, including cleanup, with bounded subprocesses. Missing opt-in produces two skips, which are not isolation evidence. The catalog harness changes PUBLIC TEMP privileges, so discard the database afterward. See `packages/enterprise/tests/rls/README.md` for operator commands and limits. The prototype implementation, prototype unit tests and dual-mode selector have been removed.
+Live production regressions: set `OM_RLS_TEST_DATABASE_URL` privately to an explicitly disposable administrative PostgreSQL database, then run `timeout 240 node --test packages/enterprise/tests/rls/integration.test.mjs`. The runner requires 16 runtime checks and 27 catalog checks, including cleanup, with bounded subprocesses. Missing opt-in produces two skips, which are not isolation evidence. The catalog harness changes PUBLIC TEMP privileges, so discard the database afterward. See `packages/enterprise/tests/rls/README.md` for operator commands and limits. The prototype implementation, prototype unit tests and dual-mode selector have been removed.
 
 The live proof exercises real MikroORM ORM reads and flush, raw connection queries, Kysely reads, explicit transactions, rollback, callback `pool.query`, same-client tenant replacement, absent-context denial, denied writes, setup failure recovery, concurrent tenants and the old autocommit failure. Concurrency includes 60 pooled reads and 60 mixed ORM/Kysely transactions; a bounded barrier proves three simultaneous physical backends serving both tenants. Mixed operations cover inserts, updates, cross-tenant update/delete denial, committed deletes and 20 deliberate rollbacks. A privileged exact-row comparison verifies the 30 surviving new rows and unchanged seed rows after all work drains. Ordinary unit tests use mocks and do not claim database isolation coverage. These storage regressions do not replace the HTTP, worker and browser acceptance gates below.
 
@@ -183,7 +169,7 @@ The ordered full local gate is exactly `.ai/agentic.config.json`: `build:package
 
 ## Phasing
 
-### Phase 0 — this PR: establish the connection proof
+### Phase 0 — historical connection proof, source removed
 
 1. Review current pool, fork, raw-query and entry-point paths; reproduce the previous failure.
 2. Add the unregistered enterprise pool-scope prototype and unit tests.
@@ -191,13 +177,13 @@ The ordered full local gate is exactly `.ai/agentic.config.json`: `build:package
 
 The original prototype treated Phases 1–2 as a gated roadmap. The user explicitly authorized the full implementation on 2026-11-13. The activation design below supplies the remaining design decisions; compatibility/security review and final integration gates still precede completion. Production deployment and applying migrations to the user database are not authorized.
 
-### Phase 1 — planned production integration, policies still disabled
+### Phase 1 — production integration
 
 1. Resolve and review the pre-init composition seam without moving RLS behavior into OSS. Bind immutable tenant scope to every primary and independent pool checkout; fail startup on incompatible topology.
 2. Cover trusted HTTP/auth/portal/page, worker/subscriber/scheduler and CLI contexts; explicitly separate global maintenance. Reject escaped/pinned-client tenant switching and module-instance/HMR inconsistencies.
 3. Add integration tests through the actual dispatcher and worker handlers: two concurrent tenants, missing/invalid scope, selected-tenant admin, public/token route, job retry, scheduler poll and CLI maintenance. Include ORM, query engine, raw Kysely, encryption, mutation guards, optimistic lock and side-effect behavior. Application remains unchanged with policies disabled.
 
-### Phase 2 — planned controlled enterprise table canary
+### Phase 2 — controlled enterprise table canary
 
 1. Add the manifest, privileged-role verifier, policy reconciliation and manifest-gap check to `db:migrate`; create intended migrations/snapshots for the explicit canary only. Include rollback and no-context handling. Do not apply migrations locally without approval.
 2. Exercise canary list/detail/create/update/delete HTTP paths plus a key UI flow, cross-tenant ID probes and denied writes; verify auth/setup/indexing/jobs still work. These API/UI integration tests ship with the activation change, using self-contained fixtures.
@@ -299,12 +285,14 @@ Register both DI and default/custom pgvector pools. Inventory vector_search, its
 
 ## Final Compliance Report
 
-The following report describes the historical proof only. Full production compliance and acceptance remain pending the PR-loop Tasks table; do not infer completion from the earlier evidence.
+Full acceptance is tracked in the PR-loop Tasks table. Historical proof and earlier checkpoints below are retained with their original limits; current evidence must be assessed against the final committed head.
 
 
-Enterprise commercial scope is explicit in title, path and code placement. No production dependency, app migration, API/schema change, module activation or removal of application scoping occurs. Existing encryption, RBAC, guards and optimistic locking are untouched. Prototype integration is exercised through the real installed driver; broad runtime coverage, proxy compatibility, escaped-client safety and production performance remain activation gates. Fresh-context cohesion review passed (one capability); its roadmap-authorization clarification was applied. Independent code review found no blocker/major in the isolated proof; a dedicated harness typecheck was added for its minor finding. Verification results are appended after execution.
+Enterprise enforcement stays in the commercial package. Neutral additive contracts integrate existing entry points; domain modules own their declarations. No production dependency was added. The explicit reversible canary lifecycle preserves existing schema columns, application filtering, encryption, RBAC, command side effects and optimistic locking. Transaction-pooling proxies are rejected. Production deployment and user-database migration are excluded. Final code/security review and repository/application gates remain required before declaring completion.
 
 ## Changelog
+
+- 2026-11-13: Replaced obsolete prototype operator instructions with the implemented owner-local runtime, trusted invocation, pool and maintenance architecture. Actual PostgreSQL 17 worker/CLI regressions pass 16 runtime plus 27 catalog checks; restricted pgvector regression passes six checks. Final full acceptance remains tracked separately.
 
 - 2026-11-13: User clarified full implementation scope and PR-loop execution. Added production activation design, neutral seams, trusted RSC/job/auth contexts, explicit customer_entities canary and final acceptance gates. Historical Phase 0 completion is no longer the full task completion criterion.
 
