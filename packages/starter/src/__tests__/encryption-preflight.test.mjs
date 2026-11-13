@@ -236,6 +236,7 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
   const { ensureEnvFiles } = await import('../env-setup.mjs')
   const { parseEnv } = await import('node:util')
   const cases = [
+    { root: 'TENANT_DATA_ENCRYPTION=off\n', env: {}, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION', 'off'] },
     { root: 'TENANT_DATA_ENCRYPTION_KEY=root-fixture-key\n', env: {}, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'root-fixture-key'] },
     { root: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=user-original\n', env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'company-default' }, expected: ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'user-original'] },
     { env: { TENANT_DATA_ENCRYPTION_KEY: 'ambient-fixture-key' }, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'ambient-fixture-key'] },

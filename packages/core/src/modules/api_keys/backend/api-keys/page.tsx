@@ -14,6 +14,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { formatApiKeyExpiry } from '@open-mercato/core/modules/api_keys/lib/expiryDisplay'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type RoleSummary = { id: string; name: string | null }
@@ -86,10 +87,9 @@ export default function ApiKeysListPage() {
           setTotalPages(payload.totalPages || 1)
           setTotalIsCapped(payload?.totalIsCapped === true)
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : t('api_keys.list.error.loadFailed')
-          flash(message, 'error')
+          flash(t('api_keys.list.error.loadFailed'), 'error')
         }
       } finally {
         if (!cancelled) setIsLoading(false)
@@ -165,7 +165,7 @@ export default function ApiKeysListPage() {
     {
       accessorKey: 'expiresAt',
       header: t('api_keys.list.columns.expires'),
-      cell: ({ row }) => formatDate(row.original.expiresAt, t, locale),
+      cell: ({ row }) => formatApiKeyExpiry(row.original.expiresAt, locale) ?? t('api_keys.list.noDate'),
     },
   ], [t, locale])
 
