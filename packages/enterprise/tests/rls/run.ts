@@ -4,23 +4,19 @@ import { EntitySchema, MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import { Pool, type PoolClient } from 'pg'
 import { attachPoolErrorHandlers, instrumentPrimaryPool, resolvePoolConfig, type ObservablePool } from '@open-mercato/shared/lib/db/mikro'
-import { installRlsPoolScope, runWithRlsTenant } from '../../src/lib/rls/poc/poolScope'
 import { installTenantPoolBoundary, type BoundaryPool } from '../../src/lib/rls/runtime/pool'
 import { runWithTenantBoundary } from '../../src/lib/rls/runtime/scope'
 
-const runtimeBoundary = process.argv.includes('--runtime')
 let failNextRuntimeClient = false
 function runTenant<Result>(tenantId: string, callback: () => Result): Result {
-  return runtimeBoundary
-    ? runWithTenantBoundary({ kind: 'tenant', source: 'worker', tenantId }, callback)
-    : runWithRlsTenant(tenantId, callback)
+  return runWithTenantBoundary({ kind: 'tenant', source: 'worker', tenantId }, callback)
 }
 
-const databaseUrl = process.env.OM_RLS_POC_DATABASE_URL
-assert.ok(databaseUrl, 'Set OM_RLS_POC_DATABASE_URL to a DISPOSABLE PostgreSQL database with role/schema creation privileges')
+const databaseUrl = process.env.OM_RLS_TEST_DATABASE_URL
+assert.ok(databaseUrl, 'Set OM_RLS_TEST_DATABASE_URL to a DISPOSABLE PostgreSQL database with role/schema creation privileges')
 const suffix = randomUUID().replaceAll('-', '')
-const schema = `rls_poc_${suffix}`
-const role = `rls_poc_${suffix}`
+const schema = `rls_runtime_test_${suffix}`
+const role = `rls_runtime_test_${suffix}`
 const password = randomUUID()
 const admin = new Pool({ connectionString: databaseUrl, max: 1 })
 const runtimeUrl = new URL(databaseUrl)
@@ -33,7 +29,7 @@ const rowB = randomUUID()
 type RecordRow = { id: string; tenantId: string; label: string }
 type ProbeDatabase = { records: { id: string; tenant_id: string; label: string } }
 const probe = new EntitySchema<RecordRow>({
-  name: 'RlsPocRecord', tableName: 'records', schema,
+  name: 'RlsRuntimeTestRecord', tableName: 'records', schema,
   properties: {
     id: { type: 'uuid', primary: true },
     tenantId: { type: 'uuid', fieldName: 'tenant_id' },
@@ -63,9 +59,9 @@ async function openOrm(max: number, scoped = true): Promise<TestOrm> {
         pools.push(pool)
         attachPoolErrorHandlers(pool as unknown as ObservablePool)
         disposers.push(instrumentPrimaryPool(pool as unknown as ObservablePool))
-        if (scoped && runtimeBoundary) {
+        if (scoped) {
           const lifecycle = installTenantPoolBoundary(pool as unknown as BoundaryPool, {
-            configurationKey: 'disposable-runtime-proof',
+            configurationKey: 'disposable-runtime-regression',
             initializeClient: async () => {
               if (failNextRuntimeClient) {
                 failNextRuntimeClient = false
@@ -74,7 +70,7 @@ async function openOrm(max: number, scoped = true): Promise<TestOrm> {
             },
           })
           disposers.push(lifecycle.dispose)
-        } else if (scoped) disposers.push(installRlsPoolScope(pool))
+        }
       },
     },
   })
@@ -159,17 +155,9 @@ try {
   await check('failed setup destroys the checked-out client and max=1 recovers', async () => {
     const pool = pools[0]
     const client = await pool.connect()
-    if (runtimeBoundary) {
-      client.release(new Error('[internal] force a new physical client'))
-      failNextRuntimeClient = true
-      await assert.rejects(pool.connect(), /deliberate setup failure/)
-    } else {
-      const originalQuery = client.query
-      client.query = (() => Promise.reject(new Error('[internal] deliberate setup failure'))) as PoolClient['query']
-      client.release()
-      await assert.rejects(pool.connect(), /deliberate setup failure/)
-      client.query = originalQuery
-    }
+    client.release(new Error('[internal] force a new physical client'))
+    failNextRuntimeClient = true
+    await assert.rejects(pool.connect(), /deliberate setup failure/)
     assert.deepEqual(await runTenant(tenantB, () => labels(fork())), ['B'])
   })
   await check('SET LOCAL outside a transaction reproduces the previous implementation failure', async () => {
@@ -273,61 +261,59 @@ try {
       clearTimeout(barrierTimeout)
     }
   })
-  if (runtimeBoundary) {
-    await check('released lease facades cannot inherit a reused backend under either tenant', async () => {
-      const pool = pools[0]
-      let stale: PoolClient | undefined
-      let firstPid = 0
-      await runTenant(tenantA, async () => {
-        stale = await pool.connect()
-        firstPid = (await stale.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid
-        stale.release()
+  await check('released lease facades cannot inherit a reused backend under either tenant', async () => {
+    const pool = pools[0]
+    let stale: PoolClient | undefined
+    let firstPid = 0
+    await runTenant(tenantA, async () => {
+      stale = await pool.connect()
+      firstPid = (await stale.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid
+      stale.release()
+    })
+    assert.ok(stale)
+    for (const tenantId of [tenantA, tenantB]) {
+      await runTenant(tenantId, async () => {
+        const current = await pool.connect()
+        try {
+          assert.notEqual(current, stale)
+          assert.equal((await current.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid, firstPid)
+          await assert.rejects(stale!.query(`select * from ${table}`), /released/)
+          assert.throws(() => stale!.release(), /released/)
+        } finally { current.release() }
       })
-      assert.ok(stale)
-      for (const tenantId of [tenantA, tenantB]) {
-        await runTenant(tenantId, async () => {
-          const current = await pool.connect()
-          try {
-            assert.notEqual(current, stale)
-            assert.equal((await current.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0].pid, firstPid)
-            await assert.rejects(stale!.query(`select * from ${table}`), /released/)
-            assert.throws(() => stale!.release(), /released/)
-          } finally { current.release() }
-        })
-      }
-    })
-    await check('a pinned ORM transaction rejects another tenant invocation before SQL', async () => {
-      let publishTransaction: (tx: EntityManager) => void = () => undefined
-      const transactionAvailable = new Promise<EntityManager>((resolve) => { publishTransaction = resolve })
-      let resumeTransaction: () => void = () => undefined
-      const resume = new Promise<void>((resolve) => { resumeTransaction = resolve })
-      const owner = runTenant(tenantA, () => fork().transactional(async (tx) => {
-        publishTransaction(tx)
-        await resume
-        const rows = await tx.execute<Array<{ tenant_id: string }>>(`select tenant_id from ${table}`)
-        assert.ok(rows.length > 0)
-        assert.ok(rows.every((row) => row.tenant_id === tenantA))
-      }))
-      try {
-        const borrowed = await Promise.race([
-          transactionAvailable,
-          owner.then(() => { throw new Error('[internal] Owning transaction completed before the probe acquired it') }),
-        ])
-        await runTenant(tenantB, () => assert.rejects(borrowed.execute(`select * from ${table}`), /another tenant boundary/))
-      } finally {
-        resumeTransaction()
-        await owner
-      }
-    })
-    await check('completed invocation cannot query its retained lease and max=1 recovers after cleanup', async () => {
-      const escaped = await runTenant(tenantA, () => pools[0].connect())
-      await assert.rejects(escaped.query(`select * from ${table}`), /completed/)
-      escaped.release()
-      assert.deepEqual(await runTenant(tenantB, () => fork().execute(`select label from ${table} where id = ?`, [rowB])), [{ label: 'B' }])
-    })
-  }
+    }
+  })
+  await check('a pinned ORM transaction rejects another tenant invocation before SQL', async () => {
+    let publishTransaction: (tx: EntityManager) => void = () => undefined
+    const transactionAvailable = new Promise<EntityManager>((resolve) => { publishTransaction = resolve })
+    let resumeTransaction: () => void = () => undefined
+    const resume = new Promise<void>((resolve) => { resumeTransaction = resolve })
+    const owner = runTenant(tenantA, () => fork().transactional(async (tx) => {
+      publishTransaction(tx)
+      await resume
+      const rows = await tx.execute<Array<{ tenant_id: string }>>(`select tenant_id from ${table}`)
+      assert.ok(rows.length > 0)
+      assert.ok(rows.every((row) => row.tenant_id === tenantA))
+    }))
+    try {
+      const borrowed = await Promise.race([
+        transactionAvailable,
+        owner.then(() => { throw new Error('[internal] Owning transaction completed before the probe acquired it') }),
+      ])
+      await runTenant(tenantB, () => assert.rejects(borrowed.execute(`select * from ${table}`), /another tenant boundary/))
+    } finally {
+      resumeTransaction()
+      await owner
+    }
+  })
+  await check('completed invocation cannot query its retained lease and max=1 recovers after cleanup', async () => {
+    const escaped = await runTenant(tenantA, () => pools[0].connect())
+    await assert.rejects(escaped.query(`select * from ${table}`), /completed/)
+    escaped.release()
+    assert.deepEqual(await runTenant(tenantB, () => fork().execute(`select label from ${table} where id = ?`, [rowB])), [{ label: 'B' }])
+  })
   await check('nested tenant switching is rejected', async () => {
-    assert.throws(() => runTenant(tenantA, () => runTenant(tenantB, () => undefined)), /Cannot change (RLS tenant|tenant boundary)/)
+    assert.throws(() => runTenant(tenantA, () => runTenant(tenantB, () => undefined)), /Cannot change tenant boundary/)
   })
 } finally {
   const closed = await Promise.allSettled(orms.map((orm) => orm.close(true)))
@@ -349,4 +335,4 @@ try {
     if (outcome.status === 'rejected') throw outcome.reason
   }
 }
-process.stdout.write(`${runtimeBoundary ? 'Enterprise RLS runtime proof' : 'Enterprise RLS PoC'}: ${checks} checks passed; disposable fixtures only.\n`)
+process.stdout.write(`Enterprise RLS runtime regression: ${checks} checks passed; disposable fixtures only.\n`)
