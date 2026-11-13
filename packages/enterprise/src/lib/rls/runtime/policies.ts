@@ -89,8 +89,9 @@ async function withPolicyTransaction(client: BoundaryClient, callback: () => Pro
   }
 }
 
-export async function reconcileTenantTablePolicies(client: BoundaryClient, manifest: TenantTableManifest, runtimeRole: string): Promise<void> {
+export async function reconcileTenantTablePolicies(client: BoundaryClient, manifest: TenantTableManifest, runtimeRole: string, provisionStorage?: () => Promise<void>): Promise<void> {
   await withPolicyTransaction(client, async () => {
+    await provisionStorage?.()
     const tables = await readTenantCatalog(client)
     assertTenantTableInventory(manifest, tables, 'runtime')
     for (const entry of manifest.tables.filter((table) => table.classification === 'enforced')) {

@@ -52,3 +52,29 @@ it('lets an owner resolve its persisted envelope without central module knowledg
   registerDatabaseModuleDeclarations([{ moduleId: 'another', declarations: { jobProviders: [provider] } }])
   await expect(resolveDeclaredDatabaseJobContext({ queue: 'custom', workerIds: [], payload: {} })).rejects.toThrow('Ambiguous')
 })
+
+
+it('provisions owner-local storage in order and rejects duplicate providers before any side effects', async () => {
+  const { provisionDeclaredDatabaseStorage } = await import('../declarations')
+  const connection = { query: jest.fn(async () => undefined) }
+  const descriptor = { kind: 'extension', schema: 'public', tables: ['extension_storage'], configuration: {} }
+  const provision = jest.fn(async () => { await connection.query() })
+  registerDatabaseModuleDeclarations([{ moduleId: 'extension', declarations: { storageProviders: [{ id: 'extension.storage', descriptor, provision }] } }])
+  await provisionDeclaredDatabaseStorage(connection)
+  expect(provision).toHaveBeenCalledWith(connection)
+  registerDatabaseModuleDeclarations([{ moduleId: 'other', declarations: { storageProviders: [{ id: 'extension.storage', descriptor, provision }] } }])
+  await expect(provisionDeclaredDatabaseStorage(connection)).rejects.toThrow('Ambiguous')
+  expect(provision).toHaveBeenCalledTimes(1)
+})
+
+it('propagates storage provisioning failure before attempting later providers', async () => {
+  const { provisionDeclaredDatabaseStorage } = await import('../declarations')
+  const later = jest.fn(async () => undefined)
+  const descriptor = { kind: 'extension', schema: 'public', tables: ['extension_storage'], configuration: {} }
+  registerDatabaseModuleDeclarations([{ moduleId: 'extension', declarations: { storageProviders: [
+    { id: 'extension.first', descriptor, provision: async () => { throw new Error('[internal] storage failed') } },
+    { id: 'extension.second', descriptor, provision: later },
+  ] } }])
+  await expect(provisionDeclaredDatabaseStorage({ query: async () => undefined })).rejects.toThrow('storage failed')
+  expect(later).not.toHaveBeenCalled()
+})

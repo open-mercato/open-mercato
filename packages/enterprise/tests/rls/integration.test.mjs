@@ -9,7 +9,7 @@ const databaseUrl = process.env.OM_RLS_TEST_DATABASE_URL?.trim()
 
 async function verifyRegression(context, mode) {
   const catalogBoundary = mode === 'catalog'
-  const expectedChecks = catalogBoundary ? 24 : 16
+  const expectedChecks = catalogBoundary ? 25 : 16
   let output
   try {
     const result = await execute(process.execPath, [

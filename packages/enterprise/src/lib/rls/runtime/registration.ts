@@ -11,6 +11,7 @@ import { verifyTenantTablePolicies } from './policies'
 import { verifyMaintenanceDatabaseRole, verifyRuntimeDatabaseRole } from './roles'
 import { currentTenantBoundaryScope, runWithTenantBoundary, runWithFreshTenantBoundary } from './scope'
 import { registerTenantBoundaryRequestResolver } from './requests'
+import { createTenantMigrationHooks } from './migrations'
 
 const registrationKey = Symbol.for('@open-mercato/enterprise.tenantBoundaryRegistration.v1')
 type RegistrationState = { configurationKey: string }
@@ -29,8 +30,12 @@ export function createTenantBoundaryAdapter(
 ): DatabaseRuntimeAdapter {
   let reviewedManifest: ReturnType<typeof loadTenantTableManifest> | undefined
   const manifest = () => reviewedManifest ??= loadTenantTableManifest(configuration)
+  const { beforeMigrate, afterMigrate } = createTenantMigrationHooks(configuration, env, manifest)
   return Object.freeze({
     id: 'enterprise.tenant-boundaries', version: '1', configurationKey,
+    beforeMigrate, afterMigrate,
+    recoverMigrationReindex: true,
+    storageMode: () => 'validate' as const,
     run: runWithTenantBoundary,
     runFresh: runWithFreshTenantBoundary,
     currentContext: () => currentTenantBoundaryScope()?.context,

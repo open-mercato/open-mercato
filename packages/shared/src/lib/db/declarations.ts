@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { DatabaseExecutionContext, DatabaseTableMetadata } from './runtime'
+import type { DatabaseExecutionContext, DatabaseStorageDescriptor, DatabaseTableMetadata } from './runtime'
 
 export type DatabaseRequestInput = Readonly<{
   pathname: string
@@ -27,7 +27,16 @@ export type DatabaseJobProvider = Readonly<{
   matches(input: DatabaseJobInput): boolean
   resolve(input: DatabaseJobInput): Promise<DatabaseExecutionContext>
 }>
+export type DatabaseStorageConnection = Readonly<{
+  query(text: string, values?: readonly unknown[]): Promise<unknown>
+}>
+export type DatabaseStorageProvider = Readonly<{
+  id: string
+  descriptor: DatabaseStorageDescriptor
+  provision(connection: DatabaseStorageConnection): Promise<void>
+}>
 export type DatabaseModuleDeclarations = Readonly<{
+  storageProviders?: readonly DatabaseStorageProvider[]
   jobProviders?: readonly DatabaseJobProvider[]
   requestProviders?: readonly DatabaseRequestProvider[]
   bindingValidators?: readonly DatabaseBindingValidator[]
@@ -85,4 +94,11 @@ export async function resolveDeclaredDatabaseJobContext(input: DatabaseJobInput)
     throw new Error('[internal] Conflicting database job tenant identities')
   }
   return databaseJobTenantContext(metadataTenant ?? payloadTenant, input.queue)
+}
+
+export async function provisionDeclaredDatabaseStorage(connection: DatabaseStorageConnection): Promise<void> {
+  const providers = [...declarations().values()].flatMap((entry) => entry.storageProviders ?? [])
+  const identities = providers.map((provider) => provider.id)
+  if (new Set(identities).size !== identities.length) throw new Error('[internal] Ambiguous database storage providers')
+  for (const provider of providers) await provider.provision(connection)
 }

@@ -10,6 +10,10 @@ import { assertTenantTableInventory, parseTenantTableManifest, readTenantCatalog
 import { verifyRuntimeDatabaseRole } from '../../src/lib/rls/runtime/roles'
 import { reconcileTenantTablePolicies, rollbackTenantTablePolicies, tenantPolicyName, verifyTenantTablePolicies } from '../../src/lib/rls/runtime/policies'
 import { createTenantBoundaryAdapter } from '../../src/lib/rls/runtime/registration'
+import { createTenantMigrationHooks } from '../../src/lib/rls/runtime/migrations'
+import { Migration20261113160000 } from '../../src/modules/tenant_boundaries/migrations/Migration20261113160000'
+import { registerDatabaseModuleDeclarations } from '@open-mercato/shared/lib/db/declarations'
+import { registerDatabaseRuntimeAdapter } from '@open-mercato/shared/lib/db/runtime'
 import { runWithTenantBoundary } from '../../src/lib/rls/runtime/scope'
 
 const databaseUrl = process.env.OM_RLS_TEST_DATABASE_URL
@@ -286,6 +290,52 @@ try {
     } finally {
       await maintenance.end()
       lifecycle.dispose()
+    }
+  })
+
+  await check('activated migration hooks preflight, reconcile, rollback and re-enable with no pending schema migrations', async () => {
+    await admin.query(`grant create on schema ${quoteBoundaryIdentifier(schema)} to ${quoteBoundaryIdentifier(maintenanceRole)}`)
+    await admin.query(`alter table ${relation} owner to ${quoteBoundaryIdentifier(maintenanceRole)}`)
+    const env = { DATABASE_URL: runtimeUrl.toString(), OM_TENANT_RLS_MAINTENANCE_DATABASE_URL: maintenanceUrl.toString() }
+    const configuration = { enabled: true, poolMode: 'direct', schema, manifestPath } as const
+    const adapter = createTenantBoundaryAdapter(configuration, env, `${suffix}-migration`)
+    registerDatabaseRuntimeAdapter(adapter)
+    let failStorage = true
+    registerDatabaseModuleDeclarations([{ moduleId: 'runtime-fixture', declarations: { storageProviders: [{
+      id: 'runtime-fixture.storage', descriptor: { kind: 'fixture', schema, tables: ['storage_probe'], configuration: {} },
+      provision: async (connection) => {
+        await connection.query(`create table if not exists ${quoteBoundaryIdentifier(schema)}.storage_probe (id uuid primary key)`)
+        if (failStorage) throw new Error('[internal] Deliberate storage provisioning failure')
+      },
+    }] } }])
+    const previousEnvironment = process.env
+    try {
+      const hooks = createTenantMigrationHooks(configuration, env, async () => manifest)
+      await hooks.beforeMigrate()
+      await assert.rejects(hooks.afterMigrate(), /Deliberate storage provisioning failure/)
+      assert.equal((await admin.query('select to_regclass($1) as relation', [`${schema}.storage_probe`])).rows[0].relation, null)
+      failStorage = false
+      await hooks.afterMigrate()
+      await verifyPolicy()
+      await hooks.rollbackPolicies()
+      await assert.rejects(verifyPolicy(), /enabled and forced/)
+      const migration = Object.create(Migration20261113160000.prototype) as Migration20261113160000
+      process.env = { ...previousEnvironment, OM_TENANT_RLS: 'off' }
+      await migration.up()
+      await assert.rejects(verifyPolicy(), /enabled and forced/)
+      process.env = { ...previousEnvironment, ...env, OM_TENANT_RLS: 'on', OM_TENANT_RLS_POOL_MODE: 'direct', OM_TENANT_RLS_SCHEMA: schema, OM_TENANT_RLS_MANIFEST: manifestPath }
+      await migration.up()
+      await hooks.beforeMigrate()
+      await hooks.afterMigrate()
+      await migration.down()
+      await assert.rejects(verifyPolicy(), /enabled and forced/)
+      await hooks.afterMigrate()
+      await hooks.afterMigrate()
+      await verifyPolicy()
+    } finally {
+      process.env = previousEnvironment
+      delete (globalThis as Record<symbol, unknown>)[Symbol.for('@open-mercato/shared.databaseRuntime.v1')]
+      delete (globalThis as Record<symbol, unknown>)[Symbol.for('@open-mercato/shared.databaseModuleDeclarations.v1')]
     }
   })
 
