@@ -103,7 +103,7 @@ This ensures design decisions are documented and the codebase remains well-under
 
 Use a same-repository branch under `stabilize/` (for example `stabilize/main-2026-11-05`) for a stabilization PR. CI automatically runs full typechecking, the full unit suite, and all 15 integration shards when that PR opens, reopens, or receives a new commit. Ordinary PRs retain affected scope; shared-code and workflow edits can still require broader validation. Existing pushes to `main` and release lines retain full validation.
 
-Label changes do not start or cancel CI. The legacy `ci-full` label no longer controls scheduling or scope, including on ordinary PRs. Use the stabilization branch convention for new stabilization work instead of relying on label timing or historical `fix/stabilize-*` branch names. A fork branch with the same prefix retains normal PR scope.
+Label changes do not start or cancel CI. The `ci-full` label selects full typechecking, the full unit suite, and all 15 integration shards for same-repository PRs on their next opened, synchronize, or reopened event. Use the stabilization branch convention for new stabilization work so the initial run has full scope. Fork PRs retain normal scope, including when they have the label or branch prefix.
 
 ### Enterprise Module Contributions
 
