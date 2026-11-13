@@ -35,6 +35,9 @@ an authorized rotation outcome, or a qualified existing-run report.
   Keep previous/target keys and recovery identities in independently retained custody.
 - Never automatically retire keys, release the maintenance fence, restart writers,
   restore over the live database, promote a target or perform a production cutover.
+- Never infer application cutover readiness from a scoped pass. Keep the full fence
+  until every tenant/org sharing the changed DEK/root or app key profile is covered
+  under the same intended target, including excluded-data owner requirements.
 - Creating/editing this skill or inspecting its examples does not authorize running
   a rotation, provisioning a database or installing/upgrading software.
 

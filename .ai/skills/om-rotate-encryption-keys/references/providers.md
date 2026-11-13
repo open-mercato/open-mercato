@@ -71,6 +71,17 @@ automatic provisioning, old-version overwrite or deletion occurs.
 
 ## Provisioning and release remain separate
 
+A DEK is tenant-wide across organizations; a derived target root is shared across
+the application's tenants. A changed app Vault prefix/endpoint can span that whole
+key domain too. A scoped `--org` or single-tenant pass is not global cutover proof.
+Keep the full offline fence until every tenant/org sharing the changed key/root
+uses the same intended target. If old roots differ, perform separately authorized
+per-tenant phases in the same offline window without restarting apps between them.
+Do not broaden a phase's mutation scope without authorization. Excluded system-key
+and independent inner-secret owners must confirm compatibility with the new shared
+profile; otherwise keep the fence. Never turn a scoped report into an app-release
+authorization or silently retire the remaining old-key data.
+
 Before an explicitly authorized operator stages a new Vault latest version, the
 fence must already be in place and old versions/custody must be retained.
 Vault DEK automation must stay paused through verification and controlled app

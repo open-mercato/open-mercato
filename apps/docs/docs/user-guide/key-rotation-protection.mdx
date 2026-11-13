@@ -11,6 +11,24 @@ Core acknowledgment neither creates an Enterprise backup nor verifies rotation c
 
 ## Enterprise prerequisites
 
+### Key-domain cutover prerequisite
+
+A passed report covers only its declared SQL scope. A tenant DEK is shared across
+that tenant's organizations, and a derived target root is shared by the application
+configuration across tenants. Changing a shared Vault prefix/endpoint can also
+affect every tenant using that application profile. A successful `--org` or
+single-tenant run therefore does **not** authorize a global application cutover.
+
+Keep the entire maintenance fence until every tenant/organization sharing the
+changed key or root has been completed under the same intended target. If old
+derived roots differ, perform separately scoped per-tenant phases in the same
+offline window, using the correct previous root and the same intended target
+configuration. Do not restart applications between those phases. Account for
+excluded system-key records and independent inner-secret owners as well: tenant
+verification does not migrate or prove those records, so keep the fence when a
+shared target configuration would make them unreadable. Never infer key-domain
+completion from a scoped `passed` report.
+
 Install the commercially licensed Enterprise package, enable both `OM_ENABLE_ENTERPRISE_MODULES=true` and `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=true`, and set `OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED=true` only when you have rights to use the installed version. The attestation is an operator declaration, not a license server or cryptographic entitlement proof; module flags alone only enable modules.
 
 Before starting, stop all application replicas, workers and schedulers. Use a dedicated offline maintenance connection whose database role can read every selected row, including under RLS/FORCE RLS. Other non-superuser roles must have no effective write/ownership privileges on selected tables or encryption control tables; no other client sessions or prepared transactions may remain. Preflight refuses when it cannot prove this fence. The command does not terminate sessions or revoke grants automatically. Database superusers and the host operator remain trusted; do not run independent administrative writes during maintenance.
