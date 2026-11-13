@@ -5,6 +5,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { performance } from 'node:perf_hooks'
 import { getSslConfig } from './ssl'
+import { beginDatabaseInitialization, configureDatabasePool, resolveDatabaseConnectionUrl, type DatabasePoolLifecycle } from './runtime'
 import { createLogger } from '../logger'
 import {
   getTelemetryRuntime,
@@ -22,7 +23,9 @@ const logger = createLogger('shared').child({ component: 'orm' })
 export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
 
 let ormInstance: AppMikroORM | null = null
+let ormInitialization: Promise<AppMikroORM> | null = null
 let disposePoolInstrumentation: (() => void) | undefined
+let databasePoolLifecycle: DatabasePoolLifecycle | undefined
 
 // Use globalThis so standalone apps survive duplicated shared package module instances.
 const GLOBAL_ENTITIES_KEY = '__openMercatoOrmEntities__'
@@ -355,12 +358,20 @@ export async function getOrm() {
   if (ormInstance) {
     return ormInstance
   }
+  if (ormInitialization) return ormInitialization
+  ormInitialization = initializeOrm().finally(() => { ormInitialization = null })
+  return ormInitialization
+}
 
+async function initializeOrm(): Promise<AppMikroORM> {
   const entities = getOrmEntities()
-  const clientUrl = process.env.DATABASE_URL
-  if (!clientUrl) {
+  const defaultClientUrl = process.env.DATABASE_URL
+  if (!defaultClientUrl) {
     throw new Error('DATABASE_URL is not set')
   }
+  const clientUrl = resolveDatabaseConnectionUrl('runtime', defaultClientUrl)
+  const requiresRuntimeValidation = beginDatabaseInitialization()
+  let createdPool: (ObservablePool & { ended?: boolean; end(): Promise<void> }) | undefined
 
   // Parse connection pool settings from environment
   const {
@@ -394,7 +405,7 @@ export async function getOrm() {
     })
   }
 
-  ormInstance = await MikroORM.init<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>({
+  const initialized = await MikroORM.init<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>({
     driver: PostgreSqlDriver,
     clientUrl,
     entities,
@@ -424,9 +435,13 @@ export async function getOrm() {
       options: connectionOptions,
       ssl: sslConfig,
       onPoolCreated: (pool: ObservablePool) => {
+        createdPool = pool as typeof createdPool
         disposePoolInstrumentation?.()
         attachPoolErrorHandlers(pool)
         disposePoolInstrumentation = instrumentPrimaryPool(pool)
+        databasePoolLifecycle = configureDatabasePool(pool, {
+          id: 'primary', purpose: 'runtime', tables: 'primary',
+        })
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
           logger.info('pg pool created with options', {
             max: pool.options?.max,
@@ -439,15 +454,37 @@ export async function getOrm() {
     },
   })
 
-  return ormInstance
+  try {
+    if (requiresRuntimeValidation) {
+      initialized.em.getKysely()
+      if (!databasePoolLifecycle) throw new Error('[internal] Database driver did not register its runtime pool')
+    }
+    await databasePoolLifecycle?.ready()
+  } catch (error) {
+    try {
+      await initialized.close(true)
+      if (createdPool && !createdPool.ended) await createdPool.end()
+      databasePoolLifecycle?.dispose()
+      databasePoolLifecycle = undefined
+      disposePoolInstrumentation?.()
+      disposePoolInstrumentation = undefined
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], '[internal] Database runtime initialization and cleanup failed')
+    }
+    throw error
+  }
+  ormInstance = initialized
+  return initialized
 }
 
 
 async function closeOrmIfLoaded(): Promise<void> {
   if (ormInstance) {
+    await ormInstance.close(true)
+    databasePoolLifecycle?.dispose()
+    databasePoolLifecycle = undefined
     disposePoolInstrumentation?.()
     disposePoolInstrumentation = undefined
-    await ormInstance.close(true)
     ormInstance = null
   }
 }

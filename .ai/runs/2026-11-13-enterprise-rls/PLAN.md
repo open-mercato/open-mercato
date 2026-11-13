@@ -11,9 +11,9 @@ Engine: om-auto-continue-pr-loop
 | Phase | Step | Title | Exec | Status | Commit |
 | --- | --- | --- | --- | --- | --- |
 | 0 | 0.1 | Preserve completed isolated connection proof and integration runner | inline | done | 4349cbf789 |
-| 1 | 1.1 | Complete activation design and compatibility/security review | inline | todo | — |
-| 1 | 1.1-review-fix | Define activation lifetime contracts and executable step exits | inline | todo | — |
-| 1 | 1.2 | Add edition-neutral database lifecycle and execution scope hooks | inline | todo | — |
+| 1 | 1.1 | Complete activation design and compatibility/security review | inline | done | 349e99034a |
+| 1 | 1.1-review-fix | Define activation lifetime contracts and executable step exits | inline | done | 6946667369 |
+| 1 | 1.2 | Add edition-neutral database lifecycle and execution scope hooks | inline | done | this commit |
 | 1 | 1.3 | Implement enterprise scoped pool ownership and topology guards | inline | todo | — |
 | 1 | 1.4 | Implement table manifest, effective policy and runtime role verification | inline | todo | — |
 | 1 | 1.5 | Register enterprise enforcement before ORM initialization | inline | todo | — |
