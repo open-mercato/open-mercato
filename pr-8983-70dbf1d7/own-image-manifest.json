@@ -1,0 +1,77 @@
+[
+  {
+    "file": "own-desktop-default.png",
+    "size": 206896,
+    "sha256": "dd6f156eda8d516095cbe6b177b9e538d0b2311c2c1a918de10af800e90930b1"
+  },
+  {
+    "file": "own-conflict-1.png",
+    "size": 216200,
+    "sha256": "ec8f6144903009c4610eafbdfc01b4b7aaa81743122bbdd0eeffe6bd8ec59fcf"
+  },
+  {
+    "file": "own-conflict-10.png",
+    "size": 216873,
+    "sha256": "fb1b45120b98a64da867a6d41ceeb7df8e559438ebaf2fe4b986a051993f2ed3"
+  },
+  {
+    "file": "own-conflict-recovered.png",
+    "size": 205255,
+    "sha256": "679224d2f68838ced2849a127c556fa60468aeb97a3280a561d8f51df95ee5e5"
+  },
+  {
+    "file": "own-server-error.png",
+    "size": 208494,
+    "sha256": "06ccded464a646fd5c3713f83128f76b7cc6ac2fbbe171ee1f98f1432e4cae09"
+  },
+  {
+    "file": "own-server-retry.png",
+    "size": 206498,
+    "sha256": "b17ea99e426d56f5e5263c4d653ff02ab1ba28547cf56a2e08652601d726ad53"
+  },
+  {
+    "file": "own-queued-save.png",
+    "size": 203847,
+    "sha256": "65c14eabc544f498b6f606cee8fe4b6eda1c942560e1707ef9513f40590aec48"
+  },
+  {
+    "file": "own-followup-en-375.png",
+    "size": 194583,
+    "sha256": "305fb2b4c1646740ce9de8a667e292f7884546fee75250e4a95a4a9d9bbdb158"
+  },
+  {
+    "file": "own-followup-pl-375.png",
+    "size": 215888,
+    "sha256": "1d6e6c26145b8f9ce12e5082b2b0798993a65afd19f97a10bdef00bc3bcc3e64"
+  },
+  {
+    "file": "own-followup-de-375.png",
+    "size": 217733,
+    "sha256": "803d87811a89ed52fb52298e1ccc6e5e13b7eb7c7d9c5b15a9a98e29b709d098"
+  },
+  {
+    "file": "own-followup-es-375.png",
+    "size": 221629,
+    "sha256": "a10e4eb098ba0fa237945269b35af9b86298048559f1a8d0d73c9b0f28e2a938"
+  },
+  {
+    "file": "own-followup-ko-375.png",
+    "size": 193528,
+    "sha256": "5ab1361a179b510c65afb3497507500fd50de55b957ec33f9593ddffde9f9f5a"
+  },
+  {
+    "file": "own-followup-no-design-permission.png",
+    "size": 28816,
+    "sha256": "9b47ef272977d62bf4e72a35f97392f3c647e523bbe929871d4a280b4bc7f4b5"
+  },
+  {
+    "file": "own-state-retry-loading.png",
+    "size": 19282,
+    "sha256": "8b0c4dfceb3a1a29097d3ca28d40a3a115b57a410b453034759542c800eb9f0b"
+  },
+  {
+    "file": "own-state-retry-load-error.png",
+    "size": 31504,
+    "sha256": "6f61cef89c240cc4769550ca52f0f4dfc5df9abce4f7de16623417516d5eb34f"
+  }
+]
