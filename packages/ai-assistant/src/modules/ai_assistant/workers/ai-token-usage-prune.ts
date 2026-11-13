@@ -1,3 +1,4 @@
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
@@ -163,6 +164,7 @@ export async function runTokenUsagePrune(
     eventsDeleted = await pruneOldEvents(connection, cutoff, batchSize, options.tenantId)
   } catch (error) {
     logger.error('Failed to prune old events', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'ai_assistant', code: 'ai_assistant.usage_prune_failed' })
   }
 
   let dailyRowsReconciled = 0
@@ -170,6 +172,7 @@ export async function runTokenUsagePrune(
     dailyRowsReconciled = await reconcileSessionCounts(connection, now, RECONCILE_TRAILING_DAYS, options.tenantId)
   } catch (error) {
     logger.error('Failed to reconcile session counts', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'ai_assistant', code: 'ai_assistant.usage_reconcile_failed' })
   }
 
   logger.info('Token-usage prune done', { eventsDeleted, dailyRowsReconciled, retentionDays })
@@ -193,8 +196,13 @@ export default async function handle(
   const tenants: unknown = await em.getConnection().execute('select distinct tenant_id from ai_token_usage_events union select distinct tenant_id from ai_token_usage_daily')
   if (!Array.isArray(tenants)) throw new Error('[internal] Invalid AI usage tenant discovery result')
   for (const row of tenants as Array<{ tenant_id: string }>) {
-    await runAiMaintenanceTenant({ tenantId: row.tenant_id }, em, async (tenantEm) => {
-      await runTokenUsagePrune({ em: tenantEm, tenantId: row.tenant_id })
-    })
+    try {
+      await runAiMaintenanceTenant({ tenantId: row.tenant_id }, em, async (tenantEm) => {
+        await runTokenUsagePrune({ em: tenantEm, tenantId: row.tenant_id })
+      })
+    } catch (error) {
+      logger.error('Token-usage tenant maintenance failed', { err: error })
+      getTelemetryRuntime()?.reportError(error, { module: 'ai_assistant', code: 'ai_assistant.usage_tenant_maintenance_failed' })
+    }
   }
 }
