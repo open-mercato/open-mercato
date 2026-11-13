@@ -10,7 +10,7 @@ import {
 
 const logger = createLogger('customers')
 
-const REDACTED_INTERACTION_FIELDS = ['title', 'body', 'participants', 'linkedEntities'] as const
+const REDACTED_INTERACTION_FIELDS = ['title', 'body', 'participants', 'linkedEntities', 'custom'] as const
 
 export type CustomerAuditRedactionContext = {
   viewerUserId: string | null
@@ -69,9 +69,11 @@ function isHiddenEmailInteraction(
 }
 
 /**
- * Redacts a single `InteractionSnapshot`-shaped audit payload (`{ interaction: {...} }`,
+ * Redacts a single `InteractionSnapshot`-shaped audit payload (`{ interaction: {...}, custom: {...} }`,
  * the shape `customers.interaction` audit entries store). Mirrors the exact rule
- * {@link isEmailHiddenFrom} enforces on live CRM reads.
+ * {@link isEmailHiddenFrom} enforces on live CRM reads. `custom` is a sibling of
+ * `interaction`, not nested inside it, so it needs its own clear alongside the
+ * `redactRecordFields` pass over `interaction`.
  */
 function redactInteractionSnapshot(snapshot: unknown, ctx: CustomerAuditRedactionContext): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot
@@ -81,7 +83,9 @@ function redactInteractionSnapshot(snapshot: unknown, ctx: CustomerAuditRedactio
   const interactionRecord = interaction as Record<string, unknown>
   const personEntityId = typeof interactionRecord.entityId === 'string' ? interactionRecord.entityId : null
   if (!isHiddenEmailInteraction(interactionRecord, personEntityId, ctx)) return snapshot
-  return { ...record, interaction: redactRecordFields(interactionRecord) }
+  const next = { ...record, interaction: redactRecordFields(interactionRecord) }
+  if ('custom' in next) next.custom = null
+  return next
 }
 
 /**

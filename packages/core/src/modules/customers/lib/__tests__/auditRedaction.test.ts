@@ -133,6 +133,42 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     expect(redacted.changesJson).toEqual({ status: { from: 'planned', to: 'done' } })
   })
 
+  it('redacts the custom-field snapshot alongside title/body for a private email when the viewer is not the author', () => {
+    const entry = interactionEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'private',
+          authorUserId: OWNER,
+          title: 'Private subject',
+          body: 'Private body',
+        },
+        custom: { privateEmail: 'ghost@example.com', note: 'internal' },
+      },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    expect((redacted.snapshotBefore as any).custom).toBeNull()
+  })
+
+  it('leaves the custom-field snapshot visible to the email author', () => {
+    const entry = interactionEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'private',
+          authorUserId: OWNER,
+          title: 'Private subject',
+          body: 'Private body',
+        },
+        custom: { privateEmail: 'ghost@example.com', note: 'internal' },
+      },
+    })
+    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    expect((redacted.snapshotBefore as any).custom).toEqual({ privateEmail: 'ghost@example.com', note: 'internal' })
+  })
+
   it('leaves non-email interactions untouched', () => {
     const entry = interactionEntry({
       snapshotBefore: {
@@ -233,6 +269,36 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
     const interactions = (redacted.snapshotBefore as any).interactions
     expect(interactions[0].participants).toBeNull()
     expect(interactions[0].linkedEntities).toBeNull()
+  })
+
+  it('redacts the custom-field snapshot on an embedded email row too', () => {
+    const entry = personDeleteEntry([
+      {
+        interactionType: 'email',
+        authorUserId: OWNER,
+        title: 'Secret',
+        body: 'Secret body',
+        custom: { privateEmail: 'ghost@example.com' },
+      },
+    ])
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const interactions = (redacted.snapshotBefore as any).interactions
+    expect(interactions[0].custom).toBeNull()
+  })
+
+  it('leaves the custom-field snapshot visible on an embedded email row for its own author', () => {
+    const entry = personDeleteEntry([
+      {
+        interactionType: 'email',
+        authorUserId: OWNER,
+        title: 'Secret',
+        body: 'Secret body',
+        custom: { privateEmail: 'ghost@example.com' },
+      },
+    ])
+    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const interactions = (redacted.snapshotBefore as any).interactions
+    expect(interactions[0].custom).toEqual({ privateEmail: 'ghost@example.com' })
   })
 
   it('applies the same fail-closed rule to customers.company delete snapshots', () => {
