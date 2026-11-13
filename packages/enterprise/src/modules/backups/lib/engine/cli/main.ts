@@ -15,15 +15,28 @@ import { basename,dirname,isAbsolute,resolve } from 'node:path'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { getBackupStatus } from '../status'
 import { recipientsFromFile, identitiesFromFile } from '../crypto'
-import { progressRenderer } from '../progress'
+import { progressRenderer, type RenderedProgressSink } from '../progress'
+import { createCliPresentation, type CliProgressMode } from '../cli-presentation'
 import { BackupError, shellQuote } from '../errors'
 import { readBoundedFile,privateDirectory,atomicStream } from '../artifacts'
 import { bytes } from '../streams'
 import { backupTranslation } from '../locale'
-import type { NativeOptions, BackupSource, RestoreTarget } from '../types'
+import type { NativeOptions, BackupSource, RestoreTarget, ProgressEvent } from '../types'
 
 export async function runBackupCli(argv: string[], io: { stdout: (text: string) => void; stderr: (text: string) => void; appWrapper?: boolean; labels?: Record<string, string>; signal?: AbortSignal; sourceFactory?: (options: NativeOptions) => BackupSource; targetFactory?: (options: NativeOptions) => RestoreTarget } = { stdout: (text) => process.stdout.write(text), stderr: (text) => process.stderr.write(text) }): Promise<number> {
   const requestId=randomUUID()
+  const terminalOutput = { write: (text: string | Uint8Array) => { io.stderr(String(text)); return true }, get isTTY() { return process.stderr.isTTY }, get columns() { return process.stderr.columns }, get rows() { return process.stderr.rows } }
+  const progressArgument = argv.findIndex(value => value === '--progress')
+  let structuredProgress = argv.includes('--progress=json') || (progressArgument >= 0 && argv[progressArgument + 1] === 'json')
+  let render: RenderedProgressSink | undefined
+  let presentation = createCliPresentation({ mode: structuredProgress ? 'json' : process.stderr.isTTY ? 'tty' : 'plain', output: terminalOutput, suspend: () => render?.suspend() })
+  const startedAt = Date.now()
+  let latestProgress: ProgressEvent | undefined
+  const notice = (phase: string, text: string) => {
+    render?.suspend()
+    if (structuredProgress) io.stderr(JSON.stringify({ schemaVersion: 1, type: 'phase.changed', runId: latestProgress?.runId ?? requestId, phase, entity: text, rowsDone: '0', rowsTotal: '0', rowsTotalExact: false, bytesDone: '0', chunksDone: 0, at: new Date().toISOString() }) + '\n')
+    else presentation.status('warn', text)
+  }
   const commands=['preflight','create','status','verify','restore','exercise','help']
   let command=commands.includes(argv[0])?argv[0]:'unknown'
   let json = argv.includes('--json')
@@ -81,7 +94,28 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     if (values['verify-mode'] && !['full', 'streaming'].includes(values['verify-mode'])) throw new BackupError('BACKUP_INVALID_VERIFY_MODE', 2)
     const progressMode = values.progress ?? (process.stderr.isTTY ? 'tty' : 'plain')
     if (!['tty', 'plain', 'json', 'verbose', 'none'].includes(String(progressMode))) throw new BackupError('BACKUP_INVALID_PROGRESS', 2)
-    const progress = progressRenderer(progressMode as 'tty' | 'plain' | 'json' | 'verbose' | 'none', { write: (text) => { io.stderr(String(text)); return true },get columns(){return process.stderr.columns},get rows(){return process.stderr.rows} })
+    structuredProgress = progressMode === 'json'
+    render = progressRenderer(progressMode as CliProgressMode, terminalOutput)
+    presentation = createCliPresentation({ mode: progressMode as CliProgressMode, output: terminalOutput, suspend: () => render?.suspend() })
+    const titles = { create: 'backups.presentation.command.create', verify: 'backups.presentation.command.verify', restore: 'backups.presentation.command.restore', exercise: 'backups.presentation.command.exercise', status: 'backups.presentation.command.status', preflight: 'backups.presentation.command.preflight' } as const
+    const title = backupTranslation(titles[command as keyof typeof titles] ?? 'backups.cli.help')
+    const totalSteps = command === 'restore' || command === 'exercise' ? 3 : command === 'create' || command === 'verify' ? 2 : 1
+    let displayedStep = 1
+    presentation.title(title)
+    if (command !== 'status') presentation.step(1, totalSteps, backupTranslation('backups.presentation.phase.preflight'))
+    const progress = (event: ProgressEvent) => {
+      latestProgress = event
+      if (displayedStep === 1 && event.type === 'run.started' && (command === 'create' || command === 'verify' || ((command === 'restore' || command === 'exercise') && event.phase !== 'verify'))) {
+        presentation.status('ok', backupTranslation('backups.presentation.phase.preflight'))
+        displayedStep = 2
+        presentation.step(2, totalSteps, backupTranslation(command === 'create' ? 'backups.presentation.phase.create' : command === 'verify' ? 'backups.presentation.phase.verify' : 'backups.presentation.phase.restore'))
+      }
+      if (displayedStep === 2 && totalSteps === 3 && event.type === 'entity.done' && event.entitiesTotal !== undefined && event.entitiesDone === event.entitiesTotal) {
+        displayedStep = 3
+        presentation.step(3, 3, backupTranslation('backups.presentation.phase.checks'))
+      }
+      render!(event)
+    }
     const artifact = typeof values.artifact === 'string' ? values.artifact : parsed.positionals[1]
     const identities = typeof values['identity-file'] === 'string' ? await identitiesFromFile(values['identity-file']) : []
     let result: unknown
@@ -116,10 +150,11 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
       if (labels && (Object.keys(labels).length > 100000 || Object.values(labels).some((value) => typeof value !== 'string' || value.length > 4096))) throw new BackupError('BACKUP_INVALID_LABELS', 2)
       let confirmUnencrypted = Boolean(values['confirm-unencrypted'])
       if (values['no-encryption'] && !confirmUnencrypted && process.stdin.isTTY) {
+        render?.suspend()
         const prompt = createInterface({ input: process.stdin, output: process.stderr })
         try { confirmUnencrypted = await prompt.question(backupTranslation('backups.cli.unencryptedPrompt'), { signal: signal }) === 'UNENCRYPTED' } finally { prompt.close() }
       }
-      if (values['no-encryption'] && confirmUnencrypted) io.stderr(backupTranslation('backups.cli.unencrypted') + '\n')
+      if (values['no-encryption'] && confirmUnencrypted) notice('backup.warning.unencrypted', backupTranslation('backups.cli.unencrypted'))
       let createResume=typeof values.resume==='string'?values.resume:undefined
       if(createResume&&!/^[a-f0-9-]{36}$/.test(createResume)){const path=resolve(createResume),id=/^\.([a-f0-9-]{36})\.partial$/.exec(basename(path))?.[1];if(!id||resolve(required('output'))!==dirname(path))throw new BackupError('BACKUP_RESUME_PATH_MISMATCH',2);createResume=id}
       result = await createBackup({ source: (io.sourceFactory ?? createPostgresSource)(native), output: required('output'), workspace: required('workspace'), recipients, labels, jobs, resumeCommand: (id, digest) => resumeCommand('create', id, digest), noEncryption: values['no-encryption']===undefined?undefined:Boolean(values['no-encryption']), confirmUnencrypted, requireEncryption: process.env.OM_BACKUP_REQUIRE_ENCRYPTION === undefined ? false : parseBooleanToken(process.env.OM_BACKUP_REQUIRE_ENCRYPTION) !== false, chunkSizeBytes: values['chunk-size-bytes']===undefined?undefined:number('chunk-size-bytes',64*1024*1024), maxOutputBytes: values['max-output-bytes'] === undefined ? undefined : number('max-output-bytes', 0), resume:createResume, quiesced: Boolean(values.quiesced), identities, trustedPartialSha256: typeof values['trusted-partial-sha256'] === 'string' ? values['trusted-partial-sha256'] : undefined, takeOverLock: typeof values['take-over-lock'] === 'string' ? values['take-over-lock'] : undefined, progress, signal: signal })
@@ -133,19 +168,53 @@ export async function runBackupCli(argv: string[], io: { stdout: (text: string) 
     const identifiers=result as {restoreRunId?:string;backupId?:string}
     const output={ schemaVersion: 1, command, status: 'completed', warnings: unencrypted ? ['UNENCRYPTED'] : [], ...result as object,runId:identifiers.restoreRunId??identifiers.backupId??requestId }
     if(typeof values.report==='string'&&!['restore','exercise'].includes(command))await atomicStream(values.report,bytes(Buffer.from(JSON.stringify(output))))
+    render?.suspend()
+    const details = result && typeof result === 'object' ? result as Record<string, unknown> : {}
+    const lines: string[] = []
+    const detail = (key: Parameters<typeof backupTranslation>[0], value: unknown) => { if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') lines.push(`${backupTranslation(key)}: ${String(value)}`) }
+    detail('backups.presentation.label.run', output.runId)
+    detail('backups.presentation.label.backup', details.backupId)
+    detail('backups.presentation.label.state', details.status ?? 'completed')
+    detail('backups.presentation.label.artifact', details.artifactPath ?? artifact)
+    detail('backups.presentation.label.report', details.reportPath ?? values.report)
+    detail('backups.presentation.label.encryption', details.encryption)
+    detail('backups.presentation.label.consistency', details.consistency)
+    detail('backups.presentation.label.rows', latestProgress?.overallRowsDone ?? latestProgress?.rowsDone)
+    detail('backups.presentation.label.chunks', details.chunkCount ?? latestProgress?.chunksDone)
+    if (typeof details.entitiesDone === 'number' && typeof details.entitiesTotal === 'number') lines.push(`${details.entitiesDone}/${details.entitiesTotal} ${backupTranslation('backups.progress.completed')}`)
+    if (command === 'verify' || command === 'restore' || command === 'exercise') detail('backups.presentation.label.verification', backupTranslation(command !== 'verify' && values['verify-mode'] === 'streaming' ? 'backups.presentation.verification.streaming' : 'backups.presentation.verification.full'))
+    if (details.targetIdentity && typeof details.targetIdentity === 'object') detail('backups.presentation.label.target', JSON.stringify(details.targetIdentity))
+    detail('backups.presentation.label.confirmation', details.confirmationChallenge)
+    detail('backups.presentation.label.elapsed', `${Math.round((Date.now() - startedAt) / 1000)}s`)
+    const assurance = command === 'create' ? 'backups.presentation.assurance.created' : command === 'verify' ? 'backups.presentation.assurance.verified' : command === 'restore' ? 'backups.presentation.assurance.quarantined' : command === 'exercise' ? 'backups.presentation.assurance.exercise' : command === 'status' ? 'backups.presentation.assurance.status' : 'backups.presentation.verification.metadata'
+    lines.push(backupTranslation(assurance))
+    if (typeof details.resumeCommand === 'string') lines.push(`${backupTranslation('backups.presentation.label.resume')}: ${details.resumeCommand}`)
+    presentation.result(`${title} · ${backupTranslation(details.status === 'resumable' ? 'backups.presentation.resumable' : 'backups.presentation.completed')}`, lines, details.status === 'resumable' || unencrypted ? 'warn' : 'ok')
     io.stdout(JSON.stringify(output)+'\n')
     return 0
   } catch (error) {
     const inputFailure = error && typeof error === 'object' && (('code' in error && String(error.code).startsWith('ERR_PARSE_ARGS')) || ('name' in error && ['ZodError', 'SyntaxError'].includes(String(error.name))))
     const failure = signal.aborted ? new BackupError(signal.reason === 'deadline' ? 'BACKUP_DEADLINE' : 'BACKUP_INTERRUPTED', signal.reason === 'SIGTERM' ? 143 : signal.reason === 'deadline' ? 5 : 130, true) : error instanceof BackupError ? error : inputFailure ? new BackupError('BACKUP_INVALID_INPUT',2) : new BackupError('BACKUP_INVALID_INPUT_OR_FAILURE', 1)
     if (error instanceof BackupError && signal.aborted) failure.context = error.context
-    createLogger('backups').error('[internal] Backup command failed', { code: failure.code })
-    reportError(new Error(`[internal] ${failure.code}`), { module: 'backups', code: 'backups.command_failed', attributes: { failure_code: failure.code } })
+    render?.suspend()
+    if (!structuredProgress) createLogger('backups').error('[internal] Backup command failed', { code: failure.code })
     const output = { schemaVersion: 1, command,runId:failure.context.restoreRunId??failure.context.backupId??requestId,status: [130, 143].includes(failure.exitCode) ? 'interrupted' : failure.resumable ? 'resumable' : failure.exitCode === 2 || failure.exitCode === 3 ? 'refused' : 'failed', error: { code: failure.code, messageKey: 'backups.cli.error' }, warnings: [], ...failure.context }
+    const errorText = `${backupTranslation('backups.cli.error')} ${failure.code}`
+    const telemetryLogger = structuredProgress ? createLogger('telemetry', { write: record => notice(record.level === 'warn' ? 'backup.telemetry.warning' : `backup.${output.status}`, `${errorText}${failure.context.resumeCommand ? '\n' + failure.context.resumeCommand : ''}`) }) : undefined
+    reportError(new Error(`[internal] ${failure.code}`), { module: 'backups', code: 'backups.command_failed', attributes: { failure_code: failure.code }, logger: telemetryLogger })
     if (json) io.stdout(JSON.stringify(output) + '\n')
-    else io.stderr(`${backupTranslation('backups.cli.error')} ${failure.code}\n${failure.context.resumeCommand ? failure.context.resumeCommand + '\n' : ''}`)
+    if (!structuredProgress && !json) {
+      const lines: string[] = []
+      if (failure.resumable && failure.context.resumeCommand) {
+        lines.push(backupTranslation('backups.presentation.assurance.incomplete'))
+        if (command === 'restore' || command === 'exercise') lines.push(backupTranslation('backups.presentation.assurance.freshConfirmation'))
+        lines.push(`${backupTranslation('backups.presentation.label.resume')}: ${failure.context.resumeCommand}`)
+        presentation.result(`${backupTranslation('backups.presentation.resumable')} · ${failure.code}`, lines, 'warn')
+      } else presentation.error(errorText, lines)
+    }
     return failure.exitCode
   } finally {
+    render?.suspend()
     if (timeout) clearTimeout(timeout)
     process.removeListener('SIGINT', onInterrupt)
     process.removeListener('SIGTERM', onTerminate)
