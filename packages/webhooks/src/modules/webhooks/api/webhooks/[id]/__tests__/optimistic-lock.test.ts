@@ -56,6 +56,8 @@ jest.mock('../../../helpers', () => ({
     }),
   resolveWebhookRequestScope: jest.fn(async () => ({ container: mockContainer, em: mockEm, tenantId: 'tenant-1', organizationId: 'org-1' })),
   findScopedWebhook: jest.fn(async () => (webhookRecord.deletedAt ? null : webhookRecord)),
+  canRevealWebhookCredentialHeaders: jest.fn(async () => true),
+  translateWebhookCustomHeadersRejection: jest.fn(async () => 'rejected'),
   serializeWebhookDetail: (item: { id: string; updatedAt: Date }) => ({
     id: item.id,
     updatedAt: item.updatedAt.toISOString(),

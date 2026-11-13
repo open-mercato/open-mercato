@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -549,6 +550,10 @@ export function resolveAkeneoMediaTarget(params: {
     return 'variant'
   }
   return params.mappingTarget
+}
+
+function isEmptyCustomFieldValue(value: unknown): boolean {
+  return value === null || value === undefined || (Array.isArray(value) && value.length === 0)
 }
 
 function resolveCustomFieldValue(value: unknown, attribute: AkeneoAttribute, kind: AkeneoCustomFieldKind): unknown {
@@ -2022,6 +2027,23 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
   }
 
+  async function omitClearsOfEmptyFields(
+    entityId: string,
+    recordId: string,
+    values: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!Object.values(values).some((value) => value === null)) return values
+    const current = await loadCustomFieldSnapshot(em, {
+      entityId,
+      recordId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    return Object.fromEntries(
+      Object.entries(values).filter(([key, value]) => value !== null || !isEmptyCustomFieldValue(current[key])),
+    )
+  }
+
   async function applyCustomFieldMappings(params: {
     mapping: AkeneoDataMapping
     hierarchy: ResolvedHierarchy
@@ -2048,8 +2070,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ? [params.hierarchy.rootValues, params.hierarchy.mergedValues]
         : [params.product.values ?? {}, params.hierarchy.mergedValues]
       const rawValue = readLayeredAkeneoValue(sourceLayers, fieldMapping.attributeCode, settings.locale, settings.channel ?? null)
-      const value = resolveCustomFieldValue(rawValue, attribute, kind)
-      if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) continue
+      const resolved = resolveCustomFieldValue(rawValue, attribute, kind)
+      const value = isEmptyCustomFieldValue(resolved) ? null : resolved
       if (fieldMapping.target === 'product') {
         productCustomFields[normalizeFieldKey(fieldMapping.fieldKey)] = value
       } else {
@@ -2057,24 +2079,24 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       }
     }
 
-    await Promise.all([
-      setCustomFieldsIfAny({
-        dataEngine,
-        entityId: PRODUCT_ENTITY_ID,
-        recordId: params.localProductId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        values: productCustomFields,
-      }),
-      setCustomFieldsIfAny({
-        dataEngine,
-        entityId: VARIANT_ENTITY_ID,
-        recordId: params.localVariantId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        values: variantCustomFields,
-      }),
-    ])
+    const productValues = await omitClearsOfEmptyFields(PRODUCT_ENTITY_ID, params.localProductId, productCustomFields)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: PRODUCT_ENTITY_ID,
+      recordId: params.localProductId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: productValues,
+    })
+    const variantValues = await omitClearsOfEmptyFields(VARIANT_ENTITY_ID, params.localVariantId, variantCustomFields)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: VARIANT_ENTITY_ID,
+      recordId: params.localVariantId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: variantValues,
+    })
 
     await Promise.all([
       params.fieldsetPlan?.product?.code
@@ -2091,7 +2113,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         : Promise.resolve(),
     ])
 
-    if (Object.keys(productCustomFields).length > 0) {
+    if (Object.keys(productValues).length > 0) {
       await emitCatalogQueryIndexEvent(buildCommandContext(), {
         entityType: PRODUCT_ENTITY_ID,
         recordId: params.localProductId,
@@ -2101,7 +2123,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       })
     }
 
-    if (Object.keys(variantCustomFields).length > 0) {
+    if (Object.keys(variantValues).length > 0) {
       await emitCatalogQueryIndexEvent(buildCommandContext(), {
         entityType: VARIANT_ENTITY_ID,
         recordId: params.localVariantId,
@@ -2405,7 +2427,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       })
       return true
     } catch (error) {
-      if (isCrudHttpError(error) && error.status === 409) return false
+      if (isCrudHttpError(error) && (error.status === 409 || error.status === 404)) return false
       throw error
     }
   }

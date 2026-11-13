@@ -142,6 +142,32 @@ test('buildPrefixIndex groups keys by every dotted prefix', () => {
   assert.equal(index.has('a.b.c'), false, 'leaf keys have no downstream bucket')
 })
 
+test('a prepared prefix index preserves references across files without traversing keys again', () => {
+  const allKeys = new Set(['module.state.active', 'module.state.closed'])
+  const originalIterator = allKeys[Symbol.iterator].bind(allKeys)
+  let iterationCount = 0
+  allKeys[Symbol.iterator] = () => {
+    iterationCount += 1
+    return originalIterator()
+  }
+  const prefixIndex = buildPrefixIndex(allKeys)
+
+  for (const file of ['first.ts', 'second.ts']) {
+    const result = scanText('const label = t(`module.state.${state}`)', allKeys, { file, prefixIndex })
+
+    assert.deepEqual(result, {
+      refs: ['module.state.active', 'module.state.closed'].map((key) => ({
+        key,
+        file,
+        line: 1,
+        direct: false,
+      })),
+      dynamicCount: 1,
+    })
+  }
+  assert.equal(iterationCount, 1)
+})
+
 test('detects a t() call whose key argument sits on a following line (#4666)', () => {
   const text = [
     'const label = t(',

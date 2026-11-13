@@ -376,6 +376,11 @@ export class StaffTeamMemberAddress {
 export type StaffTimeEntrySource = TimeEntrySource
 export type StaffTimeProjectStatus = 'active' | 'on_hold' | 'completed'
 export type StaffTimeProjectMemberStatus = 'active' | 'inactive'
+export type StaffTimeTaskSource = 'internal' | 'portal'
+export type StaffTimeTaskCommentVisibility = 'internal' | 'customer'
+export type StaffTimeTaskCommentAuthorKind = 'staff' | 'customer'
+export type StaffSupportRoutedVia = 'category' | 'fallback'
+export type StaffSupportPortalStatus = 'received' | 'in_progress' | 'resolved'
 export type StaffTimeEntrySegmentType = 'work' | 'break'
 export type StaffTimeProjectBudgetKind = 'none' | 'hours' | 'amount'
 export type StaffTimeReportPeriodKind = 'week' | 'month' | 'year' | 'custom'
@@ -572,6 +577,9 @@ export class StaffTimeProject {
   @Property({ name: 'budget_alerted_at_percent', type: 'integer', nullable: true })
   budgetAlertedAtPercent?: number | null
 
+  @Property({ name: 'default_assignee_staff_member_id', type: 'uuid', nullable: true })
+  defaultAssigneeStaffMemberId?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -587,7 +595,10 @@ export class StaffTimeProject {
 @Index({ name: 'staff_time_project_members_project_idx', properties: ['organizationId', 'timeProjectId'] })
 @Index({ name: 'staff_time_project_members_member_idx', properties: ['organizationId', 'staffMemberId'] })
 @Index({ name: 'staff_time_project_members_unique_idx', properties: ['organizationId', 'tenantId', 'timeProjectId', 'staffMemberId'], options: { unique: true, where: 'deleted_at IS NULL' } })
+@Index({ name: 'staff_time_project_members_assigner_idx', properties: ['tenantId', 'organizationId', 'timeProjectId'], options: { where: "is_assigner = true AND status = 'active' AND deleted_at IS NULL" } })
 export class StaffTimeProjectMember {
+  [OptionalProps]?: 'status' | 'showInGrid' | 'isAssigner' | 'createdAt' | 'updatedAt'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -611,6 +622,9 @@ export class StaffTimeProjectMember {
 
   @Property({ name: 'show_in_grid', type: 'boolean', default: false })
   showInGrid: boolean = false
+
+  @Property({ name: 'is_assigner', type: 'boolean', default: false })
+  isAssigner: boolean = false
 
   @Property({ name: 'assigned_start_date', type: 'date' })
   assignedStartDate!: Date
@@ -684,8 +698,9 @@ export class StaffTimeTaskStatus {
 @Index({ name: 'staff_time_tasks_assignee_idx', properties: ['organizationId', 'assigneeStaffMemberId'] })
 @Index({ name: 'staff_time_tasks_sequence_unique_idx', properties: ['organizationId', 'tenantId', 'timeProjectId', 'sequenceNumber'], options: { unique: true, where: 'deleted_at IS NULL' } })
 @Index({ name: 'staff_time_tasks_reference_unique_idx', properties: ['organizationId', 'tenantId', 'reference'], options: { unique: true, where: 'deleted_at IS NULL' } })
+@Index({ name: 'staff_time_tasks_portal_customer_idx', properties: ['tenantId', 'organizationId', 'customerId', 'updatedAt'], options: { where: "source = 'portal' AND deleted_at IS NULL" } })
 export class StaffTimeTask {
-  [OptionalProps]?: 'sequenceNumber' | 'position' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'sequenceNumber' | 'position' | 'source' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -729,6 +744,110 @@ export class StaffTimeTask {
   @Property({ name: 'closed_at', type: Date, nullable: true })
   closedAt?: Date | null
 
+  @Property({ type: 'text', default: 'internal' })
+  source: StaffTimeTaskSource = 'internal'
+
+  @Property({ name: 'customer_id', type: 'uuid', nullable: true })
+  customerId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'staff_support_tickets' })
+@Index({ name: 'staff_support_tickets_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'staff_support_tickets_task_unique_idx', properties: ['tenantId', 'organizationId', 'taskId'], options: { unique: true, where: 'deleted_at IS NULL' } })
+@Index({ name: 'staff_support_tickets_reference_unique_idx', properties: ['tenantId', 'organizationId', 'supportReference'], options: { unique: true, where: 'deleted_at IS NULL' } })
+@Index({ name: 'staff_support_tickets_sequence_idx', properties: ['tenantId', 'organizationId', 'supportSequenceNumber'] })
+export class StaffSupportTicket {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'task_id', type: 'uuid' })
+  taskId!: string
+
+  @Property({ name: 'customer_snapshot', type: 'jsonb', nullable: true })
+  customerSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'reported_by_customer_user_id', type: 'uuid', nullable: true })
+  reportedByCustomerUserId?: string | null
+
+  @Property({ name: 'support_reference', type: 'text' })
+  supportReference!: string
+
+  @Property({ name: 'support_sequence_number', type: 'integer' })
+  supportSequenceNumber!: number
+
+  @Property({ name: 'category_value', type: 'text' })
+  categoryValue!: string
+
+  @Property({ name: 'category_snapshot', type: 'jsonb' })
+  categorySnapshot!: { value: string; label: string }
+
+  @Property({ name: 'routed_via', type: 'text' })
+  routedVia!: StaffSupportRoutedVia
+
+  @Property({ name: 'customer_request_snapshot', type: 'jsonb' })
+  customerRequestSnapshot!: { subject: string; body: string }
+
+  @Property({ name: 'unnotified_at', type: Date, nullable: true })
+  unnotifiedAt?: Date | null
+
+  @Property({ name: 'portal_status_published', type: 'text', nullable: true })
+  portalStatusPublished?: StaffSupportPortalStatus | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'staff_support_routing_rules' })
+@Index({ name: 'staff_support_routing_rules_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({
+  name: 'staff_support_routing_rules_category_unique_idx',
+  expression:
+    'create unique index "staff_support_routing_rules_category_unique_idx" on "staff_support_routing_rules" ("tenant_id", "organization_id", coalesce("category_value", \'\')) where "deleted_at" is null',
+})
+export class StaffSupportRoutingRule {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'category_value', type: 'text', nullable: true })
+  categoryValue?: string | null
+
+  @Property({ name: 'time_project_id', type: 'uuid' })
+  timeProjectId!: string
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -743,7 +862,7 @@ export class StaffTimeTask {
 @Index({ name: 'staff_time_task_comments_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'staff_time_task_comments_task_idx', properties: ['organizationId', 'taskId', 'createdAt'] })
 export class StaffTimeTaskComment {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'visibility' | 'authorKind' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -762,6 +881,18 @@ export class StaffTimeTaskComment {
 
   @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
   authorUserId?: string | null
+
+  @Property({ type: 'text', default: 'internal' })
+  visibility: StaffTimeTaskCommentVisibility = 'internal'
+
+  @Property({ name: 'author_kind', type: 'text', default: 'staff' })
+  authorKind: StaffTimeTaskCommentAuthorKind = 'staff'
+
+  @Property({ name: 'author_customer_user_id', type: 'uuid', nullable: true })
+  authorCustomerUserId?: string | null
+
+  @Property({ name: 'author_display_snapshot', type: 'jsonb', nullable: true })
+  authorDisplaySnapshot?: { displayName: string } | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -1051,4 +1182,32 @@ export class StaffTimeReportEvent {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'staff_timesheet_preferences' })
+@Index({ name: 'staff_timesheet_preferences_unique_idx', properties: ['organizationId', 'tenantId', 'staffMemberId'], options: { unique: true, where: 'deleted_at IS NULL' } })
+export class StaffTimesheetPreference {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'staff_member_id', type: 'uuid' })
+  staffMemberId!: string
+
+  @Property({ name: 'last_project_id', type: 'uuid', nullable: true })
+  lastProjectId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }

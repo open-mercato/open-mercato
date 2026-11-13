@@ -3,7 +3,7 @@
  *
  * `TIME_TRACKING_SETTING_KEYS` used to be a frozen array, `normalizeTimeTrackingSettings`
  * a hand-written coercion per key, and `staffTimeTrackingSettingsSchema` a literal
- * `z.object`. All three now read this registry, and the eight keys the module shipped
+ * `z.object`. All three now read this registry, and the built-in keys the module ships
  * are registered here as built-ins — so with no contribution the read, the write, the
  * validating schema and the defaults are byte-identical to what they were.
  *
@@ -26,6 +26,9 @@ export const TIME_TRACKING_DEFAULTS_GROUP = 'defaults'
 export const TIME_TRACKING_TARGETS_GROUP = 'targets'
 export const TIME_TRACKING_WARNINGS_GROUP = 'warnings'
 export const TIME_TRACKING_ACCESS_GROUP = 'access'
+export const TIME_TRACKING_SUPPORT_GROUP = 'support'
+export const DEFAULT_SUPPORT_REFERENCE_PREFIX = 'SUP'
+export const supportReferencePrefixSchema = z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/)
 
 /**
  * Days past `assigned_end_date` that project access survives (spec D-12). The
@@ -44,6 +47,8 @@ export const timeTrackingRoundingUnitMinutesSchema = z.union([
 ])
 
 export const timeTrackingRoundingDirectionSchema = z.enum(['up', 'nearest'])
+
+export const timeTrackingEntryModeSchema = z.enum(['task', 'project'])
 
 export type TimeTrackingSettingKeyInput = {
   /** Group the value lives under in the settings object, e.g. `rounding`. */
@@ -120,7 +125,7 @@ export function timeTrackingSettingKeyIds(): string[] {
   return registry.ids()
 }
 
-/** The contributed keys only — the eight built-ins are rendered by the settings page's own form. */
+/** The contributed keys only — the built-ins are rendered by the settings page's own form. */
 export function contributedTimeTrackingSettingKeys(): TimeTrackingSettingKeyDefinition[] {
   return registry.list().filter((entry) => !entry.builtIn)
 }
@@ -167,6 +172,14 @@ const BUILT_IN_SETTING_KEYS: readonly TimeTrackingSettingKeyInput[] = [
     priority: BUILT_IN_STRATEGY_PRIORITY,
   },
   {
+    group: TIME_TRACKING_DEFAULTS_GROUP,
+    key: 'entryMode',
+    schema: timeTrackingEntryModeSchema,
+    default: 'task',
+    labelKey: 'staff.time_tracking.settings.defaults.entryMode',
+    priority: BUILT_IN_STRATEGY_PRIORITY,
+  },
+  {
     group: TIME_TRACKING_TARGETS_GROUP,
     key: 'dailyHours',
     schema: z.number().min(0).max(24).nullable(),
@@ -196,6 +209,14 @@ const BUILT_IN_SETTING_KEYS: readonly TimeTrackingSettingKeyInput[] = [
     schema: z.number().int().min(0).max(MAX_ASSIGNMENT_GRACE_DAYS),
     default: DEFAULT_ASSIGNMENT_GRACE_DAYS,
     labelKey: 'staff.time_tracking.settings.access.graceDays',
+    priority: BUILT_IN_STRATEGY_PRIORITY,
+  },
+  {
+    group: TIME_TRACKING_SUPPORT_GROUP,
+    key: 'referencePrefix',
+    schema: supportReferencePrefixSchema,
+    default: DEFAULT_SUPPORT_REFERENCE_PREFIX,
+    labelKey: 'staff.support.settings.referencePrefix',
     priority: BUILT_IN_STRATEGY_PRIORITY,
   },
 ]
