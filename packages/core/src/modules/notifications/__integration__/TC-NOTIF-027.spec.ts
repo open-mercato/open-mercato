@@ -15,7 +15,7 @@ test.describe('TC-NOTIF-027: Mark all read failure feedback and retry', () => {
       const button = panel.getByRole('button', { name: messages['notifications.markAllRead'], exact: true })
       const unreadTab = panel.getByRole('tab', { name: new RegExp(messages['notifications.filters.unread']) })
       await unreadTab.click()
-      const unreadBefore = await unreadTab.innerText()
+      const unreadBefore = await unreadTab.textContent() ?? ''
       const effects = observeNotificationEffects(page)
       const endpoint = '/api/notifications/mark-all-read'
       const pattern = `**${endpoint}`
