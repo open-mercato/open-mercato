@@ -6,6 +6,12 @@ jest.mock('../inventory/helpers', () => ({
   executeWmsCustomPostRoute: (...args: unknown[]) => executeWmsCustomPostRouteMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (key: string, fallback?: string) => (key === 'wms.errors.validationFailed' ? `translated:${fallback}` : key),
+  })),
+}))
+
 import { NextResponse } from 'next/server'
 import * as asnComplete from '../asns/[id]/complete/route'
 import * as asnReceive from '../asns/[id]/receive/route'
@@ -62,7 +68,7 @@ describe('WMS custom POST routes path id validation', () => {
 
     expect(response.status).toBe(400)
     const body = (await response.json()) as { error?: string; details?: Array<{ path?: unknown[] }> }
-    expect(body.error).toBe('Validation failed')
+    expect(body.error).toBe('translated:Validation failed')
     expect(body.details?.map((issue) => issue.path)).toEqual([[route.paramKey]])
     expect(executeWmsCustomPostRouteMock).not.toHaveBeenCalled()
   })

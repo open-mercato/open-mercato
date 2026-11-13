@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { executeWmsCustomPostRoute } from '../../../inventory/helpers'
 import { reRunReservationInputSchema } from '../../../../commands/sales-order-assignment'
 
@@ -19,7 +20,11 @@ export async function POST(
 ) {
   const paramsResult = paramsSchema.safeParse(routeContext.params)
   if (!paramsResult.success) {
-    return NextResponse.json({ error: 'Validation failed', details: paramsResult.error.issues }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      { error: translate('wms.errors.validationFailed', 'Validation failed'), details: paramsResult.error.issues },
+      { status: 400 },
+    )
   }
   const parsedParams = paramsResult.data
   const body = await readJsonSafe<Record<string, unknown>>(request, {})
