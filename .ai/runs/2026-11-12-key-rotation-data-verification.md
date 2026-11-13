@@ -170,3 +170,38 @@ The owner reviewed the setup-style terminal mockups and explicitly approved impl
 All eight configured commands passed in order with local Node 24.22.2, including the 51-task workspace test and production application build. Separate-agent source review found no unresolved blocker or major. Official operator guides/navigation and Enterprise overview, README and subscription feature lists pass documentation checks. Current-source actual terminal/JSON proof and immutable screenshots are recorded in `.ai/qa/2026-11-13-cli-presentation/`. Manual test instructions and the actual-output screenshots are published at https://github.com/open-mercato/open-mercato/pull/9334#issuecomment-6852295266. No archives, dumps, keys or raw private logs were uploaded. Required CI and manual QA remain separate; no merge was performed.
 
 This presentation/documentation amendment is complete. Original performance/resource acceptance and concluding release review remain open; the full fresh final-source cohort is not claimed. No isolated CI/workflow change was authorized or dispatched.
+
+
+## Requested AI operator skills — 2026-11-13
+
+Add an invocable operator skill for the existing CLI, bundle portable command/safety references, register it in the opt-in infra tier, install it locally, and document invocation in the official guide and PR comment. This is instruction/documentation work only; authoring does not authorize running backup, restore, key rotation or database provisioning. Preserve runtime code, machine contracts, current review state, commercial boundaries and outstanding performance acceptance.
+
+- [x] B.1 Author the operator skill and command references against the actual CLI.
+- [x] B.2 Validate registration, frontmatter, references, installation and behavioral scenarios.
+- [x] B.3 Install locally and publish invocation instructions and skill checks on the PR.
+
+
+## Owner-requested OS/Docker defaults and provider migration — 2026-11-13
+
+The owner requested automatic nonsecret operational defaults on macOS/Linux/Docker, complete official operator procedures and scenario proof in both PR comments. The owner explicitly confirmed all four source/target routes, including fallback-to-Vault, Vault-to-fallback and existing Vault key version rotation. Provider/key/custody selection and commercial rights remain explicit; no production operation, automatic key generation/retirement, fence release, remote TLS bypass or new CI job is authorized by this implementation request.
+
+- [x] C.1 Implement safe OS-aware recovery paths/client discovery and read-only configuration inspection.
+- [x] C.2 Add durable Docker maintenance/client support and validate actual runtime primitives.
+- [x] C.3 Verify native and simulated OS scenarios, precedence, permissions, custody, resume and refusal cases.
+- [x] C.4 Document default setup, custody and exact old/new provider procedures, including all tenants.
+- [x] C.5 Run source review/configured validation and publish current-source proof/manual instructions.
+
+- [x] D.1 Add read-only exact-version Vault source/target providers and neutral protected Core key/cache isolation.
+- [x] D.2 Verify four routes for single and all-tenant scopes against real Vault/PostgreSQL, plus refusal/drift controls.
+- [x] D.3 Verify provider resume bindings, current-target protection and retained old-key custody; update the operator skill.
+
+
+### Completed defaults/provider/operator amendment — production b04dc0e2a7
+
+All eight configured commands passed in order on local Node24.22.2 (full tests452.628s; production app build62.249s); no tracked production/generated files changed after the gate. The exact committed-source complete maintenance image passes7 read-only/network-none checks and both human/JSON Core refusals without overlays or database startup. JSON retains3 existing-schema1 records and the full KMS/source/persistence/Core warnings, with no ANSI/decorative icons or synthetic secret bytes; canonical security logging remains intact. The earlier raw-banner failure is retained in the small report.
+
+Real four-route/single/all-tenant PostgreSQL/Vault16-case proof remains bound to fc34 with all7 relevant runtime source hashes unchanged. The retained exactf1d full-maintenance SIGINT130/fresh-confirmation/same-run resume0 proves all143 ordered synthetic row fingerprints; all6 engine/config/launcher/guard Git objects remain identical through backup724. Whole web-runner memory failures are disclosed and do not become image or performance passes.
+
+Official scenario guides compile/link-check; both portable skills are installed and validated. Full manual instructions, actual reviewed output screenshots, automatic backup confirmation and evidence boundaries are published at https://github.com/open-mercato/open-mercato/pull/9334#issuecomment-6856183526. Only small sanitized reports/screenshots were uploaded, never backups, dumps, keys, private workspaces or raw logs. Source re-review found no new blocker/major in this amendment; native review is COMMENT because the authenticated actor authors the PR. Required CI and independent manual QA remain separate.
+
+This amendment is complete. Original3.1/3.2 performance/resource and concluding release acceptance remain pending; no threshold waiver or new isolated CI workflow was approved/dispatched. The owner-selected ready-for-review state is preserved. No merge, key retirement, fence release or recovery promotion occurred.
