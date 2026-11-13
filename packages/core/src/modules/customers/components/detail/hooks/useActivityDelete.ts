@@ -8,10 +8,37 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { InteractionSummary } from '../types'
 import type { GuardedMutationRunner } from './useInteractionMutations'
 
 const logger = createLogger('customers')
+
+const LEGACY_ACTIVITY_SOURCE = 'legacy-activity'
+const CANONICAL_DELETE_ENDPOINT = '/api/customers/interactions'
+const LEGACY_DELETE_ENDPOINT = '/api/customers/activities'
+
+/**
+ * A timeline row that still lives only in `customer_activities` has no canonical
+ * interaction for the interactions endpoint to find. The activities adapter bridges the
+ * row first and then deletes it. Its `updatedAt` is a placeholder copied from `createdAt`,
+ * not a version of the record the bridge creates, so sending it would turn every such
+ * delete into a false conflict.
+ */
+function resolveDeleteTarget(activity: InteractionSummary): { endpoint: string; version: string | null } {
+  if (activity.source === LEGACY_ACTIVITY_SOURCE) {
+    return { endpoint: LEGACY_DELETE_ENDPOINT, version: null }
+  }
+  return { endpoint: CANONICAL_DELETE_ENDPOINT, version: activity.updatedAt ?? null }
+}
+
+function reportActivityDeleteProblem(err: unknown, code: string, attributes: Record<string, string>): void {
+  try {
+    getTelemetryRuntime()?.reportError(err, { module: 'customers', code, attributes })
+  } catch (reportingErr) {
+    logger.warn('Activity delete problem could not be reported', { code, err: reportingErr })
+  }
+}
 
 export type UseActivityDeleteOptions = {
   runMutation?: GuardedMutationRunner
@@ -30,6 +57,7 @@ export type UseActivityDeleteResult = {
  * Shared delete handler for the activity timelines on customer detail pages:
  * confirms that the activity is removed everywhere, sends the optimistic-lock version,
  * routes through the page's guarded mutation when one is provided, and refreshes.
+ * Legacy-only rows go through the activities adapter, which bridges them before deleting.
  */
 export function useActivityDelete({
   runMutation,
@@ -45,6 +73,7 @@ export function useActivityDelete({
       await onAfterDelete()
     } catch (err) {
       logger.warn('onAfterDelete threw', { component: logContext, err })
+      reportActivityDeleteProblem(err, 'customers.activity_delete_refresh_failed', { component: logContext })
     }
   }, [logContext, onAfterDelete])
 
@@ -61,9 +90,10 @@ export function useActivityDelete({
         variant: 'destructive',
       })
       if (!confirmed) return
+      const target = resolveDeleteTarget(activity)
       const operation = () =>
-        withScopedApiRequestHeaders(buildOptimisticLockHeader(activity.updatedAt ?? null), () =>
-          apiCallOrThrow('/api/customers/interactions', {
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(target.version), () =>
+          apiCallOrThrow(target.endpoint, {
             method: 'DELETE',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ id: activity.id }),
@@ -83,6 +113,10 @@ export function useActivityDelete({
           return
         }
         logger.warn('Delete activity failed', { component: logContext, activityId: activity.id, err })
+        reportActivityDeleteProblem(err, 'customers.activity_delete_failed', {
+          component: logContext,
+          activityId: activity.id,
+        })
         flash(t('customers.activities.actions.deleteError', 'Could not delete activity'), 'error')
       }
     },
