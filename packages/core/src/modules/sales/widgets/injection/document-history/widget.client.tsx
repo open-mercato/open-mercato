@@ -66,7 +66,7 @@ const KIND_BG_COLORS = {
   comment: 'bg-muted',
 }
 
-const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = {
+export const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = {
   productId: { key: 'sales.documents.history.fields.product', fallback: 'Product' },
   productVariantId: { key: 'sales.documents.history.fields.variant', fallback: 'Variant' },
   name: { key: 'sales.documents.history.fields.name', fallback: 'Name' },
@@ -84,6 +84,46 @@ const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = 
   promotionCode: { key: 'sales.documents.history.fields.promotionCode', fallback: 'Promotion code' },
   customFields: { key: 'sales.documents.history.fields.customFields', fallback: 'Custom fields' },
   statusEntryId: { key: 'sales.documents.history.fields.status', fallback: 'Status' },
+  status: { key: 'sales.documents.history.fields.status', fallback: 'Status' },
+  fulfillmentStatus: { key: 'sales.documents.history.fields.fulfillmentStatus', fallback: 'Fulfillment status' },
+  paymentStatus: { key: 'sales.documents.history.fields.paymentStatus', fallback: 'Payment status' },
+  customerEntityId: { key: 'sales.documents.history.fields.customer', fallback: 'Customer' },
+  customerContactId: { key: 'sales.documents.history.fields.customerContact', fallback: 'Customer contact' },
+  customerSnapshot: { key: 'sales.documents.history.fields.customerSnapshot', fallback: 'Customer details' },
+  customerReference: { key: 'sales.documents.history.fields.customerReference', fallback: 'Customer reference' },
+  externalReference: { key: 'sales.documents.history.fields.externalReference', fallback: 'External reference' },
+  billingAddressId: { key: 'sales.documents.history.fields.billingAddress', fallback: 'Billing address' },
+  billingAddressSnapshot: { key: 'sales.documents.history.fields.billingAddress', fallback: 'Billing address' },
+  shippingAddressId: { key: 'sales.documents.history.fields.shippingAddress', fallback: 'Shipping address' },
+  shippingAddressSnapshot: { key: 'sales.documents.history.fields.shippingAddress', fallback: 'Shipping address' },
+  shippingMethodSnapshot: { key: 'sales.documents.history.fields.shippingMethod', fallback: 'Shipping method' },
+  paymentMethodSnapshot: { key: 'sales.documents.history.fields.paymentMethod', fallback: 'Payment method' },
+  deliveryWindowSnapshot: { key: 'sales.documents.history.fields.deliveryWindow', fallback: 'Delivery window' },
+  channelId: { key: 'sales.documents.history.fields.channel', fallback: 'Channel' },
+  exchangeRate: { key: 'sales.documents.history.fields.exchangeRate', fallback: 'Exchange rate' },
+  comments: { key: 'sales.documents.history.fields.comments', fallback: 'Comments' },
+  internalNotes: { key: 'sales.documents.history.fields.internalNotes', fallback: 'Internal notes' },
+  metadata: { key: 'sales.documents.history.fields.metadata', fallback: 'Metadata' },
+  adjustments: { key: 'sales.documents.history.fields.adjustments', fallback: 'Adjustments' },
+  taxInfo: { key: 'sales.documents.history.fields.taxInfo', fallback: 'Tax details' },
+  placedAt: { key: 'sales.documents.history.fields.placedAt', fallback: 'Placed at' },
+  dueAt: { key: 'sales.documents.history.fields.dueAt', fallback: 'Due at' },
+  expectedDeliveryAt: { key: 'sales.documents.history.fields.expectedDeliveryAt', fallback: 'Expected delivery' },
+  validUntil: { key: 'sales.documents.history.fields.validUntil', fallback: 'Valid until' },
+  lineItemCount: { key: 'sales.documents.history.fields.lineItemCount', fallback: 'Line item count' },
+  subtotalNetAmount: { key: 'sales.documents.history.fields.subtotalNet', fallback: 'Net subtotal' },
+  subtotalGrossAmount: { key: 'sales.documents.history.fields.subtotalGross', fallback: 'Gross subtotal' },
+  discountTotalAmount: { key: 'sales.documents.history.fields.discountTotal', fallback: 'Discount total' },
+  taxTotalAmount: { key: 'sales.documents.history.fields.taxTotal', fallback: 'Tax total' },
+  surchargeTotalAmount: { key: 'sales.documents.history.fields.surchargeTotal', fallback: 'Surcharge total' },
+  shippingNetAmount: { key: 'sales.documents.history.fields.shippingNet', fallback: 'Net shipping' },
+  shippingGrossAmount: { key: 'sales.documents.history.fields.shippingGross', fallback: 'Gross shipping' },
+  grandTotalNetAmount: { key: 'sales.documents.history.fields.grandTotalNet', fallback: 'Net grand total' },
+  grandTotalGrossAmount: { key: 'sales.documents.history.fields.grandTotalGross', fallback: 'Gross grand total' },
+  totalsSnapshot: { key: 'sales.documents.history.fields.totals', fallback: 'Totals' },
+  paidTotalAmount: { key: 'sales.documents.history.fields.paidTotal', fallback: 'Paid total' },
+  refundedTotalAmount: { key: 'sales.documents.history.fields.refundedTotal', fallback: 'Refunded total' },
+  outstandingAmount: { key: 'sales.documents.history.fields.outstanding', fallback: 'Outstanding amount' },
 }
 
 function normalizeChangedField(field: string): string {
@@ -97,7 +137,7 @@ function humanizeChangedField(field: string): string {
   return spaced.length > 0 ? `${spaced[0].toUpperCase()}${spaced.slice(1)}` : field
 }
 
-function translateChangedField(t: TranslateFn, field: string): string {
+export function translateChangedField(t: TranslateFn, field: string): string {
   const normalized = normalizeChangedField(field)
   const translation = CHANGED_FIELD_LABELS[normalized]
   return translation ? t(translation.key, translation.fallback) : humanizeChangedField(field)

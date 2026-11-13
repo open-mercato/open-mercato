@@ -13,13 +13,16 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from '../queue/fulltext-indexing'
 import type { VectorIndexJobPayload, VectorBatchRecord } from '../queue/vector-indexing'
-import { searchDebug, searchDebugWarn, searchError } from '../lib/debug'
+import { searchDebug, searchDebugWarn, searchError, reportSearchError } from '../lib/debug'
+import type { EncryptedCustomFieldKeysResolver } from '../lib/encrypted-custom-field-resolver'
 
 /**
  * Maximum number of pages to process during reindex to prevent infinite loops.
  * At 50 records per page, this allows up to 500,000 records per entity.
  */
 const MAX_PAGES = 10000
+
+type PlaintextExclusionLookup = (entityId: EntityId) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
 
 /**
  * Parameters for indexing a record.
@@ -31,6 +34,15 @@ export type IndexRecordParams = {
   organizationId?: string | null
   record: Record<string, unknown>
   customFields?: Record<string, unknown>
+}
+
+/**
+ * Parameters for indexing a batch of records by id in a single bulk write.
+ */
+export type IndexRecordsByIdParams = {
+  items: Array<{ entityId: EntityId; recordId: string }>
+  tenantId: string
+  organizationId?: string | null
 }
 
 /**
@@ -113,6 +125,7 @@ export type SearchIndexerOptions = {
   fulltextQueue?: Queue<FulltextIndexJobPayload>
   /** Queue for vector batch indexing */
   vectorQueue?: Queue<VectorIndexJobPayload>
+  encryptedCustomFieldKeysResolver?: EncryptedCustomFieldKeysResolver
 }
 
 /**
@@ -124,6 +137,7 @@ export class SearchIndexer {
   private readonly queryEngine?: QueryEngine
   private readonly fulltextQueue?: Queue<FulltextIndexJobPayload>
   private readonly vectorQueue?: Queue<VectorIndexJobPayload>
+  private readonly encryptedCustomFieldKeysResolver?: EncryptedCustomFieldKeysResolver
 
   constructor(
     private readonly searchService: SearchService,
@@ -134,12 +148,30 @@ export class SearchIndexer {
     this.queryEngine = options?.queryEngine
     this.fulltextQueue = options?.fulltextQueue
     this.vectorQueue = options?.vectorQueue
+    this.encryptedCustomFieldKeysResolver = options?.encryptedCustomFieldKeysResolver
     for (const moduleConfig of moduleConfigs) {
       for (const entityConfig of moduleConfig.entities) {
         if (entityConfig.enabled !== false) {
           this.entityConfigMap.set(entityConfig.entityId as EntityId, entityConfig)
         }
       }
+    }
+  }
+
+  private createPlaintextExclusionLookup(): PlaintextExclusionLookup {
+    const resolver = this.encryptedCustomFieldKeysResolver
+    const cache = new Map<EntityId, Promise<IndexableRecord['plaintextExcludedCustomFields']>>()
+    return (entityId) => {
+      if (!resolver) return Promise.resolve(undefined)
+      let pending = cache.get(entityId)
+      if (!pending) {
+        pending = Promise.resolve().then(() => resolver(entityId)).then((keys) => Array.from(keys)).catch((error): 'all' => {
+          reportSearchError('SearchIndexer', error, 'search.encrypted_custom_fields_unresolved', { entityId })
+          return 'all'
+        })
+        cache.set(entityId, pending)
+      }
+      return pending
     }
   }
 
@@ -182,9 +214,19 @@ export class SearchIndexer {
    * Index a record in the search service.
    */
   async indexRecord(params: IndexRecordParams): Promise<void> {
+    const indexableRecord = await this.buildIndexableRecord(params)
+    if (indexableRecord) {
+      await this.searchService.index(indexableRecord)
+    }
+  }
+
+  private async buildIndexableRecord(
+    params: IndexRecordParams,
+    exclusions = this.createPlaintextExclusionLookup(),
+  ): Promise<IndexableRecord | null> {
     const config = this.entityConfigMap.get(params.entityId)
     if (!config || config.enabled === false) {
-      return // Entity not configured for search
+      return null
     }
 
     const buildContext: SearchBuildContext = {
@@ -196,7 +238,7 @@ export class SearchIndexer {
     }
 
     // Try buildSource first (provides text, presenter, links, checksumSource)
-    let text: string | string[] | undefined
+    let text: string | string[] | undefined = config.buildSource ? [] : undefined
     let presenter: SearchResultPresenter | undefined
     let url: string | undefined
     let links: SearchResultLink[] | undefined
@@ -206,7 +248,7 @@ export class SearchIndexer {
       try {
         const source = await config.buildSource(buildContext)
         if (source) {
-          text = source.text
+          text = source.text ?? []
           if (source.presenter) presenter = source.presenter
           if (source.links) links = source.links
           if (source.checksumSource !== undefined) checksumSource = source.checksumSource
@@ -262,21 +304,19 @@ export class SearchIndexer {
       }
     }
 
-    // Build IndexableRecord
-    const indexableRecord: IndexableRecord = {
+    return {
       entityId: params.entityId,
       recordId: params.recordId,
       tenantId: params.tenantId,
       organizationId: params.organizationId,
       fields: params.record,
+      plaintextExcludedCustomFields: await exclusions(params.entityId),
       presenter,
       url,
       links,
       text,
       checksumSource,
     }
-
-    await this.searchService.index(indexableRecord)
   }
 
   /**
@@ -340,6 +380,83 @@ export class SearchIndexer {
       })
       throw error
     }
+  }
+
+  /**
+   * Index a batch of records by id in a single bulk write.
+   * Unlike calling indexRecordById() in a loop, this loads each record fresh
+   * (same as indexRecordById) but flushes the whole batch through a single
+   * searchService.bulkIndex() call. Strategies that implement bulkIndex then
+   * collapse the batch into one write; strategies without it still write per
+   * record, at the bounded concurrency SearchService applies.
+   */
+  async indexRecordsById(params: IndexRecordsByIdParams): Promise<{ indexed: number; skipped: number }> {
+    const { items, tenantId, organizationId } = params
+    if (!this.queryEngine || items.length === 0) {
+      return { indexed: 0, skipped: items.length }
+    }
+
+    const recordIdsByEntity = new Map<EntityId, string[]>()
+    for (const item of items) {
+      const list = recordIdsByEntity.get(item.entityId) ?? []
+      list.push(item.recordId)
+      recordIdsByEntity.set(item.entityId, list)
+    }
+
+    const exclusions = this.createPlaintextExclusionLookup()
+    const allRecords: IndexableRecord[] = []
+    let skipped = 0
+
+    for (const [entityId, recordIds] of recordIdsByEntity) {
+      const config = this.entityConfigMap.get(entityId)
+      if (!config || config.enabled === false) {
+        skipped += recordIds.length
+        continue
+      }
+
+      for (const recordId of recordIds) {
+        try {
+          const result = await this.queryEngine.query(entityId, {
+            tenantId,
+            organizationId: organizationId ?? undefined,
+            filters: { id: recordId },
+            includeCustomFields: true,
+            page: { page: 1, pageSize: 1 },
+            skipAutoReindex: true,
+          })
+
+          const record = result.items[0] as Record<string, unknown> | undefined
+          if (!record) {
+            skipped++
+            continue
+          }
+
+          const { records: built, dropped } = await this.buildIndexableRecords(
+            entityId,
+            tenantId,
+            organizationId ?? null,
+            [record],
+            config,
+            exclusions,
+          )
+          skipped += dropped
+          allRecords.push(...built)
+        } catch (error) {
+          skipped++
+          searchError('SearchIndexer', 'Failed to load record for batch indexing', {
+            entityId,
+            recordId,
+            error: error instanceof Error ? error.message : error,
+          })
+        }
+      }
+    }
+
+    if (allRecords.length > 0) {
+      await this.searchService.bulkIndex(allRecords)
+    }
+
+    return { indexed: allRecords.length, skipped }
   }
 
   /**
@@ -505,60 +622,13 @@ export class SearchIndexer {
    */
   async bulkIndexRecords(params: IndexRecordParams[]): Promise<void> {
     const indexableRecords: IndexableRecord[] = []
+    const exclusions = this.createPlaintextExclusionLookup()
 
     for (const param of params) {
-      const config = this.entityConfigMap.get(param.entityId)
-      if (!config || config.enabled === false) {
-        continue
+      const indexableRecord = await this.buildIndexableRecord(param, exclusions)
+      if (indexableRecord) {
+        indexableRecords.push(indexableRecord)
       }
-
-      const buildContext: SearchBuildContext = {
-        record: param.record,
-        customFields: param.customFields ?? {},
-        organizationId: param.organizationId,
-        tenantId: param.tenantId,
-      }
-
-      let presenter: SearchResultPresenter | undefined
-      if (config.formatResult) {
-        try {
-          const result = await config.formatResult(buildContext)
-          if (result) presenter = result
-        } catch {
-          // Skip presenter on error
-        }
-      }
-
-      let url: string | undefined
-      if (config.resolveUrl) {
-        try {
-          const result = await config.resolveUrl(buildContext)
-          if (result) url = result
-        } catch {
-          // Skip URL on error
-        }
-      }
-
-      let links: SearchResultLink[] | undefined
-      if (config.resolveLinks) {
-        try {
-          const result = await config.resolveLinks(buildContext)
-          if (result) links = result
-        } catch {
-          // Skip links on error
-        }
-      }
-
-      indexableRecords.push({
-        entityId: param.entityId,
-        recordId: param.recordId,
-        tenantId: param.tenantId,
-        organizationId: param.organizationId,
-        fields: param.record,
-        presenter,
-        url,
-        links,
-      })
     }
 
     if (indexableRecords.length > 0) {
@@ -1043,8 +1113,10 @@ export class SearchIndexer {
     organizationId: string | null,
     items: Record<string, unknown>[],
     config: SearchEntityConfig,
+    exclusions = this.createPlaintextExclusionLookup(),
   ): Promise<{ records: IndexableRecord[]; dropped: number }> {
     const records: IndexableRecord[] = []
+    const plaintextExcludedCustomFields = await exclusions(entityId)
     let dropped = 0
 
     // Debug: log first item to see structure
@@ -1087,7 +1159,7 @@ export class SearchIndexer {
       }
 
       // Try buildSource first (provides text, presenter, links, checksumSource)
-      let text: string | string[] | undefined
+      let text: string | string[] | undefined = config.buildSource ? [] : undefined
       let presenter: SearchResultPresenter | undefined
       let url: string | undefined
       let links: SearchResultLink[] | undefined
@@ -1097,7 +1169,7 @@ export class SearchIndexer {
         try {
           const source = await config.buildSource(buildContext)
           if (source) {
-            text = source.text
+            text = source.text ?? []
             if (source.presenter) presenter = source.presenter
             if (source.links) links = source.links
             if (source.checksumSource !== undefined) checksumSource = source.checksumSource
@@ -1147,6 +1219,7 @@ export class SearchIndexer {
         tenantId,
         organizationId,
         fields: item,
+        plaintextExcludedCustomFields,
         presenter,
         url,
         links,

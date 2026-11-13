@@ -23,7 +23,8 @@ export const WMS_INTEGRATION_TOGGLES = [
   {
     identifier: 'wms_integration_procurement_goods_receipt',
     name: 'Procurement Goods Receipt Bridge',
-    description: 'Reserved toggle for future procurement-driven receiving integration.',
+    description:
+      'When enabled, WMS creates/updates draft ASNs from procurement.goods_receipt.created events (no-op when procurement is absent).',
     category: 'wms',
     type: 'boolean' as const,
     defaultValue: false,

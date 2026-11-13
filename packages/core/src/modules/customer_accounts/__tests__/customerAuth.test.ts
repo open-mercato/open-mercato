@@ -5,6 +5,7 @@ import {
 } from '@open-mercato/shared/lib/auth/jwt'
 
 const findActiveSessionForClaims = jest.fn()
+const hasActiveSessionForUser = jest.fn()
 const findOneWithDecryption = jest.fn()
 const loadAcl = jest.fn()
 const getEffectiveFeatures = jest.fn()
@@ -58,7 +59,7 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     jest.clearAllMocks()
     containerResolve.mockImplementation((name: string) => {
       if (name === 'customerSessionService') {
-        return { findActiveSessionForClaims }
+        return { findActiveSessionForClaims, hasActiveSessionForUser }
       }
       if (name === 'customerRbacService') {
         return { loadAcl, getEffectiveFeatures }
@@ -68,6 +69,10 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     })
     findOneWithDecryption.mockResolvedValue({
       id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: null,
       isActive: true,
@@ -172,6 +177,10 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
   it('rejects tokens for soft-deleted users', async () => {
     findOneWithDecryption.mockResolvedValueOnce({
       id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: new Date(),
       isActive: true,
@@ -187,6 +196,10 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
   it('rejects tokens for deactivated users', async () => {
     findOneWithDecryption.mockResolvedValueOnce({
       id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: null,
       isActive: false,
@@ -231,6 +244,59 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     expect(result!.resolvedFeatures).toEqual(['portal.orders.view'])
     expect(result!.isPortalAdmin).toBe(true)
   })
+
+  it('re-derives tenantId/customerEntityId/personEntityId from the DB record, not the token (#2244)', async () => {
+    const dbCustomerEntityId = 'dbdbdbdb-dbdb-4dbd-8dbd-dbdbdbdbdbdb'
+    const dbPersonEntityId = 'ebebebeb-ebeb-4beb-8beb-ebebebebebeb'
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: dbCustomerEntityId,
+      personEntityId: dbPersonEntityId,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: true,
+    })
+    // The token claims a different (stale/forged) company than the one on the DB record.
+    const forgedCustomerEntityId = 'fafafafa-fafa-4afa-8afa-fafafafafafa'
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload({
+      customerEntityId: forgedCustomerEntityId,
+      personEntityId: 'fbfbfbfb-fbfb-4bfb-8bfb-fbfbfbfbfbfb',
+    }))
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    const result = await getCustomerAuthFromRequest(req)
+
+    expect(result).not.toBeNull()
+    expect(result!.customerEntityId).toBe(dbCustomerEntityId)
+    expect(result!.personEntityId).toBe(dbPersonEntityId)
+    expect(result!.customerEntityId).not.toBe(forgedCustomerEntityId)
+  })
+
+  it.each(['tenantId', 'organizationId'] as const)('rejects a token whose %s no longer matches the persisted record (#2244)', async (field) => {
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      tenantId,
+      organizationId: orgId,
+      [field]: 'ssssssss-ssss-4sss-8sss-ssssssssssss',
+      customerEntityId: null,
+      personEntityId: null,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: true,
+    })
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+    expect(loadAcl).not.toHaveBeenCalled()
+    expect(getEffectiveFeatures).not.toHaveBeenCalled()
+  })
 })
 
 describe('getCustomerAuthFromRequest — legacy raw-secret tokens', () => {
@@ -243,13 +309,18 @@ describe('getCustomerAuthFromRequest — legacy raw-secret tokens', () => {
     delete process.env.JWT_LEGACY_GRACE_MINUTES
     process.env.JWT_LEGACY_CUTOVER_AT = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
     containerResolve.mockImplementation((name: string) => {
-      if (name === 'customerSessionService') return { findActiveSessionForClaims }
+      if (name === 'customerSessionService') return { findActiveSessionForClaims, hasActiveSessionForUser }
       if (name === 'customerRbacService') return { loadAcl, getEffectiveFeatures }
       if (name === 'em') return mockEm
       return null
     })
+    hasActiveSessionForUser.mockResolvedValue(true)
     findOneWithDecryption.mockResolvedValue({
       id: userId,
+      tenantId,
+      organizationId: orgId,
+      customerEntityId: null,
+      personEntityId: null,
       sessionsRevokedAt: null,
       deletedAt: null,
       isActive: true,
@@ -284,7 +355,57 @@ describe('getCustomerAuthFromRequest — legacy raw-secret tokens', () => {
     const result = await getCustomerAuthFromRequest(req)
 
     expect(result).toMatchObject({ sub: userId, type: 'customer' })
+    // No `sid` to bind to, so the sid-scoped lookup stays unused — but liveness is still proven.
     expect(findActiveSessionForClaims).not.toHaveBeenCalled()
+    expect(hasActiveSessionForUser).toHaveBeenCalledWith({
+      userId,
+      tenantId,
+      organizationId: orgId,
+    })
+  })
+
+  it('rejects a sessionless legacy token once every session of that customer is revoked', async () => {
+    // The revocation path the API used to skip entirely: staff/user revokes the customer's
+    // sessions without stamping `sessionsRevokedAt` (per-device revoke, portal logout), so
+    // `validateUserState` cannot catch it and only the liveness re-check can.
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    hasActiveSessionForUser.mockResolvedValue(false)
+    const req = buildLegacyRequest()
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+    expect(hasActiveSessionForUser).toHaveBeenCalledWith({
+      userId,
+      tenantId,
+      organizationId: orgId,
+    })
+  })
+
+  it('fails closed for a sessionless legacy token when the liveness lookup throws', async () => {
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    hasActiveSessionForUser.mockRejectedValue(new Error('db unavailable'))
+    const req = buildLegacyRequest()
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+  })
+
+  it('scopes the liveness lookup to the token tenant and organization', async () => {
+    // A legacy token names its own scope; the lookup must not fall back to a cross-tenant match.
+    process.env.JWT_LEGACY_GRACE_MINUTES = '60'
+    const otherTenantId = 'ssssssss-ssss-4sss-8sss-ssssssssssss'
+    const payload = buildCustomerPayload({ tenantId: otherTenantId })
+    delete payload.sid
+    const token = signJwt(payload, rawSecret, 30 * 24 * 3600)
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    await getCustomerAuthFromRequest(req)
+
+    expect(hasActiveSessionForUser).toHaveBeenCalledWith({
+      userId,
+      tenantId: otherTenantId,
+      organizationId: orgId,
+    })
   })
 
   it('rejects the same sessionless legacy token once the grace window has passed', async () => {

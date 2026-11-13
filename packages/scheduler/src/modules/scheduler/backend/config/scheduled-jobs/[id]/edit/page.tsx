@@ -119,6 +119,7 @@ export default function EditSchedulePage({ params }: { params: { id: string } })
       <PageBody>
         <CrudForm<ScheduleFormValues>
           title={t('scheduler.edit.title', 'Edit Schedule')}
+          titleHeadingLevel={1}
           backHref="/backend/config/scheduled-jobs"
           fields={fields}
           groups={groups}

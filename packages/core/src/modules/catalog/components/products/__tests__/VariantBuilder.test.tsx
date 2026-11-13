@@ -68,6 +68,13 @@ jest.mock('../ProductMediaManager', () => ({
 jest.mock('../MetadataEditor', () => ({
   MetadataEditor: () => <div data-testid="metadata-editor" />,
 }))
+const mockOmnibusRowProps: Array<Record<string, unknown>> = []
+jest.mock('../../PriceEditorOmnibusRow', () => ({
+  PriceEditorOmnibusRow: (props: Record<string, unknown>) => {
+    mockOmnibusRowProps.push(props)
+    return <div data-testid="omnibus-row" />
+  },
+}))
 
 jest.mock('#generated/entities.ids.generated', () => ({ E: { catalog: { catalog_product_variant: 'mock-variant-entity-id' } } }), {
   virtual: true,
@@ -312,6 +319,27 @@ describe('VariantPricesSection', () => {
       expect.objectContaining({
         'pk-1': expect.objectContaining({ amount: '9.99', priceKindId: 'pk-1' }),
       }),
+    )
+  })
+})
+
+describe('VariantPricesSection Omnibus row', () => {
+  it('renders the Omnibus row for a saved price without a channel selector', () => {
+    mockOmnibusRowProps.length = 0
+    render(
+      <VariantPricesSection
+        values={createDefaultValues({
+          id: 'variant-1',
+          prices: { 'pk-1': { priceKindId: 'pk-1', priceId: 'price-1', amount: '10', currencyCode: 'eur', displayMode: 'excluding-tax' } },
+        })}
+        setValue={jest.fn()}
+        priceKinds={createPriceKinds()}
+        taxRates={createTaxRates()}
+      />,
+    )
+    expect(screen.getAllByTestId('omnibus-row')).toHaveLength(1)
+    expect(mockOmnibusRowProps.at(-1)).toEqual(
+      expect.objectContaining({ variantId: 'variant-1', priceKindId: 'pk-1', currencyCode: 'eur', channelSelectable: false }),
     )
   })
 })

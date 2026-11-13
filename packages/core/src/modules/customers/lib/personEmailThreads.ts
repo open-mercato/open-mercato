@@ -1,7 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
+import { resolveUserNames } from './userNames'
 import { buildEmailVisibilityMikroFilter } from './visibilityFilter'
+import { buildInteractionOccurredAtOrderBy } from './interactionOrderBy'
+import type { ConversationShareGrant } from './conversationShares'
 
 /**
  * Read model that turns a Person's email `CustomerInteraction` rows into
@@ -30,11 +33,20 @@ export type PersonEmailMessage = {
   direction: EmailThreadDirection
   fromName: string | null
   fromEmail: string | null
+  /**
+   * True when the viewer is the author of this message. Outbound email carries
+   * no `from` header in `channelMetadata`, so the sender label cannot be derived
+   * from the addresses — and since conversation/channel sharing lets a teammate
+   * read someone else's outbound mail, direction alone is not the author either.
+   */
+  authoredByViewer: boolean
+  /** Display label of the sending colleague; null for the viewer's own mail and for inbound. */
+  authorName: string | null
   to: string[]
   cc: string[]
   subject: string | null
   bodyText: string | null
-  sentAt: string
+  sentAt: string | null
   providerKey: string | null
 }
 
@@ -43,7 +55,7 @@ export type PersonEmailThread = {
   subject: string | null
   preview: string | null
   participants: string[]
-  lastMessageAt: string
+  lastMessageAt: string | null
   messageCount: number
   providerKey: string | null
   lastDirection: EmailThreadDirection
@@ -56,6 +68,13 @@ export type BuildPersonEmailThreadsOptions = {
   organizationId: string | null
   viewerUserId: string | null
   userFeatures: string[] | null | undefined
+  /**
+   * Conversation shares that widen this viewer's access. Optional and fail-closed:
+   * omitting it yields the strict owner-only view.
+   */
+  sharedConversations?: ConversationShareGrant[]
+  /** Channels marked as shared team mailboxes; optional and fail-closed. */
+  sharedChannelIds?: string[]
   maxThreads?: number
   maxMessagesPerThread?: number
 }
@@ -128,6 +147,8 @@ export async function buildPersonEmailThreads(
     organizationId,
     viewerUserId,
     userFeatures,
+    sharedConversations,
+    sharedChannelIds,
     maxThreads = DEFAULT_MAX_THREADS,
     maxMessagesPerThread = DEFAULT_MAX_MESSAGES_PER_THREAD,
   } = opts
@@ -154,10 +175,18 @@ export async function buildPersonEmailThreads(
   //     CRM history is never silently hidden.
   // Fail-closed: a null viewer (API-key caller) never matches the author arm, so
   // it only ever sees shared/legacy rows — never anyone's private email.
-  interactionWhere.$or = buildEmailVisibilityMikroFilter({
-    currentUserId: viewerUserId,
-    userFeatures,
-  }).$or
+  // Merge the WHOLE fragment. Cherry-picking `.$or` here would silently discard
+  // any other arm the predicate grows, which fails OPEN at a compile-clean call
+  // site — the exact hazard the fragment contract now documents.
+  Object.assign(
+    interactionWhere,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: viewerUserId,
+      userFeatures,
+      sharedConversations,
+      sharedChannelIds,
+    }),
+  )
 
   // `customer_interaction.title`/`body` are encrypted at rest, so reads go
   // through `findWithDecryption` even though we only consume non-encrypted
@@ -167,16 +196,22 @@ export async function buildPersonEmailThreads(
     em,
     CustomerInteraction,
     interactionWhere as never,
-    { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: maxThreads * 20 },
+    {
+      orderBy: buildInteractionOccurredAtOrderBy('desc'),
+      limit: maxThreads * 20,
+    },
     dscope,
   )) as CustomerInteraction[]
 
-  const linkIdByInteraction = new Map<string, { occurredAt: Date }>()
+  const linkIdByInteraction = new Map<string, { occurredAt: Date | null; authorUserId: string | null }>()
   const linkIds: string[] = []
   for (const interaction of interactions) {
     const linkId = interaction.externalMessageId
     if (!linkId || linkIdByInteraction.has(linkId)) continue
-    linkIdByInteraction.set(linkId, { occurredAt: interaction.occurredAt ?? interaction.createdAt })
+    linkIdByInteraction.set(linkId, {
+      occurredAt: interaction.occurredAt ?? null,
+      authorUserId: interaction.authorUserId ?? null,
+    })
     linkIds.push(linkId)
   }
   if (linkIds.length === 0) return []
@@ -216,6 +251,23 @@ export async function buildPersonEmailThreads(
     }
   }
 
+  // ── (3b) Resolve sender labels for colleagues' messages ─────────────────
+  //
+  // Only for authors other than the viewer: their own mail renders as "You" and
+  // needs no lookup. A shared conversation is exactly the case where a message
+  // the viewer did not write shows up in their thread list, so without this the
+  // UI would have to fall back on direction and misattribute it to the reader.
+  const foreignAuthorIds = Array.from(
+    new Set(
+      Array.from(linkIdByInteraction.values())
+        .map((entry) => entry.authorUserId)
+        .filter((id): id is string => !!id && id !== viewerUserId),
+    ),
+  )
+  const authorNames = foreignAuthorIds.length
+    ? await resolveUserNames(em, tenantId, organizationId, foreignAuthorIds)
+    : new Map<string, string>()
+
   // ── (4) Build per-message DTOs grouped by thread ────────────────────────
   const threadsByKey = new Map<string, PersonEmailThread>()
 
@@ -223,6 +275,11 @@ export async function buildPersonEmailThreads(
     const linkId = typeof link.id === 'string' ? (link.id as string) : null
     if (!linkId) continue
     const direction: EmailThreadDirection = link.direction === 'outbound' ? 'outbound' : 'inbound'
+    // `authorUserId` on the interaction is the MAILBOX OWNER, which on an
+    // inbound message is the recipient, not the sender — so authorship is an
+    // outbound-only notion. Inbound senders are named by the `from` header.
+    const authorUserId = direction === 'outbound' ? linkIdByInteraction.get(linkId)?.authorUserId ?? null : null
+    const authoredByViewer = !!viewerUserId && !!authorUserId && authorUserId === viewerUserId
     const providerKey = typeof link.providerKey === 'string' ? (link.providerKey as string) : null
     const payload = (link.channelPayload ?? null) as JsonRecord | null
     const meta = (link.channelMetadata ?? null) as JsonRecord | null
@@ -248,14 +305,12 @@ export async function buildPersonEmailThreads(
       typeof message?.body === 'string' ? message.body : null,
     )
 
-    const sentAtRaw =
-      (typeof message?.sentAt === 'string' || message?.sentAt instanceof Date
-        ? message.sentAt
-        : null) ??
-      (link.createdAt instanceof Date || typeof link.createdAt === 'string' ? link.createdAt : null) ??
-      linkIdByInteraction.get(linkId)?.occurredAt ??
-      new Date()
-    const sentAt = (sentAtRaw instanceof Date ? sentAtRaw : new Date(sentAtRaw)).toISOString()
+    const messageSentAt = message?.sentAt instanceof Date || typeof message?.sentAt === 'string'
+      ? new Date(message.sentAt)
+      : null
+    const sentAt = messageSentAt && !Number.isNaN(messageSentAt.getTime())
+      ? messageSentAt.toISOString()
+      : null
 
     const threadKey =
       (typeof message?.threadId === 'string' && message.threadId ? message.threadId : null) ??
@@ -269,6 +324,8 @@ export async function buildPersonEmailThreads(
       direction,
       fromName: fromList[0]?.name ?? null,
       fromEmail: fromList[0]?.email ?? null,
+      authoredByViewer,
+      authorName: authoredByViewer ? null : authorUserId ? authorNames.get(authorUserId) ?? null : null,
       to: toList.map((a) => a.email),
       cc: ccList.map((a) => a.email),
       subject,
@@ -298,11 +355,27 @@ export async function buildPersonEmailThreads(
   // ── (5) Finalize thread summaries ───────────────────────────────────────
   const threads: PersonEmailThread[] = []
   for (const thread of threadsByKey.values()) {
-    thread.messages.sort((a, b) => a.sentAt.localeCompare(b.sentAt))
+    thread.messages.sort((left, right) => compareNullableIsochronological(
+      left.sentAt,
+      right.sentAt,
+      left.id,
+      right.id,
+    ))
+    const datedMessages = thread.messages.filter((message) => message.sentAt !== null)
+    const undatedMessages = thread.messages.filter((message) => message.sentAt === null)
     if (thread.messages.length > maxMessagesPerThread) {
-      thread.messages = thread.messages.slice(thread.messages.length - maxMessagesPerThread)
+      const retainedDatedMessages = maxMessagesPerThread > 0
+        ? datedMessages.slice(-maxMessagesPerThread)
+        : []
+      const remainingSlots = Math.max(0, maxMessagesPerThread - retainedDatedMessages.length)
+      const retainedUndatedMessages = remainingSlots > 0
+        ? undatedMessages.slice(-remainingSlots)
+        : []
+      thread.messages = [...retainedDatedMessages, ...retainedUndatedMessages]
     }
-    const last = thread.messages[thread.messages.length - 1]
+    const retainedDatedMessages = thread.messages.filter((message) => message.sentAt !== null)
+    const latestDatedMessage = retainedDatedMessages[retainedDatedMessages.length - 1]
+    const summaryMessage = latestDatedMessage ?? thread.messages[thread.messages.length - 1]
     const firstWithSubject = thread.messages.find((m) => m.subject)
     const participantSet = new Set<string>()
     for (const message of thread.messages) {
@@ -311,15 +384,100 @@ export async function buildPersonEmailThreads(
       if (message.direction === 'outbound') message.to.forEach((email) => participantSet.add(email))
     }
     thread.subject = firstWithSubject?.subject ?? thread.subject
-    thread.preview = truncate(last?.bodyText ?? null)
+    thread.preview = truncate(summaryMessage?.bodyText ?? null)
     thread.participants = Array.from(participantSet)
-    thread.lastMessageAt = last?.sentAt ?? thread.lastMessageAt
-    thread.lastDirection = last?.direction ?? thread.lastDirection
-    thread.providerKey = last?.providerKey ?? thread.providerKey
+    thread.lastMessageAt = latestDatedMessage?.sentAt ?? null
+    thread.lastDirection = summaryMessage?.direction ?? thread.lastDirection
+    thread.providerKey = summaryMessage?.providerKey ?? thread.providerKey
     thread.messageCount = thread.messages.length
     threads.push(thread)
   }
 
-  threads.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
+  threads.sort((left, right) => compareNullableIsochronological(
+    left.lastMessageAt,
+    right.lastMessageAt,
+    left.threadKey,
+    right.threadKey,
+    'desc',
+  ))
   return threads.slice(0, maxThreads)
+}
+
+function compareNullableIsochronological(
+  leftValue: string | null,
+  rightValue: string | null,
+  leftTieBreaker: string,
+  rightTieBreaker: string,
+  direction: 'asc' | 'desc' = 'asc',
+): number {
+  if (leftValue === rightValue) {
+    const tie = leftTieBreaker.localeCompare(rightTieBreaker)
+    return direction === 'asc' ? tie : -tie
+  }
+  if (leftValue === null) return 1
+  if (rightValue === null) return -1
+  return direction === 'asc'
+    ? leftValue.localeCompare(rightValue)
+    : rightValue.localeCompare(leftValue)
+}
+
+export type PersonEmailMessageAccessOptions = Pick<
+  BuildPersonEmailThreadsOptions,
+  'personId' | 'tenantId' | 'organizationId' | 'viewerUserId' | 'userFeatures' | 'sharedConversations' | 'sharedChannelIds'
+> & {
+  /** Open Mercato `messages.message` id the caller wants to reply to. */
+  messageId: string
+}
+
+/**
+ * Whether `messageId` is on this Person's email history as the viewer sees it —
+ * i.e. whether {@link buildPersonEmailThreads} would show it to them.
+ *
+ * Walks the same anchor (email `CustomerInteraction` → `MessageChannelLink` →
+ * message) with the same scope and the same visibility predicate, so a reply
+ * from the Person page can only name a parent the Emails tab could have shown:
+ * the viewer's own mail, shared or legacy mail, a conversation shared for THIS
+ * Person, or a shared team mailbox. Callers remain responsible for resolving the
+ * Person in scope first.
+ */
+export async function isMessageOnPersonEmailHistory(
+  em: EntityManager,
+  opts: PersonEmailMessageAccessOptions,
+): Promise<boolean> {
+  const { personId, tenantId, organizationId, messageId } = opts
+  const dscope = { tenantId, organizationId: organizationId ?? null }
+
+  const linkWhere: JsonRecord = { messageId, tenantId }
+  if (organizationId) linkWhere.organizationId = organizationId
+  const links = (await findWithDecryption(
+    em,
+    'MessageChannelLink' as never,
+    linkWhere as never,
+    undefined,
+    dscope,
+  )) as JsonRecord[]
+  const linkIds = links
+    .map((link) => (typeof link.id === 'string' ? (link.id as string) : null))
+    .filter((value): value is string => !!value)
+  if (linkIds.length === 0) return false
+
+  const interactionWhere: JsonRecord = {
+    entity: personId,
+    interactionType: 'email',
+    deletedAt: null,
+    tenantId,
+    externalMessageId: { $in: linkIds },
+  }
+  if (organizationId) interactionWhere.organizationId = organizationId
+  Object.assign(
+    interactionWhere,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: opts.viewerUserId,
+      userFeatures: opts.userFeatures,
+      sharedConversations: opts.sharedConversations,
+      sharedChannelIds: opts.sharedChannelIds,
+    }),
+  )
+  const visible = await em.count(CustomerInteraction, interactionWhere as never)
+  return visible > 0
 }

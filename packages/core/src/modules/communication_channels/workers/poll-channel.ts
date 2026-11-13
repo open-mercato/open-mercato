@@ -8,6 +8,7 @@ import {
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import { sameSyncState, syncState, withLockedChannel } from '../lib/channel-state-write'
 import { preservePushState } from '../lib/push-state'
 import { isHubPolledChannel } from '../lib/polling-eligibility'
 import { writeIngestDeadLetter } from '../lib/dead-letter'
@@ -17,6 +18,7 @@ import { emitCommunicationChannelsEvent } from '../events'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import type { NormalizedInboundMessage } from '../lib/adapter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('communication_channels').child({ component: 'poll-channel' })
 
@@ -82,7 +84,7 @@ type CredentialsServiceLike = {
  *      `(channel_id, external_message_id)`).
  *   6. Update `channel.lastPolledAt = NOW()` on success.
  *   7. On error: classify, set `channel.status` accordingly, set `last_error`, emit
- *      `channel.requires_reauth` on 401, retry transient failures up to MAX.
+ *      `channel.requires_reauth` after failed 401 recovery, retry transient failures up to MAX.
  *
  * The hub doesn't drain a remote mailbox indefinitely — `fetchHistory` returns a
  * single page (provider decides the size). If the provider has more, the next tick
@@ -134,6 +136,13 @@ export default async function handle(
     return
   }
 
+  const startingProgress: PollProgress = {
+    cursor: structuredClone(syncState(channel.channelState)),
+    lastPolledAt: channel.lastPolledAt?.getTime() ?? null,
+    status: channel.status,
+    lastError: channel.lastError,
+  }
+
   // Credentials.
   let credentialsService: CredentialsServiceLike | null = null
   try {
@@ -158,6 +167,10 @@ export default async function handle(
       credentials = {}
     }
   }
+  const refreshDeps = {
+    credentialsService,
+    logger: (...args: unknown[]) => logger.warn('credential refresh diagnostic', { channelId: channel.id, details: args }),
+  }
   const refreshed = await refreshCredentialsIfNeeded(
     {
       adapter,
@@ -165,7 +178,7 @@ export default async function handle(
       credentials,
       scope: credentialsScope,
     },
-    { credentialsService },
+    refreshDeps,
   )
   credentials = refreshed.credentials
 
@@ -178,15 +191,16 @@ export default async function handle(
   let normalized: NormalizedInboundMessage[] = []
   let nextCursor: string | undefined
   let hasMore = false
-  try {
-    const result = await adapter.fetchHistory({
+  const fetchHistory = adapter.fetchHistory.bind(adapter)
+  const fetchPage = (withCredentials: Record<string, unknown>) =>
+    fetchHistory({
       conversationId: channel.externalIdentifier ?? channel.id,
-      credentials,
+      credentials: withCredentials,
       cursor: channel.lastPolledAt ? channel.lastPolledAt.toISOString() : undefined,
       channelState: (channel.channelState as Record<string, unknown> | null) ?? undefined,
       scope: {
         tenantId: scope.tenantId,
-        organizationId: scope.organizationId ?? scope.tenantId,
+        organizationId: channel.organizationId ?? null,
       },
       // `contactFilter.sinceDays` is a hint to provider adapters about how far
       // back to look on first-poll bootstrap. For UID-incremental polls (every
@@ -194,11 +208,34 @@ export default async function handle(
       // since the persisted cursor.
       contactFilter: { addresses: [], sinceDays: 7 },
     })
+  try {
+    let result: Awaited<ReturnType<typeof fetchPage>>
+    try {
+      result = await fetchPage(credentials)
+    } catch (err) {
+      if (!isReauthError(classifyOutboundError(err))) throw err
+      try {
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'communication_channels',
+          code: 'communication_channels.poll_authentication_failed',
+          attributes: { channelId: channel.id, providerKey: channel.providerKey },
+        })
+      } catch {
+        logger.warn('poll authentication failure could not be reported', { channelId: channel.id })
+      }
+      const forced = await refreshCredentialsIfNeeded(
+        { adapter, channelId: channel.id, credentials, scope: credentialsScope, force: true },
+        refreshDeps,
+      )
+      if (!forced.refreshed) throw err
+      credentials = forced.credentials
+      result = await fetchPage(credentials)
+    }
     normalized = Array.isArray(result?.messages) ? result.messages : []
     nextCursor = result?.nextCursor
     hasMore = result?.hasMore === true
   } catch (err) {
-    await handlePollError(err, em, channel, scope, attempt, job.payload)
+    await handlePollError(err, em, channel, scope, attempt, job.payload, startingProgress)
     return
   }
 
@@ -263,8 +300,9 @@ export default async function handle(
   // Transient abort: keep prior cursor + lastPolledAt so the next tick
   // re-fetches the same page (idempotent at the DB layer).
   if (transientIngestAbort) {
-    channel.lastError = 'transient_ingest_failure'
-    await em.flush()
+    await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = 'transient_ingest_failure'
+    })
     return
   }
 
@@ -344,13 +382,16 @@ async function handlePollError(
   scope: PollChannelJobPayload['scope'],
   attempt: number,
   payload: PollChannelJobPayload,
+  startingProgress: PollProgress,
 ): Promise<void> {
   const classification = classifyOutboundError(err)
-  channel.lastError = classification.message
 
   if (isReauthError(classification)) {
-    channel.status = 'requires_reauth'
-    await em.flush()
+    const committed = await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = classification.message
+      current.status = 'requires_reauth'
+    })
+    if (!committed) return
     await emitCommunicationChannelsEvent(
       'communication_channels.channel.requires_reauth',
       {
@@ -369,7 +410,10 @@ async function handlePollError(
   if (classification.transient && attempt < POLL_CHANNEL_MAX_ATTEMPTS) {
     // Transient error — re-enqueue with backoff. Channel status stays
     // `connected` so the scheduler keeps it in rotation.
-    await em.flush()
+    const committed = await writePollFailure(em, channel, scope, startingProgress, (current) => {
+      current.lastError = classification.message
+    })
+    if (!committed) return
     const next: PollChannelJobPayload = { ...payload, attempt: attempt + 1 }
     const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.poll)
     await queue.enqueue(next as unknown as Record<string, unknown>, {
@@ -379,6 +423,34 @@ async function handlePollError(
   }
 
   // Permanent or attempts exhausted — mark channel as error and stop the loop.
-  channel.status = 'error'
-  await em.flush()
+  await writePollFailure(em, channel, scope, startingProgress, (current) => {
+    current.lastError = classification.message
+    current.status = 'error'
+  })
+}
+
+type PollProgress = {
+  cursor: Record<string, unknown>
+  lastPolledAt: number | null
+  status: CommunicationChannel['status']
+  lastError: CommunicationChannel['lastError']
+}
+
+async function writePollFailure(
+  em: EntityManager,
+  channel: CommunicationChannel,
+  scope: PollChannelJobPayload['scope'],
+  startingProgress: PollProgress,
+  update: (current: CommunicationChannel) => void,
+): Promise<boolean> {
+  const committed = await withLockedChannel(em, { ...channel, ...scope }, async (current, transaction) => {
+    if (!current.isActive || current.status !== startingProgress.status ||
+      current.lastError !== startingProgress.lastError ||
+      (current.lastPolledAt?.getTime() ?? null) !== startingProgress.lastPolledAt ||
+      !sameSyncState(startingProgress.cursor, current.channelState)) return false
+    update(current)
+    await transaction.flush()
+    return true
+  })
+  return committed === true
 }

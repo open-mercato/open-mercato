@@ -112,6 +112,14 @@ function lotSnapshot() {
   }
 }
 
+function stubDataEngine() {
+  return {
+    setCustomFields: jest.fn().mockResolvedValue(undefined),
+    markOrmEntityChange: jest.fn(),
+    flushOrmEntityChanges: jest.fn().mockResolvedValue(undefined),
+  }
+}
+
 const ALL_COMMAND_IDS = [
   'wms.warehouses.create',
   'wms.warehouses.update',
@@ -231,6 +239,7 @@ describe('WMS configuration commands — undoable contract', () => {
               }),
             }
           }
+          if (name === 'dataEngine') return stubDataEngine()
           throw new Error(`unexpected resolve: ${name}`)
         },
       },
@@ -271,6 +280,7 @@ describe('WMS configuration commands — undoable contract', () => {
               }),
             }
           }
+          if (name === 'dataEngine') return stubDataEngine()
           throw new Error(`unexpected resolve: ${name}`)
         },
       },
@@ -332,6 +342,7 @@ describe('WMS configuration commands — undoable contract', () => {
               }),
             }
           }
+          if (name === 'dataEngine') return stubDataEngine()
           throw new Error(`unexpected resolve: ${name}`)
         },
       },
@@ -393,6 +404,7 @@ describe('WMS configuration commands — undoable contract', () => {
               }),
             }
           }
+          if (name === 'dataEngine') return stubDataEngine()
           throw new Error(`unexpected resolve: ${name}`)
         },
       },

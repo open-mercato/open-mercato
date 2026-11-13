@@ -2,6 +2,7 @@
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -153,5 +154,33 @@ describe('shipment undo handlers — transactional wrapping', () => {
     await undo?.({ logEntry: envelope.logEntry, ctx: envelope.ctx as any } as any)
 
     expect(envelope.transactional).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('restoreShipmentSnapshot custom fields (issue #6449)', () => {
+  it('writes snapshot custom fields under their definition keys, not cf_-prefixed', async () => {
+    const { restoreShipmentSnapshot } = await import('../shipments')
+    ;(findOneWithDecryption as jest.Mock).mockReset().mockResolvedValue({ id: TEST_ORDER_ID })
+    ;(setRecordCustomFields as jest.Mock).mockClear()
+    const tx = buildMockTx()
+    tx.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({ ...data }))
+
+    await restoreShipmentSnapshot(tx as any, {
+      id: TEST_SHIPMENT_ID,
+      orderId: TEST_ORDER_ID,
+      organizationId: TEST_ORG_ID,
+      tenantId: TEST_TENANT_ID,
+      weightValue: null,
+      declaredValueNet: null,
+      declaredValueGross: null,
+      items: [],
+      customFields: { cf_carrier_ref: 'R-1', cf_tags: ['a', 'b'] },
+    } as any)
+
+    expect(setRecordCustomFields).toHaveBeenCalledTimes(1)
+    expect((setRecordCustomFields as jest.Mock).mock.calls[0][1].values).toEqual({
+      carrier_ref: 'R-1',
+      tags: ['a', 'b'],
+    })
   })
 })

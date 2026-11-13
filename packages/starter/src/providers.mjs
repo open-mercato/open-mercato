@@ -1,0 +1,180 @@
+import fs from 'node:fs'
+import readline from 'node:readline'
+
+import { addEnvValue, readEnvValue, setEnvValue } from './env-file.mjs'
+import { secretFingerprint } from './secrets.mjs'
+
+// Every OM-supported chat provider (from apps/mercato/.env.example). This is
+// the SINGLE copy — the hand-synced PowerShell duplicate died with the old
+// Windows launcher. Embedding-only providers (Mistral, Cohere, AWS Bedrock)
+// are excluded — the assistant needs a chat model.
+export const LLM_PROVIDERS = [
+  { provider: 'openai', label: 'OpenAI', keyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. gpt-5-mini' },
+  { provider: 'anthropic', label: 'Anthropic (Claude)', keyEnv: 'ANTHROPIC_API_KEY', baseUrlEnv: null, keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. claude-haiku-4-5-20251001' },
+  { provider: 'google', label: 'Google Gemini', keyEnv: 'GOOGLE_GENERATIVE_AI_API_KEY', baseUrlEnv: null, keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. gemini-3-flash' },
+  { provider: 'azure', label: 'Azure OpenAI / AI Foundry', keyEnv: 'AZURE_OPENAI_API_KEY', baseUrlEnv: 'AZURE_OPENAI_BASE_URL', keyRequired: true, baseUrlRequired: true, baseUrl: '', modelRequired: true, modelHint: 'your Azure deployment name' },
+  { provider: 'openrouter', label: 'OpenRouter (gateway)', keyEnv: 'OPENROUTER_API_KEY', baseUrlEnv: 'OPENROUTER_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. meta-llama/llama-3.3-70b-instruct' },
+  { provider: 'deepinfra', label: 'DeepInfra', keyEnv: 'DEEPINFRA_API_KEY', baseUrlEnv: 'DEEPINFRA_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. zai-org/GLM-5.1' },
+  { provider: 'groq', label: 'Groq', keyEnv: 'GROQ_API_KEY', baseUrlEnv: 'GROQ_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. llama-3.3-70b-versatile' },
+  { provider: 'together', label: 'Together AI', keyEnv: 'TOGETHER_API_KEY', baseUrlEnv: 'TOGETHER_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. meta-llama/Llama-3.3-70B-Instruct-Turbo' },
+  { provider: 'fireworks', label: 'Fireworks AI', keyEnv: 'FIREWORKS_API_KEY', baseUrlEnv: 'FIREWORKS_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. accounts/fireworks/models/llama-v3p3-70b-instruct' },
+  { provider: 'litellm', label: 'LiteLLM (self-hosted proxy)', keyEnv: 'LITELLM_API_KEY', baseUrlEnv: 'LITELLM_BASE_URL', keyRequired: true, baseUrlRequired: true, baseUrl: '', modelRequired: true, modelHint: 'model name as configured in your proxy' },
+  { provider: 'ollama', label: 'Ollama (local)', keyEnv: 'OLLAMA_API_KEY', baseUrlEnv: 'OLLAMA_BASE_URL', keyRequired: false, baseUrlRequired: true, baseUrl: 'http://host.docker.internal:11434/v1', modelRequired: true, modelHint: 'e.g. llama3.3' },
+  { provider: 'lm-studio', label: 'LM Studio (local)', keyEnv: 'LM_STUDIO_API_KEY', baseUrlEnv: 'LM_STUDIO_BASE_URL', keyRequired: false, baseUrlRequired: true, baseUrl: 'http://host.docker.internal:1234/v1', modelRequired: true, modelHint: 'the loaded model id' },
+]
+
+function applyProviderConfig(rootEnv, entry, { key = '', baseUrl = '', model = '' }, log) {
+  if (key.trim()) {
+    if (addEnvValue(rootEnv, entry.keyEnv, key.trim(), { replaceEmpty: true })) {
+      log(`  set ${entry.keyEnv} (${secretFingerprint(key.trim())})`)
+    }
+  }
+  if (entry.baseUrlEnv && baseUrl.trim()) {
+    if (addEnvValue(rootEnv, entry.baseUrlEnv, baseUrl.trim(), { replaceEmpty: true })) {
+      log(`  set ${entry.baseUrlEnv}=${baseUrl.trim()}`)
+    }
+  }
+  if (addEnvValue(rootEnv, 'OM_AI_PROVIDER', entry.provider, { replaceEmpty: true })) {
+    log(`  set OM_AI_PROVIDER=${entry.provider}`)
+  }
+  if (model.trim()) {
+    if (addEnvValue(rootEnv, 'OM_AI_MODEL', model.trim(), { replaceEmpty: true })) {
+      log(`  set OM_AI_MODEL=${model.trim()}`)
+    }
+  }
+}
+
+// The root .env is the starter's source of truth for AI provider config: it
+// feeds the compose interpolation for the opencode container. The host app
+// only loads apps/mercato/.env, so the chosen provider must be mirrored there
+// too or the app keeps the .env.example defaults (provider 'openai' with an
+// empty key) and the selection silently "does not persist". Provider/model are
+// overwritten to converge on the root value; API keys and base URLs only fill
+// empty placeholders so a manually rotated app key is never clobbered.
+export function syncProviderConfigToAppEnv(files, log = console.log) {
+  if (!files.appEnv || !fs.existsSync(files.appEnv)) return
+  const provider = readEnvValue(files.rootEnv, 'OM_AI_PROVIDER')?.trim()
+  if (!provider) return
+  const entry = LLM_PROVIDERS.find((candidate) => candidate.provider === provider)
+  const overwriteKeys = ['OM_AI_PROVIDER', 'OM_AI_MODEL']
+  const fillKeys = entry ? [entry.keyEnv, ...(entry.baseUrlEnv ? [entry.baseUrlEnv] : [])] : []
+
+  for (const key of overwriteKeys) {
+    const value = readEnvValue(files.rootEnv, key)?.trim()
+    if (!value) continue
+    if (readEnvValue(files.appEnv, key)?.trim() === value) continue
+    setEnvValue(files.appEnv, key, value)
+    log(`  synced ${key} into apps/mercato/.env`)
+  }
+  for (const key of fillKeys) {
+    const value = readEnvValue(files.rootEnv, key)?.trim()
+    if (!value) continue
+    if (addEnvValue(files.appEnv, key, value, { replaceEmpty: true })) {
+      log(`  synced ${key} into apps/mercato/.env`)
+    }
+  }
+}
+
+function normalizeEnvTargets(rootEnvOrFiles) {
+  if (typeof rootEnvOrFiles === 'string') return { rootEnv: rootEnvOrFiles, appEnv: null }
+  return { rootEnv: rootEnvOrFiles.rootEnv, appEnv: rootEnvOrFiles.appEnv ?? null }
+}
+
+export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, nonInteractive = false, log = console.log, warn = console.warn } = {}) {
+  const files = normalizeEnvTargets(rootEnvOrFiles)
+  const rootEnv = files.rootEnv
+  const configuredProvider = readEnvValue(rootEnv, 'OM_AI_PROVIDER')
+  if (configuredProvider && configuredProvider.trim()) {
+    log(`AI already configured: provider '${configuredProvider.trim()}' (from .env)`)
+    syncProviderConfigToAppEnv(files, log)
+    return 'configured'
+  }
+
+  for (const entry of LLM_PROVIDERS) {
+    const fromFile = readEnvValue(rootEnv, entry.keyEnv)
+    if (fromFile && fromFile.trim()) {
+      log(`AI already configured: ${entry.label}`)
+      applyProviderConfig(rootEnv, entry, { key: '' }, log)
+      syncProviderConfigToAppEnv(files, log)
+      return 'configured'
+    }
+    const fromEnv = process.env[entry.keyEnv]
+    if (fromEnv && fromEnv.trim()) {
+      const baseFromEnv = entry.baseUrlEnv ? process.env[entry.baseUrlEnv] ?? '' : ''
+      applyProviderConfig(rootEnv, entry, { key: fromEnv, baseUrl: baseFromEnv }, log)
+      log(`AI configured from environment: ${entry.label}`)
+      syncProviderConfigToAppEnv(files, log)
+      return 'configured'
+    }
+  }
+
+  const skipProvider = () => {
+    log('')
+    warn('Continuing without AI. Configure a provider key in .env later and restart the opencode container to enable AI chat.')
+    return 'skipped'
+  }
+  if (skipPrompt || nonInteractive || !process.stdin.isTTY) return skipProvider()
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  const ask = (question) => new Promise((resolve) => rl.question(`   ${question}`, resolve))
+
+  const print = (line) => console.log(line ? `   ${line}` : '')
+  try {
+    print('')
+    print('The AI assistant (OpenCode + MCP) needs one LLM provider to power the Cmd+K agent.')
+    print('AI setup is optional. Press Enter or choose 0 to continue without AI; you can configure it in .env later.')
+
+    while (true) {
+      print('')
+      print('[ 0] Skip for now (default)')
+      LLM_PROVIDERS.forEach((entry, index) => {
+        print(`[${String(index + 1).padStart(2)}] ${entry.label}`)
+      })
+      const choice = (await ask(`Choose a provider [0-${LLM_PROVIDERS.length}] (default 0): `)).trim()
+      if (!choice || choice === '0') return skipProvider()
+      const index = Number.parseInt(choice, 10)
+      if (!Number.isInteger(index) || index < 1 || index > LLM_PROVIDERS.length) {
+        print(`Please enter a number between 0 and ${LLM_PROVIDERS.length}.`)
+        continue
+      }
+      const selected = LLM_PROVIDERS[index - 1]
+
+      let key = ''
+      if (selected.keyRequired) {
+        key = (await ask(`Paste your ${selected.label} API key: `)).trim()
+        if (!key) return skipProvider()
+      } else {
+        key = (await ask(`${selected.label} API key (optional for local servers — press Enter to skip): `)).trim()
+      }
+
+      let baseUrl = ''
+      if (selected.baseUrlEnv) {
+        const promptText = selected.baseUrlRequired
+          ? (selected.baseUrl ? `${selected.label} base URL [${selected.baseUrl}]: ` : `${selected.label} base URL (required): `)
+          : `${selected.label} base URL (optional — press Enter for the provider default): `
+        const entered = (await ask(promptText)).trim()
+        baseUrl = entered || selected.baseUrl
+        if (selected.baseUrlRequired && !baseUrl) {
+          print('This provider requires a base URL. Try again.')
+          continue
+        }
+      }
+
+      const modelPrompt = selected.modelRequired
+        ? `${selected.label} model (${selected.modelHint}) (required): `
+        : `${selected.label} model (${selected.modelHint}) (optional — press Enter for the default): `
+      const model = (await ask(modelPrompt)).trim()
+      if (selected.modelRequired && !model) {
+        print('This provider needs a model/deployment id. Try again.')
+        continue
+      }
+
+      applyProviderConfig(rootEnv, selected, { key, baseUrl, model }, log)
+      log(`AI provider configured: ${selected.label}`)
+      syncProviderConfigToAppEnv(files, log)
+      return 'configured'
+    }
+  } finally {
+    rl.close()
+  }
+}

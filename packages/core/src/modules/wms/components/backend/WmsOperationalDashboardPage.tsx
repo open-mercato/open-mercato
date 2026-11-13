@@ -39,7 +39,7 @@ import type {
   OperationalDashboardPayload,
 } from '../../lib/loadOperationalDashboard'
 import {
-  inventoryMovementReasonLabel,
+  formatInventoryMovementActivitySubtitle,
   type InventoryDisplayTranslator,
 } from '../../lib/inventoryDisplayUi'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
@@ -138,17 +138,18 @@ function formatActivitySubtitle(
   row: OperationalDashboardActivityRow,
   t: InventoryDisplayTranslator,
 ): string | null {
-  const reasonLabel = inventoryMovementReasonLabel(
+  return formatInventoryMovementActivitySubtitle(
     {
       reasonCode: row.reasonCode,
       reason: row.reason,
       movementType: row.movementType,
+      referenceType: row.referenceType,
+      referenceId: row.referenceId,
+      referenceLabel: row.referenceLabel,
+      source: row.source,
     },
     t,
   )
-  if (reasonLabel) return reasonLabel
-  if (row.referenceType && row.referenceId) return `${row.referenceType} · ${row.referenceId}`
-  return null
 }
 
 function createDateTimeFormatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
@@ -191,20 +192,24 @@ function DashboardKpiCard({
 }: DashboardKpiCardProps) {
   return (
     <section className="flex min-h-52 flex-col rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
-      <div className="mt-2 flex items-end gap-3">
-        <p className="text-3xl font-semibold tracking-tight">{kpi.count}</p>
-        {badgeLabel ? (
-          <StatusBadge variant={badgeVariant} dot>
-            {badgeLabel}
-          </StatusBadge>
-        ) : null}
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{caption}</p>
       </div>
-      <Sparkline values={kpi.sparkline} className="mt-3 h-9 w-full max-w-40" />
-      <LinkButton asChild variant="primary" size="sm" className="mt-4 w-fit">
-        <Link href={href}>{ctaLabel}</Link>
-      </LinkButton>
+      <div className="mt-auto pt-2">
+        <div className="flex items-end gap-3">
+          <p className="text-3xl font-semibold tracking-tight">{kpi.count}</p>
+          {badgeLabel ? (
+            <StatusBadge variant={badgeVariant} dot>
+              {badgeLabel}
+            </StatusBadge>
+          ) : null}
+        </div>
+        <Sparkline values={kpi.sparkline} className="mt-3 h-9 w-full max-w-40" />
+        <LinkButton asChild variant="primary" size="sm" className="mt-4 w-fit">
+          <Link href={href}>{ctaLabel}</Link>
+        </LinkButton>
+      </div>
     </section>
   )
 }
@@ -582,16 +587,19 @@ export default function WmsOperationalDashboardPage() {
         id: 'details',
         header: t('wms.backend.dashboard.activity.columns.details', 'Details'),
         cell: ({ row }) => {
+          const title = formatActivityTitle(row.original, t)
           const subtitle = formatActivitySubtitle(row.original, t)
+          const fullDetails = subtitle ? `${title} · ${subtitle}` : title
           return (
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{formatActivityTitle(row.original, t)}</p>
+            <div className="min-w-0 max-w-xs" title={fullDetails}>
+              <p className="truncate text-sm font-medium">{title}</p>
               {subtitle ? (
-                <p className="truncate text-sm text-muted-foreground">{subtitle}</p>
+                <p className="line-clamp-2 text-sm text-muted-foreground">{subtitle}</p>
               ) : null}
             </div>
           )
         },
+        meta: { maxWidth: '20rem', truncate: false },
       },
       {
         id: 'location',
@@ -864,6 +872,7 @@ export default function WmsOperationalDashboardPage() {
 
             <DataTable<OperationalDashboardActivityRow>
               title={t('wms.backend.dashboard.activity.title', 'Recent activity')}
+              titleHeadingLevel={2}
               columns={activityColumns}
               data={dashboardQuery.data.recentActivity}
               disableRowClick

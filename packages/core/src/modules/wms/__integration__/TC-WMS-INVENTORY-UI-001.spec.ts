@@ -116,6 +116,7 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
       })
       await fillCombobox(page, 'Select warehouse', warehouseName, {
         scope: adjustDialog,
+        suggestionsApiPath: '/api/wms/warehouses',
         waitForEnabledPlaceholder: 'Select location',
       })
       await fillCombobox(page, 'Select location', locationCode, {
@@ -255,6 +256,7 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
 
       await fillCombobox(page, 'Select warehouse', warehouseName, {
         scope: cycleDialog,
+        suggestionsApiPath: '/api/wms/warehouses',
         waitForEnabledPlaceholder: 'Select zone',
       })
       // Zone options load asynchronously only after the warehouse is selected, so

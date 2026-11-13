@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 "use client"
 
 import * as React from 'react'
@@ -18,6 +16,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
@@ -72,17 +71,47 @@ const emptyDraft: AddressEditorDraft = {
   region: '',
   postalCode: '',
   country: '',
+  taxId: '',
+  taxIdType: '',
+  phone: '',
   isPrimary: false,
 }
 
 const EDITABLE_SNAPSHOT_KEYS = new Set(Object.keys(emptyDraft))
 
+/**
+ * The fields the editor owns, typed, plus whatever else the caller's snapshot carried.
+ *
+ * The index signature is what lets an integration's extra keys — anything a future
+ * integration writes — survive the merge-back below, while the named fields stay `string` for callers
+ * that read them. `taxId` and `phone` are NOT among them any more: the editor renders both, so they
+ * are assigned from the draft like every other field. Reading
+ * `normalized.city` off a bare `Record<string, unknown>` yields `unknown`, which is what forced the
+ * `@ts-nocheck` on this file.
+ */
+type NormalizedAddressDraft = {
+  name?: string
+  purpose?: string
+  companyName?: string
+  addressLine1?: string
+  addressLine2?: string
+  buildingNumber?: string
+  flatNumber?: string
+  city?: string
+  region?: string
+  postalCode?: string
+  country?: string
+  taxId?: string
+  phone?: string
+  isPrimary?: boolean
+} & Record<string, unknown>
+
 function normalizeAddressDraft(
   draft?: AddressEditorDraft | null,
   previous?: Record<string, unknown> | null,
-): Record<string, unknown> | null {
+): NormalizedAddressDraft | null {
   if (!draft) return null
-  const normalized: Record<string, unknown> = {}
+  const normalized: NormalizedAddressDraft = {}
   let hasEditableContent = false
   const assign = (key: keyof AddressEditorDraft, target: string) => {
     const value = draft[key]
@@ -103,6 +132,9 @@ function normalizeAddressDraft(
   assign('region', 'region')
   assign('postalCode', 'postalCode')
   assign('country', 'country')
+  assign('taxId', 'taxId')
+  assign('taxIdType', 'taxIdType')
+  assign('phone', 'phone')
   assign('isPrimary', 'isPrimary')
   if (!hasEditableContent) return null
   if (previous) {
@@ -129,6 +161,9 @@ function draftFromSnapshot(snapshot?: Record<string, unknown> | null): AddressEd
     region: typeof record.region === 'string' ? record.region : '',
     postalCode: typeof record.postalCode === 'string' ? record.postalCode : '',
     country: typeof record.country === 'string' ? record.country : '',
+    taxId: typeof record.taxId === 'string' ? record.taxId : '',
+    taxIdType: typeof record.taxIdType === 'string' ? record.taxIdType : '',
+    phone: typeof record.phone === 'string' ? record.phone : '',
     isPrimary: record.isPrimary === true,
   }
 }
@@ -294,6 +329,22 @@ export function SalesDocumentAddressesSection({
   )
 
   const customerRequired = !customerId
+  const hasSavedAddresses = addressOptions.length > 0
+  // With no saved addresses the only thing the form can do is define a new one, so it
+  // opens straight on the address fields instead of an empty select (#6194). The choice
+  // follows the saved addresses as they load, until the user picks a side themselves.
+  const additionalModeTouchedRef = React.useRef(false)
+  const openAdditionalForm = React.useCallback(() => {
+    additionalModeTouchedRef.current = false
+    setAdditionalUseCustom(!hasSavedAddresses)
+    setAdditionalSelectedId('')
+    setAdditionalFormOpen(true)
+  }, [hasSavedAddresses])
+  React.useEffect(() => {
+    if (!additionalFormOpen || addressesLoading) return
+    if (!hasSavedAddresses) setAdditionalUseCustom(true)
+    else if (!additionalModeTouchedRef.current) setAdditionalUseCustom(false)
+  }, [additionalFormOpen, addressesLoading, hasSavedAddresses])
   const addressOptionsMap = React.useMemo(() => {
     const map = new Map<string, AddressOption>()
     addressOptions.forEach((entry) => map.set(entry.id, entry))
@@ -370,7 +421,10 @@ export function SalesDocumentAddressesSection({
               companyName: value.companyName ?? null,
             }
           })
-          .filter((entry): entry is DocumentAddressAssignment => entry !== null)
+          // Narrow to non-null only. Asserting `DocumentAddressAssignment` here was wrong: its
+          // optional fields (`name?`, `purpose?`, …) admit `undefined`, which the mapped literal's
+          // `string | null` does not, so the predicate was not assignable to what it filtered.
+          .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
         setDocumentAddresses(mapped)
       } else {
         setDocumentAddresses([])
@@ -1093,9 +1147,12 @@ export function SalesDocumentAddressesSection({
               <AddressEditor
                 value={shippingDraft}
                 format={addressFormat}
+                showPhoneField
+                showTaxIdField
                 t={t as Translator}
                 onChange={(next) => setShippingDraft(next)}
                 hidePrimaryToggle
+                disabled={locked}
               />
               <SwitchField
                 label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1160,9 +1217,12 @@ export function SalesDocumentAddressesSection({
                   <AddressEditor
                     value={billingDraft}
                     format={addressFormat}
+                    showPhoneField
+                    showTaxIdField
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle
+                    disabled={locked}
                   />
                   <SwitchField
                     label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1201,16 +1261,18 @@ export function SalesDocumentAddressesSection({
               )}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setAdditionalFormOpen(true)}
-            disabled={customerRequired || locked}
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            {t('sales.documents.detail.addresses.add', 'Add address')}
-          </Button>
+          {documentAddressesLoading || documentAddresses.length > 0 || additionalFormOpen ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={openAdditionalForm}
+              disabled={customerRequired || locked || additionalFormOpen}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              {t('sales.documents.detail.addresses.add', 'Add address')}
+            </Button>
+          ) : null}
         </div>
 
         {documentAddressesLoading ? (
@@ -1229,7 +1291,7 @@ export function SalesDocumentAddressesSection({
             )}
             action={{
               label: t('sales.documents.detail.addresses.add', 'Add address'),
-              onClick: () => setAdditionalFormOpen(true),
+              onClick: openAdditionalForm,
               disabled: customerRequired || locked,
             }}
           />
@@ -1337,7 +1399,7 @@ export function SalesDocumentAddressesSection({
         </div>
 
         {additionalFormOpen ? (
-          <div className="space-y-3 rounded border border-dashed p-3">
+          <div className="space-y-3 rounded border border-dashed p-3" data-testid="additional-address-form">
             <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
               <p className="text-sm font-semibold">
                 {t('sales.documents.detail.addresses.new', 'Add a new address')}
@@ -1357,13 +1419,25 @@ export function SalesDocumentAddressesSection({
               </Button>
             </div>
 
-            <SwitchField
-              label={t('sales.documents.form.shipping.custom', 'Define new address')}
-              flip
-              checked={additionalUseCustom}
-              onCheckedChange={(checked) => setAdditionalUseCustom(checked)}
-              disabled={customerRequired || locked}
-            />
+            {hasSavedAddresses ? (
+              <SegmentedControl
+                value={additionalUseCustom ? 'new' : 'saved'}
+                onValueChange={(next) => {
+                  additionalModeTouchedRef.current = true
+                  setAdditionalUseCustom(next === 'new')
+                }}
+                size="sm"
+                disabled={customerRequired || locked}
+                aria-label={t('sales.documents.detail.addresses.mode.label', 'Address source')}
+              >
+                <SegmentedControlItem value="saved">
+                  {t('sales.documents.detail.addresses.mode.saved', 'Saved address')}
+                </SegmentedControlItem>
+                <SegmentedControlItem value="new">
+                  {t('sales.documents.detail.addresses.mode.new', 'New address')}
+                </SegmentedControlItem>
+              </SegmentedControl>
+            ) : null}
 
             {!additionalUseCustom
               ? renderAddressSelect(
@@ -1392,7 +1466,7 @@ export function SalesDocumentAddressesSection({
               >
                 {additionalSaving
                   ? t('sales.documents.form.address.saving', 'Saving…')
-                  : t('sales.documents.detail.addresses.add', 'Add address')}
+                  : t('sales.documents.detail.addresses.save', 'Save address')}
               </Button>
             </div>
           </div>

@@ -1,0 +1,153 @@
+import {
+  availabilityPolicyCreateSchema,
+  availabilityPolicyMergedConstraintsSchema,
+  AVAILABILITY_POLICY_VARIANT_REQUIRES_PRODUCT_MESSAGE_KEY,
+  AVAILABILITY_POLICY_BACKORDER_REQUIRES_LEAD_TIME_MESSAGE_KEY,
+  AVAILABILITY_POLICY_MAX_BELOW_MIN_MESSAGE_KEY,
+  AVAILABILITY_POLICY_INTEGER_MAX,
+  AVAILABILITY_POLICY_INTEGER_TOO_LARGE_MESSAGE_KEY,
+  availabilityPolicyUpdateSchema,
+} from '../validators'
+
+const baseInput = {
+  organizationId: '11111111-1111-4111-8111-111111111111',
+  tenantId: '22222222-2222-4222-8222-222222222222',
+}
+
+describe('availabilityPolicyCreateSchema', () => {
+  it('accepts a store-level default row (no product, no variant)', () => {
+    const result = availabilityPolicyCreateSchema.safeParse(baseInput)
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts isStockManaged null (inherit) alongside explicit booleans', () => {
+    expect(availabilityPolicyCreateSchema.safeParse({ ...baseInput, isStockManaged: null }).success).toBe(true)
+    expect(availabilityPolicyCreateSchema.safeParse({ ...baseInput, isStockManaged: false }).success).toBe(true)
+  })
+
+  it('rejects a variantId without a productId', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({
+      ...baseInput,
+      variantId: '33333333-3333-4333-8333-333333333333',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe(AVAILABILITY_POLICY_VARIANT_REQUIRES_PRODUCT_MESSAGE_KEY)
+    }
+  })
+
+  it('accepts a variantId with a productId', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({
+      ...baseInput,
+      productId: '44444444-4444-4444-8444-444444444444',
+      variantId: '33333333-3333-4333-8333-333333333333',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects allowBackorder without backorderLeadTimeDays', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, allowBackorder: true })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe(AVAILABILITY_POLICY_BACKORDER_REQUIRES_LEAD_TIME_MESSAGE_KEY)
+    }
+  })
+
+  it('accepts allowBackorder with backorderLeadTimeDays', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({
+      ...baseInput,
+      allowBackorder: true,
+      backorderLeadTimeDays: 5,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects maxOrderQuantity below minOrderQuantity', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({
+      ...baseInput,
+      minOrderQuantity: 10,
+      maxOrderQuantity: 5,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].message).toBe(AVAILABILITY_POLICY_MAX_BELOW_MIN_MESSAGE_KEY)
+    }
+  })
+
+  it('rejects negative quantities', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, minOrderQuantity: -1 })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts zero for the non-negative quantity fields', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({
+      ...baseInput,
+      minOrderQuantity: 0,
+      maxOrderQuantity: 0,
+      lowStockThreshold: 0,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a zero quantityIncrement', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, quantityIncrement: 0 })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a positive quantityIncrement', () => {
+    const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, quantityIncrement: 6 })
+    expect(result.success).toBe(true)
+  })
+})
+
+describe('availabilityPolicyMergedConstraintsSchema', () => {
+  it('re-validates the same constraints against a merged record', () => {
+    const result = availabilityPolicyMergedConstraintsSchema.safeParse({ variantId: '33333333-3333-4333-8333-333333333333' })
+    expect(result.success).toBe(false)
+  })
+
+  it('passes when the merged record satisfies every constraint', () => {
+    const result = availabilityPolicyMergedConstraintsSchema.safeParse({
+      productId: '44444444-4444-4444-8444-444444444444',
+      variantId: '33333333-3333-4333-8333-333333333333',
+      allowBackorder: true,
+      backorderLeadTimeDays: 3,
+      minOrderQuantity: 1,
+      maxOrderQuantity: 10,
+    })
+    expect(result.success).toBe(true)
+  })
+})
+
+describe('policy integer bounds (#6808)', () => {
+  const integerFields = [
+    'backorderLeadTimeDays',
+    'lowStockThreshold',
+    'minOrderQuantity',
+    'maxOrderQuantity',
+    'quantityIncrement',
+  ] as const
+
+  it.each(integerFields)('rejects %s above the Postgres integer range with a field error', (field) => {
+    const result = availabilityPolicyCreateSchema.safeParse({ ...baseInput, [field]: AVAILABILITY_POLICY_INTEGER_MAX + 1 })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual([field])
+      expect(result.error.issues[0].message).toBe(AVAILABILITY_POLICY_INTEGER_TOO_LARGE_MESSAGE_KEY)
+    }
+  })
+
+  it('accepts the largest Postgres integer', () => {
+    expect(
+      availabilityPolicyCreateSchema.safeParse({ ...baseInput, maxOrderQuantity: AVAILABILITY_POLICY_INTEGER_MAX }).success,
+    ).toBe(true)
+  })
+
+  it('applies the same bound on update', () => {
+    const result = availabilityPolicyUpdateSchema.safeParse({
+      id: '55555555-5555-4555-8555-555555555555',
+      lowStockThreshold: AVAILABILITY_POLICY_INTEGER_MAX + 1,
+    })
+    expect(result.success).toBe(false)
+  })
+})

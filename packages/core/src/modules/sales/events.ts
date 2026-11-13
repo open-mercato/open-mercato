@@ -1,10 +1,28 @@
-import { createModuleEvents } from '@open-mercato/shared/modules/events'
+import { createModuleEvents, type EventPayloadSchema } from '@open-mercato/shared/modules/events'
 
 /**
  * Sales Module Events
  *
  * Declares all events that can be emitted by the sales module.
  */
+
+/**
+ * Payload emitted by `commands/documents.ts` (`emitTotalsCalculated`) for
+ * `sales.document.totals.calculated`. Fields mirror the emit call exactly;
+ * `totals` is the calculation result object, declared as `object`.
+ */
+const totalsCalculatedPayloadSchema: EventPayloadSchema = {
+  fields: [
+    { path: 'documentKind', type: 'text' },
+    { path: 'documentId', type: 'text' },
+    { path: 'organizationId', type: 'text' },
+    { path: 'tenantId', type: 'text' },
+    { path: 'customerId', type: 'text', optional: true },
+    { path: 'totals', type: 'object' },
+    { path: 'lineCount', type: 'number' },
+  ],
+}
+
 const events = [
   // Orders
   { id: 'sales.order.created', label: 'Sales Order Created', entity: 'order', category: 'crud' },
@@ -60,7 +78,7 @@ const events = [
   { id: 'sales.channel.deleted', label: 'Sales Channel Deleted', entity: 'channel', category: 'crud' },
 
   // Lifecycle events - Document calculations
-  { id: 'sales.document.totals.calculated', label: 'Document Totals Calculated', category: 'lifecycle' },
+  { id: 'sales.document.totals.calculated', label: 'Document Totals Calculated', category: 'lifecycle', payloadSchema: totalsCalculatedPayloadSchema },
   { id: 'sales.document.calculate.before', label: 'Before Document Calculate', category: 'lifecycle', excludeFromTriggers: true },
   { id: 'sales.document.calculate.after', label: 'After Document Calculate', category: 'lifecycle', excludeFromTriggers: true },
 

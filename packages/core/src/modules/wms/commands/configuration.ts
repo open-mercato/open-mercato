@@ -31,16 +31,16 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
   parseWithCustomFields,
   setCustomFieldsIfAny,
 } from '@open-mercato/shared/lib/commands/helpers'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -85,6 +85,7 @@ import {
   normalizeOptionalString,
   requireId,
   toNumericString,
+  warehouseCrudIndexer,
   warehouseZoneCrudIndexer,
 } from './shared'
 import { emitWmsEvent } from '../events'
@@ -103,6 +104,22 @@ function resolveEm(ctx: CommandRuntimeContext): EntityManager {
 function toJsonValue(value: Record<string, unknown> | null | undefined): JsonValue | null | undefined {
   if (value === undefined) return undefined
   return (value ?? null) as JsonValue | null
+}
+
+async function persistWarehouseCustomFields(
+  ctx: CommandRuntimeContext,
+  warehouse: { id: string; organizationId: string; tenantId: string },
+  custom: Record<string, unknown>,
+) {
+  if (!custom || Object.keys(custom).length === 0) return
+  await setCustomFieldsIfAny({
+    dataEngine: ctx.container.resolve('dataEngine'),
+    entityId: E.wms.warehouse,
+    recordId: warehouse.id,
+    organizationId: warehouse.organizationId,
+    tenantId: warehouse.tenantId,
+    values: custom,
+  })
 }
 
 async function buildCrudLog(
@@ -184,6 +201,7 @@ type WarehouseSnapshot = {
   metadata: JsonValue | null
   createdAt: string
   updatedAt: string
+  custom?: Record<string, unknown> | null
 }
 
 type PrimaryDemotionSnapshot = {
@@ -317,7 +335,16 @@ async function loadWarehouseSnapshot(
   id: string,
 ): Promise<WarehouseSnapshot | null> {
   const record = await findOneWithDecryption(em, Warehouse, { id }, undefined, resolveScope(ctx))
-  return record ? snapshotWarehouse(record) : null
+  if (!record) return null
+  const snapshot = snapshotWarehouse(record)
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.wms.warehouse,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
+  snapshot.custom = custom && Object.keys(custom).length ? custom : null
+  return snapshot
 }
 
 function snapshotWarehouseZone(record: WarehouseZone): WarehouseZoneSnapshot {
@@ -381,6 +408,30 @@ async function writeZoneCustomFields(
 // `events` is deliberately omitted: the module already emits `wms.zone.*` itself,
 // and adding an events config here would introduce a second, undeclared
 // `wms.warehouse_zone.*` event id for the same write.
+async function emitWarehouseCrudSideEffects(
+  ctx: CommandRuntimeContext,
+  action: 'created' | 'updated' | 'deleted',
+  warehouse: Warehouse,
+  origin: 'write' | 'undo' = 'write',
+): Promise<void> {
+  const options = {
+    dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+    action,
+    entity: warehouse,
+    identifiers: {
+      id: warehouse.id,
+      organizationId: warehouse.organizationId,
+      tenantId: warehouse.tenantId,
+    },
+    indexer: warehouseCrudIndexer,
+  }
+  if (origin === 'undo') {
+    await emitCrudUndoSideEffects(options)
+    return
+  }
+  await emitCrudSideEffects(options)
+}
+
 async function emitZoneCrudSideEffects(
   ctx: CommandRuntimeContext,
   action: 'created' | 'updated' | 'deleted',
@@ -714,11 +765,11 @@ async function resolveParentLocation(
 
 const createWarehouseCommand: CommandHandler<
   WarehouseCreateInput,
-  { warehouseId: string; demotedPrimariesBefore?: PrimaryDemotionSnapshot[] }
+  { warehouseId: string; updatedAt?: string | null; demotedPrimariesBefore?: PrimaryDemotionSnapshot[] }
 > = {
   id: 'wms.warehouses.create',
   async execute(rawInput, ctx) {
-    const parsed = warehouseCreateSchema.parse(rawInput ?? {})
+    const { parsed, custom } = parseWithCustomFields(warehouseCreateSchema, rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = resolveEm(ctx)
@@ -776,6 +827,8 @@ const createWarehouseCommand: CommandHandler<
       }
       throw err
     }
+    await persistWarehouseCustomFields(ctx, warehouse, custom)
+    await emitWarehouseCrudSideEffects(ctx, 'created', warehouse)
     void emitWmsEvent('wms.warehouse.created', {
       id: warehouse.id,
       warehouseId: warehouse.id,
@@ -784,6 +837,7 @@ const createWarehouseCommand: CommandHandler<
     }).catch(() => undefined)
     return {
       warehouseId: warehouse.id,
+      updatedAt: isoOrNull(warehouse.updatedAt),
       ...(demotedPrimariesBefore.length > 0 ? { demotedPrimariesBefore } : {}),
     }
   },
@@ -823,6 +877,8 @@ const createWarehouseCommand: CommandHandler<
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
     await em.flush()
+    await persistWarehouseCustomFields(ctx, after, buildCustomFieldResetMap(undefined, after.custom ?? undefined))
+    await emitWarehouseCrudSideEffects(ctx, 'deleted', record, 'undo')
     if (payload.demotedPrimariesBefore?.length) {
       await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
       await em.flush()
@@ -842,7 +898,7 @@ const updateWarehouseCommand: CommandHandler<
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = warehouseUpdateSchema.parse(rawInput ?? {})
+    const { parsed, custom } = parseWithCustomFields(warehouseUpdateSchema, rawInput ?? {})
     const em = resolveEm(ctx)
     const warehouse = await loadWarehouse(em, ctx, parsed.id)
     if (parsed.code !== undefined && parsed.code !== warehouse.code) {
@@ -902,6 +958,8 @@ const updateWarehouseCommand: CommandHandler<
       }
       throw err
     }
+    await persistWarehouseCustomFields(ctx, warehouse, custom)
+    await emitWarehouseCrudSideEffects(ctx, 'updated', warehouse)
     void emitWmsEvent('wms.warehouse.updated', {
       id: warehouse.id,
       warehouseId: warehouse.id,
@@ -982,6 +1040,12 @@ const updateWarehouseCommand: CommandHandler<
       record.deletedAt = null
     }
     await em.flush()
+    await persistWarehouseCustomFields(
+      ctx,
+      before,
+      buildCustomFieldResetMap(before.custom ?? undefined, payload.after?.custom ?? undefined),
+    )
+    await emitWarehouseCrudSideEffects(ctx, 'updated', record, 'undo')
     if (payload.demotedPrimariesBefore?.length) {
       await restoreDemotedPrimaryWarehouses(em, ctx, payload.demotedPrimariesBefore)
       await em.flush()
@@ -1003,6 +1067,7 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     const warehouse = await loadWarehouse(em, ctx, warehouseId)
     warehouse.deletedAt = new Date()
     await em.flush()
+    await emitWarehouseCrudSideEffects(ctx, 'deleted', warehouse)
     return { warehouseId: warehouse.id }
   },
   buildLog: async ({ input, result, ctx, snapshots }) => {
@@ -1057,6 +1122,7 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
       record.metadata = before.metadata
     }
     await em.flush()
+    await emitWarehouseCrudSideEffects(ctx, 'created', record, 'undo')
   },
 }
 
@@ -1466,6 +1532,28 @@ function restoreInventoryProfileFromSnapshot(em: EntityManager, before: ProductI
   record.deletedAt = null
 }
 
+type InventoryProfileEventSource = {
+  id: string
+  catalogProductId: string
+  catalogVariantId?: string | null
+  tenantId: string
+  organizationId: string
+}
+
+function emitInventoryProfileEvent(
+  eventId: 'wms.inventory_profile.created' | 'wms.inventory_profile.updated' | 'wms.inventory_profile.deleted',
+  profile: InventoryProfileEventSource,
+): void {
+  void emitWmsEvent(eventId, {
+    id: profile.id,
+    profileId: profile.id,
+    catalogProductId: profile.catalogProductId,
+    catalogVariantId: profile.catalogVariantId ?? null,
+    tenantId: profile.tenantId,
+    organizationId: profile.organizationId,
+  }).catch(() => undefined)
+}
+
 const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfileCreateInput, { profileId: string }> = {
   id: 'wms.inventoryProfiles.create',
   async execute(rawInput, ctx) {
@@ -1489,14 +1577,7 @@ const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
       metadata: toJsonValue(parsed.metadata),
     })
     await em.persist(profile).flush()
-    void emitWmsEvent('wms.inventory_profile.created', {
-      id: profile.id,
-      profileId: profile.id,
-      catalogProductId: profile.catalogProductId,
-      catalogVariantId: profile.catalogVariantId ?? null,
-      tenantId: profile.tenantId,
-      organizationId: profile.organizationId,
-    }).catch(() => undefined)
+    emitInventoryProfileEvent('wms.inventory_profile.created', profile)
     return { profileId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1525,6 +1606,7 @@ const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
     await em.flush()
+    emitInventoryProfileEvent('wms.inventory_profile.deleted', record)
   },
 }
 
@@ -1563,14 +1645,7 @@ const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
     if (parsed.safetyStock !== undefined) profile.safetyStock = toNumericString(parsed.safetyStock)
     if (parsed.metadata !== undefined) profile.metadata = toJsonValue(parsed.metadata)
     await em.flush()
-    void emitWmsEvent('wms.inventory_profile.updated', {
-      id: profile.id,
-      profileId: profile.id,
-      catalogProductId: profile.catalogProductId,
-      catalogVariantId: profile.catalogVariantId ?? null,
-      tenantId: profile.tenantId,
-      organizationId: profile.organizationId,
-    }).catch(() => undefined)
+    emitInventoryProfileEvent('wms.inventory_profile.updated', profile)
     return { profileId: profile.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1620,6 +1695,7 @@ const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
       restoreInventoryProfileFromSnapshot(em, before, record)
     }
     await em.flush()
+    emitInventoryProfileEvent('wms.inventory_profile.updated', before)
   },
 }
 
@@ -1637,6 +1713,7 @@ const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { pr
     const profile = await loadProfile(em, ctx, profileId)
     profile.deletedAt = new Date()
     await em.flush()
+    emitInventoryProfileEvent('wms.inventory_profile.deleted', profile)
     return { profileId: profile.id }
   },
   buildLog: async ({ input, result, ctx, snapshots }) => {
@@ -1681,6 +1758,7 @@ const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { pr
       restoreInventoryProfileFromSnapshot(em, before, record)
     }
     await em.flush()
+    emitInventoryProfileEvent('wms.inventory_profile.created', before)
   },
 }
 

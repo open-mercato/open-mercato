@@ -66,12 +66,24 @@ function serialize(channel: CommunicationChannel, adapterRegistry: ChannelAdapte
   // the `PushStatusSection` can render the "Re-register push" affordance.
   const channelState =
     (channel.channelState as
-      | { pushStatus?: string; lastPushError?: { code?: string; message?: string; at?: string } | null }
+      | {
+          pushStatus?: string
+          watchExpirationMs?: number
+          lastPushError?: { code?: string; message?: string; at?: string } | null
+        }
       | null) ?? null
   const pushStatus =
     typeof channelState?.pushStatus === 'string'
       ? (channelState.pushStatus as 'active' | 'inactive' | 'failed')
       : null
+  // `pushStatus` is only rewritten by a register/renew call, so a watch whose
+  // renewal never ran keeps reading 'active' after the provider dropped it (#8943).
+  const watchExpirationMs =
+    typeof channelState?.watchExpirationMs === 'number' && Number.isFinite(channelState.watchExpirationMs)
+      ? channelState.watchExpirationMs
+      : null
+  const pushExpiresAt = watchExpirationMs !== null ? new Date(watchExpirationMs).toISOString() : null
+  const pushExpired = pushStatus === 'active' && watchExpirationMs !== null && watchExpirationMs <= Date.now()
   const lastPushError =
     channelState?.lastPushError && typeof channelState.lastPushError === 'object'
       ? {
@@ -93,12 +105,18 @@ function serialize(channel: CommunicationChannel, adapterRegistry: ChannelAdapte
     displayName: channel.displayName,
     externalIdentifier: channel.externalIdentifier ?? null,
     isPrimary: channel.isPrimary,
+    /** Shared team mailbox flag; drives the profile-page share toggle. */
+    visibility: channel.visibility === 'shared' ? 'shared' : 'private',
+    /** Required so the share toggle can send the optimistic-lock header. */
+    updatedAt: channel.updatedAt?.toISOString?.() ?? null,
     isActive: channel.isActive,
     status: channel.status,
     lastError: channel.lastError ?? null,
     pollIntervalSeconds: channel.pollIntervalSeconds ?? null,
     lastPolledAt: channel.lastPolledAt?.toISOString?.() ?? null,
     pushStatus,
+    pushExpiresAt,
+    pushExpired,
     lastPushError,
     supportsRealtimePush,
     supportsPushRegistration,

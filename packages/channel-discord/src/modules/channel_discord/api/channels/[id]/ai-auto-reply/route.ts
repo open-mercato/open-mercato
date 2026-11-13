@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { validateRouteMutationGuard } from '@open-mercato/core/modules/communication_channels/lib/route-mutation-guard'
 import { CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID } from '../../../../ai-agents'
 import {
@@ -247,6 +248,10 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
     // conflict bar renders the same way it does anywhere else in the product.
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     throw err
   }

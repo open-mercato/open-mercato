@@ -1,11 +1,23 @@
 import { readFileSync } from 'node:fs'
-import { relative, resolve } from 'node:path'
+import { basename, dirname, relative, resolve } from 'node:path'
 import fg from 'fast-glob'
 import * as ts from 'typescript'
 import englishDictionary from '../i18n/en.json'
+import germanDictionary from '../i18n/de.json'
+import spanishDictionary from '../i18n/es.json'
+import koreanDictionary from '../i18n/ko.json'
+import polishDictionary from '../i18n/pl.json'
 
 const repoRoot = resolve(__dirname, '../../../../../..')
 const featureKeyPrefix = 'auth.acl.features.'
+const moduleKeyPrefix = 'auth.acl.modules.'
+const dictionaries: Record<string, Record<string, string>> = {
+  de: germanDictionary,
+  en: englishDictionary,
+  es: spanishDictionary,
+  ko: koreanDictionary,
+  pl: polishDictionary,
+}
 
 type DeclaredFeature = {
   id: string
@@ -86,6 +98,25 @@ describe('ACL feature translation catalog', () => {
     for (const key of Object.keys(englishDictionary)) {
       if (key.startsWith(featureKeyPrefix) && !declaredIds.has(key.slice(featureKeyPrefix.length))) {
         findings.push(`auth/i18n/en.json: ${key} has no discovered ACL declaration`)
+      }
+    }
+
+    expect(findings).toEqual([])
+  })
+
+  it('labels every communication channel permission group in every locale', async () => {
+    const files = await fg(['packages/channel-*/src/modules/*/acl.ts'], { cwd: repoRoot, absolute: true })
+    const moduleIds = files.map((file) => basename(dirname(file))).sort()
+    const findings: string[] = []
+
+    expect(moduleIds).toEqual(expect.arrayContaining(['channel_discord', 'channel_resend', 'channel_ses']))
+
+    for (const [locale, dictionary] of Object.entries(dictionaries)) {
+      for (const moduleId of moduleIds) {
+        const label = dictionary[`${moduleKeyPrefix}${moduleId}`]
+        if (!label || label === moduleId) {
+          findings.push(`auth/i18n/${locale}.json: ${moduleKeyPrefix}${moduleId} is missing`)
+        }
       }
     }
 

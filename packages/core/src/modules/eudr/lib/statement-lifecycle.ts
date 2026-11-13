@@ -13,6 +13,14 @@ export function canTransition(from: EudrStatementStatus, to: EudrStatementStatus
   return EUDR_STATEMENT_TRANSITIONS[from].includes(to)
 }
 
+export function isStatementReadOnly(status: EudrStatementStatus): boolean {
+  return status === 'archived'
+}
+
+export function canDeleteStatement(status: EudrStatementStatus): boolean {
+  return !isStatementReadOnly(status)
+}
+
 export const EUDR_AMEND_GUARDED_FIELDS = [
   'commodity',
   'quantityKg',

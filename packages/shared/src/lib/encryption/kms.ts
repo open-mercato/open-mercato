@@ -388,17 +388,12 @@ export class HashicorpVaultKmsService implements KmsService {
 
 let loggedDerivedKeyFallbackBanner = false
 
-function fingerprintSecret(secret: string): string {
-  return crypto.createHash('sha256').update(secret, 'utf8').digest('hex').slice(0, 16)
-}
-
 export function buildDerivedKeyFallbackBannerLines(opts: DerivedSecret): string[] {
   const sourceLine =
     opts.source === 'explicit' ? `Source: ${opts.envName}` : 'Source: dev default secret (do NOT use in production)'
   return [
     '🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)',
     sourceLine,
-    `Secret fingerprint (sha256, truncated): ${fingerprintSecret(opts.secret)}`,
     'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
   ]
 }
@@ -419,8 +414,30 @@ function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   ]
   process.stderr.write(bannerLines.join('\n') + '\n')
   logger.warn('Using derived tenant encryption keys (Vault unavailable / no DEK)', {
-    secretFingerprint: fingerprintSecret(opts.secret),
+    fallbackSource: opts.envName,
   })
+}
+
+/**
+ * What the runtime should do about tenant data encryption right now.
+ *
+ * `isHealthy()` alone cannot answer this: {@link NoopKmsService} reports healthy precisely when
+ * encryption is switched OFF, so `enabled && healthy` collapses correctly but a bare
+ * `if (!kms.isHealthy())` guard reads the two opposite situations as the same one. They call for
+ * opposite handling, so name them:
+ *
+ * - `disabled`    — the operator set `TENANT_DATA_ENCRYPTION=no`. Plaintext is the intended
+ *                   outcome; degrade to it rather than failing.
+ * - `active`      — encryption is on and a DEK is reachable. Encrypt.
+ * - `unavailable` — encryption is on but no DEK is reachable (Vault down, no fallback secret).
+ *                   Data that is meant to be ciphertext MUST NOT be written as plaintext; callers
+ *                   holding secrets fail closed here (spec 2026-05-29, security finding #7).
+ */
+export type TenantDataEncryptionMode = 'disabled' | 'active' | 'unavailable'
+
+export function resolveEncryptionMode(kms: Pick<KmsService, 'isHealthy'>): TenantDataEncryptionMode {
+  if (!isTenantDataEncryptionEnabled()) return 'disabled'
+  return kms.isHealthy() ? 'active' : 'unavailable'
 }
 
 export function createKmsService(): KmsService {

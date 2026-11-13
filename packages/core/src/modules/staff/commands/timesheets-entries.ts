@@ -1,24 +1,62 @@
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { z } from 'zod'
+import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { LockMode } from '@mikro-orm/core'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { StaffTimeEntry, StaffTimeEntrySegment, StaffTimeProject, type StaffTimeEntrySource } from '../data/entities'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import {
+  StaffTimeEntry,
+  StaffTimeEntrySegment,
+  StaffTimeProject,
+  StaffTimeTask,
+  type StaffTimeEntrySource,
+} from '../data/entities'
 import { emitStaffEvent } from '../events'
+import { deriveInterval, formatClock, parseClock } from '../lib/time-tracking/interval'
+import { roundMinutes } from '../lib/time-tracking/rounding'
+import { resolveBillability } from '../lib/time-tracking/billability'
+import type { ScopedResolverContext } from '../lib/time-tracking/registries/scope'
+import {
+  DEFAULT_TIME_TRACKING_SETTINGS,
+  readTimeTrackingSettings,
+  type TimeTrackingSettings,
+} from '../lib/time-tracking/settings'
+import { isProjectAccessibleOnDate, resolveProjectAccess, type ProjectAccess } from '../lib/time-tracking/access'
+// Imported for the command ids AND for the registration side effect: the tag
+// commands must be in the registry before this file asks the bus to run one.
+import { staffTimeTagCommandIds, TAG_TARGET_LOCKED_CODE } from './timesheets-tags'
 
+// The time-entries CRUD list route caches under `staff.timesheets.time.entry` — the
+// canonical tag of its CRUD events config (`staff` + `timesheets.time_entry`). What
+// flushes that tag on execute AND undo is the `resourceKind: 'staff.timesheets.time_entry'`
+// every command below returns from `buildLog`: the command bus skips cache invalidation
+// entirely when the log carries no `resourceKind` (#2609), so that value is the
+// load-bearing part — keep it in sync with the list route's events config. The bus also
+// flushes the tag `deriveResourceFromCommandId` derives from the command id
+// (`staff.timesheets.*` → `staff.timesheet`); that alias is extra, not what reaches the
+// list cache. `cacheAliases` is declared for the `packages/core/AGENTS.md` convention
+// only — no runtime reader consumes `CrudIndexerConfig.cacheAliases` today (the bus
+// reads `buildLog(...).context.cacheAliases`), so do not rely on it to reach a tag.
 const timeEntryCrudIndexer: CrudIndexerConfig<StaffTimeEntry> = {
   entityType: 'staff:staff_time_entry',
+  cacheAliases: ['staff.timesheet'],
 }
 import {
   staffTimeEntryCreateSchema,
   staffTimeEntryStartTimerSchema,
+  staffTimeEntryStartTimerExistingSchema,
+  staffTimeEntryStopTimerSchema,
   staffTimeEntryUpdateSchema,
   type StaffTimeEntryCreateInput,
   type StaffTimeEntryStartTimerInput,
+  type StaffTimeEntryStartTimerExistingInput,
+  type StaffTimeEntryStopTimerInput,
   type StaffTimeEntryUpdateInput,
 } from '../data/validators'
 import { staffTimeEntryCrudEvents } from '../lib/crud'
@@ -37,9 +75,15 @@ import {
   type StaffSnapshotScope,
 } from './shared'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
+import { restoreSegmentsForEntry, softDeleteSegmentsForEntry } from '../lib/timesheets/timeEntrySegmentCascade'
+import { lockStaffMemberTimers } from '../lib/timesheets/staffTimerLock'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
+
+type ContainerLike = { resolve: (token: string) => unknown }
+
+type Translate = (key: string, fallback?: string) => string
 
 type RbacServiceLike = {
   userHasAllFeatures: (
@@ -47,6 +91,10 @@ type RbacServiceLike = {
     required: string[],
     scope: { tenantId: string | null; organizationId: string | null },
   ) => Promise<boolean>
+  getGrantedFeatures?: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<string[]>
 }
 
 /**
@@ -91,22 +139,25 @@ async function resolveCallerStaffMemberId(
 
 /**
  * Verifies the referenced time project exists and is in-scope (same tenant + org,
- * not soft-deleted). Throws 422 if the ID is provided but unresolvable.
- * No-op when projectId is null/undefined (timeProjectId is optional on entries).
+ * not soft-deleted) and hands the row back — the write path reads its
+ * `billableByDefault` and `currencyCode` to seed the entry. Throws 422 if the ID
+ * is provided but unresolvable. Returns null when projectId is null/undefined
+ * (timeProjectId is optional on entries).
  */
-async function assertTimeProjectInScope(
+async function requireTimeProjectInScope(
   em: EntityManager,
   projectId: string | null | undefined,
   tenantId: string,
   organizationId: string,
-): Promise<void> {
-  if (!projectId) return
-  const exists = await em.findOne(
-    StaffTimeProject,
-    { id: projectId, tenantId, organizationId, deletedAt: null },
-    { fields: ['id'] },
-  )
-  if (!exists) {
+): Promise<StaffTimeProject | null> {
+  if (!projectId) return null
+  const project = await em.findOne(StaffTimeProject, {
+    id: projectId,
+    tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+  if (!project) {
     const { translate } = await resolveTranslations()
     throw new CrudHttpError(422, {
       error: translate('staff.timesheets.errors.projectNotFound', 'Time project not found or not accessible.'),
@@ -115,6 +166,597 @@ async function assertTimeProjectInScope(
       },
     })
   }
+  return project
+}
+
+/**
+ * Same contract as the project check, for `task_id`. A dangling task reference is
+ * refused rather than stored: the task rollups on screens 6 and 7 aggregate entries
+ * by `task_id`, so a stale or foreign UUID would silently move hours onto another
+ * project's card.
+ */
+async function requireTaskInScope(
+  em: EntityManager,
+  taskId: string | null | undefined,
+  tenantId: string,
+  organizationId: string,
+): Promise<StaffTimeTask | null> {
+  if (!taskId) return null
+  const task = await em.findOne(StaffTimeTask, {
+    id: taskId,
+    tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+  if (!task) {
+    const { translate } = await resolveTranslations()
+    const message = translate('staff.timesheets.errors.taskNotFound', 'Task not found or not accessible.')
+    throw new CrudHttpError(422, { error: message, fieldErrors: { taskId: message } })
+  }
+  return task
+}
+
+/**
+ * A task belongs to exactly one project, so an entry naming both must name the
+ * same one. Letting them disagree would file the hours under a project whose
+ * board never shows the task — the same rollup corruption the task-scope check
+ * above prevents, one level up.
+ */
+async function assertTaskBelongsToProject(
+  task: StaffTimeTask | null,
+  projectId: string | null,
+): Promise<void> {
+  if (timeEntryTaskMatchesProject(task, projectId)) return
+  const { translate } = await resolveTranslations()
+  const message = translate('staff.timesheets.errors.taskNotFound', 'Task not found or not accessible.')
+  throw new CrudHttpError(422, { error: message, fieldErrors: { taskId: message } })
+}
+
+/**
+ * The rule the assertion above enforces, as a predicate: a task belongs to
+ * exactly one project, so an entry naming both must name the same one. Exported
+ * because the grid bulk save validates a whole batch at once and answers with a
+ * per-row error list rather than a thrown 422 — it reuses the rule and only
+ * differs in how it reports a violation.
+ */
+export function timeEntryTaskMatchesProject(
+  task: { timeProjectId?: string | null } | null | undefined,
+  projectId: string | null | undefined,
+): boolean {
+  if (!task || !projectId) return true
+  return task.timeProjectId === projectId
+}
+
+/**
+ * Screen 8 picks a task and lets the project follow from it ("Projekt i klient
+ * wynikają z zadania"), so a write that names only a task still lands on the
+ * project the task belongs to — and with it the billable and currency defaults.
+ * One derivation for every write path, including the grid bulk save.
+ */
+export function resolveTimeEntryProjectId(
+  requestedProjectId: string | null | undefined,
+  task: { timeProjectId?: string | null } | null | undefined,
+): string | null {
+  return requestedProjectId ?? task?.timeProjectId ?? null
+}
+
+/**
+ * The billable default chain, in one place: an explicit value wins, then the
+ * project's own default — a fixed-price engagement is non-billable however the
+ * tenant normally works — and the tenant setting only decides what is left.
+ *
+ * EP-34 moved that chain into the billability registry's built-in resolver; this
+ * stays the module's entry point and forwards the scope so a contributed
+ * resolver can be consulted ahead of it.
+ */
+export function resolveTimeEntryBillable(params: {
+  requested?: boolean | null
+  project?: { id?: string | null; billableByDefault?: boolean | null } | null
+  settings: TimeTrackingSettings
+  scope?: ScopedResolverContext | null
+}): boolean {
+  return resolveBillability({
+    ...(params.scope ?? {}),
+    requested: params.requested,
+    project: params.project ?? null,
+    settings: params.settings,
+  })
+}
+
+/**
+ * Rounding and the billable default are tenant settings. A settings read that
+ * fails must not fail the write, so it degrades to the documented defaults —
+ * the same fail-safe the projects and tasks routes apply to the grace window.
+ */
+async function readEntrySettingsFrom(
+  container: ContainerLike,
+  tenantId: string,
+): Promise<TimeTrackingSettings> {
+  try {
+    const configService = container.resolve('moduleConfigService') as ModuleConfigService | undefined
+    if (!configService?.getRecord) return DEFAULT_TIME_TRACKING_SETTINGS
+    return await readTimeTrackingSettings(configService, { tenantId })
+  } catch {
+    return DEFAULT_TIME_TRACKING_SETTINGS
+  }
+}
+
+async function readEntrySettings(ctx: CommandRuntimeContext, tenantId: string): Promise<TimeTrackingSettings> {
+  return readEntrySettingsFrom(ctx.container, tenantId)
+}
+
+/**
+ * The same tenant-settings read, for write paths that run outside a command —
+ * the grid bulk save reads it ONCE per request (it is identical for every row)
+ * and then seeds rounding and the billable default from that one snapshot.
+ */
+export async function resolveTimeEntrySettings(
+  container: ContainerLike,
+  tenantId: string,
+): Promise<TimeTrackingSettings> {
+  return readEntrySettingsFrom(container, tenantId)
+}
+
+/**
+ * The single rounding entry point for write paths that cannot run inside this
+ * command file — the grid bulk save and timer-stop both compute a duration in
+ * their own transaction, and D-7 makes `rounded_minutes` the ONLY input to cost,
+ * so a duration written without its rounded twin bills nothing. They call this
+ * rather than reaching for `roundMinutes` themselves, which keeps the tenant
+ * settings read, its fail-safe, and the rule itself in one place.
+ */
+export async function resolveRoundedMinutes(
+  container: ContainerLike,
+  tenantId: string,
+  durationMinutes: number,
+  organizationId?: string | null,
+): Promise<number> {
+  return roundedMinutesFor(durationMinutes, await readEntrySettingsFrom(container, tenantId), {
+    tenantId,
+    organizationId: organizationId ?? undefined,
+  })
+}
+
+type EntryAccessCaller = Pick<CommandRuntimeContext, 'auth' | 'container'>
+
+async function resolveGrantedFeatures(
+  ctx: EntryAccessCaller,
+  tenantId: string,
+  organizationId: string,
+): Promise<string[]> {
+  const userId = ctx.auth?.sub
+  if (!userId) return []
+  try {
+    const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
+    if (!rbac?.getGrantedFeatures) return []
+    return (await rbac.getGrantedFeatures(userId, { tenantId, organizationId })) ?? []
+  } catch {
+    // Fail closed: an unreadable grant set is no grant set, so the caller falls
+    // back to their project memberships instead of being treated as a manager.
+    return []
+  }
+}
+
+async function resolveEntryProjectAccess(
+  em: EntityManager,
+  ctx: EntryAccessCaller,
+  tenantId: string,
+  organizationId: string,
+  settings: TimeTrackingSettings,
+): Promise<ProjectAccess> {
+  return resolveProjectAccess({
+    em: em.fork(),
+    userId: ctx.auth?.sub ?? null,
+    tenantId,
+    organizationId,
+    userFeatures: await resolveGrantedFeatures(ctx, tenantId, organizationId),
+    assignmentGraceDays: settings.access.assignmentGraceDays,
+  })
+}
+
+export type TimeEntryWriteAccess = {
+  access: ProjectAccess
+  hasManageAll: boolean
+}
+
+export type TimeEntryWriteTarget = {
+  projectId: string | null
+  entryStaffMemberId: string
+  date: Date | string | null | undefined
+}
+
+export type TimeEntryWriteDenial = 'notAssigned' | 'outsideAssignmentWindow' | 'notOwner'
+
+/**
+ * Resolved once per request so the grid bulk save answers every row with the same
+ * access the single-entry commands use.
+ */
+export async function resolveTimeEntryWriteAccess(
+  em: EntityManager,
+  ctx: EntryAccessCaller,
+  tenantId: string,
+  organizationId: string,
+  settings: TimeTrackingSettings,
+): Promise<TimeEntryWriteAccess> {
+  return {
+    access: await resolveEntryProjectAccess(em, ctx, tenantId, organizationId, settings),
+    hasManageAll: await callerHasManageAll(ctx),
+  }
+}
+
+/**
+ * Every entry write intersects the caller's project access. An entry that names a
+ * project is writable by a project manager or by a member assigned to it today
+ * (D-12) whose assignment also covers the entry's own date; an entry with no
+ * project belongs to nobody else, so only the member who logged it may touch it.
+ * `staff.timesheets.manage_all` stays a superset of both, which is what it has
+ * always meant on this route.
+ */
+export function resolveTimeEntryWriteDenial(
+  write: TimeEntryWriteAccess,
+  target: TimeEntryWriteTarget,
+): TimeEntryWriteDenial | null {
+  if (write.hasManageAll || write.access.canManageAll) return null
+  if (target.projectId) {
+    if (!write.access.projectIds.includes(target.projectId)) return 'notAssigned'
+    return isProjectAccessibleOnDate(write.access, target.projectId, target.date) ? null : 'outsideAssignmentWindow'
+  }
+  if (write.access.staffMemberId && write.access.staffMemberId === target.entryStaffMemberId) return null
+  return 'notOwner'
+}
+
+export function translateTimeEntryWriteDenial(
+  denial: TimeEntryWriteDenial,
+  translate: (key: string, fallback: string) => string,
+): string {
+  switch (denial) {
+    case 'notAssigned':
+      return translate('staff.timesheets.errors.notAssigned', 'You are not assigned to this project.')
+    case 'outsideAssignmentWindow':
+      return translate(
+        'staff.timesheets.errors.outsideAssignmentWindow',
+        'This date is outside your assignment to this project.',
+      )
+    case 'notOwner':
+      return translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.')
+  }
+}
+
+async function assertEntryProjectAccess(
+  write: TimeEntryWriteAccess,
+  target: TimeEntryWriteTarget,
+): Promise<void> {
+  const denial = resolveTimeEntryWriteDenial(write, target)
+  if (!denial) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(403, { error: translateTimeEntryWriteDenial(denial, translate) })
+}
+
+/**
+ * `notes` is the column; `description` is the name every consulting-suite screen
+ * uses for it. Both keys are accepted on write and `description` wins when a
+ * request carries both — the precedence UPGRADE_NOTES.md already published, and
+ * the one that matches intent: a client sending the new key means it.
+ * Returns `undefined` when neither key was supplied, so a PUT that omits both
+ * leaves the stored note alone.
+ *
+ * Exported so the grid bulk save applies the SAME precedence — it accepts both
+ * keys too, and a second interpretation of which one wins is exactly the kind of
+ * divergence that makes one screen's edit disappear on another.
+ */
+export function resolveTimeEntryNotesInput(parsed: {
+  notes?: string | null
+  description?: string | null
+}): string | null | undefined {
+  if (parsed.description !== undefined) return parsed.description ?? null
+  if (parsed.notes !== undefined) return parsed.notes ?? null
+  return undefined
+}
+
+/**
+ * `rate_override_amount` is `numeric(14,4)`, which MikroORM surfaces as a string;
+ * the validator accepts a JSON number. One conversion point keeps the two apart,
+ * for the grid bulk save as much as for this file.
+ */
+export function toStoredTimeEntryRateOverride(amount: number | null | undefined): string | null {
+  return amount === null || amount === undefined ? null : String(amount)
+}
+
+/**
+ * D-7: `duration_minutes` keeps the RAW value the user entered — it is what the
+ * timesheet and the project hour totals display — while `rounded_minutes` is
+ * derived from the tenant's rounding rule at write time and is the only input to
+ * cost. Storing the rounded value rather than deriving it on read is what stops a
+ * later settings change from silently restating money that has already been
+ * invoiced (risk R1).
+ */
+export function roundedMinutesFor(
+  durationMinutes: number,
+  settings: TimeTrackingSettings,
+  scope?: ScopedResolverContext | null,
+): number {
+  return roundMinutes(durationMinutes, settings.rounding, scope)
+}
+
+export type TimeEntryInterval = {
+  startedAt: Date | null
+  endedAt: Date | null
+  durationMinutes: number
+}
+
+/**
+ * `started_at` / `ended_at` are absolute timestamps; `deriveInterval` reasons in
+ * wall-clock minutes. Both directions read and write the SAME basis (UTC), so a
+ * timestamp that needs no correction survives the round trip untouched.
+ */
+function clockOfTimestamp(value: Date): string {
+  return formatClock(value.getUTCHours() * 60 + value.getUTCMinutes())
+}
+
+function timestampOnDayOf(reference: Date, clock: string, dayOffset: number): Date {
+  const minutesOfDay = parseClock(clock) ?? 0
+  return new Date(
+    Date.UTC(
+      reference.getUTCFullYear(),
+      reference.getUTCMonth(),
+      reference.getUTCDate() + dayOffset,
+      Math.floor(minutesOfDay / 60),
+      minutesOfDay % 60,
+      0,
+      0,
+    ),
+  )
+}
+
+/**
+ * D-8. An end whose clock is earlier than its start's is a midnight crossing, not
+ * a validation error, so the end belongs on the NEXT calendar day while `date`
+ * keeps naming the day the work started. A caller that already sent the end on
+ * the following day (the entry dialog does) is left exactly as it sent it.
+ */
+function alignEndToStart(startedAt: Date, endedAt: Date, endClock: string, crossesMidnight: boolean): Date {
+  if (endedAt.getTime() >= startedAt.getTime()) return endedAt
+  return timestampOnDayOf(startedAt, endClock, crossesMidnight ? 1 : 0)
+}
+
+/**
+ * US-D3, on the update path: `duration_minutes`, `started_at` and `ended_at` can
+ * each be written on their own, and the server must never store a set that
+ * contradicts itself — a two-hour duration on a 09:00–10:00 span is a
+ * defensible-invoice problem, not a cosmetic one (D-7 bills the rounded twin of
+ * whatever duration lands here).
+ *
+ * The rule, in one line: **the clocks are the observation and the duration is
+ * their summary, so the clocks win — unless the duration is the field the request
+ * actually pinned, in which case the untouched clock moves to match it.**
+ *
+ *  - both clocks in the request → the duration is recomputed from them, and a
+ *    duration sent alongside is advisory (this is what the entry dialog sends);
+ *  - one clock plus a duration → the OTHER clock is derived from that pair;
+ *  - one clock alone → the duration is recomputed against the stored counterpart;
+ *  - the duration alone → `started_at` anchors and `ended_at` shifts to match;
+ *  - none of the three → every one of them is left exactly as stored.
+ *
+ * Derivation only ever RESTATES a clock that already exists: with one side null
+ * there is nothing for a duration to contradict, and manufacturing the missing
+ * side would silently stop a running timer.
+ *
+ * Exported because the grid bulk save writes durations in its own transaction
+ * (per-row, pessimistically locked) and cannot go through this command — it calls
+ * the same reconciliation rather than repeating the arithmetic, which is what
+ * keeps one rule for one invariant.
+ */
+export function reconcileTimeEntryInterval(params: {
+  stored: TimeEntryInterval
+  startedAt: Date | null | undefined
+  endedAt: Date | null | undefined
+  durationMinutes: number | undefined
+}): TimeEntryInterval {
+  const startProvided = params.startedAt !== undefined
+  const endProvided = params.endedAt !== undefined
+  const durationProvided = params.durationMinutes !== undefined
+  if (!startProvided && !endProvided && !durationProvided) return params.stored
+
+  const startedAt = startProvided ? params.startedAt ?? null : params.stored.startedAt
+  const endedAt = endProvided ? params.endedAt ?? null : params.stored.endedAt
+  const durationMinutes = durationProvided
+    ? (params.durationMinutes as number)
+    : params.stored.durationMinutes
+  if (!startedAt || !endedAt) return { startedAt, endedAt, durationMinutes }
+
+  const startClock = clockOfTimestamp(startedAt)
+  const endClock = clockOfTimestamp(endedAt)
+  const durationAnchored = durationProvided && !(startProvided && endProvided)
+
+  if (durationAnchored && !endProvided) {
+    const derived = deriveInterval({ start: startClock, durationMinutes })
+    return {
+      startedAt,
+      endedAt: timestampOnDayOf(startedAt, derived.end ?? endClock, derived.crossesMidnight ? 1 : 0),
+      durationMinutes,
+    }
+  }
+
+  if (durationAnchored && !startProvided) {
+    const derived = deriveInterval({ end: endClock, durationMinutes })
+    return {
+      startedAt: timestampOnDayOf(endedAt, derived.start ?? startClock, derived.crossesMidnight ? -1 : 0),
+      endedAt,
+      durationMinutes,
+    }
+  }
+
+  const derived = deriveInterval({ start: startClock, end: endClock, durationMinutes })
+  return {
+    startedAt,
+    endedAt: alignEndToStart(startedAt, endedAt, endClock, derived.crossesMidnight),
+    durationMinutes: derived.durationMinutes ?? durationMinutes,
+  }
+}
+
+const MS_PER_DAY = 86_400_000
+
+function toDateOrNull(value: Date | string | null | undefined): Date | null {
+  if (value === null || value === undefined) return null
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function utcDayIndex(value: Date): number {
+  return Math.round(
+    Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()) / MS_PER_DAY,
+  )
+}
+
+/**
+ * T4.10(b): moving an entry to another day moves the work with it.
+ *
+ * `date` names the day the work STARTED (D-8), so an entry re-dated to Tuesday
+ * whose clocks stayed on Monday is the same self-contradicting triple T4.9
+ * eliminated one field over — a 09:00–10:00 span filed against a day it did not
+ * happen on, and a defensible-invoice problem the moment anyone reads the times
+ * back. "Move this entry to Tuesday" means the whole observation moves.
+ *
+ * The clocks are SHIFTED by whole days rather than recomposed from the new date,
+ * which preserves two things a recomposition would destroy: the stored offset
+ * between `date` and the timestamps (for a tenant east of UTC a 01:00 local start
+ * legitimately sits on the previous UTC day), and a midnight crossing (an end
+ * already on the following day stays on the following day).
+ *
+ * Two things it never does, both inherited from the reconciliation rule above:
+ *
+ *  - a clock that does not exist is not manufactured, and
+ *  - a RUNNING timer — a start with no end — is left exactly where it is, because
+ *    re-anchoring its start would restate the elapsed time of work still in
+ *    progress, and nothing about re-dating the row says the timer began later.
+ */
+export function rebaseTimeEntryIntervalToDate(params: {
+  stored: TimeEntryInterval
+  fromDate: Date | string | null | undefined
+  toDate: Date | string | null | undefined
+}): TimeEntryInterval {
+  const fromDate = toDateOrNull(params.fromDate)
+  const toDate = toDateOrNull(params.toDate)
+  if (!fromDate || !toDate) return params.stored
+
+  const { startedAt, endedAt } = params.stored
+  if (!startedAt && !endedAt) return params.stored
+  if (startedAt && !endedAt) return params.stored
+
+  const shiftMs = (utcDayIndex(toDate) - utcDayIndex(fromDate)) * MS_PER_DAY
+  if (shiftMs === 0) return params.stored
+  return {
+    startedAt: startedAt ? new Date(startedAt.getTime() + shiftMs) : null,
+    endedAt: endedAt ? new Date(endedAt.getTime() + shiftMs) : null,
+    durationMinutes: params.stored.durationMinutes,
+  }
+}
+
+/**
+ * Reuses the code the tag commands already refuse a frozen entry with, rather
+ * than inventing a second one — a client that learned to handle `time_entry_locked`
+ * from `…/tags/entry-assignments` handles it identically everywhere else.
+ */
+export const TIME_ENTRY_LOCKED_CODE = TAG_TARGET_LOCKED_CODE
+
+export type LockedTimeEntryRef = { id: string; lockedReportId?: string | null }
+
+/**
+ * The 409 body names the report that froze the entries so screen 10 note 4 can
+ * link straight to it, and lists the offending ids so a grid save can mark those
+ * cells read-only instead of showing an opaque failure. `lockedReportId` is kept
+ * beside the arrays for shape-compatibility with the tag commands' single-target
+ * refusal.
+ */
+export function buildTimeEntryLockedError(
+  lockedEntries: LockedTimeEntryRef[],
+  translate: Translate,
+): CrudHttpError {
+  const lockedEntryIds = lockedEntries.map((entry) => entry.id)
+  const lockedReportIds = Array.from(
+    new Set(
+      lockedEntries
+        .map((entry) => entry.lockedReportId)
+        .filter((reportId): reportId is string => typeof reportId === 'string' && reportId.length > 0),
+    ),
+  )
+  return new CrudHttpError(409, {
+    code: TIME_ENTRY_LOCKED_CODE,
+    error:
+      lockedEntryIds.length > 1
+        ? translate(
+            'staff.time_tracking.entries.errors.entriesLocked',
+            'Some of these time entries are locked in a closed report and cannot be changed. Unlock the report first.',
+          )
+        : translate(
+            'staff.time_tracking.entries.errors.entryLocked',
+            'This time entry is locked in a closed report and cannot be changed. Unlock the report first.',
+          ),
+    lockedReportId: lockedReportIds[0] ?? null,
+    lockedEntryIds,
+    lockedReportIds,
+  })
+}
+
+/**
+ * The lock gate (risk R3). It sits in the command layer rather than in each write
+ * route because the routes are the part that keeps growing: duplicate, copy-day
+ * and the grid bulk save all arrived after the lock did, and any one of them
+ * could have forgotten a per-route check. Every command that resolves an entry
+ * for mutation runs this immediately after the row is loaded, so a field added to
+ * the update command later is frozen without anybody remembering to freeze it.
+ *
+ * No permission lifts it — not `staff.timesheets.manage_all`. An entry frozen in
+ * a closed report has already been billed at those minutes (D-7), so the only way
+ * back is the Phase-6 unlock command, which clears `locked_report_id` itself — or
+ * hands it to another closed report still quoting the entry — and therefore never
+ * reaches this gate.
+ */
+export function assertTimeEntryUnlocked(
+  entry: { id: string; lockedReportId?: string | null },
+  translate: Translate,
+): void {
+  if (!entry.lockedReportId) return
+  throw buildTimeEntryLockedError([{ id: entry.id, lockedReportId: entry.lockedReportId }], translate)
+}
+
+/**
+ * Tags are written through the tag commands, never through the junction table, so
+ * an entry write inherits their guarantees unchanged: unknown ids are refused,
+ * re-sending a tag is idempotent, an entry frozen in a closed report is refused
+ * with 409 `time_entry_locked`, and each change lands in the audit log with its
+ * own undo.
+ *
+ * `tagIds` is a SET, not an append. The assign command answers with the target's
+ * full tag list, and that answer is what tells us which tags must then be
+ * unassigned — so the desired state is reached without this file ever reading or
+ * writing `staff_time_entry_tags` itself.
+ */
+async function syncEntryTags(
+  ctx: CommandRuntimeContext,
+  params: { timeEntryId: string; tenantId: string; organizationId: string; tagIds: string[] },
+): Promise<void> {
+  const bus = ctx.container.resolve('commandBus') as CommandBus
+  const desired = Array.from(new Set(params.tagIds))
+  const scoped = {
+    tenantId: params.tenantId,
+    organizationId: params.organizationId,
+    timeEntryId: params.timeEntryId,
+  }
+
+  const assigned = await bus.execute<unknown, { tagIds?: string[] }>(staffTimeTagCommandIds.assignEntry, {
+    input: { ...scoped, tagIds: desired },
+    ctx,
+  })
+
+  const current = assigned?.result?.tagIds ?? desired
+  const stale = current.filter((tagId) => !desired.includes(tagId))
+  if (stale.length === 0) return
+
+  await bus.execute(staffTimeTagCommandIds.unassignEntry, {
+    input: { ...scoped, tagIds: stale },
+    ctx,
+  })
 }
 
 type TimeEntrySnapshot = {
@@ -124,13 +766,18 @@ type TimeEntrySnapshot = {
   staffMemberId: string
   date: string
   durationMinutes: number
+  roundedMinutes: number | null
   startedAt: string | null
   endedAt: string | null
   notes: string | null
   timeProjectId: string | null
+  taskId: string | null
   customerId: string | null
   dealId: string | null
   orderId: string | null
+  isBillable: boolean
+  rateOverrideAmount: string | null
+  rateCurrencyCode: string | null
   source: string
   deletedAt: string | null
 }
@@ -138,6 +785,72 @@ type TimeEntrySnapshot = {
 type TimeEntryUndoPayload = {
   before?: TimeEntrySnapshot | null
   after?: TimeEntrySnapshot | null
+  /**
+   * The instant `deleteTimeEntryCommand.execute` stamped on the entry AND every
+   * segment it cascaded, which `undo` uses to restore exactly that set. Absent on
+   * logs written before the cascade existed — those deletes never touched
+   * segments, so their undo correctly restores none.
+   */
+  segmentsDeletedAt?: string
+}
+
+/**
+ * Everything undo needs to reverse a timer stop. `loadTimeEntrySnapshot` covers
+ * the entry only, but a stop spans two rows — the entry and the segment it
+ * closed — and `durationMinutes` is not reconstructible from the after-state
+ * (an entry may already carry earlier completed segments). Captured inside
+ * `execute`, under the same PESSIMISTIC_WRITE lock that performs the stop, so
+ * the recorded segment is provably the one that was closed.
+ */
+type TimeEntryStopUndoState = {
+  entryId: string
+  tenantId: string
+  organizationId: string
+  staffMemberId: string
+  endedAt: string | null
+  durationMinutes: number
+  /**
+   * The rounded twin of `durationMinutes`, which `execute` rewrites beside it (D-7:
+   * the only input to cost). Absent on logs written before it was recorded; their
+   * undo leaves the current value in place.
+   */
+  roundedMinutes?: number | null
+  updatedAt: string | null
+  activeSegmentId: string
+  activeSegmentEndedAt: string | null
+}
+
+type TimeEntryStopUndoPayload = {
+  before?: TimeEntryStopUndoState | null
+}
+
+/**
+ * Everything undo needs to reverse starting an EXISTING entry's timer. Unlike
+ * `startTimerCommand` — which creates the entry and can therefore undo by
+ * soft-deleting it — this command only flips an entry that already existed, so
+ * undo has to restore the prior `startedAt` / `source` and retire the work
+ * segment the start created. Captured inside `execute` under the same
+ * PESSIMISTIC_WRITE lock, so the recorded segment is provably the one opened.
+ */
+type TimeEntryStartExistingUndoState = {
+  entryId: string
+  tenantId: string
+  organizationId: string
+  staffMemberId: string
+  startedAt: string | null
+  /**
+   * The end the entry carried before the start cleared it. Absent on logs written
+   * before `execute` cleared `endedAt` — those starts left the value in place, and
+   * the undo guard below refuses whenever an end is present, so a legacy payload
+   * only ever reaches the restore with `endedAt` already null.
+   */
+  endedAt?: string | null
+  source: StaffTimeEntrySource
+  createdSegmentId: string
+}
+
+type TimeEntryStartExistingUndoPayload = {
+  before?: TimeEntryStartExistingUndoState | null
 }
 
 async function loadTimeEntrySnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<TimeEntrySnapshot | null> {
@@ -156,13 +869,18 @@ async function loadTimeEntrySnapshot(em: EntityManager, id: string, scope?: Staf
     staffMemberId: entry.staffMemberId,
     date: entry.date instanceof Date ? entry.date.toISOString().split('T')[0] : String(entry.date),
     durationMinutes: entry.durationMinutes,
+    roundedMinutes: entry.roundedMinutes ?? null,
     startedAt: entry.startedAt ? entry.startedAt.toISOString() : null,
     endedAt: entry.endedAt ? entry.endedAt.toISOString() : null,
     notes: entry.notes ?? null,
     timeProjectId: entry.timeProjectId ?? null,
+    taskId: entry.taskId ?? null,
     customerId: entry.customerId ?? null,
     dealId: entry.dealId ?? null,
     orderId: entry.orderId ?? null,
+    isBillable: entry.isBillable,
+    rateOverrideAmount: entry.rateOverrideAmount ?? null,
+    rateCurrencyCode: entry.rateCurrencyCode ?? null,
     source: entry.source,
     deletedAt: entry.deletedAt ? entry.deletedAt.toISOString() : null,
   }
@@ -176,13 +894,18 @@ function timeEntrySeedFromSnapshot(snapshot: TimeEntrySnapshot): Record<string, 
     staffMemberId: snapshot.staffMemberId,
     date: snapshot.date,
     durationMinutes: snapshot.durationMinutes,
+    roundedMinutes: snapshot.roundedMinutes ?? null,
     startedAt: snapshot.startedAt ? new Date(snapshot.startedAt) : null,
     endedAt: snapshot.endedAt ? new Date(snapshot.endedAt) : null,
     notes: snapshot.notes ?? null,
     timeProjectId: snapshot.timeProjectId ?? null,
+    taskId: snapshot.taskId ?? null,
     customerId: snapshot.customerId ?? null,
     dealId: snapshot.dealId ?? null,
     orderId: snapshot.orderId ?? null,
+    isBillable: snapshot.isBillable ?? true,
+    rateOverrideAmount: snapshot.rateOverrideAmount ?? null,
+    rateCurrencyCode: snapshot.rateCurrencyCode ?? null,
     source: (snapshot.source ?? 'manual') as StaffTimeEntrySource,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -216,9 +939,18 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       effectiveStaffMemberId = callerStaffMemberId
     }
 
-    // Validate referenced timeProjectId is in-scope before persisting.
-    // Without this check a foreign or stale UUID would produce a dangling reference.
-    await assertTimeProjectInScope(em, parsed.timeProjectId ?? null, parsed.tenantId, parsed.organizationId)
+    // Validate referenced task and timeProjectId are in-scope before persisting.
+    // Without these checks a foreign or stale UUID would produce a dangling reference.
+    const task = await requireTaskInScope(em, parsed.taskId ?? null, parsed.tenantId, parsed.organizationId)
+    const requestedProjectId = resolveTimeEntryProjectId(parsed.timeProjectId, task)
+    const project = await requireTimeProjectInScope(em, requestedProjectId, parsed.tenantId, parsed.organizationId)
+    await assertTaskBelongsToProject(task, project?.id ?? null)
+
+    const settings = await readEntrySettings(ctx, parsed.tenantId)
+    await assertEntryProjectAccess(
+      await resolveTimeEntryWriteAccess(em, ctx, parsed.tenantId, parsed.organizationId, settings),
+      { projectId: project?.id ?? null, entryStaffMemberId: effectiveStaffMemberId, date: parsed.date },
+    )
 
     const now = new Date()
     const entry = em.create(StaffTimeEntry, {
@@ -227,13 +959,28 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
       staffMemberId: effectiveStaffMemberId,
       date: parsed.date,
       durationMinutes: parsed.durationMinutes,
+      roundedMinutes: roundedMinutesFor(parsed.durationMinutes, settings, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+      }),
       startedAt: parsed.startedAt ?? null,
       endedAt: parsed.endedAt ?? null,
-      notes: parsed.notes ?? null,
-      timeProjectId: parsed.timeProjectId ?? null,
+      notes: resolveTimeEntryNotesInput(parsed) ?? null,
+      timeProjectId: project?.id ?? null,
+      taskId: task?.id ?? null,
       customerId: parsed.customerId ?? null,
       dealId: parsed.dealId ?? null,
       orderId: parsed.orderId ?? null,
+      isBillable: resolveTimeEntryBillable({
+        requested: parsed.isBillable,
+        project,
+        settings,
+        scope: { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      }),
+      rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount),
+      // Snapshotted rather than joined at read time so a later project currency
+      // change cannot re-denominate money that has already been reported (D-3).
+      rateCurrencyCode: project?.currencyCode ?? null,
       source: parsed.source ?? 'manual',
       createdAt: now,
       updatedAt: now,
@@ -241,6 +988,15 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     })
     em.persist(entry)
     await em.flush()
+
+    if (parsed.tagIds !== undefined) {
+      await syncEntryTags(ctx, {
+        timeEntryId: entry.id,
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        tagIds: parsed.tagIds,
+      })
+    }
 
     await emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
@@ -283,17 +1039,39 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
+    const { translate } = await resolveTranslations()
+    // An entry created manually can still accrue segments afterwards — the
+    // segments API adds them, and `start_timer_existing` opens one. Undoing the
+    // create must take them with it, on the same instant so `redo` can reverse
+    // exactly this set. See `deleteTimeEntryCommand.execute` for why the parent
+    // row is locked before the segments are read.
+    const entry = await em.transactional(async (trx) => {
+      const lockedEntry = await trx.findOne(
+        StaffTimeEntry,
+        scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)),
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!lockedEntry) return null
+      assertTimeEntryUnlocked(lockedEntry, translate)
+      const deletedAt = new Date()
+      await softDeleteSegmentsForEntry(
+        trx,
+        lockedEntry.id,
+        { tenantId: lockedEntry.tenantId, organizationId: lockedEntry.organizationId },
+        deletedAt,
+      )
+      lockedEntry.deletedAt = deletedAt
+      await trx.flush()
+      return lockedEntry
+    })
     if (entry) {
-      entry.deletedAt = new Date()
-      await em.flush()
-
       await emitCrudUndoSideEffects({
         dataEngine: ctx.container.resolve('dataEngine'),
         action: 'deleted',
         entity: entry,
         identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
         events: staffTimeEntryCrudEvents,
+        indexer: timeEntryCrudIndexer,
       })
     }
   },
@@ -304,6 +1082,31 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     buildResult: (entity) => ({ timeEntryId: entity.id }),
     events: staffTimeEntryCrudEvents,
     indexer: timeEntryCrudIndexer,
+    // Locates the row `restoreCreatedRow` revives, and restores the segments the undo
+    // cascaded while the row is still soft-deleted — its own `deletedAt` is the
+    // instant the undo stamped, so no payload field needs to carry it. Done here
+    // rather than in `beforeRestore` so both queries (entry, then segments) run
+    // before any mutation: `restoreCreatedRow` only clears the entry's `deletedAt`
+    // after this returns, and one flush then commits the entry and its segments.
+    findRow: async ({ em, id, snapshot }) => {
+      // Scope is spelled out rather than taken from `scopedStaffSnapshotWhere` so both
+      // keys are always applied: that helper omits `tenantId` or `organizationId`
+      // whenever the snapshot's value is falsy, which would silently widen this lookup.
+      const softDeleted = await em.findOne(StaffTimeEntry, {
+        id,
+        tenantId: snapshot.tenantId,
+        organizationId: snapshot.organizationId,
+      })
+      if (softDeleted?.deletedAt) {
+        await restoreSegmentsForEntry(
+          em,
+          id,
+          { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
+          softDeleted.deletedAt,
+        )
+      }
+      return softDeleted
+    },
   }),
 }
 
@@ -332,7 +1135,23 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
       effectiveStaffMemberId = callerStaffMemberId
     }
 
-    await assertTimeProjectInScope(em, parsed.timeProjectId ?? null, parsed.tenantId, parsed.organizationId)
+    // Starting a timer on a task is ONE write. The task is validated here, in the
+    // same command, so the entry is created already carrying it — the alternative
+    // (start, then link) can fail after the timer is running and strand it against
+    // the project instead of the task.
+    const task = await requireTaskInScope(em, parsed.taskId ?? null, parsed.tenantId, parsed.organizationId)
+    // A card knows its task, not always its project, and a task belongs to exactly
+    // one project — so the project follows from the task, exactly as it does when
+    // an entry is created from screen 8.
+    const requestedProjectId = resolveTimeEntryProjectId(parsed.timeProjectId, task)
+    const project = await requireTimeProjectInScope(em, requestedProjectId, parsed.tenantId, parsed.organizationId)
+    await assertTaskBelongsToProject(task, project?.id ?? null)
+
+    // A timer entry starts at zero minutes, and D-7 makes `rounded_minutes` the
+    // only input to cost — leaving it null here would price the entry at nothing
+    // until something else happened to rewrite it. Seeded from the same rule as
+    // every other create so timer-stop only ever restates it.
+    const settings = await readEntrySettings(ctx, parsed.tenantId)
 
     const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
 
@@ -341,7 +1160,10 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     // (issue #3311 — the legacy two-request create-then-start flow). The
     // single-active-timer invariant (#2855) is re-checked here so a second
     // surface cannot create a parallel running timer for the same staff member.
+    // The member timer lock makes that re-check and the insert one step: without
+    // it two concurrent starts both read "nothing running" and both insert.
     const { entry, startedAt } = await em.transactional(async (trx) => {
+      await lockStaffMemberTimers(trx, scopeCtx, effectiveStaffMemberId)
       const otherRunningEntry = await findOneWithDecryption(
         trx,
         StaffTimeEntry,
@@ -373,10 +1195,15 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
         staffMemberId: effectiveStaffMemberId,
         date: parsed.date,
         durationMinutes: 0,
+        roundedMinutes: roundedMinutesFor(0, settings, {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        }),
         startedAt,
         endedAt: null,
         notes: parsed.notes ?? null,
-        timeProjectId: parsed.timeProjectId ?? null,
+        timeProjectId: project?.id ?? null,
+        taskId: task?.id ?? null,
         customerId: null,
         dealId: null,
         orderId: null,
@@ -453,19 +1280,615 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
+    const { translate } = await resolveTranslations()
+    // `execute` created the entry and opened a work segment on it, so undoing the
+    // start has to retire both. Cascading on the same instant keeps the segment
+    // from outliving its parent as a still-running orphan. See
+    // `deleteTimeEntryCommand.execute` for why the parent row is locked first.
+    const entry = await em.transactional(async (trx) => {
+      const lockedEntry = await trx.findOne(
+        StaffTimeEntry,
+        scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)),
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!lockedEntry) return null
+      assertTimeEntryUnlocked(lockedEntry, translate)
+      const deletedAt = new Date()
+      await softDeleteSegmentsForEntry(
+        trx,
+        lockedEntry.id,
+        { tenantId: lockedEntry.tenantId, organizationId: lockedEntry.organizationId },
+        deletedAt,
+      )
+      lockedEntry.deletedAt = deletedAt
+      await trx.flush()
+      return lockedEntry
+    })
     if (entry) {
-      entry.deletedAt = new Date()
-      await em.flush()
-
       await emitCrudUndoSideEffects({
         dataEngine: ctx.container.resolve('dataEngine'),
         action: 'deleted',
         entity: entry,
         identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
         events: staffTimeEntryCrudEvents,
+        indexer: timeEntryCrudIndexer,
       })
     }
+  },
+}
+
+type StopTimerResult = {
+  timeEntryId: string
+  durationMinutes: number
+  undoState: TimeEntryStopUndoState
+}
+
+const stopTimerCommand: CommandHandler<StaffTimeEntryStopTimerInput, StopTimerResult> = {
+  id: 'staff.timesheets.time_entries.stop_timer',
+  async prepare(rawInput, ctx) {
+    const parsed = staffTimeEntryStopTimerSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadTimeEntrySnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
+    if (!snapshot) return {}
+    return { before: snapshot }
+  },
+  async execute(rawInput, ctx) {
+    const parsed = staffTimeEntryStopTimerSchema.parse(rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+
+    const entry = await findOneWithDecryption(
+      em,
+      StaffTimeEntry,
+      { id: parsed.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      {},
+      scopeCtx,
+    )
+    if (!entry) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+    }
+
+    // Stopping a timer rewrites `duration_minutes`, which is exactly what a
+    // closed report froze — same gate as the entries command.
+    // Resolved once, before the row lock is taken: the gate below re-runs on the
+    // happy path of every stop, and awaiting an i18n load while holding a
+    // PESSIMISTIC_WRITE lock would widen the window other writers queue behind.
+    const { translate: lockTranslate } = await resolveTranslations()
+    assertTimeEntryUnlocked(entry, lockTranslate)
+
+    // Ownership enforcement is deliberately owner-only here: unlike
+    // createTimeEntryCommand / startTimerCommand / updateTimeEntryCommand, this
+    // command has NO `staff.timesheets.manage_all` bypass, because the endpoint
+    // it backs has never had one. Adding `callerHasManageAll(ctx)` would grant a
+    // new ability — stopping a colleague's running timer — which is an RBAC
+    // behavior change, not a refactor. Do not "fix" this inconsistency here.
+    const callerUserId = ctx.auth?.sub ?? null
+    const staffMember = callerUserId
+      ? await getStaffMemberByUserId(em, callerUserId, parsed.tenantId, parsed.organizationId)
+      : null
+    if (!staffMember || entry.staffMemberId !== staffMember.id) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(403, {
+        error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.'),
+      })
+    }
+
+    // Recompute and persist the timer state inside a single transaction with a
+    // PESSIMISTIC_WRITE lock on the time entry row, so concurrent timer-stop /
+    // segment writes on the same entry serialize instead of racing on a shared
+    // in-memory snapshot (issue #2416).
+    const { stoppedAt, durationMinutes, undoState } = await em.transactional(async (trx) => {
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: parsed.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scopeCtx,
+      )
+      if (!lockedEntry) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+      }
+      // Re-checked under the row lock: a report close committed between the
+      // pre-flight read and this transaction would otherwise slip through.
+      assertTimeEntryUnlocked(lockedEntry, lockTranslate)
+
+      const segments = await findWithDecryption(
+        trx,
+        StaffTimeEntrySegment,
+        {
+          timeEntryId: lockedEntry.id,
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+          deletedAt: null,
+        },
+        {},
+        scopeCtx,
+      )
+
+      const activeSegment = segments.find((segment) => !segment.endedAt)
+      if (!activeSegment) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate('staff.timesheets.errors.noActiveSegment', 'No active timer segment found for this entry.'),
+        })
+      }
+
+      const beforeState: TimeEntryStopUndoState = {
+        entryId: lockedEntry.id,
+        tenantId: lockedEntry.tenantId,
+        organizationId: lockedEntry.organizationId,
+        staffMemberId: lockedEntry.staffMemberId,
+        endedAt: lockedEntry.endedAt ? lockedEntry.endedAt.toISOString() : null,
+        durationMinutes: lockedEntry.durationMinutes,
+        roundedMinutes: lockedEntry.roundedMinutes ?? null,
+        updatedAt: lockedEntry.updatedAt ? lockedEntry.updatedAt.toISOString() : null,
+        activeSegmentId: activeSegment.id,
+        activeSegmentEndedAt: activeSegment.endedAt ? activeSegment.endedAt.toISOString() : null,
+      }
+
+      const stoppedAt = new Date()
+      activeSegment.endedAt = stoppedAt
+      lockedEntry.endedAt = stoppedAt
+
+      const allSegments = segments.map((segment) => {
+        if (segment.id === activeSegment.id) {
+          return { ...segment, endedAt: stoppedAt }
+        }
+        return segment
+      })
+
+      const totalWorkMinutes = allSegments
+        .filter((segment) => segment.segmentType === 'work' && segment.startedAt && segment.endedAt)
+        .reduce((sum, segment) => {
+          const startMs = new Date(segment.startedAt).getTime()
+          const endMs = new Date(segment.endedAt!).getTime()
+          return sum + (endMs - startMs)
+        }, 0)
+
+      const computedMinutes = Math.round(totalWorkMinutes / 60000)
+      lockedEntry.durationMinutes = computedMinutes
+      // D-7 makes `rounded_minutes` the only input to cost, so a duration written
+      // here without its rounded twin bills nothing. Restated with the same tenant
+      // rule the entries command applies, rather than left stale from the
+      // zero-minute value the timer was created with.
+      lockedEntry.roundedMinutes = await resolveRoundedMinutes(
+        ctx.container,
+        parsed.tenantId,
+        computedMinutes,
+        parsed.organizationId,
+      )
+      lockedEntry.updatedAt = stoppedAt
+
+      await trx.flush()
+      return { stoppedAt, durationMinutes: computedMinutes, undoState: beforeState }
+    })
+
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'updated',
+      entity: entry,
+      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
+    })
+
+    void emitStaffEvent('staff.timesheets.time_entry.timer_stopped', {
+      id: entry.id,
+      staffMemberId: entry.staffMemberId,
+      tenantId: entry.tenantId,
+      organizationId: entry.organizationId,
+      stoppedAt: stoppedAt.toISOString(),
+      durationMinutes,
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit timer_stopped failed', { err })
+    })
+
+    return { timeEntryId: entry.id, durationMinutes, undoState }
+  },
+  // `buildLog` is mandatory, not optional polish: the command bus skips cache
+  // invalidation entirely when the log metadata carries no `resourceKind`, which
+  // would leave the stale-list bug (#2609) in place after the refactor.
+  buildLog: async ({ result, snapshots, ctx }) => {
+    const before = (snapshots.before ?? null) as TimeEntrySnapshot | null
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const after = await loadTimeEntrySnapshot(
+      em,
+      result.timeEntryId,
+      before ? staffSnapshotScopeFromSnapshot(before) : staffSnapshotScopeFromContext(ctx),
+    )
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('staff.audit.timesheets.time_entries.stopTimer', 'Stop timer'),
+      resourceKind: 'staff.timesheets.time_entry',
+      resourceId: result.timeEntryId,
+      tenantId: result.undoState.tenantId,
+      organizationId: result.undoState.organizationId,
+      snapshotBefore: before ?? undefined,
+      snapshotAfter: after ?? undefined,
+      changes: before && after
+        ? buildChanges(
+            before as unknown as Record<string, unknown>,
+            after as unknown as Record<string, unknown>,
+            ['durationMinutes', 'endedAt'],
+          )
+        : undefined,
+      payload: {
+        undo: {
+          before: result.undoState,
+        } satisfies TimeEntryStopUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<TimeEntryStopUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scopeCtx = { tenantId: before.tenantId, organizationId: before.organizationId }
+
+    // Undo takes the same PESSIMISTIC_WRITE lock `execute` does: without it an
+    // undo racing a concurrent segment write reintroduces #2416 through the
+    // back door. The member timer lock comes first: reopening is a timer start,
+    // and two undos of two different stopped entries lock different rows, so
+    // only a lock on the member serializes their "nothing else running" checks.
+    const entry = await em.transactional(async (trx) => {
+      await lockStaffMemberTimers(trx, scopeCtx, before.staffMemberId)
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: before.entryId, tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scopeCtx,
+      )
+      if (!lockedEntry) return null
+      assertTimeEntryUnlocked(lockedEntry, (await resolveTranslations()).translate)
+
+      // Reopening a stopped timer makes it running again, so the
+      // single-active-timer invariant (#2855) has to hold afterwards. If the
+      // staff member started another timer in the meantime, refuse rather than
+      // leave them with two running entries. The shared undo endpoint passes
+      // this 409 through to the caller.
+      const otherRunningEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        {
+          id: { $ne: before.entryId },
+          tenantId: before.tenantId,
+          organizationId: before.organizationId,
+          staffMemberId: before.staffMemberId,
+          startedAt: { $ne: null },
+          endedAt: null,
+          deletedAt: null,
+        },
+        {},
+        scopeCtx,
+      )
+      if (otherRunningEntry) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate(
+            'staff.timesheets.errors.timerAlreadyRunning',
+            'Another timer is already running. Stop it before starting a new one.',
+          ),
+        })
+      }
+
+      const segment = await findOneWithDecryption(
+        trx,
+        StaffTimeEntrySegment,
+        {
+          id: before.activeSegmentId,
+          timeEntryId: before.entryId,
+          tenantId: before.tenantId,
+          organizationId: before.organizationId,
+        },
+        {},
+        scopeCtx,
+      )
+      if (segment) {
+        segment.endedAt = before.activeSegmentEndedAt ? new Date(before.activeSegmentEndedAt) : null
+      }
+
+      lockedEntry.endedAt = before.endedAt ? new Date(before.endedAt) : null
+      lockedEntry.durationMinutes = before.durationMinutes
+      if (before.roundedMinutes !== undefined) lockedEntry.roundedMinutes = before.roundedMinutes
+      lockedEntry.updatedAt = new Date()
+
+      await trx.flush()
+      return lockedEntry
+    })
+
+    if (!entry) return
+
+    await emitCrudUndoSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'updated',
+      entity: entry,
+      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
+    })
+  },
+}
+
+type StartTimerExistingResult = {
+  timeEntryId: string
+  undoState: TimeEntryStartExistingUndoState
+}
+
+const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExistingInput, StartTimerExistingResult> = {
+  // Deliberately NOT `start_timer`: that command creates and starts a new entry,
+  // this one starts an entry that already exists. They take different inputs and
+  // undo differently, so overloading one id would break both audit trails.
+  id: 'staff.timesheets.time_entries.start_timer_existing',
+  async prepare(rawInput, ctx) {
+    const parsed = staffTimeEntryStartTimerExistingSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadTimeEntrySnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
+    if (!snapshot) return {}
+    return { before: snapshot }
+  },
+  async execute(rawInput, ctx) {
+    const parsed = staffTimeEntryStartTimerExistingSchema.parse(rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+
+    const entry = await findOneWithDecryption(
+      em,
+      StaffTimeEntry,
+      { id: parsed.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      {},
+      scopeCtx,
+    )
+    if (!entry) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+    }
+
+    // Running a timer on a frozen entry is only ever the first half of changing
+    // its duration, so it is refused at the same gate the entries command uses.
+    // Resolved once, before the row lock is taken — see stopTimerCommand.
+    const { translate: lockTranslate } = await resolveTranslations()
+    assertTimeEntryUnlocked(entry, lockTranslate)
+
+    // Owner-only, matching both the route this replaces and stopTimerCommand.
+    // The `staff.timesheets.manage_all` bypass in createTimeEntryCommand /
+    // startTimerCommand is NOT copied: it would newly permit starting a
+    // colleague's timer, which is an RBAC change rather than a refactor.
+    const callerUserId = ctx.auth?.sub ?? null
+    const staffMember = callerUserId
+      ? await getStaffMemberByUserId(em, callerUserId, parsed.tenantId, parsed.organizationId)
+      : null
+    if (!staffMember || entry.staffMemberId !== staffMember.id) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(403, {
+        error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.'),
+      })
+    }
+
+    // Same transaction + PESSIMISTIC_WRITE shape the route used: re-check
+    // startedAt under the lock so two concurrent starts on one entry cannot both
+    // open an initial work segment (#2416), and re-check the single-active-timer
+    // invariant (#2855) against the staff member's other entries. The member
+    // timer lock is taken before the row lock, in the order every timer-opening
+    // path uses, so that re-check cannot interleave with another start or undo.
+    const { startedAt, undoState } = await em.transactional(async (trx) => {
+      await lockStaffMemberTimers(trx, scopeCtx, staffMember.id)
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: parsed.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scopeCtx,
+      )
+      if (!lockedEntry) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+      }
+      // Re-checked under the row lock: a report close committed between the
+      // pre-flight read and this transaction would otherwise slip through.
+      assertTimeEntryUnlocked(lockedEntry, lockTranslate)
+      if (lockedEntry.startedAt) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate('staff.timesheets.errors.timerAlreadyStarted', 'Timer is already started for this entry.'),
+        })
+      }
+
+      const otherRunningEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+          staffMemberId: lockedEntry.staffMemberId,
+          id: { $ne: lockedEntry.id },
+          startedAt: { $ne: null },
+          endedAt: null,
+          deletedAt: null,
+        },
+        {},
+        scopeCtx,
+      )
+      if (otherRunningEntry) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate(
+            'staff.timesheets.errors.timerAlreadyRunning',
+            'Another timer is already running. Stop it before starting a new one.',
+          ),
+        })
+      }
+
+      const previousSource = lockedEntry.source
+      const previousEndedAt = lockedEntry.endedAt
+      const startedAt = new Date()
+      lockedEntry.startedAt = startedAt
+      // A start opens a fresh work segment, so any end the entry already carried
+      // describes work that finished before this start. Leaving it in place writes
+      // `ended_at < started_at` and breaks two things that read the pair together:
+      // the running-timer lookup (`started_at IS NOT NULL AND ended_at IS NULL`,
+      // see `buildTimeEntryListFilters`) stops matching the entry the user just
+      // started, and this command's own undo — which treats a present `endedAt` as
+      // proof that a stop landed after the start — refuses forever.
+      lockedEntry.endedAt = null
+      lockedEntry.source = 'timer'
+
+      const segment = trx.create(StaffTimeEntrySegment, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        timeEntryId: lockedEntry.id,
+        startedAt,
+        segmentType: 'work' as const,
+      } as never) as StaffTimeEntrySegment
+
+      await trx.flush()
+
+      return {
+        startedAt,
+        undoState: {
+          entryId: lockedEntry.id,
+          tenantId: lockedEntry.tenantId,
+          organizationId: lockedEntry.organizationId,
+          staffMemberId: lockedEntry.staffMemberId,
+          startedAt: null,
+          endedAt: previousEndedAt ? previousEndedAt.toISOString() : null,
+          source: previousSource,
+          createdSegmentId: segment.id,
+        } satisfies TimeEntryStartExistingUndoState,
+      }
+    })
+
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'updated',
+      entity: entry,
+      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
+    })
+
+    void emitStaffEvent('staff.timesheets.time_entry.timer_started', {
+      id: entry.id,
+      staffMemberId: entry.staffMemberId,
+      tenantId: entry.tenantId,
+      organizationId: entry.organizationId,
+      startedAt: startedAt.toISOString(),
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit timer_started failed', { err })
+    })
+
+    return { timeEntryId: entry.id, undoState }
+  },
+  // Mandatory for the same reason as stopTimerCommand: the command bus skips
+  // cache invalidation entirely when the log metadata carries no `resourceKind`,
+  // which is the exact defect this conversion exists to fix.
+  buildLog: async ({ result, snapshots, ctx }) => {
+    const before = (snapshots.before ?? null) as TimeEntrySnapshot | null
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const after = await loadTimeEntrySnapshot(
+      em,
+      result.timeEntryId,
+      before ? staffSnapshotScopeFromSnapshot(before) : staffSnapshotScopeFromContext(ctx),
+    )
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('staff.audit.timesheets.time_entries.startTimer', 'Start timer'),
+      resourceKind: 'staff.timesheets.time_entry',
+      resourceId: result.timeEntryId,
+      tenantId: result.undoState.tenantId,
+      organizationId: result.undoState.organizationId,
+      snapshotBefore: before ?? undefined,
+      snapshotAfter: after ?? undefined,
+      changes: before && after
+        ? buildChanges(
+            before as unknown as Record<string, unknown>,
+            after as unknown as Record<string, unknown>,
+            ['startedAt', 'endedAt', 'source'],
+          )
+        : undefined,
+      payload: {
+        undo: {
+          before: result.undoState,
+        } satisfies TimeEntryStartExistingUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<TimeEntryStartExistingUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scopeCtx = { tenantId: before.tenantId, organizationId: before.organizationId }
+
+    const entry = await em.transactional(async (trx) => {
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: before.entryId, tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scopeCtx,
+      )
+      if (!lockedEntry) return null
+      assertTimeEntryUnlocked(lockedEntry, (await resolveTranslations()).translate)
+
+      // The timer was stopped after this start, so the recorded duration and
+      // endedAt now depend on the very segment this undo would retire. Reverting
+      // would leave an entry that ended without ever having started.
+      if (lockedEntry.endedAt) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate(
+            'staff.timesheets.errors.timerAlreadyStopped',
+            'Timer has already been stopped for this entry.',
+          ),
+        })
+      }
+
+      const segment = await findOneWithDecryption(
+        trx,
+        StaffTimeEntrySegment,
+        {
+          id: before.createdSegmentId,
+          timeEntryId: before.entryId,
+          tenantId: before.tenantId,
+          organizationId: before.organizationId,
+        },
+        {},
+        scopeCtx,
+      )
+      if (segment) {
+        segment.deletedAt = new Date()
+      }
+
+      lockedEntry.startedAt = before.startedAt ? new Date(before.startedAt) : null
+      lockedEntry.endedAt = before.endedAt ? new Date(before.endedAt) : null
+      lockedEntry.source = before.source
+
+      await trx.flush()
+      return lockedEntry
+    })
+
+    if (!entry) return
+
+    await emitCrudUndoSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      action: 'updated',
+      entity: entry,
+      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      events: staffTimeEntryCrudEvents,
+      indexer: timeEntryCrudIndexer,
+    })
   },
 }
 
@@ -493,9 +1916,15 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     ensureTenantScope(ctx, entry.tenantId)
     ensureOrganizationScope(ctx, entry.organizationId)
 
+    // Before ownership, before access, before a single field is read off the
+    // request: a frozen entry is frozen for everyone, so nothing below can be
+    // reached with a lock in place.
+    assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
+
     // Ownership enforcement: callers without `staff.timesheets.manage_all`
     // can only update entries they own.
-    if (!(await callerHasManageAll(ctx))) {
+    const hasManageAll = await callerHasManageAll(ctx)
+    if (!hasManageAll) {
       const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
       if (!callerStaffMemberId || entry.staffMemberId !== callerStaffMemberId) {
         const { translate } = await resolveTranslations()
@@ -505,20 +1934,109 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       }
     }
 
-    // Validate referenced timeProjectId is in-scope when it's being changed to a non-null value.
-    if (parsed.timeProjectId !== undefined && parsed.timeProjectId !== null) {
-      await assertTimeProjectInScope(em, parsed.timeProjectId, entry.tenantId, entry.organizationId)
+    const task =
+      parsed.taskId !== undefined
+        ? await requireTaskInScope(em, parsed.taskId, entry.tenantId, entry.organizationId)
+        : null
+
+    // A task carries its project (screen 8), so re-pointing an entry at a task
+    // moves the entry with it unless the request names a project explicitly.
+    const nextProjectId =
+      parsed.timeProjectId !== undefined
+        ? parsed.timeProjectId ?? null
+        : task?.timeProjectId ?? entry.timeProjectId ?? null
+    const projectChanged = nextProjectId !== (entry.timeProjectId ?? null)
+    const project = projectChanged
+      ? await requireTimeProjectInScope(em, nextProjectId, entry.tenantId, entry.organizationId)
+      : null
+    await assertTaskBelongsToProject(task, nextProjectId)
+
+    const settings = await readEntrySettings(ctx, entry.tenantId)
+    const write: TimeEntryWriteAccess = {
+      access: await resolveEntryProjectAccess(em, ctx, entry.tenantId, entry.organizationId, settings),
+      hasManageAll,
+    }
+    // Both ends of a move are checked: a caller may not lift an entry out of a
+    // project or day they cannot write, nor drop one into one they cannot write.
+    await assertEntryProjectAccess(write, {
+      projectId: entry.timeProjectId ?? null,
+      entryStaffMemberId: entry.staffMemberId,
+      date: entry.date,
+    })
+    if (projectChanged || parsed.date !== undefined) {
+      await assertEntryProjectAccess(write, {
+        projectId: nextProjectId,
+        entryStaffMemberId: entry.staffMemberId,
+        date: parsed.date ?? entry.date,
+      })
     }
 
+    const notes = resolveTimeEntryNotesInput(parsed)
+
+    // A `date` move re-anchors the STORED clocks first, so what reconciliation
+    // reasons about is the entry as it will exist on its new day. Order matters:
+    // clocks the request sends explicitly still win over the rebased ones (the
+    // entry dialog rebuilds all three from the new date and would otherwise be
+    // shifted twice), while clocks it omits travel with the entry instead of
+    // being stranded on the old day.
+    const stored = rebaseTimeEntryIntervalToDate({
+      stored: {
+        startedAt: entry.startedAt ?? null,
+        endedAt: entry.endedAt ?? null,
+        durationMinutes: entry.durationMinutes,
+      },
+      fromDate: entry.date,
+      toDate: parsed.date,
+    })
+
+    // The three time fields are settled together, before anything is assigned, so
+    // no combination of them can be stored contradicting itself (US-D3, D-8).
+    const interval = reconcileTimeEntryInterval({
+      stored,
+      startedAt: parsed.startedAt,
+      endedAt: parsed.endedAt,
+      durationMinutes: parsed.durationMinutes,
+    })
+
     if (parsed.date !== undefined) entry.date = parsed.date
-    if (parsed.durationMinutes !== undefined) entry.durationMinutes = parsed.durationMinutes
-    if (parsed.timeProjectId !== undefined) entry.timeProjectId = parsed.timeProjectId ?? null
+    if (interval.startedAt !== (entry.startedAt ?? null)) entry.startedAt = interval.startedAt
+    if (interval.endedAt !== (entry.endedAt ?? null)) entry.endedAt = interval.endedAt
+    if (parsed.durationMinutes !== undefined || interval.durationMinutes !== entry.durationMinutes) {
+      entry.durationMinutes = interval.durationMinutes
+      // Raw minutes moved — because the duration was written, or because the
+      // clocks were edited and restated it — so the frozen rounded value is
+      // recomputed from the tenant's current rule. D-7 makes it the only input to
+      // cost, so a clock edit that changes the length of the work and leaves the
+      // rounded twin behind would mis-bill it.
+      entry.roundedMinutes = roundedMinutesFor(interval.durationMinutes, settings, {
+        tenantId: entry.tenantId,
+        organizationId: entry.organizationId,
+      })
+    }
+    if (projectChanged) {
+      entry.timeProjectId = nextProjectId
+      entry.rateCurrencyCode = project?.currencyCode ?? null
+    }
+    if (parsed.taskId !== undefined) entry.taskId = task?.id ?? null
     if (parsed.customerId !== undefined) entry.customerId = parsed.customerId ?? null
     if (parsed.dealId !== undefined) entry.dealId = parsed.dealId ?? null
     if (parsed.orderId !== undefined) entry.orderId = parsed.orderId ?? null
-    if (parsed.notes !== undefined) entry.notes = parsed.notes ?? null
+    if (parsed.isBillable !== undefined) entry.isBillable = parsed.isBillable
+    if (parsed.rateOverrideAmount !== undefined) {
+      entry.rateOverrideAmount = toStoredTimeEntryRateOverride(parsed.rateOverrideAmount)
+    }
+    if (notes !== undefined) entry.notes = notes
     entry.updatedAt = new Date()
     await em.flush()
+
+    if (parsed.tagIds !== undefined) {
+      await syncEntryTags(ctx, {
+        timeEntryId: entry.id,
+        tenantId: entry.tenantId,
+        organizationId: entry.organizationId,
+        tagIds: parsed.tagIds,
+      })
+    }
 
     await emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
@@ -540,10 +2058,19 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
       'date',
       'durationMinutes',
+      'roundedMinutes',
+      // A time correction is exactly the edit somebody will later have to justify
+      // on an invoice, so the clocks are named in the trail beside the minutes.
+      'startedAt',
+      'endedAt',
       'timeProjectId',
+      'taskId',
       'customerId',
       'dealId',
       'orderId',
+      'isBillable',
+      'rateOverrideAmount',
+      'rateCurrencyCode',
       'notes',
       'deletedAt',
     ])
@@ -572,13 +2099,39 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!entry) return
+    const { translate } = await resolveTranslations()
+    assertTimeEntryUnlocked(entry, translate)
+    // An entry deleted since the edit (a zeroed grid cell, which has no undo of
+    // its own, or a delete) keeps its segments deleted. Restoring the edit would
+    // write `deletedAt: null` and revive the entry without them, so refuse.
+    if (entry.deletedAt) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          'staff.timesheets.errors.undoEntryDeleted',
+          'This time entry has been deleted since, so the change cannot be undone.',
+        ),
+      })
+    }
     entry.date = before.date as unknown as Date
     entry.durationMinutes = before.durationMinutes
+    entry.roundedMinutes = before.roundedMinutes ?? null
+    // Restored beside the minutes they belong to: now that an update can move the
+    // clocks, an undo that left them where the edit put them would hand back an
+    // entry whose duration and span disagree.
+    entry.startedAt = before.startedAt ? new Date(before.startedAt) : null
+    entry.endedAt = before.endedAt ? new Date(before.endedAt) : null
     entry.timeProjectId = before.timeProjectId ?? null
+    entry.taskId = before.taskId ?? null
     entry.customerId = before.customerId ?? null
     entry.dealId = before.dealId ?? null
     entry.orderId = before.orderId ?? null
+    entry.isBillable = before.isBillable ?? true
+    entry.rateOverrideAmount = before.rateOverrideAmount ?? null
+    entry.rateCurrencyCode = before.rateCurrencyCode ?? null
     entry.notes = before.notes ?? null
+    // Always resolves to null, so this is not a seventh uncascaded soft-delete site:
+    // `execute` only ever resolves entries with `deletedAt: null`, so a log written by
+    // this command can never carry a non-null `before.deletedAt` to restore.
     entry.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
     entry.updatedAt = new Date()
     await em.flush()
@@ -594,7 +2147,16 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
   },
 }
 
-const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: string }> = {
+/**
+ * Deliberately has no `redo`, unlike `createTimeEntryCommand`. A create needs one
+ * because replaying `execute` would mint a new id; a soft-delete keyed on an id the
+ * redo input already carries is idempotent, so the command bus's fallback —
+ * `execute(commandPayload.__redoInput)` for any handler without a `redo` — is the
+ * correct replay. That path still runs `prepare` and `buildLog`, so the redo writes
+ * its own action log — fresh undo token, undo payload rebuilt from the state the
+ * replay actually produced — and the next undo reads that log, not the original.
+ */
+const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: string; segmentsDeletedAt: string }> = {
   id: 'staff.timesheets.time_entries.delete',
   async prepare(input, ctx) {
     const id = input?.id
@@ -620,9 +2182,14 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     ensureTenantScope(ctx, entry.tenantId)
     ensureOrganizationScope(ctx, entry.organizationId)
 
+    // A closed report renders these minutes; deleting the row would leave the
+    // report totalling hours that no longer exist.
+    assertTimeEntryUnlocked(entry, (await resolveTranslations()).translate)
+
     // Ownership enforcement: callers without `staff.timesheets.manage_all`
     // can only delete entries they own.
-    if (!(await callerHasManageAll(ctx))) {
+    const hasManageAll = await callerHasManageAll(ctx)
+    if (!hasManageAll) {
       const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
       if (!callerStaffMemberId || entry.staffMemberId !== callerStaffMemberId) {
         const { translate } = await resolveTranslations()
@@ -632,22 +2199,57 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       }
     }
 
-    entry.deletedAt = new Date()
-    entry.updatedAt = new Date()
-    await em.flush()
+    const settings = await readEntrySettings(ctx, entry.tenantId)
+    await assertEntryProjectAccess(
+      { access: await resolveEntryProjectAccess(em, ctx, entry.tenantId, entry.organizationId, settings), hasManageAll },
+      { projectId: entry.timeProjectId ?? null, entryStaffMemberId: entry.staffMemberId, date: entry.date },
+    )
+
+    // The entry and every segment it owns are stamped with ONE instant, and that
+    // instant is what `undo` restores on. Matching on it is what keeps undo from
+    // resurrecting a segment the user had deleted individually beforehand.
+    //
+    // The parent row is locked, and re-read live, BEFORE its segments are loaded,
+    // all in the transaction that commits both deletions. `POST
+    // /time-entries/{id}/segments` inserts under a PESSIMISTIC_WRITE lock on this
+    // same live parent, so the two now serialize: a segment committed first is in
+    // the set loaded here, and one arriving after waits, re-checks the parent, and
+    // finds it deleted. Reading the segments outside that lock let a segment commit
+    // between the read and the flush and outlive its deleted parent.
+    const entityScope = { tenantId: entry.tenantId, organizationId: entry.organizationId }
+    const { translate: lockTranslate } = await resolveTranslations()
+    const { deletedEntry, deletedAt } = await em.transactional(async (trx) => {
+      const lockedEntry = await findOneWithDecryption(
+        trx,
+        StaffTimeEntry,
+        { id: entry.id, ...entityScope, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        entityScope,
+      )
+      if (!lockedEntry) {
+        throw new CrudHttpError(404, { error: lockTranslate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+      }
+      assertTimeEntryUnlocked(lockedEntry, lockTranslate)
+      const stampedAt = new Date()
+      await softDeleteSegmentsForEntry(trx, lockedEntry.id, entityScope, stampedAt)
+      lockedEntry.deletedAt = stampedAt
+      lockedEntry.updatedAt = stampedAt
+      await trx.flush()
+      return { deletedEntry: lockedEntry, deletedAt: stampedAt }
+    })
 
     await emitCrudSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
       action: 'deleted',
-      entity: entry,
-      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      entity: deletedEntry,
+      identifiers: { id: deletedEntry.id, organizationId: deletedEntry.organizationId, tenantId: deletedEntry.tenantId },
       events: staffTimeEntryCrudEvents,
       indexer: timeEntryCrudIndexer,
     })
 
-    return { timeEntryId: entry.id }
+    return { timeEntryId: deletedEntry.id, segmentsDeletedAt: deletedAt.toISOString() }
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ result, snapshots }) => {
     const before = snapshots.before as TimeEntrySnapshot | undefined
     if (!before) return null
     const { translate } = await resolveTranslations()
@@ -661,6 +2263,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       payload: {
         undo: {
           before,
+          segmentsDeletedAt: result.segmentsDeletedAt,
         } satisfies TimeEntryUndoPayload,
       },
     }
@@ -670,57 +2273,324 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
-    if (!entry) {
-      entry = em.create(StaffTimeEntry, {
-        id: before.id,
-        tenantId: before.tenantId,
-        organizationId: before.organizationId,
-        staffMemberId: before.staffMemberId,
-        date: before.date as unknown as Date,
-        durationMinutes: before.durationMinutes,
-        startedAt: before.startedAt ? new Date(before.startedAt) : null,
-        endedAt: before.endedAt ? new Date(before.endedAt) : null,
-        notes: before.notes ?? null,
-        timeProjectId: before.timeProjectId ?? null,
-        customerId: before.customerId ?? null,
-        dealId: before.dealId ?? null,
-        orderId: before.orderId ?? null,
-        source: (before.source ?? 'manual') as StaffTimeEntrySource,
-        deletedAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(entry)
-    } else {
-      entry.staffMemberId = before.staffMemberId
-      entry.date = before.date as unknown as Date
-      entry.durationMinutes = before.durationMinutes
-      entry.startedAt = before.startedAt ? new Date(before.startedAt) : null
-      entry.endedAt = before.endedAt ? new Date(before.endedAt) : null
-      entry.notes = before.notes ?? null
-      entry.timeProjectId = before.timeProjectId ?? null
-      entry.customerId = before.customerId ?? null
-      entry.dealId = before.dealId ?? null
-      entry.orderId = before.orderId ?? null
-      entry.source = (before.source ?? 'manual') as StaffTimeEntrySource
-      entry.deletedAt = null
-      entry.updatedAt = new Date()
-    }
-    await em.flush()
+    const { translate } = await resolveTranslations()
+    const restoresRunningTimer = Boolean(before.startedAt) && !before.endedAt
+
+    const restoredEntry = await em.transactional(async (trx) => {
+      // Restoring an entry that was deleted while its timer ran reopens that timer,
+      // so it passes the same member-scoped gate and single-active-timer check
+      // (#2855) as a start: a timer started after the delete must not end up
+      // running beside the entry one.
+      if (restoresRunningTimer) {
+        const timerScope = { tenantId: before.tenantId, organizationId: before.organizationId }
+        await lockStaffMemberTimers(trx, timerScope, before.staffMemberId)
+        const otherRunningEntry = await findOneWithDecryption(
+          trx,
+          StaffTimeEntry,
+          {
+            id: { $ne: before.id },
+            ...timerScope,
+            staffMemberId: before.staffMemberId,
+            startedAt: { $ne: null },
+            endedAt: null,
+            deletedAt: null,
+          },
+          {},
+          timerScope,
+        )
+        if (otherRunningEntry) {
+          throw new CrudHttpError(409, {
+            error: translate(
+              'staff.timesheets.errors.timerAlreadyRunning',
+              'Another timer is already running. Stop it before starting a new one.',
+            ),
+          })
+        }
+      }
+
+      let entry = await trx.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
+
+      // Absent on logs written before the cascade existed. Those deletes never
+      // touched segments, so restoring none is the correct outcome, not a fallback.
+      // Runs before the entry is re-created or restored below, because the restore
+      // queries and no query may follow a pending scalar change on this manager.
+      if (payload?.segmentsDeletedAt) {
+        await restoreSegmentsForEntry(
+          trx,
+          before.id,
+          { tenantId: before.tenantId, organizationId: before.organizationId },
+          new Date(payload.segmentsDeletedAt),
+        )
+      }
+
+      if (!entry) {
+        entry = trx.create(StaffTimeEntry, {
+          id: before.id,
+          tenantId: before.tenantId,
+          organizationId: before.organizationId,
+          staffMemberId: before.staffMemberId,
+          date: before.date as unknown as Date,
+          durationMinutes: before.durationMinutes,
+          roundedMinutes: before.roundedMinutes ?? null,
+          startedAt: before.startedAt ? new Date(before.startedAt) : null,
+          endedAt: before.endedAt ? new Date(before.endedAt) : null,
+          notes: before.notes ?? null,
+          timeProjectId: before.timeProjectId ?? null,
+          taskId: before.taskId ?? null,
+          customerId: before.customerId ?? null,
+          dealId: before.dealId ?? null,
+          orderId: before.orderId ?? null,
+          isBillable: before.isBillable ?? true,
+          rateOverrideAmount: before.rateOverrideAmount ?? null,
+          rateCurrencyCode: before.rateCurrencyCode ?? null,
+          source: (before.source ?? 'manual') as StaffTimeEntrySource,
+          deletedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        trx.persist(entry)
+      } else {
+        assertTimeEntryUnlocked(entry, translate)
+        entry.staffMemberId = before.staffMemberId
+        entry.date = before.date as unknown as Date
+        entry.durationMinutes = before.durationMinutes
+        entry.roundedMinutes = before.roundedMinutes ?? null
+        entry.startedAt = before.startedAt ? new Date(before.startedAt) : null
+        entry.endedAt = before.endedAt ? new Date(before.endedAt) : null
+        entry.notes = before.notes ?? null
+        entry.timeProjectId = before.timeProjectId ?? null
+        entry.taskId = before.taskId ?? null
+        entry.customerId = before.customerId ?? null
+        entry.dealId = before.dealId ?? null
+        entry.orderId = before.orderId ?? null
+        entry.isBillable = before.isBillable ?? true
+        entry.rateOverrideAmount = before.rateOverrideAmount ?? null
+        entry.rateCurrencyCode = before.rateCurrencyCode ?? null
+        entry.source = (before.source ?? 'manual') as StaffTimeEntrySource
+        entry.deletedAt = null
+        entry.updatedAt = new Date()
+      }
+
+      await trx.flush()
+      return entry
+    })
 
     await emitCrudUndoSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
       action: 'created',
-      entity: entry,
-      identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+      entity: restoredEntry,
+      identifiers: { id: restoredEntry.id, organizationId: restoredEntry.organizationId, tenantId: restoredEntry.tenantId },
       events: staffTimeEntryCrudEvents,
       indexer: timeEntryCrudIndexer,
     })
   },
 }
 
+export const staffTimeEntryDuplicateSchema = z.object({
+  id: z.string().uuid(),
+  // The copy usually lands on another day (US-D6 "log the same thing again"), so
+  // the caller may move it; omitted, it keeps the source's day.
+  date: z.coerce.date().optional(),
+  // US-D6 ends "…I adjust the duration and the date", so both adjustments travel
+  // with the copy request rather than costing a second round trip that would
+  // leave the unadjusted duration visible in between. Omitted, the copy keeps the
+  // source's minutes. The rounded twin is always recomputed by the create command
+  // from the tenant rule, so an overridden duration can never carry the source's
+  // stale `rounded_minutes` into a new entry (D-7).
+  durationMinutes: z.number().int().min(0).max(1440).optional(),
+  // Tags are NOT read off the source here: this file writes tags only through the
+  // tag commands and never touches `staff_time_entry_tags`, so the caller — which
+  // already has the source's `tags[]` from the list response — passes them on.
+  tagIds: z.array(z.string().uuid()).max(50).optional(),
+})
+
+export type StaffTimeEntryDuplicateInput = z.infer<typeof staffTimeEntryDuplicateSchema>
+
+/**
+ * US-D6. The fourth write path TC-TT-018 exercises. It resolves the SOURCE entry
+ * and runs it past the lock gate before copying: screen 10 note 4 hides every row
+ * action on a locked row, so an API that happily duplicated one would be a side
+ * door back into a frozen report's numbers.
+ *
+ * The copy itself is delegated to the create command rather than re-implemented,
+ * so it inherits ownership enforcement, project access, the billable/currency
+ * defaults, rounding (D-7), tag syncing and the audit entry unchanged.
+ */
+const duplicateTimeEntryCommand: CommandHandler<StaffTimeEntryDuplicateInput, { timeEntryId: string }> = {
+  id: 'staff.timesheets.time_entries.duplicate',
+  async execute(rawInput, ctx) {
+    const parsed = staffTimeEntryDuplicateSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
+    const source = await findOneWithDecryption(
+      em,
+      StaffTimeEntry,
+      applyScopeToWhere<StaffTimeEntry>({ id: parsed.id, deletedAt: null }, scope),
+      undefined,
+      scopeForDecryption(scope),
+    )
+    if (!source) throw new CrudHttpError(404, { error: 'Time entry not found.' })
+    ensureTenantScope(ctx, source.tenantId)
+    ensureOrganizationScope(ctx, source.organizationId)
+
+    assertTimeEntryUnlocked(source, (await resolveTranslations()).translate)
+
+    const bus = ctx.container.resolve('commandBus') as CommandBus
+    const created = await bus.execute<unknown, { timeEntryId: string }>(createTimeEntryCommand.id, {
+      input: {
+        tenantId: source.tenantId,
+        organizationId: source.organizationId,
+        staffMemberId: source.staffMemberId,
+        date: parsed.date ?? source.date,
+        durationMinutes: parsed.durationMinutes ?? source.durationMinutes,
+        timeProjectId: source.timeProjectId ?? null,
+        taskId: source.taskId ?? null,
+        customerId: source.customerId ?? null,
+        dealId: source.dealId ?? null,
+        orderId: source.orderId ?? null,
+        isBillable: source.isBillable,
+        rateOverrideAmount:
+          source.rateOverrideAmount === null || source.rateOverrideAmount === undefined
+            ? null
+            : Number(source.rateOverrideAmount),
+        description: source.notes ?? null,
+        // A copy is typed, not timed: carrying `started_at`/`ended_at` over would
+        // manufacture an overlap with the entry it was copied from (US-D7).
+        source: 'manual' as StaffTimeEntrySource,
+        ...(parsed.tagIds !== undefined ? { tagIds: parsed.tagIds } : {}),
+      },
+      ctx,
+    })
+
+    const timeEntryId = created?.result?.timeEntryId
+    if (!timeEntryId) throw new CrudHttpError(400, { error: 'Failed to duplicate time entry.' })
+    return { timeEntryId }
+  },
+}
+
+export const staffTimeEntryReapplyRoundingSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  entryIds: z.array(z.string().uuid()).min(1).max(500),
+})
+
+export type StaffTimeEntryReapplyRoundingInput = z.infer<typeof staffTimeEntryReapplyRoundingSchema>
+
+export type StaffTimeEntryReapplyRoundingResult = {
+  /** Entries whose `rounded_minutes` actually moved. */
+  updatedCount: number
+  /** Entries already at the current rule — read, compared, left alone. */
+  unchangedCount: number
+  /** Requested ids that were locked, deleted or out of scope, and therefore never loaded. */
+  skippedCount: number
+}
+
+/**
+ * Retroactive rounding (T7.3, screen 16 note 3) — restates `rounded_minutes` on a
+ * batch of existing entries under the tenant's current rule.
+ *
+ * Three properties, in the order they matter:
+ *
+ *  1. **A locked entry is unreachable, not merely skipped.** `lockedReportId: null`
+ *     is part of the WHERE clause, so an entry frozen into a closed report is never
+ *     loaded, never compared and never assigned. The guarantee is structural: there
+ *     is no branch in this handler that could write one.
+ *  2. **It is an explicit, batched administrative action**, driven by the
+ *     `reapply-rounding` ProgressJob worker, never a side effect of saving the
+ *     settings form. Rewriting billing history silently is exactly the failure the
+ *     spec's risk R1 is about.
+ *  3. **It writes one derived column and nothing else.** No clock is re-anchored,
+ *     no duration is touched — `duration_minutes` remains the raw observation.
+ *
+ * Reachable only by a privileged actor: the queue worker (`systemActor`) or a
+ * super-admin. An interactive caller cannot rewrite a tenant's history through the
+ * command bus by guessing the id; the route that enqueues the job is the gate, and
+ * it is gated on `staff.timesheets.settings.manage`.
+ */
+const reapplyRoundingCommand: CommandHandler<
+  StaffTimeEntryReapplyRoundingInput,
+  StaffTimeEntryReapplyRoundingResult
+> = {
+  id: 'staff.timesheets.time_entries.reapply_rounding',
+  async execute(input, ctx) {
+    const parsed = staffTimeEntryReapplyRoundingSchema.parse(input ?? {})
+    if (ctx.systemActor !== true && ctx.auth?.isSuperAdmin !== true) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(403, { error: translate('staff.errors.forbidden', 'Forbidden') })
+    }
+
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const settings = await readEntrySettings(ctx, parsed.tenantId)
+
+    const entries = await em.find(
+      StaffTimeEntry,
+      applyScopeToWhere<StaffTimeEntry>(
+        {
+          id: { $in: parsed.entryIds },
+          deletedAt: null,
+          // Non-negotiable: a frozen entry has already been billed at the value it
+          // carries, so it is excluded at the query, not at an `if`.
+          lockedReportId: null,
+        },
+        scope,
+      ),
+    )
+
+    const changed: StaffTimeEntry[] = []
+    let unchangedCount = 0
+    for (const entry of entries) {
+      const next = roundedMinutesFor(entry.durationMinutes, settings, {
+        tenantId: entry.tenantId,
+        organizationId: entry.organizationId,
+      })
+      if (entry.roundedMinutes === next) {
+        unchangedCount += 1
+        continue
+      }
+      entry.roundedMinutes = next
+      entry.updatedAt = new Date()
+      changed.push(entry)
+    }
+
+    if (changed.length > 0) await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as Parameters<
+      typeof emitCrudSideEffects
+    >[0]['dataEngine']
+    for (const entry of changed) {
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: entry,
+        identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
+        events: staffTimeEntryCrudEvents,
+        indexer: timeEntryCrudIndexer,
+      })
+    }
+
+    return {
+      updatedCount: changed.length,
+      unchangedCount,
+      skippedCount: Math.max(0, parsed.entryIds.length - entries.length),
+    }
+  },
+}
+
 registerCommand(createTimeEntryCommand)
 registerCommand(startTimerCommand)
+registerCommand(stopTimerCommand)
+registerCommand(startTimerExistingCommand)
 registerCommand(updateTimeEntryCommand)
 registerCommand(deleteTimeEntryCommand)
+registerCommand(duplicateTimeEntryCommand)
+registerCommand(reapplyRoundingCommand)
+
+export const staffTimeEntryCommandIds = {
+  create: createTimeEntryCommand.id,
+  startTimer: startTimerCommand.id,
+  update: updateTimeEntryCommand.id,
+  delete: deleteTimeEntryCommand.id,
+  duplicate: duplicateTimeEntryCommand.id,
+  reapplyRounding: reapplyRoundingCommand.id,
+} as const

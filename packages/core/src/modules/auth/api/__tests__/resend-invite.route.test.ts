@@ -314,4 +314,28 @@ describe('POST /api/auth/users/resend-invite', () => {
     expect(mockFlush).toHaveBeenCalledTimes(1)
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
+
+  test('sends the invite behind a reverse proxy whose forwarded host matches APP_URL', async () => {
+    process.env = {
+      ...process.env,
+      APP_URL: 'https://app.example.com',
+      NODE_ENV: 'production',
+      JWT_SECRET: 'test-jwt-secret',
+    }
+
+    const res = await POST(makeRequest(
+      { id: userId },
+      'https://localhost:6789/api/auth/users/resend-invite',
+      {
+        host: 'app.example.com',
+        'x-forwarded-host': 'app.example.com',
+        'x-forwarded-proto': 'https',
+      },
+    ))
+
+    expect(res.status).toBe(200)
+    expect(mockNativeUpdate).toHaveBeenCalledTimes(1)
+    expect(mockFlush).toHaveBeenCalledTimes(1)
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+  })
 })

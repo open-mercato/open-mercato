@@ -13,6 +13,8 @@ import {
   getOrCreateThreadToken,
 } from '../lib/thread-token'
 import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
+import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
+import { adoptProviderConversationRef } from '../lib/outbound-conversation-ref'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
@@ -23,6 +25,7 @@ import {
   MessageChannelLink,
 } from '../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const moduleLogger = createLogger('communication_channels').child({ component: 'deliver-outbound-message' })
 
@@ -74,6 +77,11 @@ export type DeliverOutboundMessageResult =
 
 export const COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID =
   'communication_channels.message.deliver_outbound'
+
+function omitRawMessage(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!metadata) return {}
+  return Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== 'rawMessage'))
+}
 
 type CredentialsServiceLike = {
   resolve: (
@@ -149,12 +157,24 @@ const deliverOutboundMessageCommand: CommandHandler<
       return NO_THREAD_MAPPING_RESULT
     }
 
-    // (1 cont.) Look up the channel link via ChannelThreadMapping.threadId.
+    let link = await findOneWithDecryption(
+      em,
+      MessageChannelLink,
+      {
+        messageId: message.id,
+        tenantId: input.scope.tenantId,
+        organizationId: input.scope.organizationId ?? null,
+      },
+      undefined,
+      dscope,
+    )
+
     const mapping = await findOneWithDecryption(
       em,
       ChannelThreadMapping,
       {
         messageThreadId: message.threadId,
+        ...(link ? { externalConversationId: link.externalConversationId } : {}),
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       },
@@ -198,17 +218,6 @@ const deliverOutboundMessageCommand: CommandHandler<
     }
 
     // (3) Idempotently upsert a 'pending' MessageChannelLink.
-    let link = await findOneWithDecryption(
-      em,
-      MessageChannelLink,
-      {
-        messageId: message.id,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
     if (
       link &&
       (link.deliveryStatus === 'queued' ||
@@ -348,6 +357,41 @@ const deliverOutboundMessageCommand: CommandHandler<
       moduleLogger.warn('thread token unavailable, proceeding without it', { err: tokenErr })
     }
 
+    // (4c) Chat-provider reply threading — resolve the provider-native id of the
+    // message this one answers so a threading adapter can attach it (Discord's
+    // `message_reference`). Email adapters ignore this and keep threading on the
+    // `inReplyTo` / `references` headers built above. Best-effort like the thread
+    // token: an unresolvable parent sends an unthreaded reply rather than failing
+    // a delivery.
+    let replyToExternalId: string | null = null
+    try {
+      replyToExternalId = await resolveOutboundReplyExternalId(em, {
+        parentMessageId: message.parentMessageId ?? null,
+        externalConversationId: mapping.externalConversationId,
+        capabilities: adapter.capabilities,
+        scope: {
+          tenantId: input.scope.tenantId,
+          organizationId: input.scope.organizationId ?? null,
+        },
+      })
+    } catch (replyRefErr) {
+      moduleLogger.warn('outbound reply reference unavailable, sending unthreaded', {
+        err: replyRefErr,
+      })
+    }
+    if (!replyToExternalId && message.parentMessageId && adapter.capabilities?.threading === true) {
+      // The provider threads and the caller asked for a reply, yet nothing
+      // resolved — the parent never reached this channel, or it belongs to
+      // another conversation. Delivery is unaffected, but say so: an unthreaded
+      // reply is otherwise indistinguishable from a non-reply, which is exactly
+      // the silent-unreachability shape #5541 was filed about.
+      moduleLogger.debug('reply parent has no external id on this channel, sending unthreaded', {
+        messageId: message.id,
+        parentMessageId: message.parentMessageId,
+        conversationId: mapping.externalConversationId,
+      })
+    }
+
     // (5) + (6) Convert + send.
     try {
       const outboundPayload = (link.channelPayload as Record<string, unknown> | null) ?? {}
@@ -392,9 +436,17 @@ const deliverOutboundMessageCommand: CommandHandler<
         bodyFormat: outboundBodyFormat,
         channelMetadata: {
           thread_id: mapping.externalThreadRef,
-          ...baseMetadata,
+          // Reply targeting is hub-resolved only. `send-as-user` merges
+          // caller-supplied metadata onto the link, so every reply-targeting key
+          // is stripped off the stored metadata here rather than merely
+          // out-ranked below: merge order settles the contest only when the hub
+          // resolved a parent, and the uncontested case — no `parentMessageId`,
+          // or a parent that does not resolve — is exactly the one a caller
+          // controls.
+          ...stripCallerReplyTargeting(baseMetadata),
           references: mergedReferences,
           ...(threadToken ? { omThreadToken: threadToken } : {}),
+          ...(replyToExternalId ? { replyToExternalId } : {}),
         },
       })
 
@@ -452,11 +504,12 @@ const deliverOutboundMessageCommand: CommandHandler<
         channel.status = 'connected'
       }
 
+      const providerConversationId = stringOrUndefined(sendResult.conversationId)
       link.deliveryStatus = sendResult.status === 'sent' ? 'sent' : 'queued'
       link.externalMessageId = externalMessageRowId
       link.channelMetadata = {
         ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
-        ...(converted.metadata ?? {}),
+        ...omitRawMessage(converted.metadata),
         externalMessageId: sendResult.externalMessageId,
         // Always persist the RFC2822 Message-ID so inbound reply matching (JWZ
         // strategy in lib/thread-matcher) and sent-folder dedup can resolve this
@@ -468,12 +521,59 @@ const deliverOutboundMessageCommand: CommandHandler<
         // (`normalizeMimeInbound` strips), so the JWZ matcher and sent-folder dedup —
         // which compare against stripped ids — resolve it. `assembleRfc2822`
         // re-applies brackets when this id is later used to build reply headers.
+        // A provider that rewrites the header on send (Gmail mints its own
+        // Message-ID) reports the id it actually sent in `sendResult.metadata.messageId`;
+        // that one wins, because it is the id the provider's copy and every reply carry.
         messageId: stripBrackets(
-          stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??
+          stringOrUndefined((sendResult.metadata as Record<string, unknown> | undefined)?.messageId) ??
+            stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??
             sendResult.externalMessageId,
         ),
+        // The provider conversation this message was actually sent under. The
+        // shared conversation can be re-keyed to a different provider ref by a
+        // concurrent first send (see `adoptProviderConversationRef`), so the
+        // message keeps its own association here instead of relying on the
+        // conversation's ref.
+        ...(providerConversationId ? { providerConversationId } : {}),
       }
       await em.flush()
+
+      // A first send through `sendAsUser` sits in an `outbound:<thread>` placeholder
+      // conversation. Adopt the provider's own conversation id so the provider's copy
+      // of this message and the replies to it land in this conversation instead of
+      // opening a second one. Best-effort and after the success flush: the message is
+      // already sent, so a failure here must never turn into a retry (double send).
+      try {
+        const adoption = await adoptProviderConversationRef(em, {
+          mapping,
+          channelId: channel.id,
+          providerConversationRef: sendResult.conversationId,
+          scope: dscope,
+        })
+        if (adoption === 'conflict') {
+          moduleLogger.info('provider conversation id already belongs to another conversation, keeping the outbound placeholder', {
+            messageId: message.id,
+            channelId: channel.id,
+            conversationId: mapping.externalConversationId,
+            providerConversationId,
+          })
+        }
+      } catch (adoptErr) {
+        moduleLogger.warn('could not adopt the provider conversation id, keeping the outbound placeholder', {
+          messageId: message.id,
+          conversationId: mapping.externalConversationId,
+          err: adoptErr,
+        })
+        try {
+          getTelemetryRuntime()?.reportError(adoptErr, {
+            module: 'communication_channels',
+            code: 'communication_channels.provider_conversation_adoption_failed',
+            attributes: { messageId: message.id, channelId: channel.id },
+          })
+        } catch (telemetryErr) {
+          moduleLogger.warn('could not report a conversation adoption failure to telemetry', { err: telemetryErr })
+        }
+      }
 
       await emitCommunicationChannelsEvent(
         'communication_channels.message.sent',
@@ -486,6 +586,14 @@ const deliverOutboundMessageCommand: CommandHandler<
           providerKey: channel.providerKey,
           channelType: channel.channelType,
           direction: 'outbound',
+          // #6095: same contract as the inbound path — the send time travels on
+          // the event so consumers (the customers timeline) date their rows
+          // from it instead of reading the ExternalMessage row across the
+          // module boundary. ISO string because this event is persistent.
+          providerTimestamp:
+            externalMessage.providerTimestamp instanceof Date
+              ? externalMessage.providerTimestamp.toISOString()
+              : null,
           tenantId: input.scope.tenantId,
           organizationId: input.scope.organizationId ?? null,
         },

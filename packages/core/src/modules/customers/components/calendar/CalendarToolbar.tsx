@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
+import { resolveDateFnsLocale } from '@open-mercato/ui/primitives/date-locale'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateRangeLabel } from '../../lib/calendar/format'
 import type {
@@ -51,6 +52,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
   } = props
   const t = useT()
   const locale = useLocale()
+  const dateFnsLocale = resolveDateFnsLocale(locale)
   const [rangeOpen, setRangeOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [pendingFilters, setPendingFilters] = React.useState<CalendarFiltersValue>(filters)
@@ -133,6 +135,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
                 mode="single"
                 selected={anchor}
                 defaultMonth={anchor}
+                locale={dateFnsLocale}
                 onSelect={(date) => {
                   if (!date) return
                   onAnchorChange(date)

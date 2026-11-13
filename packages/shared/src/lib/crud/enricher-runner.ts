@@ -15,6 +15,7 @@ import type {
 import { getEnrichersForEntity } from './enricher-registry'
 import { logEnricherTiming } from '../umes/enricher-timing'
 import { createLogger } from '../logger'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import { authorizeFeatures } from '../../security/featurePolicy'
 
 const logger = createLogger('shared').child({ component: 'umes' })
@@ -22,7 +23,82 @@ const logger = createLogger('shared').child({ component: 'umes' })
 const DEFAULT_TIMEOUT = 2000
 const SLOW_WARN_MS = 100
 const SLOW_ERROR_MS = 500
+const LOG_THROTTLE_INTERVAL_MS = 30_000
 const DEFAULT_CACHE_TTL_MS = 60_000
+const ENRICHER_DURATION_METRIC = 'om.enricher.duration'
+
+type SlowLogState = {
+  lastLoggedAt: number
+  suppressedCount: number
+  maxElapsedMs: number
+}
+
+const slowLogStateByEnricher = new Map<string, SlowLogState>()
+const metricFailureLoggedAtByEnricher = new Map<string, number>()
+
+function logMetricRecordingFailure(enricherId: string, err: unknown, failedAt: number): void {
+  const lastLoggedAt = metricFailureLoggedAtByEnricher.get(enricherId)
+  if (lastLoggedAt !== undefined && failedAt - lastLoggedAt < LOG_THROTTLE_INTERVAL_MS) return
+  metricFailureLoggedAtByEnricher.set(enricherId, failedAt)
+  logger.warn('Enricher duration metric recording failed', {
+    enricherId,
+    metric: ENRICHER_DURATION_METRIC,
+    err,
+  })
+}
+
+function recordEnricherDuration(
+  enricherId: string,
+  moduleId: string,
+  targetEntity: string,
+  elapsedMs: number,
+  finishedAt: number,
+): void {
+  logEnricherTiming(enricherId, moduleId, targetEntity, elapsedMs)
+  try {
+    getTelemetryRuntime()?.recordHistogram?.(
+      ENRICHER_DURATION_METRIC,
+      elapsedMs / 1000,
+      { 'enricher.id': enricherId },
+      's',
+    )
+  } catch (err) {
+    logMetricRecordingFailure(enricherId, err, finishedAt)
+  }
+}
+
+function logSlowEnricher(enricherId: string, elapsedMs: number, finishedAt: number): void {
+  if (elapsedMs <= SLOW_WARN_MS) return
+
+  if (elapsedMs <= SLOW_ERROR_MS) {
+    logger.debug('Enricher exceeded slow threshold', {
+      enricherId,
+      elapsedMs,
+      thresholdMs: SLOW_WARN_MS,
+    })
+    return
+  }
+
+  const state = slowLogStateByEnricher.get(enricherId)
+  if (state && finishedAt - state.lastLoggedAt < LOG_THROTTLE_INTERVAL_MS) {
+    state.suppressedCount += 1
+    state.maxElapsedMs = Math.max(state.maxElapsedMs, elapsedMs)
+    return
+  }
+
+  logger.error('Enricher exceeded slow threshold', {
+    enricherId,
+    elapsedMs,
+    thresholdMs: SLOW_ERROR_MS,
+    suppressedCount: state?.suppressedCount ?? 0,
+    maxElapsedMs: Math.max(state?.maxElapsedMs ?? 0, elapsedMs),
+  })
+  slowLogStateByEnricher.set(enricherId, {
+    lastLoggedAt: finishedAt,
+    suppressedCount: 0,
+    maxElapsedMs: 0,
+  })
+}
 
 function timeoutPromise(ms: number): Promise<never> {
   return new Promise((_, reject) =>
@@ -137,18 +213,21 @@ function resolveCache(context: EnricherContext): CacheLike | null {
 function buildCacheKey(
   enricher: ResponseEnricher,
   context: EnricherContext,
+  targetEntity: string,
   mode: 'one' | 'many',
   recordIds: string[],
 ): string {
   const sortedIds = [...recordIds].sort((a, b) => a.localeCompare(b))
-  return `umes:enricher:${enricher.id}:tenant:${context.tenantId}:org:${context.organizationId}:mode:${mode}:ids:${JSON.stringify(sortedIds)}`
+  return `umes:enricher:${enricher.id}:entity:${targetEntity}:tenant:${context.tenantId}:org:${context.organizationId}:mode:${mode}:ids:${JSON.stringify(sortedIds)}`
 }
+
+const UNKNOWN_RECORD_ID = 'unknown'
 
 function extractRecordId(record: Record<string, unknown>): string {
   const idValue = record.id
   if (typeof idValue === 'string' && idValue.trim().length > 0) return idValue.trim()
   if (typeof idValue === 'number') return String(idValue)
-  return 'unknown'
+  return UNKNOWN_RECORD_ID
 }
 
 function getEnricherCacheTtl(enricher: ResponseEnricher): number {
@@ -185,6 +264,18 @@ async function readEnricherCache<T>(
   }
 }
 
+/**
+ * The cache write was skipped because no safe envelope could be built. Logged
+ * rather than swallowed: from outside the runner a silently-skipped write is
+ * indistinguishable from a broken cache, and "this enricher is not purely
+ * additive" is the answer an author needs to see.
+ */
+function logSkippedCacheWrite(enricher: ResponseEnricher): void {
+  logger.debug('Skipped enricher cache write — enrichment is not purely additive or lacks usable record ids', {
+    enricherId: enricher.id,
+  })
+}
+
 async function writeEnricherCache(
   cache: CacheLike | null,
   key: string,
@@ -201,6 +292,103 @@ async function writeEnricherCache(
 }
 
 /**
+ * Cached read-through payload: the fields each enricher ADDED, keyed by record id.
+ *
+ * Caching whole records would replace the freshly-read record with the snapshot
+ * taken at write time, so an edit to a base field (a product's name, an order's
+ * status) would not surface until the entry expired, and a cached array would
+ * also carry — and therefore overwrite — whatever the previous enricher in the
+ * chain contributed. The additive delta is a pure function of the enricher, the
+ * tenant/organization scope and the record ids, which is exactly what the cache
+ * key already encodes, so it is the only part of the result that is safe to reuse.
+ */
+type EnricherCacheEnvelope = {
+  version: 1
+  deltas: Record<string, Record<string, unknown>>
+}
+
+const ENRICHER_CACHE_VERSION = 1
+
+function isEnricherCacheEnvelope(value: unknown): value is EnricherCacheEnvelope {
+  if (typeof value !== 'object' || value === null) return false
+  const candidate = value as { version?: unknown; deltas?: unknown }
+  if (candidate.version !== ENRICHER_CACHE_VERSION) return false
+  return typeof candidate.deltas === 'object' && candidate.deltas !== null
+}
+
+/**
+ * The keys an enricher added to a record, or `null` when the enrichment was not
+ * purely additive — it changed or dropped a key that was already there. A
+ * non-additive enricher is never cached: replaying only its added keys onto a
+ * later record would silently lose the change it made to the existing ones.
+ *
+ * Comparison is by identity at the top level only, so an enricher that mutates a
+ * nested object in place is indistinguishable from one that left the record
+ * alone: its nested change is absent from the delta and therefore lost on a
+ * later hit. That fails safe — the served record is under-enriched, never
+ * stale-wrong — and a deep clone of every record on every enriched response is
+ * not worth paying for the case.
+ */
+function computeAdditiveDelta(
+  input: Record<string, unknown>,
+  output: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const delta: Record<string, unknown> = {}
+  for (const key of Object.keys(input)) {
+    if (!Object.prototype.hasOwnProperty.call(output, key)) return null
+    if (output[key] !== input[key]) return null
+  }
+  for (const key of Object.keys(output)) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) continue
+    delta[key] = output[key]
+  }
+  return delta
+}
+
+/**
+ * Build the cacheable envelope for a batch, or `null` when it cannot be built
+ * safely — an unusable record id, a duplicate id (the deltas would collide), or
+ * a non-additive enrichment. Every failure mode skips the cache write and leaves
+ * the enricher running on every request, which is the pre-cache behavior.
+ */
+function buildCacheEnvelope<T extends Record<string, unknown>>(
+  inputs: T[],
+  outputs: T[],
+): EnricherCacheEnvelope | null {
+  if (inputs.length !== outputs.length) return null
+  const deltas: Record<string, Record<string, unknown>> = {}
+  for (let index = 0; index < inputs.length; index += 1) {
+    const recordId = extractRecordId(inputs[index])
+    if (recordId === UNKNOWN_RECORD_ID) return null
+    if (Object.prototype.hasOwnProperty.call(deltas, recordId)) return null
+    const delta = computeAdditiveDelta(inputs[index], outputs[index])
+    if (!delta) return null
+    deltas[recordId] = delta
+  }
+  return { version: ENRICHER_CACHE_VERSION, deltas }
+}
+
+/**
+ * Merge a cached envelope onto freshly-read records. Returns `null` — a miss —
+ * when the envelope does not cover every record, so a partially-cached batch
+ * re-runs the enricher rather than returning some records unenriched.
+ */
+function applyCacheEnvelope<T extends Record<string, unknown>>(
+  envelope: EnricherCacheEnvelope,
+  records: T[],
+): T[] | null {
+  const merged: T[] = []
+  for (const record of records) {
+    const recordId = extractRecordId(record)
+    if (recordId === UNKNOWN_RECORD_ID) return null
+    const delta = envelope.deltas[recordId]
+    if (!delta || typeof delta !== 'object') return null
+    merged.push({ ...record, ...delta } as T)
+  }
+  return merged
+}
+
+/**
  * Apply response enrichers to a list of records.
  *
  * Runs AFTER CrudHooks.afterList, BEFORE HTTP response serialization.
@@ -212,6 +400,7 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
   context: EnricherContext,
   preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<EnrichmentResult<T>> {
+  const enricherContext: EnricherContext = { ...context, targetEntity }
   const activeEntries = preFilteredEntries
     ? filterByACLAndTenant(preFilteredEntries, context)
     : getActiveEnrichers(targetEntity, context)
@@ -234,19 +423,29 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
       let result: T[]
       const recordIds = currentItems.map((item) => extractRecordId(item))
       const shouldUseCache = enricher.cache?.strategy === 'read-through'
-      const cacheKey = shouldUseCache ? buildCacheKey(enricher, context, 'many', recordIds) : null
+      const cacheKey = shouldUseCache
+        ? buildCacheKey(enricher, context, targetEntity, 'many', recordIds)
+        : null
+      // Snapshot BEFORE enrichment: the contract does not forbid an enricher
+      // from mutating the records it was handed, and comparing a mutated record
+      // against itself would yield an empty delta — caching "this enricher adds
+      // nothing" and serving unenriched records for the rest of the TTL.
+      const inputItems = shouldUseCache ? currentItems.map((item) => ({ ...item })) : currentItems
       if (shouldUseCache && cacheKey) {
-        const cached = await readEnricherCache<T[]>(cache, cacheKey)
-        if (cached) {
-          currentItems = cached
-          enrichedBy.push(enricher.id)
-          continue
+        const cached = await readEnricherCache<unknown>(cache, cacheKey)
+        if (isEnricherCacheEnvelope(cached)) {
+          const merged = applyCacheEnvelope(cached, currentItems)
+          if (merged) {
+            currentItems = merged
+            enrichedBy.push(enricher.id)
+            continue
+          }
         }
       }
 
       if (enricher.enrichMany) {
         result = await Promise.race([
-          enricher.enrichMany(currentItems, context) as Promise<T[]>,
+          enricher.enrichMany(currentItems, enricherContext) as Promise<T[]>,
           timeoutPromise(timeout),
         ])
       } else {
@@ -255,23 +454,25 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
         )
       }
 
-      const elapsedMs = Date.now() - startTime
-      if (elapsedMs > SLOW_ERROR_MS) {
-        logger.error('Enricher exceeded slow threshold', { enricherId: enricher.id, elapsedMs, thresholdMs: SLOW_ERROR_MS })
-      } else if (elapsedMs > SLOW_WARN_MS) {
-        logger.warn('Enricher exceeded slow threshold', { enricherId: enricher.id, elapsedMs, thresholdMs: SLOW_WARN_MS })
-      }
-      logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
+      const finishedAt = Date.now()
+      const elapsedMs = finishedAt - startTime
+      logSlowEnricher(enricher.id, elapsedMs, finishedAt)
+      recordEnricherDuration(enricher.id, entry.moduleId, targetEntity, elapsedMs, finishedAt)
 
       currentItems = result
       if (shouldUseCache && cacheKey) {
-        await writeEnricherCache(
-          cache,
-          cacheKey,
-          result,
-          getEnricherCacheTtl(enricher),
-          getEnricherCacheTags(enricher, context),
-        )
+        const envelope = buildCacheEnvelope(inputItems, result)
+        if (envelope) {
+          await writeEnricherCache(
+            cache,
+            cacheKey,
+            envelope,
+            getEnricherCacheTtl(enricher),
+            getEnricherCacheTags(enricher, context),
+          )
+        } else {
+          logSkippedCacheWrite(enricher)
+        }
       }
       enrichedBy.push(enricher.id)
     } catch (err) {
@@ -311,6 +512,7 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
   context: EnricherContext,
   preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<SingleEnrichmentResult<T>> {
+  const enricherContext: EnricherContext = { ...context, targetEntity }
   const activeEntries = preFilteredEntries
     ? filterByACLAndTenant(preFilteredEntries, context)
     : getActiveEnrichers(targetEntity, context)
@@ -332,32 +534,45 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
     try {
       const recordId = extractRecordId(currentRecord)
       const shouldUseCache = enricher.cache?.strategy === 'read-through'
-      const cacheKey = shouldUseCache ? buildCacheKey(enricher, context, 'one', [recordId]) : null
+      const cacheKey = shouldUseCache
+        ? buildCacheKey(enricher, context, targetEntity, 'one', [recordId])
+        : null
+      // Snapshot before enrichment — see the list path for why.
+      const inputRecord = shouldUseCache ? ({ ...currentRecord } as T) : currentRecord
       if (shouldUseCache && cacheKey) {
-        const cached = await readEnricherCache<T>(cache, cacheKey)
-        if (cached) {
-          currentRecord = cached
-          enrichedBy.push(enricher.id)
-          continue
+        const cached = await readEnricherCache<unknown>(cache, cacheKey)
+        if (isEnricherCacheEnvelope(cached)) {
+          const merged = applyCacheEnvelope(cached, [currentRecord])
+          if (merged) {
+            currentRecord = merged[0]
+            enrichedBy.push(enricher.id)
+            continue
+          }
         }
       }
       const result = await Promise.race([
-        enricher.enrichOne(currentRecord, context) as Promise<T>,
+        enricher.enrichOne(currentRecord, enricherContext) as Promise<T>,
         timeoutPromise(timeout),
       ])
 
-      const elapsedMs = Date.now() - startTime
-      logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
+      const finishedAt = Date.now()
+      const elapsedMs = finishedAt - startTime
+      recordEnricherDuration(enricher.id, entry.moduleId, targetEntity, elapsedMs, finishedAt)
 
       currentRecord = result
       if (shouldUseCache && cacheKey) {
-        await writeEnricherCache(
-          cache,
-          cacheKey,
-          result,
-          getEnricherCacheTtl(enricher),
-          getEnricherCacheTags(enricher, context),
-        )
+        const envelope = buildCacheEnvelope([inputRecord], [result])
+        if (envelope) {
+          await writeEnricherCache(
+            cache,
+            cacheKey,
+            envelope,
+            getEnricherCacheTtl(enricher),
+            getEnricherCacheTags(enricher, context),
+          )
+        } else {
+          logSkippedCacheWrite(enricher)
+        }
       }
       enrichedBy.push(enricher.id)
     } catch (err) {

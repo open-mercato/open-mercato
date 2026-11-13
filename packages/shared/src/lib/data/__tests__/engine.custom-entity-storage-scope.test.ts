@@ -1,4 +1,8 @@
-import { DefaultDataEngine } from '../engine'
+jest.mock('../../db/advisoryLock', () => ({
+  withAdvisoryXactLock: async <T>(em: unknown, _key: string, work: (txEm: unknown) => Promise<T>): Promise<T> => work(em),
+}))
+
+import { DefaultDataEngine, clearDataEngineTableExistsCache } from '../engine'
 import { registerEntityIds } from '../../encryption/entityIds'
 
 const ENTITY_ID = 'example:todo'
@@ -88,6 +92,7 @@ function expectTenantScope(query: QueryCall, tenantId: string | null | undefined
 describe('custom-entity document storage tenant scope', () => {
   beforeEach(() => {
     registerEntityIds({ example: { todo: ENTITY_ID } })
+    clearDataEngineTableExistsCache()
   })
 
   afterEach(() => {
