@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -22,51 +23,53 @@ export async function POST(req: Request, ctx: PortalClaimActionRouteContext) {
   const contextOrResponse = await resolvePortalActionContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
-  const { translate } = await resolveTranslations()
-  const claimId = await resolvePortalClaimId(ctx)
-  if (!claimId) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
-  }
-  const claim = await loadOwnedClaim(context, claimId)
-  if (!claim) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
-  }
-  if (claim.status !== 'draft') {
-    return NextResponse.json(
-      { ok: false, error: translate('warranty_claims.errors.invalidTransition', 'That status change is not allowed.') },
-      { status: 400 },
-    )
-  }
+  return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+    const { translate } = await resolveTranslations()
+    const claimId = await resolvePortalClaimId(ctx)
+    if (!claimId) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
+    }
+    const claim = await loadOwnedClaim(context, claimId)
+    if (!claim) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
+    }
+    if (claim.status !== 'draft') {
+      return NextResponse.json(
+        { ok: false, error: translate('warranty_claims.errors.invalidTransition', 'That status change is not allowed.') },
+        { status: 400 },
+      )
+    }
 
-  const guarded = await runPortalClaimActionGuard(req, context, claim.id, {
-    id: claim.id,
-    action: 'submit',
+    const guarded = await runPortalClaimActionGuard(req, context, claim.id, {
+      id: claim.id,
+      action: 'submit',
+    })
+    if (!guarded.ok) {
+      return guarded.response
+    }
+
+    const commandBus = context.commandCtx.container.resolve('commandBus') as CommandBus
+    try {
+      await commandBus.execute<{ id: string; actorCustomerId: string }, { claimId: string }>(
+        'warranty_claims.claim.submit',
+        { input: { id: claim.id, actorCustomerId: context.customerId }, ctx: context.commandCtx },
+      )
+    } catch (err) {
+      if (isCrudHttpError(err)) {
+        return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
+      }
+      const interceptorRejection = getCommandInterceptorHttpRejection(err)
+      if (interceptorRejection) {
+        return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+      }
+      throw err
+    }
+
+    await guarded.runAfterSuccess()
+
+    const updated = await loadOwnedClaimFresh(context, claim.id)
+    return NextResponse.json({ ok: true, claimId: claim.id, status: updated?.status ?? 'submitted' })
   })
-  if (!guarded.ok) {
-    return guarded.response
-  }
-
-  const commandBus = context.commandCtx.container.resolve('commandBus') as CommandBus
-  try {
-    await commandBus.execute<{ id: string; actorCustomerId: string }, { claimId: string }>(
-      'warranty_claims.claim.submit',
-      { input: { id: claim.id, actorCustomerId: context.customerId }, ctx: context.commandCtx },
-    )
-  } catch (err) {
-    if (isCrudHttpError(err)) {
-      return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
-    }
-    const interceptorRejection = getCommandInterceptorHttpRejection(err)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
-    throw err
-  }
-
-  await guarded.runAfterSuccess()
-
-  const updated = await loadOwnedClaimFresh(context, claim.id)
-  return NextResponse.json({ ok: true, claimId: claim.id, status: updated?.status ?? 'submitted' })
 }
 
 export const openApi: OpenApiRouteDoc = {

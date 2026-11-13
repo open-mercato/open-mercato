@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { sql } from 'kysely'
 import { z } from 'zod'
@@ -136,46 +137,48 @@ export async function GET(req: Request) {
     const contextOrResponse = await resolvePortalContext(req)
     if (contextOrResponse instanceof Response) return contextOrResponse
     const context = contextOrResponse
-    const db = context.em.getKysely<PortalOrdersDb>()
-    let listQuery = db
-      .selectFrom('sales_orders')
-      .select(['id', 'order_number', 'placed_at', 'currency_code', 'grand_total_gross_amount'])
-      .where('tenant_id', '=', context.tenantId)
-      .where('organization_id', '=', context.organizationId)
-      .where('customer_entity_id', '=', context.customerId)
-      .where('deleted_at', 'is', null)
-    let countQuery = db
-      .selectFrom('sales_orders')
-      .select(sql<string>`count(*)`.as('total'))
-      .where('tenant_id', '=', context.tenantId)
-      .where('organization_id', '=', context.organizationId)
-      .where('customer_entity_id', '=', context.customerId)
-      .where('deleted_at', 'is', null)
-    if (query.search) {
-      const pattern = `%${escapeLikePattern(query.search)}%`
-      listQuery = listQuery.where('order_number', 'ilike', pattern)
-      countQuery = countQuery.where('order_number', 'ilike', pattern)
-    }
-    let rows: Array<Record<string, unknown>> = []
-    let total = 0
-    try {
-      rows = await listQuery
-        .orderBy('placed_at', 'desc')
-        .limit(PAGE_SIZE)
-        .offset((query.page - 1) * PAGE_SIZE)
-        .execute() as Array<Record<string, unknown>>
-      const countRow = await countQuery.executeTakeFirst()
-      total = Number(countRow?.total ?? 0) || 0
-    } catch (err) {
-      if (!isMissingTableError(err)) throw err
-    }
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const db = context.em.getKysely<PortalOrdersDb>()
+      let listQuery = db
+        .selectFrom('sales_orders')
+        .select(['id', 'order_number', 'placed_at', 'currency_code', 'grand_total_gross_amount'])
+        .where('tenant_id', '=', context.tenantId)
+        .where('organization_id', '=', context.organizationId)
+        .where('customer_entity_id', '=', context.customerId)
+        .where('deleted_at', 'is', null)
+      let countQuery = db
+        .selectFrom('sales_orders')
+        .select(sql<string>`count(*)`.as('total'))
+        .where('tenant_id', '=', context.tenantId)
+        .where('organization_id', '=', context.organizationId)
+        .where('customer_entity_id', '=', context.customerId)
+        .where('deleted_at', 'is', null)
+      if (query.search) {
+        const pattern = `%${escapeLikePattern(query.search)}%`
+        listQuery = listQuery.where('order_number', 'ilike', pattern)
+        countQuery = countQuery.where('order_number', 'ilike', pattern)
+      }
+      let rows: Array<Record<string, unknown>> = []
+      let total = 0
+      try {
+        rows = await listQuery
+          .orderBy('placed_at', 'desc')
+          .limit(PAGE_SIZE)
+          .offset((query.page - 1) * PAGE_SIZE)
+          .execute() as Array<Record<string, unknown>>
+        const countRow = await countQuery.executeTakeFirst()
+        total = Number(countRow?.total ?? 0) || 0
+      } catch (err) {
+        if (!isMissingTableError(err)) throw err
+      }
 
-    return NextResponse.json({
-      ok: true,
-      items: rows.map(serializeOrder).filter((item): item is PortalOrderItem => item !== null),
-      total,
-      page: query.page,
-      pageSize: PAGE_SIZE,
+      return NextResponse.json({
+        ok: true,
+        items: rows.map(serializeOrder).filter((item): item is PortalOrderItem => item !== null),
+        total,
+        page: query.page,
+        pageSize: PAGE_SIZE,
+      })
     })
   } catch (err) {
     const { translate } = await resolveTranslations()

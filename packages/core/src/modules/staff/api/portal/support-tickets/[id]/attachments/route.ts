@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 /**
  * `GET|POST|DELETE /api/staff/portal/support-tickets/{id}/attachments`
  *
@@ -108,41 +109,43 @@ export async function GET(req: Request) {
   try {
     const scope = await resolveSupportPortalScope(req, PORTAL_SUPPORT_TICKETS_VIEW_FEATURE)
     if (scope instanceof Response) return scope
-    const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
-    const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
-    if (!owned) return notFound()
-    const api = await loadPortalAttachmentsApi()
-    if (!api) return unavailable()
-    const attachmentId = new URL(req.url).searchParams.get('attachmentId')
-    if (attachmentId) {
-      if (!z.string().uuid().safeParse(attachmentId).success) return notFound()
-      const attachment = await loadVisibleAttachment(api, scope, owned.task.id, attachmentId)
-      if (!attachment) return notFound()
-      const partition = await scope.em.findOne(api.AttachmentPartition, { code: attachment.partitionCode })
-      if (!partition) return notFound()
-      if (!api.checkAttachmentAccess(portalAttachmentAuth(scope), attachment, partition, { requireAuthForPublic: true }).ok) return notFound()
-      const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
-        tenantId: attachment.tenantId ?? scope.tenantId,
-        organizationId: attachment.organizationId ?? scope.organizationId,
-      })
-      let buffer: Buffer
-      try {
-        buffer = (await driver.read(attachment.partitionCode, attachment.storagePath)).buffer
-      } catch {
-        return notFound()
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
+      const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
+      if (!owned) return notFound()
+      const api = await loadPortalAttachmentsApi()
+      if (!api) return unavailable()
+      const attachmentId = new URL(req.url).searchParams.get('attachmentId')
+      if (attachmentId) {
+        if (!z.string().uuid().safeParse(attachmentId).success) return notFound()
+        const attachment = await loadVisibleAttachment(api, scope, owned.task.id, attachmentId)
+        if (!attachment) return notFound()
+        const partition = await scope.em.findOne(api.AttachmentPartition, { code: attachment.partitionCode })
+        if (!partition) return notFound()
+        if (!api.checkAttachmentAccess(portalAttachmentAuth(scope), attachment, partition, { requireAuthForPublic: true }).ok) return notFound()
+        const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
+          tenantId: attachment.tenantId ?? scope.tenantId,
+          organizationId: attachment.organizationId ?? scope.organizationId,
+        })
+        let buffer: Buffer
+        try {
+          buffer = (await driver.read(attachment.partitionCode, attachment.storagePath)).buffer
+        } catch {
+          return notFound()
+        }
+        const headers: Record<string, string> = {
+          'Cache-Control': 'private, max-age=60',
+          'Content-Security-Policy': "default-src 'none'; sandbox",
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': `attachment; filename="${api.slugifyAttachmentFileName(attachment.fileName)}"`,
+          'X-Content-Type-Options': 'nosniff',
+        }
+        if (attachment.fileSize > 0) headers['Content-Length'] = String(attachment.fileSize)
+        return new NextResponse(new Uint8Array(buffer), { status: 200, headers })
       }
-      const headers: Record<string, string> = {
-        'Cache-Control': 'private, max-age=60',
-        'Content-Security-Policy': "default-src 'none'; sandbox",
-        'Content-Type': 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${api.slugifyAttachmentFileName(attachment.fileName)}"`,
-        'X-Content-Type-Options': 'nosniff',
-      }
-      if (attachment.fileSize > 0) headers['Content-Length'] = String(attachment.fileSize)
-      return new NextResponse(new Uint8Array(buffer), { status: 200, headers })
-    }
-    const canManage = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
-    return NextResponse.json({ items: await listCustomerVisibleAttachments(api, scope, owned.task.id, canManage) })
+      const canManage = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
+      return NextResponse.json({ items: await listCustomerVisibleAttachments(api, scope, owned.task.id, canManage) })
+    })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments GET failed')
   }
@@ -152,72 +155,74 @@ export async function POST(req: Request) {
   try {
     const scope = await resolveSupportPortalScope(req, PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
     if (scope instanceof Response) return scope
-    const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
-    const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
-    if (!owned) return notFound()
-    const limited = await checkPortalRateLimit(scope, 'upload')
-    if (limited) return limited
-    const api = await loadPortalAttachmentsApi()
-    if (!api) return unavailable()
-    const { t } = await resolveTranslations()
-    if (!(req.headers.get('content-type') || '').toLowerCase().includes('multipart/form-data')) {
-      return NextResponse.json({ ok: false, error: t('staff.errors.invalid_request', 'Invalid request') }, { status: 400 })
-    }
-    if (!api.isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-      return NextResponse.json({ ok: false, error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
-    }
-    const form = await req.formData()
-    const file = form.get('file')
-    if (!(file instanceof File)) {
-      return NextResponse.json({ ok: false, error: t('staff.support.errors.fileRequired', 'Choose a file before uploading.') }, { status: 400 })
-    }
-    const uploadPayload = { fileName: file.name, fileSize: file.size, mimeType: file.type }
-    const guarded = await runRouteMutationGuards({
-      container: scope.container,
-      req,
-      auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
-      input: {
-        resourceKind: SUPPORT_TICKET_RESOURCE_KIND,
-        resourceId: owned.task.id,
-        operation: 'update',
-        mutationPayload: uploadPayload,
-      },
-    })
-    if (!guarded.ok) return guarded.response
-    const effectiveUpload = guarded.modifiedPayload
-      ? uploadGuardPayloadSchema.parse({ ...uploadPayload, ...guarded.modifiedPayload, fileSize: file.size })
-      : uploadPayload
-    let uploadService: ScopedAttachmentUploadService | null = null
-    try {
-      uploadService = scope.container.resolve('attachmentScopedUploadService') as ScopedAttachmentUploadService
-    } catch {
-      uploadService = null
-    }
-    if (!uploadService) return unavailable()
-    let attachment: AttachmentEntity
-    try {
-      attachment = await uploadService.upload({
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        entityId: SUPPORT_TICKET_ATTACHMENT_ENTITY_ID,
-        recordId: owned.task.id,
-        fileName: effectiveUpload.fileName,
-        buffer: Buffer.from(await file.arrayBuffer()),
-        declaredMimeType: effectiveUpload.mimeType,
-        tags: [CUSTOMER_VISIBLE_ATTACHMENT_TAG, customerUploadTag(scope.auth.sub)],
-      })
-    } catch (error) {
-      if (api.isScopedAttachmentUploadError(error)) {
-        return NextResponse.json(
-          { ok: false, error: translateSupportUploadError(error.code, t), code: error.code },
-          { status: error.status },
-        )
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
+      const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
+      if (!owned) return notFound()
+      const limited = await checkPortalRateLimit(scope, 'upload')
+      if (limited) return limited
+      const api = await loadPortalAttachmentsApi()
+      if (!api) return unavailable()
+      const { t } = await resolveTranslations()
+      if (!(req.headers.get('content-type') || '').toLowerCase().includes('multipart/form-data')) {
+        return NextResponse.json({ ok: false, error: t('staff.errors.invalid_request', 'Invalid request') }, { status: 400 })
       }
-      throw error
-    }
-    await guarded.runAfterSuccess()
-    emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_added', attachment.id)
-    return NextResponse.json({ ok: true, item: serializePortalAttachment(api, attachment, owned.task.id, scope.auth.sub, true) }, { status: 201 })
+      if (!api.isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
+        return NextResponse.json({ ok: false, error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.') }, { status: 413 })
+      }
+      const form = await req.formData()
+      const file = form.get('file')
+      if (!(file instanceof File)) {
+        return NextResponse.json({ ok: false, error: t('staff.support.errors.fileRequired', 'Choose a file before uploading.') }, { status: 400 })
+      }
+      const uploadPayload = { fileName: file.name, fileSize: file.size, mimeType: file.type }
+      const guarded = await runRouteMutationGuards({
+        container: scope.container,
+        req,
+        auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
+        input: {
+          resourceKind: SUPPORT_TICKET_RESOURCE_KIND,
+          resourceId: owned.task.id,
+          operation: 'update',
+          mutationPayload: uploadPayload,
+        },
+      })
+      if (!guarded.ok) return guarded.response
+      const effectiveUpload = guarded.modifiedPayload
+        ? uploadGuardPayloadSchema.parse({ ...uploadPayload, ...guarded.modifiedPayload, fileSize: file.size })
+        : uploadPayload
+      let uploadService: ScopedAttachmentUploadService | null = null
+      try {
+        uploadService = scope.container.resolve('attachmentScopedUploadService') as ScopedAttachmentUploadService
+      } catch {
+        uploadService = null
+      }
+      if (!uploadService) return unavailable()
+      let attachment: AttachmentEntity
+      try {
+        attachment = await uploadService.upload({
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          entityId: SUPPORT_TICKET_ATTACHMENT_ENTITY_ID,
+          recordId: owned.task.id,
+          fileName: effectiveUpload.fileName,
+          buffer: Buffer.from(await file.arrayBuffer()),
+          declaredMimeType: effectiveUpload.mimeType,
+          tags: [CUSTOMER_VISIBLE_ATTACHMENT_TAG, customerUploadTag(scope.auth.sub)],
+        })
+      } catch (error) {
+        if (api.isScopedAttachmentUploadError(error)) {
+          return NextResponse.json(
+            { ok: false, error: translateSupportUploadError(error.code, t), code: error.code },
+            { status: error.status },
+          )
+        }
+        throw error
+      }
+      await guarded.runAfterSuccess()
+      emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_added', attachment.id)
+      return NextResponse.json({ ok: true, item: serializePortalAttachment(api, attachment, owned.task.id, scope.auth.sub, true) }, { status: 201 })
+    })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments POST failed')
   }
@@ -227,60 +232,62 @@ export async function DELETE(req: Request) {
   try {
     const scope = await resolveSupportPortalScope(req, PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
     if (scope instanceof Response) return scope
-    const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
-    const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
-    if (!owned) return notFound()
-    const api = await loadPortalAttachmentsApi()
-    if (!api) return unavailable()
-    const attachmentId = new URL(req.url).searchParams.get('attachmentId')
-    if (!attachmentId || !z.string().uuid().safeParse(attachmentId).success) return notFound()
-    const attachment = await loadVisibleAttachment(api, scope, owned.task.id, attachmentId)
-    if (!attachment) return notFound()
-    if (!readAttachmentTags(api, attachment).includes(customerUploadTag(scope.auth.sub))) {
-      return NextResponse.json({ ok: false, error: 'staff.support.errors.attachmentNotYours' }, { status: 403 })
-    }
-    const guarded = await runRouteMutationGuards({
-      container: scope.container,
-      req,
-      auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
-      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'delete', mutationPayload: { attachmentId } },
-    })
-    if (!guarded.ok) return guarded.response
-    await scope.em.remove(attachment).flush()
-    await api.clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((err) => {
-      logger.error('staff portal support attachment thumbnail cleanup failed', { err, attachmentId })
-      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_thumbnail_cleanup_failed' })
-    })
-    if (attachment.storagePath) {
-      try {
-        const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
-          tenantId: attachment.tenantId ?? scope.tenantId,
-          organizationId: attachment.organizationId ?? scope.organizationId,
-        })
-        await driver.delete(attachment.partitionCode, attachment.storagePath)
-      } catch (err) {
-        logger.error('staff portal support attachment storage cleanup failed', { err, attachmentId })
-        getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_storage_cleanup_failed' })
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/attachments/)
+      const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
+      if (!owned) return notFound()
+      const api = await loadPortalAttachmentsApi()
+      if (!api) return unavailable()
+      const attachmentId = new URL(req.url).searchParams.get('attachmentId')
+      if (!attachmentId || !z.string().uuid().safeParse(attachmentId).success) return notFound()
+      const attachment = await loadVisibleAttachment(api, scope, owned.task.id, attachmentId)
+      if (!attachment) return notFound()
+      if (!readAttachmentTags(api, attachment).includes(customerUploadTag(scope.auth.sub))) {
+        return NextResponse.json({ ok: false, error: 'staff.support.errors.attachmentNotYours' }, { status: 403 })
       }
-    }
-    try {
-      const dataEngine = scope.container.resolve('dataEngine') as DataEngine
-      await emitCrudSideEffects({
-        dataEngine,
-        action: 'deleted',
-        entity: attachment,
-        identifiers: { id: attachment.id, organizationId: attachment.organizationId ?? null, tenantId: attachment.tenantId ?? null },
-        events: api.attachmentCrudEvents,
-        indexer: api.attachmentCrudIndexer,
+      const guarded = await runRouteMutationGuards({
+        container: scope.container,
+        req,
+        auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
+        input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'delete', mutationPayload: { attachmentId } },
       })
-      await dataEngine.flushOrmEntityChanges()
-    } catch (err) {
-      logger.error('staff portal support attachment side effects failed', { err, attachmentId })
-      getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_side_effects_failed' })
-    }
-    await guarded.runAfterSuccess()
-    emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_removed', attachmentId)
-    return NextResponse.json({ ok: true })
+      if (!guarded.ok) return guarded.response
+      await scope.em.remove(attachment).flush()
+      await api.clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((err) => {
+        logger.error('staff portal support attachment thumbnail cleanup failed', { err, attachmentId })
+        getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_thumbnail_cleanup_failed' })
+      })
+      if (attachment.storagePath) {
+        try {
+          const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
+            tenantId: attachment.tenantId ?? scope.tenantId,
+            organizationId: attachment.organizationId ?? scope.organizationId,
+          })
+          await driver.delete(attachment.partitionCode, attachment.storagePath)
+        } catch (err) {
+          logger.error('staff portal support attachment storage cleanup failed', { err, attachmentId })
+          getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_storage_cleanup_failed' })
+        }
+      }
+      try {
+        const dataEngine = scope.container.resolve('dataEngine') as DataEngine
+        await emitCrudSideEffects({
+          dataEngine,
+          action: 'deleted',
+          entity: attachment,
+          identifiers: { id: attachment.id, organizationId: attachment.organizationId ?? null, tenantId: attachment.tenantId ?? null },
+          events: api.attachmentCrudEvents,
+          indexer: api.attachmentCrudIndexer,
+        })
+        await dataEngine.flushOrmEntityChanges()
+      } catch (err) {
+        logger.error('staff portal support attachment side effects failed', { err, attachmentId })
+        getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_side_effects_failed' })
+      }
+      await guarded.runAfterSuccess()
+      emitSupportAttachmentActivity(owned.task, owned.ticket, 'attachment_removed', attachmentId)
+      return NextResponse.json({ ok: true })
+    })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support attachments DELETE failed')
   }

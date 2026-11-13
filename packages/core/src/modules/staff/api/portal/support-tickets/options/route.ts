@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -23,20 +24,22 @@ export async function GET(req: Request) {
   try {
     const scope = await resolveSupportPortalScope(req, PORTAL_SUPPORT_TICKETS_VIEW_FEATURE)
     if (scope instanceof Response) return scope
-    const supportScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
-    const categories = await loadSupportTicketCategories(scope.em, supportScope)
-    const routes = await resolveRoutableCategoryValues(scope.em, supportScope, categories.map((category) => category.value))
-    const routable = categories.filter((category) => routes.has(category.value))
-    const canManage = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
-    const attachmentsApi = await loadPortalAttachmentsApi()
-    const maxUploadBytes = attachmentsApi ? attachmentsApi.resolveAttachmentMaxBytes() : null
-    return NextResponse.json(
-      optionsResponseSchema.parse({
-        categories: routable,
-        canCreate: canManage && routable.length > 0,
-        maxUploadBytes: maxUploadBytes && maxUploadBytes > 0 ? maxUploadBytes : null,
-      }),
-    )
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const supportScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+      const categories = await loadSupportTicketCategories(scope.em, supportScope)
+      const routes = await resolveRoutableCategoryValues(scope.em, supportScope, categories.map((category) => category.value))
+      const routable = categories.filter((category) => routes.has(category.value))
+      const canManage = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
+      const attachmentsApi = await loadPortalAttachmentsApi()
+      const maxUploadBytes = attachmentsApi ? attachmentsApi.resolveAttachmentMaxBytes() : null
+      return NextResponse.json(
+        optionsResponseSchema.parse({
+          categories: routable,
+          canCreate: canManage && routable.length > 0,
+          maxUploadBytes: maxUploadBytes && maxUploadBytes > 0 ? maxUploadBytes : null,
+        }),
+      )
+    })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support options GET failed')
   }

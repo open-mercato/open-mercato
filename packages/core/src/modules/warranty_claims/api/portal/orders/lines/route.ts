@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -195,39 +196,41 @@ export async function GET(req: Request) {
     const contextOrResponse = await resolvePortalContext(req)
     if (contextOrResponse instanceof Response) return contextOrResponse
     const context = contextOrResponse
-    const { translate } = await resolveTranslations()
-    const order = await loadOwnedOrder(context, query.orderId)
-    if (!order) {
-      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.orderNotOwned', 'Order not found') }, { status: 404 })
-    }
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const { translate } = await resolveTranslations()
+      const order = await loadOwnedOrder(context, query.orderId)
+      if (!order) {
+        return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.orderNotOwned', 'Order not found') }, { status: 404 })
+      }
 
-    const settings = await resolveEffectiveWarrantyClaimSettings(context.em, {
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-    })
-    const estimatedWarrantyStatus = estimateWarrantyStatus(order.placedAt, settings.defaultWarrantyMonths)
-    const db = context.em.getKysely<PortalOrderLinesDb>()
-    let rows: Array<Record<string, unknown>> = []
-    try {
-      rows = await db
-        .selectFrom('sales_order_lines')
-        .select(['id', 'order_id', 'kind', 'product_id', 'product_variant_id', 'catalog_snapshot', 'name', 'quantity'])
-        .where('order_id', '=', order.id)
-        .where('tenant_id', '=', context.tenantId)
-        .where('organization_id', '=', context.organizationId)
-        .where('deleted_at', 'is', null)
-        .limit(100)
-        .execute() as Array<Record<string, unknown>>
-    } catch (err) {
-      if (!isMissingTableError(err)) throw err
-    }
+      const settings = await resolveEffectiveWarrantyClaimSettings(context.em, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+      })
+      const estimatedWarrantyStatus = estimateWarrantyStatus(order.placedAt, settings.defaultWarrantyMonths)
+      const db = context.em.getKysely<PortalOrderLinesDb>()
+      let rows: Array<Record<string, unknown>> = []
+      try {
+        rows = await db
+          .selectFrom('sales_order_lines')
+          .select(['id', 'order_id', 'kind', 'product_id', 'product_variant_id', 'catalog_snapshot', 'name', 'quantity'])
+          .where('order_id', '=', order.id)
+          .where('tenant_id', '=', context.tenantId)
+          .where('organization_id', '=', context.organizationId)
+          .where('deleted_at', 'is', null)
+          .limit(100)
+          .execute() as Array<Record<string, unknown>>
+      } catch (err) {
+        if (!isMissingTableError(err)) throw err
+      }
 
-    return NextResponse.json({
-      ok: true,
-      order,
-      items: rows
-        .map((row) => serializeOrderLine(row, estimatedWarrantyStatus, order.placedAt, settings.defaultWarrantyMonths))
-        .filter((item): item is PortalOrderLineItem => item !== null),
+      return NextResponse.json({
+        ok: true,
+        order,
+        items: rows
+          .map((row) => serializeOrderLine(row, estimatedWarrantyStatus, order.placedAt, settings.defaultWarrantyMonths))
+          .filter((item): item is PortalOrderLineItem => item !== null),
+      })
     })
   } catch (err) {
     const { translate } = await resolveTranslations()

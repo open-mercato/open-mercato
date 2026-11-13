@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
@@ -33,39 +34,41 @@ export async function POST(req: Request) {
   try {
     const scope = await resolveSupportPortalScope(req, PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
     if (scope instanceof Response) return scope
-    const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/messages/)
-    const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
-    if (!owned) return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
-    const limited = await checkPortalRateLimit(scope, 'message')
-    if (limited) return limited
-    const body = bodySchema.parse(await readJsonSafe<Record<string, unknown>>(req, {}))
-    const guarded = await runRouteMutationGuards({
-      container: scope.container,
-      req,
-      auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
-      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'update', mutationPayload: body },
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const taskId = readPathId(req, /\/support-tickets\/([^/]+)\/messages/)
+      const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
+      if (!owned) return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
+      const limited = await checkPortalRateLimit(scope, 'message')
+      if (limited) return limited
+      const body = bodySchema.parse(await readJsonSafe<Record<string, unknown>>(req, {}))
+      const guarded = await runRouteMutationGuards({
+        container: scope.container,
+        req,
+        auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
+        input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'update', mutationPayload: body },
+      })
+      if (!guarded.ok) return guarded.response
+      const effectiveBody = guarded.modifiedPayload ? bodySchema.parse({ ...body, ...guarded.modifiedPayload }) : body
+      const customer = await resolveCustomerDisplay(scope)
+      const input: SupportTicketPortalMessageInput = {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        customerId: scope.customerId,
+        customerUserId: scope.auth.sub,
+        customerDisplayName: customer.displayName,
+        customerKind: customer.kind,
+        reporterDisplayName: scope.auth.displayName ?? null,
+        taskId: owned.task.id,
+        body: effectiveBody.body,
+      }
+      const commandBus = scope.container.resolve('commandBus') as CommandBus
+      const { result } = await commandBus.execute<SupportTicketPortalMessageInput, SupportTicketMessageResult>(
+        staffSupportTicketCommandIds.portalMessage,
+        { input, ctx: buildPortalCommandContext(scope, req) },
+      )
+      await guarded.runAfterSuccess()
+      return NextResponse.json(responseSchema.parse({ ok: true, id: result.commentId, reopened: result.reopened }), { status: 201 })
     })
-    if (!guarded.ok) return guarded.response
-    const effectiveBody = guarded.modifiedPayload ? bodySchema.parse({ ...body, ...guarded.modifiedPayload }) : body
-    const customer = await resolveCustomerDisplay(scope)
-    const input: SupportTicketPortalMessageInput = {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      customerId: scope.customerId,
-      customerUserId: scope.auth.sub,
-      customerDisplayName: customer.displayName,
-      customerKind: customer.kind,
-      reporterDisplayName: scope.auth.displayName ?? null,
-      taskId: owned.task.id,
-      body: effectiveBody.body,
-    }
-    const commandBus = scope.container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute<SupportTicketPortalMessageInput, SupportTicketMessageResult>(
-      staffSupportTicketCommandIds.portalMessage,
-      { input, ctx: buildPortalCommandContext(scope, req) },
-    )
-    await guarded.runAfterSuccess()
-    return NextResponse.json(responseSchema.parse({ ok: true, id: result.commentId, reopened: result.reopened }), { status: 201 })
   } catch (err) {
     const rejection = getCommandInterceptorHttpRejection(err)
     if (rejection) return NextResponse.json(rejection.body, { status: rejection.status })

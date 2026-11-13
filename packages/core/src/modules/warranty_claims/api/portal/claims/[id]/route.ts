@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -129,33 +130,35 @@ export async function GET(req: Request, ctx: RouteContext) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
-  const { translate } = await resolveTranslations()
-  const claimId = await resolveClaimId(ctx)
-  if (!claimId) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
-  }
-  const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
-  const claim = await loadPortalOwnedClaim(
-    context.em,
-    {
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-      customerId: context.customerId,
-    },
-    claimId,
-  )
-  if (!claim) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
-  }
-  const lines = await findWithDecryption(
-    context.em,
-    WarrantyClaimLine,
-    { claim: claim.id, tenantId: context.tenantId, organizationId: context.organizationId, deletedAt: null },
-    { orderBy: { lineNo: 'ASC' } },
-    scope,
-  )
-  const rejectionReasonLabel = await loadRejectionReasonLabel(context, claim.rejectionReasonCode)
-  return NextResponse.json({ item: { ...serializeClaim(claim, lines), rejectionReasonLabel } })
+  return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+    const { translate } = await resolveTranslations()
+    const claimId = await resolveClaimId(ctx)
+    if (!claimId) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
+    }
+    const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
+    const claim = await loadPortalOwnedClaim(
+      context.em,
+      {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        customerId: context.customerId,
+      },
+      claimId,
+    )
+    if (!claim) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
+    }
+    const lines = await findWithDecryption(
+      context.em,
+      WarrantyClaimLine,
+      { claim: claim.id, tenantId: context.tenantId, organizationId: context.organizationId, deletedAt: null },
+      { orderBy: { lineNo: 'ASC' } },
+      scope,
+    )
+    const rejectionReasonLabel = await loadRejectionReasonLabel(context, claim.rejectionReasonCode)
+    return NextResponse.json({ item: { ...serializeClaim(claim, lines), rejectionReasonLabel } })
+  })
 }
 
 const lineSchema = z.object({
