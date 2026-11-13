@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useCoalescedReload } from './useCoalescedReload'
 
 const RECONNECT_CATCH_UP_MS = 5000
@@ -19,7 +19,7 @@ export function useProcessDefinitionsLiveUpdates(reload: () => void): void {
     catchUpTimer.current = null
     coalescedReload()
   })
-  useAppEvent('om:bridge:reconnected', () => {
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, () => {
     coalescedReload()
     if (catchUpTimer.current) clearTimeout(catchUpTimer.current)
     catchUpTimer.current = setTimeout(() => {

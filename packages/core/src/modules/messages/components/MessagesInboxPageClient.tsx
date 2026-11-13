@@ -14,7 +14,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useAppEventCoalesced } from '@open-mercato/ui/backend/injection/useAppEventCoalesced'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
@@ -95,7 +95,7 @@ export function MessagesInboxPageClient() {
   useAppEventCoalesced('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
 
   // Reconnect means events were missed while offline, so it refreshes uncoalesced.
-  useAppEvent('om:bridge:reconnected', invalidateMessageListQueries, [invalidateMessageListQueries])
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, invalidateMessageListQueries, [invalidateMessageListQueries])
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)

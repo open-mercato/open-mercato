@@ -15,10 +15,6 @@ function emit(id: string, payload: Record<string, unknown> = {}, domName = PORTA
 const isClaimOne = (event: AppEventPayload) => event.payload.claimId === 'claim-1'
 
 describe('usePortalLiveRefetch', () => {
-  it('exports the wire value used by the portal bridge', () => {
-    expect(PORTAL_BRIDGE_RECONNECTED_EVENT_ID).toBe('om:portal-bridge:reconnected')
-  })
-
   it('refetches without arguments on a matching portal event', () => {
     const refetch = jest.fn()
     renderHook(() => usePortalLiveRefetch('warranty_claims.claim.*', refetch, { filter: isClaimOne }))

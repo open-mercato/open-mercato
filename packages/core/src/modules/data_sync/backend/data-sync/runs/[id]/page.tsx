@@ -16,7 +16,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Bookmark, Lock, Play, RotateCcw, XCircle } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
@@ -265,7 +265,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     void loadLogs()
   }, [handleProgressEvent, loadLogs, loadRun])
 
-  useAppEvent('om:bridge:reconnected', () => {
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, () => {
     void loadRun()
     void loadLogs()
   }, [loadLogs, loadRun])

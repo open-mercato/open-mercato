@@ -9,6 +9,7 @@ import {
 } from '../VectorSearchSection'
 
 jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/injection/useAppEvent'),
   useAppEvent: jest.fn(),
 }))
 

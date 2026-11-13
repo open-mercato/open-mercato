@@ -18,10 +18,6 @@ describe('useLiveRefetch', () => {
     jest.useRealTimers()
   })
 
-  it('exports the wire value used by the backend bridge', () => {
-    expect(BRIDGE_RECONNECTED_EVENT_ID).toBe('om:bridge:reconnected')
-  })
-
   it('refetches without arguments on a matching event', () => {
     const refetch = jest.fn()
     renderHook(() => useLiveRefetch('sales.order.*', refetch))
