@@ -115,6 +115,7 @@ export interface VectorDriver {
    */
   readonly supportsIndexDocFilter?: boolean
   ensureReady(): Promise<void>
+  close?(): Promise<void>
   /**
    * Cheap, cached probe answering whether the backing store can serve reads and
    * writes at all. Drivers that cannot satisfy their hard requirements (for
