@@ -1,0 +1,9 @@
+{
+  "baseUrl": "http://127.0.0.1:37735",
+  "headSha": "ab0e4936b9653bdaad6c70bd4e4c2a7c576f331c",
+  "databaseHost": "localhost",
+  "databasePort": 33114,
+  "databasePortAbsentAfterTeardown": true,
+  "status": "stopped",
+  "ownerPid": 2660638
+}
