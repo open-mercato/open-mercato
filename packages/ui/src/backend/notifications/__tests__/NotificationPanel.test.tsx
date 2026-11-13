@@ -88,6 +88,32 @@ describe('NotificationPanel controls use shared primitives', () => {
     expect(within(screen.getByRole('tab', { name: /Unread/i })).getByText('99+')).toBeInTheDocument()
   })
 
+  it('keeps translated filters reachable through keyboard navigation', () => {
+    const translations: Record<string, string> = {
+      'notifications.filters.all': 'Wszystkie',
+      'notifications.filters.unread': 'Nieprzeczytane',
+      'notifications.filters.actionRequired': 'Wymagana akcja',
+    }
+    const polishT = ((key: string, fallback?: unknown) =>
+      translations[key] ?? t(key, fallback)) as TranslateFn
+    const notifications = [
+      buildNotification({ id: 'a', title: 'Needs action', actions: [{ id: 'approve', label: 'Approve' }] }),
+      buildNotification({ id: 'b', title: 'Read only', status: 'read' }),
+    ]
+    render(<NotificationPanel {...buildProps({ notifications, unreadCount: 150, t: polishT })} />)
+
+    const allTab = screen.getByRole('tab', { name: 'Wszystkie' })
+    const actionTab = screen.getByRole('tab', { name: 'Wymagana akcja' })
+    expect(screen.getByRole('tab', { name: 'Nieprzeczytane 99+' })).toBeInTheDocument()
+    allTab.focus()
+    fireEvent.keyDown(allTab, { key: 'End' })
+
+    expect(actionTab).toHaveFocus()
+    expect(actionTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('Needs action')).toBeInTheDocument()
+    expect(screen.queryByText('Read only')).toBeNull()
+  })
+
   it('renders Mark all read as a Button primitive and invokes the handler', async () => {
     const onMarkAllRead = jest.fn().mockResolvedValue(undefined)
     render(<NotificationPanel {...buildProps({ unreadCount: 3, onMarkAllRead })} />)
