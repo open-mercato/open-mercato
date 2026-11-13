@@ -23,6 +23,7 @@ jest.mock('next/server', () => {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
+    dispose: jest.fn(async () => undefined),
     resolve: (name: string) => {
       if (name === 'em') return {}
       throw new Error(`unexpected resolve(${name})`)
