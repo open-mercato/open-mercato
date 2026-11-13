@@ -22,6 +22,7 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.2 | Implement request/RSC resolver and canonical portal bootstrap | inline | done | this commit |
 | 2 | 2.2-modular | Replace module-specific runtime knowledge with module-owned declarations | inline | done | this commit |
 | 2 | 2.2-storage | Discover module-owned legacy storage and keep test probes with their owner | inline | done | this commit |
+| 2 | 2.2-storage-fix | Declare retained catalog relations discovered by the live database gate | inline | done | this commit |
 | 2 | 2.2-rsc | Verify deferred Next render lifetime and audience against the live canary | inline | todo | — |
 | 2 | 2.2-public-signup | Keep verified signup/invitation continuations and subscribers in tenant scope | inline | done | this commit |
 | 2 | 2.2-public | Scope verified public token, storefront and provisioning continuations | inline | todo | — |
