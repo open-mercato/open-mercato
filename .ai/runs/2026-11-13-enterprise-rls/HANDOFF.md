@@ -1,25 +1,21 @@
-# Handoff — full enterprise RLS
+# Resume — full enterprise RLS, PR #9424
 
-Branch: cez/82462d87
-PR: https://github.com/open-mercato/open-mercato/pull/9424 (draft)
-Current step: 2.2-rsc and remaining public continuations; PLAN.md remains authoritative for all remaining work.
+Engine: om-auto-continue-pr-loop. Current checkpoint: 5. PLAN.md Tasks is authoritative; full implementation is not complete. PR remains draft and claimed.
 
 ## Completed
 
-Neutral execution/pool hooks, enterprise ownership and policy/catalog/role checks, early bootstrap, canonical API identity and request/RSC resolver foundation. Runtime declarations now belong to owning modules through neutral discovery; enterprise request runtime knows no particular business modules. Customer-specific test probe now belongs to customers and uses only neutral context APIs.
+Production neutral execution/declaration/pool hooks and enterprise invocation ownership, role/catalog/policy verification. Module-owned table inventory and request providers; no central business-module mapping. Canonical API/auth/portal/deferred RSC lifetimes. Public token/storefront/onboarding continuations. PoC source/tests removed; production harness retained.
 
-Accepted child 3b4195bffa removed the prototype source/unit tests and dual-mode harness. Parent reviewed the diff and reran 74 runtime units, harness typecheck and live PG17: 16 runtime plus 23 catalog checks, zero skips, fixture cleanup verified. Production regressions are under packages/enterprise/tests/rls.
+Real native deferred Next tests passed 3/3. Actual 20/30/50/100 distinct authenticated users passed 2,000 own/foreign CRUD operations with zero errors or observed leaks; raw evidence and analysis posted in comment6857454070. This is not the off/on benchmark. Prior probe screenshots are not People UI evidence.
 
-## Next action and verification limits
+Migration/storage lifecycle and constrained event transport committed; actual PG17 harness passes16 runtime+26 catalog checks, zero skips. Latest CLI/setup foundation23bb65f56f:82 CLI/30 shared/19 auth tests and shared/CLI tsc pass. Searchbd37d270a4 merged and parent73tests/tsc pass. Schedulerdeaa13f99a merged and parent572+9tests pass. Checkpoint5 records limits.
 
-Native attempt6 automatic retry passed all three live deferred Next tests; screenshots and verification posted in comment6856492040. First attempt failed before fixtures on DB timeout; retry teardown separately logged Next exit143. No native runner remains active. People CRUD browser gate remains required.
+## Next
 
-Latest e094c81303 storefront/buyer continuation:119 tests/9 suites and core typecheck pass. Login/tokens 009655ef56/2637311d63:27 tests/3 suites and core typecheck pass. Signup/invitation a485df41a5:9 tests pass. Module-owned catalog declarations d324542332 produce347 inventory entries. All pushed. Checkpoint4 posted as comment6856414615; full gates remain required.
+Two active children: d4042261 owns global job/event classifiers and owner-local tenant continuations;44e27059 owns ONLY new TC-RLS-003 actual People browser spec/helper. Do not edit their scopes. Parent owns CLI bootstrap, production DB harness, off/on benchmark, native execution and evidence. Check supervisor runtime registration before lazy probes. Search/scheduler discovery must be regenerated after child integrations. Actual live pgvector storage compatibility pending.
 
-## Remaining
-
-Full public-token/storefront/provisioning continuations, workers/events/scheduler, CLI maintenance, independent pools and migration lifecycle. Real CRUD/job/People UI tests and restricted-role screenshots. Real authenticated 20/30/50/100-user concurrency isolation tests, analysis document and PR comments. Full ordered repository/integration/create-app gates and independent security review. User requires a separate subagent to resolve upstream conflicts and make the PR merge ready after implementation. No scope reduction, no completion claim until all gates pass.
+Finish live CLI/job/API gates, People browser/conflict/screenshots, off/on max1/max3/normal-pool benchmark. Then ordered full repository and integration/create-app gates, independent code/security review/fixes. User explicitly requires a separate subagent to solve upstream conflicts and make PR merge ready AFTER implementation. Keep draft until all tasks verified. Never merge/push base.
 
 ## Environment
 
-Local runner. Set MISE_NODE_VERSION=24.22.3 TMPDIR=/tmp TURBO_ENV_MODE=loose and prepend Node24 binary directory, including commits. Native CLI owns disposable app/database; no user database migrations. Run inventory with yarn tsx --tsconfig apps/mercato/tsconfig.json packages/enterprise/scripts/generate-rls-table-inventory.mjs. Test helpers contain private disposable URLs: never print them. Own PG17 container om-rls-82462-pg17:55279 retained for regressions. Child6045b4f4 is implementing disjoint new concurrency test/helper/analysis files; parent owns native execution. Use the cockpit binary for handoff/dispatch; never push or merge into base.
+Local Node24.22.3 via MISE_NODE_VERSION and PATH; TMPDIR=/tmp TURBO_ENV_MODE=loose. Serialize generation/build/native runner. Native CLI owns disposable app/DB; no user DB migrations. Own PG17container om-rls-82462-pg17 at55279 retained; trustauth defaultpostgres, never print private URLs. CEZ_BIN unset: cockpit /Users/piotrkarwatka/.npm/_npx/2f81180a4ed294ed/node_modules/.bin/cezar-run. Use cockpit handoff commands; do not hand-edit rolling handoff.

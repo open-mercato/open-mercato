@@ -39,6 +39,8 @@ Engine: om-auto-continue-pr-loop
 | 2 | 2.4-foundation | Declare owner-local CLI access and restrict setup hook continuations | inline | done | this commit; CLI82/shared30/auth19 + shared/CLI tsc |
 | 2 | 2.4 | Separate tenant CLI operations from privileged maintenance | inline | todo | — |
 | 2 | 2.5-transport | Restrict event PG transports and create fresh callback scopes | inline | done | events189/runtime99/shared23; live PG17 16+26 zero skips |
+| 2 | 2.5-search | Integrate search-owned storage provisioning and restricted runtime pools | inline | done | bd37d270a4 merged; parent73 tests/search tsc |
+| 2 | 2.3-scheduler | Resolve persisted scheduler jobs before fresh tenant execution | inline | done | deaa13f99a merged; parent572+9 tests |
 | 2 | 2.5 | Classify and integrate independent search, vector and event pools | inline | todo | — |
 | 3 | 3.1-cli-lifecycle | Wire neutral migration preflight, completion and committed-history recovery | inline | done | this commit; CLI57 tests + typecheck |
 | 3 | 3.1 | Reconcile explicit canary policies through migrations with rollback | inline | done | this commit; runtime94/shared8; live PG17 16+25 checks, zero skips |
