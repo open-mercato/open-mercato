@@ -5432,3 +5432,13 @@ Existing standalone applications must refresh `scripts/dev.mjs` and add `scripts
 Container compatibility refusals exit with status `78` and are fatal even before role-ACL synchronization. Custom `SYNC_ROLE_ACLS_COMMAND` implementations should reserve status `78` for fatal configuration failures; other nonzero ACL-sync statuses retain the existing warning behavior.
 
 The compatibility proof authenticates at most five candidate rows per store/key scope using server-side filtering; total plaintext table size is not a transfer limit. Known Documents CRDT binary columns are excluded. This is not a full historical ciphertext audit: unreadable values outside a sample may remain, and normal per-record runtime guards still apply. Optional dev auto-migrations warn and skip writes on a compatibility refusal; explicit setup/container initialization and migrations remain blocking.
+
+## Customer comment update attribution (#8759)
+
+Customer-comment body edits preserve the persisted author when `authorUserId` is omitted. Ordinary staff and API keys can no longer reassign or clear attribution through `customers.comments.update` / `PUT /api/customers/comments`; supplied author input is ignored while authorized body edits continue. API keys cannot override this even with superadmin privileges.
+
+**Client migration:** omit `authorUserId` for body edits. Intentional corrections require a non-API-key superadmin session and an explicit active user in the comment's tenant, or explicit null to clear attribution. Omitted authors and unchanged historical authors remain intact.
+
+**Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
+
+**Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).

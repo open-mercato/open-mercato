@@ -434,7 +434,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
 
-**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+**Classification.** This public `MfaProviderInterface.verifySchema` union shape was client-validatable and covered by an enterprise legacy-compatibility test. Its removal is a STABLE break authorized by the security exception.
 
 **Exception requirements, as met by this change:**
 
@@ -660,3 +660,6 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 FROZEN validator schemas and STABLE CLI/service/API behavior are narrowed for new credential writes: all four production `auth setup` policy-bypass aliases, plaintext `setupInitialTenant` inputs, explicit derived-account password overrides, and customer `signupSchema`, `passwordResetConfirmSchema`, `invitationAcceptSchema`, `passwordChangeSchema`, `adminCreateUserSchema` and `adminResetPasswordSchema`. Retaining acceptance of policy-prohibited passwords would retain the policy bypass itself during a bridge release; no production opt-in retains that vulnerable path. Maintainer Piotr Karwatka (@pkarw) [approved the emergency security exception](https://github.com/open-mercato/open-mercato/pull/8582#issuecomment-6852843978) on 2026-11-13, waiving deprecation steps 1–3 for this scope.
 
 Clients must submit policy-compliant new passwords and handle validation errors. Operators must remove reliance on production bypass flags, supply compliant primary/derived passwords, and review and rotate previously exposed credentials where appropriate. Existing stored hashes, login and trusted prehashed imports remain valid; no automatic rotation or database migration occurs. [Full client/operator migration and scope](.ai/specs/2026-11-12-credential-policy-enforcement.md#migration--backward-compatibility); [upgrade notes](UPGRADE_NOTES.md). This exception does not grant QA approval or waive CI.
+## Comment authors (2026-11-12, #8759)
+
+STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
