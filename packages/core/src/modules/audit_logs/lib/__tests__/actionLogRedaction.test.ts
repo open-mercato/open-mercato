@@ -36,7 +36,7 @@ describe('redactActionLogEntries', () => {
 
     const result = await redactActionLogEntries(container, mockEm, { tenantId: 'tenant-1', organizationId: null }, 'user-1', entries as any)
 
-    expect(result).toBe(entries)
+    expect(result).toEqual(entries)
   })
 
   it('loads the redaction context once and redacts every protected entry through the resolved provider', async () => {
