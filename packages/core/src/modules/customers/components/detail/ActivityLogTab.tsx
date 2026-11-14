@@ -13,7 +13,7 @@ type GuardedMutationRunner = <T,>(
 type ActivityLogTabProps = {
   entityId: string
   plannedActivities: InteractionSummary[]
-  /** @deprecated No longer used after the ActivitiesCard refactor. Kept optional for callers; remove after one minor cycle. */
+  /** Called after an activity in the history is changed, deleted or restored by undo, so the host can bump `refreshKey` and reload the data it passes back in. */
   onActivityCreated?: () => void
   onScheduleRequested: () => void
   onAddActivity?: (kind: ActivityKind) => void
@@ -37,6 +37,7 @@ type ActivityLogTabProps = {
 export function ActivityLogTab({
   entityId,
   plannedActivities,
+  onActivityCreated,
   onScheduleRequested,
   onAddActivity,
   onEditActivity,
@@ -66,6 +67,7 @@ export function ActivityLogTab({
         useCanonicalInteractions={useCanonicalInteractions}
         refreshKey={refreshKey}
         onEditActivity={onEditActivity}
+        onDataRefresh={onActivityCreated}
         runMutation={runGuardedMutation}
       />
     </div>

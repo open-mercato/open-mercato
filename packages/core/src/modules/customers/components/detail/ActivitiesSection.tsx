@@ -10,6 +10,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
+import { useActivityDelete } from './hooks/useActivityDelete'
+import { useInteractionUndoRefresh } from './hooks/useInteractionUndoRefresh'
 import { resolveAuthorUserNames } from './authorUserLookup'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -128,6 +130,7 @@ export function ActivitiesSection({
   const [loading, setLoading] = React.useState(false)
   const [hasMore, setHasMore] = React.useState(false)
   const [loadedPages, setLoadedPages] = React.useState(1)
+  const [countsRefreshKey, setCountsRefreshKey] = React.useState(0)
   const searchInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
@@ -309,6 +312,20 @@ export function ActivitiesSection({
     }
   }, [loadActivities, onDataRefresh, runGuardedMutation, t])
 
+  const refreshAfterActivityChange = React.useCallback(async () => {
+    await loadActivities()
+    setCountsRefreshKey((current) => current + 1)
+    await Promise.resolve(onDataRefresh?.())
+  }, [loadActivities, onDataRefresh])
+
+  const { deleteActivity, ConfirmDialogElement } = useActivityDelete({
+    runMutation: runGuardedMutation,
+    onAfterDelete: refreshAfterActivityChange,
+    logContext: 'ActivitiesSection',
+  })
+
+  useInteractionUndoRefresh(refreshAfterActivityChange, 'ActivitiesSection')
+
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 
   // Resolve missing author names from user IDs
@@ -355,6 +372,7 @@ export function ActivitiesSection({
 
   return (
     <div className="flex flex-col gap-3.5 rounded-[10px] border border-border bg-card pt-4 pb-[18px] px-[18px]">
+      {ConfirmDialogElement}
       <div className="flex items-center gap-2">
         <Clock className="size-[15px] text-muted-foreground" />
         <h3 className="text-[13px] font-semibold text-foreground">
@@ -393,6 +411,7 @@ export function ActivitiesSection({
           setFilterDateFrom('')
           setFilterDateTo('')
         }}
+        refreshKey={refreshKey + countsRefreshKey}
       />
 
       {loading && totalCount === 0 ? (
@@ -405,6 +424,7 @@ export function ActivitiesSection({
             activities={visibleActivities}
             onEdit={onEditActivity}
             onMarkDone={handleMarkDone}
+            onDelete={deleteActivity}
           />
           {totalCount > 0 ? (
             <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">

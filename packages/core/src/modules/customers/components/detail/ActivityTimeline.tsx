@@ -1,10 +1,11 @@
 'use client'
 import * as React from 'react'
-import { Check, ListTodo, Phone, Mail, Users, StickyNote, User } from 'lucide-react'
+import { Check, ListTodo, Pencil, Phone, Mail, Trash2, Users, StickyNote, User } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
@@ -22,9 +23,10 @@ interface ActivityTimelineProps {
   activities: InteractionSummary[]
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
+  onDelete?: (activity: InteractionSummary) => void | Promise<void>
 }
 
-export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities, onEdit, onMarkDone, onDelete }: ActivityTimelineProps) {
   const t = useT()
 
   if (activities.length === 0) {
@@ -61,6 +63,7 @@ export function ActivityTimeline({ activities, onEdit, onMarkDone }: ActivityTim
               withBorder={index < activities.length - 1}
               onEdit={onEdit}
               onMarkDone={onMarkDone}
+              onDelete={onDelete}
             />
           </React.Fragment>
         )
@@ -75,12 +78,14 @@ function TimelineEntry({
   withBorder,
   onEdit,
   onMarkDone,
+  onDelete,
 }: {
   activity: InteractionSummary
   t: TranslateFn
   withBorder: boolean
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
+  onDelete?: (activity: InteractionSummary) => void | Promise<void>
 }) {
   const dateStr = activity.scheduledAt ?? activity.occurredAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
@@ -89,6 +94,7 @@ function TimelineEntry({
   const isOpen = isOpenInteractionStatus(activity.status)
   const isCanceled = isCanceledInteractionStatus(activity.status)
   const [markingDone, setMarkingDone] = React.useState(false)
+  const deletingRef = React.useRef(false)
 
   const handleMarkDone = React.useCallback(async (event: React.MouseEvent | React.KeyboardEvent) => {
     event.stopPropagation()
@@ -100,6 +106,16 @@ function TimelineEntry({
       setMarkingDone(false)
     }
   }, [activity.id, markingDone, onMarkDone])
+
+  const handleDelete = React.useCallback(async () => {
+    if (!onDelete || deletingRef.current) return
+    deletingRef.current = true
+    try {
+      await onDelete(activity)
+    } finally {
+      deletingRef.current = false
+    }
+  }, [activity, onDelete])
 
   return (
     <div
@@ -143,19 +159,42 @@ function TimelineEntry({
                 </StatusBadge>
               ) : null}
             </div>
-            {isOpen && onMarkDone ? (
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                disabled={markingDone}
-                onClick={handleMarkDone}
-                className="h-7 shrink-0 text-xs"
-              >
-                <Check className="size-3.5" />
-                {t('customers.activities.actions.markDone', 'Mark done')}
-              </Button>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-1">
+              {isOpen && onMarkDone ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  disabled={markingDone}
+                  onClick={handleMarkDone}
+                  className="h-7 text-xs"
+                >
+                  <Check className="size-3.5" />
+                  {t('customers.activities.actions.markDone', 'Mark done')}
+                </Button>
+              ) : null}
+              {onEdit || onDelete ? (
+                <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} role="presentation">
+                  <RowActions
+                    items={[
+                      ...(onEdit ? [{
+                        id: 'edit',
+                        label: t('customers.timeline.edit', 'Edit'),
+                        icon: <Pencil />,
+                        onSelect: () => onEdit(activity),
+                      }] : []),
+                      ...(onDelete ? [{
+                        id: 'delete',
+                        label: t('customers.activities.actions.delete', 'Delete activity'),
+                        icon: <Trash2 />,
+                        destructive: true,
+                        onSelect: () => { void handleDelete() },
+                      }] : []),
+                    ]}
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
 
           {activity.body && activity.title && (
