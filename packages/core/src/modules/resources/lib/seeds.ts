@@ -13,6 +13,7 @@ import {
   ResourcesResourceType,
 } from '../data/entities'
 import { E } from '#generated/entities.ids.generated'
+import { isDictionariesModuleEnabled } from './optionalModules'
 import {
   RESOURCES_RESOURCE_CUSTOM_FIELD_SETS,
   RESOURCES_RESOURCE_FIELDSET_DENTAL_CHAIR,
@@ -595,7 +596,7 @@ export async function seedResourcesResourceExamples(
   scope: ResourcesSeedScope,
 ) {
   const now = new Date()
-  await seedResourcesActivityTypes(em, scope)
+  if (isDictionariesModuleEnabled()) await seedResourcesActivityTypes(em, scope)
   await ensureResourceCustomFields(em, scope)
   const typeNames = RESOURCE_TYPE_SEEDS.map((seed) => seed.name)
   const existingTypes = await findWithDecryption(

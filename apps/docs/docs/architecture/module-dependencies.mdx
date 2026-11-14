@@ -88,13 +88,13 @@ The tables below list the modules that ship in the monorepo and the create-app t
 | `payment_gateways` | Payment Gateways | — | |
 | `perspectives` | Table perspectives | — | |
 | `phone_calls` | Phone Calls | — | ✅ (tillio) |
-| `planner` | Worktime / Availabilities | — | ✅ (resources, staff) |
+| `planner` | Worktime / Availabilities | — | ✅ (staff) |
 | `portal` | Customer Portal | `customer_accounts`, `feature_toggles` | |
 | `progress` | Progress | — | ✅ (communication_channels, customers) |
 | `promotions` | Promotions | — | ✅ (cart) |
 | `push_notifications` | Push Notifications | `auth`, `devices`, `notifications`, `communication_channels`, `integrations` | |
 | `query_index` | Query Indexes | — | ✅ (entities) |
-| `resources` | Resource planning | `planner` | ✅ (staff) |
+| `resources` | Resource planning | — | ✅ (staff) |
 | `sales` | Sales Management | `catalog`, `customers`, `dictionaries` | ✅ (cart, ecommerce, sync_akeneo, wms) |
 | `shipping_carriers` | Shipping Carriers | — | |
 | `staff` | Employees | `planner`, `resources`, `dictionaries` | |
@@ -165,7 +165,6 @@ eudr                   → catalog
 forms                  → attachments, customer_accounts
 portal                 → customer_accounts, feature_toggles
 push_notifications     → auth, devices, notifications, communication_channels, integrations
-resources              → planner
 sales                  → catalog, customers, dictionaries
 staff                  → planner, resources, dictionaries
 sync_akeneo            → integrations, data_sync, catalog, sales
@@ -177,7 +176,7 @@ workflows              → business_rules
 
 Transitive closures worth noting:
 
-- Enabling `staff` implicitly requires `planner`, `resources`, and `dictionaries` — and `resources` itself requires `planner`, so the effective set is `{ dictionaries, planner, resources, staff }`.
+- Enabling `staff` requires `planner`, `resources`, and `dictionaries`, so the effective set is `{ dictionaries, planner, resources, staff }`. `resources` alone requires neither `planner` nor `dictionaries`; without them its availability section and dictionary-backed labels are unavailable.
 - Enabling `sync_akeneo` implicitly requires the entire sales chain, including what `catalog` and `customers` require: `{ attachments, catalog, currencies, customers, data_sync, dictionaries, entities, feature_toggles, integrations, progress, query_index, sales, sync_akeneo }`.
 - Enabling `sales` implicitly requires `progress` and `feature_toggles` too, since `sales` requires `customers`, which now requires `progress`, `dictionaries`, and `feature_toggles`.
 - `entities` requires `query_index` because hybrid querying for custom entities is delegated to the query-index layer.
