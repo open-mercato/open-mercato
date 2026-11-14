@@ -26,7 +26,7 @@ Affected areas:
 - No behaviour change, no new options, no refactor.
 - Machine endpoints stay on `https://modules.openmercato.com`: `modules.json` (`DEFAULT_MODULES_INDEX_URL`), `built-in.json`, `picker.json` (`DEFAULT_PICKER_URL`), `templates.json` (`DEFAULT_TEMPLATES_URL`), `/schema/*.json`, `llms.txt`, `/raw/*`, `/m/<package>.md`, badge images, the MCP server address.
 - Test fixtures that mirror catalog data (`packages/cli/src/lib/__fixtures__/module-search/**`, and assertions on values derived from fixture data such as `index.site`, `card`, `install plan`) stay.
-- `Template page: ...` in `create-mercato-app` is derived at runtime from the template index URL (`new URL('/t/...', indexUrl)`), so it follows whatever index the user reads; changing it would change behaviour. It stays.
+- `Template page: ...` and `No template with slug "...". See <site>/templates ...` in `create-mercato-app` are derived at runtime from the template index URL (`new URL('/t/...', indexUrl)`, `new URL('/templates', indexUrl)`), so they follow whatever index the user reads; changing them would change behaviour. They stay, and the old host redirects them.
 - `.ai/specs/**` is history and is not touched.
 - No `CHANGELOG.md` entry: release notes are generated from the PR's category label (`.ai/docs/pr-workflow.md` § Release-note labels).
 
@@ -65,6 +65,7 @@ Affected areas:
 
 - [x] 2.1 packages/cli MODULES_SITE_URL and its test — d51fa1d99
 - [x] 2.2 packages/create-app ready-apps hint, help text, catalog-step MODULES_SITE_URL and tests — 28c3ab5d8
+- [x] Post-review fix: update the two regex assertions for the templates address (ready-apps.test.ts, templates.test.ts) — fb9fff8ef
 
 ### Phase 3: om-find-module skill
 
