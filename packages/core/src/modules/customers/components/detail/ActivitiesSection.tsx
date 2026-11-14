@@ -21,6 +21,7 @@ import {
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
 import { useActivityDelete } from './hooks/useActivityDelete'
+import { useInteractionUndoRefresh } from './hooks/useInteractionUndoRefresh'
 import { resolveAuthorUserNames } from './authorUserLookup'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -189,6 +190,7 @@ export function ActivitiesSection({
   const [loading, setLoading] = React.useState(false)
   const [hasMore, setHasMore] = React.useState(false)
   const [loadedPages, setLoadedPages] = React.useState(1)
+  const [countsRefreshKey, setCountsRefreshKey] = React.useState(0)
   const searchInputRef = React.useRef<HTMLInputElement>(null)
   const loadSequenceRef = React.useRef(0)
 
@@ -409,16 +411,19 @@ export function ActivitiesSection({
     }
   }, [loadActivities, onDataRefresh, runGuardedMutation, t])
 
-  const refreshAfterDelete = React.useCallback(async () => {
+  const refreshAfterActivityChange = React.useCallback(async () => {
     await loadActivities()
+    setCountsRefreshKey((current) => current + 1)
     await Promise.resolve(onDataRefresh?.())
   }, [loadActivities, onDataRefresh])
 
   const { deleteActivity, ConfirmDialogElement } = useActivityDelete({
     runMutation: runGuardedMutation,
-    onAfterDelete: refreshAfterDelete,
+    onAfterDelete: refreshAfterActivityChange,
     logContext: 'ActivitiesSection',
   })
+
+  useInteractionUndoRefresh(refreshAfterActivityChange, 'ActivitiesSection')
 
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 
@@ -527,6 +532,7 @@ export function ActivitiesSection({
             </SelectContent>
           </Select>
         ) : undefined}
+        refreshKey={refreshKey + countsRefreshKey}
       />
 
       {loading && totalCount === 0 ? (

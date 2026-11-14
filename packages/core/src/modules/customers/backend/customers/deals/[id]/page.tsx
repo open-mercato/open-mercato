@@ -493,6 +493,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   onActivityCreated={() => { void handleActivityCreated() }}
                   runGuardedMutation={runMutationWithContext}
                   onScheduleRequested={openSchedule}
+                  refreshKey={activityRefreshKey}
                 />
               ) : (
                 <EmptyState

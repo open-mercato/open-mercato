@@ -3,7 +3,8 @@
  */
 import * as React from 'react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { waitFor } from '@testing-library/react'
+import { act, waitFor } from '@testing-library/react'
+import { clearAllOperations, markUndoSuccess, pushOperation } from '@open-mercato/ui/backend/operations/store'
 import { ActivityHistorySection } from '../ActivityHistorySection'
 import type { InteractionSummary } from '../types'
 
@@ -85,6 +86,9 @@ describe('ActivityHistorySection delete flow', () => {
     flashMock.mockClear()
     confirmMock.mockClear()
     confirmMock.mockResolvedValue(true)
+    act(() => {
+      clearAllOperations()
+    })
   })
 
   it('deletes through the canonical interactions route with the optimistic-lock header', async () => {
@@ -120,6 +124,81 @@ describe('ActivityHistorySection delete flow', () => {
         readApiResultOrThrowMock.mock.calls.some(([url]) => String(url).includes('/api/customers/interactions?')),
       ).toBe(true),
     )
+  })
+
+  it('notifies the host after a delete so the week strip and counters it owns refresh (#9487)', async () => {
+    const activity = sampleActivity()
+    readApiResultOrThrowMock.mockResolvedValue({ items: [activity] })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    const onDataRefresh = jest.fn()
+
+    renderWithProviders(
+      <ActivityHistorySection entityId="company-123" useCanonicalInteractions onDataRefresh={onDataRefresh} />,
+    )
+
+    await waitFor(() => expect(activityCardMock).toHaveBeenCalled())
+    await act(async () => {
+      await readCardProps().onDelete?.(activity)
+    })
+
+    expect(onDataRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not notify the host when the delete request fails', async () => {
+    const activity = sampleActivity()
+    readApiResultOrThrowMock.mockResolvedValue({ items: [activity] })
+    apiCallOrThrowMock.mockRejectedValue(new Error('boom'))
+    const onDataRefresh = jest.fn()
+
+    renderWithProviders(
+      <ActivityHistorySection entityId="company-123" useCanonicalInteractions onDataRefresh={onDataRefresh} />,
+    )
+
+    await waitFor(() => expect(activityCardMock).toHaveBeenCalled())
+    await act(async () => {
+      await readCardProps().onDelete?.(activity)
+    })
+
+    expect(onDataRefresh).not.toHaveBeenCalled()
+  })
+
+  it('reloads the history and notifies the host when the delete is undone (#9488)', async () => {
+    const activity = sampleActivity()
+    readApiResultOrThrowMock.mockResolvedValue({ items: [] })
+    const onDataRefresh = jest.fn()
+    act(() => {
+      pushOperation({
+        id: 'log-1',
+        undoToken: 'undo-token-1',
+        commandId: 'customers.interactions.delete',
+        actionLabel: null,
+        resourceKind: 'customers.interaction',
+        resourceId: activity.id,
+        executedAt: new Date().toISOString(),
+      })
+    })
+
+    renderWithProviders(
+      <ActivityHistorySection entityId="company-123" useCanonicalInteractions onDataRefresh={onDataRefresh} />,
+    )
+    await waitFor(() =>
+      expect(
+        readApiResultOrThrowMock.mock.calls.some(([url]) => String(url).includes('/api/customers/interactions?')),
+      ).toBe(true),
+    )
+    expect(activityCardMock).not.toHaveBeenCalled()
+    readApiResultOrThrowMock.mockClear()
+    readApiResultOrThrowMock.mockResolvedValue({ items: [activity] })
+
+    act(() => {
+      markUndoSuccess('undo-token-1')
+    })
+
+    await waitFor(() => expect(activityCardMock).toHaveBeenCalled())
+    expect(
+      readApiResultOrThrowMock.mock.calls.some(([url]) => String(url).includes('/api/customers/interactions/counts?')),
+    ).toBe(true)
+    expect(onDataRefresh).toHaveBeenCalledTimes(1)
   })
 
   it('routes the delete through the guarded-mutation runner when the host supplies one', async () => {

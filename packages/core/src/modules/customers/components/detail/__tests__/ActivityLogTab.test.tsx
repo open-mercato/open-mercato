@@ -97,6 +97,7 @@ describe('ActivityLogTab', () => {
       onScheduleRequested,
       runGuardedMutation,
       useCanonicalInteractions: true,
+      refreshKey: 3,
     })
     expect(lastProps(composerMock).dealId).toBeUndefined()
     expect(lastProps(plannedMock)).toMatchObject({ onSchedule: onScheduleRequested, onEdit: onEditActivity })

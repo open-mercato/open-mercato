@@ -97,6 +97,7 @@ export function ActivityLogTab({
           runGuardedMutation={runGuardedMutation}
           onScheduleRequested={onScheduleRequested}
           useCanonicalInteractions={useCanonicalInteractions}
+          refreshKey={refreshKey}
         />
       ) : null}
       <PlannedActivitiesSection

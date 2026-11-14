@@ -3,9 +3,11 @@
  */
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { clearAllOperations, markUndoSuccess, pushOperation } from '@open-mercato/ui/backend/operations/store'
 import { ActivitiesSection as CustomerActivitiesSection } from '../ActivitiesSection'
 
 const activityTimelineMock = jest.fn(() => null)
+const activityTimelineFiltersMock = jest.fn((_props: { refreshKey?: number }) => null)
 const readApiResultOrThrowMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const scopedHeadersMock = jest.fn()
@@ -67,7 +69,7 @@ jest.mock('../CustomFieldValuesList', () => ({
 }))
 
 jest.mock('../ActivityTimelineFilters', () => ({
-  ActivityTimelineFilters: () => null,
+  ActivityTimelineFilters: (props: { refreshKey?: number }) => activityTimelineFiltersMock(props),
 }))
 
 const sampleActivity = (overrides: Record<string, unknown>) => ({
@@ -89,6 +91,10 @@ jest.mock('../ActivityTimeline', () => ({
 describe('Customer ActivitiesSection wrapper', () => {
   beforeEach(() => {
     activityTimelineMock.mockClear()
+    activityTimelineFiltersMock.mockClear()
+    act(() => {
+      clearAllOperations()
+    })
     readApiResultOrThrowMock.mockReset()
     apiCallOrThrowMock.mockReset()
     scopedHeadersMock.mockClear()
@@ -549,6 +555,104 @@ describe('Customer ActivitiesSection wrapper', () => {
       expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ id: 'interaction-9' }) }),
     )
     await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalled())
+  })
+
+  it('reloads the filter chip counts after a delete so they stop counting the removed activity (#9487)', async () => {
+    const activity = sampleActivity({ id: 'interaction-9', interactionType: 'call' })
+    readApiResultOrThrowMock.mockResolvedValue({ items: [activity] })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+      />,
+    )
+
+    await waitFor(() => expect(activityTimelineMock).toHaveBeenCalled())
+    const timelineProps = activityTimelineMock.mock.calls.at(-1)?.[0] as {
+      onDelete?: (item: Record<string, unknown>) => Promise<void>
+    }
+    const countsKeyBeforeDelete = activityTimelineFiltersMock.mock.calls.at(-1)?.[0].refreshKey
+
+    await act(async () => {
+      await timelineProps.onDelete?.(activity)
+    })
+
+    await waitFor(() =>
+      expect(activityTimelineFiltersMock.mock.calls.at(-1)?.[0].refreshKey).not.toBe(countsKeyBeforeDelete),
+    )
+  })
+
+  it('reloads the filter chip counts when the host refresh key changes after a create', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({ items: [] })
+    const props = {
+      entityId: 'company-123',
+      useCanonicalInteractions: true,
+      addActionLabel: 'Log activity',
+      emptyState: { title: 'No activities logged yet', actionLabel: 'Log activity' },
+    }
+
+    const { rerender } = renderWithProviders(<CustomerActivitiesSection {...props} refreshKey={0} />)
+    await waitFor(() => expect(activityTimelineFiltersMock).toHaveBeenCalled())
+    const countsKeyBeforeCreate = activityTimelineFiltersMock.mock.calls.at(-1)?.[0].refreshKey
+
+    rerender(<CustomerActivitiesSection {...props} refreshKey={1} />)
+
+    await waitFor(() =>
+      expect(activityTimelineFiltersMock.mock.calls.at(-1)?.[0].refreshKey).not.toBe(countsKeyBeforeCreate),
+    )
+  })
+
+  it('reloads the timeline and notifies the host when an activity delete is undone (#9488)', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({ items: [] })
+    const onDataRefresh = jest.fn()
+    act(() => {
+      pushOperation({
+        id: 'log-1',
+        undoToken: 'undo-token-1',
+        commandId: 'customers.interactions.delete',
+        actionLabel: null,
+        resourceKind: 'customers.interaction',
+        resourceId: 'interaction-9',
+        executedAt: new Date().toISOString(),
+      })
+    })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions
+        addActionLabel="Log activity"
+        emptyState={{ title: 'No activities logged yet', actionLabel: 'Log activity' }}
+        onDataRefresh={onDataRefresh}
+      />,
+    )
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalled())
+    await waitFor(() => expect(activityTimelineMock).toHaveBeenCalled())
+    const countsKeyBeforeUndo = activityTimelineFiltersMock.mock.calls.at(-1)?.[0].refreshKey
+    readApiResultOrThrowMock.mockClear()
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [sampleActivity({ id: 'interaction-9', interactionType: 'note', title: 'Restored note' })],
+    })
+
+    act(() => {
+      markUndoSuccess('undo-token-1')
+    })
+
+    await waitFor(() =>
+      expect(
+        readApiResultOrThrowMock.mock.calls.some(([url]) => String(url).includes('/api/customers/interactions?')),
+      ).toBe(true),
+    )
+    await waitFor(() => {
+      const timelineProps = activityTimelineMock.mock.calls.at(-1)?.[0] as { activities?: Array<{ id: string }> }
+      expect(timelineProps.activities?.map((item) => item.id)).toEqual(['interaction-9'])
+    })
+    await waitFor(() => expect(onDataRefresh).toHaveBeenCalledTimes(1))
+    expect(activityTimelineFiltersMock.mock.calls.at(-1)?.[0].refreshKey).not.toBe(countsKeyBeforeUndo)
   })
 
   it('deletes a legacy-only activity through the activities adapter when canonical mode is off', async () => {
