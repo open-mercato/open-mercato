@@ -50,7 +50,7 @@ test.describe('TC-CUR-019: exchange-rate editor precision round trip', () => {
 
       await login(page, 'admin')
       await page.goto(`/backend/exchange-rates/${encodeURIComponent(rateId!)}`, { waitUntil: 'domcontentloaded' })
-      const rateInput = page.getByRole('textbox', { name: '1.0', exact: true })
+      const rateInput = page.getByLabel('Exchange Rate', { exact: false })
       await expect(rateInput).toHaveValue(PRECISE_RATE, { timeout: 30_000 })
 
       const metadataInput = page.getByPlaceholder('{ "key": "value" }')
