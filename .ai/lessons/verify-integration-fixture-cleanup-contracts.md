@@ -1,6 +1,6 @@
 ---
 title: "Verify integration fixture cleanup against the actual endpoint"
-modules: ["resources","entities","customers","sales","warranty_claims","channel_discord"]
+modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog"]
 areas: ["testing","integration"]
 topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","schema-validation","proposal-origin"]
 ---
@@ -18,3 +18,5 @@ The #7850 authorization regression hit the same distinction: canonical interacti
 Evidence: `packages/core/src/modules/entities/api/definitions.ts` DELETE; `packages/core/src/modules/resources/api/resourceTypeCounts.ts`; `TC-UNDO-001-resources.spec.ts` and `TC-UNDO-001-resource-types.spec.ts`; `packages/core/src/modules/sales/data/validators.ts` (`lineSharedSchema`, `orderCreateSchema`); `TC-WC-038-order-reference-integrity.spec.ts`; `customers/api/activities/route.ts` DELETE; `TC-CRM-EMAIL-VISIBILITY-005.spec.ts`.
 
 After merging authorization changes, also verify that setup reaches the intended guard. Discord refusal fixtures must be created as admin and authenticated with `stampSystemProposalFixture`; ordinary client cards fail the origin check before source-read validation. Keep forged-card coverage separate, use a unique scenario ID, and scope cleanup to records owned by the test. Evidence: PR #7356 review and `TC-CHANNEL-DISCORD-013`/`TC-CHANNEL-DISCORD-014`.
+
+Catalog dictionary authorization coverage in PR #9218 initially stopped at user creation: a UUID password lacks the uppercase character required by the default password policy. Generate fixture passwords satisfying every current policy requirement so denied-read assertions reach the authorization boundary. Evidence: `TC-CAT-046-dictionary-access-scope.spec.ts`, `auth/api/users/route.ts` and `shared/lib/auth/passwordPolicy.ts`.

@@ -97,10 +97,10 @@ test('interactive diagnostics color service, port, variables and commands and ho
 test('consent separates warning emojis and the continuing paragraph from the answer', async () => {
   const lines = []
   assert.equal(await requestExistingServicesConsent(problem, { input: { isTTY: true }, output: { isTTY: false }, env: {}, question: async () => 'y', log: (line) => lines.push(line) }), true)
-  assert.ok(lines.some((line) => line.startsWith('   ⚠️  mercato-postgres')))
+  assert.ok(lines.some((line) => line.startsWith('   ❗ mercato-postgres')))
   const continuing = lines.findIndex((line) => line.includes('Continuing with'))
   assert.equal(lines[continuing - 1], '')
-  assert.ok(lines[continuing].startsWith('   ⚠️  '))
+  assert.ok(lines[continuing].startsWith('   ❗ '))
   assert.match(lines.join('\n'), /Listener PID: 1234/)
 })
 

@@ -12,10 +12,11 @@ yarn setup
 
 `yarn setup` needs Node 24, Yarn 4 (`corepack enable`) and a running Docker engine. It checks Docker, starts PostgreSQL, Redis and Meilisearch from the app's `docker-compose.yml`, waits until they are healthy, then installs dependencies, migrates and initializes the database and starts the dev server. It copies `.env.example` to `.env` only when `.env` is missing and never overwrites it, so re-running is safe. Running PostgreSQL, Redis and Meilisearch yourself? Point `.env` at them and use `yarn setup --no-infra` (no Docker calls at all).
 
-Official and external ready apps can also be bootstrapped directly:
+To start from a working app instead of the bare scaffold, create it from an [app template](https://modules.openmercato.com/templates) or from any GitHub repository that holds a standalone app:
 
 ```bash
-npx create-mercato-app my-prm --app prm
+npx create-mercato-app my-crm --template crm
+npx create-mercato-app my-portal --template some-agency/b2b-portal#v1.0.0
 npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
 ```
 
@@ -37,6 +38,8 @@ npx create-mercato-app <app-name> [options]
 |--------|-------------|
 | `--app <name>` | Bootstrap an official Open Mercato ready app from `open-mercato/ready-app-<name>` |
 | `--app-url <url>` | Bootstrap a ready app from a GitHub repository URL |
+| `--template <slug \| owner/repo>[#ref]` | Create the app from an app template: a slug listed at [modules.openmercato.com/templates](https://modules.openmercato.com/templates) or any GitHub repository. See [App Templates](#app-templates) |
+| `--keep-name` | With `--template`, keep the template's `package.json` `name` |
 | `--preset <id>` | Select the `classic`, `empty`, `crm`, or `wms` starter without prompting |
 | `--agents <list>` | Set up `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none` without prompting |
 | `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
@@ -56,8 +59,11 @@ npx create-mercato-app <app-name> [options]
 # Create a new app using the public npm registry
 npx create-mercato-app my-store
 
-# Create an official Open Mercato ready app
-npx create-mercato-app my-prm --app prm
+# Create an app from a listed app template
+npx create-mercato-app my-crm --template crm
+
+# Create an app from a GitHub repository at a tag
+npx create-mercato-app my-portal --template some-agency/b2b-portal#v1.0.0
 
 # Create an app from an external GitHub-hosted ready app
 npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
@@ -87,16 +93,37 @@ npx create-mercato-app my-store --agents claude-code,codex --experimental-hooks-
 npx create-mercato-app my-store --init-git
 ```
 
+## App Templates
+
+An app template is a GitHub repository with a complete standalone app at its root. Listed templates are at [modules.openmercato.com/templates](https://modules.openmercato.com/templates). To save your own app as a template, use [create-mercato-template](https://github.com/open-mercato/create-mercato-template).
+
+```bash
+npx create-mercato-app <app-name> --template <slug | owner/repo>[#ref] [--keep-name]
+```
+
+- A slug is looked up in the template index (`templates.json`). `owner/repo` also works for a repository that is not listed, and for a private one when `GITHUB_TOKEN` is set. `#ref` is a branch, tag or commit.
+- The CLI picks one commit and prints it before anything is downloaded: `Template: owner/repo@<sha> (<state>)`. The state is `verified`, `not verified`, `not listed, not verified` or `catalog status unknown, not verified` (the index could not be read). A `#ref` that points to another commit than the listed one prints `not verified, no catalog facts for <sha>`.
+- A template on hold is refused with its reason, and there is no override. An unmaintained template works and prints its reason.
+- The CLI warns and continues when the template is built on another Open Mercato line than the latest stable one (both lines are shown), and when it registers `@open-mercato/enterprise` modules on every start, which need an Open Mercato Enterprise license. A dependency on that package with its modules behind a flag such as `OM_ENABLE_ENTERPRISE_MODULES` (as in the stock scaffold) prints nothing; when `src/modules.ts` cannot be read, the CLI says the license may be needed but could not be confirmed.
+- `--template` cannot be combined with `--app`, `--app-url`, `--modules`, `--module-picker`, `--agents`, `--experimental-hooks-validator` or a `--preset` other than `classic`. The module picker and the agentic setup wizard are not offered. `--registry` and `--verdaccio` do not apply: the app keeps the registry settings of its own `.yarnrc.yml`.
+- The app is copied as it is, with three changes: the `package.json` `name` becomes the app name (unless `--keep-name`), `package.json` gets an `openMercatoTemplate` field with the repository, ref and commit, and the root `mercato-template.json` is removed.
+- If the import fails, the CLI removes the directory it created.
+- The next steps depend on the scripts in the created app's `package.json`. With `setup` and `infra:up` (apps scaffolded since `yarn setup` starts Docker), they are `yarn setup` and the `yarn setup --no-infra` alternative for your own services, like a normal scaffold; `cp .env.example .env` and the env keys come first only when the template declares keys. With `setup` but no `infra:up`, they are `cp .env.example .env`, the env keys, `docker compose up -d` (or a note to start PostgreSQL, Redis and Meilisearch yourself) and `yarn setup`. With neither, they are `cp .env.example .env`, the env keys, `yarn install`, `yarn initialize` and `yarn dev`.
+
+Set `OM_TEMPLATES_URL` to read another index, for example a local copy. It must be an `https` URL, or `http` on `localhost`, `127.0.0.1` or `[::1]`.
+
 ## Ready App Behavior
 
 - `--app <name>` resolves to `open-mercato/ready-app-<name>` and fetches the exact tag `v<create-mercato-app version>`
 - `--app-url <url>` only supports GitHub repository URLs in v1 and honors `/tree/<ref>` when present
 - `--app` and `--app-url` are mutually exclusive
 - `--skip-agentic-setup` skips only the interactive agentic setup wizard
-- Imported ready apps are copied as raw source snapshots: the CLI does not rewrite dependency versions, package names, or application source files
+- Imported ready apps are copied as raw source snapshots: the CLI does not rewrite dependency versions, package names, or application source files. `--template` makes the three changes listed under [App Templates](#app-templates)
 - Imported ready apps skip the interactive agentic setup wizard; if you want agentic tooling later, run `yarn mercato agentic:init` inside the generated app
 - `--agents` is only supported for bare scaffolds; use `yarn mercato agentic:init` after importing a ready app
 - Imported ready apps must not contain `.template` files; the scaffold fails closed if template files are found
+- When `open-mercato/ready-app-<name>` does not exist, the `--app` error points to app templates
+- Every import (`--app`, `--app-url` and `--template`) is inspected before the app directory is created: the download is at most 64 MiB, the archive holds at most 10,000 entries and 128 MiB unpacked, and only files and directories are allowed. A link, a special file, an absolute path or a `..` segment stops the import and names the path
 
 ## Standalone AI Harness
 
@@ -275,9 +302,11 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
 
 ## After Importing A Ready App
 
+For an app created with `--template`, follow the next steps the CLI prints. They match the scripts the app has: `yarn setup` for an app with `setup` and `infra:up`, the services first and then `yarn setup` for an older `setup`, otherwise the steps below. The env keys the template declares are listed with them.
+
 1. Navigate to your app directory:
    ```bash
-   cd my-prm
+   cd my-app
    ```
 
 2. Install dependencies:

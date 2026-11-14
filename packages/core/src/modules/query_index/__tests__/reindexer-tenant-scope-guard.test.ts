@@ -1,6 +1,6 @@
 import { registerLoggerExtension, type LoggerExtensionRecord } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { reindexEntity } from '../lib/reindexer'
+import { isTenantlessReindexTarget, reindexEntity } from '../lib/reindexer'
 import {
   isTenantGlobalEntityType,
   listTenantGlobalEntityTypes,
@@ -320,6 +320,90 @@ describe('reindexEntity refuses a tenant-scoped sweep it cannot scope', () => {
       reindexEntity(em, { entityType: 'auth:user_role', tenantId }),
     ).rejects.toBeInstanceOf(ReachedSweep)
     expect(seen).toContain('entity_index_jobs')
+  })
+})
+
+describe('isTenantlessReindexTarget lets an all-entities sweep skip tenant-less tables up front', () => {
+  const GUARD_WARNING = 'Refusing tenant-scoped reindex of a table with no tenant_id column'
+  let records: LoggerExtensionRecord[]
+  let disposeLogger: () => void
+
+  beforeEach(() => {
+    records = []
+    disposeLogger = registerLoggerExtension({ emit: (record) => { records.push(record) } })
+  })
+
+  afterEach(() => {
+    disposeLogger()
+    resetTenantGlobalEntityTypes()
+  })
+
+  it.each([
+    'auth:user_role',
+    'directory:tenant',
+    'customers:customer_deal_person_link',
+    'messages:message_recipient',
+    'customer_accounts:customer_user_role',
+  ])('flags %s without logging the guard warning', async (entityType) => {
+    const { em, seen } = makeEm(TENANT_LESS)
+
+    await expect(isTenantlessReindexTarget(em, entityType)).resolves.toBe(true)
+    expect(seen).toEqual(['information_schema.columns'])
+    expect(records.map((record) => record.message)).not.toContain(GUARD_WARNING)
+  })
+
+  it('does not flag an ordinary tenant-scoped entity', async () => {
+    const { em } = makeEm(TENANT_SCOPED)
+
+    await expect(isTenantlessReindexTarget(em, 'customers:customer_person_profile')).resolves.toBe(false)
+  })
+
+  it('does not flag a platform-wide catalogue', async () => {
+    const { em } = makeEm(TENANT_LESS)
+
+    await expect(isTenantlessReindexTarget(em, 'feature_toggles:feature_toggle')).resolves.toBe(false)
+  })
+
+  // These are genuine misconfigurations or transient failures; they must still reach the
+  // guard inside reindexEntity() so its own diagnostics surface.
+  it('does not flag a declared catalogue whose table carries organization_id', async () => {
+    registerTenantGlobalEntityTypes('billing:plan')
+    const { em } = makeEm(['id', 'name', 'organization_id'])
+
+    await expect(isTenantlessReindexTarget(em, 'billing:plan')).resolves.toBe(false)
+  })
+
+  it('does not flag a type whose column probe failed', async () => {
+    await expect(
+      isTenantlessReindexTarget(createProbeFailingEm('statement timeout') as never, 'auth:user_role'),
+    ).resolves.toBe(false)
+  })
+
+  it('does not flag an unregistered entity type', async () => {
+    const { em } = makeEm(TENANT_LESS)
+
+    await expect(isTenantlessReindexTarget(em, 'nope:not_registered')).resolves.toBe(false)
+  })
+
+  it('a tenant-scoped sweep that filters first never trips the guard', async () => {
+    const entityTypes = ['auth:user_role', 'messages:message_recipient', 'directory:tenant']
+    const { em } = makeEm(TENANT_LESS)
+
+    for (const entityType of entityTypes) {
+      if (await isTenantlessReindexTarget(em, entityType)) continue
+      await reindexEntity(em, { entityType, tenantId: TENANT })
+    }
+
+    expect(records.map((record) => record.message)).not.toContain(GUARD_WARNING)
+  })
+
+  it('leaves the guard itself in place for a caller that does not filter', async () => {
+    const { em } = makeEm(TENANT_LESS)
+
+    const result = await reindexEntity(em, { entityType: 'messages:message_recipient', tenantId: TENANT })
+
+    expect(result.refused).toBe('no-tenant-column')
+    expect(records.map((record) => record.message)).toContain(GUARD_WARNING)
   })
 })
 

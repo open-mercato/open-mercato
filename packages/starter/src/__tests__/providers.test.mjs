@@ -152,5 +152,5 @@ test('a user can still configure a provider interactively and synchronize the ap
 
 test('optional AI skip output separates its warning with a blank line and wide-glyph spacing', async () => {
   const result = await runProvider({ step: true })
-  assert.match(result.output, /\n[ \t]*\n[ \t]*⚠️ {2}Continuing without AI/)
+  assert.match(result.output, /\n[ \t]*\n[ \t]*❗ Continuing without AI/)
 })

@@ -192,6 +192,7 @@ test('database setup does not mark pending or failed migrations as complete', as
   const ctx = {
     repoRoot, env: {}, flags: { noInfra: true }, log() {},
     assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
     dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
     runStreamingImpl: async (_command, args) => { invocations.push(args[0]); return migration.promise },
   }
@@ -212,12 +213,47 @@ test('database setup records successful migration but never a failed initializat
   const ctx = {
     repoRoot, env: {}, flags: { noInfra: true }, log() {},
     assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
     dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
     runStreamingImpl: async (_command, args) => args[0] === 'db:migrate' ? 0 : 3,
   }
   await assert.rejects(databaseStep.apply(ctx), /initialize.*failed \(exit 3\)/)
   assert.equal(fs.readFileSync(path.join(repoRoot, STARTER_STATE_DIR, ctx.dbMigrationsMarker), 'utf8'), 'fingerprint\n')
   assert.equal(fs.existsSync(path.join(repoRoot, STARTER_STATE_DIR, ctx.dbMarker)), false)
+})
+
+test('database setup keeps the initialization credentials visible when output is folded', async (t) => {
+  const repoRoot = temporaryRepo(t)
+  const rule = `\u001b[48;2;57;62;70m${'━'.repeat(30)}\u001b[0m`
+  const panel = [
+    rule,
+    `\u001b[48;2;57;62;70m${' '.repeat(30)}\u001b[0m`,
+    `\u001b[48;2;57;62;70m  🔑 DEVELOPMENT ACCOUNTS      \u001b[0m`,
+    `\u001b[48;2;57;62;70m     Email:     admin@acme.com\u001b[0m`,
+    `\u001b[48;2;57;62;70m     Password:  secret        \u001b[0m`,
+    rule,
+  ]
+  const folded = []
+  const visible = []
+  const logs = { interactive: true, raw: (chunk) => folded.push(chunk), suspend() {}, resume() {}, resumeActivity() {} }
+  const ctx = {
+    repoRoot, env: {}, flags: { noInfra: true }, log() {}, logs,
+    promptLog: (line) => visible.push(line),
+    assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
+    dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
+    runStreamingImpl: async (_command, args, options) => {
+      if (args[0] === 'initialize') {
+        const output = ['Seeding demo data...', ...panel, 'Done.\n'].join('\n')
+        options.logs.raw(output.slice(0, 120))
+        options.logs.raw(output.slice(120))
+      }
+      return 0
+    },
+  }
+  await databaseStep.apply(ctx)
+  assert.ok(folded.join('').includes('Password:  secret'))
+  assert.deepEqual(visible, panel.map((line) => `   ${line}`))
 })
 
 test('infrastructure awaits asynchronous image preparation before streaming compose up', async () => {

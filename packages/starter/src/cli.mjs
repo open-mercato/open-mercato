@@ -179,7 +179,7 @@ async function commandUp(flags) {
   let session = null
   if (!containerized) {
     try {
-      session = await acquireSetupSession(repoRoot)
+      session = await acquireSetupSession(repoRoot, { interactive: flags.nonInteractive ? false : undefined })
     } catch (error) {
       console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
       console.error('   No service configuration, .env file or container was changed.')
@@ -387,7 +387,7 @@ async function commandStop(flags) {
       process.exit(status)
     }
   }
-  console.log('ℹ️ Infra containers left running (--keep-infra or no docker). Foreground `yarn dev` sessions stop with Ctrl+C.')
+  console.log('💡 Infra containers left running (--keep-infra or no docker). Foreground `yarn dev` sessions stop with Ctrl+C.')
 }
 
 async function commandStatus(flags) {
@@ -431,7 +431,7 @@ async function commandReset(flags) {
     // down only sees THIS project's resources; fixed-name containers/volumes
     // created by another checkout of the repo survive it — sweep by name.
     if (!removeLeftoverComposeResources(repoRoot, { composeFile })) {
-      console.warn('⚠️ Some volumes could not be removed — the next run would reuse the old data. Fix the items above and re-run reset.')
+      console.warn('❗ Some volumes could not be removed — the next run would reuse the old data. Fix the items above and re-run reset.')
     }
   }
   fs.rmSync(path.join(repoRoot, STARTER_STATE_DIR), { recursive: true, force: true })
