@@ -103,6 +103,8 @@ function makeEm(
       return created
     }),
     flush: jest.fn(async () => {}),
+    isInTransaction: jest.fn(() => true),
+    execute: jest.fn(async () => []),
     transactional: jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => cb(em)),
   }
   em.fork.mockReturnValue(em)
@@ -203,6 +205,24 @@ describe('staff timesheets atomic start-timer (#3311)', () => {
     // fail with the timer already running.
     expect(em.transactional).toHaveBeenCalledTimes(1)
     expect(createCalls).toHaveLength(2)
+  })
+
+  it('takes the member timer lock before re-checking for another running timer', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment } = await loadStartTimerCommand()
+    const createCalls: CreateCall[] = []
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment)
+
+    await command.execute(startInput(), createCtx(em))
+
+    expect(em.execute).toHaveBeenCalledTimes(1)
+    expect(em.execute).toHaveBeenCalledWith(
+      'select pg_advisory_xact_lock(hashtextextended(?::text, 0))',
+      [`staff:timesheets:timer:${TENANT_ID}:${ORG_ID}:${STAFF_MEMBER_ID}`],
+    )
+    expect(mockFindOneWithDecryption).toHaveBeenCalled()
+    expect(em.execute.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFindOneWithDecryption.mock.invocationCallOrder[0],
+    )
   })
 
   it('lets the project follow from the task when the card knows only the task', async () => {

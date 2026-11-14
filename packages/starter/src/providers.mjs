@@ -80,13 +80,6 @@ function normalizeEnvTargets(rootEnvOrFiles) {
   return { rootEnv: rootEnvOrFiles.rootEnv, appEnv: rootEnvOrFiles.appEnv ?? null }
 }
 
-// Returns 'configured' | 'skipped' | 'failed'. Mirrors the semantics of the
-// Windows launcher's Invoke-LlmProviderPrompt: OM_AI_PROVIDER or an existing
-// key in .env means "already configured"; a key in the ambient environment is
-// persisted without prompting; otherwise prompt interactively unless
-// skip/non-interactive flags are set. Accepts the root .env path, or
-// { rootEnv, appEnv } to also keep the app env in sync (see
-// syncProviderConfigToAppEnv).
 export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, nonInteractive = false, log = console.log, warn = console.warn } = {}) {
   const files = normalizeEnvTargets(rootEnvOrFiles)
   const rootEnv = files.rootEnv
@@ -115,32 +108,33 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
     }
   }
 
-  if (skipPrompt) {
-    warn('LLM prompt skipped with no provider key — AI chat will not work until you set a provider (e.g. OPENAI_API_KEY) in .env and restart the opencode container.')
+  const skipProvider = () => {
+    log('')
+    warn('Continuing without AI. Configure a provider key in .env later and restart the opencode container to enable AI chat.')
     return 'skipped'
   }
-  if (nonInteractive || !process.stdin.isTTY) {
-    warn('No LLM provider API key found. Set a provider key (e.g. OPENAI_API_KEY) in the environment or .env, or pass --skip-llm-prompt to proceed without AI.')
-    return 'failed'
-  }
+  if (skipPrompt || nonInteractive || !process.stdin.isTTY) return skipProvider()
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-  const ask = (question) => new Promise((resolve) => rl.question(question, resolve))
+  const ask = (question) => new Promise((resolve) => rl.question(`   ${question}`, resolve))
 
+  const print = (line) => console.log(line ? `   ${line}` : '')
   try {
-    console.log('')
-    console.log('The AI assistant (OpenCode + MCP) needs one LLM provider to power the Cmd+K agent.')
-    console.log('Setup requires one to continue. (Ctrl+C aborts; re-run later with --skip-llm-prompt to configure it in .env yourself.)')
+    print('')
+    print('The AI assistant (OpenCode + MCP) needs one LLM provider to power the Cmd+K agent.')
+    print('AI setup is optional. Press Enter or choose 0 to continue without AI; you can configure it in .env later.')
 
     while (true) {
-      console.log('')
+      print('')
+      print('[ 0] Skip for now (default)')
       LLM_PROVIDERS.forEach((entry, index) => {
-        console.log(`  [${String(index + 1).padStart(2)}] ${entry.label}`)
+        print(`[${String(index + 1).padStart(2)}] ${entry.label}`)
       })
-      const choice = await ask(`Choose a provider [1-${LLM_PROVIDERS.length}]: `)
+      const choice = (await ask(`Choose a provider [0-${LLM_PROVIDERS.length}] (default 0): `)).trim()
+      if (!choice || choice === '0') return skipProvider()
       const index = Number.parseInt(choice, 10)
       if (!Number.isInteger(index) || index < 1 || index > LLM_PROVIDERS.length) {
-        console.log(`Please enter a number between 1 and ${LLM_PROVIDERS.length}.`)
+        print(`Please enter a number between 0 and ${LLM_PROVIDERS.length}.`)
         continue
       }
       const selected = LLM_PROVIDERS[index - 1]
@@ -148,10 +142,7 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
       let key = ''
       if (selected.keyRequired) {
         key = (await ask(`Paste your ${selected.label} API key: `)).trim()
-        if (!key) {
-          console.log('A key is required for this provider. Try again.')
-          continue
-        }
+        if (!key) return skipProvider()
       } else {
         key = (await ask(`${selected.label} API key (optional for local servers — press Enter to skip): `)).trim()
       }
@@ -164,7 +155,7 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
         const entered = (await ask(promptText)).trim()
         baseUrl = entered || selected.baseUrl
         if (selected.baseUrlRequired && !baseUrl) {
-          console.log('This provider requires a base URL. Try again.')
+          print('This provider requires a base URL. Try again.')
           continue
         }
       }
@@ -174,7 +165,7 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
         : `${selected.label} model (${selected.modelHint}) (optional — press Enter for the default): `
       const model = (await ask(modelPrompt)).trim()
       if (selected.modelRequired && !model) {
-        console.log('This provider needs a model/deployment id. Try again.')
+        print('This provider needs a model/deployment id. Try again.')
         continue
       }
 

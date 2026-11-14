@@ -158,7 +158,11 @@ export class WebhookDeliveryEntity {
 }
 
 @Entity({ tableName: 'webhook_inbound_receipts' })
-@Unique({ name: 'webhook_inbound_receipts_endpoint_message_unique', properties: ['endpointId', 'messageId'] })
+@Unique({
+  name: 'webhook_inbound_receipts_endpoint_message_unique',
+  properties: ['endpointId', 'messageId', 'tenantId', 'organizationId'],
+  expression: 'alter table "webhook_inbound_receipts" add constraint "webhook_inbound_receipts_endpoint_message_unique" unique nulls not distinct ("endpoint_id", "message_id", "tenant_id", "organization_id")',
+})
 @Index({ properties: ['providerKey', 'createdAt'] })
 export class WebhookInboundReceiptEntity {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })

@@ -4,7 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxProposal, InboxProposalAction } from '../../../../../../data/entities'
-import { recalculateProposalStatus } from '../../../../../../lib/executionEngine'
+import { ACTION_EXECUTABLE_STATUSES, recalculateProposalStatus } from '../../../../../../lib/executionEngine'
 import { formatZodErrors } from '../../../../../../lib/validation'
 import { resolveCache, invalidateCountsCache } from '../../../../../../lib/cache'
 import {
@@ -31,7 +31,7 @@ export async function PATCH(req: Request) {
 
     const { action, proposal } = resolved
 
-    if (action.status !== 'pending' && action.status !== 'failed') {
+    if (!ACTION_EXECUTABLE_STATUSES.includes(action.status)) {
       return NextResponse.json(
         { error: 'Action already processed' },
         { status: 409 },
@@ -51,24 +51,33 @@ export async function PATCH(req: Request) {
     }
 
     const em = ctx.em.fork()
-    const freshAction = await findOneWithDecryption(
-      em,
+    const executedAt = new Date()
+    const claimed = await em.nativeUpdate(
       InboxProposalAction,
-      { id: action.id, deletedAt: null },
-      undefined,
-      ctx.scope,
+      {
+        id: action.id,
+        proposalId: action.proposalId,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        status: { $in: ACTION_EXECUTABLE_STATUSES },
+        deletedAt: null,
+      },
+      {
+        status: 'executed',
+        executedAt,
+        executedByUserId: ctx.userId,
+        createdEntityId: parsed.data.createdEntityId,
+        createdEntityType: parsed.data.createdEntityType,
+        executionError: null,
+        updatedAt: executedAt,
+      },
     )
-    if (!freshAction) {
-      return NextResponse.json({ error: 'Action not found' }, { status: 404 })
+    if (claimed === 0) {
+      return NextResponse.json(
+        { error: 'Action already processed' },
+        { status: 409 },
+      )
     }
-
-    freshAction.status = 'executed'
-    freshAction.executedAt = new Date()
-    freshAction.executedByUserId = ctx.userId
-    freshAction.createdEntityId = parsed.data.createdEntityId
-    freshAction.createdEntityType = parsed.data.createdEntityType
-    freshAction.executionError = null
-    await em.flush()
 
     await recalculateProposalStatus(em, proposal.id, ctx.scope)
 
@@ -86,11 +95,11 @@ export async function PATCH(req: Request) {
     return NextResponse.json({
       ok: true,
       action: {
-        id: freshAction.id,
-        status: freshAction.status,
-        createdEntityId: freshAction.createdEntityId,
-        createdEntityType: freshAction.createdEntityType,
-        executedAt: freshAction.executedAt,
+        id: action.id,
+        status: 'executed',
+        createdEntityId: parsed.data.createdEntityId,
+        createdEntityType: parsed.data.createdEntityType,
+        executedAt,
       },
       proposal: freshProposal ? {
         id: freshProposal.id,

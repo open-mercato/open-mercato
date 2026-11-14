@@ -151,7 +151,7 @@ export async function provisionAgentPrincipal(
     const existingAcl = await findOneWithDecryption(
       tem,
       auth.RoleAcl,
-      { role, tenantId },
+      { role, tenantId, deletedAt: null },
       {},
       { tenantId, organizationId: null },
     )
@@ -181,7 +181,7 @@ export async function provisionAgentPrincipal(
     const existingLink = await findOneWithDecryption(
       tem,
       auth.UserRole,
-      { user, role },
+      { user, role, deletedAt: null },
       {},
       { tenantId, organizationId: null },
     )

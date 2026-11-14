@@ -228,7 +228,7 @@ test.describe('TC-EUDR-019: statement undo never removes or reopens a statement 
       const undoResponse = page.waitForResponse((response) => (
         response.url().includes('/api/audit_logs/audit-logs/actions/undo') && response.request().method() === 'POST'
       ))
-      await createRow.getByRole('button', { name: 'Undo last action' }).click()
+      await createRow.getByRole('button', { name: 'Undo this action' }).click()
       expect((await undoResponse).status(), 'UI undo must be refused').toBe(409)
       await expect(page.getByText(ARCHIVED_MESSAGE).first()).toBeVisible({ timeout: 10_000 })
 

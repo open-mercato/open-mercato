@@ -81,6 +81,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
 }))
 
+jest.mock('../../../../../lib/time-tracking/access', () => ({
+  ...jest.requireActual('../../../../../lib/time-tracking/access'),
+  resolveProjectAccess: jest.fn(async () => ({ canManageAll: true, projectIds: [], staffMemberId: null })),
+}))
+
 jest.mock('../../../../guards', () => ({
   ...jest.requireActual('../../../../guards'),
   resolveUserFeatures: jest.fn(() => ['staff.timesheets.manage_own']),
@@ -321,6 +326,31 @@ describe('POST /api/staff/timesheets/time-entries/bulk lock gate (T4.2 / TC-TT-0
     expect(existing.durationMinutes).toBe(76)
     expect(existing.roundedMinutes).toBe(75)
     expect(existing.roundedMinutes).toBe(roundMinutes(76, { unitMinutes: 15, direction: 'nearest' }))
+  })
+
+  it('locks the existing rows it writes before any zeroed row cascades to its segments', async () => {
+    wireEntityManagerFind({ existingIds: [FREE_ENTRY_ID] })
+    const existing = { id: FREE_ENTRY_ID, durationMinutes: 60, roundedMinutes: 60, notes: null, deletedAt: null }
+    const reads: Array<{ where: Record<string, unknown>; options: Record<string, unknown> | undefined }> = []
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, _cls: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
+      reads.push({ where, options })
+      return 'timeEntryId' in where ? [] : [existing]
+    })
+    const { POST } = await loadRoute()
+    const { LockMode } = await import('@mikro-orm/core')
+
+    const response = await POST(
+      buildRequest([{ id: FREE_ENTRY_ID, date: '2026-08-03', timeProjectId: PROJECT_ID, durationMinutes: 0 }]),
+    )
+
+    expect(response.status).toBe(200)
+    const parentReadIndex = reads.findIndex((read) => read.where.staffMemberId === STAFF_MEMBER_ID)
+    const segmentReadIndex = reads.findIndex((read) => 'timeEntryId' in read.where)
+    expect(parentReadIndex).toBeGreaterThanOrEqual(0)
+    expect(reads[parentReadIndex].options).toEqual({ lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } })
+    expect(reads[parentReadIndex].where).toMatchObject({ deletedAt: null })
+    expect(segmentReadIndex).toBeGreaterThan(parentReadIndex)
+    expect(existing.deletedAt).toBeInstanceOf(Date)
   })
 
   it('falls back to the documented rounding defaults when tenant settings are unreadable', async () => {

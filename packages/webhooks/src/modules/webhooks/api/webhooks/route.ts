@@ -12,6 +12,9 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { WebhookCreateInput, WebhookUpdateInput } from '../../data/validators'
 import { invalidateWebhookSubscriptionCacheFor } from '../../lib/subscription-cache'
 import { applyWebhookActiveState } from '../../lib/activation'
+import { planWebhookCustomHeadersUpdate } from '../../lib/custom-headers'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { canRevealWebhookCredentialHeaders, translateWebhookCustomHeadersRejection } from '../helpers'
 
 type WebhookCrudCtx = CrudCtx & {
   __webhookSecret?: string
@@ -58,16 +61,7 @@ const webhookCreateResponseSchema = z.object({
   isActive: z.boolean(),
 })
 
-const webhookDetailResponseSchema = webhookListItemSchema.extend({
-  customHeaders: z.record(z.string(), z.string()).nullable(),
-  strategyConfig: z.record(z.string(), z.unknown()).nullable(),
-  timeoutMs: z.number(),
-  rateLimitPerMinute: z.number(),
-  autoDisableThreshold: z.number(),
-  integrationId: z.string().nullable(),
-})
-
-const deleteResponseSchema = z.object({ success: z.literal(true) })
+const successResponseSchema = z.object({ success: z.literal(true) })
 const errorSchema = z.object({ error: z.string() })
 
 function resolveTenantIdForInvalidation(entity: unknown, ctx: CrudCtx): string | null {
@@ -122,13 +116,21 @@ const crud = makeCrudRoute<WebhookCreateInput, WebhookUpdateInput, z.infer<typeo
   },
   update: {
     schema: webhookUpdateSchema,
-    applyToEntity: (entity, input) => {
+    applyToEntity: async (entity: WebhookEntity, input, ctx) => {
+      const headersUpdate = planWebhookCustomHeadersUpdate({
+        current: entity,
+        next: input,
+        canRevealCredentials: await canRevealWebhookCredentialHeaders(ctx.container, ctx.auth, entity),
+      })
+      if (!headersUpdate.ok) {
+        throw new CrudHttpError(400, { error: await translateWebhookCustomHeadersRejection(headersUpdate) })
+      }
       if (input.name !== undefined) entity.name = input.name
       if (input.description !== undefined) entity.description = input.description
       if (input.url !== undefined) entity.url = input.url
       if (input.subscribedEvents !== undefined) entity.subscribedEvents = input.subscribedEvents
       if (input.httpMethod !== undefined) entity.httpMethod = input.httpMethod
-      if (input.customHeaders !== undefined) entity.customHeaders = input.customHeaders
+      if (headersUpdate.customHeaders !== undefined) entity.customHeaders = headersUpdate.customHeaders
       if (input.deliveryStrategy !== undefined) entity.deliveryStrategy = input.deliveryStrategy
       if (input.strategyConfig !== undefined) entity.strategyConfig = input.strategyConfig
       if (input.maxRetries !== undefined) entity.maxRetries = input.maxRetries
@@ -289,9 +291,13 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Update webhook',
       description: 'Updates an existing webhook configuration.',
       requestBody: { contentType: 'application/json', schema: webhookUpdateSchema, description: 'Fields to update.' },
-      responses: [{ status: 200, description: 'Webhook updated', schema: webhookDetailResponseSchema }],
+      responses: [{ status: 200, description: 'Webhook updated', schema: successResponseSchema }],
       errors: [
-        { status: 400, description: 'Invalid payload', schema: errorSchema },
+        {
+          status: 400,
+          description: 'Invalid payload, a hidden header value with no stored value, or a URL change that keeps hidden header values for a caller without webhooks.secrets',
+          schema: errorSchema,
+        },
         { status: 404, description: 'Not found', schema: errorSchema },
       ],
     },
@@ -299,7 +305,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Delete webhook',
       description: 'Soft-deletes a webhook endpoint.',
       query: z.object({ id: z.string().uuid().describe('Webhook ID to delete') }),
-      responses: [{ status: 200, description: 'Deleted', schema: deleteResponseSchema }],
+      responses: [{ status: 200, description: 'Deleted', schema: successResponseSchema }],
       errors: [
         { status: 404, description: 'Not found', schema: errorSchema },
         { status: 403, description: 'Forbidden', schema: errorSchema },

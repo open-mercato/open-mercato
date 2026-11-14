@@ -4,6 +4,7 @@
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import polishTranslations from '../../../../i18n/pl.json'
 import { DateTimeFields } from '../DateTimeFields'
 import { FIELD_VISIBILITY, type ActivityType, type ScheduleFieldId } from '../fieldConfig'
 
@@ -64,6 +65,15 @@ describe('DateTimeFields — per-type date requiredness (#5941)', () => {
 })
 
 describe('DateTimeFields — pickers follow the app locale', () => {
+  const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+  beforeAll(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: jest.fn() })
+  })
+  afterAll(() => {
+    if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', scrollDescriptor)
+    else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+  })
+
   const VISIBLE_FIELDS: ScheduleFieldId[] = ['date', 'startTime', 'duration']
 
   function renderFields(locale: string) {
@@ -90,7 +100,7 @@ describe('DateTimeFields — pickers follow the app locale', () => {
         recurrenceEndDate=""
         setRecurrenceEndDate={() => {}}
       />,
-      { locale },
+      { locale, dict: locale === 'pl' ? polishTranslations : {} },
     )
   }
 
@@ -116,6 +126,18 @@ describe('DateTimeFields — pickers follow the app locale', () => {
     await openDatePicker()
     expect(screen.getByText(/January 2026/)).toBeInTheDocument()
     expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-28')
+  })
+
+  it('shows Polish duration choices without English fallbacks (#8048)', async () => {
+    renderFields('pl')
+    const trigger = screen.getAllByRole('combobox').find((element) => element.textContent === '30 min')
+    expect(trigger).toBeDefined()
+    await act(async () => {
+      fireEvent.click(trigger!)
+    })
+    expect(await screen.findByRole('option', { name: '1 godzina' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '2 godziny' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '1 hour' })).not.toBeInTheDocument()
   })
 
   it('shows the start time on the clock the app locale uses', () => {

@@ -40,6 +40,41 @@ function stableScheduleUuid(stableKey: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 
+async function ensureMetricRollupSchedule(ctx: {
+  container: import('awilix').AwilixContainer
+  tenantId: string
+  organizationId: string
+}): Promise<void> {
+  const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
+  if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+
+  try {
+    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+    await schedulerService.register({
+      id: stableScheduleUuid(`agent_orchestrator:metric-rollup:${ctx.organizationId}`),
+      name: 'Agent metric rollup',
+      description: 'Precomputes per-agent KPI windows into append-only rollup rows every 300s.',
+      scopeType: 'organization',
+      organizationId: ctx.organizationId,
+      tenantId: ctx.tenantId,
+      scheduleType: 'interval',
+      scheduleValue: '300s',
+      timezone: 'UTC',
+      targetType: 'queue',
+      targetQueue: AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE,
+      targetPayload: { scope },
+      sourceType: 'module',
+      sourceModule: 'agent_orchestrator',
+      isEnabled: true,
+    })
+  } catch (error) {
+    logger.warn('failed to register metric-rollup schedule', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
 export const setup: ModuleSetupConfig = {
   // Mirrors the frozen ACL feature set (mvp/00-overview.md §ACL features):
   //   agents.view · agents.run · proposals.view · proposals.dispose · workflows.author
@@ -144,36 +179,10 @@ export const setup: ModuleSetupConfig = {
     // — a deployment without the scheduler module is a safe no-op, and a
     // scheduler failure must not abort tenant init for every other module. The
     // schedule id is a deterministic uuid so re-runs upsert idempotently.
-    const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
-    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) {
-      return
-    }
-    try {
-      const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
-      const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
-      await schedulerService.register({
-        id: stableScheduleUuid(`agent_orchestrator:metric-rollup:${ctx.organizationId}`),
-        name: 'Agent metric rollup',
-        description: 'Precomputes per-agent KPI windows into append-only rollup rows every 300s.',
-        scopeType: 'organization',
-        organizationId: ctx.organizationId,
-        tenantId: ctx.tenantId,
-        scheduleType: 'interval',
-        scheduleValue: '300s',
-        timezone: 'UTC',
-        targetType: 'queue',
-        targetQueue: AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE,
-        targetPayload: { scope },
-        sourceType: 'module',
-        sourceModule: 'agent_orchestrator',
-        isEnabled: true,
-      })
-    } catch (error) {
-      logger.warn('failed to register metric-rollup schedule', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
+    await ensureMetricRollupSchedule(ctx)
   },
+
+  onOrganizationCreated: ensureMetricRollupSchedule,
 
   // Gated demo seed (skipped with --no-examples). Idempotent + tenant-scoped:
   // lands the demo workflow definition and 2 demo deals (via the audited

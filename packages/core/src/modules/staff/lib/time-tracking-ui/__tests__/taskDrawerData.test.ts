@@ -2,6 +2,7 @@ import {
   childMinutes,
   formatElapsed,
   formatSplitMinutes,
+  isAssignmentEventForTask,
   resolveDefaultStatusId,
   resolveDoneStatusId,
   summarizeEntries,
@@ -128,7 +129,16 @@ describe('taskDrawerData', () => {
         authorName: 'Anna Nowak',
         authorEmail: null,
         createdAt: '2026-07-17T14:22:00.000Z',
+        visibility: 'internal',
+        authorKind: 'staff',
+        updatedAt: null,
       })
+    })
+
+    it('reads the support visibility and author kind of a comment row', () => {
+      expect(
+        toDrawerComment({ id: 'c2', body: 'Thanks', visibility: 'customer', authorKind: 'customer' }),
+      ).toMatchObject({ visibility: 'customer', authorKind: 'customer' })
     })
 
     it('drops a comment row with no body', () => {
@@ -148,5 +158,22 @@ describe('taskDrawerData', () => {
 
   it('formats today as an ISO date', () => {
     expect(todayIsoDate(new Date(2026, 7, 3))).toBe('2026-08-03')
+  })
+})
+
+describe('isAssignmentEventForTask', () => {
+  const TASK_ID = '88888888-8888-4888-8888-888888888801'
+
+  it('matches a remote claim or release of the open task', () => {
+    expect(isAssignmentEventForTask({ id: TASK_ID, changeKind: 'claim', assigneeStaffMemberId: 'staff-2' }, TASK_ID)).toBe(true)
+    expect(isAssignmentEventForTask({ id: TASK_ID, changeKind: 'release', assigneeStaffMemberId: null }, TASK_ID)).toBe(true)
+  })
+
+  it('ignores assignment changes of other tasks and malformed payloads', () => {
+    expect(isAssignmentEventForTask({ id: 'other-task', changeKind: 'claim' }, TASK_ID)).toBe(false)
+    expect(isAssignmentEventForTask({ taskId: TASK_ID }, TASK_ID)).toBe(false)
+    expect(isAssignmentEventForTask(null, TASK_ID)).toBe(false)
+    expect(isAssignmentEventForTask(undefined, TASK_ID)).toBe(false)
+    expect(isAssignmentEventForTask({ id: '' }, '')).toBe(false)
   })
 })
