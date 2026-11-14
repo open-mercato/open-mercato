@@ -111,7 +111,9 @@ export function NotificationItem({
     t,
   })
   const timeAgo = formatRelativeTime(notification.createdAt, { locale, translate: t }) ?? ''
-  const sourceLabel = humanizeModuleId(notification.sourceModule)
+  const sourceLabel = notification.sourceModule
+    ? t(`notifications.sources.${notification.sourceModule}`, humanizeModuleId(notification.sourceModule) ?? '')
+    : null
 
   const handleClick = async () => {
     if (executing !== null) return
