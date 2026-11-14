@@ -3,6 +3,7 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import { tryAcquirePollLease, type PollLeaseStore } from '../lib/poll-lease'
 import type { PollChannelJobPayload } from './poll-channel'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -80,6 +81,12 @@ export default async function handle(
   }
   const scope = { tenantId, organizationId }
   const em = (ctx.resolve('em') as EntityManager).fork()
+  let cache: PollLeaseStore | null = null
+  try {
+    cache = ctx.resolve<PollLeaseStore>('cache')
+  } catch {
+    cache = null
+  }
 
   const now = new Date()
   // Find candidate channels — we enumerate two pools:
@@ -167,6 +174,16 @@ export default async function handle(
     const intervalSeconds = channel.pollIntervalSeconds
     if (!intervalSeconds || intervalSeconds <= 0) continue
     if (!isDue(channel.lastPolledAt ?? null, intervalSeconds, now)) continue
+    // Enqueue-time dedupe guard (#8713) — skip when a poll-channel job is
+    // already believed queued/running for this channel (e.g. a concurrent
+    // `poll-now` call). `cache` is null only when the DI container has no
+    // cache registered; fail open rather than block polling on that.
+    if (
+      cache &&
+      !(await tryAcquirePollLease(cache, { tenantId: channel.tenantId, channelId: channel.id }))
+    ) {
+      continue
+    }
     const payload: PollChannelJobPayload = {
       channelId: channel.id,
       scope: {
@@ -184,6 +201,15 @@ export default async function handle(
   // (poll-channel leaves `lastPolledAt` untouched on failure, so without this a
   // persistently-failing channel would be re-enqueued every tick).
   for (const channel of errorCandidates as CommunicationChannel[]) {
+    // Same enqueue-time dedupe guard as the connected pool above — skip (and
+    // don't bump `lastPolledAt`) when a job is already in flight for this
+    // channel; that in-flight job already owns this recovery attempt.
+    if (
+      cache &&
+      !(await tryAcquirePollLease(cache, { tenantId: channel.tenantId, channelId: channel.id }))
+    ) {
+      continue
+    }
     const payload: PollChannelJobPayload = {
       channelId: channel.id,
       scope: {
