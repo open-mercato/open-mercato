@@ -31,6 +31,17 @@ function createMockRequest(query: string): Request {
   })
 }
 
+function createNotFoundErrorFromSeparateBundle(): Error {
+  let separateCopy: typeof import('@open-mercato/core/modules/shipping_carriers/lib/shipping-service') | undefined
+  jest.isolateModules(() => {
+    separateCopy = jest.requireActual('@open-mercato/core/modules/shipping_carriers/lib/shipping-service')
+  })
+  if (!separateCopy) throw new Error('[internal] shipping-service did not load')
+  const error = new separateCopy.CarrierShipmentNotFoundError()
+  expect(error).not.toBeInstanceOf(CarrierShipmentNotFoundError)
+  return error
+}
+
 describe('shipping carrier tracking route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -50,5 +61,14 @@ describe('shipping carrier tracking route', () => {
       organizationId,
       tenantId,
     })
+  })
+
+  it('returns 404 when the not-found error comes from a separately bundled copy of the service', async () => {
+    getTrackingMock.mockRejectedValueOnce(createNotFoundErrorFromSeparateBundle())
+
+    const response = await GET(createMockRequest('providerKey=test-carrier&shipmentId=44444444-4444-4444-8444-444444444444'))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Shipment not found' })
   })
 })
