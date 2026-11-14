@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { PushNotificationDelivery } from '../../data/entities'
 import { checkPushReceipts } from '../push-receipt-reaper'
 
@@ -52,6 +53,7 @@ type DeviceRow = {
   organizationId: string | null
   userId: string
   pushToken: string | null
+  pushTokenUpdatedAt?: Date | null
   deletedAt: Date | null
 }
 
@@ -157,7 +159,16 @@ describe('checkPushReceipts', () => {
     expect(commandBus.execute).toHaveBeenCalledWith(
       'devices.user_devices.deactivate',
       expect.objectContaining({
-        input: { id: 'dev-dead', tenantId: TENANT, userId: 'user-1', organizationId: 'org-1' },
+        input: {
+          id: 'dev-dead',
+          tenantId: TENANT,
+          userId: 'user-1',
+          organizationId: 'org-1',
+          expectedPushToken: {
+            hash: createHash('sha256').update(CURRENT_TOKEN).digest('hex'),
+            updatedAt: null,
+          },
+        },
       }),
     )
     expect((row.providerResponse as Record<string, unknown>).receiptChecked).toBe(true)
@@ -165,8 +176,33 @@ describe('checkPushReceipts', () => {
     expect(row.lastError).toBe('device_unregistered')
   })
 
-  it('keeps a device that re-registered a fresh push token after the stale delivery was sent', async () => {
-    const row = makeRow({ id: 'stale-1', userDeviceId: 'dev-rotated', tokenSnapshot: CURRENT_TOKEN.slice(-8) })
+  it('hands the command the observed token version so a rotation during the sweep is caught', async () => {
+    const observedAt = new Date('2026-07-01T11:59:00.000Z')
+    const row = makeRow({ id: 'versioned-1', userDeviceId: 'dev-versioned' })
+    const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
+      makeDevice({ id: 'dev-versioned', pushTokenUpdatedAt: observedAt }),
+    ])
+    const { resolve, commandBus } = makeResolve({
+      checkReceipts: async () => [{ ticketId: 'ticket-1', unregistered: true }],
+    })
+
+    await checkPushReceipts(em as never, { tenantId: TENANT }, resolve as never, NOW)
+
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'devices.user_devices.deactivate',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          id: 'dev-versioned',
+          expectedPushToken: {
+            hash: createHash('sha256').update(CURRENT_TOKEN).digest('hex'),
+            updatedAt: observedAt,
+          },
+        }),
+      }),
+    )
+  })
+
+  it('keeps a device that re-registered a fresh push token after the stale delivery was sent', async () => {    const row = makeRow({ id: 'stale-1', userDeviceId: 'dev-rotated', tokenSnapshot: CURRENT_TOKEN.slice(-8) })
     const em = makeEm([row], { providerKey: 'expo', organizationId: 'org-1', userId: null, credentialsRef: null }, [
       makeDevice({ id: 'dev-rotated', pushToken: ROTATED_TOKEN }),
     ])
@@ -230,7 +266,18 @@ describe('checkPushReceipts', () => {
     expect(commandBus.execute).toHaveBeenCalledTimes(1)
     expect(commandBus.execute).toHaveBeenCalledWith(
       'devices.user_devices.deactivate',
-      expect.objectContaining({ input: { id: 'dev-dup', tenantId: TENANT, userId: 'user-1', organizationId: 'org-1' } }),
+      expect.objectContaining({
+        input: {
+          id: 'dev-dup',
+          tenantId: TENANT,
+          userId: 'user-1',
+          organizationId: 'org-1',
+          expectedPushToken: {
+            hash: createHash('sha256').update(CURRENT_TOKEN).digest('hex'),
+            updatedAt: null,
+          },
+        },
+      }),
     )
   })
 

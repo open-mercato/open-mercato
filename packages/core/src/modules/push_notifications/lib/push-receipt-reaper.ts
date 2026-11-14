@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { raw, type EntityName } from '@mikro-orm/core'
 import type { ChannelAdapter } from '@open-mercato/core/modules/communication_channels/lib/adapter'
@@ -213,7 +214,16 @@ export async function checkPushReceipts(
 
     // Persist the receipt-checked marks first, then run the device deactivations AFTER the flush so a
     // command that reads on the same EntityManager can never discard the pending scalar marks.
-    const toDeactivate = new Map<string, { id: string; tenantId: string; userId: string; organizationId: string | null }>()
+    const toDeactivate = new Map<
+      string,
+      {
+        id: string
+        tenantId: string
+        userId: string
+        organizationId: string | null
+        expectedPushToken: { hash: string; updatedAt: Date | null }
+      }
+    >()
     for (const outcome of outcomes) {
       const deliveries = byTicket.get(outcome.ticketId)
       if (!deliveries) continue
@@ -238,6 +248,13 @@ export async function checkPushReceipts(
           tenantId: device.tenantId,
           userId: device.userId,
           organizationId: device.organizationId ?? null,
+          // The guard makes the check and the deactivation one atomic step in the devices command: a
+          // registration that rotates the token after this read but before the command's locked read
+          // makes the command a no-op instead of pruning the now-active device.
+          expectedPushToken: {
+            hash: createHash('sha256').update(device.pushToken ?? '').digest('hex'),
+            updatedAt: device.pushTokenUpdatedAt ?? null,
+          },
         })
         unregistered += 1
       }
