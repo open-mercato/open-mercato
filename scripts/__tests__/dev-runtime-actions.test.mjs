@@ -162,7 +162,7 @@ test('retry restart clears the old incident through a new generation and still r
   state.beginGeneration('test')
   state.markReady()
   const staleGeneration = state.getGeneration()
-  state.recordSignal({ source: 'log', message: 'The destination stream errored while writing data.' })
+  state.recordSignal({ source: 'log', message: 'A runtime failure before retry' })
   assert.equal(state.getStatus().health, 'degraded')
   const runner = createDevRuntimeActionRunner({ state, handlers: {
     restart: () => {
@@ -175,7 +175,7 @@ test('retry restart clears the old incident through a new generation and still r
   await flush()
   assert.equal(state.getStatus().health, 'starting')
   assert.deepEqual(state.getStatus().incidents, [])
-  state.recordSignal({ source: 'log', generation: staleGeneration, message: 'The destination stream errored while writing data.' })
+  state.recordSignal({ source: 'log', generation: staleGeneration, message: 'A runtime failure before retry' })
   assert.deepEqual(state.getStatus().incidents, [])
   state.markReady()
   assert.equal(state.getStatus().health, 'ready')

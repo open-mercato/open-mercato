@@ -434,7 +434,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
 
-**Classification.** The removed shape was a *publicly supported* surface, not an undocumented accident: it was part of the exported `MfaProviderInterface.verifySchema` union that a third-party client could validate against, and the enterprise test suite pinned it in a case named *"supports legacy verification payload for backward compatibility"*. It is therefore a genuine STABLE-surface break, and the exception — not a claim that no contract existed — is what authorizes it.
+**Classification.** This public `MfaProviderInterface.verifySchema` union shape was client-validatable and covered by an enterprise legacy-compatibility test. Its removal is a STABLE break authorized by the security exception.
 
 **Exception requirements, as met by this change:**
 
@@ -502,17 +502,13 @@ Spec: [`.ai/specs/2026-09-08-error-reporting-policy.md`](.ai/specs/2026-09-08-er
 
 [`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
 
-|Surface|Change|Classification|
-|---|---|---|
-|Type definitions (§2)|New exported types `ResumePoint` (a discriminated union of `none` / `noCommittedBatch` / `resumes`) and `ResumePointRun`|✓ ADDITIVE (new types, nothing renamed — same shape as the `StartControlMap` addition before it)|
-|Import paths (§4)|New module `data_sync/lib/resume-point.ts` exporting `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint`, `ResumePointRun`|✓ ADDITIVE (new path; nothing moved or re-exported)|
-|API route URLs (§7)|**No change.** `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` are untouched — no new request field, no new response field, no new status code and no new error code. The UI starts sending the already-accepted `fromBeginning: true` for the first time, and reads `cursor` / `initialCursor` / `batchesCompleted`, all of which `GET /api/data_sync/runs` and `GET /api/data_sync/runs/[id]` have returned since 2026-08-12|✓ n/a|
-|Database schema (§8)|No change. No entity, column, migration or `.snapshot-open-mercato.json` update; no new run status — the vestigial `paused` status is left exactly as it was|✓ n/a|
-|Auto-discovery, function signatures, event IDs, widget spot IDs, DI names, ACL features, notification IDs, CLI commands, generated files|No change|✓ n/a|
+ADDITIVE (§2/§4): `data_sync/lib/resume-point.ts` exports `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint` (`none` / `noCommittedBatch` / `resumes`) and `ResumePointRun`. Nothing is renamed, moved or re-exported. All other contract categories are unchanged, including database schema, snapshots and the vestigial `paused` status.
 
-**Contract commitments**: the retry endpoint deliberately does **not** enforce `supportsStartControl('fullSync', entityType)` before honouring `fromBeginning: true`. [§ Data Sync Start Control Applicability (2026-09-02)](#data-sync-start-control-applicability-2026-09-02) already commits that the declaration "governs what the dashboard **offers**, never what the run API **accepts**", and `fromBeginning: true` on `retry` requests the identical thing as `fullSync: true` on `run` — a `null` start cursor — so the two siblings MUST answer identically. An adapter-declared restriction hides the from-the-beginning action in the UI and nothing more; a scripted or API client keeps the documented escape hatch. Making either endpoint strict is a breaking change under §7 and needs the deprecation protocol, not a UI spec.
+API (§7): `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` retain their fields, statuses and errors. The UI now sends the already-supported `fromBeginning: true` and reads existing `cursor` / `initialCursor` / `batchesCompleted` fields, returned by list/detail GET routes since 2026-08-12.
 
-`ResumePoint` also has **no `fromBeginning` variant, by design**. `api/runs/[id]/retry.ts` resolves a resumable retry as `previous.cursor ?? resolveStartCursor(...)`, and `resolveStartCursor` reads the shared `sync_cursors` row — state the run row does not carry — so a run that committed no batch of its own may still resume at a cursor an earlier run wrote. `noCommittedBatch` therefore means only "this run committed nothing" and MUST NOT be widened by a caller into a positional claim about where a retry starts. A future additive `retryStartCursor` response field is the only way to close that gap; it is out of scope here.
+**Contract commitments:** `supportsStartControl('fullSync', entityType)` governs dashboard offers, never API acceptance ([existing contract](#data-sync-start-control-applicability-2026-09-02)). Retry's `fromBeginning: true` and run's `fullSync: true` both request a null start cursor and MUST behave identically. Adapter restrictions only hide the UI action; API clients retain the escape hatch. Tightening either endpoint requires §7 deprecation.
+
+`ResumePoint` deliberately has no `fromBeginning` variant: retry resolves `previous.cursor ?? resolveStartCursor(...)`, whose fallback reads shared `sync_cursors` state absent from the run row. Even a run without committed batches may resume from an earlier run's cursor. `noCommittedBatch` MUST mean only "this run committed nothing", never a retry position. Only a future additive `retryStartCursor` field could supply that position; it remains out of scope.
 
 **Migration path for existing adapters and clients**: none. The module is new, every endpoint is unchanged, and an adapter or API client that ignores all of this behaves exactly as before.
 
@@ -653,3 +649,20 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## 2026-11-07 — Private next-interaction subjects (#8888)
+
+Surface: stable customer projection response behavior. Private email subjects and
+unresolved historical linked names now become NULL in shared projections; response
+keys/types, scheduling, manual names and authorized interaction readers remain
+unchanged. Continuing to serve the private subject as a bridge retains the privacy
+bypass. Clients use unnamed-interaction fallbacks and authorized interaction reads.
+Operators apply the idempotent data repair, complete the declared query-index
+rebuilds and rebuild configured search providers before reopening affected reads.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES.
+Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
+2026-11-13: [human approval](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966).
+
+## Comment authors (2026-11-12, #8759)
+
+STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).

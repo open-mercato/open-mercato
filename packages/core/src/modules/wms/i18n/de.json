@@ -1185,6 +1185,7 @@
   "wms.errors.salesOrder.reRunReservationCancelled": "Eine stornierte Bestellung kann keine Bestandsreservierung haben.",
   "wms.errors.trackingRequired": "Für dieses Produkt sind Chargen- oder Seriennummern erforderlich.",
   "wms.errors.unauthorized": "Nicht autorisiert",
+  "wms.errors.validationFailed": "Validierung fehlgeschlagen",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Niedriger Lagerbestand — verfügbar: {availableQuantity}, Bestellpunkt: {reorderPoint}, Sicherheitsbestand: {safetyStock}",
   "wms.notifications.lowStock.renderer.available": "Verfügbar",
