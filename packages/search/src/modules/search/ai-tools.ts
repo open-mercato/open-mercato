@@ -585,7 +585,9 @@ const searchReindexTool: AiToolDefinition = {
       .boolean()
       .optional()
       .default(false)
-      .describe('Whether to recreate the index from scratch (default: false)'),
+      .describe(
+        'Fulltext only: whether to clear the reindexed documents first (the given entity type, within the current organization when one is set); reindexing all entities with no organization recreates the whole index (default: false)'
+      ),
   }),
   requiredFeatures: ['search.reindex'],
   // Reindex changes server-side index state — must surface as a write so

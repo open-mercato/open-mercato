@@ -49,11 +49,13 @@ jest.mock('../modules/search/lib/embedding-config', () => ({
 jest.mock('../modules/search/lib/reindex-lock', () => ({
   updateReindexProgress: jest.fn().mockResolvedValue(undefined),
   clearReindexLock: jest.fn().mockResolvedValue(undefined),
+  isReindexLockDrained: jest.requireActual('../modules/search/lib/reindex-lock').isReindexLockDrained,
 }))
 
 jest.mock('../modules/search/lib/reindex-progress', () => ({
   hasActiveReindexProgress: jest.fn().mockResolvedValue(true),
   incrementReindexProgress: jest.fn().mockResolvedValue(true),
+  completeReindexProgress: jest.fn().mockResolvedValue(undefined),
 }))
 
 import { handleVectorIndexJob } from '../modules/search/workers/vector-index.worker'
@@ -62,7 +64,11 @@ import {
   handleFulltextIndexJob,
 } from '../modules/search/workers/fulltext-index.worker'
 import { updateReindexProgress, clearReindexLock } from '../modules/search/lib/reindex-lock'
-import { hasActiveReindexProgress, incrementReindexProgress } from '../modules/search/lib/reindex-progress'
+import {
+  completeReindexProgress,
+  hasActiveReindexProgress,
+  incrementReindexProgress,
+} from '../modules/search/lib/reindex-progress'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 
@@ -558,6 +564,45 @@ describe('Fulltext Index Worker', () => {
       expect.objectContaining({ type: 'fulltext', tenantId: 'tenant-123', delta: 2 }),
     )
     expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+  })
+
+  it.each([
+    { label: 'drained', lockCounts: { processedCount: 3, totalCount: 3 }, settles: true },
+    { label: 'still draining', lockCounts: { processedCount: 2, totalCount: 3 }, settles: false },
+    { label: 'total not recorded yet', lockCounts: { processedCount: 2, totalCount: null }, settles: false },
+  ])('settles a fulltext reindex from the lock counts only when the lock is $label', async ({ lockCounts, settles }) => {
+    ;(incrementReindexProgress as jest.Mock).mockResolvedValueOnce(false)
+    ;(updateReindexProgress as jest.Mock).mockResolvedValueOnce(lockCounts)
+    const containerWithProgress: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return [mockFulltextStrategy]
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'progressService') return { id: 'progress' }
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [{ entityId: 'test:entity', recordId: 'rec-1' }],
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), containerWithProgress)
+
+    if (settles) {
+      expect(completeReindexProgress).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'fulltext',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+        resultSummary: lockCounts,
+      }))
+      expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+    } else {
+      expect(completeReindexProgress).not.toHaveBeenCalled()
+      expect(clearReindexLock).not.toHaveBeenCalled()
+    }
   })
 
   it('re-throws a failed fulltext batch write without advancing reindex progress so the queue retries it', async () => {

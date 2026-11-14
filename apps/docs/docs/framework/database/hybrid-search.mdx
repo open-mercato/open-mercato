@@ -111,7 +111,7 @@ There are **three separate reindex entry points, each covering a different subse
 |-------------|----------|------------------------|
 | **CLI** `yarn mercato search reindex` | `entity_indexes` projection + **`search_tokens`** + emits **vector** events | **No** |
 | **Core API** `POST /api/query_index/reindex` (feature `query_index.reindex`) | Same `reindexEntity` path — projection + tokens + vector | **No** |
-| **Search API** `POST /api/search/reindex` (feature `search.reindex`) | Recreates and repopulates the **Meilisearch** index | **Yes — the only fulltext bulk path** |
+| **Search API** `POST /api/search/reindex` (feature `search.reindex`) | Clears and repopulates the reindexed scope in the **Meilisearch** index (the whole tenant index only for an unscoped full reindex) | **Yes — the only fulltext bulk path** |
 | **Vector API** `POST /api/search/embeddings/reindex` (feature `search.manage`) | Vector store only | No |
 
 :::warning The `search reindex` trap
