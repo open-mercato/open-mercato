@@ -127,7 +127,7 @@ function TimelineEntry({
 
         {/* Column 3: Content */}
         <div className="min-w-0 space-y-1.5">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span
                 className={cn(
