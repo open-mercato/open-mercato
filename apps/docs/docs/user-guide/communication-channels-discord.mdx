@@ -34,8 +34,10 @@ your users.
 
 - A Discord account with permission to add a bot to the target **server** (guild).
 - An Open Mercato account with the `communication_channels.connect_user_channel` permission — the
-  channel is connected from a user's own profile page, not from the admin area. **Integrations →
-  Discord** is where you check its health afterwards.
+  channel is connected from a user's own profile page, not from the admin area. The
+  **Integrations → Discord** page holds a separate, shared credential; see
+  [Integrations → Discord vs. Connect Discord](#integrations--discord-vs-connect-discord) for what
+  each one does.
 - A Redis-backed queue: the deployment must run with `QUEUE_STRATEGY=async`. Inbound Discord
   delivery refuses to start without it (see [Run the Gateway worker](#part-4--run-the-gateway-worker)).
 - For slash commands only: a public HTTPS URL for your Open Mercato instance. Plain messaging does
@@ -130,7 +132,9 @@ default channel is where an outbound message goes when nothing else names a dest
 
 ## Part 3 — Connect the channel in Open Mercato
 
-**Profile → My communication channels → Connect Discord**, then fill in:
+**Profile → My communication channels → Connect channel → Connect Discord**, then fill in the
+dialog. Every field carries the same hint as the **Integrations → Discord** credentials form, and
+the dialog checks the required fields and the public key format before it sends anything:
 
 | Field | Value | Required |
 |---|---|---|
@@ -151,6 +155,32 @@ channel row holding a credential that cannot authenticate.
 
 The credential blob is stored encrypted at rest through the integrations module (AES-256-GCM,
 per-tenant keys), the same way Gmail and IMAP credentials are.
+
+### Integrations → Discord vs. Connect Discord
+
+Both screens ask for the same five values, but they store them in different places and only one
+of them creates a channel.
+
+| | **Integrations → Discord** (credentials form) | **Profile → Connect Discord** (this dialog) |
+|---|---|---|
+| Who can use it | Users with `integrations.credentials.manage` | Users with `communication_channels.connect_user_channel` |
+| Creates a channel | **No.** Nothing appears in the inbox and no Gateway socket opens. | **Yes** — a channel owned by the user who connects it, listed under *My communication channels* |
+| Where the credentials go | One shared credential for the organization, not tied to any user | A credential tied to the connecting user's channel |
+| Checked with Discord on save | No — saved as entered; run the health check to test it | Yes — `GET /users/@me`; a rejected token saves nothing |
+| What reads it | The health probe on the Integrations page, `register-slash-commands`, and any channel that has no credential of its own | The Gateway worker, outbound delivery and slash-command answers for that channel |
+
+In practice:
+
+- **To send and receive messages, connect the channel from the profile page.** Saving credentials on
+  the Integrations page alone does not give you a working Discord channel.
+- **The Integrations page health status describes the shared credential, not your channel.** If you
+  only connected a channel, the Integrations page can still show Discord as not configured. Fill the
+  shared credential too when you want the health probe, or when you register slash commands with
+  `register-slash-commands` (it reads the shared credential).
+- [Environment presets](#environment-presets) write the shared credential, exactly like the
+  Integrations page.
+- A channel's own credential always wins over the shared one, so the two can hold different bots
+  without interfering.
 
 :::tip Preconfiguring from the environment
 A deployment that already knows its bot can skip the form. Set the `OM_CHANNEL_DISCORD_*` variables
@@ -314,8 +344,11 @@ check.
 **Reactions.** React to a message in Discord and confirm the reaction shows up on the platform
 message; then react from the inbox and confirm it appears in Discord.
 
-**Health.** **Integrations → Discord** runs a live probe (`GET /users/@me`) against the stored token.
-**Healthy** means Discord accepted the token just now.
+**Health.** **Integrations → Discord** runs a live probe (`GET /users/@me`) against the **shared**
+token saved on that page (see
+[Integrations → Discord vs. Connect Discord](#integrations--discord-vs-connect-discord)).
+**Healthy** means Discord accepted that token just now; it says nothing about a channel connected
+with a different token.
 
 ---
 
