@@ -2866,6 +2866,8 @@
   "customers.schedule.recurrence.active": "Powtarza się",
   "customers.schedule.recurrence.afterOccurrences": "Po liczbie powtórzeń",
   "customers.schedule.recurrence.ends": "Kończy się",
+  "customers.schedule.recurrence.errors.countInvalid": "Wpisz liczbę całkowitą równą 1 lub większą.",
+  "customers.schedule.recurrence.errors.endBeforeStart": "Seria nie może kończyć się przed pierwszym terminem.",
   "customers.schedule.recurrence.never": "Nigdy",
   "customers.schedule.recurrence.none": "Nie powtarza się",
   "customers.schedule.recurrence.onDate": "Dnia",

@@ -2866,6 +2866,8 @@
   "customers.schedule.recurrence.active": "반복",
   "customers.schedule.recurrence.afterOccurrences": "반복 횟수 후",
   "customers.schedule.recurrence.ends": "종료",
+  "customers.schedule.recurrence.errors.countInvalid": "1 이상의 정수를 입력하세요.",
+  "customers.schedule.recurrence.errors.endBeforeStart": "반복 종료일은 첫 일정보다 빠를 수 없습니다.",
   "customers.schedule.recurrence.never": "종료 없음",
   "customers.schedule.recurrence.none": "반복 안 함",
   "customers.schedule.recurrence.onDate": "특정 날짜",

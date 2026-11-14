@@ -2866,6 +2866,8 @@
   "customers.schedule.recurrence.active": "Repeats",
   "customers.schedule.recurrence.afterOccurrences": "After occurrences",
   "customers.schedule.recurrence.ends": "Ends",
+  "customers.schedule.recurrence.errors.countInvalid": "Enter a whole number of 1 or more.",
+  "customers.schedule.recurrence.errors.endBeforeStart": "The series cannot end before its first date.",
   "customers.schedule.recurrence.never": "Never",
   "customers.schedule.recurrence.none": "Does not repeat",
   "customers.schedule.recurrence.onDate": "On date",
