@@ -564,3 +564,30 @@ describe('TimePicker scrolls the selected slot into view', () => {
     expect(slotListIn(container).scrollTop).toBe(centredScrollTop(40))
   })
 })
+
+describe('TimePicker popover modality', () => {
+  function renderOpenPicker(popoverModal?: boolean) {
+    renderWithI18n(
+      <div>
+        <p data-testid="page-content">Page behind the picker</p>
+        <TimePicker
+          value="10:00"
+          onChange={() => {}}
+          trigger={<button type="button">open</button>}
+          defaultOpen
+          popoverModal={popoverModal}
+        />
+      </div>,
+    )
+  }
+
+  it('leaves the page around a plain form picker interactive by default', () => {
+    renderOpenPicker()
+    expect(screen.getByTestId('page-content').closest('[aria-hidden="true"]')).toBeNull()
+  })
+
+  it('renders a modal popover when opted in, so a dialog scroll lock does not trap the slot list', () => {
+    renderOpenPicker(true)
+    expect(screen.getByTestId('page-content').closest('[aria-hidden="true"]')).not.toBeNull()
+  })
+})

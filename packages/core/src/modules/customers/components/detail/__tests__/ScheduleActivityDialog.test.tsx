@@ -826,6 +826,60 @@ describe('ScheduleActivityDialog', () => {
     })
   })
 
+  describe('call fields and required title', () => {
+    const CALL_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    function renderCallDialog(editData?: ScheduleActivityEditData) {
+      mockScheduleState = createScheduleState({ activityType: 'call' as const, title: 'Follow-up call' })
+      return renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={editData}
+        />,
+      )
+    }
+
+    it('no longer offers the write-only call outcome chips', () => {
+      renderCallDialog()
+
+      expect(screen.queryByText('Outcome')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Connected' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Outbound' })).toBeInTheDocument()
+    })
+
+    it('leaves a stored call outcome out of the edit payload so it is not overwritten', async () => {
+      renderCallDialog({
+        id: CALL_ID,
+        interactionType: 'call',
+        title: 'Follow-up call',
+        customValues: { callDirection: 'inbound', callOutcome: 'voicemail' },
+      })
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      const customValues = lastSavedPayload().customValues as Record<string, unknown>
+      expect(customValues).toEqual({ callDirection: 'inbound' })
+    })
+
+    it('marks the title as required', () => {
+      renderCallDialog()
+
+      const titleInput = screen.getByPlaceholderText('Activity title...')
+      expect(titleInput).toHaveAttribute('aria-required', 'true')
+      expect(titleInput.closest('div')?.querySelector('label span[aria-hidden="true"]')).toHaveTextContent('*')
+    })
+  })
+
   it('shows Save note button when creating a new note activity', () => {
     mockScheduleState = createScheduleState({
       activityType: 'note' as const,
