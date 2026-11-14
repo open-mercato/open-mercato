@@ -29,7 +29,11 @@ const portalEventHandlers: Array<{ pattern: string; handler: () => void }> = []
 
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a>,
+  default: ({ children, href, ...rest }: { children: ReactNode; href: string }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
 }))
 
 jest.mock('next/navigation', () => ({
@@ -240,6 +244,68 @@ describe('the detail page', () => {
       ).toBeTruthy(),
     )
     expect(screen.queryByText('Complete task')).toBeNull()
+  })
+
+  function hostTask(href: string | null) {
+    return {
+      id: 'task-1',
+      taskName: 'Confirm delivery address',
+      description: null,
+      status: 'PENDING',
+      dueDate: null,
+      formSchema: { fields: [{ name: 'street', type: 'text', label: 'Street' }] },
+      formData: null,
+      entityBindings: null,
+      completion: { surface: 'host', href },
+    }
+  }
+
+  test('a host-owned task (issue #7179) offers no generic form and links to a portal host page', async () => {
+    mockApiCall.mockResolvedValue(detailResponse({ task: hostTask('/acme/portal/returns/r-1') }))
+
+    render(<PortalTaskDetailPage params={{ orgSlug: 'acme', id: 'task-1' }} />)
+
+    await waitFor(() => expect(screen.getByTestId('portal-task-host-completion')).toBeTruthy())
+    expect(screen.getByTestId('portal-task-host-completion-link').getAttribute('href')).toBe('/acme/portal/returns/r-1')
+    expect(screen.queryByText('Complete task')).toBeNull()
+    expect(screen.queryByText('Street')).toBeNull()
+  })
+
+  test.each([
+    ['a backend href', '/backend/refunds/r-1/approve'],
+    ['another organization\'s portal', '/globex/portal/returns/r-1'],
+    ['no href', null],
+  ])('a host-owned task with %s explains where the work happens instead of linking', async (_label, href) => {
+    mockApiCall.mockResolvedValue(detailResponse({ task: hostTask(href) }))
+
+    render(<PortalTaskDetailPage params={{ orgSlug: 'acme', id: 'task-1' }} />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'This task is completed outside this portal, so there is nothing to submit here. Contact us if you are unsure how to proceed.',
+        ),
+      ).toBeTruthy(),
+    )
+    expect(screen.queryByTestId('portal-task-host-completion-link')).toBeNull()
+    expect(screen.queryByText('Complete task')).toBeNull()
+  })
+
+  test('a host-owned task the reader may not act on stays read-only', async () => {
+    mockApiCall.mockResolvedValue(
+      detailResponse({ canComplete: false, task: hostTask('/acme/portal/returns/r-1') }),
+    )
+
+    render(<PortalTaskDetailPage params={{ orgSlug: 'acme', id: 'task-1' }} />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'You can see this task because it belongs to your company. Only the person it is assigned to can complete it.',
+        ),
+      ).toBeTruthy(),
+    )
+    expect(screen.queryByTestId('portal-task-host-completion')).toBeNull()
   })
 
   test('a 404 renders the neutral not-available message, never an error dump', async () => {

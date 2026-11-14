@@ -39,6 +39,14 @@ interface MobileTaskFormProps {
    */
   decisions?: UserTaskDecision[]
   onDecision?: (decisionId: string) => void
+  /**
+   * Whether core offers its generic form here (issue #7179). `false` when a host
+   * module owns completion: the form is withheld while the task stays active, and
+   * the page renders the host notice instead. Separate from `isCompletable`, which
+   * is about the task's lifecycle and the caller — a host task is not "already
+   * completed or cancelled" just because core does not complete it.
+   */
+  offerCompletion?: boolean
 }
 
 export function MobileTaskForm({
@@ -55,8 +63,12 @@ export function MobileTaskForm({
   getStatusBadgeClass,
   decisions,
   onDecision,
+  offerCompletion = true,
 }: MobileTaskFormProps) {
   const t = useT()
+  const lifecycleOpen = task.status === 'PENDING' || task.status === 'IN_PROGRESS'
+  const showCannotComplete = !isCompletable && (offerCompletion || !lifecycleOpen)
+  const showForm = isCompletable && offerCompletion
 
   const fieldValue = (fieldName: string): string | number => {
     const val = formData[fieldName]
@@ -248,14 +260,14 @@ export function MobileTaskForm({
         </div>
       </div>
 
-      {!isCompletable && (
-        <div className="bg-status-info-bg border border-status-info-border rounded-lg p-3">
+      {showCannotComplete && (
+        <div data-testid="mobile-task-cannot-complete" className="bg-status-info-bg border border-status-info-border rounded-lg p-3">
           <p className="text-sm text-status-info-text">{t('workflows.tasks.detail.cannotComplete')}</p>
         </div>
       )}
 
-      {isCompletable && (
-        <form onSubmit={onSubmit} className="space-y-4">
+      {showForm && (
+        <form onSubmit={onSubmit} data-testid="mobile-task-form" className="space-y-4">
           {task.formSchema?.properties && (
             <>
               <Separator />

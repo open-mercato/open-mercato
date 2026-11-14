@@ -726,6 +726,23 @@
           "enumItems": [],
           "mappedType": "string"
         },
+        "completion": {
+          "name": "completion",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "reassign_reason": {
           "name": "reassign_reason",
           "type": "text",

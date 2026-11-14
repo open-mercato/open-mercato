@@ -1,0 +1,225 @@
+/**
+ * Completion-surface declaration (issue #7179).
+ *
+ * A step that declares `userTaskConfig.completion.surface: 'host'` is finished
+ * in a host module's own UI; core must then offer no generic completion
+ * affordance and deep-link to the declared host `href`. A step that omits the
+ * key must behave exactly as before.
+ */
+
+import { describe, test, expect } from '@jest/globals'
+import { userTaskConfigSchema } from '../../data/validators'
+import { assertSafeNotificationHref, isSafeNotificationHref } from '../../../notifications/lib/safeHref'
+import {
+  isHostCompletedTask,
+  isSafeTaskCompletionHref,
+  readTaskCompletion,
+  resolveTaskCompletion,
+  resolvePortalTaskCompletionHref,
+  resolveTaskCompletionHref,
+} from '../task-completion'
+
+const identity = (value: unknown) => value
+const fromContext = (context: Record<string, string>) => (value: unknown) =>
+  typeof value === 'string'
+    ? value.replace(/\{\{context\.([^}]+)\}\}/g, (match, key: string) => context[key] ?? match)
+    : value
+
+describe('userTaskConfigSchema.completion', () => {
+  test('a config without the key parses exactly as before', () => {
+    const config = { assignedTo: 'user-1', decisions: [{ id: 'ok', label: 'OK', transitionId: 't_1' }] }
+    expect(userTaskConfigSchema.parse(config)).toEqual(config)
+  })
+
+  test('accepts a host declaration with a templated relative href', () => {
+    const parsed = userTaskConfigSchema.parse({
+      completion: { surface: 'host', href: '/backend/invoices/{{context.invoiceId}}/approve' },
+    })
+    expect(parsed.completion).toEqual({
+      surface: 'host',
+      href: '/backend/invoices/{{context.invoiceId}}/approve',
+    })
+  })
+
+  test('accepts a host declaration without an href and an explicit core surface', () => {
+    expect(userTaskConfigSchema.safeParse({ completion: { surface: 'host' } }).success).toBe(true)
+    expect(userTaskConfigSchema.safeParse({ completion: { surface: 'core' } }).success).toBe(true)
+  })
+
+  test.each([
+    'https://evil.example/phish',
+    '//evil.example/phish',
+    '/\\evil.example',
+    'backend/relative',
+    'javascript:alert(1)',
+    '/backend/with space',
+    '/backend/invoices\\view',
+    '/backend/a\u0007b',
+    '/backend/../api/x',
+    '/backend/./x',
+    '/backend/%2e%2e/api/x',
+    '/backend/.%2E/api/x',
+  ])('refuses an href that could leave the panel origin: %s', (href) => {
+    expect(userTaskConfigSchema.safeParse({ completion: { surface: 'host', href } }).success).toBe(false)
+  })
+
+  test('refuses an unknown surface', () => {
+    expect(userTaskConfigSchema.safeParse({ completion: { surface: 'portal' } }).success).toBe(false)
+  })
+})
+
+describe('resolveTaskCompletion', () => {
+  test('absent, null and core all resolve to null — today\'s behaviour', () => {
+    expect(resolveTaskCompletion(undefined, identity)).toBeNull()
+    expect(resolveTaskCompletion(null, identity)).toBeNull()
+    expect(resolveTaskCompletion({ surface: 'core', href: '/backend/x' }, identity)).toBeNull()
+  })
+
+  test('interpolates the href against the run context once', () => {
+    const resolved = resolveTaskCompletion(
+      { surface: 'host', href: '/backend/invoices/{{context.invoiceId}}' },
+      fromContext({ invoiceId: 'inv-42' }),
+    )
+    expect(resolved).toEqual({ surface: 'host', href: '/backend/invoices/inv-42' })
+  })
+
+  test('drops an href whose token did not resolve, keeping the host declaration', () => {
+    const resolved = resolveTaskCompletion(
+      { surface: 'host', href: '/backend/invoices/{{context.missing}}' },
+      fromContext({}),
+    )
+    expect(resolved).toEqual({ surface: 'host', href: null })
+  })
+
+  test('drops an href that interpolates into an off-origin URL', () => {
+    const resolved = resolveTaskCompletion(
+      { surface: 'host', href: '/{{context.next}}' },
+      fromContext({ next: '/evil.example' }),
+    )
+    expect(resolved).toEqual({ surface: 'host', href: null })
+  })
+
+  test.each([
+    ['an inner backslash', '/backend/invoices\\view'],
+    ['a control character', '/backend/invoices/inv\u0001'],
+    ['DEL', '/backend/invoices/inv\u007F'],
+  ])('drops an href with %s so notifications fall back to the task page', (_label, href) => {
+    expect(resolveTaskCompletion({ surface: 'host', href }, identity)).toEqual({ surface: 'host', href: null })
+  })
+
+  test('drops an href whose interpolated context value carries a control character', () => {
+    const resolved = resolveTaskCompletion(
+      { surface: 'host', href: '/backend/invoices/{{context.invoiceId}}' },
+      fromContext({ invoiceId: 'inv\u0000-42' }),
+    )
+    expect(resolved).toEqual({ surface: 'host', href: null })
+  })
+
+  test('a host declaration without an href renders in the injection spot', () => {
+    expect(resolveTaskCompletion({ surface: 'host' }, identity)).toEqual({ surface: 'host', href: null })
+  })
+})
+
+describe('readTaskCompletion and friends', () => {
+  test('narrow stored values fail-closed', () => {
+    expect(readTaskCompletion(null)).toBeNull()
+    expect(readTaskCompletion('host')).toBeNull()
+    expect(readTaskCompletion({ surface: 'core' })).toBeNull()
+    expect(readTaskCompletion({ surface: 'host', href: 'https://evil.example' })).toEqual({
+      surface: 'host',
+      href: null,
+    })
+    expect(readTaskCompletion({ surface: 'host', href: '/backend/a' })).toEqual({
+      surface: 'host',
+      href: '/backend/a',
+    })
+  })
+
+  test('isHostCompletedTask / resolveTaskCompletionHref', () => {
+    expect(isHostCompletedTask(undefined)).toBe(false)
+    expect(isHostCompletedTask({ surface: 'host', href: null })).toBe(true)
+    expect(resolveTaskCompletionHref({ surface: 'host', href: '/backend/a' })).toBe('/backend/a')
+    expect(resolveTaskCompletionHref({ surface: 'host', href: null })).toBeNull()
+    expect(resolveTaskCompletionHref(null)).toBeNull()
+  })
+
+  test('isSafeTaskCompletionHref', () => {
+    expect(isSafeTaskCompletionHref('/backend/a?b=c#d')).toBe(true)
+    expect(isSafeTaskCompletionHref('/backend/{{context.x}}')).toBe(false)
+    expect(isSafeTaskCompletionHref('//x')).toBe(false)
+    expect(isSafeTaskCompletionHref(42)).toBe(false)
+  })
+
+  test('isSafeTaskCompletionHref refuses exactly what the notification layer refuses', () => {
+    const candidates = [
+      '/backend/a?b=c#d',
+      '/backend/invoices\\view',
+      '/backend/a\u0000',
+      '/backend/a\u001F',
+      '/backend/a\u007F',
+      '/\\evil.example',
+      '//evil.example',
+    ]
+    for (const href of candidates) {
+      expect(isSafeTaskCompletionHref(href)).toBe(isSafeNotificationHref(href))
+    }
+    expect(() => assertSafeNotificationHref('/backend/invoices\\view')).toThrow()
+    expect(readTaskCompletion({ surface: 'host', href: '/backend/invoices\\view' })).toEqual({
+      surface: 'host',
+      href: null,
+    })
+  })
+})
+
+describe('resolvePortalTaskCompletionHref', () => {
+  test('keeps only a path under the caller organization\'s own portal', () => {
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portal/returns/r-1' }, 'acme')).toBe(
+      '/acme/portal/returns/r-1',
+    )
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/backend/refunds/r-1' }, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/globex/portal/returns/r-1' }, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portalx/r-1' }, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: null }, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref(null, 'acme')).toBeNull()
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portal/x' }, '')).toBeNull()
+  })
+
+  test.each([
+    '/acme/portal/../../backend/x',
+    '/acme/portal/..',
+    '/acme/portal/./../../backend/x',
+    '/acme/portal/%2e%2e/%2e%2e/backend/x',
+    '/acme/portal/%2E%2E/%2E%2E/backend/x',
+    '/acme/portal/.%2e/.%2E/backend/x',
+    '/acme/portal/%2e./%2e./backend/x',
+    '/acme/portal/../../backend/x?next=/acme/portal/',
+  ])('a dot-segment traversal out of the portal resolves to null: %s', (href) => {
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href }, 'acme')).toBeNull()
+  })
+
+  test('a dot segment anywhere is refused before it can reach a link', () => {
+    for (const href of ['/backend/../x', '/backend/./x', '/backend/%2E%2e/x', '/backend/x/.', '/backend/x/..']) {
+      expect(isSafeTaskCompletionHref(href)).toBe(false)
+      expect(readTaskCompletion({ surface: 'host', href })).toEqual({ surface: 'host', href: null })
+      expect(resolveTaskCompletion({ surface: 'host', href }, identity)).toEqual({ surface: 'host', href: null })
+    }
+  })
+
+  test('a dot segment smuggled in through interpolation is refused', () => {
+    expect(
+      resolveTaskCompletion(
+        { surface: 'host', href: '/acme/portal/returns/{{context.id}}' },
+        fromContext({ id: '../../../backend/x' }),
+      ),
+    ).toEqual({ surface: 'host', href: null })
+  })
+
+  test('dots that are not whole segments, and dots in the query or fragment, stay allowed', () => {
+    expect(isSafeTaskCompletionHref('/backend/files/report.v2..pdf')).toBe(true)
+    expect(isSafeTaskCompletionHref('/backend/a/.well-known')).toBe(true)
+    expect(isSafeTaskCompletionHref('/backend/a?path=../x#../y')).toBe(true)
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portal/r-1?back=../x' }, 'acme')).toBe(
+      '/acme/portal/r-1?back=../x',
+    )
+  })
+})

@@ -221,3 +221,52 @@ describe('task-assigned-notification quick actions', () => {
     ])
   })
 })
+
+describe('task-assigned-notification for a host-owned task (issue #7179)', () => {
+  const completion = { surface: 'host' as const, href: '/backend/invoices/inv-42/approve' }
+
+  it('offers no quick completion and links the row and the button at the host', async () => {
+    await handler(
+      {
+        ...basePayload,
+        assignedUserId: 'user-1',
+        completion,
+        quickAction: { decisions: [{ id: 'approve' }], formSchema: null, completion },
+      },
+      makeCtx()
+    )
+
+    const [input] = mockCreate.mock.calls[0] as [any, any]
+    expect(input.actions).toEqual([expect.objectContaining({ id: 'view', href: completion.href })])
+    expect(input.actions.some((action: { commandId?: string }) => action.commandId)).toBe(false)
+    expect(input.primaryActionId).toBe('view')
+    expect(input.linkHref).toBe(completion.href)
+  })
+
+  it('honours the declaration even when the emitter sent no quick-action shape', async () => {
+    mockFindWithDecryption.mockResolvedValue([{ id: 'role-a' }])
+    await handler({ ...basePayload, assignedToRoles: ['Approver'], completion }, makeCtx())
+
+    const [input] = mockCreateForRole.mock.calls[0] as [any, any]
+    expect(input.actions).toEqual([expect.objectContaining({ id: 'view', href: completion.href })])
+    expect(input.linkHref).toBe(completion.href)
+  })
+
+  it('a host task without an href keeps the task-page link', async () => {
+    await handler(
+      {
+        ...basePayload,
+        assignedUserId: 'user-1',
+        completion: { surface: 'host', href: null },
+        quickAction: { decisions: [], formSchema: null },
+      },
+      makeCtx()
+    )
+
+    const [input] = mockCreate.mock.calls[0] as [any, any]
+    expect(input.linkHref).toBe(`/backend/tasks/${TASK_ID}`)
+    expect(input.actions).toEqual([
+      expect.objectContaining({ id: 'view', href: '/backend/tasks/{sourceEntityId}' }),
+    ])
+  })
+})

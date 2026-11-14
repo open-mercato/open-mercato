@@ -625,6 +625,7 @@ async function emitTaskSlaEvent(
         assignedToRoles: task.assignedToRoles ?? null,
         dueDate: options.deadlineAt,
         entityBindings: task.entityBindings ?? null,
+        ...(task.completion ? { completion: task.completion } : {}),
         tenantId: options.tenantId,
         organizationId: options.organizationId,
       },

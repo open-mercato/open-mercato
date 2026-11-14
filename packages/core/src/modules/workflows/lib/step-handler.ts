@@ -50,6 +50,7 @@ import {
 } from './task-resolution'
 import { scheduleUserTaskSla } from './task-sla'
 import type { TaskQuickActionInput } from './task-quick-action'
+import { resolveTaskCompletion } from './task-completion'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findWorkflowDefinition } from './find-definition'
 import { validateAgainstPorts } from './port-contract'
@@ -884,6 +885,9 @@ async function emitTaskAssignedEvent(
         // customers module writes a `CustomerTodoLink` from this. Workflows
         // never reaches into another module's tables to do it itself.
         entityBindings: userTask.entityBindings ?? null,
+        // Additive: a host-owned task (issue #7179) deep-links to its host and
+        // never offers a quick action. Absent for every core-completed task.
+        ...(userTask.completion ? { completion: userTask.completion } : {}),
         tenantId: instance.tenantId,
         organizationId: instance.organizationId ?? null,
       },
@@ -986,6 +990,7 @@ async function handleUserTaskStep(
   const instructions = resolveTaskText(userTaskConfig.instructions, interpolate)
   const decisions = resolveTaskDecisions(userTaskConfig.decisions, interpolate)
   const deadlineDuration = resolveTaskDeadlineDuration(userTaskConfig)
+  const completion = resolveTaskCompletion(userTaskConfig.completion, interpolate)
 
   // Create user task
   const now = new Date()
@@ -1054,6 +1059,7 @@ async function handleUserTaskStep(
     // Null for a task about nothing, which is what the vacuous-pass rule reads.
     entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
     priority: userTaskConfig.priority ?? null,
+    completion,
     dueDate: deadlineDuration
       ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
       : null,
@@ -1089,6 +1095,7 @@ async function handleUserTaskStep(
     decisions: decisions.map((decision) => ({ id: decision.id })),
     formSchema: userTask.formSchema ?? null,
     editablePrefilled: userTaskConfig.editablePrefilled ?? null,
+    ...(completion ? { completion } : {}),
   })
 
   // Reminders and the deadline breach are scheduled HERE, once, with the

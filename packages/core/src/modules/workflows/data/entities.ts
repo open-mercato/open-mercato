@@ -7,6 +7,7 @@
 import { OptionalProps, raw, type EntityManager } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { WorkflowRunOutcome } from '../lib/run-outcome'
+import type { TaskCompletion } from '../lib/task-completion'
 
 export type { WorkflowRunOutcome }
 
@@ -869,6 +870,15 @@ export class UserTask {
   /** Authored `low|medium|high|extreme`, mirroring the platform's labels. */
   @Property({ name: 'priority', type: 'varchar', length: 20, nullable: true })
   priority?: string | null
+
+  /**
+   * Resolved `userTaskConfig.completion` (issue #7179): `{ surface: 'host',
+   * href }` when a host module's own UI owns completion, null when core does.
+   * Resolved once at creation, like the bindings, so the Work Inbox reads it per
+   * row without loading the definition. See `lib/task-completion.ts`.
+   */
+  @Property({ name: 'completion', type: 'jsonb', nullable: true })
+  completion?: TaskCompletion | null
 
   /**
    * Reassignment audit — who moved this task, when, and why.

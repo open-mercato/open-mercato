@@ -30,8 +30,8 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ children, href }: { children?: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
+  default: ({ children, href, ...rest }: { children?: React.ReactNode; href: string }) => (
+    <a href={href} {...rest}>{children}</a>
   ),
 }))
 
@@ -124,6 +124,12 @@ jest.mock('@open-mercato/ui/primitives/drawer', () => ({
   DrawerClose: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }))
 
+jest.mock('@open-mercato/ui/primitives/alert', () => ({
+  Alert: ({ children, status: _status, ...rest }: { children?: React.ReactNode; status?: string }) => (
+    <div role="status" {...rest}>{children}</div>
+  ),
+}))
+
 jest.mock('@open-mercato/ui/primitives/input', () => ({
   Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
 }))
@@ -143,8 +149,13 @@ jest.mock('@open-mercato/ui/primitives/kbd', () => ({
   KbdShortcut: ({ keys }: { keys: string[] }) => <kbd>{keys.join('+')}</kbd>,
 }))
 
+let mockIsMobile = false
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
+  InjectionSpot: ({ spotId }: { spotId: string }) => <div data-testid="injection-spot" data-spot-id={spotId} />,
+}))
+
 jest.mock('@open-mercato/ui/hooks/useIsMobile', () => ({
-  useIsMobile: () => false,
+  useIsMobile: () => mockIsMobile,
 }))
 
 const flashMock = jest.fn()
@@ -216,6 +227,7 @@ jest.mock('lucide-react', () => ({
   CheckCircle2: () => null,
   Circle: () => null,
   Clock: () => null,
+  ExternalLink: () => null,
   Flame: () => null,
   Loader: () => null,
   Minus: () => null,
@@ -278,6 +290,7 @@ function renderPage() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockIsMobile = false
 })
 
 describe('decision buttons', () => {
@@ -743,5 +756,120 @@ describe('reassignment', () => {
     await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
     expect(screen.getByTestId('task-reassign')).toBeTruthy()
     expect(screen.queryByTestId('task-act-blocked')).toBeNull()
+  })
+})
+
+describe('a host-owned task (issue #7179)', () => {
+  const decisions = [{ id: 'approve', label: 'Approve refund', transitionId: 't_approve' }]
+
+  test('offers no generic form or decision buttons and links to the host surface', async () => {
+    mockTask(
+      baseTask({
+        decisions,
+        canComplete: true,
+        completion: { surface: 'host', href: '/backend/refunds/r-1/approve' },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-host-completion')).toBeTruthy())
+    expect(screen.getByTestId('task-host-completion-link').getAttribute('href')).toBe(
+      '/backend/refunds/r-1/approve',
+    )
+    expect(screen.queryByTestId('task-decisions')).toBeNull()
+    expect(screen.queryByTestId('task-complete')).toBeNull()
+    expect(screen.getByText('workflows.tasks.detail.hostCompletion.description')).toBeTruthy()
+  })
+
+  test('without an href it points at the host UI rendered on this page', async () => {
+    mockTask(baseTask({ canComplete: true, completion: { surface: 'host', href: null } }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-host-completion')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion-link')).toBeNull()
+    expect(screen.queryByTestId('task-complete')).toBeNull()
+    expect(screen.getByText('workflows.tasks.detail.hostCompletion.descriptionInline')).toBeTruthy()
+  })
+
+  test('a completed host task shows no notice', async () => {
+    mockTask(
+      baseTask({ status: 'COMPLETED', completion: { surface: 'host', href: '/backend/refunds/r-1/approve' } }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-next')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion')).toBeNull()
+  })
+
+  test('regression: no completion key keeps the generic Complete form', async () => {
+    mockTask(baseTask({ canComplete: true, completion: null }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-complete')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion')).toBeNull()
+  })
+})
+
+describe('a host-owned task on mobile (issue #7179)', () => {
+  beforeEach(() => {
+    mockIsMobile = true
+  })
+
+  test('an active host task shows the host notice, no generic form and no "already completed" warning', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        canComplete: true,
+        completion: { surface: 'host', href: '/backend/workflows' },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-host-completion')).toBeTruthy())
+    expect(screen.getByTestId('task-host-completion-link').getAttribute('href')).toBe('/backend/workflows')
+    expect(screen.queryByTestId('mobile-task-form')).toBeNull()
+    expect(screen.queryByTestId('mobile-task-cannot-complete')).toBeNull()
+    expect(screen.queryByText('workflows.tasks.detail.cannotComplete')).toBeNull()
+  })
+
+  test('a host task without an href renders the task-detail injection spot, where the host mounts its flow', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        canComplete: true,
+        completion: { surface: 'host', href: null },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-host-completion')).toBeTruthy())
+    expect(screen.getByText('workflows.tasks.detail.hostCompletion.descriptionInline')).toBeTruthy()
+    expect(screen.queryByTestId('task-host-completion-link')).toBeNull()
+    expect(screen.getByTestId('injection-spot').getAttribute('data-spot-id')).toBe('workflows.task.detail:context')
+    expect(screen.queryByTestId('mobile-task-form')).toBeNull()
+  })
+
+  test('a completed host task still says it can no longer be modified', async () => {
+    mockTask(
+      baseTask({
+        status: 'COMPLETED',
+        canComplete: false,
+        completion: { surface: 'host', href: '/backend/workflows' },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('mobile-task-cannot-complete')).toBeTruthy())
+    expect(screen.queryByTestId('task-host-completion')).toBeNull()
+    expect(screen.queryByTestId('mobile-task-form')).toBeNull()
+  })
+
+  test('regression: a core task keeps the generic mobile form', async () => {
+    mockTask(baseTask({ status: 'PENDING', canComplete: true, completion: null }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('mobile-task-form')).toBeTruthy())
+    expect(screen.queryByTestId('mobile-task-cannot-complete')).toBeNull()
+    expect(screen.queryByTestId('task-host-completion')).toBeNull()
   })
 })

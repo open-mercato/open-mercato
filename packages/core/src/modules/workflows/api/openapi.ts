@@ -68,6 +68,14 @@ export const userTaskRowSchema = userTaskSchema.extend({
   proposalId: z.string().nullable().describe('Agent proposal this task disposes, when any'),
   priority: z.union([z.string(), z.number()]).nullable(),
   entityBindings: z.array(z.unknown()).nullable().describe('Records this task is about, when authored'),
+  completion: z
+    .object({
+      surface: z.literal('host'),
+      href: z.string().nullable().describe('Same-origin path of the host surface; null renders in the task detail injection spot'),
+    })
+    .nullable()
+    .optional()
+    .describe('Set when a host module owns completion (no generic Complete form or quick action); null when core does'),
 })
 
 export const userTaskListQuerySchema = z.object({

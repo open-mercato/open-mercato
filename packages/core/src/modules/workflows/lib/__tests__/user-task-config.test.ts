@@ -388,6 +388,30 @@ describe('task creation resolves the authored task', () => {
     return { task, events }
   }
 
+  test('resolves a host completion declaration once, against the run context (issue #7179)', async () => {
+    const { task } = await createTaskFor(
+      {
+        stepId: 'approve-refund',
+        stepName: 'Approve refund',
+        userTaskConfig: {
+          completion: { surface: 'host', href: '/backend/refunds/{{context.order.id}}/approve' },
+        },
+      },
+      { order: { id: 'order-9' } }
+    )
+
+    expect((task as any).completion).toEqual({ surface: 'host', href: '/backend/refunds/order-9/approve' })
+  })
+
+  test('a step without a completion declaration stores none (regression, issue #7179)', async () => {
+    const { task } = await createTaskFor(
+      { stepId: 'approve-refund', stepName: 'Approve refund', userTaskConfig: {} },
+      {}
+    )
+
+    expect((task as any).completion).toBeNull()
+  })
+
   test('interpolates the task title and the authored instructions', async () => {
     const { task } = await createTaskFor(
       {
@@ -620,5 +644,32 @@ describe('task creation resolves the authored task', () => {
       'assignedTo',
       'assignedToRoles',
     ])
+  })
+})
+
+describe('completion surface survives a Studio save (issue #7179)', () => {
+  const completion = { surface: 'host', href: '/backend/refunds/{{context.order.id}}/approve' }
+  const hostNode: Node = {
+    ...authoredUserTaskNode,
+    data: { ...authoredUserTaskNode.data, userTaskConfig: { completion } },
+  }
+
+  test('graphToDefinition → save → definitionToGraph → graphToDefinition keeps it', () => {
+    const first = graphToDefinition([hostNode, endNode], authoredEdges)
+    const persisted = { ...first, steps: first.steps.map((step: any) => saveStep(step)) }
+    expect(persisted.steps.find((step: any) => step.stepId === 'approve-invoice')?.userTaskConfig?.completion).toEqual(
+      completion
+    )
+
+    const { nodes, edges } = definitionToGraph(persisted as any)
+    const second = graphToDefinition(nodes, edges)
+    const resaved = saveStep(second.steps.find((step: any) => step.stepId === 'approve-invoice'))
+    expect(resaved.userTaskConfig?.completion).toEqual(completion)
+  })
+
+  test('a node without the key serializes no completion key at all', () => {
+    const definition = graphToDefinition([authoredUserTaskNode, endNode], authoredEdges)
+    const step = definition.steps.find((candidate: any) => candidate.stepId === 'approve-invoice')
+    expect(step?.userTaskConfig && 'completion' in step.userTaskConfig).toBe(false)
   })
 })
