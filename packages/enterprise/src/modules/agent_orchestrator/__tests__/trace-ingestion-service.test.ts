@@ -308,6 +308,27 @@ describe('ingestTrace — estimated cost (null-only, data-honesty §3.2)', () =>
     expect(run.currency).toBe('USD')
   })
 
+  it('stores the cached input share and prices it at the cached rate (#6240)', async () => {
+    const { em, storeFor } = createFakeEm()
+    await ingestTrace(em, SCOPE, {
+      ...basePayload(),
+      model: 'claude-sonnet-4-5',
+      inputTokens: 1_000_000,
+      cachedInputTokens: 800_000,
+      outputTokens: 0,
+    })
+    const run = storeFor(AgentRun)[0]
+    expect(run.cachedInputTokens).toBe(800_000)
+    // 200_000 fresh × 3 + 800_000 cached × 0.3 = 0.84 USD → 84 cents (300 without the cached tier).
+    expect(run.costMinor).toBe(84)
+  })
+
+  it('clamps an ingested cached share to the run input total', async () => {
+    const { em, storeFor } = createFakeEm()
+    await ingestTrace(em, SCOPE, { ...basePayload(), inputTokens: 50, cachedInputTokens: 80 })
+    expect(storeFor(AgentRun)[0].cachedInputTokens).toBe(50)
+  })
+
   it('never overwrites a non-null cost (envelope-supplied or runner-stamped)', async () => {
     const { em, storeFor } = createFakeEm()
     const payload = {

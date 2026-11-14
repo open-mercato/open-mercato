@@ -4456,6 +4456,23 @@
           "enumItems": [],
           "mappedType": "string"
         },
+        "cached_input_tokens": {
+          "name": "cached_input_tokens",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "completed_at": {
           "name": "completed_at",
           "type": "timestamptz(6)",
