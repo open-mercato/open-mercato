@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import { NotificationItem } from '../NotificationItem'
+import polishAuthDictionary from '../../../../../core/src/modules/auth/i18n/pl.json'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -31,11 +32,22 @@ function renderSource(sourceModule?: string | null, dictionary: Record<string, s
 }
 
 describe('NotificationItem source label', () => {
-  it('renders the translated source name from the notification dictionary', () => {
-    renderSource('auth', { 'notifications.sources.auth': 'Uwierzytelnianie i konta' })
+  it('uses the shipped Polish module name when no notification override exists', () => {
+    expect(polishAuthDictionary['auth.acl.modules.auth']).toBe('Uwierzytelnianie i konta')
+    renderSource('auth', polishAuthDictionary)
 
     expect(screen.getByText('Uwierzytelnianie i konta')).toBeInTheDocument()
     expect(screen.queryByText('Auth')).not.toBeInTheDocument()
+  })
+
+  it('renders the translated source name from the notification dictionary', () => {
+    renderSource('auth', {
+      ...polishAuthDictionary,
+      'notifications.sources.auth': 'Niestandardowe źródło',
+    })
+
+    expect(screen.getByText('Niestandardowe źródło')).toBeInTheDocument()
+    expect(screen.queryByText('Uwierzytelnianie i konta')).not.toBeInTheDocument()
   })
 
   it.each([
