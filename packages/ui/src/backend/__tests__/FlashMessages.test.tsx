@@ -263,6 +263,47 @@ describe('FlashMessages', () => {
     jest.useFakeTimers()
   })
 
+  /**
+   * Regression for #8701: unlike a programmatic flash, a URL-sourced one used
+   * to be delivered only to the primary host's own local state. When that
+   * host unmounted mid-display, the survivor took over the primary role but
+   * had never received the message (and the URL params were already
+   * stripped), so the still-visible toast vanished instead of handing over.
+   */
+  it('hands a displayed URL flash over when the primary host unmounts, preserving its original expiry', () => {
+    window.history.replaceState({}, '', 'http://localhost/backend/checkout/pay-links?flash=Saved&type=success')
+
+    function Hosts({ withPrimary }: { withPrimary: boolean }) {
+      return (
+        <>
+          {withPrimary ? <FlashMessages /> : null}
+          <FlashMessages />
+        </>
+      )
+    }
+
+    const { rerender } = renderWithProviders(<Hosts withPrimary />)
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+    expect(window.location.search).toBe('')
+
+    act(() => {
+      jest.advanceTimersByTime(1500)
+    })
+
+    act(() => {
+      rerender(<Hosts withPrimary={false} />)
+    })
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+
+    act(() => {
+      jest.advanceTimersByTime(1500)
+    })
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+  })
+
   it('auto-dismisses programmatic flashes', () => {
     renderWithProviders(<FlashMessages />)
 
