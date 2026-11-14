@@ -25,15 +25,20 @@ Non-goals: speculative fixes, duplicate workflow changes, changes to public cont
 2.2 Dispatch one final independent review task after implementation; address findings and obtain approval before merging any reviewed child changes.
 2.3 Record final evidence, finish the PR, and apply `automerge` only when current-head checks and workflows are green.
 
-## Evidence (2026-11-14 15:34 UTC)
+## Evidence (2026-11-14 16:04 UTC)
 
 - [Baseline main CI](https://github.com/open-mercato/open-mercato/actions/runs/43602981865): all 15 integration shards and applicable jobs passed. [Baseline CodeQL](https://github.com/open-mercato/open-mercato/actions/runs/43602981943) passed.
 - [PR full CI](https://github.com/open-mercato/open-mercato/actions/runs/43608118295), head `3328016caa75897327273f542efae32fc1560c7e`: completed successfully with all 15 shards. The test log confirms `FORCE_FULL_SUITE=true`, 42 typecheck tasks and 51 unit-test tasks passed. Build/generate, i18n sync, lint, DS lint, Docker, timezone and multi-instance checks passed. Existing i18n usage diagnostics remain advisory.
 - [Independent final review](https://github.com/open-mercato/open-mercato/pull/9530#pullrequestreview-5905421932): approve with zero findings on that exact head. GitHub disallows the author bot's native approval; the COMMENT explicitly records the independent agent verdict, without claiming a native approval.
 - Independent read-only audit confirmed full-suite forcing and per-PR concurrency already exist; no code or workflow repair is justified. Neither dispatched task changed any files; no child branch was merged.
 - Runner: GitHub CI for executable validation; local `git diff --check` and manual reread for this documentation-only change. No Markdown lint command is configured. Full local package builds are unnecessary for the docs-only diff.
-- [Baseline main standalone integration](https://github.com/open-mercato/open-mercato/actions/runs/43602981849) remains running; its publish/build/setup steps passed. Main advanced to `30b4691fc6b9b856d9a846c9c92857f13fa265c3`; its [CI](https://github.com/open-mercato/open-mercato/actions/runs/43609686690) is running and [snapshot](https://github.com/open-mercato/open-mercato/actions/runs/43609686748) is pending. These outcomes are not yet verified.
+- [Baseline main standalone integration](https://github.com/open-mercato/open-mercato/actions/runs/43602981849) remains running; its publish/build/setup steps passed. Main advanced to `30b4691fc6b9b856d9a846c9c92857f13fa265c3`; its [CI](https://github.com/open-mercato/open-mercato/actions/runs/43609686690) and CodeQL passed, while [snapshot](https://github.com/open-mercato/open-mercato/actions/runs/43609686748) is pending. These outcomes are not yet verified.
+- [Second PR full CI](https://github.com/open-mercato/open-mercato/actions/runs/43610900527), documentation head `b110512fed8a30a397230a5d03606caa4d5f06cb`: completed successfully, including all 15 shards and coverage merge. Every reported check passed or was deliberately skipped.
 - Final documentation commits start a new PR run. Readiness and `automerge` remain gated on exact final-head checks and workflow completion; the earlier green run does not certify a later SHA.
+
+## Finalization gate
+
+The two full PR runs above are green and independent review approved the documentation-only scope. This final bookkeeping update completes the implementation checklist. It does not certify its own new head: keep the tracker status in-progress and withhold `automerge` until that exact head's workflows and checks complete. Record final-head results and label promotion on the PR, avoiding another documentation-only CI cycle. Main snapshot/standalone results remain explicitly pending above and require a separate outcome check before declaring main fully green.
 
 ## Risks
 
@@ -52,6 +57,6 @@ PR: #9530
 
 ### Phase 2: Verify and review
 
-- [x] 2.1 Run this draft PR's full 15-shard suite and repair any demonstrated root cause, with regression coverage.
-- [x] 2.2 Dispatch one final independent review task after implementation; address findings and obtain approval before merging any reviewed child changes.
-- [ ] 2.3 Record final evidence, finish the PR, and apply `automerge` only when current-head checks and workflows are green.
+- [x] 2.1 Run this draft PR's full 15-shard suite and repair any demonstrated root cause, with regression coverage. — 50d9fa21f9
+- [x] 2.2 Dispatch one final independent review task after implementation; address findings and obtain approval before merging any reviewed child changes. — 50d9fa21f9
+- [x] 2.3 Record final evidence, finish the PR, and apply `automerge` only when current-head checks and workflows are green.
