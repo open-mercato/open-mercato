@@ -13,6 +13,7 @@ type TierManifest = {
 
 test('the changelog override owns deterministic upgrade-window reconciliation', () => {
   assert.match(changelogOverride, /whose `<from>` equals the changelog release immediately below/)
+  assert.match(changelogOverride, /Patch releases shipped from a `release\/vX\.Y\.x` line carry no upgrade window/)
   assert.match(changelogOverride, /semantic-version equality, not substring matching/)
   assert.match(changelogOverride, /More than one candidate, or a second section already targeting/)
   assert.match(changelogOverride, /Stop before edits and report the conflicting headings/)
@@ -40,13 +41,37 @@ test('the changelog override preserves dry-run and validation safety', () => {
   assert.match(changelogOverride, /yarn workspace create-mercato-app test/)
 })
 
+type ChangelogRelease = { version: string; date: string }
+
+// Release lines ship patches (`x.y.z`, z > 0) with generated notes and no upgrade window; only
+// minor and major releases carry an `UPGRADE_NOTES.md` window and a companion skill.
+function upgradeWindowReleases(changelog: string): ChangelogRelease[] {
+  return Array.from(
+    changelog.matchAll(/^# (\d+)\.(\d+)\.(\d+) \((\d{4}-\d{2}-\d{2})\)$/gm),
+    (match) => ({ version: `${match[1]}.${match[2]}.${match[3]}`, date: match[4], patch: Number(match[3]) }),
+  )
+    .filter((release) => release.patch === 0)
+    .map(({ version, date }) => ({ version, date }))
+}
+
+test('patch releases from a release line need no upgrade window', () => {
+  const changelog = [
+    '# 0.10.0 (2026-11-20)', '', '- New.', '',
+    '# 0.9.2 (2026-11-02)', '', '- Fix.', '',
+    '# 0.9.1 (2026-10-22)', '', '- Fix.', '',
+    '# 0.9.0 (2026-10-09)', '', '- Minor.', '',
+  ].join('\n')
+  assert.deepEqual(upgradeWindowReleases(changelog).map((release) => release.version), ['0.10.0', '0.9.0'])
+  assert.deepEqual(upgradeWindowReleases('# 0.9.1 (2026-10-22)\n\n# 0.9.0 (2026-10-09)\n\n# 0.8.0 (2026-09-18)\n')[0], {
+    version: '0.9.0',
+    date: '2026-10-09',
+  })
+})
+
 test('the latest changelog upgrade window ships one aligned companion in both agent surfaces', () => {
   const changelog = fs.readFileSync(new URL('../../../../CHANGELOG.md', import.meta.url), 'utf8')
   const upgradeNotes = fs.readFileSync(new URL('../../../../UPGRADE_NOTES.md', import.meta.url), 'utf8')
-  const changelogReleases = Array.from(
-    changelog.matchAll(/^# (\d+\.\d+\.\d+) \((\d{4}-\d{2}-\d{2})\)$/gm),
-    (match) => ({ version: match[1], date: match[2] }),
-  )
+  const changelogReleases = upgradeWindowReleases(changelog)
   const currentRelease = changelogReleases[0]
   const previousRelease = changelogReleases[1]
   assert.ok(currentRelease, 'CHANGELOG.md must have a current release heading')

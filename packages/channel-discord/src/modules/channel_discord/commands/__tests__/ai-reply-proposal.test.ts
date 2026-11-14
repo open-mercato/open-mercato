@@ -14,10 +14,18 @@ jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
   resolveMessageReadAccess: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(),
+}))
+
 import { approveProposalCommand, dismissProposalCommand } from '../ai-reply-proposal'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { composeMessageSchema } from '@open-mercato/core/modules/messages/data/validators'
 import { resolveMessageReadAccess } from '@open-mercato/core/modules/messages/lib/routeHelpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createFallbackTranslator, createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import enTranslations from '../../i18n/en.json'
+import plTranslations from '../../i18n/pl.json'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
 import { createDiscordProposalOriginKey } from '../../lib/ai-proposal-origin'
 import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../../lib/ai-proposal-contract'
@@ -79,6 +87,9 @@ const actionInput = { messageId: PROPOSAL_ID, actionId: 'approve_send' }
 describe('channel_discord.ai_reply_proposal.approve', () => {
   beforeEach(() => {
     findOne.mockReset()
+    jest.mocked(resolveTranslations).mockResolvedValue({
+      locale: 'en', dict: enTranslations, t: createTranslator(enTranslations), translate: createFallbackTranslator(enTranslations),
+    })
     readAccess.mockReset()
     readAccess.mockResolvedValue({ recipient: null, isSender: false, hasChannelThreadAccess: true, canRead: true })
   })
@@ -186,6 +197,20 @@ describe('channel_discord.ai_reply_proposal.approve', () => {
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
+  it('looks the answered message up in the approver organization only', async () => {
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
+    const { ctx } = makeCtx()
+
+    await approveProposalCommand.execute(actionInput as never, ctx)
+
+    expect(findOne.mock.calls[1][2]).toEqual({
+      id: INBOUND_ID,
+      tenantId: TENANT,
+      organizationId: ORG,
+      deletedAt: null,
+    })
+  })
+
   it('checks the approver can read the answered message before sending into its thread', async () => {
     findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
     const { ctx, commandBus } = makeCtx()
@@ -206,8 +231,30 @@ describe('channel_discord.ai_reply_proposal.approve', () => {
     const { ctx, commandBus } = makeCtx()
 
     await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toThrow(
-      /cannot read the message this proposal answers/i,
+      /can no longer read the conversation this proposal answers/i,
     )
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['en', enTranslations],
+    ['pl', plTranslations],
+  ] as const)('returns localized 403 and 404 refusals in %s without composing', async (locale, dict) => {
+    jest.mocked(resolveTranslations).mockResolvedValue({ locale, dict, t: createTranslator(dict), translate: createFallbackTranslator(dict) })
+    const { ctx, commandBus } = makeCtx()
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
+    readAccess.mockResolvedValueOnce({ canRead: false })
+
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toMatchObject({
+      status: 403,
+      body: { error: dict['channel_discord.aiProposal.errors.sourceMessageUnreadable'] },
+    })
+
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(null)
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toMatchObject({
+      status: 404,
+      body: { error: dict['channel_discord.aiProposal.errors.sourceMessageNotFound'] },
+    })
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 

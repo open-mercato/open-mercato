@@ -41,9 +41,44 @@ function jsonNumberSchemaToZod(jsonSchema: Record<string, unknown>, integer: boo
  * - Records/dictionaries via additionalProperties
  * - Union types via anyOf/oneOf
  * - Enum values
+ * - `description` and `default`, which a model needs to call the tool correctly
  */
 export function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
+  let schema = jsonSchemaTypeToZod(jsonSchema)
+  if (hasNonObjectDefault(jsonSchema)) {
+    schema = schema.default(jsonSchema.default)
+  }
+  if (typeof jsonSchema.description === 'string' && jsonSchema.description.length > 0) {
+    schema = schema.describe(jsonSchema.description)
+  }
+  return schema
+}
+
+// Object schemas stay unwrapped so callers can still `.passthrough()` the root; the tool's own
+// schema applies an object default when the tool runs.
+function hasNonObjectDefault(jsonSchema: Record<string, unknown>): boolean {
+  return 'default' in jsonSchema && jsonSchema.type !== 'object'
+}
+
+function isLiteralValue(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+}
+
+function jsonEnumToZod(values: unknown[]): ZodType | null {
+  if (values.length === 0 || !values.every(isLiteralValue)) return null
+  if (values.every((value): value is string => typeof value === 'string')) {
+    return z.enum(values as [string, ...string[]])
+  }
+  return z.literal(values)
+}
+
+function jsonSchemaTypeToZod(jsonSchema: Record<string, unknown>): ZodType {
   const type = jsonSchema.type as string | undefined
+
+  const enumSchema = Array.isArray(jsonSchema.enum) ? jsonEnumToZod(jsonSchema.enum) : null
+  if (enumSchema) {
+    return enumSchema
+  }
 
   if (type === 'string') {
     return z.string()
@@ -88,8 +123,8 @@ export function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
       const shape: Record<string, ZodType> = {}
       for (const [key, propSchema] of Object.entries(properties)) {
         let fieldSchema = jsonSchemaToZod(propSchema)
-        // Make field optional if not in required array
-        if (!required.includes(key)) {
+        // Make field optional if not in required array; a field with a default already accepts a missing value
+        if (!required.includes(key) && !hasNonObjectDefault(propSchema)) {
           fieldSchema = fieldSchema.optional()
         }
         shape[key] = fieldSchema
@@ -128,12 +163,6 @@ export function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
     }
   }
 
-  // Handle enum
-  const enumValues = jsonSchema.enum as string[] | undefined
-  if (enumValues && enumValues.length > 0) {
-    return z.enum(enumValues as [string, ...string[]])
-  }
-
   // Fallback for empty schemas (like Date converted with unrepresentable: 'any')
   return z.unknown()
 }
@@ -154,8 +183,9 @@ export function toSafeZodSchema(schema: ZodType): ZodType {
   }
 
   try {
-    // Use Zod 4's toJSONSchema with unrepresentable: 'any' to handle Date types
-    const jsonSchema = z.toJSONSchema(schema, { unrepresentable: 'any' }) as Record<string, unknown>
+    // Use Zod 4's toJSONSchema with unrepresentable: 'any' to handle Date types.
+    // `io: 'input'` describes what the caller (the model) sends, so a `.default()` field stays optional.
+    const jsonSchema = z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }) as Record<string, unknown>
 
     // OpenAI requires `properties` on object schemas. Empty passthrough objects
     // (tools that take no args) roundtrip as `{ type: "object", additionalProperties: true }`

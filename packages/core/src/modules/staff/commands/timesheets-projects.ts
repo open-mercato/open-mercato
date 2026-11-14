@@ -24,9 +24,6 @@ import {
   type StaffTimeProjectMemberStatus,
 } from '../data/entities'
 
-const timeProjectCrudIndexer: CrudIndexerConfig<StaffTimeProject> = {
-  entityType: 'staff:staff_time_project',
-}
 const timeProjectMemberCrudIndexer: CrudIndexerConfig<StaffTimeProjectMember> = {
   entityType: 'staff:staff_time_project_member',
 }
@@ -41,7 +38,7 @@ import {
   type StaffTimeProjectMemberAssignInput,
   type StaffTimeProjectMemberUpdateInput,
 } from '../data/validators'
-import { staffTimeProjectCrudEvents, staffTimeProjectMemberCrudEvents } from '../lib/crud'
+import { staffTimeProjectCrudEvents, staffTimeProjectCrudIndexer, staffTimeProjectMemberCrudEvents } from '../lib/crud'
 import { DEFAULT_BUDGET_WARN_AT_PERCENT } from '../lib/timesheets-projects/budgetBurn'
 import { seedProjectTaskStatuses } from '../lib/timesheets-tasks/seedProjectStatuses'
 import {
@@ -142,6 +139,7 @@ type TimeProjectSnapshot = {
   budgetKind: string
   budgetValue: string | null
   budgetWarnAtPercent: number
+  defaultAssigneeStaffMemberId: string | null
   deletedAt: string | null
 }
 
@@ -159,6 +157,7 @@ type TimeProjectMemberSnapshot = {
   role: string | null
   status: string
   showInGrid: boolean
+  isAssigner: boolean
   assignedStartDate: string
   assignedEndDate: string | null
   deletedAt: string | null
@@ -199,6 +198,7 @@ async function loadTimeProjectSnapshot(em: EntityManager, id: string, scope?: St
     budgetKind: project.budgetKind ?? 'none',
     budgetValue: project.budgetValue ?? null,
     budgetWarnAtPercent: project.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT,
+    defaultAssigneeStaffMemberId: project.defaultAssigneeStaffMemberId ?? null,
     deletedAt: project.deletedAt ? project.deletedAt.toISOString() : null,
   }
 }
@@ -221,6 +221,7 @@ async function loadTimeProjectMemberSnapshot(em: EntityManager, id: string, scop
     role: member.role ?? null,
     status: member.status,
     showInGrid: member.showInGrid ?? false,
+    isAssigner: member.isAssigner === true,
     assignedStartDate: member.assignedStartDate instanceof Date ? member.assignedStartDate.toISOString().split('T')[0] : String(member.assignedStartDate),
     assignedEndDate: member.assignedEndDate instanceof Date ? member.assignedEndDate.toISOString().split('T')[0] : (member.assignedEndDate ?? null),
     deletedAt: member.deletedAt ? member.deletedAt.toISOString() : null,
@@ -249,6 +250,7 @@ function timeProjectSeedFromSnapshot(snapshot: TimeProjectSnapshot): Record<stri
     budgetKind: (snapshot.budgetKind ?? 'none') as StaffTimeProjectBudgetKind,
     budgetValue: snapshot.budgetValue ?? null,
     budgetWarnAtPercent: snapshot.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT,
+    defaultAssigneeStaffMemberId: snapshot.defaultAssigneeStaffMemberId ?? null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -265,6 +267,7 @@ function timeProjectMemberSeedFromSnapshot(snapshot: TimeProjectMemberSnapshot):
     role: snapshot.role ?? null,
     status: (snapshot.status ?? 'active') as StaffTimeProjectMemberStatus,
     showInGrid: snapshot.showInGrid ?? false,
+    isAssigner: snapshot.isAssigner === true,
     assignedStartDate: new Date(snapshot.assignedStartDate),
     assignedEndDate: snapshot.assignedEndDate ? new Date(snapshot.assignedEndDate) : null,
     createdAt: new Date(),
@@ -368,7 +371,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
 
     return { timeProjectId: project.id }
@@ -418,7 +421,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
           tenantId: project.tenantId,
         },
         events: staffTimeProjectCrudEvents,
-        indexer: timeProjectCrudIndexer,
+        indexer: staffTimeProjectCrudIndexer,
       })
     }
   },
@@ -428,8 +431,58 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
     seedFromSnapshot: timeProjectSeedFromSnapshot,
     buildResult: (entity) => ({ timeProjectId: entity.id }),
     events: staffTimeProjectCrudEvents,
-    indexer: timeProjectCrudIndexer,
+    indexer: staffTimeProjectCrudIndexer,
   }),
+}
+
+async function requireAssignerUserAccount(
+  em: EntityManager,
+  member: { staffMemberId: string; tenantId: string; organizationId: string },
+): Promise<void> {
+  const teamMember = await findOneWithDecryption(
+    em,
+    StaffTeamMember,
+    { id: member.staffMemberId, tenantId: member.tenantId, organizationId: member.organizationId, deletedAt: null },
+    undefined,
+    { tenantId: member.tenantId, organizationId: member.organizationId },
+  )
+  if (teamMember?.userId) return
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'staff.timesheets.errors.assignerNeedsUser',
+    'Only team members with a user account can be assigners, because they must log in and receive notifications.',
+  )
+  throw new CrudHttpError(422, { code: 'assigner_needs_user', error: message, fieldErrors: { isAssigner: message } })
+}
+
+async function requireDefaultAssigneeMember(
+  em: EntityManager,
+  project: { id: string; tenantId: string; organizationId: string },
+  staffMemberId: string,
+): Promise<void> {
+  const membership = await em.findOne(
+    StaffTimeProjectMember,
+    {
+      timeProjectId: project.id,
+      staffMemberId,
+      tenantId: project.tenantId,
+      organizationId: project.organizationId,
+      status: 'active',
+      deletedAt: null,
+    },
+    { fields: ['id'] },
+  )
+  if (membership) return
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'staff.timesheets.errors.defaultAssigneeNotMember',
+    'The default assignee must be an active member of this project.',
+  )
+  throw new CrudHttpError(422, {
+    code: 'default_assignee_not_member',
+    error: message,
+    fieldErrors: { defaultAssigneeStaffMemberId: message },
+  })
 }
 
 const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { timeProjectId: string }> = {
@@ -480,6 +533,10 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
         ?? (customerUnchanged && nextCustomerId ? project.customerSnapshot ?? null : null)
     }
 
+    if (parsed.defaultAssigneeStaffMemberId) {
+      await requireDefaultAssigneeMember(em, project, parsed.defaultAssigneeStaffMemberId)
+    }
+
     if (parsed.name !== undefined) project.name = parsed.name
     if (parsed.customerId !== undefined) project.customerId = parsed.customerId ?? null
     if (nextCustomerSnapshot !== undefined) project.customerSnapshot = nextCustomerSnapshot
@@ -496,6 +553,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     if (parsed.budgetKind !== undefined) project.budgetKind = parsed.budgetKind
     if (parsed.budgetValue !== undefined) project.budgetValue = parsed.budgetValue ?? null
     if (parsed.budgetWarnAtPercent !== undefined) project.budgetWarnAtPercent = parsed.budgetWarnAtPercent
+    if (parsed.defaultAssigneeStaffMemberId !== undefined) project.defaultAssigneeStaffMemberId = parsed.defaultAssigneeStaffMemberId ?? null
     // `currency_code` is intentionally absent here and from the update schema:
     // D-3 gives that column to `staff.timesheets.time_projects.change_currency`,
     // which owns the acknowledgement and the locked-entry refusal. A caller that
@@ -536,7 +594,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
 
     return { timeProjectId: project.id }
@@ -563,6 +621,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
       'budgetKind',
       'budgetValue',
       'budgetWarnAtPercent',
+      'defaultAssigneeStaffMemberId',
       'deletedAt',
     ])
     // `buildChanges` compares by identity, and the two snapshots are loaded through
@@ -612,6 +671,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     project.budgetKind = (before.budgetKind ?? 'none') as StaffTimeProjectBudgetKind
     project.budgetValue = before.budgetValue ?? null
     project.budgetWarnAtPercent = before.budgetWarnAtPercent ?? DEFAULT_BUDGET_WARN_AT_PERCENT
+    project.defaultAssigneeStaffMemberId = before.defaultAssigneeStaffMemberId ?? null
     // Undo of a plain update restores what a plain update could change; the currency
     // stays where change_currency left it (D-3).
     project.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
@@ -628,7 +688,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
   },
 }
@@ -673,7 +733,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
     return { timeProjectId: project.id }
   },
@@ -759,7 +819,7 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
   },
 }
@@ -932,7 +992,7 @@ const changeTimeProjectCurrencyCommand: CommandHandler<
         tenantId: project.tenantId,
       },
       events: timeProjectCurrencyChangeEvents(previousCurrencyCode, parsed.currencyCode),
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
 
     return {
@@ -1002,7 +1062,7 @@ const changeTimeProjectCurrencyCommand: CommandHandler<
         tenantId: project.tenantId,
       },
       events: staffTimeProjectCrudEvents,
-      indexer: timeProjectCrudIndexer,
+      indexer: staffTimeProjectCrudIndexer,
     })
   },
 }
@@ -1048,6 +1108,10 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
       })
     }
 
+    if (parsed.isAssigner === true) {
+      await requireAssignerUserAccount(em, { staffMemberId: parsed.staffMemberId, tenantId: parsed.tenantId, organizationId: parsed.organizationId })
+    }
+
     const now = new Date()
     const member = em.create(StaffTimeProjectMember, {
       tenantId: parsed.tenantId,
@@ -1057,6 +1121,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
       role: parsed.role ?? null,
       status: parsed.status ?? 'active',
       showInGrid: false,
+      isAssigner: parsed.isAssigner === true,
       assignedStartDate: parsed.assignedStartDate,
       assignedEndDate: parsed.assignedEndDate ?? null,
       createdAt: now,
@@ -1187,9 +1252,13 @@ const updateTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberUpdat
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
+    if (parsed.isAssigner === true && member.isAssigner !== true) {
+      await requireAssignerUserAccount(em, member)
+    }
     if (parsed.role !== undefined) member.role = parsed.role ?? null
     if (parsed.status !== undefined) member.status = parsed.status
     if (parsed.assignedEndDate !== undefined) member.assignedEndDate = parsed.assignedEndDate ?? null
+    if (parsed.isAssigner !== undefined) member.isAssigner = parsed.isAssigner
     member.updatedAt = new Date()
     await em.flush()
 
@@ -1214,6 +1283,7 @@ const updateTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberUpdat
       'role',
       'status',
       'assignedEndDate',
+      'isAssigner',
     ])
     const { translate } = await resolveTranslations()
     return {
@@ -1245,6 +1315,7 @@ const updateTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberUpdat
     member.role = before.role ?? null
     member.status = (before.status ?? 'active') as StaffTimeProjectMemberStatus
     member.assignedEndDate = before.assignedEndDate ? new Date(before.assignedEndDate) : null
+    member.isAssigner = before.isAssigner === true
     member.updatedAt = new Date()
     await em.flush()
 

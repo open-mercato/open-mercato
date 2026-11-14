@@ -553,9 +553,22 @@ describe('Pending-action contract integration (Step 5.17)', () => {
         recordVersion: 'v1',
       },
     ]
-    const seed = makeSeed({ records, recordVersion: null })
+    const seed = {
+      ...makeSeed({ records, recordVersion: null }),
+      normalizedInput: {
+        records: [
+          { recordId: 'r-1', title: 'One' },
+          { recordId: 'r-2', title: 'Two' },
+          { recordId: 'r-3', title: 'Three' },
+        ],
+      },
+    } as Row
     const { repo, store, setStatus } = makeRepoStub({ seeds: [seed] })
     const emit = jest.fn().mockResolvedValue(undefined)
+    const handler = jest.fn(async () => ({
+      recordId: 'batch-p',
+      commandName: 'catalog.bulk_update_products',
+    }))
 
     const bulkTool = makeTool({
       name: 'catalog.bulk_update_products',
@@ -566,10 +579,7 @@ describe('Pending-action contract integration (Step 5.17)', () => {
         { recordId: 'r-2', entityType: 'product', label: 'Row 2', recordVersion: 'v2', before: {} },
         { recordId: 'r-3', entityType: 'product', label: 'Row 3', recordVersion: 'v1', before: {} },
       ],
-      handler: async () => ({
-        recordId: 'batch-p',
-        commandName: 'catalog.bulk_update_products',
-      }),
+      handler,
     })
     const batchAgent = makeAgent({ allowedTools: ['catalog.bulk_update_products'] })
 
@@ -601,6 +611,13 @@ describe('Pending-action contract integration (Step 5.17)', () => {
     })
 
     expect(executed.ok).toBe(true)
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler.mock.calls[0][0]).toEqual({
+      records: [
+        { recordId: 'r-1', title: 'One' },
+        { recordId: 'r-3', title: 'Three' },
+      ],
+    })
     expect(store.get('pa_1')!.status).toBe('confirmed')
     expect(store.get('pa_1')!.failedRecords).toEqual([
       {

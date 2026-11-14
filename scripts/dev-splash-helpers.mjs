@@ -88,14 +88,14 @@ export function decorateActivityMessage(message) {
   if (/splash page/i.test(plain)) return `🪟 ${plain}`
   if (/package/i.test(plain)) return `📦 ${plain}`
   if (/build/i.test(plain)) return `🧱 ${plain}`
-  if (/generate|artifact/i.test(plain)) return `♻️ ${plain}`
+  if (/generate|artifact/i.test(plain)) return `🔄 ${plain}`
   if (/watch/i.test(plain)) return `👀 ${plain}`
   if (/ready|login/i.test(plain)) return `🌐 ${plain}`
-  if (/queue|scheduler|background/i.test(plain)) return `⚙️ ${plain}`
+  if (/queue|scheduler|background/i.test(plain)) return `🔧 ${plain}`
   if (/memory/i.test(plain)) return `🧠 ${plain}`
   if (/encrypt/i.test(plain)) return `🔐 ${plain}`
-  if (/compile/i.test(plain)) return `🛠️ ${plain}`
-  if (/warn|port/i.test(plain)) return `⚠️ ${plain}`
+  if (/compile/i.test(plain)) return `🔨 ${plain}`
+  if (/warn|port/i.test(plain)) return `❗ ${plain}`
   return `✨ ${plain}`
 }
 

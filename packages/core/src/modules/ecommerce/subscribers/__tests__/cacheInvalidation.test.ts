@@ -6,6 +6,7 @@ import storeHandler, { metadata as storeMetadata } from '../store-cache-invalida
 import domainBindingHandler, { metadata as domainBindingMetadata } from '../store-domain-binding-cache-invalidation'
 import channelBindingHandler, { metadata as channelBindingMetadata } from '../store-channel-binding-cache-invalidation'
 import domainMappingHandler, { metadata as domainMappingMetadata } from '../domain-mapping-cache-invalidation'
+import salesChannelHandler, { metadata as salesChannelMetadata } from '../sales-channel-cache-invalidation'
 import membershipHandler, { metadata as membershipMetadata } from '../customer-group-membership-cache-invalidation'
 import groupHandler, { metadata as groupMetadata } from '../customer-group-cache-invalidation'
 import termsHandler, { metadata as termsMetadata } from '../customer-group-terms-cache-invalidation'
@@ -98,6 +99,7 @@ describe('ecommerce cache invalidation subscribers', () => {
     expect(domainBindingMetadata).toMatchObject({ event: 'ecommerce.store_domain_binding.*', persistent: false })
     expect(channelBindingMetadata).toMatchObject({ event: 'ecommerce.store_channel_binding.*', persistent: false })
     expect(domainMappingMetadata).toMatchObject({ event: 'customer_accounts.domain_mapping.*', persistent: false })
+    expect(salesChannelMetadata).toMatchObject({ event: 'sales.channel.*', persistent: false })
     expect(membershipMetadata).toMatchObject({ event: 'customer_groups.membership.*', persistent: false })
     expect(groupMetadata).toMatchObject({ event: 'customer_groups.group.*', persistent: false })
     expect(termsMetadata).toMatchObject({ event: 'customer_groups.terms.updated', persistent: false })
@@ -181,6 +183,21 @@ describe('ecommerce cache invalidation subscribers', () => {
       createCtx({ cache }, { eventName: 'ecommerce.store_channel_binding.deleted' }),
     )
     expect(calls[0].tags).toEqual(['ecommerce-store:store-1'])
+  })
+
+  it('evicts the stores resolved through a sales channel when it is deleted, restored or updated', async () => {
+    const { cache, calls } = createRecordingCache()
+    for (const eventName of ['sales.channel.deleted', 'sales.channel.created', 'sales.channel.updated']) {
+      await salesChannelHandler(
+        { id: 'channel-1', tenantId: TENANT_ID, organizationId: ORG_ID },
+        createCtx({ cache }, { eventName }),
+      )
+    }
+    const eviction = [
+      { tenant: null, tags: ['ecommerce-sales-channel:channel-1'] },
+      { tenant: TENANT_ID, tags: ['ecommerce-sales-channel:channel-1'] },
+    ]
+    expect(calls).toEqual([...eviction, ...eviction, ...eviction])
   })
 
   it('evicts the mapping and hostname for every domain mapping event, including the superseded one', async () => {

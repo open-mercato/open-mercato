@@ -71,6 +71,33 @@ export const entities = [
     defaultEditor: false,
     fields: [],
   },
+  {
+    id: 'wms:asn',
+    label: 'ASN',
+    description: 'Advanced shipping notice for structured inbound receiving.',
+    labelField: 'referenceNumber',
+    showInSidebar: false,
+    defaultEditor: false,
+    fields: [],
+  },
+  {
+    id: 'wms:receiving_line',
+    label: 'Receiving Line',
+    description: 'Expected/received line against an ASN with QC outcome.',
+    labelField: 'catalogVariantId',
+    showInSidebar: false,
+    defaultEditor: false,
+    fields: [],
+  },
+  {
+    id: 'wms:putaway_task',
+    label: 'Putaway Task',
+    description: 'Directed putaway task moving accepted stock from staging into storage.',
+    labelField: 'catalogVariantId',
+    showInSidebar: false,
+    defaultEditor: false,
+    fields: [],
+  },
 ]
 
 export default entities

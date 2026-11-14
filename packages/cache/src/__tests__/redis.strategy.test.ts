@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import type { CacheStrategy } from '../types'
-import { createRedisStrategy } from '../strategies/redis'
+import { createRedisStrategy, pickRedisConstructor } from '../strategies/redis'
 
 type PipelineOp = () => void
 
@@ -374,5 +374,57 @@ describe('redis strategy value compression', () => {
     expect(await strategy.get('broken')).toBeNull()
     expect(currentRedis.values.has('cache:broken')).toBe(false)
     await strategy.close?.()
+  })
+})
+
+describe('pickRedisConstructor', () => {
+  class RealRedis {
+    args: unknown[]
+    constructor(...args: unknown[]) {
+      this.args = args
+    }
+  }
+
+  it('resolves a plain CommonJS require, where module.exports is the class itself', () => {
+    const mod = RealRedis as unknown as { default: unknown; Redis: unknown }
+    mod.default = RealRedis
+    mod.Redis = RealRedis
+
+    const ctor = pickRedisConstructor(mod)
+
+    expect(ctor).toBe(RealRedis)
+    expect(new ctor!()).toBeInstanceOf(RealRedis)
+  })
+
+  it('resolves a real Node ESM namespace, where .default is the class and the namespace is a plain object', () => {
+    const mod = { default: RealRedis, Redis: RealRedis }
+
+    const ctor = pickRedisConstructor(mod)
+
+    expect(ctor).toBe(RealRedis)
+    expect(new ctor!()).toBeInstanceOf(RealRedis)
+  })
+
+  it('resolves a Turbopack-wrapped callable namespace by preferring .default/.Redis over the wrapper', () => {
+    // Mirrors Turbopack's `createNS`: a plain function that forwards to the
+    // real class via `.apply`, which is callable but throws when invoked
+    // with `new` because `apply` always calls the class as a plain function.
+    const wrapper = function (this: unknown, ...args: unknown[]) {
+      return RealRedis.apply(this, args)
+    } as unknown as { default: unknown; Redis: unknown }
+    wrapper.default = RealRedis
+    wrapper.Redis = RealRedis
+
+    const ctor = pickRedisConstructor(wrapper)
+
+    expect(ctor).toBe(RealRedis)
+    expect(new ctor!()).toBeInstanceOf(RealRedis)
+    expect(() => new (wrapper as unknown as new () => unknown)()).toThrow(TypeError)
+  })
+
+  it('returns null when nothing usable is found', () => {
+    expect(pickRedisConstructor({})).toBeNull()
+    expect(pickRedisConstructor(null)).toBeNull()
+    expect(pickRedisConstructor(undefined)).toBeNull()
   })
 })

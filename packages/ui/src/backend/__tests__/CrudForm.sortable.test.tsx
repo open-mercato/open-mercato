@@ -23,6 +23,18 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
   useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
 }))
 
+const sortableIds: string[] = []
+jest.mock('@dnd-kit/sortable', () => {
+  const actual = jest.requireActual('@dnd-kit/sortable')
+  return {
+    ...actual,
+    useSortable: (args: { id: string }) => {
+      sortableIds.push(args.id)
+      return actual.useSortable(args)
+    },
+  }
+})
+
 import * as React from 'react'
 import { fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
@@ -52,6 +64,22 @@ describe('CrudForm sortable groups', () => {
     )
     const handles = container.querySelectorAll('button[aria-label="Drag to reorder"]')
     expect(handles.length).toBe(2)
+  })
+
+  it('keeps each sortable item on its own group when a bare group renders nothing', () => {
+    sortableIds.length = 0
+    const { container } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        groups={[{ id: 'headless', bare: true, column: 1, component: () => null }, ...groups]}
+        onSubmit={() => {}}
+        sortableGroups={true}
+        collapsibleGroups={true}
+      />,
+    )
+    expect(new Set(sortableIds)).toEqual(new Set(['main', 'extra']))
+    expect(container.querySelectorAll('button[aria-label="Drag to reorder"]').length).toBe(2)
   })
 
   it('does not render any drag handle when sortable is disabled', () => {

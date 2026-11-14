@@ -14,6 +14,23 @@ describe('Select leading visual', () => {
     expect(trigger.querySelector('[data-slot="select-item-leading"]')).toBeNull()
   })
 
+  it('keeps multiple leading visuals out of the value line clamp', () => {
+    render(<Select defaultValue="planned">
+      <SelectTrigger aria-label="Status">
+        <SelectTriggerLeading>
+          <svg aria-label="Planned icon" />
+          <span aria-label="Planned color" />
+        </SelectTriggerLeading>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent><SelectItem value="planned">Planned</SelectItem></SelectContent>
+    </Select>)
+
+    const trigger = screen.getByRole('combobox', { name: 'Status' })
+    expect(trigger.className).toContain('[&>span:not([data-slot=select-trigger-leading])]:line-clamp-1')
+    expect(trigger.className).not.toContain('[&>span]:line-clamp-1')
+  })
+
   it('preserves controlled values when a parent changes the selection', async () => {
     const content = (value: string) => <Select value={value} onValueChange={() => {}}>
       <SelectTrigger aria-label="Company"><SelectValue /></SelectTrigger>

@@ -124,22 +124,22 @@ export default function PasskeyProviderDetails({
     : t('security.profile.mfa.providers.passkey.keyMany', '{count} keys', { count: String(configuredCount) })
 
   return (
-    <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-950 p-4 text-slate-100">
+    <section className="space-y-4 rounded-lg border border-border bg-card p-4 text-foreground">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Shield className="size-4 text-slate-100" aria-hidden="true" />
+            <Shield className="size-4 text-foreground" aria-hidden="true" />
             <h2 className="text-lg font-semibold">
               {t('security.profile.mfa.passkey.title', 'Security keys')}
             </h2>
             {configuredCount > 0 ? (
               <MfaConfiguredBadge label={t('security.profile.mfa.providers.totp.configured', 'Configured')} />
             ) : null}
-            <Badge variant="outline" className="border-slate-700 bg-slate-900 text-slate-200">
+            <Badge variant="outline">
               {keysLabel}
             </Badge>
           </div>
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-muted-foreground">
             {t(
               'security.profile.mfa.passkey.description',
               'Security keys are WebAuthn credentials that can only be used as a second factor of authentication.',
@@ -153,13 +153,13 @@ export default function PasskeyProviderDetails({
           {methods.map((method) => (
             <article
               key={method.id}
-              className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3 last:border-none last:pb-0"
+              className="flex items-start justify-between gap-3 border-b border-border pb-3 last:border-none last:pb-0"
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-slate-100">
+                <p className="truncate text-sm font-medium text-foreground">
                   {method.label ?? t('security.profile.mfa.providers.passkey.title', 'Security key')}
                 </p>
-                <p className="truncate text-xs text-slate-400">
+                <p className="truncate text-xs text-muted-foreground">
                   {t('ui.table.registeredAt', 'Registered')}: {formatRelative(method.createdAt, t('security.profile.mfa.method.unknownTime', 'Unknown'))}
                   {' '}|{' '}
                   {t('security.profile.mfa.method.lastUsed', 'Last used')}: {formatRelative(method.lastUsedAt, t('security.profile.mfa.method.neverUsed', 'Never used'))}
@@ -170,6 +170,7 @@ export default function PasskeyProviderDetails({
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="shrink-0"
                   disabled={saving || loading}
                   aria-label={t('ui.actions.delete', 'Delete')}
                   title={t('ui.actions.delete', 'Delete')}
@@ -177,7 +178,7 @@ export default function PasskeyProviderDetails({
                     void onRemoveMethod(method)
                   }}
                 >
-                  <Trash2 className="size-4 text-red-400" />
+                  <Trash2 className="size-4 text-destructive" />
                 </IconButton>
               ) : null}
             </article>
@@ -197,13 +198,13 @@ export default function PasskeyProviderDetails({
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           placeholder={t('security.profile.mfa.passkey.nicknamePlaceholder', 'Enter a nickname for this security key')}
-          className="h-10  border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+          size="lg"
         />
         <Button
           type="submit"
           disabled={loading || saving}
           variant="outline"
-          className="h-10 border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-slate-100"
+          size="lg"
         >
           {loading ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
           {t('ui.actions.add', 'Add')}

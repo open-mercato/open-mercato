@@ -10,6 +10,20 @@ export type NotificationSeverity = 'info' | 'warning' | 'success' | 'error'
  */
 export const NOTIFICATION_ACTION_ALREADY_EXECUTED_ERROR_CODE = 'notification_action_already_executed'
 
+/**
+ * `code` of the 400 body the notification create routes answer with when an action carries a
+ * `commandId`. Command-backed actions are attached by server code from the notification type
+ * definition, never by an API caller.
+ */
+export const NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE = 'notification_action_command_not_allowed'
+
+/**
+ * `code` of the 403 body `POST /api/notifications/:id/action` answers with when the stored command
+ * is not declared by the notification's registered type with the same action id and `commandId`,
+ * or the clicking user lacks the declared action's `requiredFeatures`.
+ */
+export const NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE = 'notification_action_forbidden'
+
 export type NotificationAction = {
   id: string
   label: string
@@ -36,6 +50,11 @@ export type NotificationTypeAction = {
   href?: string
   confirmRequired?: boolean
   confirmMessageKey?: string
+  /**
+   * Features the clicking user must hold before the action's command is dispatched. Checked by
+   * `POST /api/notifications/:id/action` at execution time.
+   */
+  requiredFeatures?: string[]
 }
 
 export type NotificationRendererProps = {
@@ -70,6 +89,13 @@ export type NotificationTypeDefinition = {
   icon: string
   severity: NotificationSeverity
   actions: NotificationTypeAction[]
+  /**
+   * Command-backed actions a producer may attach to a single notification of this type. The
+   * builder does not add them by default. The action route only dispatches a command declared in
+   * `actions` or `optionalActions` with the same `id` and `commandId`; the declaration's
+   * `requiredFeatures` are checked for the clicking user.
+   */
+  optionalActions?: NotificationTypeAction[]
   primaryActionId?: string
   linkHref?: string
   Renderer?: ComponentType<NotificationRendererProps>

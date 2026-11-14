@@ -58,7 +58,7 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
   const payload = (props.payload as ConfirmationCardPayload | undefined) ?? {}
   const injected = props.initialAction ?? payload.pendingAction ?? null
 
-  const { action, status, refresh } = useAiPendingActionPolling({
+  const { action, status, refresh, unavailable } = useAiPendingActionPolling({
     pendingActionId,
     endpoint: props.endpoint,
     disabled: !pendingActionId,
@@ -78,7 +78,10 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
       : null,
   )
 
+  const isUnavailable = unavailable || localError?.code === 'pending_action_not_found'
+
   const canCancel =
+    !isUnavailable &&
     !isCancelling &&
     (effectiveStatus === 'pending' || effectiveStatus === 'confirmed' || effectiveStatus == null)
 
@@ -153,61 +156,97 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
       tabIndex={0}
       onKeyDown={handleKeyDown}
       data-ai-confirmation-card
-      data-ai-confirmation-status={effectiveStatus ?? 'pending'}
-      aria-busy
+      data-ai-confirmation-status={isUnavailable ? 'unavailable' : effectiveStatus ?? 'pending'}
+      aria-busy={!isUnavailable}
     >
       <div className="flex items-start gap-3">
-        <Spinner size="sm" className="mt-0.5" />
+        {isUnavailable ? null : <Spinner size="sm" className="mt-0.5" />}
         <div className="flex-1">
           <h4 className="text-sm font-semibold">
-            {t(
-              'ai_assistant.chat.mutation_cards.confirmation.title',
-              'Applying action...',
-            )}
+            {isUnavailable
+              ? t(
+                  'ai_assistant.chat.mutation_cards.confirmation.notFoundTitle',
+                  'Proposal not available',
+                )
+              : t(
+                  'ai_assistant.chat.mutation_cards.confirmation.title',
+                  'Applying action...',
+                )}
           </h4>
-          <p className="mt-1 text-sm text-muted-foreground">{summary}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isUnavailable
+              ? t(
+                  'ai_assistant.chat.mutation_cards.preview.unavailable',
+                  'This proposal is not available. It may have been resolved or removed, or it was requested by someone else.',
+                )
+              : summary}
+          </p>
         </div>
       </div>
 
-      {localError ? (
-        <ConfirmationErrorAlert error={localError} />
+      {localError && !isUnavailable ? (
+        <ConfirmationErrorAlert error={localError} records={effectiveAction?.records ?? null} />
       ) : null}
 
-      <div className="mt-3 flex items-center justify-end gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void handleCancel()
-          }}
-          disabled={!canCancel}
-          data-ai-confirmation-cancel
-        >
-          {isCancelling ? (
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-          ) : null}
-          <span>
-            {t('ai_assistant.chat.mutation_cards.confirmation.cancel', 'Cancel')}
-          </span>
-        </Button>
-      </div>
+      {isUnavailable ? null : (
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void handleCancel()
+            }}
+            disabled={!canCancel}
+            data-ai-confirmation-cancel
+          >
+            {isCancelling ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : null}
+            <span>
+              {t('ai_assistant.chat.mutation_cards.confirmation.cancel', 'Cancel')}
+            </span>
+          </Button>
+        </div>
+      )}
     </section>
   )
 }
 
-function ConfirmationErrorAlert({
+function readStaleRecordIds(extra: Record<string, unknown> | undefined): string[] {
+  if (!extra) return []
+  const ids: string[] = []
+  const push = (value: unknown) => {
+    if (typeof value === 'string' && value.length > 0 && !ids.includes(value)) ids.push(value)
+  }
+  if (Array.isArray(extra.failedRecords)) {
+    for (const entry of extra.failedRecords) {
+      push(entry && typeof entry === 'object' ? (entry as { recordId?: unknown }).recordId : null)
+    }
+  }
+  if (Array.isArray(extra.staleRecords)) {
+    for (const entry of extra.staleRecords) push(entry)
+  }
+  push(extra.recordId)
+  return ids
+}
+
+export function ConfirmationErrorAlert({
   error,
+  records,
 }: {
   error: { code?: string; message: string; extra?: Record<string, unknown> }
+  records?: AiPendingActionCardAction['records']
 }) {
   const t = useT()
   const code = error.code ?? 'unknown'
 
   if (code === 'stale_version') {
-    const failedRecords = Array.isArray(error.extra?.failedRecords)
-      ? (error.extra?.failedRecords as Array<{ recordId?: string }>)
-      : []
+    const labelById = new Map<string, string>()
+    for (const record of records ?? []) {
+      if (record?.recordId && record.label) labelById.set(record.recordId, record.label)
+    }
+    const staleRecordIds = readStaleRecordIds(error.extra)
     return (
       <Alert
         status="warning"
@@ -227,16 +266,17 @@ function ConfirmationErrorAlert({
               'One or more records changed since this preview was generated. Ask the assistant to re-propose the change.',
             )}
           </p>
-          {failedRecords.length > 0 ? (
+          {staleRecordIds.length > 0 ? (
             <ul className="mt-2 list-disc pl-5 text-xs">
-              {failedRecords.map((record, idx) => (
-                <li
-                  key={`${record.recordId ?? idx}`}
-                  data-ai-confirmation-stale-record={record.recordId ?? ''}
-                >
-                  <span className="font-mono">{record.recordId ?? '—'}</span>
-                </li>
-              ))}
+              {staleRecordIds.map((recordId) => {
+                const label = labelById.get(recordId)
+                return (
+                  <li key={recordId} data-ai-confirmation-stale-record={recordId}>
+                    {label ? <span className="mr-1">{label}</span> : null}
+                    <span className="font-mono">{recordId}</span>
+                  </li>
+                )
+              })}
             </ul>
           ) : null}
         </AlertDescription>
@@ -261,6 +301,29 @@ function ConfirmationErrorAlert({
           {t(
             'ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody',
             'The tool signature changed since this preview was generated. Ask the assistant to re-propose the change.',
+          )}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  if (code === 'tool_features_denied') {
+    return (
+      <Alert
+        status="error"
+        className="mt-3"
+        data-ai-confirmation-error="tool_features_denied"
+      >
+        <AlertTitle>
+          {t(
+            'ai_assistant.chat.mutation_cards.confirmation.toolFeaturesDeniedTitle',
+            'Permission required',
+          )}
+        </AlertTitle>
+        <AlertDescription>
+          {t(
+            'ai_assistant.chat.mutation_cards.confirmation.toolFeaturesDeniedBody',
+            'You no longer have the permissions this change needs. Ask an administrator for access, or cancel the proposal.',
           )}
         </AlertDescription>
       </Alert>

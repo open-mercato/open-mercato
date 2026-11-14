@@ -1,0 +1,4 @@
+{
+  "cli.init.errors.superadminPasswordPolicy": "Production superadmin password does not meet the configured password policy. Password-policy bypass flags apply only outside production.",
+  "cli.init.errors.superadminPasswordRequired": "Production initialization requires a unique superadmin password via OM_INIT_SUPERADMIN_PASSWORD or --password; built-in placeholders are not allowed."
+}

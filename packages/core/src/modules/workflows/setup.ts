@@ -95,6 +95,14 @@ export const setup: ModuleSetupConfig = {
     })
   },
 
+  onOrganizationCreated: async (ctx) => {
+    await ensureMetricRollupSchedule({
+      container: ctx.container as never,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  },
+
   /**
    * Portal grants for the §6.4 portal task surface.
    *

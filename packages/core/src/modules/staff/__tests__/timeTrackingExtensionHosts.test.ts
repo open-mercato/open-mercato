@@ -58,6 +58,7 @@ const EXPECTED_INJECTION_SPOT_IDS = [
   'staff.time_task.board:column-header',
   'staff.time_task.board:toolbar',
   'staff.time_tracking.settings:sections',
+  'staff.time_tracking.settings:tabs',
   'staff.timesheet:day-cell-actions',
   'staff.timesheet:period-footer',
   'staff.timesheet:toolbar',

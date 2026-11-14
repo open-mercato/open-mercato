@@ -193,4 +193,69 @@ describe('getMergedAvailabilityWindows', () => {
 
     expect(windows).toEqual([{ start: '2026-10-25T08:00:00.000Z', end: '2026-10-25T10:00:00.000Z' }])
   })
+
+  it('uses the earlier occurrence of a repeated weekly wall time', () => {
+    const windows = getMergedAvailabilityWindows({
+      respectTimezone: true,
+      rules: [{
+        rrule: 'DTSTART:20261018T003000Z\nDURATION:PT1H\nRRULE:FREQ=WEEKLY',
+        timezone: 'Europe/Warsaw',
+      }],
+      range: { start: new Date('2026-10-24T22:00:00Z'), end: new Date('2026-10-25T04:00:00Z') },
+    }).map(toIsoWindow)
+
+    expect(windows).toEqual([{ start: '2026-10-25T00:30:00.000Z', end: '2026-10-25T02:30:00.000Z' }])
+  })
+
+  it.each([
+    ['20260322T013000Z', 'PT30M', '2026-04-05T00:30:00.000Z'],
+    ['20260322T010000Z', 'PT1H', '2026-04-05T00:00:00.000Z'],
+  ])('omits nonpositive DST-gap occurrences without dropping later weeks (%s)', (dtStart, duration, nextStart) => {
+    const windows = getMergedAvailabilityWindows({
+      respectTimezone: true,
+      rules: [{
+        rrule: `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:FREQ=WEEKLY`,
+        timezone: 'Europe/Warsaw',
+      }],
+      range: { start: new Date('2026-03-29T00:00:00Z'), end: new Date('2026-04-05T04:00:00Z') },
+    }).map(toIsoWindow)
+
+    expect(windows).toEqual([{ start: nextStart, end: '2026-04-05T01:00:00.000Z' }])
+  })
+
+  it.each([
+    ['20260322T013000Z', 'PT30M'],
+    ['20260322T010000Z', 'PT1H'],
+  ])('ignores nonpositive DST-gap blockers when subtracting availability (%s)', (dtStart, duration) => {
+    const windows = getMergedAvailabilityWindows({
+      respectTimezone: true,
+      rules: [
+        {
+          rrule: 'DTSTART:20260321T230000Z\nDURATION:PT5H\nRRULE:FREQ=WEEKLY',
+          timezone: 'Europe/Warsaw',
+        },
+        {
+          rrule: `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:FREQ=WEEKLY`,
+          timezone: 'Europe/Warsaw',
+          kind: 'unavailability',
+        },
+      ],
+      range: { start: new Date('2026-03-29T00:00:00Z'), end: new Date('2026-03-29T04:00:00Z') },
+    }).map(toIsoWindow)
+
+    expect(windows).toEqual([{ start: '2026-03-28T23:00:00.000Z', end: '2026-03-29T03:00:00.000Z' }])
+  })
+
+  it('reads an unresolvable legacy timezone with UTC fallback', () => {
+    const windows = getMergedAvailabilityWindows({
+      respectTimezone: true,
+      rules: [{
+        rrule: 'DTSTART:20261018T003000Z\nDURATION:PT1H\nRRULE:FREQ=WEEKLY',
+        timezone: 'Europe/Warszawa',
+      }],
+      range: { start: new Date('2026-10-25T00:00:00Z'), end: new Date('2026-10-25T03:00:00Z') },
+    }).map(toIsoWindow)
+
+    expect(windows).toEqual([{ start: '2026-10-25T00:30:00.000Z', end: '2026-10-25T01:30:00.000Z' }])
+  })
 })

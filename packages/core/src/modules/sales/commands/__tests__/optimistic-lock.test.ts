@@ -20,6 +20,7 @@ import {
   SALES_RESOURCE_KIND_ORDER,
 } from '../shared'
 import { SalesOrder, SalesOrderLine, SalesPayment, SalesShipment } from '../../data/entities'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -146,10 +147,14 @@ describe('sales.orders.lines.delete — document-aggregate optimistic lock', () 
   it('rejects a stale parent-order version with a 409 before mutating', async () => {
     const order = makeOrder(CURRENT)
     const em: any = {
+      getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
       findOne: jest.fn(async (entityClass: unknown) => (entityClass === SalesOrder ? order : null)),
       find: jest.fn(async () => []),
       count: jest.fn(async () => 0),
       flush: jest.fn(async () => {}),
+      begin: jest.fn(async () => {}),
+      commit: jest.fn(async () => {}),
+      rollback: jest.fn(async () => {}),
       fork: function () { return this },
     }
     const ctx = makeCtx(em, makeRequest(STALE))
@@ -173,10 +178,14 @@ describe('sales.orders.lines.delete — document-aggregate optimistic lock', () 
     const order = makeOrder(CURRENT)
     const line = { id: LINE_ID }
     const em: any = {
+      getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
       findOne: jest.fn(async (entityClass: unknown) => (entityClass === SalesOrder ? order : null)),
       find: jest.fn(async (entityClass: unknown) => (entityClass === SalesOrderLine ? [line] : [])),
       count: jest.fn(async () => 0),
       flush: jest.fn(async () => {}),
+      begin: jest.fn(async () => {}),
+      commit: jest.fn(async () => {}),
+      rollback: jest.fn(async () => {}),
       fork: function () { return this },
     }
     const ctx = makeCtx(em, makeRequest(null))
@@ -322,6 +331,7 @@ describe('sales.shipments.delete — parent-order aggregate optimistic lock (Gap
       flush: jest.fn(async () => {}),
       remove: jest.fn((entity: unknown) => removed.push(entity)),
       transactional: jest.fn(async (cb: (tx: any) => Promise<unknown>) => cb(em)),
+      getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
       fork: function () { return this },
     }
     const ctx = makeCtx(em, makeRequest(STALE))
@@ -359,6 +369,7 @@ describe('sales.shipments.delete — parent-order aggregate optimistic lock (Gap
         flush: jest.fn(async () => {}),
         remove: jest.fn((entity: unknown) => removed.push(entity)),
         transactional: jest.fn(async (cb: (tx: any) => Promise<unknown>) => cb(em)),
+        getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
         fork: function () { return this },
       }
       const ctx = makeCtx(em, makeRequest(STALE))

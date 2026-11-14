@@ -1,6 +1,6 @@
 # AI Decision Model Port
 
-> Status: **Draft — design-only spec PR.** First consumer: the workflows `AI_DECISION` step, specified in `2026-10-06-workflows-ai-decision-step.md` (pending its own spec PR; not yet on `develop`).
+> Status: **Implemented in open PR #7553** (not yet deployed; stays out of `implemented/` until then). First consumer: the workflows `AI_DECISION` step, specified in `2026-10-06-workflows-ai-decision-step.md` (pending its own spec PR; not yet on `develop`).
 
 ## 📝 TLDR
 
@@ -67,7 +67,7 @@
 | D6 | **Mandatory timeout**: default 5 s, max 30 s (a `timeoutMs` above 30 000 is clamped to 30 000; a missing or non-positive one uses the default), plus an optional caller `AbortSignal`, combined with `AbortSignal.any`. `timeout` vs `aborted` is decided by `signal.reason`. | The models are sub-second. A hard bound protects inline callers. |
 | D7 | Strict zod validation of the response. Every option key must be present in `probabilities`, and the selected key must be one of them. | Never trust the vendor shape. A mismatch is `invalid_response`, not a guess. |
 | D8 | Privacy: `state` is never logged or persisted by the port. The vendor `user` field is never sent. `session_id` is caller-supplied and must be an opaque id (e.g. a workflow instance id). | State may carry tenant data. Identifiers stay pseudonymous. |
-| D9 | `fixture` adapter, **registered only when `OM_DECISION_FIXTURE_ENABLED=1` and `NODE_ENV !== 'production'`**. Deterministic rules:<br>- `choice`: the first option (in order) whose key appears as a whole word (case-insensitive) in the serialized state gets p = 1, the others 0. With no match, the distribution is uniform.<br>- `score`: a uniform distribution.<br>- `binary`: probability 0.5.<br>`confidence` equals the top probability. | Lets consumer integration tests exercise the success and low-confidence paths without a vendor. A double opt-in means a misconfigured staging host cannot silently serve fake answers. |
+| D9 | `fixture` adapter, **registered only when `OM_DECISION_FIXTURE_ENABLED` is truthy (`1`, `true`, `yes` or `on`, parsed with the shared boolean helper) and `NODE_ENV !== 'production'`**. Deterministic rules:<br>- `choice`: the first option (in order) whose key appears as a whole word (case-insensitive) in the serialized state gets p = 1, the others 0. With no match, the distribution is uniform.<br>- `score`: a uniform distribution.<br>- `binary`: probability 0.5.<br>`confidence` equals the top probability. | Lets consumer integration tests exercise the success and low-confidence paths without a vendor. A double opt-in means a misconfigured staging host cannot silently serve fake answers. |
 | D10 | **Payload bound in tokens.** The estimate uses `@open-mercato/shared/lib/ai/token-count`, capped by `OM_DECISION_MAX_INPUT_TOKENS` (default 24 000, below Jev's 32 k window). | Character bounds are wrong for JSON, Polish or CJK text (1–2 chars per token). |
 | D11 | **`@experimental` for one minor; open unions.** `DecisionAnswer['type']` and `DecisionErrorCode` may gain members, so consumers MUST keep a default branch. | The vendor endpoint is `/alpha/`. Additive union members would otherwise break exhaustive switches. |
 
@@ -386,3 +386,23 @@ Compliant, with one recorded, author-approved deviation and one precedent-backed
   - The registry registers its built-ins itself (`createDecisionModelRegistry`). The bootstrap file, re-export and import-graph test are removed.
   - `fixture_disabled` resolution, `timeoutMs` clamping and `score.value` derivation are specified.
   - The preset reference is stable (constant name instead of a line number).
+
+### 2026-10-16
+- Implemented on `feat/ai-decision-model-port` (open PR #7553):
+  - Types: `packages/shared/src/lib/ai/decision-model.ts` (types only, `@experimental`).
+  - Schemas and answer normalization: `packages/ai-assistant/src/modules/ai_assistant/lib/decision-model-schemas.ts`.
+  - Adapters: `lib/decision-adapters/openrouter.ts` and `lib/decision-adapters/fixture.ts`.
+  - Registry: `lib/decision-model-registry.ts` (`createDecisionModelRegistry`, `decisionModuleModelEnvKey`, `isDecisionFixtureEnabled`).
+  - Service: `lib/decision-model-service.ts`, registered as the `decisionModelService` singleton in `ai_assistant/di.ts`.
+  - Tests: `lib/__tests__/decision-*.test.ts`.
+  - Env block in `apps/mercato/.env.example`, mirrored in `packages/create-app/template/.env.example`.
+  - Docs: `apps/docs/docs/framework/ai-assistant/decision-models.mdx`.
+- Implementation notes:
+  - The adapters landed before the registry, because the registry registers them itself.
+  - The OpenRouter request JSON is built by hand, because `JSON.stringify` reorders integer-like keys (`"2"` before `"10"`) and would break option order (D2).
+  - Score `probabilities` from the vendor are accepted as an array or as an index-keyed object, since the vendor shape is not fully published.
+  - Vendor error messages are never surfaced; a vendor `error.code` is included in the internal message only when it matches a safe token pattern.
+  - A missing `OPENROUTER_API_KEY` at call time maps to `unavailable`.
+  - A probability sum within 1 ± 0.02 is normalized and logged at debug (`{ questionName, sum }` only).
+- Deviation from Implementation Plan step 6: the `packages/ai-assistant/AGENTS.md` "How to use a decision model" entry was not added. That file's instruction chain is already about 102 KB over the 32 KB budget, and `yarn agents:check-budget` only lets it shrink. The guidance lives on the docs page, which the root Task Router already points AI work to. Adding the entry needs a maintainer decision (trim the file or re-record the budget baseline).
+- Review follow-ups (`om-auto-review-pr`): `__proto__` is rejected as a question name or option key, because zod's `z.record` would otherwise drop it silently; D9 wording now matches the shared boolean parser used for the fixture opt-in.

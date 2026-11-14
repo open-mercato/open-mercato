@@ -11,6 +11,7 @@ function stableUuidFromString(input: string): string {
 }
 
 type SchedulerServiceLike = {
+  unregister?: (scheduleId: string) => Promise<void>
   register: (registration: {
     id: string
     name: string
@@ -31,6 +32,39 @@ type SchedulerServiceLike = {
   }) => Promise<void>
 }
 
+async function ensureHealthProbeSchedule(ctx: {
+  container: import('awilix').AwilixContainer
+  organizationId: string
+  tenantId: string
+}, legacyScheduleId?: string): Promise<void> {
+  const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
+  if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+
+  const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+  if (legacyScheduleId && typeof schedulerService.unregister === 'function') {
+    await schedulerService.unregister(legacyScheduleId)
+  }
+  await schedulerService.register({
+    id: stableUuidFromString(`integrations:health-probe:${ctx.tenantId}:${ctx.organizationId}`),
+    name: 'Integration health probes',
+    description: 'Runs outbound health checks for enabled integrations every 15 minutes.',
+    scopeType: 'organization',
+    organizationId: ctx.organizationId,
+    tenantId: ctx.tenantId,
+    scheduleType: 'interval',
+    scheduleValue: '15m',
+    timezone: 'UTC',
+    targetType: 'queue',
+    targetQueue: 'integration-health-probe',
+    targetPayload: {
+      scope: { organizationId: ctx.organizationId, tenantId: ctx.tenantId },
+    },
+    sourceType: 'module',
+    sourceModule: 'integrations',
+    isEnabled: true,
+  })
+}
+
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     superadmin: ['integrations.*', 'integrations.view', 'integrations.manage', 'integrations.credentials.manage'],
@@ -39,31 +73,14 @@ export const setup: ModuleSetupConfig = {
   },
 
   async seedDefaults({ container, organizationId, tenantId }) {
-    const cradle = container as { hasRegistration?: (name: string) => boolean }
-    if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) {
-      return
-    }
+    await ensureHealthProbeSchedule(
+      { container, organizationId, tenantId },
+      stableUuidFromString(`integrations:health-probe:${tenantId}`),
+    )
+  },
 
-    const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
-    await schedulerService.register({
-      id: stableUuidFromString(`integrations:health-probe:${tenantId}`),
-      name: 'Integration health probes',
-      description: 'Runs outbound health checks for enabled integrations every 15 minutes.',
-      scopeType: 'organization',
-      organizationId,
-      tenantId,
-      scheduleType: 'interval',
-      scheduleValue: '15m',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: 'integration-health-probe',
-      targetPayload: {
-        scope: { organizationId, tenantId },
-      },
-      sourceType: 'module',
-      sourceModule: 'integrations',
-      isEnabled: true,
-    })
+  async onOrganizationCreated({ container, organizationId, tenantId }) {
+    await ensureHealthProbeSchedule({ container, organizationId, tenantId })
   },
 }
 
