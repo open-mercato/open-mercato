@@ -265,5 +265,87 @@
       "height": 1000,
       "sha256": "5836cedfaaa12fe0150bf099bf9b0dc1e33da8d35ac88883d065b59269c8f8fd"
     }
-  ]
+  ],
+  "cleanup": {
+    "root": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/61dead07-cf9d-4dc3-9f7d-2d0a3a61ca5e",
+    "removedContainers": [
+      "bf0a05654fa0 reaped by CLI",
+      "om-qa9448-61dead07"
+    ],
+    "recordedPids": [
+      523316,
+      523319,
+      523339,
+      523346,
+      523368,
+      528731,
+      528758,
+      528786,
+      528846,
+      528852
+    ],
+    "appPortClosed": 36629,
+    "databasePort": 33283,
+    "sourceStatus": "",
+    "ownedRuntimeGone": true,
+    "inheritedRedisRemovedBeforeTeardown": {
+      "id": "0a10fa321c2f",
+      "name": "om-qa9448-5af72462",
+      "reason": "Replaced dynamic host publication with fixed-port owned Redis for valid restart test"
+    }
+  },
+  "evidence": {
+    "branch": "qa-evidence-pr-9448-61dead07",
+    "slug": "pr-9448-61dead07",
+    "evidenceUrl": "https://github.com/open-mercato/open-mercato/pull/9448#issuecomment-6883643141",
+    "commentId": 6883643141,
+    "screenshots": [
+      {
+        "file": "step-01-default-en.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-01-default-en.png"
+      },
+      {
+        "file": "step-02-empty-refusal.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-02-empty-refusal.png"
+      },
+      {
+        "file": "step-03-saved-en.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-03-saved-en.png"
+      },
+      {
+        "file": "step-04-mobile.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-04-mobile.png"
+      },
+      {
+        "file": "step-05-polish.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-05-polish.png"
+      },
+      {
+        "file": "step-06-viewer-denied.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-06-viewer-denied.png"
+      },
+      {
+        "file": "step-08-list.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-08-list.png"
+      },
+      {
+        "file": "step-09-stale-conflict.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-09-stale-conflict.png"
+      },
+      {
+        "file": "step-10-empty-list.png",
+        "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/step-10-empty-list.png"
+      }
+    ],
+    "verifiedPublicPngCount": 9,
+    "headSha": "75f71cceb0ae18b322743c39ef6b1b85cabd15e2"
+  },
+  "claim": {
+    "runId": "5af72462-ad01-4599-a214-63f4b759348c",
+    "commentId": 6882729531,
+    "ref": "refs/om-locks/pr-9448",
+    "sha": "c2c556a22a9a31f43a6504e5a7599d2df7b5fe48",
+    "state": "cleanup complete; original comment withdrawal and exact-SHA lease release follows publication",
+    "authorizedBy": "explicit parent same-chain handoff"
+  }
 }
