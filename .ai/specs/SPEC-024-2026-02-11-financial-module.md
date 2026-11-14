@@ -6,6 +6,8 @@
 
 > **Note:** This specification documents the **planned Financial Management module** for the Open Mercato ERP system. It defines a three-layer architecture (Core Engine, Localization Contracts, Country Plugins) to support multi-country financial operations with country-specific tax, invoicing, payroll, and compliance requirements.
 
+> **Interactive preview (2026-10-15):** The authenticated app-specific `finance_previews` module exposes `/backend/finance-preview` with 57 fictional-data views and 18 guided tasks. The original 43 frames are extended by source-driven ledger, contractor, asset lifecycle, deferred revenue, FX, banking, tax, KSeF and reporting workflows. State, validation, document identity and computed outcomes persist within their implemented browser workflow families. The [coverage map](analysis/2026-10-15-finance-prototype-gap-map.md) records exact inspected spec revisions, unresolved contracts and partial/disconnected flows; it replaces screen-count-based acceptance claims. Figma and shared DS components govern layout and statuses. Tests `TC-FIN-PREVIEW-001–003` and `010–016` distinguish render/language coverage, accountant outcomes, failure/recovery, idempotency, narrow-screen layout, malformed stored state and locale request recovery. This prototype does not implement the financial ledger, production persistence, legal filing or financial API contracts.
+
 ## Overview
 
 The Financial Management module serves as the backbone of the ERP system, centralizing all monetary transactions, providing real-time visibility into financial health, and ensuring regulatory compliance across multiple jurisdictions.

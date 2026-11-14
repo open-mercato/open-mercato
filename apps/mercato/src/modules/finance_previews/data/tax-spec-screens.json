@@ -1,0 +1,47 @@
+[
+  {
+    "id": "s53",
+    "area": "Podatki",
+    "title": "Rozliczenia podatkowe",
+    "subtitle": "VAT, CIT i PIT-4 · wyliczenie, dekret i potwierdzenie płatności",
+    "kind": "workflow",
+    "refs": ["§10–11"],
+    "next": "s55"
+  },
+  {
+    "id": "s54",
+    "area": "Zobowiązania",
+    "title": "Faktury odebrane z KSeF",
+    "subtitle": "Dokument źródłowy, duplikaty i szkic zakupu",
+    "kind": "workflow",
+    "refs": ["§10–11"],
+    "next": "s7"
+  },
+  {
+    "id": "s55",
+    "area": "Podatki",
+    "title": "Uzgodnienie VAT",
+    "subtitle": "Rejestr VAT i konta księgi głównej",
+    "kind": "workflow",
+    "refs": ["§10–11"],
+    "next": "s37"
+  },
+  {
+    "id": "s56",
+    "area": "Podatki",
+    "title": "Roczne księgi JPK_KR_PD",
+    "subtitle": "RPD, kompletność przypisań i symulacja wysyłki",
+    "kind": "workflow",
+    "refs": ["§10–11"],
+    "next": "s57"
+  },
+  {
+    "id": "s57",
+    "area": "Raporty",
+    "title": "Bilans i RZiS",
+    "subtitle": "Zamknięcie roczne, mapowanie i dane porównawcze",
+    "kind": "workflow",
+    "refs": ["§10–11"],
+    "next": "s56"
+  }
+]

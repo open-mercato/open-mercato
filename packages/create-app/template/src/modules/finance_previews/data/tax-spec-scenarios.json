@@ -1,0 +1,85 @@
+[
+  {
+    "id": "tax-liability",
+    "title": "Podatek za okres",
+    "role": "Księgowa podatkowa",
+    "goal": "Oblicz VAT, sprawdź dekret i zapisz potwierdzenie płatności.",
+    "stories": [10, 11, 12],
+    "steps": [
+      {
+        "screen": "s53",
+        "task": "Wybierz konta, oblicz VAT i sprawdź trzy pozycje Wn/Ma."
+      },
+      {
+        "screen": "s53",
+        "task": "Zaksięguj rozliczenie, sprawdź dane przykładowej instrukcji i potwierdź wykonanie płatności z referencją."
+      }
+    ],
+    "resetKeys": ["finance-preview-tax-spec-s53-v1"]
+  },
+  {
+    "id": "ksef-ap",
+    "title": "Odebrana faktura KSeF",
+    "role": "Księgowa zobowiązań",
+    "goal": "Utwórz szkic zakupu bez podwójnego wprowadzenia faktury.",
+    "stories": [10, 11, 12],
+    "steps": [
+      {
+        "screen": "s54",
+        "task": "Otwórz nową fakturę, wybierz konto kosztowe i termin płatności; utwórz szkic."
+      },
+      {
+        "screen": "s54",
+        "task": "Otwórz dokument z możliwym duplikatem, sprawdź istniejący szkic i powiąż go zamiast tworzyć drugi."
+      }
+    ],
+    "resetKeys": ["finance-preview-tax-spec-s54-v1"]
+  },
+  {
+    "id": "vat-reconciliation",
+    "title": "Uzgodnienie VAT i deklaracja",
+    "role": "Księgowa podatkowa",
+    "goal": "Wyjaśnij różnicę rejestru względem księgi i przejdź do deklaracji.",
+    "stories": [10, 11, 12],
+    "steps": [
+      {
+        "screen": "s55",
+        "task": "Wybierz miesiąc i konta VAT; porównaj rejestr z księgą i przeczytaj wyjaśnienie różnicy."
+      },
+      {
+        "screen": "s37",
+        "task": "Przejdź do JPK_V7 i sprawdź dane deklaracji; różnica uzgodnienia nie blokuje przejścia."
+      }
+    ],
+    "resetKeys": ["finance-preview-tax-spec-s55-v1"]
+  },
+  {
+    "id": "annual-books",
+    "title": "Sprawozdania i roczne księgi",
+    "role": "Księgowa główna",
+    "goal": "Uzupełnij przypisania, sprawdź Bilans i oba RZiS, następnie przejdź przez roczny JPK.",
+    "stories": [10, 11, 12],
+    "steps": [
+      {
+        "screen": "s57",
+        "task": "Wybierz rok 2025, uzupełnij przypisanie konta 860 do wyniku w pasywach i wygeneruj sprawozdania."
+      },
+      {
+        "screen": "s57",
+        "task": "Sprawdź zgodność Bilansu i obu wariantów RZiS, dane poprzedniego roku oraz przykładowy eksport."
+      },
+      {
+        "screen": "s56",
+        "task": "Uzupełnij przypisanie konta i osiem kwot RPD, sprawdź podgląd i pobierz dane przykładowe."
+      },
+      {
+        "screen": "s56",
+        "task": "Uruchom symulację odrzucenia, ponów z przyjęciem i utwórz szkic korekty."
+      }
+    ],
+    "resetKeys": [
+      "finance-preview-tax-spec-s56-v1",
+      "finance-preview-tax-spec-s57-v1"
+    ]
+  }
+]

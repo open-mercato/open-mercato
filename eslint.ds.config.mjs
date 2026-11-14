@@ -87,6 +87,14 @@ export default [
     plugins,
     rules: { 'om-ds/no-legacy-alert-variant': 'warn' },
   },
+  {
+    files: ['apps/mercato/src/modules/finance_previews/**/*.{ts,tsx}'],
+    ignores: ['**/__tests__/**', '**/__integration__/**'],
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: Object.fromEntries(Object.keys(omDs.configs.recommended.rules).map((rule) => [rule, 'error'])),
+  },
   // --- escalation overrides — see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md ---
   // A module enters this list when its counter for the rule reads zero in two
   // consecutive runs of the rolling report .ai/reports/ds-health-latest.txt —
