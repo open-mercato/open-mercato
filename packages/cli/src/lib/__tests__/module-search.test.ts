@@ -415,7 +415,7 @@ describe('yarn mercato module search', () => {
     expect(io.stdout).toEqual([
       'No modules verified on 0.8 matched "ksef".',
       '1 more module is listed but not verified on 0.8. Use --all-lines.',
-      'Browse the catalog: https://modules.openmercato.com',
+      'Browse the catalog: https://www.openmercato.com/run/modules',
     ])
   })
 

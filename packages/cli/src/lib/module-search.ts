@@ -39,7 +39,7 @@ import {
 import { parseModuleInfoArgs, parseModuleSearchArgs } from './module-search-args'
 
 export const DEFAULT_MODULES_INDEX_URL = 'https://modules.openmercato.com/modules.json'
-export const MODULES_SITE_URL = 'https://modules.openmercato.com'
+export const MODULES_SITE_URL = 'https://www.openmercato.com/run/modules'
 export const MODULE_INDEX_MAX_BYTES = 10 * 1024 * 1024
 export const MODULE_INDEX_TIMEOUT_MS = 4000
 export const MODULE_INDEX_TTL_MS = 10 * 60 * 1000
