@@ -20,6 +20,7 @@ import { E } from '#generated/entities.ids.generated'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { sql } from 'kysely'
+import { resolveCustomerUserVersion } from '@open-mercato/core/modules/customer_accounts/lib/customerUserVersion'
 
 const EMAIL_LIKE_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -220,7 +221,7 @@ export async function GET(req: Request) {
       organizationId,
       organizationName: organizationId ? organizationNameById.get(organizationId) ?? null : null,
       createdAt: user.createdAt,
-      updatedAt: user.updatedAt || null,
+      updatedAt: resolveCustomerUserVersion(user),
       roles: rolesByUserId.get(user.id) ?? [],
     }
   })

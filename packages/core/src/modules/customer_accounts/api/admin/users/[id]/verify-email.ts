@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findAdminScopedCustomerUser } from '@open-mercato/core/modules/customer_accounts/lib/adminCustomerUserLookup'
 
 export const metadata = {}
 
@@ -25,18 +25,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findOneWithDecryption(
-    em,
-    CustomerUser,
-    {
-      id: params.id,
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      deletedAt: null,
-    } as any,
-    undefined,
-    { tenantId: auth.tenantId, organizationId: auth.orgId },
-  )
+  const user = await findAdminScopedCustomerUser({ container, auth, request: req, em, userId: params.id })
   if (!user) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
