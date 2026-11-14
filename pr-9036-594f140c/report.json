@@ -1,0 +1,386 @@
+{
+  "runId": "594f140c-a6fd-40f6-9684-42fad38e8073",
+  "mode": "pr",
+  "depth": "COMPLEX",
+  "evidenceOnly": true,
+  "target": {
+    "prNumber": 9036,
+    "title": "fix(customers): delete activities from the detail timelines",
+    "branch": "fix/crm-activity-timeline-delete",
+    "headSha": "4ef1b46470bbead957d09e68a86b4289eb678cc3",
+    "currentHeadSha": "4ef1b46470bbead957d09e68a86b4289eb678cc3"
+  },
+  "verdict": "FAIL",
+  "coverage": "PARTIAL",
+  "environment": {
+    "version": 1,
+    "runId": "594f140c",
+    "status": "running",
+    "mode": "ephemeral",
+    "worktree": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/594f140c-a6fd-40f6-9684-42fad38e8073",
+    "testedSha": "4ef1b46470bbead957d09e68a86b4289eb678cc3",
+    "baseUrl": "http://127.0.0.1:38701",
+    "startedByThisRepo": true,
+    "ownerPid": 484196,
+    "startScript": ".ai/scripts/test-env-up.sh",
+    "stopScript": ".ai/scripts/test-env-down.sh",
+    "app": {
+      "port": 38701,
+      "pid": 489106
+    },
+    "credentials": [
+      {
+        "role": "admin",
+        "username": "admin@acme.com",
+        "passwordEnv": "TEST_ADMIN_PASSWORD"
+      }
+    ],
+    "credentialsFile": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/594f140c-a6fd-40f6-9684-42fad38e8073/.ai/qa/ephemeral-credentials.env",
+    "browser": {
+      "provider": "playwright",
+      "installed": true,
+      "command": "yarn playwright",
+      "descriptor": ".ai/browsers/playwright.md"
+    },
+    "testRunner": {
+      "name": "playwright",
+      "config": ".ai/qa/tests/playwright.config.ts"
+    },
+    "startedAt": "2026-11-14T19:21:45.855Z",
+    "platform": "linux",
+    "notes": "Exact-head production isolated CLI; enterprise flags; coldSeconds=263",
+    "services": [
+      {
+        "type": "postgres",
+        "host": "127.0.0.1",
+        "port": 33278,
+        "container": "8ec68b27f716"
+      }
+    ]
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Exact-head production provisioning and browser doctor",
+      "expected": "Own worktree/app/database at current SHA; authenticated readiness",
+      "observed": "Own port38701/Postgres33278; owner/listener cwd verified; Chromium launched; cold runtime phase263s, warm reuse<1s. Enterprise/SSO/security and optimistic locking enabled.",
+      "result": "PASS",
+      "screenshot": "step-01-company-loading.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "Company: UI create company and double-click Log call",
+      "expected": "One create; empty/loading states and all activity views reconcile",
+      "observed": "One interaction POST201; history/planned/day marker/filter/parent total all1.",
+      "result": "PASS",
+      "screenshot": "step-03-company-call-created.png"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Company: overflow Delete activity then Escape",
+      "expected": "Destructive confirmation; cancel sends no deletion and preserves every field",
+      "observed": "Edit/Delete activity menu; Escape closes; complete API record unchanged.",
+      "result": "PASS",
+      "screenshot": "step-04-company-delete-confirm.png"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Company: confirm delete; wait10.5s without reload",
+      "expected": "All history/planned/day/filter/parent count remove activity",
+      "observed": "DELETE200; all listed surfaces0 after10.5s. API200 items[]; repeated delete404.",
+      "result": "PASS",
+      "screenshot": "step-05-company-delete-after10s.png"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "Company: ten independent UI delete/Undo repetitions",
+      "expected": "No intermittent stale view; undo restores whole record",
+      "observed": "10/10 delete200 and undo200; history/planned/day/filter restored; after10.5s every iteration still correct; only updatedAt differs in whole-record readback. race-results.json.",
+      "result": "PASS",
+      "screenshot": "step-07-ten-races-undo.png"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "Fresh narrow viewer: company activity menu and actual UI delete",
+      "expected": "Read-only role must not offer a mutation it cannot perform",
+      "observed": "Role has only customers view features; menu still exposes Delete activity and destructive confirmation. UI request403 and friendly Could not delete activity; record survives. New onDelete wiring lacks manage-feature gating.",
+      "result": "FAIL",
+      "screenshot": "step-08-viewer-menu.png"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "API: fresh viewer, anonymous and foreign-tenant negative controls",
+      "expected": "Clear denial; no tenant-A data exposure; working positive control",
+      "observed": "Viewer GET200/DELETE403; anonymous DELETE401; foreign GET200 empty/DELETE403. Foreign own company POST201/GET200. API-only fixture setup/controls.",
+      "result": "PASS"
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "Person: UI create person/call, title edit with Ctrl+Enter, cancel and double-confirm delete",
+      "expected": "Title-only save preserves all other fields; cancel unchanged; deletion clears UI",
+      "observed": "PUT200 changes exactly title/updatedAt; Escape whole record unchanged; double-confirm yields one DELETE200. After10.5s history/day/filter cleared.",
+      "result": "PASS",
+      "screenshot": "step-10-person-deleted.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Deal: UI create linked deal and scheduled meeting",
+      "expected": "History, planned panel, week preview and type count show new activity",
+      "observed": "Fresh linked company/deal created through UI; planned meeting appears in all four surfaces.",
+      "result": "PASS",
+      "screenshot": "step-11-deal-created-week.png"
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "action": "Deal: distinct fresh editor B changes location; stale A title save",
+      "expected": "409 and B location preserved, with no unintended field changes",
+      "observed": "B PUT200 changes location/updatedAt only. A PUT409; one record remains, original title plus B location. Dialog closes and conflict bar persists; transient New meeting label not treated as a stable bug.",
+      "result": "PASS",
+      "screenshot": "step-13-stale-refusal-stable.png"
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "action": "After refusal: refresh, reopen and Ctrl+Enter retry",
+      "expected": "Working keyboard/focus and clean success retaining B data",
+      "observed": "Refreshed form contains B location; A title retryPUT200 changes title/updatedAt only. No conflict bar after10.5s.",
+      "result": "PASS",
+      "screenshot": "step-14-deal-retry-success.png"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "Deal: delete then Undo; wait10.5s",
+      "expected": "History/planned/week/filter restore without reload",
+      "observed": "DELETE200/Undo200. History, planned meeting and week text restored after10.5s. Full response captured in deal-retry-integrity.json.",
+      "result": "PASS",
+      "screenshot": "step-15-deal-undo-week.png"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "Deal: Audit Log Redo this action; return to detail",
+      "expected": "Redo deletes restored activity durably",
+      "observed": "Redo200 through real Audit Log UI. Return to deal and wait10.5s: title absent in history/planned/week. This involves navigation; live mounted-host redo notification is not browser-proven.",
+      "result": "PASS",
+      "screenshot": "step-17-deal-redo-absent.png"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "Legacy-only fixture: UI delete through activities adapter",
+      "expected": "Bridge/delete succeeds without false optimistic version conflict",
+      "observed": "Own disposable DB inserted customer_activities only; canonical count before0. Actual DELETE/activities200, version header absent, UI row absent after10.5s; canonical same-id deleted_at verified.",
+      "result": "PASS",
+      "screenshot": "step-19-legacy-deleted.png"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "Injected failure: UI delete receiving simulated500; keyboard and Escape recovery",
+      "expected": "Clear error, no false success or mutation, usable retry/cancel",
+      "observed": "Browser-only one-request simulated500 (not a product500). Ctrl+Enter submits; Could not delete activity shown; full API record unchanged. Reopen confirmation and Escape work.",
+      "result": "PASS",
+      "screenshot": "step-20-simulated-error-preserves-record.png"
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "Completed call: Mark done then edit only a long title",
+      "expected": "Dates, completion status and every other field remain stable",
+      "observed": "Complete200 then titlePUT200. Changed fields exactly title/updatedAt; scheduledAt/occurredAt/status and all other response fields preserved.",
+      "result": "PASS",
+      "screenshot": "step-21-long-completed-call.png"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "Explicit Polish company/person/deal and translated deletion dialog",
+      "expected": "Translated changed action strings, reachable cancel, no broken narrow layout",
+      "observed": "New Edit/Delete/confirmation/Cancel text translated; Escape preserves record. Company width632px, person/deal439px at375px. Company overflow already in prior QA6862979744; not attributed to latest refresh repair. Existing English November/filtered chrome and seeded custom-field text also remain.",
+      "result": "FAIL",
+      "screenshot": "step-23-polish-delete-confirm.png"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "New locale dictionary keys across en/pl/es/de/ko",
+      "expected": "Six new deletion keys in every supported module locale, no app shadow",
+      "observed": "30/30 new entries present; no matching app override keys found. locale-audit.json.",
+      "result": "PASS"
+    },
+    {
+      "step": 19,
+      "priority": "P1",
+      "action": "Shared RowActions representatives: CRM lists/timelines, catalog products, sales orders, auth users, Audit Log",
+      "expected": "Existing no-icon/link/button menus remain reachable and cancellable",
+      "observed": "Catalog Edit/Delete; ArrowDown focuses Delete, Escape closes. Sales Open/Delete order/Create shipment; auth Edit/Show roles/Delete; company generic list View details/Open in new tab/Delete. Older company timeline exposes Delete activity and Escape preserves record.",
+      "result": "PASS",
+      "screenshot": "step-26-catalog-row-menu.png"
+    },
+    {
+      "step": 20,
+      "priority": "P1",
+      "action": "Relevant automated checks",
+      "expected": "Package suites and committed integration pass at tested head",
+      "observed": "112/112 focused package tests PASS (98core+14ui,12suites); authoritative CLI TC-CRM-4273 1/1 PASS213311ms, native Playwright rerun1/1 PASS. Root Jest invocation initially failed TS5011 before running tests; corrected package configs used. Production app build passed.",
+      "result": "PASS"
+    },
+    {
+      "step": 21,
+      "priority": "P1",
+      "action": "Remaining shared consumer breadth, every lifecycle variant and live-host redo",
+      "expected": "Every applicable complex path exercised",
+      "observed": "NOT_EXERCISED: remaining consumer groups in consumer-groups.json (115production files/42groups including shared UI/template); full create/edit/delete/undo/redo for every entity/legacy variant; mounted-host redo without navigation; canonical-toggle alternate mode; old person route; full permission UI matrix, all-organization selector, cross-tenant browser UI and stale-delete concurrency. Confirmed failures retained; no full-complex PASS.",
+      "result": "NOT_EXERCISED"
+    },
+    {
+      "step": 22,
+      "priority": "P1",
+      "action": "State matrix and perceived performance",
+      "expected": "Default, empty, loading, error, no-permission, long-content and narrow states",
+      "observed": "Default/empty/loading captured; actual403 and simulated500 error paths; long title and narrow screens exercised. Useful loading message appears. No measured latency benchmark, exhaustive read-load failure matrix, UXProof contract audit or 15-minute separate exploratory sweep.",
+      "result": "NOT_EXERCISED"
+    }
+  ],
+  "hasUiTest": true,
+  "complexChecks": [
+    {
+      "rule": "1 Conversation",
+      "result": "PASS",
+      "evidence": "Every PR conversation page7comments/1review/0inline, linked predecessor4273/5629 comments and9487/9488 read; prior6862979744 read."
+    },
+    {
+      "rule": "2 Runtime surface",
+      "result": "PASS",
+      "evidence": "UI/API interactions/legacy adapter and audit undo/redo exercised. No new external worker/webhook/payment path in diff; independent index/worker failure modes not tested."
+    },
+    {
+      "rule": "3 Shared consumers",
+      "result": "PARTIAL",
+      "evidence": "115production files/42groups inventoried; representative CRM/catalog/sales/auth/audit exercised; other groups not exercised after confirmed failures."
+    },
+    {
+      "rule": "4 Intermittency",
+      "result": "PASS",
+      "evidence": "10delete/undo UI repetitions with10.5s restored-state and whole-record checks."
+    },
+    {
+      "rule": "5 Own fixtures",
+      "result": "PASS",
+      "evidence": "Own company/person/deal/activities through UI; own API roles/editor/viewer/foreign tenant positive control; legacy-only via ownDB. All removed with disposable DB."
+    },
+    {
+      "rule": "6 UI first",
+      "result": "PARTIAL",
+      "evidence": "Primary writes UI. Actor/tenant permission fixtures and negative controls API; historic-only fixture SQL because public API creates canonical rows."
+    },
+    {
+      "rule": "7 Second actor/stale",
+      "result": "PASS",
+      "evidence": "Fresh distinct editor B location change; A409; refreshed title retry preserves B."
+    },
+    {
+      "rule": "8 Integrity",
+      "result": "PASS",
+      "evidence": "No demonstrated field loss; stale A refused."
+    },
+    {
+      "rule": "9 Whole record",
+      "result": "PASS",
+      "evidence": "All response keys compared on company undo, person title edit/cancel, completed title edit and deal B/A saves."
+    },
+    {
+      "rule": "10 Reverse/lifecycle",
+      "result": "PARTIAL",
+      "evidence": "Delete/cancel/undo/repeat exercised; redo Audit Log+return. Full matrix and live-host redo not exercised. Money/stock/credit/codes not changed."
+    },
+    {
+      "rule": "11 Amount reconciliation",
+      "result": "INAPPLICABLE",
+      "evidence": "No changed amount field, tax/price/balance mutation; deal monetary inputs untouched."
+    },
+    {
+      "rule": "12 Direct refusal",
+      "result": "FAIL",
+      "evidence": "Server403/401/isolation controls pass, but new Delete activity still offered to view-only actor."
+    },
+    {
+      "rule": "13 After refusal",
+      "result": "PASS",
+      "evidence": "Actual409 refresh/reopen/CtrlEnter success; double-click create/delete; simulated500 CtrlEnter then reopened Escape."
+    },
+    {
+      "rule": "14 Messages",
+      "result": "FAIL",
+      "evidence": "New error text clear; existing Polish screens retain English month/filter chrome and demo custom-field text."
+    },
+    {
+      "rule": "15 Decimal comma",
+      "result": "INAPPLICABLE",
+      "evidence": "No amount input in changed activity delete/refresh surfaces; no amount edited."
+    },
+    {
+      "rule": "16 Languages",
+      "result": "FAIL",
+      "evidence": "EN/PL all three details; new deletion translations complete, existing untranslated surrounding chrome remains."
+    },
+    {
+      "rule": "17 After success",
+      "result": "PASS",
+      "evidence": "10.5s company deletion, every race restore, person deletion, deal restore/redo and successful conflict retry checked."
+    },
+    {
+      "rule": "18 Exploration",
+      "result": "PARTIAL",
+      "evidence": "Targeted completed-date, old company timeline, generic menu and mobile exploration done; separate full15minute sweep not completed."
+    },
+    {
+      "rule": "19 Gaps",
+      "result": "PASS",
+      "evidence": "API-only, navigation-assisted and unexercised required checks enumerated honestly."
+    }
+  ],
+  "cleanup": {
+    "testedSha": "4ef1b46470bbead957d09e68a86b4289eb678cc3",
+    "sourceStatus": "",
+    "closedPorts": {
+      "38701": true,
+      "33278": true
+    },
+    "ownContainer": "8ec68b27f716",
+    "ownerPids": {
+      "484196": {
+        "alive": false
+      },
+      "484249": {
+        "alive": false
+      },
+      "489106": {
+        "alive": false
+      },
+      "489112": {
+        "alive": false
+      }
+    },
+    "containerAbsent": true
+  },
+  "screenshotCount": 28,
+  "notes": [
+    "Source read-only; runtime email-capture restored; no source fixes, source-branch push, merge, approval/failure/pipeline mutation or shared qa.json edit.",
+    "Overall FAIL with partial complex coverage; screenshots informational only.",
+    "Two exploratory locator errors and interrupted legacy attempt were rerun from fresh settled UI; do not count these tool/setup failures as product failures.",
+    "Initial superadmin fixture login401 corrected using ephemeral CLI credential reference; no foreign environment used.",
+    "Claim still held during publication; release audit in own original claim comment and local release-proof.json."
+  ]
+}
