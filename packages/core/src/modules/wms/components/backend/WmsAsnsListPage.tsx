@@ -231,6 +231,12 @@ export default function WmsAsnsListPage() {
     [router, t],
   )
 
+  const createOpenerRef = React.useRef<HTMLButtonElement | null>(null)
+  const openCreateDialog = (event: React.MouseEvent<HTMLButtonElement>) => {
+    createOpenerRef.current = event.currentTarget
+    setCreateOpen(true)
+  }
+
   const title = queueOpen
     ? t('wms.backend.receiving.title', 'Receiving queue')
     : t('wms.backend.asns.title', 'ASNs')
@@ -257,7 +263,7 @@ export default function WmsAsnsListPage() {
                 </Button>
               ) : null}
               {access.canManageAsn ? (
-                <Button type="button" onClick={() => setCreateOpen(true)}>
+                <Button type="button" onClick={openCreateDialog}>
                   <PackagePlus className="size-4" />
                   {t('wms.backend.asns.actions.create', 'Create ASN')}
                 </Button>
@@ -382,7 +388,7 @@ export default function WmsAsnsListPage() {
                   )}
                   actions={
                     access.canManageAsn ? (
-                      <Button type="button" size="sm" onClick={() => setCreateOpen(true)}>
+                      <Button type="button" size="sm" onClick={openCreateDialog}>
                         {t('wms.backend.asns.actions.create', 'Create ASN')}
                       </Button>
                     ) : null
@@ -398,6 +404,7 @@ export default function WmsAsnsListPage() {
         <CreateAsnDialog
           open={createOpen}
           onOpenChange={setCreateOpen}
+          openerRef={createOpenerRef}
           access={access}
           onCreated={(asnId) => router.push(`/backend/wms/asns/${encodeURIComponent(asnId)}`)}
         />

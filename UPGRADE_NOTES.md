@@ -174,6 +174,12 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### WMS variant pickers read a label endpoint, not the catalog
+
+WMS pickers and variant labels call `GET /api/wms/catalog-variant-labels`. The route requires `wms.view` and returns only `id`, `sku`, `name`, and `is_active`. It does not grant `catalog.products.view`, so a WMS supervisor still cannot call `GET /api/catalog/prices` or the rest of the catalog read API. No ACL sync is required.
+
+If a pre-release of this change already added `catalog.products.view` to the seeded `supervisor` role, remove that feature from the role. `yarn mercato auth sync-role-acls` is additive and will not revoke it.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

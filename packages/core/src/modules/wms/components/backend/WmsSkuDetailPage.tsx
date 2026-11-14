@@ -22,6 +22,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { CATALOG_VARIANT_LABELS_ENDPOINT } from '../../lib/catalogVariantLabels'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { downloadInventoryCsv } from '../../lib/inventoryCsvExport'
@@ -432,7 +433,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         pageSize: '1',
       })
       const call = await apiCall<PagedResponse<CatalogVariantRow>>(
-        `/api/catalog/variants?${params.toString()}`,
+        `${CATALOG_VARIANT_LABELS_ENDPOINT}?${params.toString()}`,
       )
       if (!call.ok) {
         await raiseCrudError(call.response, t('wms.backend.sku.errors.variant', 'Failed to load SKU.'))

@@ -7,6 +7,10 @@ import {
   assertPutawayCompleteAuthorized,
   assertPutawayCompletable,
   assertPutawayConfirmedQuantity,
+  assertPutawayDestinationCapacity,
+  assertPutawayLotMatches,
+  readLocationCapacityUnits,
+  assertPutawaySerialConfirmedQuantity,
   assertPutawayDeletable,
   assertPutawayLifecycleFieldsForbidden,
   assertPutawayStartable,
@@ -105,6 +109,58 @@ describe('putaway lifecycle guards', () => {
         assignedTo: null,
       }),
     ).toThrow(CrudHttpError)
+  })
+
+  it('rejects a lot that conflicts with the task and keeps an omitted lot', () => {
+    const taskLot = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const otherLot = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    expect(() => assertPutawayLotMatches(taskLot, otherLot)).toThrow(CrudHttpError)
+    try {
+      assertPutawayLotMatches(taskLot, otherLot)
+    } catch (error) {
+      expect((error as CrudHttpError).status).toBe(422)
+      expect((error as CrudHttpError).body).toMatchObject({ error: 'putaway_lot_mismatch' })
+    }
+    expect(() => assertPutawayLotMatches(taskLot, undefined)).not.toThrow()
+    expect(() => assertPutawayLotMatches(taskLot, null)).not.toThrow()
+    expect(() => assertPutawayLotMatches(taskLot, ` ${taskLot} `)).not.toThrow()
+    expect(() => assertPutawayLotMatches(null, otherLot)).not.toThrow()
+  })
+
+  it('rejects fractional completion only for serial-specific tasks', () => {
+    expect(() => assertPutawaySerialConfirmedQuantity('SN-1', 0.5)).toThrow(CrudHttpError)
+    try {
+      assertPutawaySerialConfirmedQuantity(' SN-1 ', 0.5)
+    } catch (error) {
+      expect((error as CrudHttpError).status).toBe(422)
+      expect((error as CrudHttpError).body).toMatchObject({ error: 'invalid_putaway_quantity' })
+    }
+    expect(() => assertPutawaySerialConfirmedQuantity('SN-1', 1)).not.toThrow()
+    expect(() => assertPutawaySerialConfirmedQuantity(null, 0.5)).not.toThrow()
+    expect(() => assertPutawaySerialConfirmedQuantity('  ', 0.5)).not.toThrow()
+    expect(putawayResidualQuantity(5, 4)).toBe(1)
+  })
+
+  it('rejects putaway that would exceed a configured location capacity', () => {
+    expect(readLocationCapacityUnits(null)).toBeNull()
+    expect(readLocationCapacityUnits('')).toBeNull()
+    expect(readLocationCapacityUnits('nope')).toBeNull()
+    expect(readLocationCapacityUnits('5')).toBe(5)
+    expect(() =>
+      assertPutawayDestinationCapacity({ capacityUnits: null, quantityOnHand: 100, incomingQuantity: 10 }),
+    ).not.toThrow()
+    expect(() =>
+      assertPutawayDestinationCapacity({ capacityUnits: 5, quantityOnHand: 0, incomingQuantity: 10 }),
+    ).toThrow(CrudHttpError)
+    try {
+      assertPutawayDestinationCapacity({ capacityUnits: 10, quantityOnHand: 8, incomingQuantity: 3 })
+    } catch (error) {
+      expect((error as CrudHttpError).status).toBe(422)
+      expect((error as CrudHttpError).body).toMatchObject({ error: 'location_capacity_exceeded' })
+    }
+    expect(() =>
+      assertPutawayDestinationCapacity({ capacityUnits: 10, quantityOnHand: 8, incomingQuantity: 2 }),
+    ).not.toThrow()
   })
 
   it('rejects over-complete quantities and computes residual for under', () => {

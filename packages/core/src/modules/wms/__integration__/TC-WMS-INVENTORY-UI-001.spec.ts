@@ -112,7 +112,7 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
 
       await fillCombobox(page, 'Search variant or SKU', variantSku, {
         scope: adjustDialog,
-        suggestionsApiPath: '/api/catalog/variants',
+        suggestionsApiPath: '/api/wms/catalog-variant-labels',
       })
       await fillCombobox(page, 'Select warehouse', warehouseName, {
         scope: adjustDialog,
@@ -291,7 +291,7 @@ test.describe('TC-WMS-INVENTORY-UI-001: Inventory console mutations', () => {
 
       await fillCombobox(page, 'Search variant or SKU', variantSku, {
         scope: cycleDialog,
-        suggestionsApiPath: '/api/catalog/variants',
+        suggestionsApiPath: '/api/wms/catalog-variant-labels',
       })
       await fillCombobox(page, 'Select location', locationCode, {
         scope: cycleDialog,

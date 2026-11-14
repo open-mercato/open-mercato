@@ -93,8 +93,8 @@ function toNumber(value: unknown): number {
   return 0
 }
 
-function getWarehouseId(balance: InventoryBalance): string | null {
-  const relation = balance.warehouse as { id?: string } | string | undefined
+function getWarehouseId(record: { warehouse?: { id?: string } | string | null }): string | null {
+  const relation = record.warehouse
   if (typeof relation === 'string') return relation
   return typeof relation?.id === 'string' ? relation.id : null
 }
@@ -336,11 +336,22 @@ export async function reserveInventoryForConfirmedOrder(
       preferredWarehouseId,
     )
     let reservedForVariant = 0
+    const reservedBeforeByWarehouse = new Map<string, number>()
+    for (const reservation of activeReservations) {
+      if (reservation.catalogVariantId !== variantId) continue
+      const warehouseId = getWarehouseId(reservation)
+      if (!warehouseId) continue
+      reservedBeforeByWarehouse.set(
+        warehouseId,
+        (reservedBeforeByWarehouse.get(warehouseId) ?? 0) + toNumber(reservation.quantity),
+      )
+    }
     try {
       for (const bucket of warehouseAvailability) {
         if (remainingQuantity <= 0) break
         const reserveQuantity = Math.min(remainingQuantity, bucket.available)
         if (reserveQuantity <= 0) continue
+        const reservedBefore = reservedBeforeByWarehouse.get(bucket.warehouseId) ?? 0
 
         await commandBus.execute('wms.inventory.reserve', {
           input: {
@@ -349,6 +360,7 @@ export async function reserveInventoryForConfirmedOrder(
             warehouseId: bucket.warehouseId,
             catalogVariantId: variantId,
             quantity: reserveQuantity,
+            reservedBefore,
             sourceType: 'order',
             sourceId: orderId,
             metadata: {
@@ -361,9 +373,12 @@ export async function reserveInventoryForConfirmedOrder(
           ctx: commandCtx,
         })
 
+        // The key is cumulative per warehouse, so an idempotent replay means a concurrent
+        // run already holds this reservation for the order; it still covers the demand.
         remainingQuantity -= reserveQuantity
         reservedForVariant += reserveQuantity
         bucket.available -= reserveQuantity
+        reservedBeforeByWarehouse.set(bucket.warehouseId, reservedBefore + reserveQuantity)
       }
     } catch (error) {
       if (!isInsufficientStockError(error)) throw error

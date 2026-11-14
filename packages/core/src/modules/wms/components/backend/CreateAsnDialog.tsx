@@ -38,6 +38,8 @@ type CreateAsnDialogProps = {
   onOpenChange: (open: boolean) => void
   access: WmsInventoryMutationAccess
   onCreated?: (asnId: string) => void
+  /** Button that opened the dialog. Focus returns here on close. */
+  openerRef?: React.RefObject<HTMLButtonElement | null>
 }
 
 type LineDraft = {
@@ -68,7 +70,13 @@ const EMPTY_LINE: LineDraft = {
   targetStagingLocationId: '',
 }
 
-export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: CreateAsnDialogProps) {
+export function CreateAsnDialog({
+  open,
+  onOpenChange,
+  access,
+  onCreated,
+  openerRef,
+}: CreateAsnDialogProps) {
   const t = useT()
   const queryClient = useQueryClient()
   const formRef = React.useRef<HTMLFormElement>(null)
@@ -224,22 +232,26 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        closeDialog()
-        return
-      }
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault()
         if (!submitting) void handleSubmit()
       }
     },
-    [closeDialog, handleSubmit, submitting],
+    [handleSubmit, submitting],
   )
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : closeDialog())}>
-      <DialogContent className="max-w-xl gap-0 overflow-hidden p-0" onKeyDown={handleKeyDown}>
+      <DialogContent
+        className="max-w-xl gap-0 overflow-hidden p-0"
+        onKeyDown={handleKeyDown}
+        onCloseAutoFocus={(event) => {
+          const opener = openerRef?.current
+          if (!opener) return
+          event.preventDefault()
+          opener.focus()
+        }}
+      >
         <div className="border-b px-6 py-4 pr-12">
           <DialogHeader className="space-y-1 text-left">
             <DialogTitle>{t('wms.backend.asns.create.dialog.title', 'Create ASN')}</DialogTitle>
