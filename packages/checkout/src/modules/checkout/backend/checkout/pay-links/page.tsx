@@ -132,10 +132,11 @@ export default function CheckoutPayLinksPage() {
       flash(successMessage, 'success')
       void loadRows()
     } catch (error) {
-      const { message } = normalizeCrudServerError(error)
-      flash(message || fallbackErrorMessage, 'error')
+      const { message, fieldErrors } = normalizeCrudServerError(error)
+      const fieldMessage = Object.values(fieldErrors ?? {})[0]
+      flash(fieldMessage ? t(fieldMessage, fallbackErrorMessage) : message || fallbackErrorMessage, 'error')
     }
-  }, [loadRows, runMutation])
+  }, [loadRows, runMutation, t])
 
   const columns = React.useMemo<ColumnDef<LinkRow>[]>(() => [
     { accessorKey: 'name', header: t('checkout.admin.payLinks.columns.name') },
