@@ -151,6 +151,8 @@
   "documents.editor.realtime.presenceLabel": "Edytują teraz",
   "documents.editor.realtime.readOnlyFallback": "Edycja w czasie rzeczywistym jest niedostępna — wyświetlana jest ostatnia zapisana wersja (tylko do odczytu).",
   "documents.editor.realtime.reconnecting": "Ponowne łączenie…",
+  "documents.editor.realtime.setupGuide": "Instrukcja konfiguracji współpracy na żywo",
+  "documents.editor.realtime.setupHint": "Współpraca na żywo wymaga uruchomionej usługi współpracy i działającego połączenia. Poproś administratora o sprawdzenie konfiguracji.",
   "documents.editor.realtime.singleUserFallback": "Edycja w czasie rzeczywistym jest niedostępna — zmiany są zapisywane w trybie jednego użytkownika.",
   "documents.editor.status.error": "Zapisywanie nie powiodło się",
   "documents.editor.status.saved": "Zapisano",
