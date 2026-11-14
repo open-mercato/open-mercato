@@ -17,6 +17,16 @@ export function isCartLineMutationLockTimeoutError(error: unknown): error is Car
   return typeof error === 'object' && error !== null && Reflect.get(error, CART_LINE_LOCK_TIMEOUT) === true
 }
 
+/** Takes `cart:lines:<id>` for every cart in one fixed (sorted) order, so two writers locking overlapping cart pairs can never deadlock. */
+export async function acquireCartLineLocks(em: EntityManager, cartIds: string[]): Promise<void> {
+  const keys = Array.from(new Set(cartIds.map((cartId) => `cart:lines:${cartId}`))).sort((left, right) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  )
+  for (const key of keys) {
+    await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [key])
+  }
+}
+
 export async function withCartLineMutationLock(
   em: EntityManager,
   cartId: string,

@@ -41,6 +41,8 @@ export type CartMergeOutcomeEntry = {
 @Index({ name: 'carts_tenant_customer_status_idx', properties: ['tenantId', 'customerId', 'status'] })
 @Index({ name: 'carts_tenant_status_expires_idx', properties: ['tenantId', 'status', 'expiresAt'] })
 @Index({ name: 'carts_tenant_status_activity_idx', properties: ['tenantId', 'status', 'lastActivityAt'] })
+// (rev 10 — K6/§10.2) Backs the admin list's other sort option, `grandTotalGrossAmount`.
+@Index({ name: 'carts_tenant_status_grand_total_idx', properties: ['tenantId', 'status', 'grandTotalGrossAmount'] })
 @Index({ name: 'carts_tenant_status_resolved_idx', properties: ['tenantId', 'status', 'resolvedAt'] })
 @Index({
   // Partial index backing "what has been proposed to this buyer and is still live"
@@ -67,8 +69,10 @@ export class Cart {
     | 'promotionEffects'
     | 'requiresApproval'
     | 'approvalId'
+    | 'awaitingApprovalSince'
     | 'note'
     | 'metadata'
+    | 'grandTotalGrossAmount'
     | 'mergedIntoCartId'
     | 'lastPriceChangeAt'
     | 'lockedAt'
@@ -174,15 +178,47 @@ export class Cart {
   @Property({ name: 'totals_computed_at', type: Date })
   totalsComputedAt!: Date
 
+  // (rev 10 — K6/§10.2) Admin list sort target: the only field §10.2 names besides
+  // `lastActivityAt`. `totals.grandTotalGrossAmount` is NOT a plain column (it lives
+  // inside the `totals` jsonb snapshot, §3.2), and the sibling SalesDocument family
+  // (`sales/data/entities.ts`) stores its own grand total as a real, sortable column —
+  // mirroring that precedent here, as a Postgres STORED GENERATED column computed from
+  // `totals` (same declarative pattern `configuration_hash` below and
+  // `wms/data/entities.ts`'s `InventoryBalance.quantityAvailable` already use), rather
+  // than a second, hand-maintained write path that could drift from the real total.
+  // Deliberately NOT `hidden` (unlike `configuration_hash`, which is pure internal
+  // plumbing): the admin list indexer/query-engine path needs to read this column like
+  // any other.
+  @Property({
+    name: 'grand_total_gross_amount',
+    type: 'numeric',
+    precision: 16,
+    scale: 4,
+    nullable: true,
+    generated: (cols) => `((${cols.totals}->>'grandTotalGrossAmount')::numeric(16,4)) stored`,
+  })
+  grandTotalGrossAmount?: string | null
+
   @Property({ name: 'promotion_effects', type: 'jsonb', nullable: true })
   promotionEffects?: unknown
 
   @Property({ name: 'requires_approval', type: 'boolean', default: false })
   requiresApproval: boolean = false
 
-  /** `customer_groups.CustomerPurchaseApproval.id` (not yet a real entity in this repo). */
+  /** `customer_groups.CustomerPurchaseApproval.id`. */
   @Property({ name: 'approval_id', type: 'uuid', nullable: true })
   approvalId?: string | null
+
+  // (rev 10 — K5, §9a.4/§9a.5) Set by `cart.approval.request` the moment a NEW approval
+  // is created; cleared by the §9a.5 subscriber on a terminal `customer_groups.approval.*`
+  // event (approved/rejected/expired/withdrawn), or directly by a cart-initiated
+  // withdrawal (merge source, expire, purge) in the SAME write as the lifecycle
+  // transition. `approval_id` itself is NEVER touched by any of that clearing — only a
+  // fresh `cart.approval.request` call ever moves it (§9a.4: "Only one approval is
+  // authoritative... An older approved approval that still names this cart as its subject
+  // is never read"). `mark-abandoned-carts` skips every basket with this column set (K5).
+  @Property({ name: 'awaiting_approval_since', type: Date, nullable: true })
+  awaitingApprovalSince?: Date | null
 
   // Buyer-supplied free text; encrypted at rest alongside email.
   @Property({ name: 'note', type: 'text', nullable: true })
@@ -263,6 +299,7 @@ export class CartLine {
     | 'uomSnapshot'
     | 'unitPriceNet'
     | 'unitPriceGross'
+    | 'unitPriceOverride'
     | 'taxRate'
     | 'priceKindId'
     | 'priceRowId'
@@ -327,6 +364,17 @@ export class CartLine {
 
   @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
   unitPriceGross?: string | null
+
+  // Release 5, Step 3.5 (D-R5-19, cart §6a.4 rev 10). Written ONLY by the trusted pay-link
+  // seeding path (`commands/lines.ts#addLineCommand`, gated on `ctx.systemActor === true`
+  // and `cart.channel === 'pay_link'`), from the checkout link template's own
+  // `unit_price_override`. When set, `lib/reprice.ts#buildCartLineRepricePhases` excludes
+  // the line from catalog re-pricing — the same "never silently overwrite a deliberately
+  // non-catalog price" exclusion already applied to gift (`origin: 'promotion'`) lines —
+  // so the line keeps the merchant's fixed price regardless of buyer identity. No public
+  // body can set it; this field is never part of a `.strict()` HTTP schema.
+  @Property({ name: 'unit_price_override', type: 'jsonb', nullable: true })
+  unitPriceOverride?: { amount: string; basis: 'net' | 'gross' } | null
 
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null

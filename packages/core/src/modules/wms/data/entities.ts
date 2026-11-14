@@ -12,7 +12,13 @@ import type { JsonValue } from '@open-mercato/shared/lib/json'
 export type WarehouseLocationType = 'zone' | 'aisle' | 'rack' | 'bin' | 'slot' | 'dock' | 'staging'
 export type InventoryStrategy = 'fifo' | 'lifo' | 'fefo'
 export type InventoryLotStatus = 'available' | 'hold' | 'quarantine' | 'expired'
-export type InventoryReservationSourceType = 'order' | 'transfer' | 'manual'
+// Release 5 Phase 3 (`.ai/specs/2026-08-14-availability-contract.md` §4.4, A16): `'checkout'`
+// is an additive union member — a system-only source written ONLY by
+// `wmsReservationService.reserveLinesForCheckout`/`convertInTransaction` (`availability`'s
+// reserve/commit, Step 2.2). The public `POST /api/wms/inventory/reserve` route and the
+// `wms.inventory.reserve` command both reject `sourceType: 'checkout'` explicitly
+// (`commands/inventory-actions.ts`) so a tenant can never create one by hand.
+export type InventoryReservationSourceType = 'order' | 'transfer' | 'manual' | 'checkout'
 export type InventoryReservationStatus = 'active' | 'released' | 'fulfilled'
 export type InventoryMovementType =
   | 'receipt'

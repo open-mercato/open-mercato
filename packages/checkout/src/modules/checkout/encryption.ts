@@ -25,6 +25,17 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'ip_address' },
     ],
   },
+  // Release 5, Step 2.12 (B.1, §13 — C14's security minimum): the session's own PII
+  // columns, shipped with the entity rather than deferred to B.6.
+  {
+    entityId: 'checkout:checkout_session',
+    fields: [
+      { field: 'email' },
+      { field: 'phone' },
+      { field: 'shipping_address' },
+      { field: 'billing_address' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps

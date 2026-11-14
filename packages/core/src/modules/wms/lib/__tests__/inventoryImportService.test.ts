@@ -338,6 +338,49 @@ describe('applyInventoryImport', () => {
     expect(result.summary.applied).toBe(1)
   })
 
+  it('reports the branded error code of a CrudHttpError thrown from another bundle', async () => {
+    mockWarehouseLocationVariant(0)
+    const foreignError = Object.assign(new Error('insufficient'), {
+      [Symbol.for('@open-mercato/CrudHttpError')]: true,
+      status: 409,
+      body: { error: 'insufficient_stock' },
+    })
+    const ctx = {
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return {}
+          if (name === 'queryEngine') return queryEngine
+          if (name === 'commandBus') return { execute: jest.fn(async () => { throw foreignError }) }
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+      auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+      organizationScope: null,
+      selectedOrganizationId: ORG,
+      organizationIds: [ORG],
+    }
+
+    const result = await applyInventoryImport(ctx, {
+      tenantId: TENANT,
+      organizationId: ORG,
+      importBatchId: '88888888-8888-4888-8888-888888888888',
+      performedBy: USER_ID,
+      continueOnError: true,
+      rows: [
+        {
+          rowNumber: 1,
+          warehouseId: WAREHOUSE_ID,
+          locationId: LOCATION_ID,
+          catalogVariantId: VARIANT_ID,
+          quantity: 5,
+          delta: 5,
+        },
+      ],
+    })
+
+    expect(result.rows[0]).toMatchObject({ status: 'failed', error: 'insufficient_stock' })
+  })
+
   // Reconcile mode restores the pre-#4105 opening-balance semantics, but only when the
   // caller explicitly opts in via mode: 'reconcile'; the delta is recalculated server-side
   // against the live balance rather than trusting the client-submitted value.

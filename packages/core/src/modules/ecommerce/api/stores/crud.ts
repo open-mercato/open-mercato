@@ -196,6 +196,7 @@ export function mergeStoreSettings(
       ...patch.display,
     },
     seo: patch.seo ?? current?.seo ?? {},
+    shipping: patch.shipping ?? current?.shipping ?? { flatRate: null },
   }
 }
 

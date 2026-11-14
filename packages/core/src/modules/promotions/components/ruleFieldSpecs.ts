@@ -73,6 +73,14 @@ export const RULE_FIELD_SPECS: Record<RuleTypeId, FieldSpec[]> = {
     },
   ],
   code: [{ key: 'codeId', kind: 'text', labelKey: 'promotions.fields.codeId', labelFallback: 'Promotion code ID' }],
+  delivery_method: [
+    {
+      key: 'deliveryMethodCode',
+      kind: 'text',
+      labelKey: 'promotions.fields.deliveryMethodCode',
+      labelFallback: 'Delivery method code',
+    },
+  ],
 }
 
 const discountType: FieldSpec = {
@@ -165,5 +173,19 @@ export const BENEFIT_FIELD_SPECS: Record<BenefitTypeId, FieldSpec[]> = {
       nullable: true,
     },
     maxDiscount,
+  ],
+  // D-R5-17: un-hidden in Release 5. No `maxDiscount` field — `deliveryDiscountConfigSchema`
+  // (`data/validators.ts`) does not carry one; "naturally bounded by delivery cost"
+  // (SPEC-055 §Data Models "max_discount"), the same clamp `effect-resolvers.ts`'s
+  // `computeDiscountAmount` already applies to every benefit's base amount.
+  delivery_discount: [
+    {
+      key: 'deliveryMethodCode',
+      kind: 'text',
+      labelKey: 'promotions.fields.deliveryMethodCode',
+      labelFallback: 'Delivery method code',
+    },
+    discountType,
+    benefitValue,
   ],
 }

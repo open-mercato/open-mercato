@@ -15,4 +15,15 @@ describe('checkout defaultEncryptionMaps', () => {
       { field: 'ip_address' },
     ]))
   })
+
+  // Release 5, Step 2.12 (B.1, §13 — C14's security minimum).
+  it('registers the checkout session PII fields (email, phone, shipping/billing address)', () => {
+    const session = defaultEncryptionMaps.find((entry) => entry.entityId === 'checkout:checkout_session')
+    expect(session?.fields).toEqual([
+      { field: 'email' },
+      { field: 'phone' },
+      { field: 'shipping_address' },
+      { field: 'billing_address' },
+    ])
+  })
 })

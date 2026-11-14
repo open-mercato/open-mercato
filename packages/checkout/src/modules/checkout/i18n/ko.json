@@ -455,6 +455,7 @@
   "checkout.validation.common.invalidCurrencyCode": "유효한 3자리 통화 코드를 입력하세요.",
   "checkout.validation.common.invalidFieldsetCode": "유효한 필드셋 코드를 입력하세요.",
   "checkout.validation.common.invalidNumber": "유효한 숫자를 입력하세요.",
+  "checkout.validation.common.invalidReturnPath": "슬래시 하나로 시작하는 상대 경로를 입력하세요.",
   "checkout.validation.common.invalidUrl": "유효한 URL을 입력하세요.",
   "checkout.validation.common.invalidUuid": "유효한 식별자를 입력하세요.",
   "checkout.validation.common.nonNegativeInteger": "0 이상의 정수를 입력하세요.",

@@ -12,6 +12,18 @@
  * Safety-stock contract (R1): `sellable = max(0, aggregate_available -
  * safety_stock)`, with `safety_stock` subtracted ONCE per variant, after
  * aggregating every in-scope location — never once per balance row.
+ *
+ * Phase 2 alignment (A2): `loadBalanceAggregates` and `computeSellableQuantities`
+ * together are the one shared sellable-quantity builder the §4.2 fix calls
+ * for — `loadBalanceAggregates` excludes ineligible lots (quarantined, on
+ * hold, or expired, matching `wms.inventory.reserve`'s `isLotEligible`) and
+ * accepts an additive `warehouseIds` filter (D-R5-31); `computeSellableQuantities`
+ * is the pure arithmetic half, with a STRICT variant-level safety-stock
+ * lookup (no product-pool fallback) and the product-level pool subtracted
+ * exactly once, at the rollup. Neither function locks or opens a
+ * transaction — a future caller already holding `FOR UPDATE` locks on the
+ * balances it cares about (the Phase 2 reservation gate) gets the locked
+ * variant "for free" by passing its own transactional `EntityManager`.
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -71,18 +83,43 @@ type ProfileRow = {
 }
 type VariantRow = { id: string; product_id: string }
 
-async function loadBalanceAggregates(
+/**
+ * The shared SQL half of the §4.2 sellable builder (A2). Excludes
+ * ineligible lots — a balance whose lot `status` is not `'available'`, or
+ * whose `expires_at` has passed, is dropped before aggregation, matching
+ * the eligibility `wms.inventory.reserve`'s `isLotEligible` applies. A
+ * balance with no lot (`lot_id IS NULL`) is always eligible.
+ *
+ * `locationIds` keeps its shipped meaning — wms LOCATION ids (D-R5-31).
+ * `warehouseIds` is the additive warehouse filter from the same decision;
+ * the read provider below never passes it (D-R5-31's read-side scope), but
+ * the function accepts it so a future caller (the Phase 2 reservation
+ * gate) can filter by warehouse without a second SQL builder.
+ *
+ * No `FOR UPDATE`, no transaction: this runs whatever the caller's `em`
+ * already executes inside. A caller that already holds row locks on the
+ * balances in scope (via its own `SELECT … FOR UPDATE`, earlier in the same
+ * transaction) sees the locked, consistent values here for free.
+ */
+export async function loadBalanceAggregates(
   em: EntityManager,
   tenantId: string,
   organizationId: string,
   variantIds: string[],
   locationIds?: string[] | null,
+  warehouseIds?: string[] | null,
 ): Promise<Map<string, number>> {
   const result = new Map<string, number>()
   if (variantIds.length === 0) return result
 
   const variantClause = buildSqlInClause('b.catalog_variant_id', variantIds)
   const params: unknown[] = [organizationId, tenantId, ...variantClause.params]
+  let warehouseClause = ''
+  if (warehouseIds && warehouseIds.length > 0) {
+    const warehouseIn = buildSqlInClause('b.warehouse_id', warehouseIds)
+    warehouseClause = ` and ${warehouseIn.sql}`
+    params.push(...warehouseIn.params)
+  }
   let locationClause = ''
   if (locationIds && locationIds.length > 0) {
     const locationIn = buildSqlInClause('b.location_id', locationIds)
@@ -92,9 +129,12 @@ async function loadBalanceAggregates(
 
   const sql = `
     select b.catalog_variant_id,
-           sum(coalesce(b.quantity_on_hand, 0) - coalesce(b.quantity_reserved, 0) - coalesce(b.quantity_allocated, 0)) as aggregate_available
+           sum(coalesce(b.quantity_available, 0)) as aggregate_available
     from wms_inventory_balances b
+    left join wms_inventory_lots l on l.id = b.lot_id and l.deleted_at is null
     where b.organization_id = ? and b.tenant_id = ? and ${variantClause.sql} and b.deleted_at is null
+      and (b.lot_id is null or (l.status = 'available' and (l.expires_at is null or l.expires_at > now())))
+      ${warehouseClause}
       ${locationClause}
     group by b.catalog_variant_id
   `
@@ -145,12 +185,105 @@ async function loadActiveVariantsForProducts(
   return em.getConnection().execute<VariantRow[]>(sql, [organizationId, tenantId, ...productClause.params])
 }
 
+/**
+ * Any profile covering this item — a variant-level row, or (when none
+ * exists) the product-level pool row. Intended ONLY for presence checks
+ * (`openPolicyDefaultFor`) and the `reorder_point` low-stock threshold,
+ * where falling back to the product's shared configuration is the desired
+ * default (a product-wide reorder point is a sensible per-variant signal).
+ *
+ * NEVER use this for safety-stock subtraction on a variant-level sellable
+ * query (A2) — see `findVariantProfile`/`findProductPoolProfile` below:
+ * falling back to the pool row there would subtract the shared buffer once
+ * per variant instead of once per product, undercounting sellable for
+ * every multi-variant product that has a pool.
+ */
 function findProfile(profiles: ProfileRow[], productId: string, variantId: string | null): ProfileRow | null {
   if (variantId) {
     const variantRow = profiles.find((p) => p.catalog_variant_id === variantId)
     if (variantRow) return variantRow
   }
   return profiles.find((p) => p.catalog_product_id === productId && !p.catalog_variant_id) ?? null
+}
+
+/**
+ * STRICT variant-level profile lookup — no product-pool fallback (A2). The
+ * only correct source for a per-variant safety-stock subtraction.
+ */
+function findVariantProfile(profiles: ProfileRow[], variantId: string): ProfileRow | null {
+  return profiles.find((p) => p.catalog_variant_id === variantId) ?? null
+}
+
+/** The product-level pool row (`catalog_variant_id IS NULL`), or null when the product has none. */
+function findProductPoolProfile(profiles: ProfileRow[], productId: string): ProfileRow | null {
+  return profiles.find((p) => p.catalog_product_id === productId && !p.catalog_variant_id) ?? null
+}
+
+export type SellableQuantityRequest = {
+  /** Variants that need their own, standalone per-variant sellable. */
+  variantIds: string[]
+  /**
+   * Products that need a rollup sellable — the sum of the listed variants'
+   * per-variant sellable, minus the product-level pool once (A2). Used for
+   * a product-level `AvailabilityItemQuery` (`catalogVariantId: null`).
+   */
+  productRollups: Array<{ productId: string; variantIds: string[] }>
+}
+
+export type SellableQuantityAggregates = {
+  /** `aggregate_available` per variant id, from `loadBalanceAggregates` (eligible lots only). */
+  balances: Map<string, number>
+  /** Every profile row covering the variants/products in scope — variant rows and pool rows alike. */
+  profiles: ProfileRow[]
+}
+
+/**
+ * The pure arithmetic half of the §4.2 shared sellable builder (A2),
+ * alongside `loadBalanceAggregates`. No I/O: the read provider below
+ * supplies `balances`/`profiles` from a plain (lock-free) query, and a
+ * future reservation gate can supply the exact same shapes from its own
+ * locked balance rows — the two paths cannot drift because they run the
+ * same arithmetic.
+ *
+ *   sellable(variant) = max(0, aggregate_available(variant) - safety_stock(variant))
+ *
+ * `safety_stock` comes from a STRICT variant-level profile row — never the
+ * product-level pool row.
+ *
+ *   sellable(product rollup) = max(0, sum(sellable(variant) for the
+ *     product's active variants) - safety_stock(product pool))
+ *
+ * The pool is applied exactly once, at the rollup, never per variant.
+ */
+export function computeSellableQuantities(
+  aggregates: SellableQuantityAggregates,
+  request: SellableQuantityRequest,
+): { perVariant: Map<string, number>; perProductRollup: Map<string, number> } {
+  const variantIdsNeeded = new Set<string>([
+    ...request.variantIds,
+    ...request.productRollups.flatMap((rollup) => rollup.variantIds),
+  ])
+
+  const perVariant = new Map<string, number>()
+  for (const variantId of variantIdsNeeded) {
+    const aggregate = aggregates.balances.get(variantId) ?? 0
+    const profile = findVariantProfile(aggregates.profiles, variantId)
+    const safetyStock = profile ? Number(profile.safety_stock ?? 0) : 0
+    perVariant.set(variantId, Math.max(0, aggregate - safetyStock))
+  }
+
+  const perProductRollup = new Map<string, number>()
+  for (const rollup of request.productRollups) {
+    const sumVariantSellable = rollup.variantIds.reduce(
+      (sum, variantId) => sum + (perVariant.get(variantId) ?? 0),
+      0,
+    )
+    const poolProfile = findProductPoolProfile(aggregates.profiles, rollup.productId)
+    const poolSafetyStock = poolProfile ? Number(poolProfile.safety_stock ?? 0) : 0
+    perProductRollup.set(rollup.productId, Math.max(0, sumVariantSellable - poolSafetyStock))
+  }
+
+  return { perVariant, perProductRollup }
 }
 
 /**
@@ -272,7 +405,8 @@ export async function computeAvailability(
   )
   const allProductIds = Array.from(new Set(query.items.map((item) => item.catalogProductId)))
 
-  // One balance aggregation and one profile lookup for the whole batch (R4).
+  // One balance aggregation (eligible lots only) and one profile lookup for
+  // the whole batch (R4) — the SQL half of the shared sellable builder (A2).
   const [balances, profiles] = await Promise.all([
     loadBalanceAggregates(em, query.tenantId, query.organizationId, allVariantIds, query.locationIds),
     loadProfiles(em, query.tenantId, query.organizationId, allVariantIds, allProductIds),
@@ -291,12 +425,19 @@ export async function computeAvailability(
     ? await policyService.resolveMany(em, policyScopes)
     : query.items.map((item) => openPolicyDefaultFor(profiles, item.catalogProductId, item.catalogVariantId ?? null))
 
-  function sellableFor(variantId: string, productId: string): number {
-    const aggregate = balances.get(variantId) ?? 0
-    const profile = findProfile(profiles, productId, variantId)
-    const safetyStock = profile ? Number(profile.safety_stock ?? 0) : 0
-    return Math.max(0, aggregate - safetyStock)
-  }
+  // The pure arithmetic half of the shared sellable builder (A2): per-variant
+  // safety stock never falls back to the product pool, and the pool is
+  // subtracted exactly once, at the rollup.
+  const sellableQuantities = computeSellableQuantities(
+    { balances, profiles },
+    {
+      variantIds: variantItems.map((item) => item.catalogVariantId as string),
+      productRollups: productItemIds.map((productId) => ({
+        productId,
+        variantIds: variantsByProduct.get(productId) ?? [],
+      })),
+    },
+  )
 
   query.items.forEach((item, index) => {
     const policy =
@@ -314,12 +455,11 @@ export async function computeAvailability(
     let sellable: number
     let reorderPoint: number | null = null
     if (item.catalogVariantId) {
-      sellable = sellableFor(item.catalogVariantId, item.catalogProductId)
+      sellable = sellableQuantities.perVariant.get(item.catalogVariantId) ?? 0
       const profile = findProfile(profiles, item.catalogProductId, item.catalogVariantId)
       reorderPoint = profile && profile.reorder_point != null ? Number(profile.reorder_point) : null
     } else {
-      const variantIds = variantsByProduct.get(item.catalogProductId) ?? []
-      sellable = variantIds.reduce((sum, variantId) => sum + sellableFor(variantId, item.catalogProductId), 0)
+      sellable = sellableQuantities.perProductRollup.get(item.catalogProductId) ?? 0
       const profile = findProfile(profiles, item.catalogProductId, null)
       reorderPoint = profile && profile.reorder_point != null ? Number(profile.reorder_point) : null
     }

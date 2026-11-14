@@ -7,6 +7,13 @@ import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type { CommandHandler, CommandRuntimeContext } from "@open-mercato/shared/lib/commands";
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import {
+  buildQuoteApprovalRequirement,
+  extractPendingApprovalClaim,
+  isTrustedSystemCommandContext,
+  omitPendingApprovalMetadata,
+} from "../lib/quoteApprovalRequirement";
+import { createQuoteApprovalLookup } from "../lib/quoteApprovalLookup";
+import {
   buildChanges,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
@@ -283,6 +290,7 @@ type QuoteGraphSnapshot = {
     deliveryWindowSnapshot: Record<string, unknown> | null;
     paymentMethodSnapshot: Record<string, unknown> | null;
     metadata: Record<string, unknown> | null;
+    approvalRequirement?: Record<string, unknown> | null;
     customFieldSetId: string | null;
     customFields: Record<string, unknown> | null;
     subtotalNetAmount: string;
@@ -1242,7 +1250,10 @@ async function applyDocumentUpdate({
     entity.customerSnapshot = input.customerSnapshot ?? null;
   }
   if (input.metadata !== undefined) {
-    entity.metadata = input.metadata ?? null;
+    entity.metadata =
+      kind === "quote"
+        ? omitPendingApprovalMetadata(input.metadata ?? null)
+        : (input.metadata ?? null);
   }
   if (input.externalReference !== undefined) {
     const normalized =
@@ -1804,6 +1815,9 @@ async function loadQuoteSnapshot(
         ? cloneJson(quote.paymentMethodSnapshot)
         : null,
       metadata: quote.metadata ? cloneJson(quote.metadata) : null,
+      approvalRequirement: quote.approvalRequirement
+        ? cloneJson(quote.approvalRequirement)
+        : null,
       customFieldSetId: quote.customFieldSetId ?? null,
       customFields: quoteCustomFields[quote.id]
         ? cloneJson(quoteCustomFields[quote.id])
@@ -4297,6 +4311,9 @@ async function restoreQuoteGraph(
       metadata: snapshot.quote.metadata
         ? cloneJson(snapshot.quote.metadata)
         : null,
+      approvalRequirement: snapshot.quote.approvalRequirement
+        ? cloneJson(snapshot.quote.approvalRequirement)
+        : null,
       channelId: snapshot.quote.channelId ?? null,
       customFieldSetId: snapshot.quote.customFieldSetId ?? null,
       subtotalNetAmount: snapshot.quote.subtotalNetAmount,
@@ -4715,6 +4732,7 @@ async function undoOrderGraph(
 ): Promise<void> {
   ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
   let restored: SalesOrder | undefined;
+  let previousStatus: string | null = null;
   await withVerifiedOrderGraph(
     ctx,
     after,
@@ -4725,7 +4743,9 @@ async function undoOrderGraph(
     },
     async (tx, exists) => {
       if (!exists && after) await throwDocumentUndoStale("order");
-      restored = await restoreOrderGraph(tx, before, exists ? after : null);
+      const result = await restoreOrderGraph(tx, before, exists ? after : null);
+      restored = result.order;
+      previousStatus = result.previousStatus;
       await tx.flush();
     },
   );
@@ -4742,13 +4762,18 @@ async function undoOrderGraph(
     },
     indexer: { entityType: E.sales.sales_order },
   });
+  // #8404: undo only restored the row — it never re-emitted the lifecycle events `execute()`
+  // fires for the same transition (`sales.order.confirmed`/`.cancelled`), so an undone
+  // cancellation left a live, confirmed order with no re-reserved stock or credit. Mirrors
+  // `execute()`'s own call to the SAME function right after its own status write.
+  emitOrderLifecycleEventsForTransition({ order: restored, previousStatus });
 }
 
 async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
   verified: OrderGraphSnapshot | null = null,
-): Promise<SalesOrder> {
+): Promise<{ order: SalesOrder; previousStatus: string | null }> {
   let order = await findOneWithDecryption(
     em,
     SalesOrder,
@@ -4759,6 +4784,7 @@ async function restoreOrderGraph(
       organizationId: snapshot.order.organizationId,
     },
   );
+  const existedBeforeRestore = Boolean(order);
   let existingLines: SalesOrderLine[] = [];
   if (order) {
     existingLines = await em.find(
@@ -4856,6 +4882,16 @@ async function restoreOrderGraph(
     });
     em.persist(order);
   }
+  // Captured BEFORE `applyOrderSnapshot` overwrites `order.status` below — the status the
+  // order actually had right before this restore (e.g. `canceled`, being undone back to
+  // `confirmed`). For a from-scratch recreate (order didn't exist — only `deleteOrderCommand`'s
+  // undo hits this branch), there is no real prior row to read a status from, so `previousStatus`
+  // is `null` rather than the restored status itself: #8406's delete handler now releases credit
+  // and reverts promotion/code usage, so undo-of-delete must still emit the confirmed lifecycle
+  // event (when the restored status is `confirmed`) to let `customer_groups:order-confirmed-credit-reinstate`
+  // and `promotions:order-confirmed-usage-reinstate` reverse that release/revert — treating the
+  // restored status as "no transition" would silently skip them.
+  const previousStatus = existedBeforeRestore ? (order.status ?? null) : null;
   applyOrderSnapshot(order, snapshot.order);
   await em.flush();
   const existingAdjustments = await em.find(
@@ -5108,7 +5144,7 @@ async function restoreOrderGraph(
     await restorePaymentSnapshot(em, payment);
   }
 
-  return order;
+  return { order, previousStatus };
 }
 
 const createQuoteCommand: CommandHandler<
@@ -5152,12 +5188,26 @@ const createQuoteCommand: CommandHandler<
       parsed.statusEntryId ?? null,
       { tenantId: parsed.tenantId },
     );
+    const pendingApprovalClaim = extractPendingApprovalClaim(parsed.metadata);
+    const approvalRequirement =
+      pendingApprovalClaim && isTrustedSystemCommandContext(ctx)
+        ? await buildQuoteApprovalRequirement({
+            claim: pendingApprovalClaim,
+            buyerCustomerEntityId: parsed.customerEntityId ?? null,
+            lookupApproval: createQuoteApprovalLookup(ctx.container, {
+              tenantId: parsed.tenantId,
+              organizationId: parsed.organizationId,
+            }),
+          })
+        : null;
     const quoteId = randomUUID();
     const quote = em.create(SalesQuote, {
       id: quoteId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       quoteNumber: ensuredQuoteNumber,
+      externalReference: parsed.externalReference ?? null,
+      customerReference: parsed.customerReference ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       status: quoteStatus,
       customerEntityId: parsed.customerEntityId ?? null,
@@ -5254,7 +5304,12 @@ const createQuoteCommand: CommandHandler<
                   : null,
             }
           : null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      metadata: parsed.metadata
+        ? cloneJson(omitPendingApprovalMetadata(parsed.metadata))
+        : null,
+      approvalRequirement: approvalRequirement
+        ? (approvalRequirement as unknown as Record<string, unknown>)
+        : null,
       channelId: parsed.channelId ?? null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       subtotalNetAmount: "0",
@@ -6207,6 +6262,7 @@ const updateOrderCommand: CommandHandler<
       [
         async () => {
           order = await lockOrderForTotalsWrite(em, ctx, parsed.id, "Sales order not found");
+          await ctx.beforeTransactionalWrite?.(em, parsed);
           const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
           nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
           totalsModeChanged = nextTotalsMode !== currentTotalsMode;
@@ -7067,6 +7123,26 @@ const deleteOrderCommand: CommandHandler<
         E.sales.sales_document_tag_assignment,
       ),
     ]);
+    // #8406: nothing released an on-account order's held credit (or reverted its
+    // promotion/code usage) on delete — only `sales.order.cancelled` had release
+    // subscribers. `sales.order.deleted` was already declared in events.ts but never
+    // emitted; emit it now so `customer_groups:order-deleted-credit-release` and
+    // `promotions:order-deleted-usage-revert` can run the same release/revert logic
+    // cancellation already uses. Fire-and-forget like the lifecycle events above — the
+    // delete itself already committed.
+    void emitSalesEvent("sales.order.deleted", {
+      id: order.id,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      tenantId: order.tenantId,
+      organizationId: order.organizationId,
+    }).catch((err) => {
+      logger.warn("order lifecycle event emit failed", {
+        eventId: "sales.order.deleted",
+        orderId: order.id,
+        err,
+      });
+    });
     return { orderId: id };
   },
   buildLog: async ({ snapshots }) => {

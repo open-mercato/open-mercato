@@ -1,8 +1,9 @@
 'use client'
 
 // Inline rule card (Step 1.7, SPEC-055 §UI/UX "Rule Group Tree Builder"): a filterable
-// type dropdown restricted to the eight Release 4 shipped rule types, plus
-// type-specific inline fields driven by `ruleFieldSpecs.ts`, plus a delete button.
+// type dropdown restricted to the shipped rule types (Release 4's eight plus
+// `delivery_method`, un-hidden in Release 5 by D-R5-17), plus type-specific inline fields
+// driven by `ruleFieldSpecs.ts`, plus a delete button.
 
 import * as React from 'react'
 import { useSortable } from '@dnd-kit/sortable'
@@ -25,6 +26,7 @@ const RULE_TYPE_LABEL_KEYS: Record<RuleTypeId, { key: string; fallback: string }
   category: { key: 'promotions.rules.types.category', fallback: 'Category' },
   customer_group: { key: 'promotions.rules.types.customer_group', fallback: 'Customer group' },
   code: { key: 'promotions.rules.types.code', fallback: 'Promotion code' },
+  delivery_method: { key: 'promotions.rules.types.delivery_method', fallback: 'Delivery method' },
 }
 
 export type RuleCardProps = {

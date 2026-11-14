@@ -27,6 +27,8 @@
   "availability.errors.unauthorized": "Nicht autorisiert",
   "availability.errors.variantNotFound": "Variante nicht gefunden",
   "availability.nav.group": "Verfügbarkeit",
+  "availability.notifications.stockLostAfterPayment.body": "Für Bestellung {orderId} konnte der Lagerbestand nach der Zahlung nicht gehalten werden: {sellableCount} Position(en) waren nicht mehr verfügbar.",
+  "availability.notifications.stockLostAfterPayment.title": "Lagerbestand nach Zahlung verloren",
   "availability.policies.create.title": "Verfügbarkeitsrichtlinie erstellen",
   "availability.policies.edit.notFound": "Verfügbarkeitsrichtlinie nicht gefunden",
   "availability.policies.edit.readOnly": "Diese Richtlinie ist schreibgeschützt. Sie haben keine Berechtigung, sie zu ändern.",
@@ -89,5 +91,6 @@
   "availability.states.low_stock": "Geringer Bestand",
   "availability.states.not_tracked": "Nicht erfasst",
   "availability.states.out_of_stock": "Nicht vorrätig",
-  "availability.states.preorder": "Vorbestellung"
+  "availability.states.preorder": "Vorbestellung",
+  "notifications.categories.availability": "Verfügbarkeit"
 }

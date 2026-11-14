@@ -216,6 +216,11 @@ function makeCtx(opts: {
   commandBus?: unknown
   promotionsService?: unknown
   catalogScopedProductService?: unknown
+  // Step 2.9 (§6a.4/D-R5-22) — omitted entirely by default, which falls through to this
+  // container's own `throw` below, caught by `tryResolveStoreContextService`'s try/catch:
+  // the exact "ecommerce not registered" fallback every pre-existing trusted-path test in
+  // this file already exercises without knowing it.
+  storeContextService?: unknown
   auth?: CommandRuntimeContext['auth']
   selectedOrganizationId?: string | null
 }): CommandRuntimeContext {
@@ -236,6 +241,10 @@ function makeCtx(opts: {
         // a fake container just needs the token to resolve, never reads `auth` itself.
         if (token === 'promotionsService') return opts.promotionsService ?? makeDefaultPromotionsService()
         if (token === 'catalogScopedProductService') return opts.catalogScopedProductService ?? makeDefaultCatalogScopedProductService()
+        if (token === 'storeContextService') {
+          if (opts.storeContextService) return opts.storeContextService
+          throw new Error('storeContextService is not registered')
+        }
         throw new Error(`Unexpected DI token: ${token}`)
       },
       register: jest.fn((...args: unknown[]) => {
@@ -404,6 +413,238 @@ describe('cart.create', () => {
     expect(getCreated()).toBeNull()
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  // Release 5, Step 3.5 (D-R5-19, cart §6a.4 rev 10, R22) — the trusted `systemActor`
+  // context checkout's pay-link cart seeding builds via `buildTrustedCommandContext` has no
+  // `auth` at all, so it cannot pass the normal RBAC feature check. It is accepted for
+  // `channel: 'pay_link'` ONLY; every other channel still requires a real feature grant.
+  describe('trusted systemActor path — D-R5-19/R22', () => {
+    function makeSystemCtx(opts: { em: unknown; dataEngine: unknown }) {
+      return { ...makeCtx({ em: opts.em, dataEngine: opts.dataEngine }), systemActor: true }
+    }
+
+    it('creates a pay_link cart with no auth and no RBAC check, using the input tenantId fallback', async () => {
+      const handler = commandRegistry.get<CartCreateCommandInput, CartCreateResult>('cart.create')
+      const { em, getCreated } = makeEm()
+      const dataEngine = makeDataEngine()
+      const ctx = { ...makeSystemCtx({ em, dataEngine }), selectedOrganizationId: ORG_ID }
+
+      const result = await handler!.execute(
+        {
+          channel: 'pay_link',
+          storeId: null,
+          salesChannelId: null,
+          currencyCode: 'USD',
+          locale: 'en',
+          taxMode: 'gross',
+          customerId: null,
+          customerUserId: null,
+          email: null,
+          tenantId: TENANT_ID,
+        },
+        ctx,
+      )
+
+      expect(result.channel).toBe('pay_link')
+      expect(result.tenantId).toBe(TENANT_ID)
+      expect(result.organizationId).toBe(ORG_ID)
+      expect(getCreated()!.channel).toBe('pay_link')
+      expect(em.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(['pos', 'agent', 'api'] as const)(
+      'rejects a systemActor context creating a "%s" cart and persists nothing',
+      async (channel) => {
+        const handler = commandRegistry.get<CartCreateCommandInput, CartCreateResult>('cart.create')
+        const { em, getCreated } = makeEm()
+        const dataEngine = makeDataEngine()
+        const ctx = { ...makeSystemCtx({ em, dataEngine }), selectedOrganizationId: ORG_ID }
+
+        let captured: unknown
+        try {
+          await handler!.execute(
+            {
+              channel,
+              storeId: null,
+              salesChannelId: null,
+              currencyCode: 'USD',
+              locale: 'en',
+              taxMode: 'gross',
+              customerId: null,
+              customerUserId: null,
+              email: null,
+              tenantId: TENANT_ID,
+            },
+            ctx,
+          )
+        } catch (err) {
+          captured = err
+        }
+
+        expect(isCrudHttpError(captured)).toBe(true)
+        expect((captured as { status: number }).status).toBe(403)
+        expect(getCreated()).toBeNull()
+        expect(em.persist).not.toHaveBeenCalled()
+      },
+    )
+
+    it('without a tenantId fallback and no auth, rejects with 400 rather than crashing', async () => {
+      const handler = commandRegistry.get<CartCreateCommandInput, CartCreateResult>('cart.create')
+      const { em } = makeEm()
+      const dataEngine = makeDataEngine()
+      const ctx = { ...makeSystemCtx({ em, dataEngine }), selectedOrganizationId: ORG_ID }
+
+      let captured: unknown
+      try {
+        await handler!.execute(
+          {
+            channel: 'pay_link',
+            storeId: null,
+            salesChannelId: null,
+            currencyCode: 'USD',
+            locale: 'en',
+            taxMode: 'gross',
+            customerId: null,
+            customerUserId: null,
+            email: null,
+            tenantId: null,
+          },
+          ctx,
+        )
+      } catch (err) {
+        captured = err
+      }
+
+      expect(isCrudHttpError(captured)).toBe(true)
+      expect((captured as { status: number }).status).toBe(400)
+    })
+  })
+
+  // Step 2.9 (§6a.4/D-R5-22) — the trusted-path buyer-identity fill. Before this step a
+  // trusted `pos`/`pay_link`/`agent`/`api` cart created for a known customer stored
+  // `customerIds = [customerId]`, `customerGroupIds = []`, `priceKindId = null` straight
+  // from the caller's own input, never resolving the buyer's company/group/price-kind (X2).
+  describe('authenticated path — §6a.4/D-R5-22 trusted buyer-identity fill', () => {
+    const TRUSTED_PERSON_ID = 'bbbbbbbb-0000-4000-8000-000000000002'
+    const TRUSTED_COMPANY_ID = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const TRUSTED_CUSTOMER_USER_ID = 'cccccccc-0000-4000-8000-000000000003'
+    const TRUSTED_GROUP_ID = 'dddddddd-0000-4000-8000-000000000004'
+    const TRUSTED_PRICE_KIND_ID = 'eeeeeeee-0000-4000-8000-000000000005'
+
+    function makeTrustedInput(overrides: Record<string, unknown> = {}) {
+      return {
+        channel: 'api' as const,
+        storeId: null,
+        salesChannelId: null,
+        currencyCode: 'USD',
+        locale: 'en-US',
+        taxMode: 'gross' as const,
+        customerId: null,
+        customerUserId: null,
+        email: null,
+        ...overrides,
+      }
+    }
+
+    it('resolves customerIds/customerGroupIds/priceKindId/taxMode/buyerDigest via resolveForBuyer, leaving currencyCode as the caller supplied', async () => {
+      const resolveForBuyer = jest.fn(async () => ({
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        storeId: null,
+        customerId: TRUSTED_COMPANY_ID,
+        customerIds: [TRUSTED_PERSON_ID, TRUSTED_COMPANY_ID],
+        customerUserId: TRUSTED_CUSTOMER_USER_ID,
+        customerGroupIds: [TRUSTED_GROUP_ID],
+        priceKindId: TRUSTED_PRICE_KIND_ID,
+        taxMode: 'net' as const,
+        currencyCode: null,
+        buyerDigest: 'resolved-buyer-digest',
+      }))
+      const handler = commandRegistry.get<CartCreateCommandInput, CartCreateResult>('cart.create')
+      const { em, getCreated } = makeEm()
+      const dataEngine = makeDataEngine()
+      const userHasAllFeatures = jest.fn(async () => true)
+      const ctx = makeCtx({
+        em,
+        dataEngine,
+        rbacService: { userHasAllFeatures },
+        storeContextService: { resolveForBuyer },
+        auth: { sub: 'api-key-1', tenantId: TENANT_ID, orgId: ORG_ID },
+        selectedOrganizationId: ORG_ID,
+      })
+
+      await handler!.execute(makeTrustedInput({ customerUserId: TRUSTED_CUSTOMER_USER_ID, currencyCode: 'EUR' }), ctx)
+
+      expect(resolveForBuyer).toHaveBeenCalledWith({
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        storeId: null,
+        customerUserId: TRUSTED_CUSTOMER_USER_ID,
+        customerId: null,
+      })
+      const created = getCreated()!
+      expect(created.customerId).toBe(TRUSTED_COMPANY_ID)
+      expect(created.customerIds).toEqual([TRUSTED_PERSON_ID, TRUSTED_COMPANY_ID])
+      expect(created.customerUserId).toBe(TRUSTED_CUSTOMER_USER_ID)
+      expect(created.customerGroupIds).toEqual([TRUSTED_GROUP_ID])
+      expect(created.priceKindId).toBe(TRUSTED_PRICE_KIND_ID)
+      expect(created.taxMode).toBe('net')
+      expect(created.buyerDigest).toBe('resolved-buyer-digest')
+      // §6a.4's own fill list names seven fields, deliberately not currencyCode — the
+      // trusted caller's own required input stays authoritative.
+      expect(created.currencyCode).toBe('EUR')
+    })
+
+    it('falls back to the pre-Step-2.9 placeholder identity when ecommerce is not registered (documented fallback, not silent)', async () => {
+      const handler = commandRegistry.get<CartCreateCommandInput, CartCreateResult>('cart.create')
+      const { em, getCreated } = makeEm()
+      const dataEngine = makeDataEngine()
+      const userHasAllFeatures = jest.fn(async () => true)
+      const ctx = makeCtx({
+        em,
+        dataEngine,
+        rbacService: { userHasAllFeatures },
+        auth: { sub: 'api-key-1', tenantId: TENANT_ID, orgId: ORG_ID },
+        selectedOrganizationId: ORG_ID,
+      })
+
+      await handler!.execute(makeTrustedInput({ customerId: TRUSTED_COMPANY_ID, taxMode: 'gross' }), ctx)
+
+      const created = getCreated()!
+      expect(created.customerId).toBe(TRUSTED_COMPANY_ID)
+      expect(created.customerIds).toEqual([TRUSTED_COMPANY_ID])
+      expect(created.customerGroupIds).toEqual([])
+      expect(created.priceKindId).toBeNull()
+      expect(created.taxMode).toBe('gross')
+      expect(created.buyerDigest).toBe('')
+    })
+
+    it('a guest trusted cart (no customer named at all) is unaffected — resolveForBuyer is never called', async () => {
+      const resolveForBuyer = jest.fn()
+      const handler = commandRegistry.get<CartCreateCommandInput, CartCreateResult>('cart.create')
+      const { em, getCreated } = makeEm()
+      const dataEngine = makeDataEngine()
+      const userHasAllFeatures = jest.fn(async () => true)
+      const ctx = makeCtx({
+        em,
+        dataEngine,
+        rbacService: { userHasAllFeatures },
+        storeContextService: { resolveForBuyer },
+        auth: { sub: 'api-key-1', tenantId: TENANT_ID, orgId: ORG_ID },
+        selectedOrganizationId: ORG_ID,
+      })
+
+      await handler!.execute(makeTrustedInput(), ctx)
+
+      expect(resolveForBuyer).not.toHaveBeenCalled()
+      const created = getCreated()!
+      expect(created.customerId).toBeNull()
+      expect(created.customerIds).toEqual([])
+      expect(created.customerGroupIds).toEqual([])
+      expect(created.priceKindId).toBeNull()
+      expect(created.buyerDigest).toBe('')
+    })
   })
 })
 
@@ -843,8 +1084,8 @@ describe('cart.reprice', () => {
       grandTotalNetAmount: 0,
       grandTotalGrossAmount: 0,
     })
-    expect(seededCartLines[0].unitPriceNet).toBe('8')
-    expect(seededCartLines[1].unitPriceNet).toBe('8')
+    expect(seededCartLines[0].unitPriceNet).toBe('8.0000')
+    expect(seededCartLines[1].unitPriceNet).toBe('8.0000')
     expect(result.priceChanges).toHaveLength(2)
     expect(result.cart.lastPriceChangeAt).toBeInstanceOf(Date)
     expect(em.begin).toHaveBeenCalledTimes(1)
@@ -902,8 +1143,108 @@ describe('cart.reprice', () => {
     expect((captured as { status: number }).status).toBe(404)
   })
 
+  // Step 2.10 (K6/§10.2) — the admin reprice route is the one caller allowed to reprice an
+  // `abandoned` basket; this command never writes `cart.status` anywhere in its own body,
+  // so an abandoned cart stays abandoned after the reprice (never silently reactivated).
+  it('(K6/§10.2) reprices an abandoned cart without reactivating it', async () => {
+    const cart = seedCartWithLines({ status: 'abandoned' })
+    const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    const result = await handler!.execute(
+      { cartId: cart.id as string, tenantId: TENANT_ID, organizationId: ORG_ID, trigger: 'admin_reprice' },
+      ctx,
+    )
+
+    expect(result.cart.status).toBe('abandoned')
+    expect(seededCarts.find((row) => row.id === cart.id)!.status).toBe('abandoned')
+  })
+
+  it('still refuses a merged cart with 409 cart_not_active', async () => {
+    const cart = seedCartWithLines({ status: 'merged' })
+    const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    let captured: unknown
+    try {
+      await handler!.execute(
+        { cartId: cart.id as string, tenantId: TENANT_ID, organizationId: ORG_ID, trigger: 'admin_reprice' },
+        ctx,
+      )
+    } catch (err) {
+      captured = err
+    }
+
+    expect(isCrudHttpError(captured)).toBe(true)
+    expect((captured as { status: number }).status).toBe(409)
+  })
+
+  // Step 2.10 — `applyCartRepriceTriggerFields`'s dedicated `'admin_reprice'` branch only
+  // writes a buyer-identity field when the admin route actually resolved it (unlike
+  // `'buyer_context_changed'`, which always overwrites with a full fresh context) — a
+  // partial/absent refresh (e.g. `ecommerce` disabled) must never wipe an existing field
+  // back to `null`.
+  it("(admin_reprice) a partial field set never wipes the cart's existing buyer identity", async () => {
+    const cart = seedCartWithLines({ customerId: 'customer-existing', priceKindId: 'price-kind-existing' })
+    const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    const result = await handler!.execute(
+      { cartId: cart.id as string, tenantId: TENANT_ID, organizationId: ORG_ID, trigger: 'admin_reprice' },
+      ctx,
+    )
+
+    expect(result.cart.customerId).toBe('customer-existing')
+    expect(result.cart.priceKindId).toBe('price-kind-existing')
+  })
+
+  it('(admin_reprice) a resolved buyer-identity refresh overwrites only the fields it names', async () => {
+    const cart = seedCartWithLines({ customerId: 'customer-existing' })
+    const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
+    const { em } = makeEm()
+    const dataEngine = makeDataEngine()
+    const ctx = makeCtx({ em, dataEngine })
+
+    const result = await handler!.execute(
+      {
+        cartId: cart.id as string,
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        trigger: 'admin_reprice',
+        customerId: 'customer-refreshed',
+        customerIds: ['customer-refreshed'],
+        customerGroupIds: ['group-refreshed'],
+        priceKindId: 'price-kind-refreshed',
+      },
+      ctx,
+    )
+
+    expect(result.cart.customerId).toBe('customer-refreshed')
+    expect(result.cart.customerGroupIds).toEqual(['group-refreshed'])
+    expect(result.cart.priceKindId).toBe('price-kind-refreshed')
+  })
+
   it('does not disclose a priceChange or stamp lastPriceChangeAt when the resolved price is unchanged', async () => {
-    const cart = seedCartWithLines()
+    // `unit_price_net`/`unit_price_gross` are `numeric(_, 4)` columns — a real row read back
+    // from Postgres always carries 4 decimal places ('10.0000'), never the bare '10' the
+    // shared fixture default uses elsewhere. Overridden here so this test genuinely proves
+    // "no real price movement" rather than relying on the default fixture's un-padded string
+    // happening to equal `String(10)` — the exact format mismatch that let the price-changed
+    // false positive this test guards against go undetected.
+    const cart = seedCartWithLines({}, [
+      {
+        id: 'line-1', cartId: 'cart-1', tenantId: TENANT_ID, organizationId: ORG_ID, productId: 'product-1', variantId: null,
+        name: 'Widget', quantity: '2', quantityUnit: null, unitPriceNet: '10.0000', unitPriceGross: '12.0000', taxRate: '20',
+        priceKindId: null, priceRowId: 'price-row-1', priceTierMinQuantity: 1, pricedAt: new Date('2026-01-01T00:00:00.000Z'),
+        lineTotals: {}, discountTotalNet: null, configuration: null, deletedAt: null,
+      },
+    ])
     const handler = commandRegistry.get<CartRepriceInput, CartRepriceResult>('cart.reprice')
     const { em } = makeEm()
     const dataEngine = makeDataEngine()

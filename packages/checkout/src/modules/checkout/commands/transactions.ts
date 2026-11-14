@@ -155,14 +155,21 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
       })
-      if (!transaction) throw new CrudHttpError(404, { error: 'Transaction not found' })
-      const link = await tx.findOne(CheckoutLink, {
-        id: transaction.linkId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      })
-      if (!link) throw new CrudHttpError(404, { error: 'Payment link not found' })
+      if (!transaction) throw new CrudHttpError(404, { error: 'Transaction not found', code: 'checkout_transaction_not_found' })
+      // Session-backed transactions (Step 4.2, §4.4) have no `linkId` at all — they
+      // belong to a `CheckoutSession`, not a `CheckoutLink`. Only pay-link transactions
+      // require a resolvable link; the link-specific side effects below (usage-limit
+      // decrement, the link-scoped terminal event) are skipped for the session-backed
+      // case rather than 404ing the whole status update.
+      const link = transaction.linkId
+        ? await tx.findOne(CheckoutLink, {
+          id: transaction.linkId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        })
+        : null
+      if (transaction.linkId && !link) throw new CrudHttpError(404, { error: 'Payment link not found' })
 
       const previousStatus = transaction.status
       const nextStatus = parsed.status
@@ -178,6 +185,8 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       // Resolve the new field values before the write.
       const newPaymentStatus = parsed.paymentStatus ?? transaction.paymentStatus ?? null
       const newGatewayTransactionId = parsed.gatewayTransactionId ?? transaction.gatewayTransactionId ?? null
+      const paymentStateChanged = newPaymentStatus !== (transaction.paymentStatus ?? null)
+        || newGatewayTransactionId !== (transaction.gatewayTransactionId ?? null)
 
       // Atomic compare-and-swap: the WHERE clause pins the current status so
       // a concurrent writer that already advanced the status to a terminal
@@ -195,6 +204,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           status: nextStatus,
           paymentStatus: newPaymentStatus,
           gatewayTransactionId: newGatewayTransactionId,
+          ...(paymentStateChanged ? { paymentRecordedAt: null } : {}),
           updatedAt: new Date(),
         },
       )
@@ -226,7 +236,10 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       // Only apply terminal link state and emit the terminal event when the
       // status actually changes — prevents double-notification on idempotent
       // redeliveries (e.g. authorized → captured, both mapping to 'completed').
-      if (!previousTerminal && nextTerminal) {
+      // Link-scoped only: a session-backed transaction never moves the link counters —
+      // the owning `CheckoutSession` holds the slot and releases it exactly once through
+      // its own status compare-and-swap (`commands/submit.ts`).
+      if (link && !transaction.sessionId && !previousTerminal && nextTerminal) {
         const released = await tx.execute<Array<{ completion_count: number; max_completions: number | null }>>(
           `
             UPDATE checkout_links
@@ -259,10 +272,10 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
           usageLimitReachedLinkSlug = link.slug
         }
       }
-      if (nextTerminal && previousStatus !== nextStatus) {
+      if (link && nextTerminal && previousStatus !== nextStatus) {
         terminalEventPayload = {
           transactionId: transaction.id,
-          linkId: transaction.linkId,
+          linkId: transaction.linkId as string,
           templateId: link.templateId ?? null,
           slug: link.slug,
           status: transaction.status,

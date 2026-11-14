@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('currencies').child({ component: 'base-currency-service' })
@@ -23,7 +23,13 @@ export class BaseCurrencyService {
 
     let rows: Array<Record<string, unknown>>
     try {
-      const result = await this.em.getConnection().execute(
+      // em.execute (NOT em.getConnection().execute) so this runs on the caller's own
+      // transaction connection when one is ambient — getConnection().execute() always
+      // grabs a fresh connection straight from the pool, bypassing the transaction
+      // context entirely. Called from inside a per-cart advisory lock (approvalGate.ts),
+      // that second connection is exactly the pool-exhaustion deadlock TC-CART-CONC-06
+      // reproduces under concurrency.
+      const result = await this.em.execute(
         'SELECT organization_id, code FROM currencies WHERE tenant_id = ? AND organization_id = ANY(?::uuid[]) AND is_base = true AND deleted_at IS NULL',
         [scope.tenantId, `{${organizationIds.join(',')}}`],
       )

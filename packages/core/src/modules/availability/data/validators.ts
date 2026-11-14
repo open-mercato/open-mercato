@@ -85,3 +85,85 @@ export const availabilityPolicyMergedConstraintsSchema = refinePolicyConstraints
 
 export type AvailabilityPolicyCreateInput = z.infer<typeof availabilityPolicyCreateSchema>
 export type AvailabilityPolicyUpdateInput = z.infer<typeof availabilityPolicyUpdateSchema>
+
+// Release 5 Phase 3 (§5.3, A3). Validates the `AvailabilityReservation.items` jsonb snapshot —
+// exactly the per-line shape §5.3's data-model table names (`catalogProductId`, `catalogVariantId`,
+// `requested`, `outcome`, `heldQuantity`, `backorderQuantity`). The `reserve`/`release`/`commit`
+// commands that populate this column (Step 2.2) build their own richer in-memory line type
+// (adding `key`/`available`, §4.1) and narrow it down to this snapshot before persisting.
+export const availabilityReservationSourceTypeSchema = z.literal('checkout')
+export const availabilityReservationStatusSchema = z.enum(['active', 'committed', 'released', 'expired'])
+export const availabilityReservationLineOutcomeSchema = z.enum([
+  'held',
+  'not_tracked',
+  'preorder',
+  'backorder',
+  'shortfall',
+])
+
+export const availabilityReservationItemSnapshotSchema = z.object({
+  catalogProductId: uuid(),
+  catalogVariantId: uuid().nullable(),
+  requested: positiveInt(),
+  outcome: availabilityReservationLineOutcomeSchema,
+  heldQuantity: nonNegativeInt(),
+  backorderQuantity: nonNegativeInt(),
+})
+
+export const availabilityReservationItemsSnapshotSchema = z
+  .array(availabilityReservationItemSnapshotSchema)
+  .min(1)
+
+export type AvailabilityReservationSourceType = z.infer<typeof availabilityReservationSourceTypeSchema>
+export type AvailabilityReservationStatus = z.infer<typeof availabilityReservationStatusSchema>
+export type AvailabilityReservationLineOutcome = z.infer<typeof availabilityReservationLineOutcomeSchema>
+export type AvailabilityReservationItemSnapshotInput = z.infer<typeof availabilityReservationItemSnapshotSchema>
+
+// Step 2.2 (§4.1). `reserve`/`release`/`commit` input validation — items non-empty, each
+// (catalogProductId, catalogVariantId) pair appears at most once per call (the caller sums
+// duplicate cart lines), `ttlSeconds` bounded 60-3600 defaulting to 900 (A17), `reason`
+// non-empty and bounded (audited text).
+const availabilityReservationItemInputSchema = z.object({
+  catalogProductId: uuid(),
+  catalogVariantId: uuid().nullable().optional(),
+  quantity: z.number().finite().positive(),
+})
+
+export const availabilityReserveInputSchema = scopedSchema.extend({
+  items: z
+    .array(availabilityReservationItemInputSchema)
+    .min(1)
+    .superRefine((items, ctx) => {
+      const seen = new Set<string>()
+      items.forEach((item, index) => {
+        const key = `${item.catalogProductId}:${item.catalogVariantId ?? ''}`
+        if (seen.has(key)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [index, 'catalogVariantId'],
+            message: 'availability.reservations.errors.duplicateLine',
+          })
+        }
+        seen.add(key)
+      })
+    }),
+  sourceType: z.literal('checkout'),
+  sourceId: z.string().trim().min(1).max(200),
+  idempotencyKey: z.string().trim().min(1).max(200),
+  ttlSeconds: z.number().int().min(60).max(3600).optional().default(900),
+  warehouseIds: z.array(uuid()).nullable().optional(),
+})
+
+export const availabilityReleaseInputSchema = scopedSchema.extend({
+  idempotencyKey: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(200),
+})
+
+export const availabilityCommitInputSchema = scopedSchema.extend({
+  idempotencyKey: z.string().trim().min(1).max(200),
+  orderId: uuid(),
+})
+
+export type AvailabilityReserveInput = z.infer<typeof availabilityReserveInputSchema>
+export type AvailabilityReleaseInput = z.infer<typeof availabilityReleaseInputSchema>
+export type AvailabilityCommitInput = z.infer<typeof availabilityCommitInputSchema>

@@ -455,6 +455,7 @@
   "checkout.validation.common.invalidCurrencyCode": "Enter a valid 3-letter currency code.",
   "checkout.validation.common.invalidFieldsetCode": "Enter a valid fieldset code.",
   "checkout.validation.common.invalidNumber": "Enter a valid number.",
+  "checkout.validation.common.invalidReturnPath": "Enter a relative path starting with a single slash.",
   "checkout.validation.common.invalidUrl": "Enter a valid URL.",
   "checkout.validation.common.invalidUuid": "Enter a valid identifier.",
   "checkout.validation.common.nonNegativeInteger": "Enter a whole number greater than or equal to 0.",

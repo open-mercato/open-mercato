@@ -1,7 +1,22 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandLogBuilderArgs, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveDictionaryEntryValue } from '../../lib/dictionaries'
+import { resolveNotificationService } from '../../../notifications/lib/notificationService'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+
+// #8268 review Minor/Medium: the shape `createPaymentCommand.execute` resolves to at
+// runtime, typed once so the reconciliation tests below read `result.paymentId`/
+// `.reused` directly instead of `(result as any)?.paymentId`.
+type CreatePaymentTestResult = {
+  paymentId: string
+  reused?: boolean
+  reconciled?: boolean
+  orderPaymentMethodIdBefore?: string | null
+  orderPaymentMethodCodeBefore?: string | null
+}
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -176,6 +191,23 @@ describe('createPaymentCommand buildLog — orderPaymentMethodIdBefore in undo p
     } as any)
 
     expect(log).toBeNull()
+  })
+
+  // #8268 review Blocker 1: a reused row (`result.reused === true`, set by the
+  // paymentReference re-check under the order lock) must never build the "Create
+  // payment" undo — the command bus would mint it normally, and undo would delete a
+  // pre-existing payment for an ordinary repeated payment reference.
+  it('skips the audit/undo log entirely when the payment was reused, not created', async () => {
+    const buildLog = getCreateBuildLog()
+    expect(buildLog).toBeInstanceOf(Function)
+
+    const after = buildPaymentSnapshot()
+    const log = await buildLog?.({
+      result: { paymentId: 'payment-1', reused: true, orderPaymentMethodIdBefore: null, orderPaymentMethodCodeBefore: null },
+      snapshots: { after },
+    } as unknown as CommandLogBuilderArgs<unknown, CreatePaymentTestResult>)
+
+    expect(log).toEqual({ skipLog: true })
   })
 })
 
@@ -685,6 +717,219 @@ describe('createPaymentCommand.execute — allocation orderId/invoiceId are tena
       tenantId: TEST_TENANT_ID,
       organizationId: TEST_ORG_ID,
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// C2 (PR 8268 review fix): a fresh paymentReference re-check runs AFTER the order
+// row is locked, so a second caller that reaches this command for the SAME
+// (order, paymentReference) pair reuses the already-committed payment instead of
+// inserting a duplicate. This is the mechanism that closes the live-completion vs
+// `repair-gateway-payments.worker.ts` race (checkout's own unlocked pre-check in
+// `commands/submit.ts#findRecordedGatewayPayment` cannot see the other caller's
+// in-flight write); a real-Postgres concurrency proof of the lock itself lives in
+// `payments.create.paymentReference-race.integration.test.ts`.
+// ---------------------------------------------------------------------------
+describe('createPaymentCommand.execute — idempotent paymentReference re-check under the order lock (C2)', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    ;(findWithDecryption as jest.Mock).mockClear()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+  })
+
+  const GATEWAY_REFERENCE = 'gateway-ref-shared-by-live-and-repair'
+  const EXISTING_PAYMENT_ID = 'bbbbbbbb-eeee-4eee-8eee-eeeeeeeeeeee'
+
+  it('reuses the already-recorded payment for the same order+paymentReference instead of creating a duplicate', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    const existingPayment = {
+      id: EXISTING_PAYMENT_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      order: TEST_ORDER_ID,
+      paymentReference: GATEWAY_REFERENCE,
+      amount: '100',
+      currencyCode: 'USD',
+      capturedAmount: '100',
+    }
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        if (filter?.order === TEST_ORDER_ID && filter?.paymentReference === GATEWAY_REFERENCE) {
+          return existingPayment
+        }
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+    const emitCrudSideEffectsCallsBefore = (emitCrudSideEffects as jest.Mock).mock.calls.length
+    const notificationServiceForCount = (resolveNotificationService as jest.Mock)()
+    const notificationCallsBefore = (notificationServiceForCount.createForFeature as jest.Mock).mock.calls.length
+
+    const result = await execute?.(
+      {
+        orderId: TEST_ORDER_ID,
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        amount: 100,
+        currencyCode: 'USD',
+        paymentReference: GATEWAY_REFERENCE,
+      },
+      ctx as any,
+    )
+
+    // The repair-worker's "second write" never creates a new SalesPayment row (which
+    // would get `TEST_PAYMENT_ID` from the `em.create` mock below) — it resolves to the
+    // live completion's own, already-committed payment id instead.
+    expect((result as any)?.paymentId).toBe(EXISTING_PAYMENT_ID)
+    expect((result as any)?.paymentId).not.toBe(TEST_PAYMENT_ID)
+    // #8268 review Blocker 1: flags the reuse so `buildLog` skips the destructive undo
+    // and `execute` itself skips the "created" side effects/notification. Mock call
+    // histories are not cleared between tests in this file, so compare before/after
+    // counts rather than asserting a bare `not.toHaveBeenCalled()`.
+    expect((result as any)?.reused).toBe(true)
+    expect((emitCrudSideEffects as jest.Mock).mock.calls.length).toBe(emitCrudSideEffectsCallsBefore)
+    const notificationService = (resolveNotificationService as jest.Mock).mock.results[0]?.value
+    expect((notificationService?.createForFeature as jest.Mock).mock.calls.length).toBe(notificationCallsBefore)
+  })
+
+  // #8268 review Major 3: a live authorization can commit between checkout's own
+  // unlocked pre-check (`checkout/commands/submit.ts#findRecordedGatewayPayment`) and
+  // this locked re-check, so the reused row can still be uncaptured while THIS request
+  // already carries the real captured amount. Must reconcile monotonically instead of
+  // returning the stale row unchanged.
+  it('reconciles a stale uncaptured reused row onto a newer captured request (Major 3)', async () => {
+    const execute = commandRegistry.get<Record<string, unknown>, CreatePaymentTestResult>('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    const CAPTURED_STATUS_ENTRY_ID = 'ffffffff-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const existingPayment = {
+      id: EXISTING_PAYMENT_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      order: TEST_ORDER_ID,
+      paymentReference: GATEWAY_REFERENCE,
+      amount: '100',
+      currencyCode: 'USD',
+      capturedAmount: '0',
+      capturedAt: null,
+      statusEntryId: null,
+      status: null,
+    }
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        if (filter?.order === TEST_ORDER_ID && filter?.paymentReference === GATEWAY_REFERENCE) {
+          return existingPayment
+        }
+        return null
+      },
+    )
+    ;(resolveDictionaryEntryValue as jest.Mock).mockResolvedValueOnce('captured')
+
+    const { ctx } = buildCommandCtx()
+
+    const result = await execute?.(
+      {
+        orderId: TEST_ORDER_ID,
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        amount: 100,
+        currencyCode: 'USD',
+        capturedAmount: 100,
+        statusEntryId: CAPTURED_STATUS_ENTRY_ID,
+        paymentReference: GATEWAY_REFERENCE,
+      },
+      ctx as unknown as CommandRuntimeContext,
+    )
+
+    expect(result?.paymentId).toBe(EXISTING_PAYMENT_ID)
+    expect(result?.reused).toBe(true)
+    // Reconciled in place, under the same order lock — never left permanently uncaptured.
+    expect(existingPayment.capturedAmount).toBe('100')
+    expect(existingPayment.statusEntryId).toBe(CAPTURED_STATUS_ENTRY_ID)
+    expect(existingPayment.status).toBe('captured')
+    expect(resolveDictionaryEntryValue).toHaveBeenCalledWith(expect.anything(), CAPTURED_STATUS_ENTRY_ID, { tenantId: TEST_TENANT_ID })
+  })
+
+  it('never reconciles backwards when the reused row is already captured for at least as much as requested', async () => {
+    const execute = commandRegistry.get<Record<string, unknown>, CreatePaymentTestResult>('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    const existingPayment = {
+      id: EXISTING_PAYMENT_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      order: TEST_ORDER_ID,
+      paymentReference: GATEWAY_REFERENCE,
+      amount: '100',
+      currencyCode: 'USD',
+      capturedAmount: '100',
+      capturedAt: new Date('2026-01-01T00:00:00.000Z'),
+      statusEntryId: 'already-captured-status-id',
+      status: 'captured',
+    }
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        if (filter?.order === TEST_ORDER_ID && filter?.paymentReference === GATEWAY_REFERENCE) {
+          return existingPayment
+        }
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    // A redelivered/duplicate "authorized" write arriving after capture already landed —
+    // it must never downgrade the already-captured row.
+    await execute?.(
+      {
+        orderId: TEST_ORDER_ID,
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        amount: 100,
+        currencyCode: 'USD',
+        capturedAmount: 0,
+        paymentReference: GATEWAY_REFERENCE,
+      },
+      ctx as unknown as CommandRuntimeContext,
+    )
+
+    expect(existingPayment.capturedAmount).toBe('100')
+    expect(existingPayment.status).toBe('captured')
+  })
+
+  it('still creates a payment when no reference collision exists for this order', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        return null
+      },
+    )
+
+    const { ctx } = buildCommandCtx()
+
+    const result = await execute?.(
+      {
+        orderId: TEST_ORDER_ID,
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        amount: 100,
+        currencyCode: 'USD',
+        paymentReference: GATEWAY_REFERENCE,
+      },
+      ctx as any,
+    )
+
+    expect((result as any)?.paymentId).toBe(TEST_PAYMENT_ID)
   })
 })
 

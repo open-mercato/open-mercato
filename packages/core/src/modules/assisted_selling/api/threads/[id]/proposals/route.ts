@@ -1,0 +1,149 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { assistedSellingProposalAuthorRequestSchema } from '../../../../data/validators'
+import { resolveAssistedSellingOrganizationIds } from '../../../../lib/organizationScope'
+import {
+  authorProposalCommand,
+  type AssistedSellingProposalAuthorInput,
+  type AssistedSellingProposalAuthorResponse,
+} from '../../../../commands/proposals'
+import { ASSISTED_SELLING_THREAD_RESOURCE_KIND } from '../../../../commands/shared'
+
+const logger = createLogger('assisted_selling').child({ component: 'api' })
+
+// Step 4.4 (§6.3). `POST /threads/:id/proposals` — authors a proposal, wrapping
+// `cart.proposal.create` through `assisted_selling.proposal.author`.
+
+export const metadata = {
+  POST: { requireAuth: true, requireFeatures: ['assisted_selling.proposals.author', 'cart.proposals.author'] },
+}
+
+const paramsSchema = z.object({ id: z.string().uuid() })
+
+type RouteParams = { params?: { id?: string } | Promise<{ id?: string }> }
+
+export async function POST(req: Request, routeCtx: RouteParams) {
+  const { translate } = await resolveTranslations()
+  try {
+    const params = paramsSchema.safeParse(await routeCtx.params)
+    if (!params.success) {
+      return NextResponse.json({ error: translate('assisted_selling.errors.invalid_thread_id', 'Invalid thread id') }, { status: 400 })
+    }
+
+    const container = await createRequestContainer()
+    const auth = await getAuthFromRequest(req)
+    if (!auth || !auth.tenantId) {
+      return NextResponse.json({ error: translate('assisted_selling.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+    }
+    const organizationIds = await resolveAssistedSellingOrganizationIds({ container, auth, request: req })
+
+    const rawBody = await readJsonSafe<Record<string, unknown>>(req, {})
+    let body = assistedSellingProposalAuthorRequestSchema.parse(rawBody)
+
+    // M12 fix (review finding): this write dispatched `assisted_selling.proposal.author`
+    // without going through the shared route mutation-guard registry at all — the same
+    // wrapper `api/settings/[storeId]/route.ts` already uses for its own write. Run BEFORE
+    // building the command input so a transforming guard's `modifiedPayload` reaches it too.
+    const organizationId = organizationIds && organizationIds.length === 1 ? organizationIds[0] : (auth.orgId ?? null)
+    const guarded = await runRouteMutationGuards({
+      container,
+      req,
+      // #8268 review Major 6: omit `userFeatures` so the wrapper resolves the caller's
+      // actual grants via `rbacService.getGrantedFeatures` — an explicit `[]` was
+      // authoritative and silently skipped every feature-gated registry guard.
+      auth: { userId: auth.sub ?? 'anonymous', tenantId: auth.tenantId, organizationId },
+      input: {
+        resourceKind: ASSISTED_SELLING_THREAD_RESOURCE_KIND,
+        resourceId: params.data.id,
+        operation: 'create',
+        mutationPayload: body,
+      },
+    })
+    if (!guarded.ok) return guarded.response
+    if (guarded.modifiedPayload) {
+      body = assistedSellingProposalAuthorRequestSchema.parse({ ...body, ...guarded.modifiedPayload })
+    }
+
+    const ctx: CommandRuntimeContext = {
+      container,
+      auth,
+      organizationScope: null,
+      selectedOrganizationId: organizationId,
+      organizationIds,
+      request: req,
+    }
+
+    const commandInput: AssistedSellingProposalAuthorInput = {
+      tenantId: auth.tenantId,
+      organizationIds,
+      threadId: params.data.id,
+      lines: body.lines,
+      note: body.note,
+      idempotencyKey: body.idempotencyKey,
+    }
+
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const { result } = await commandBus.execute<AssistedSellingProposalAuthorInput, AssistedSellingProposalAuthorResponse>(
+      authorProposalCommand.id,
+      { input: commandInput, ctx },
+    )
+
+    await guarded.runAfterSuccess()
+
+    return NextResponse.json(
+      {
+        proposalId: result.proposalId,
+        proposalCartId: result.proposalCartId,
+        messageId: result.messageId,
+        expiresAt: result.expiresAt,
+        rejectedLines: result.rejectedLines,
+      },
+      { status: result.replayed ? 200 : 201 },
+    )
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: translate('assisted_selling.errors.invalidInput', 'Invalid input') }, { status: 400 })
+    }
+    logger.error('assisted_selling.proposal.author failed', { err })
+    return NextResponse.json({ error: translate('assisted_selling.errors.unexpected', 'Unexpected error') }, { status: 500 })
+  }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Assisted Selling',
+  summary: 'Author a proposal on a thread',
+  pathParams: z.object({ id: z.string().uuid() }),
+  methods: {
+    POST: {
+      summary: 'Author a proposal (§6.3)',
+      description: 'Wraps cart.proposal.create. The note is stored as the proposal\'s message body, encrypted, never on the cart (S19). Idempotent per (threadId, idempotencyKey) (S23).',
+      requestBody: { contentType: 'application/json', schema: assistedSellingProposalAuthorRequestSchema },
+      responses: [
+        { status: 201, description: 'The newly authored proposal' },
+        { status: 200, description: 'A replayed idempotency-key response' },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid body, or too_many_proposal_lines' },
+        { status: 401, description: 'Unauthorized' },
+        { status: 403, description: 'Missing required feature(s)' },
+        { status: 404, description: 'Thread not found or not open' },
+        { status: 409, description: 'assisted_selling_unavailable or idempotency_key_mismatch' },
+        { status: 422, description: 'proposal_empty' },
+        { status: 503, description: 'assortment_scope_unavailable' },
+      ],
+    },
+  },
+}

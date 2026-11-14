@@ -1,5 +1,7 @@
 import {
   assortmentScopeSchema,
+  customerCreditAccountCreateSchema,
+  customerCreditAccountUpdateSchema,
   customerGroupCreateSchema,
   customerGroupTermsCreateSchema,
   customerGroupTermsUpdateSchema,
@@ -55,6 +57,106 @@ describe('customer group update schemas', () => {
     const parsed = customerGroupTermsUpdateSchema.parse({ id: GROUP_ID, allowPurchaseOnAccount: null })
 
     expect(parsed.allowPurchaseOnAccount).toBeNull()
+  })
+
+  it('leaves the new Release 5 terms columns unset on create so they inherit', () => {
+    const parsed = customerGroupTermsCreateSchema.parse({ tenantId: TENANT_ID, groupId: GROUP_ID })
+
+    expect(parsed.termsCurrencyCode).toBeUndefined()
+    expect(parsed.approvalPolicy).toBeUndefined()
+    expect(parsed.allowQuoteRequests).toBeUndefined()
+    expect(parsed.requiresPoNumber).toBeUndefined()
+  })
+
+  it('accepts explicit nulls on the new Release 5 terms columns to go back to inheriting', () => {
+    const parsed = customerGroupTermsUpdateSchema.parse({
+      id: GROUP_ID,
+      termsCurrencyCode: null,
+      approvalPolicy: null,
+      allowQuoteRequests: null,
+      requiresPoNumber: null,
+    })
+
+    expect(parsed.termsCurrencyCode).toBeNull()
+    expect(parsed.approvalPolicy).toBeNull()
+    expect(parsed.allowQuoteRequests).toBeNull()
+    expect(parsed.requiresPoNumber).toBeNull()
+  })
+
+  it('rejects an approvalPolicy outside buyer/merchant/both (no either value, D-R5-1)', () => {
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, approvalPolicy: 'either' }).success).toBe(false)
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, approvalPolicy: 'both' }).success).toBe(true)
+  })
+})
+
+describe('customer credit account schema', () => {
+  const ORG_ID = '66666666-6666-4666-8666-666666666666'
+  const CUSTOMER_ID = '77777777-7777-4777-8777-777777777777'
+  const ACCOUNT_ID = '88888888-8888-4888-8888-888888888888'
+
+  it('accepts a create payload with no hold', () => {
+    const result = customerCreditAccountCreateSchema.safeParse({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      customerId: CUSTOMER_ID,
+      currencyCode: 'USD',
+      creditLimit: 1000,
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.isOnHold).toBe(false)
+  })
+
+  it('rejects isOnHold=true without a holdReason', () => {
+    const result = customerCreditAccountCreateSchema.safeParse({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      customerId: CUSTOMER_ID,
+      currencyCode: 'USD',
+      creditLimit: 1000,
+      isOnHold: true,
+    })
+
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts isOnHold=true with a holdReason', () => {
+    const result = customerCreditAccountCreateSchema.safeParse({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      customerId: CUSTOMER_ID,
+      currencyCode: 'USD',
+      creditLimit: 1000,
+      isOnHold: true,
+      holdReason: 'Past due invoice',
+    })
+
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a negative creditLimit', () => {
+    const result = customerCreditAccountCreateSchema.safeParse({
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      customerId: CUSTOMER_ID,
+      currencyCode: 'USD',
+      creditLimit: -1,
+    })
+
+    expect(result.success).toBe(false)
+  })
+
+  it('enforces the same hold-reason rule on update', () => {
+    expect(
+      customerCreditAccountUpdateSchema.safeParse({ id: ACCOUNT_ID, isOnHold: true }).success,
+    ).toBe(false)
+    expect(
+      customerCreditAccountUpdateSchema.safeParse({
+        id: ACCOUNT_ID,
+        isOnHold: true,
+        holdReason: 'Fraud review',
+      }).success,
+    ).toBe(true)
   })
 })
 

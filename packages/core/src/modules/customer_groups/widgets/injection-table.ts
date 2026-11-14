@@ -22,6 +22,14 @@ export const injectionTable: ModuleInjectionTable = {
       icon: 'users',
       priority: -30,
     },
+    // Credit panel tab (Release 5 Phase 3, Step 1.7) — same two-entity mapping,
+    // gated by `customer_groups.credit.view` on the widget's own metadata.
+    {
+      widgetId: 'customer_groups.injection.credit-panel',
+      kind: 'tab',
+      groupLabel: 'customer_groups.groups.creditTab.title',
+      priority: 46,
+    },
   ],
   'detail:customers.company:tabs': [
     {
@@ -30,6 +38,12 @@ export const injectionTable: ModuleInjectionTable = {
       groupLabel: 'customer_groups.groups.personTab.title',
       icon: 'users',
       priority: -30,
+    },
+    {
+      widgetId: 'customer_groups.injection.credit-panel',
+      kind: 'tab',
+      groupLabel: 'customer_groups.groups.creditTab.title',
+      priority: 46,
     },
   ],
 }

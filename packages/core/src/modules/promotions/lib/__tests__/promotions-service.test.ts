@@ -203,6 +203,70 @@ describe('PromotionsServiceImpl.evaluate', () => {
     expect(result.appliedPromotions).toEqual([])
   })
 
+  // D-R5-17 (amends D-R4-14): proves this facade actually threads `deliveryMethodCode`/
+  // `deliveryCost` through to the pure engine, not merely that the pure engine itself
+  // supports them (covered by `evaluation-engine.test.ts`).
+  it('threads deliveryMethodCode/deliveryCost through to a delivery_method rule + delivery_discount benefit', async () => {
+    const promo = promotion({
+      id: 'promo-delivery',
+      rootGroup: {
+        operator: 'and',
+        rules: [{ type: 'delivery_method', config: { deliveryMethodCode: 'standard' } }],
+        benefits: [
+          {
+            type: 'delivery_discount',
+            appliesTo: 'order',
+            config: { deliveryMethodCode: 'standard', discountType: 'percentage', value: '50', labels: { en: 'Free delivery' } },
+          },
+        ],
+        children: [],
+      },
+    })
+    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([promo]) }))
+
+    const result = await service.evaluate(evaluateInput({ deliveryMethodCode: 'standard', deliveryCost: '10.00' }))
+
+    expect(result.appliedPromotions).toHaveLength(1)
+    expect(result.appliedPromotions[0].effects).toEqual([
+      {
+        type: 'DELIVERY_DISCOUNT',
+        appliesTo: 'order',
+        currency: 'USD',
+        label: { en: 'Free delivery' },
+        deliveryMethodCode: 'standard',
+        amountNet: '-5.00',
+        amountGross: '-5.00',
+        basis: 'net',
+      },
+    ])
+  })
+
+  // Regression guard: this facade's existing cart caller omits delivery context entirely —
+  // proves the same promotion tree above never matches when `evaluate()` is called the
+  // way cart already calls it today.
+  it('a delivery_method rule never matches when the caller omits delivery context (cart-stage regression guard)', async () => {
+    const promo = promotion({
+      id: 'promo-delivery',
+      rootGroup: {
+        operator: 'and',
+        rules: [{ type: 'delivery_method', config: { deliveryMethodCode: 'standard' } }],
+        benefits: [
+          {
+            type: 'delivery_discount',
+            appliesTo: 'order',
+            config: { deliveryMethodCode: 'standard', discountType: 'percentage', value: '50', labels: { en: 'Free delivery' } },
+          },
+        ],
+        children: [],
+      },
+    })
+    const service = new PromotionsServiceImpl(fakeContainer({ promotionCacheService: fakeCacheService([promo]) }))
+
+    const result = await service.evaluate(evaluateInput())
+
+    expect(result.appliedPromotions).toEqual([])
+  })
+
   it('batch-resolves category membership and passes it through to a `category` rule', async () => {
     const promo = categoryMatchingPromotion({ id: 'promo-cat', categoryId: 'cat-1' })
     const em = fakeEm({

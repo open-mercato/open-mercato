@@ -19,6 +19,10 @@ const RESERVATION_SOURCE_TYPE_FALLBACKS: Record<string, string> = {
   order: 'Sales order',
   transfer: 'Transfer',
   manual: 'Manual',
+  // Step 6.1 (A16 cosmetic gap-fill) — `checkout` is system-only (rejected on the public
+  // `wms.inventory.reserve` route, Step 2.2), but a checkout-originated reservation still
+  // shows up on this listing by its `sourceType`, same as every other row.
+  checkout: 'Checkout',
 }
 
 const REFERENCE_TYPE_FALLBACKS: Record<string, string> = {

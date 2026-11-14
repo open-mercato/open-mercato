@@ -2,11 +2,75 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { Cart, CartMergeLog } from '../data/entities'
+import type { CustomerPurchaseApprovalService } from '@open-mercato/core/modules/customer_groups/services/customerPurchaseApprovalService'
+import { Cart, CartLine, CartMergeLog, CartPromotionApplication } from '../data/entities'
 import { emitCartEvent } from '../events'
+import { withdrawPendingCartApproval } from './approvalLifecycle'
 import { DAY_MS, PURGE_RETENTION_DAYS, resolveCartInactivityWindowMs } from './sweepConfig'
 
 const logger = createLogger('cart')
+
+// K11 (ANALYSIS-2026-10-26-cart-module-release-5.md, §12 as revised): `expire`/
+// `mark-abandoned` must release the promotions-side code RESERVATION a basket holds, by
+// `cartId` (`promotions/lib/code-service.ts#PromotionCodeService.releaseCode`), closing
+// the Release 4 deferral this file used to carry at this exact spot. Duck-typed onto that
+// service's own surface — never a static `promotions` entity import — same cross-module
+// discipline `availability`'s `WmsReservationServiceLike` (Step 2.3) already established
+// for this run's sibling sweepers.
+export type CartCodeServiceLike = {
+  releaseCode(
+    em: EntityManager,
+    codeId: string,
+    cartId: string,
+    scope: { tenantId: string; organizationId: string },
+  ): Promise<void>
+}
+
+/**
+ * Enumerates the distinct code reservations a basket still holds
+ * (`CartPromotionApplication.codeId`, one row per applied promotion — §4.3) and releases
+ * each one by `cartId`, mirroring `commands/promotions.ts#removePromotionCommand`'s own
+ * "release happens by cartId on cart expiry, abandonment or code removal" (§6). Best-
+ * effort, same reasoning as `emitCartLifecycleEvent` below: the cart's own status
+ * transition already committed by the time this runs, so a failed release must not be
+ * re-thrown (which would retry a transition that already landed) nor treated as a failed
+ * sweep — `promotions`' own `code-reservation-sweeper.ts` (its TTL-based independent
+ * safety net) is still there to catch whatever this call does not reach.
+ *
+ * Exported as of Step 6.1 (K11 gap-fill): `commands/lock.ts#markConverted` and
+ * `commands/merge.ts`'s absorbed-cart finalization share this exact routine rather than
+ * re-implementing it a third/fourth time — a converted or merge-absorbed cart's reserved
+ * codes need the identical by-`cartId` release this file's own sweeps already apply.
+ */
+export async function releaseCartCodeReservations(
+  em: EntityManager,
+  codeService: CartCodeServiceLike,
+  cart: Cart,
+  workerLabel: string,
+): Promise<void> {
+  const applications = await em.find(
+    CartPromotionApplication,
+    { cartId: cart.id, tenantId: cart.tenantId, organizationId: cart.organizationId },
+    { fields: ['codeId'] },
+  )
+  const codeIds = Array.from(
+    new Set(applications.map((application) => application.codeId).filter((id): id is string => !!id)),
+  )
+  for (const codeId of codeIds) {
+    try {
+      await codeService.releaseCode(em, codeId, cart.id, {
+        tenantId: cart.tenantId,
+        organizationId: cart.organizationId,
+      })
+    } catch (error) {
+      logger.warn(`${workerLabel} failed to release code reservation`, {
+        cartId: cart.id,
+        codeId,
+        error: error instanceof Error ? error.message : error,
+      })
+    }
+  }
+}
 
 // The active-cart backlog grows with the tenant, so every sweep walks it in pages instead of
 // loading every matching row into memory at once. Mirrors
@@ -19,7 +83,9 @@ const MAX_PAGES_PER_TICK = 1000
 export type CartSweepScope = { tenantId: string }
 export type CartSweepResult = { transitioned: number }
 
-type CartLifecycleEventId = 'cart.cart.abandoned' | 'cart.cart.expired' | 'cart.cart.purged'
+// Step 3.4 (K15/S15) adds `'cart.proposal.expired'` — additive member, every existing
+// caller of `emitCartLifecycleEvent` below is unaffected.
+type CartLifecycleEventId = 'cart.cart.abandoned' | 'cart.cart.expired' | 'cart.cart.purged' | 'cart.proposal.expired'
 
 // Best-effort, same reasoning as every other background sweep in this codebase (e.g.
 // warranty_claims' `logClaimSweepError`): the DB transition already committed by the time this
@@ -53,10 +119,20 @@ async function emitCartLifecycleEvent(
  * No cursor needed: each page's `nativeUpdate` flips every selected row's `status` away from
  * `'active'`, so the identical next `find` call naturally excludes them and returns the next
  * batch — there is nothing left for a page to re-select.
+ *
+ * (rev 10 — K9/K11) `cart.cart.abandoned`'s payload grows to the full Release 5 shape
+ * (§11), and every transitioned basket's code reservations are released by `cartId`
+ * (`releaseCartCodeReservations` above, K11).
+ *
+ * (rev 10 — K5, §9a.4/§9a.5/§12) Skips every basket with `awaiting_approval_since` set —
+ * "no abandonment while the buyer waits for approval." A column filter only, never a call
+ * into `customer_groups` (the whole point of the column, per the spec's own text: a
+ * per-row check there would be an N+1 against a peer module).
  */
 export async function sweepAbandonedCarts(
   em: EntityManager,
   scope: CartSweepScope,
+  codeService: CartCodeServiceLike,
   now: Date = new Date(),
 ): Promise<CartSweepResult> {
   const cutoff = new Date(now.getTime() - resolveCartInactivityWindowMs())
@@ -66,7 +142,13 @@ export async function sweepAbandonedCarts(
     const candidates = await findWithDecryption(
       em,
       Cart,
-      { tenantId: scope.tenantId, kind: 'basket' as const, status: 'active' as const, lastActivityAt: { $lt: cutoff } },
+      {
+        tenantId: scope.tenantId,
+        kind: 'basket' as const,
+        status: 'active' as const,
+        lastActivityAt: { $lt: cutoff },
+        awaitingApprovalSince: null,
+      },
       { limit: SWEEP_PAGE_SIZE, orderBy: { id: 'ASC' } },
       { tenantId: scope.tenantId },
     )
@@ -75,7 +157,7 @@ export async function sweepAbandonedCarts(
     const ids = candidates.map((cart) => cart.id)
     const affected = await em.nativeUpdate(
       Cart,
-      { id: { $in: ids }, tenantId: scope.tenantId, kind: 'basket', status: 'active' },
+      { id: { $in: ids }, tenantId: scope.tenantId, kind: 'basket', status: 'active', awaitingApprovalSince: null },
       { status: 'abandoned', resolvedAt: now, updatedAt: now },
     )
     if (affected === 0) break
@@ -94,13 +176,40 @@ export async function sweepAbandonedCarts(
       {},
       { tenantId: scope.tenantId },
     )
+
+    // K9: `lineCount` is never denormalized onto `Cart` — batched in ONE query across
+    // every row THIS page transitioned, mirroring `api/carts/route.ts`'s own `afterList`
+    // "never N+1" discipline for the identical field.
+    const transitionedIds = transitionedCarts.map((cart) => cart.id)
+    const lines = transitionedIds.length
+      ? await em.find(CartLine, { cartId: { $in: transitionedIds }, tenantId: scope.tenantId, deletedAt: null }, { fields: ['cartId'] })
+      : []
+    const lineCountByCartId = new Map<string, number>()
+    for (const line of lines) {
+      lineCountByCartId.set(line.cartId, (lineCountByCartId.get(line.cartId) ?? 0) + 1)
+    }
+
     for (const cart of transitionedCarts) {
       await emitCartLifecycleEvent(
         'cart.cart.abandoned',
-        { cartId: cart.id },
+        {
+          cartId: cart.id,
+          tenantId: cart.tenantId,
+          organizationId: cart.organizationId,
+          storeId: cart.storeId ?? null,
+          channel: cart.channel,
+          customerId: cart.customerId ?? null,
+          customerUserId: cart.customerUserId ?? null,
+          hasEmail: Boolean(cart.email),
+          currencyCode: cart.currencyCode,
+          grandTotalGrossAmount: cart.grandTotalGrossAmount ?? null,
+          lineCount: lineCountByCartId.get(cart.id) ?? 0,
+          lastActivityAt: cart.lastActivityAt,
+        },
         { tenantId: cart.tenantId, organizationId: cart.organizationId },
         'cart:mark-abandoned',
       )
+      await releaseCartCodeReservations(em, codeService, cart, 'cart:mark-abandoned')
     }
     transitioned += affected
     if (candidates.length < SWEEP_PAGE_SIZE) break
@@ -113,13 +222,24 @@ export async function sweepAbandonedCarts(
  * §12 `expire-carts` (hourly): `kind = 'basket' AND status IN ('active','abandoned','locked')
  * AND expiresAt < now()` → `status = 'expired'`, `resolvedAt = now()`.
  *
- * The spec's §12 prose also says this sweep "releases promotion code reservations" — skipped
- * here on purpose. Per-cart promotion code reservations do not exist in this worktree yet
- * (promotions-cart integration is Phase 7); flagged in NOTIFY.md rather than stubbed.
+ * (rev 10 — K11) Every transitioned basket's code reservations are released by `cartId`
+ * (`releaseCartCodeReservations` above), closing the Release 4 deferral this file used to
+ * carry at this exact spot. `cart.cart.expired`'s own payload is unchanged (K9 only grows
+ * `cart.cart.abandoned`, §11).
+ *
+ * (rev 10 — K3, §9/§9a.4) Every transitioned basket's pending approval is withdrawn —
+ * "cart expiry ends a request earlier than the 14-day approval expiry" (§9a.4). Best-
+ * effort, same reasoning as `releaseCartCodeReservations`: the status transition already
+ * committed by the time this runs. `approvalService` is optional (soft dependency,
+ * `null` when `customer_groups`' approval service cannot be resolved) for the SAME reason
+ * `codeService` is already a duck-typed parameter here — this sweep must degrade, never
+ * throw, when a peer module's service happens to be unavailable.
  */
 export async function sweepExpiredCarts(
   em: EntityManager,
   scope: CartSweepScope,
+  codeService: CartCodeServiceLike,
+  approvalService: CustomerPurchaseApprovalService | null,
   now: Date = new Date(),
 ): Promise<CartSweepResult> {
   let transitioned = 0
@@ -169,6 +289,96 @@ export async function sweepExpiredCarts(
         { tenantId: cart.tenantId, organizationId: cart.organizationId },
         'cart:expire',
       )
+      await releaseCartCodeReservations(em, codeService, cart, 'cart:expire')
+      try {
+        const approvalWithdrawn = await withdrawPendingCartApproval(approvalService, cart, 'cart_expired')
+        if (approvalWithdrawn) {
+          await em.nativeUpdate(
+            Cart,
+            { id: cart.id, tenantId: cart.tenantId, organizationId: cart.organizationId },
+            { awaitingApprovalSince: null },
+          )
+        }
+      } catch (error) {
+        logger.warn('cart:expire failed to withdraw pending approval', {
+          cartId: cart.id,
+          error: error instanceof Error ? error.message : error,
+        })
+      }
+    }
+    transitioned += affected
+    if (candidates.length < SWEEP_PAGE_SIZE) break
+  }
+
+  return { transitioned }
+}
+
+/**
+ * §12 `expire-carts`'s PROPOSAL branch (rev 10 — K15/S15, §7a.3): `kind = 'proposal' AND
+ * status = 'active' AND expiresAt < now()` → `status = 'expired'`, `resolvedAt = now()`,
+ * `cart.proposal.expired` with tenant scope. Runs on the SAME hourly tick as
+ * `sweepExpiredCarts` above (§7a.3's own text: "The existing `expire-carts` sweeper retires
+ * it" — no separate schedule, see `workers/expire.worker.ts`'s call site), but is its own
+ * function and its own `WHERE` rather than a branch inside `sweepExpiredCarts`: a proposal's
+ * status vocabulary (`active -> expired` only; never `abandoned`/`locked` as a FROM state,
+ * §7a.1) and candidate filter (`kind: 'proposal'`, no `$in` status list) are different
+ * enough from the basket branch that folding them into one function's `WHERE` would need a
+ * conditional per clause for no shared logic beyond the page-and-nativeUpdate shape.
+ *
+ * (§7a.1) A proposal is NEVER abandoned by inactivity — `sweepAbandonedCarts`'s own
+ * `kind: 'basket'` filter already excludes every `kind = 'proposal'` row unconditionally,
+ * so that sweep needs no change here; this function is the proposal's ONLY path out of
+ * `active`. (§7a.3) "Not deleted by expiry" — this function only flips `status`/
+ * `resolvedAt`, exactly like the basket branch; `purge-expired-carts` is the only sweep
+ * that ever deletes a row.
+ *
+ * Releases code reservations by `cartId` for parity with the basket branch (K11) — a
+ * proposal holds no codes in Release 5 (S14), so this finds nothing today, but the rule
+ * stays correct if that changes later.
+ */
+export async function sweepExpiredProposals(
+  em: EntityManager,
+  scope: CartSweepScope,
+  codeService: CartCodeServiceLike,
+  now: Date = new Date(),
+): Promise<CartSweepResult> {
+  let transitioned = 0
+
+  for (let page = 0; page < MAX_PAGES_PER_TICK; page += 1) {
+    const candidates = await findWithDecryption(
+      em,
+      Cart,
+      { tenantId: scope.tenantId, kind: 'proposal' as const, status: 'active' as const, expiresAt: { $lt: now } },
+      { limit: SWEEP_PAGE_SIZE, orderBy: { id: 'ASC' } },
+      { tenantId: scope.tenantId },
+    )
+    if (!candidates.length) break
+
+    const ids = candidates.map((cart) => cart.id)
+    const affected = await em.nativeUpdate(
+      Cart,
+      { id: { $in: ids }, tenantId: scope.tenantId, kind: 'proposal', status: 'active' },
+      { status: 'expired', resolvedAt: now, updatedAt: now },
+    )
+    if (affected === 0) break
+
+    // Same race-safe re-select-on-this-call's-own-marker discipline as every other sweep
+    // in this file — see `sweepAbandonedCarts`'s own comment for the full reasoning.
+    const transitionedCarts = await findWithDecryption(
+      em,
+      Cart,
+      { id: { $in: ids }, tenantId: scope.tenantId, kind: 'proposal', status: 'expired', resolvedAt: now },
+      {},
+      { tenantId: scope.tenantId },
+    )
+    for (const cart of transitionedCarts) {
+      await emitCartLifecycleEvent(
+        'cart.proposal.expired',
+        { proposalCartId: cart.id, targetCartId: cart.proposedToCartId ?? null },
+        { tenantId: cart.tenantId, organizationId: cart.organizationId },
+        'cart:expire-proposals',
+      )
+      await releaseCartCodeReservations(em, codeService, cart, 'cart:expire-proposals')
     }
     transitioned += affected
     if (candidates.length < SWEEP_PAGE_SIZE) break
@@ -240,27 +450,60 @@ function purgePageWhere(base: FilterQuery<Cart>, cursor: PurgeCursor): FilterQue
 }
 
 /**
- * §12 `purge-expired-carts` (daily): `kind = 'basket' AND resolvedAt IS NOT NULL AND
- * resolvedAt < now() - 90 days`, excluding any cart `CartMergeLog` still names as its
- * `sourceCartId`/`targetCartId`/`proposalCartId` → hard-delete the `Cart` row.
- * `CartLine`/`CartPromotionApplication`/`CartIdempotencyKey` cascade automatically
+ * §12 `purge-expired-carts` (daily): `resolvedAt IS NOT NULL AND resolvedAt < now() - 90
+ * days`, excluding any cart `CartMergeLog` still names as its `sourceCartId`/
+ * `targetCartId`/`proposalCartId` → hard-delete the `Cart` row. `CartLine`/
+ * `CartPromotionApplication`/`CartIdempotencyKey` cascade automatically
  * (`deleteRule: 'cascade'` on `cart_id`); `CartMergeLog`'s own cart FKs are
  * `deleteRule: 'restrict'`, which is exactly why a still-referenced cart is filtered out up
  * front rather than left to a failing `DELETE`.
  *
+ * (rev 10 — K15/S15, §16 Q6) `base` carries NO `kind` filter — it covers `kind = 'proposal'`
+ * exactly the same way it already covers `kind = 'basket'`: §12's own text, "Covers
+ * `kind = 'proposal'` as well... rejected and expired proposals purge 90 days after
+ * `resolved_at`; accepted proposals stay while `CartMergeLog.proposal_cart_id` references
+ * them." The exclusion logic right below ALREADY checks `ref.proposalCartId` (it has since
+ * Step 2.11/K11, written ahead of this Step on purpose — see that Step's own NOTIFY.md
+ * entry) — an accepted proposal's `CartMergeLog` row names it via `proposalCartId`, so it
+ * is excluded by the SAME `excludedIds` set a still-referenced basket already was, with no
+ * new exclusion logic needed. A rejected proposal (`status: 'abandoned'`, `resolvedAt` set
+ * by `cart.proposal.reject`) or an expired one (`status: 'expired'`, set by
+ * `sweepExpiredProposals` above) has no `CartMergeLog` row naming it at all, so it purges
+ * on the same 90-day clock a basket would.
+ *
  * A two-step fetch-then-filter against `CartMergeLog` rather than a single `NOT EXISTS` query —
  * `CartMergeLog` won't even have rows until Phase 7/merge ships, so this is not worth fighting
  * the ORM's query builder for.
+ *
+ * (Step 2.11/K11 scope check) This sweep's own WHERE (`resolvedAt` past the retention
+ * cutoff) carries no `status` filter, so it also reaches `converted`/`merged` rows —
+ * neither of which passes through `sweepAbandonedCarts`/`sweepExpiredCarts` first (`cart.
+ * markConverted`/`cart.merge` set `resolvedAt` directly). K11 names only `expire`/`mark-
+ * abandoned`; this sweep deliberately does NOT call `releaseCartCodeReservations` — see
+ * NOTIFY.md for why that is a real, scoped-out gap rather than a verified no-op. A proposal
+ * carries no codes in Release 5 either way (S14), so this gap is moot for the rows this
+ * Step adds to this sweep's reach.
+ *
+ * (rev 10 — K3, §9/§12) Unlike the code-reservation gap just above, the pending-approval
+ * withdrawal below is NOT skipped for this sweep — §12's own text names it explicitly
+ * ("Withdraws a pending approval left on a purged basket (normally already withdrawn at
+ * expiry)"), so a basket that reaches purge with its approval still `pending` (e.g. one
+ * `cart.markConverted`/`cart.merge` resolved directly, bypassing `expire-carts`) gets the
+ * same cleanup. Called BEFORE the row is hard-deleted — the `CustomerPurchaseApproval` row
+ * lives in `customer_groups`, independent of this cart row, so there is no ordering hazard
+ * either way, but withdrawing first keeps the two steps in the order §12's text reads. A
+ * proposal never has an `approvalId` (§7a's approval gate is a basket-only concept), so this
+ * call is always a no-op for a purged proposal row — harmless, not a new branch.
  */
 export async function purgeExpiredCarts(
   em: EntityManager,
   scope: CartSweepScope,
+  approvalService: CustomerPurchaseApprovalService | null,
   now: Date = new Date(),
 ): Promise<CartSweepResult> {
   const cutoff = new Date(now.getTime() - PURGE_RETENTION_DAYS * DAY_MS)
   const base: FilterQuery<Cart> = {
     tenantId: scope.tenantId,
-    kind: 'basket' as const,
     resolvedAt: { $ne: null, $lt: cutoff },
   }
 
@@ -306,6 +549,14 @@ export async function purgeExpiredCarts(
       // (review finding — mirrors the abandon/expire sweeps' same race). A page tops out at
       // `SWEEP_PAGE_SIZE`, so the extra round trips stay bounded.
       for (const cart of purgeable) {
+        try {
+          await withdrawPendingCartApproval(approvalService, cart, 'cart_purged')
+        } catch (error) {
+          logger.warn('cart:purge-expired failed to withdraw pending approval', {
+            cartId: cart.id,
+            error: error instanceof Error ? error.message : error,
+          })
+        }
         const affected = await em.nativeDelete(Cart, { id: cart.id, tenantId: scope.tenantId })
         if (affected === 0) continue
         await emitCartLifecycleEvent(

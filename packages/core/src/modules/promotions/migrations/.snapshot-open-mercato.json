@@ -429,6 +429,15 @@
       },
       "indexes": [
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "promotion_code_reservations_code_customer_unique",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"promotion_code_reservations_code_customer_unique\" on \"promotion_code_reservations\" (\"code_id\", \"customer_id\") where \"customer_id\" is not null"
+        },
+        {
           "columnNames": [
             "code_id",
             "cart_id"
@@ -469,15 +478,6 @@
           "keyName": "promotion_code_reservations_tenant_org_idx",
           "primary": false,
           "unique": false
-        },
-        {
-          "keyName": "promotion_code_reservations_code_customer_unique",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create unique index \"promotion_code_reservations_code_customer_unique\" on \"promotion_code_reservations\" (\"code_id\", \"customer_id\") where \"customer_id\" is not null"
         }
       ],
       "checks": [],
@@ -502,6 +502,23 @@
       "name": "promotion_code_usages",
       "schema": "public",
       "columns": {
+        "cart_id": {
+          "name": "cart_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "code_id": {
           "name": "code_id",
           "type": "uuid",
@@ -536,6 +553,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "generated_code_id": {
+          "name": "generated_code_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "id": {
           "name": "id",
           "type": "uuid",
@@ -553,6 +587,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "order_id": {
+          "name": "order_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
@@ -569,6 +620,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "reverted_at": {
+          "name": "reverted_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
         },
         "tenant_id": {
           "name": "tenant_id",
@@ -608,11 +676,31 @@
       "indexes": [
         {
           "columnNames": [
+            "cart_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "promotion_code_usages_cart_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
             "code_id"
           ],
           "composite": false,
           "constraint": false,
           "keyName": "promotion_code_usages_code_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
+            "order_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "promotion_code_usages_order_idx",
           "primary": false,
           "unique": false
         },
@@ -652,6 +740,18 @@
           ],
           "referencedTableName": "public.promotion_codes",
           "deleteRule": "cascade"
+        },
+        "promotion_code_usages_generated_code_id_foreign": {
+          "columnNames": [
+            "generated_code_id"
+          ],
+          "constraintName": "promotion_code_usages_generated_code_id_foreign",
+          "localTableName": "public.promotion_code_usages",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.promotion_generated_codes",
+          "deleteRule": "set null"
         }
       },
       "comment": null

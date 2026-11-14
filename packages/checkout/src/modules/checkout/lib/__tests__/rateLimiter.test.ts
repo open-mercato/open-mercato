@@ -125,22 +125,25 @@ describe('enforceCheckoutRateLimit', () => {
     expect(await enforce(makeContainer(consume), 'fail-open')).toBeNull()
   })
 
-  // A missing DI registration means the rate-limit configuration is invalid, which lasts
-  // until an operator fixes it. Reporting that as "temporarily unavailable" would take
-  // checkout down indefinitely, so the check is skipped for both postures instead.
-  it('skips the check for both postures when no limiter is registered', async () => {
-    expect(await enforce(makeContainer(null), 'fail-closed')).toBeNull()
+  it('rejects with 503 when no limiter is registered and the endpoint fails closed', async () => {
+    const response = await enforce(makeContainer(null), 'fail-closed')
+
+    expect(response?.status).toBe(503)
+  })
+
+  it('skips the check when no limiter is registered and the endpoint fails open', async () => {
     expect(await enforce(makeContainer(null), 'fail-open')).toBeNull()
   })
 
-  it('skips the check when resolving the limiter throws', async () => {
+  it('rejects with 503 when resolving the limiter throws and the endpoint fails closed', async () => {
     const container = {
       resolve: () => {
         throw new Error('AwilixResolutionError: could not resolve rateLimiterService')
       },
     }
 
-    expect(await enforce(container, 'fail-closed')).toBeNull()
+    expect((await enforce(container, 'fail-closed'))?.status).toBe(503)
+    expect(await enforce(container, 'fail-open')).toBeNull()
   })
 
   it('returns the limiter 429 when the quota is exhausted', async () => {

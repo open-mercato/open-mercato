@@ -87,6 +87,7 @@ function makeCartFixture(overrides: Row = {}): Row {
     totals: { subtotalNetAmount: 0, subtotalGrossAmount: 0, discountTotalAmount: 0, taxTotalAmount: 0, grandTotalNetAmount: 0, grandTotalGrossAmount: 0 },
     requiresApproval: false,
     approvalId: null,
+    awaitingApprovalSince: null,
     expiresAt: new Date('2026-03-01T00:00:00.000Z'),
     updatedAt: new Date('2026-02-01T00:00:00.000Z'),
     ...overrides,
@@ -178,7 +179,11 @@ function makePromotionFixture(overrides: Row = {}): Row {
   }
 }
 
-function makeContainer(opts: { resolveLinePrice?: jest.Mock } = {}) {
+// Step 3.2 — `buildCartResponseEnvelope`'s own live approval read
+// (`customerPurchaseApprovalService.getApproval`). `null` (unresolvable, same as every
+// other optional peer this module soft-resolves) unless a test explicitly opts in via
+// `opts.approvalService`.
+function makeContainer(opts: { resolveLinePrice?: jest.Mock; approvalService?: { getApproval: jest.Mock } | null } = {}) {
   const resolveLinePrice = opts.resolveLinePrice ?? jest.fn(async () => makeResolvedLinePrice())
   const em: any = { fork: jest.fn() }
   em.fork.mockReturnValue(em)
@@ -190,10 +195,15 @@ function makeContainer(opts: { resolveLinePrice?: jest.Mock } = {}) {
     if (entity === Promotion) return filterRows(seededPromotions, where)
     return []
   })
+  const approvalService = opts.approvalService === undefined ? undefined : opts.approvalService
   return {
     resolve: (token: string): any => {
       if (token === 'em') return em
       if (token === 'catalogBuyerPricingService') return { resolveLinePrice }
+      if (token === 'customerPurchaseApprovalService') {
+        if (approvalService === undefined) throw new Error('customerPurchaseApprovalService not registered')
+        return approvalService
+      }
       throw new Error(`Unexpected DI token: ${token}`)
     },
     resolveLinePrice,
@@ -257,12 +267,73 @@ describe('buildCartResponseEnvelope', () => {
     expect(envelope.cart.token).toBe('plaintext-token')
   })
 
-  it('maps approvalId to { id, status: "pending" } and omits it (null) when unset', async () => {
+  // Step 3.2 — `approval` is now read LIVE through `customerPurchaseApprovalService.getApproval`
+  // (never denormalized), and `qualifies` reuses the same `approvalQualifies` formula
+  // `cart.lock`'s own gate check applies.
+  it('reads the approval live and maps it to the §10.1 shape, including qualifies', async () => {
+    seededCarts = [
+      makeCartFixture({
+        approvalId: 'approval-1',
+        requiresApproval: true,
+        currencyCode: 'USD',
+        totals: { grandTotalGrossAmount: 50 },
+      }),
+    ]
+    const getApproval = jest.fn(async () => ({
+      id: 'approval-1',
+      status: 'approved',
+      amountGross: '100.0000',
+      currencyCode: 'USD',
+    }))
+    const container = makeContainer({ approvalService: { getApproval } })
+    const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+
+    expect(getApproval).toHaveBeenCalledWith({ scope: { tenantId: TENANT_ID, organizationId: ORG_ID }, approvalId: 'approval-1' })
+    expect(envelope.cart.approval).toEqual({
+      id: 'approval-1',
+      status: 'approved',
+      amountGross: '100.0000',
+      currencyCode: 'USD',
+      qualifies: true,
+    })
+    expect(envelope.cart.requiresApproval).toBe(true)
+  })
+
+  it('reads qualifies as false for a pending approval, and null when the approval service is unavailable', async () => {
     seededCarts = [makeCartFixture({ approvalId: 'approval-1', requiresApproval: true })]
+    const pendingService = { getApproval: jest.fn(async () => ({ id: 'approval-1', status: 'pending', amountGross: '10.0000', currencyCode: 'USD' })) }
+    const pendingEnvelope = await buildCartResponseEnvelope({
+      container: makeContainer({ approvalService: pendingService }),
+      cartId: CART_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    })
+    expect(pendingEnvelope.cart.approval).toMatchObject({ status: 'pending', qualifies: false })
+
+    const unavailableEnvelope = await buildCartResponseEnvelope({
+      container: makeContainer(),
+      cartId: CART_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    })
+    expect(unavailableEnvelope.cart.approval).toBeNull()
+  })
+
+  it('omits approval (null) when approvalId is unset, regardless of the approval service', async () => {
+    seededCarts = [makeCartFixture({ approvalId: null })]
+    const getApproval = jest.fn()
+    const container = makeContainer({ approvalService: { getApproval } })
+    const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+    expect(envelope.cart.approval).toBeNull()
+    expect(getApproval).not.toHaveBeenCalled()
+  })
+
+  it('passes awaitingApprovalSince through verbatim', async () => {
+    const since = new Date('2026-02-15T00:00:00.000Z')
+    seededCarts = [makeCartFixture({ awaitingApprovalSince: since })]
     const container = makeContainer()
     const envelope = await buildCartResponseEnvelope({ container, cartId: CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
-    expect(envelope.cart.approval).toEqual({ id: 'approval-1', status: 'pending' })
-    expect(envelope.cart.requiresApproval).toBe(true)
+    expect(envelope.cart.awaitingApprovalSince).toEqual(since)
   })
 
   it('computes lineCount as the row count and itemCount as the summed quantity across non-deleted lines', async () => {

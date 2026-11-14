@@ -222,11 +222,23 @@ function evaluateCode(config: Record<string, unknown>, context: EvaluationContex
   return context.codes.some((code) => code.id === codeId)
 }
 
-// Dispatcher over the Release 4 shipped set (`RELEASE_4_SHIPPED_RULE_TYPES` in
-// `data/validators.ts`). An unrecognized type (one of the six hidden types, or anything
-// else) fails closed to `false` rather than throwing — per D-R4-14, hidden types have no
-// data source and should never appear in a real rule tree, but the write-path validators
-// are the enforcement point, not this evaluator.
+// D-R5-17 (amends D-R4-14): un-hidden in Release 5, now that checkout can supply a
+// `deliveryMethodCode` on the evaluate request. Fails closed to `false` — the same
+// convention every other evaluator here already uses for a field with no resolvable
+// source — when the caller omits delivery context entirely (every existing cart-stage
+// caller, per D-R4-14's cart-stage exclusion of delivery, left unchanged by D-R5-17).
+function evaluateDeliveryMethod(config: Record<string, unknown>, context: EvaluationContext): boolean {
+  if (context.deliveryMethodCode == null) return false
+  if (typeof config.deliveryMethodCode !== 'string') return false
+  return context.deliveryMethodCode === config.deliveryMethodCode
+}
+
+// Dispatcher over the shipped rule-type set (`RELEASE_4_SHIPPED_RULE_TYPES` in
+// `data/validators.ts`, grown by `delivery_method` in Release 5, D-R5-17). An
+// unrecognized type (one of the remaining hidden types, or anything else) fails closed
+// to `false` rather than throwing — per D-R4-14, a still-hidden type has no data source
+// and should never appear in a real rule tree, but the write-path validators are the
+// enforcement point, not this evaluator.
 function evaluateRule(rule: NormalizedRule, context: EvaluationContext): boolean {
   switch (rule.type) {
     case 'order_value':
@@ -251,6 +263,8 @@ function evaluateRule(rule: NormalizedRule, context: EvaluationContext): boolean
       return evaluateCustomerOrderHistory(rule.config, context)
     case 'code':
       return evaluateCode(rule.config, context)
+    case 'delivery_method':
+      return evaluateDeliveryMethod(rule.config, context)
     default:
       return false
   }

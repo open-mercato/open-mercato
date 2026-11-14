@@ -349,8 +349,41 @@ describe('ecommerce store CRUD route', () => {
         contact: { email: 'shop@example.com' },
         display: { priceDisplayModeDefault: 'gross', enableSearch: false },
         seo: { siteName: 'Main shop' },
+        shipping: { flatRate: null },
       })
       expect(em.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it('sets a flat-rate shipping fallback via settings.shipping (Step 2.13/D-R5-35 gap-fill)', async () => {
+      const { em } = createFakeEm()
+      const store = makeStore()
+
+      await opts.update!.applyToEntity(
+        store,
+        { id: STORE_ID, settings: { shipping: { flatRate: { amount: 9.99, currencyCode: 'EUR' } } } },
+        createCtx(em),
+      )
+
+      expect(store.settings.shipping).toEqual({ flatRate: { amount: 9.99, currencyCode: 'EUR' } })
+      expect(em.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it('preserves an existing settings.shipping value when the patch does not touch it', async () => {
+      const { em } = createFakeEm()
+      const store = makeStore({
+        settings: {
+          ...makeStore().settings,
+          shipping: { flatRate: { amount: 5, currencyCode: 'USD' } },
+        },
+      })
+
+      await opts.update!.applyToEntity(
+        store,
+        { id: STORE_ID, settings: { display: { enableSearch: false } } },
+        createCtx(em),
+      )
+
+      expect(store.settings.shipping).toEqual({ flatRate: { amount: 5, currencyCode: 'USD' } })
     })
 
     it('switches the primary store: clears the previous one in the same write and announces it after commit', async () => {

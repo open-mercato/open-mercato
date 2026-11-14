@@ -389,6 +389,91 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
   })
 })
 
+describe('updateTransactionStatusCommand — session-backed transactions (no linkId)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  function makeSessionTransaction(status: CheckoutTransaction['status']) {
+    return { ...makeTransaction(status), linkId: null, sessionId: 'session-1' }
+  }
+
+  it('processing → completed: succeeds without 404ing on a non-resolvable link', async () => {
+    const em = makeMockEm(makeSessionTransaction('processing'), 1)
+
+    await expect(runUpdateStatus(em, 'completed')).resolves.toEqual({ ok: true })
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: TX_ID, status: 'processing' }),
+      expect.objectContaining({ status: 'completed' }),
+    )
+  })
+
+  it('processing → completed: does not touch checkout_links or emit the link-scoped terminal event', async () => {
+    const em = makeMockEm(makeSessionTransaction('processing'), 1)
+
+    await runUpdateStatus(em, 'completed')
+
+    expect(linkCounterUpdateCalls(em)).toHaveLength(0)
+    expect(emitCheckoutEvent).not.toHaveBeenCalledWith('checkout.transaction.completed', expect.any(Object))
+  })
+
+  it('processing → failed: succeeds with no link-scoped side effects', async () => {
+    const em = makeMockEm(makeSessionTransaction('processing'), 1)
+
+    await expect(runUpdateStatus(em, 'failed')).resolves.toEqual({ ok: true })
+    expect(linkCounterUpdateCalls(em)).toHaveLength(0)
+  })
+})
+
+describe('updateTransactionStatusCommand — recorded gateway payment marker (#8268 finding 3)', () => {
+  const GATEWAY_TX_ID = '123e4567-e89b-12d3-a456-426614174030'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  function makeRecordedSessionTransaction(paymentStatus: string) {
+    return {
+      ...makeTransaction('completed'),
+      linkId: null,
+      sessionId: 'session-1',
+      paymentStatus,
+      gatewayTransactionId: GATEWAY_TX_ID,
+      paymentRecordedAt: new Date('2026-11-01T00:00:00.000Z'),
+    }
+  }
+
+  async function runPaymentStatusUpdate(em: MockEm, paymentStatus: string) {
+    const handler = commandRegistry.get('checkout.transaction.updateStatus')
+    if (!handler) throw new Error('checkout.transaction.updateStatus not registered')
+    return handler.execute({ ...baseInput('completed'), paymentStatus, gatewayTransactionId: GATEWAY_TX_ID }, makeContext(em))
+  }
+
+  it('authorized → captured clears paymentRecordedAt in the same write, so repair reconciles the capture', async () => {
+    const em = makeMockEm(makeRecordedSessionTransaction('authorized'), 1)
+
+    await runPaymentStatusUpdate(em, 'captured')
+
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      CheckoutTransaction,
+      expect.objectContaining({ id: TX_ID, status: 'completed' }),
+      expect.objectContaining({ paymentStatus: 'captured', paymentRecordedAt: null }),
+    )
+  })
+
+  it('a same-payment-state redelivery keeps paymentRecordedAt, so an already-recorded row is not re-queued', async () => {
+    const em = makeMockEm(makeRecordedSessionTransaction('captured'), 1)
+
+    await runPaymentStatusUpdate(em, 'captured')
+
+    const [, , set] = em.nativeUpdate.mock.calls[0] as [unknown, unknown, Record<string, unknown>]
+    expect(set).toMatchObject({ paymentStatus: 'captured' })
+    expect(set).not.toHaveProperty('paymentRecordedAt')
+  })
+})
+
 describe('updateTransactionStatusCommand — pay-link usage counters', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -481,5 +566,37 @@ describe('updateTransactionStatusCommand — pay-link usage counters', () => {
     const nonTerminal = makeMockEm(makeTransaction('pending'), 1)
     await runUpdateStatus(nonTerminal, 'processing')
     expect(linkCounterUpdateCalls(nonTerminal)).toHaveLength(0)
+  })
+
+  describe('session-backed transactions own no link slot', () => {
+    it.each(['completed', 'failed', 'cancelled'] as const)(
+      'processing → %s leaves the link counters untouched when the transaction belongs to a session (the session releases the slot exactly once)',
+      async (status) => {
+        const transaction = { ...makeTransaction('processing'), sessionId: 'session-1' }
+        const em = makeMockEm(transaction, 1)
+
+        await runUpdateStatus(em, status)
+
+        expect(linkCounterUpdateCalls(em)).toHaveLength(0)
+      },
+    )
+
+    it('a transaction without a session still moves the link counters once', async () => {
+      const em = makeMockEm(makeTransaction('processing'), 1)
+
+      await runUpdateStatus(em, 'completed')
+
+      expect(linkCounterUpdateCalls(em)).toHaveLength(1)
+    })
+
+    it('a missing transaction is reported with the checkout_transaction_not_found code', async () => {
+      const em = makeMockEm(makeTransaction('processing'), 1)
+      em.findOne.mockResolvedValueOnce(null)
+
+      await expect(runUpdateStatus(em, 'completed')).rejects.toMatchObject({
+        status: 404,
+        body: expect.objectContaining({ code: 'checkout_transaction_not_found' }),
+      })
+    })
   })
 })

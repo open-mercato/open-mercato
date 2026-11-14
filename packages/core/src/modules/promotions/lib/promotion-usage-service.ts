@@ -77,11 +77,23 @@ async function emitRegisteredEvent(promotionId: string, orderId: string, scope: 
   }
 }
 
-async function emitBudgetExhaustedEvent(promotionId: string, orderId: string, scope: PromotionsUsageScope): Promise<void> {
+async function emitBudgetExhaustedEvent(
+  promotionId: string,
+  orderId: string,
+  scope: PromotionsUsageScope,
+  // #8268 review Major 8: `register` means checkout's first `registerUsage` call refused
+  // the budget — the caller (`submit.ts`) compensates/cancels the order synchronously, so
+  // there is nothing left for staff to reconcile. `reinstate` means `reinstateUsage`
+  // refused to revive a PREVIOUSLY-reverted usage row on order confirmation — the order
+  // keeps its original discount with no usage counted anywhere, which IS the actionable gap
+  // `promotions.usage.reinstate_blocked` exists for. The notification subscriber uses this
+  // to notify only on the actionable case.
+  origin: 'register' | 'reinstate',
+): Promise<void> {
   try {
     await emitPromotionsEvent(
       'promotions.promotion.budget_exhausted',
-      { promotionId, orderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      { promotionId, orderId, tenantId: scope.tenantId, organizationId: scope.organizationId, origin },
       { persistent: true },
     )
   } catch (err) {
@@ -229,7 +241,7 @@ export class PromotionUsageService {
     }
 
     if (blocked) {
-      await emitBudgetExhaustedEvent(applied.promotionId, input.orderId, scope)
+      await emitBudgetExhaustedEvent(applied.promotionId, input.orderId, scope, 'register')
       return true
     }
 
@@ -276,5 +288,95 @@ export class PromotionUsageService {
     }
 
     return { ok: true, revertedCount: rows.length }
+  }
+
+  /**
+   * Release 5 review fix (#8268 Major 3 / #8817): the inverse of `revertUsage` — restores
+   * every `PromotionUsage` row this order's cancellation reverted by clearing
+   * `revertedAt`, same shape as `customer_groups`'s own
+   * `order-confirmed-credit-reinstate.ts`. Never re-runs the budget check `registerUsage`
+   * performs at first use: a row that already exists proved the budget was available at
+   * the time of the original use, and a cancel/undo cycle must not let budget consumed by
+   * OTHER orders in between retroactively block reinstating this one's own prior grant.
+   *
+   * #8268 review Medium 9 (#8940 item 2) narrows that one step further: "not re-running the
+   * budget check" must not mean "no budget check at all". Between this row's own revert and
+   * this reinstate, OTHER orders can have consumed budget up to (or past) the cap — reviving
+   * this row unconditionally would then push the promotion's live consumption past
+   * `maxBudget`. That is the same hard numeric invariant `code-service.ts#reinstateCodeUse`
+   * now enforces for a capped code, so each row gets the SAME row-locked re-read
+   * `registerUsage` uses before deciding whether reinstating IT specifically would exceed
+   * the budget — refusing that one row (leaving it reverted) rather than overflowing it.
+   *
+   * Idempotent: only rows that still carry a `revertedAt` are touched, so a redelivered
+   * event finds nothing left to reinstate on a second pass — same no-op-on-redelivery
+   * precedent as `revertUsage` above.
+   */
+  async reinstateUsage(
+    em: EntityManager,
+    input: RevertUsageInput,
+    scope: PromotionsUsageScope,
+    // #8268 review Major 4: `blockedCount` lets the caller (`order-confirmed-usage-
+    // reinstate.ts`) tell "every reverted row reinstated" apart from "at least one
+    // refusal left the order carrying usage no ledger backs" — the event emitted below
+    // makes the refusal visible to telemetry/notifications, but only the caller is
+    // positioned to act on it at the ORDER level.
+  ): Promise<{ ok: true; reinstatedCount: number; blockedCount: number }> {
+    const rows = await em.find(PromotionUsage, {
+      orderId: input.orderId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      revertedAt: { $ne: null },
+    })
+    if (rows.length === 0) return { ok: true, reinstatedCount: 0, blockedCount: 0 }
+
+    const reinstatedRows: PromotionUsage[] = []
+    let blockedCount = 0
+    for (const row of rows) {
+      let blocked = false
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            const promotion = await em.findOne(
+              Promotion,
+              { id: row.promotionId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+              { lockMode: LockMode.PESSIMISTIC_WRITE },
+            )
+            // Same documented judgment calls `registerUsageForPromotion` makes: no parent
+            // row, no configured budget, or a currency this module cannot compare against
+            // the budget's own currency all skip enforcement rather than block the revival.
+            if (!promotion || promotion.maxBudget == null || !promotion.budgetCurrency) return
+            if (row.currency !== promotion.budgetCurrency) return
+            const consumed = await this.getBudgetConsumed(em, row.promotionId, scope.organizationId, scope.tenantId, promotion.budgetCurrency)
+            const projected = addDecimalStrings(consumed, row.totalDiscountAmount)
+            if (exceedsLimit(projected, promotion.maxBudget)) blocked = true
+          },
+          () => {
+            if (blocked) return
+            row.revertedAt = null
+          },
+        ],
+        { transaction: true, label: 'promotions.usage.reinstate' },
+      )
+      if (blocked) {
+        blockedCount += 1
+        usageLogger.warn('[internal] reinstateUsage refused — promotion is already at its budget cap', {
+          orderId: input.orderId,
+          promotionId: row.promotionId,
+        })
+        await emitBudgetExhaustedEvent(row.promotionId, input.orderId, scope, 'reinstate')
+      } else {
+        reinstatedRows.push(row)
+      }
+    }
+    if (reinstatedRows.length === 0) return { ok: true, reinstatedCount: 0, blockedCount }
+
+    const distinctPromotionIds = Array.from(new Set(reinstatedRows.map((row) => row.promotionId)))
+    for (const promotionId of distinctPromotionIds) {
+      await emitRegisteredEvent(promotionId, input.orderId, scope)
+    }
+
+    return { ok: true, reinstatedCount: reinstatedRows.length, blockedCount }
   }
 }

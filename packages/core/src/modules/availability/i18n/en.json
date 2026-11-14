@@ -27,6 +27,8 @@
   "availability.errors.unauthorized": "Unauthorized",
   "availability.errors.variantNotFound": "No such variant",
   "availability.nav.group": "Availability",
+  "availability.notifications.stockLostAfterPayment.body": "Order {orderId} could not hold its stock after payment: {sellableCount} line(s) were no longer available.",
+  "availability.notifications.stockLostAfterPayment.title": "Stock lost after payment",
   "availability.policies.create.title": "Create Availability Policy",
   "availability.policies.edit.notFound": "Availability policy not found",
   "availability.policies.edit.readOnly": "This policy is view-only. You do not have permission to change it.",
@@ -89,5 +91,6 @@
   "availability.states.low_stock": "Low stock",
   "availability.states.not_tracked": "Not tracked",
   "availability.states.out_of_stock": "Out of stock",
-  "availability.states.preorder": "Preorder"
+  "availability.states.preorder": "Preorder",
+  "notifications.categories.availability": "Availability"
 }

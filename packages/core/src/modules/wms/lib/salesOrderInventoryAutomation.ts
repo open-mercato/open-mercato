@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -41,12 +41,17 @@ type ReservationShortfallLine = {
   shortfallQuantity: number
 }
 
+// `isCrudHttpError` (a `Symbol.for` marker), not `instanceof CrudHttpError`: both errors here
+// are thrown from `wmsReservationService` through `commandBus.execute(...)`'s DI-resolved
+// service, which an `instanceof` check against this file's own statically-imported class can
+// fail to recognize across a module-duplication boundary — the exact regression that made
+// TC-WMS-002/021/027 see a raw 500 instead of a handled 409.
 function isInsufficientStockError(error: unknown): boolean {
-  return error instanceof CrudHttpError && error.status === 409 && error.body?.error === 'insufficient_stock'
+  return isCrudHttpError(error) && error.status === 409 && error.body?.error === 'insufficient_stock'
 }
 
 function isBalanceIntegrityViolationError(error: unknown): boolean {
-  return error instanceof CrudHttpError && error.status === 409 && error.body?.error === 'balance_integrity_violation'
+  return isCrudHttpError(error) && error.status === 409 && error.body?.error === 'balance_integrity_violation'
 }
 
 type SalesOrderRow = {
@@ -321,7 +326,8 @@ export async function reserveInventoryForConfirmedOrder(
   const shortfalls: ReservationShortfallLine[] = []
 
   for (const [variantId, requiredQuantity] of requiredByVariant.entries()) {
-    let remainingQuantity = requiredQuantity - (reservedByVariant.get(variantId) ?? 0)
+    let heldForVariant = reservedByVariant.get(variantId) ?? 0
+    let remainingQuantity = requiredQuantity - heldForVariant
     if (remainingQuantity <= 0) continue
 
     let variantBuckets = availabilityByVariant.get(variantId) ?? []
@@ -335,14 +341,16 @@ export async function reserveInventoryForConfirmedOrder(
       variantBuckets,
       preferredWarehouseId,
     )
-    let reservedForVariant = 0
     try {
       for (const bucket of warehouseAvailability) {
         if (remainingQuantity <= 0) break
         const reserveQuantity = Math.min(remainingQuantity, bucket.available)
         if (reserveQuantity <= 0) continue
 
-        await commandBus.execute('wms.inventory.reserve', {
+        // The read above is unlocked: `sourceTargetQuantity` makes the command re-count what
+        // the order holds under the lock `availability.commit`'s conversion also takes, and
+        // reserve only the part still missing.
+        const execution = await commandBus.execute<unknown, { sourceHeldQuantity?: number }>('wms.inventory.reserve', {
           input: {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
@@ -351,6 +359,7 @@ export async function reserveInventoryForConfirmedOrder(
             quantity: reserveQuantity,
             sourceType: 'order',
             sourceId: orderId,
+            sourceTargetQuantity: requiredQuantity,
             metadata: {
               automation: 'sales.order.confirmed',
               orderId,
@@ -361,8 +370,9 @@ export async function reserveInventoryForConfirmedOrder(
           ctx: commandCtx,
         })
 
-        remainingQuantity -= reserveQuantity
-        reservedForVariant += reserveQuantity
+        const sourceHeldQuantity = execution?.result?.sourceHeldQuantity
+        heldForVariant = typeof sourceHeldQuantity === 'number' ? sourceHeldQuantity : heldForVariant + reserveQuantity
+        remainingQuantity = requiredQuantity - heldForVariant
         bucket.available -= reserveQuantity
       }
     } catch (error) {
@@ -373,7 +383,7 @@ export async function reserveInventoryForConfirmedOrder(
       shortfalls.push({
         catalogVariantId: variantId,
         requiredQuantity,
-        reservedQuantity: reservedForVariant + (reservedByVariant.get(variantId) ?? 0),
+        reservedQuantity: heldForVariant,
         shortfallQuantity: remainingQuantity,
       })
     }

@@ -455,6 +455,7 @@
   "checkout.validation.common.invalidCurrencyCode": "Introduce un codigo de moneda valido de 3 letras.",
   "checkout.validation.common.invalidFieldsetCode": "Introduce un codigo de conjunto de campos valido.",
   "checkout.validation.common.invalidNumber": "Introduce un numero valido.",
+  "checkout.validation.common.invalidReturnPath": "Introduce una ruta relativa que empiece con una sola barra.",
   "checkout.validation.common.invalidUrl": "Introduce una URL valida.",
   "checkout.validation.common.invalidUuid": "Introduce un identificador valido.",
   "checkout.validation.common.nonNegativeInteger": "Introduce un numero entero mayor o igual que 0.",
