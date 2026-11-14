@@ -26,6 +26,7 @@ Non-goals: publish packages, merge to main, change release behavior, weaken test
 Standalone-only UI failures may need a published-app reproduction; use existing local test-environment tooling without publishing or applying migrations without authorization. A main workflow can fail even when the regular CI suite passes. Additional CI failures may widen the necessary repair. No production or credential operations are authorized.
 
 ## Execution
+Runner: local (no running compose app found). Immutable install completed; native SQLite compilation needs a compiler unavailable on the host. Gate build/generate/rebuild, translation sync/usage, and typecheck passed. Focused filter tests: 14 passed; baseline reproduction: two new assertions fail. Workflow scope/concurrency regressions: 26 passed. Use a short TMPDIR for tsx IPC on this cockpit.
 Branch: stabilize/main-2026-11-15 (operator-requested override of the skill's default prefix).
 Engine: om-auto-create-pr (steps: 6, --loop: no)
 Worktree: reuse the invoking isolated linked worktree; do not clean it up.
@@ -33,13 +34,14 @@ Claim-Run: a30406e3-ba32-4b20-a622-461f5494b389
 Delegation: first task independently audits CI evidence without edits; parent owns coupled fixes and validation; second and final task reviews the finished branch.
 
 ## Progress
+PR: #9558
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and repair
 
 - [ ] 1.1 Independently audit main workflow failures and report actionable causes
-- [ ] 1.2 Reproduce and fix the demonstrated failure with regression coverage
+- [x] 1.2 Reproduce and fix the demonstrated failure with regression coverage — 5c0c62fb53
 
 ### Phase 2: Validate
 
