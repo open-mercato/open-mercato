@@ -21,6 +21,8 @@ import {
   isValidIsoDateString,
 } from './activity-config-schemas'
 import {
+  TASK_DEADLINE_MESSAGES,
+  taskDeadlineAtSchema,
   taskDeadlineSchema,
   taskPrioritySchema,
   taskReminderSchema,
@@ -66,6 +68,7 @@ export type {
 export {
   taskPrioritySchema,
   taskDeadlineSchema,
+  taskDeadlineAtSchema,
   taskReminderSchema,
 } from './task-primitives'
 export type { TaskPriority, TaskDeadline, TaskReminder } from './task-primitives'
@@ -325,6 +328,10 @@ export const userTaskConfigSchema = z.object({
   // "When": priority, deadline, reminders, and what happens on breach.
   priority: taskPrioritySchema.optional(),
   deadline: taskDeadlineSchema.optional(),
+  // An ABSOLUTE deadline (#7181), the sibling of the duration `deadline` and
+  // mutually exclusive with it (refused on the step). Optional and additive: a
+  // reader that predates it ignores the key, and `deadline` stays duration-only.
+  deadlineAt: taskDeadlineAtSchema.optional(),
   reminders: z.array(taskReminderSchema).optional(),
   onBreach: taskOnBreachSchema.optional(),
   // "Decisions": buttons bound 1:1 to outgoing routes, plus the subset of form
@@ -691,6 +698,14 @@ export const workflowStepSchema = z.object({
   // configuration and a conversion back can recover it.
   metadata: z.record(z.string(), z.any()).optional(),
 }).superRefine((step, ctx) => {
+  if (step.userTaskConfig?.deadline !== undefined && step.userTaskConfig.deadlineAt !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['userTaskConfig', 'deadlineAt'],
+      message: TASK_DEADLINE_MESSAGES.bothForms.fallback,
+      params: { i18nKey: TASK_DEADLINE_MESSAGES.bothForms.key },
+    })
+  }
   if (step.stepType === 'WAIT_FOR_CONDITION') {
     refineWaitForConditionStep(step.config || {}, ctx)
     return

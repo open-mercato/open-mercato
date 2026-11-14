@@ -13,6 +13,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { WorkflowInstance, WorkflowEvent } from '../../data/entities'
+import { localizeRuntimeErrorMessage } from '../../lib/runtime-error-message'
 import { WorkflowGraphReadOnly } from '../WorkflowGraph'
 import { MobileWorkflowTimeline, type TimelineStep } from './MobileWorkflowTimeline'
 import { ChevronDown, ChevronUp, Maximize2 } from 'lucide-react'
@@ -158,7 +159,7 @@ export function MobileInstanceOverview({
         <div className="rounded-lg border border-destructive bg-destructive/5 p-4">
           <h2 className="mb-2 text-sm font-semibold text-destructive">{t('workflows.instances.fields.lastError')}</h2>
           <pre className="text-xs text-destructive whitespace-pre-wrap font-mono break-all">
-            {instance.errorMessage}
+            {localizeRuntimeErrorMessage(instance.errorMessage, instance.errorDetails, t)}
           </pre>
         </div>
       )}

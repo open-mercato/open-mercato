@@ -34,6 +34,7 @@ import {
   onBreachToDraft,
   remindersToOffsets,
   resolveTaskAssigneeKindPersistence,
+  readTaskDeadlineDraft,
   resolveTaskDeadlinePersistence,
   type TaskAssignmentMode,
   type TaskDecisionDraft,
@@ -65,6 +66,7 @@ const USER_TASK_STRUCTURED_CONFIG_KEYS = [
   'entityBindings',
   'priority',
   'deadline',
+  'deadlineAt',
   'reminders',
   'onBreach',
   'decisions',
@@ -84,6 +86,7 @@ const USER_TASK_INSPECTOR_NODE_KEYS = [
   'entityBindings',
   'priority',
   'deadline',
+  'deadlineAt',
   'reminders',
   'onBreach',
   'decisions',
@@ -389,9 +392,9 @@ export function nodeToFormValues(node: Node): NodeFormValues {
 
     // Task inspector sections (spec §6.1). The deadline control edits whichever
     // key carries the duration, so it seeds from `deadline` first and falls back
-    // to the legacy bare `slaDuration`.
+    // to the legacy bare `slaDuration`. An absolute `deadlineAt` seeds it empty.
     const inspectorConfig = readUserTaskInspectorConfig(node)
-    if (inspectorConfig.deadline?.duration) values.slaDuration = inspectorConfig.deadline.duration
+    if (inspectorConfig.deadline || inspectorConfig.deadlineAt) values.slaDuration = readTaskDeadlineDraft(inspectorConfig)
     // The audience gates which assignment tabs the engine can honour, so the tab
     // a stored config opens on is derived against it rather than on its own.
     values.taskAssigneeKind = deriveTaskAssigneeKind(inspectorConfig)
@@ -617,6 +620,7 @@ export function formValuesToNodeUpdates(
     updates.entityBindings = entityBindings
     updates.priority = priority
     updates.deadline = deadline.deadline
+    updates.deadlineAt = deadline.deadlineAt
     updates.slaDuration = deadline.slaDuration
     updates.reminders = reminders
     updates.onBreach = onBreach

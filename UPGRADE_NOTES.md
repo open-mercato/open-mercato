@@ -1719,6 +1719,64 @@ migration and the rollback is unrecoverable — users must reopen their chat win
 same one-time-TTL (120-minute) cost paid by any session mid-flight at rollback, not an ongoing
 state.
 
+### Workflows: a user task can carry an absolute deadline — new optional `userTaskConfig.deadlineAt` (#7181)
+
+A `USER_TASK` may now declare `userTaskConfig.deadlineAt`: an ISO date or an ISO datetime with `Z` or
+an offset, usually interpolated from the run context (`{{context.dueDate}}`). It is a SIBLING of the
+existing duration `deadline`, not a form of it, and the two are mutually exclusive: a step declaring
+both is refused on save with `workflows.validation.taskDeadline.bothForms`. `deadlineAt` supersedes the
+legacy `slaDuration` exactly as `deadline.duration` does. Every definition that was valid before still
+parses and runs unchanged.
+
+**`deadline` stays duration-only, everywhere.** `taskDeadlineSchema` / `TaskDeadline` are unchanged
+(`deadline.duration` is a required non-empty `string`, compile-guarded by
+`packages/core/src/modules/workflows/data/task-primitives.typecheck.tsx`), an at-only `deadline` is
+refused on save exactly as before, and no stored or served `deadline` ever lacks a `duration`.
+
+**Additive changes only** (BACKWARD_COMPATIBILITY.md §2, §7):
+
+- `userTaskConfigSchema` / `UserTaskConfig` gain the optional `deadlineAt?: string`, validated by the new
+  `taskDeadlineAtSchema` (a literal must parse; a `{{…}}` template is checked once it resolves at task
+  creation). The schemas nesting it — `workflowStepSchema`, `workflowDefinitionDataSchema`, the
+  create/update definition schemas and inputs — gain that one optional key, plus the mutual-exclusion
+  refinement on the step.
+- The definition routes (`GET/POST /api/workflows/definitions`, `GET/PUT /api/workflows/definitions/[id]`,
+  `customize`, `reset-to-code`) keep documenting the SAME response schemas
+  (`workflowDefinitionResponseSchema` and its list/detail/mutation/reset wrappers), which now merely list
+  the optional `deadlineAt`. A client built against the previous OpenAPI parses every response,
+  including definitions authored with `deadlineAt`: zod objects strip unknown keys, so an older parser
+  simply does not see it. A route-level regression
+  (`api/__tests__/definitions.deadline-at-contract.route.test.ts`, and TC-WF-069 over HTTP) authors one
+  through POST/PUT and validates GET list, GET by id and the mutation responses against those schemas.
+- `TaskDeadlinePersistence` gains `deadlineAt?: string`; `resolveTaskDeadlinePersistence`,
+  `readTaskDeadlineDraft`, `resolveTaskDeadlineDuration` and `resolveTaskDeadline` accept it
+  (a widened parameter). The Studio inspector's deadline control stays duration-only: it opens empty on a
+  `deadlineAt` step and preserves the key on save; typing a duration switches the step to `deadline`.
+- `CodeStepDefinition.userTaskConfig` gains `deadline?: { duration: string }` and `deadlineAt?: string`.
+
+**Migration:** none. Code that must honour an absolute deadline reads `userTaskConfig.deadlineAt`
+alongside `deadline.duration` / `slaDuration`; code that does not keeps working as it did, and a task
+created from a `deadlineAt` step still carries an absolute `dueDate` like any other task.
+
+The deadline validation messages carry i18n keys (`workflows.validation.taskDeadline.*`) and are
+localized in the definition API's `details[]` and the Studio Problems / Code view. The English text in
+`details[].message` is unchanged when no locale dictionary is available.
+
+A value that only fails at runtime (`dueDate: 'soon'`) keeps its English `errorMessage` for logs and
+failure grouping, and additionally carries `errorDetails.i18n = { key, params }` (also on the step's
+`errorData.details`). The run detail, mobile overview, step inspector and failure queue render it in
+the reader's locale, the instance-advance route answers it localized with the same `details`, and API
+clients can do the same from that key. A synchronous sub-workflow failing this way hands the key to its
+parent. `ExecutionResult.errorDetails`, `StepExecutionResult.details` and
+`TransitionExecutionResult.details` are new and optional. `instance.errorDetails` is now written as `null`, instead of being left untouched, when a failure carries no details, so a message can never
+pair with the details of an earlier failure.
+
+**Known limit:** the run fails closed when the executor's own loop enters the step: on start, and after
+an automated step. A step failure reached any other way behaves as it always has for every step type,
+including a bad `duration`: entering the task from a completed task, an SLA-breach route or an async
+resume marks the STEP failed and logs it, but does not fail the instance. Check `deadlineAt` inputs
+before the step that reads them when that step follows another task.
+
 ### Payment gateway webhooks: opt-in transport, locator and response options; ambiguous matches are rejected
 
 `registerWebhookHandler(...)` accepts new optional options for providers that sign form-encoded bodies or expect a specific acknowledgement:

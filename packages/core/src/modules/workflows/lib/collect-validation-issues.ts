@@ -7,6 +7,7 @@ import {
   type FlowLogicWarningCode,
   type TaskAssigneeEntityAccess,
 } from './flow-logic-warnings'
+import { resolveIssueMessage } from './definition-error-body'
 
 export type WorkflowValidationIssueSeverity = 'error' | 'warning'
 
@@ -22,6 +23,8 @@ export interface WorkflowValidationIssue {
 export interface ZodIssueLike {
   path: Array<string | number | symbol>
   message: string
+  /** A custom zod issue's params; `params.i18nKey` names the message's translation. */
+  params?: Record<string, unknown>
 }
 
 /**
@@ -185,10 +188,11 @@ export function collectValidationIssues(input: CollectValidationIssuesInput): Wo
 
   const schemaIssues: WorkflowValidationIssue[] = zodIssues.map((issue, index) => {
     const pathText = formatZodPath(issue.path)
+    const message = resolveIssueMessage(issue, translate)
     return {
       id: `schema-${index}`,
       severity: 'error',
-      message: pathText ? `${pathText} - ${issue.message}` : issue.message,
+      message: pathText ? `${pathText} - ${message}` : message,
       ...mapZodPathToGraph(issue.path, nodes, edges),
     }
   })

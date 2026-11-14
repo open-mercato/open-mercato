@@ -6,6 +6,7 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { RunStatusBadge } from './RunStatusBadge'
 import { formatRunDuration } from '../../lib/run-duration'
+import { localizeStepErrorData } from '../../lib/runtime-error-message'
 import type { RunStepInstanceInput } from '../../lib/run-execution'
 import { stepInstanceStatusToRunStatus } from '../../lib/run-execution'
 
@@ -92,7 +93,7 @@ function ExecutionRecord({
         />
         {execution.errorData ? (
           <JsonDisplay
-            data={execution.errorData}
+            data={localizeStepErrorData(execution.errorData, t)}
             title={t('workflows.instances.run.inspector.error', 'Error')}
             className="border-status-error-border bg-status-error-bg"
             maxInitialDepth={1}

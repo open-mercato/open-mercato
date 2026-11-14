@@ -778,6 +778,47 @@ describe('Workflow Executor (Unit Tests)', () => {
       expect(result.status).toBe('FAILED')
       expect(result.errors).toContain('Activities failed: Email delivery error')
     })
+
+    test('a failed step keeps its message key on the instance, for the render boundary', async () => {
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      const instance = {
+        id: testInstanceId,
+        definitionId: testDefinitionId,
+        workflowId: 'simple-workflow',
+        version: 1,
+        status: 'RUNNING',
+        currentStepId: 'start',
+        context: {},
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as WorkflowInstance
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: unknown) => {
+        if ((where as Record<string, unknown>)?.id === testInstanceId) return instance
+        if ((where as Record<string, unknown>)?.id === testDefinitionId) return mockDefinition as WorkflowDefinition
+        return null
+      })
+      transitionHandler.findValidTransitions.mockResolvedValue([
+        {
+          isValid: true,
+          transition: { transitionId: 'start-to-end', fromStepId: 'start', toStepId: 'end', trigger: 'auto' },
+        },
+      ])
+      const details = { i18n: { key: 'workflows.some.key', params: { value: 'x' } } }
+      transitionHandler.executeTransition.mockResolvedValue({ success: false, error: 'English', details })
+
+      const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+
+      expect(instance.errorMessage).toBe('English')
+      expect(instance.errorDetails).toEqual(details)
+      expect(result.errorDetails).toEqual(details)
+    })
   })
 
   // ============================================================================

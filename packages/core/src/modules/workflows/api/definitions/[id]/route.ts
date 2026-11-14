@@ -196,10 +196,11 @@ export async function PUT(
     // Validate input
     const validation = updateWorkflowDefinitionInputCheckedSchema.safeParse(body)
     if (!validation.success) {
+      const { translate } = await resolveTranslations()
       return NextResponse.json(
         {
           error: 'Validation failed',
-          details: normalizeDefinitionValidationIssues(validation.error),
+          details: normalizeDefinitionValidationIssues(validation.error, translate),
         },
         { status: 400 }
       )

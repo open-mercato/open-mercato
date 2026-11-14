@@ -316,6 +316,8 @@ export function newEntityBindingDraft(): TaskEntityBindingDraft {
 
 export interface TaskDeadlinePersistence {
   deadline?: TaskDeadline
+  /** An absolute deadline the control left untouched (#7181). */
+  deadlineAt?: string
   slaDuration?: string
 }
 
@@ -328,12 +330,21 @@ export interface TaskDeadlinePersistence {
  * one to the other: a definition authored before this section keeps saving the
  * shape an older engine can read, and a definition that already declares a
  * `deadline` keeps it.
+ *
+ * The control edits a DURATION only. An absolute `deadlineAt` (authored in the
+ * Code view) opens as an empty control and survives a save untouched; typing a
+ * duration over it is the author deliberately switching to `deadline`, which
+ * drops `deadlineAt` because the two are mutually exclusive.
  */
 export function resolveTaskDeadlinePersistence(
-  config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>,
+  config: Pick<UserTaskConfig, 'deadline' | 'deadlineAt' | 'slaDuration'>,
   edited: string,
 ): TaskDeadlinePersistence {
   const duration = edited.trim()
+  if (config.deadlineAt) {
+    if (duration) return { deadline: { duration } }
+    return { deadlineAt: config.deadlineAt, ...(config.slaDuration ? { slaDuration: config.slaDuration } : {}) }
+  }
   if (!duration) return {}
   if (config.deadline) {
     return { deadline: config.deadline.duration === duration ? config.deadline : { duration } }
@@ -341,8 +352,12 @@ export function resolveTaskDeadlinePersistence(
   return { slaDuration: duration }
 }
 
-/** The duration the deadline control opens with, whichever key carries it. */
-export function readTaskDeadlineDraft(config: Pick<UserTaskConfig, 'deadline' | 'slaDuration'>): string {
+/**
+ * The duration the deadline control opens with, whichever key carries it —
+ * empty for an absolute `deadlineAt`, which supersedes any `slaDuration`.
+ */
+export function readTaskDeadlineDraft(config: Pick<UserTaskConfig, 'deadline' | 'deadlineAt' | 'slaDuration'>): string {
+  if (config.deadlineAt) return ''
   const duration = config.deadline?.duration ?? config.slaDuration
   return typeof duration === 'string' ? duration : ''
 }
