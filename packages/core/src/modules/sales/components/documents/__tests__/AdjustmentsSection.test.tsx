@@ -3,11 +3,12 @@
  */
 import * as React from 'react'
 import { render, waitFor, fireEvent, act } from '@testing-library/react'
+import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 
 const mockApiCall = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCall: (...args: any[]) => mockApiCall(...args),
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
   withScopedApiRequestHeaders: (_headers: unknown, operation: () => unknown) => operation(),
 }))
 
@@ -15,9 +16,9 @@ const mockCreateCrud = jest.fn()
 const mockUpdateCrud = jest.fn()
 const mockDeleteCrud = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
-  createCrud: (...args: any[]) => mockCreateCrud(...args),
-  updateCrud: (...args: any[]) => mockUpdateCrud(...args),
-  deleteCrud: (...args: any[]) => mockDeleteCrud(...args),
+  createCrud: (...args: unknown[]) => mockCreateCrud(...args),
+  updateCrud: (...args: unknown[]) => mockUpdateCrud(...args),
+  deleteCrud: (...args: unknown[]) => mockDeleteCrud(...args),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
@@ -43,7 +44,7 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/DataTable', () => ({
-  DataTable: ({ data, rowActions }: { data: any[]; rowActions?: (row: any) => React.ReactNode }) => (
+  DataTable: ({ data, rowActions }: { data: Array<{ id: string }>; rowActions?: (row: { id: string }) => React.ReactNode }) => (
     <div data-testid="data-table">
       {data.map((row) => (
         <div key={row.id} data-testid={`row-${row.id}`}>
@@ -67,7 +68,7 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
 }))
 
 jest.mock('@open-mercato/ui/primitives/badge', () => ({
-  Badge: ({ children }: any) => <span>{children}</span>,
+  Badge: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
 }))
 
 jest.mock('../../PriceWithCurrency', () => ({
@@ -85,15 +86,12 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
 
 const dialogProps: Array<Record<string, unknown>> = []
 jest.mock('../AdjustmentDialog', () => ({
-  AdjustmentDialog: (props: any) => {
+  AdjustmentDialog: (props: Record<string, unknown>) => {
     dialogProps.push(props)
     return props.open ? <div data-testid="adjustment-dialog-open" /> : null
   },
 }))
 
-// Use the REAL event bus (not mocked) so the self-emitted totals-refresh event
-// actually round-trips through this component's own subscription — the
-// regression this test guards against only reproduces with real dispatch/subscribe.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { SalesDocumentAdjustmentsSection } = require('../AdjustmentsSection')
 
@@ -110,8 +108,6 @@ describe('SalesDocumentAdjustmentsSection totals-refresh self-reload (#8263)', (
     jest.clearAllMocks()
     dialogProps.length = 0
     quoteAdjustmentsItems = []
-    // Keyed by URL (not call order) since `loadKindOptions` and `loadAdjustments`
-    // both fire on mount and their relative order is an implementation detail.
     mockApiCall.mockImplementation((url: string) => {
       if (typeof url === 'string' && url.startsWith(QUOTE_ADJUSTMENTS_PREFIX)) {
         return Promise.resolve({ ok: true, result: { items: quoteAdjustmentsItems } })
@@ -149,11 +145,23 @@ describe('SalesDocumentAdjustmentsSection totals-refresh self-reload (#8263)', (
     })
 
     expect(mockCreateCrud).toHaveBeenCalledTimes(1)
-    // One GET on mount + one direct reload after the create succeeds. Before the
-    // fix, the component's own `emitSalesDocumentTotalsRefresh` call bounced back
-    // through its own `subscribeSalesDocumentTotalsRefresh` listener and fired a
-    // third, redundant GET.
     expect(countQuoteAdjustmentsGetCalls()).toBe(2)
+  })
+
+  it('still reloads for an external event after consuming its self refresh', async () => {
+    render(
+      <SalesDocumentAdjustmentsSection documentId="quote-1" kind="quote" currencyCode="USD" documentUpdatedAt={null} />,
+    )
+    await waitFor(() => expect(countQuoteAdjustmentsGetCalls()).toBe(1))
+    await waitFor(() => expect(dialogProps.length).toBeGreaterThan(0))
+    const onSubmit = dialogProps[dialogProps.length - 1].onSubmit as (payload: unknown) => Promise<void>
+    await act(async () => onSubmit({ label: 'QA surcharge', amountNet: 5, amountGross: 5, currencyCode: 'USD' }))
+    expect(countQuoteAdjustmentsGetCalls()).toBe(2)
+    await act(async () => emitSalesDocumentTotalsRefresh({ documentId: 'other-quote', kind: 'quote' }))
+    await act(async () => emitSalesDocumentTotalsRefresh({ documentId: 'quote-1', kind: 'order' }))
+    expect(countQuoteAdjustmentsGetCalls()).toBe(2)
+    await act(async () => emitSalesDocumentTotalsRefresh({ documentId: 'quote-1', kind: 'quote' }))
+    expect(countQuoteAdjustmentsGetCalls()).toBe(3)
   })
 
   it('reloads its own adjustments list exactly once per delete, not twice via its own totals-refresh event', async () => {
@@ -176,10 +184,6 @@ describe('SalesDocumentAdjustmentsSection totals-refresh self-reload (#8263)', (
     fireEvent.click(getByTestId('row-action-delete'))
 
     await waitFor(() => expect(mockDeleteCrud).toHaveBeenCalledTimes(1))
-    // One GET on mount + one direct reload after the delete succeeds. Before the
-    // fix, the component's own `emitSalesDocumentTotalsRefresh` call bounced back
-    // through its own `subscribeSalesDocumentTotalsRefresh` listener and fired a
-    // third, redundant GET.
     await waitFor(() => expect(countQuoteAdjustmentsGetCalls()).toBe(2))
   })
 })

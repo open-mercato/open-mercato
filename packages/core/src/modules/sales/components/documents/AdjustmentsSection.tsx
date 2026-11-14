@@ -88,10 +88,6 @@ export function SalesDocumentAdjustmentsSection({
   const [activeAdjustment, setActiveAdjustment] = React.useState<AdjustmentRow | null>(null)
   const [kindOptions, setKindOptions] = React.useState<DictionaryOption[]>([])
   const kindLoadingRef = React.useRef(false)
-  // Set right before this component emits its own totals-refresh event so the
-  // subscription below can skip the reload it would otherwise duplicate —
-  // `loadAdjustments()` already ran synchronously just before the emit. Cross-section
-  // events (e.g. from ItemsSection) arrive with the flag unset and still reload normally.
   const skipNextSelfRefreshRef = React.useRef(false)
 
   const apiResourcePath = React.useMemo(
