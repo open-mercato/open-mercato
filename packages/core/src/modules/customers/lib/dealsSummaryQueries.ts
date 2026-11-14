@@ -36,12 +36,23 @@ export type WinRateMonthRow = {
   lost: string | number
 }
 
+export type MonthlyCurrencyRow = {
+  period: string
+  currency: string | null
+  count: string | number
+  total: string | number | null
+}
+
 export type DealsSummaryQueryRows = {
   openRows: OpenPipelineRow[]
   inflowRows: WindowSumRow[]
   wonRows: WindowSumRow[]
   winLossRows: WinLossRow[]
   seriesRows: WinRateMonthRow[]
+  /** All non-deleted deals created per trailing month and currency (pipeline inflow trend). */
+  inflowSeriesRows: MonthlyCurrencyRow[]
+  /** Deals won per trailing month and currency (won value trend). */
+  wonSeriesRows: MonthlyCurrencyRow[]
   overdueRows: Array<{ id: string }>
   openStuckIds: string[]
 }
@@ -175,6 +186,30 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
     [...scopeValues, input.seriesStart.toISOString()],
   )
 
+  const inflowSeriesRows = await connection.execute<MonthlyCurrencyRow[]>(
+    `SELECT
+        to_char(date_trunc('month', created_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS period,
+        UPPER(COALESCE(value_currency, '')) AS currency,
+        COUNT(*) AS count,
+        COALESCE(SUM(value_amount), 0) AS total
+      FROM customer_deals
+      WHERE ${scopeWhere} AND created_at >= ?
+      GROUP BY 1, 2`,
+    [...scopeValues, input.seriesStart.toISOString()],
+  )
+
+  const wonSeriesRows = await connection.execute<MonthlyCurrencyRow[]>(
+    `SELECT
+        to_char(date_trunc('month', updated_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS period,
+        UPPER(COALESCE(value_currency, '')) AS currency,
+        COUNT(*) AS count,
+        COALESCE(SUM(value_amount), 0) AS total
+      FROM customer_deals
+      WHERE ${scopeWhere} AND (status = 'win' OR closure_outcome = 'won') AND updated_at >= ?
+      GROUP BY 1, 2`,
+    [...scopeValues, input.seriesStart.toISOString()],
+  )
+
   const overdueDealsPredicate = buildOpenDealPredicate(['open'])
   const overdueRows = await connection.execute<Array<{ id: string }>>(
     `SELECT id FROM customer_deals
@@ -205,6 +240,8 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
     wonRows,
     winLossRows,
     seriesRows,
+    inflowSeriesRows,
+    wonSeriesRows,
     overdueRows,
     openStuckIds,
   }

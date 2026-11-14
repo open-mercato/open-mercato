@@ -54,14 +54,14 @@ test.describe('TC-CRM-056: Confirm-dialog stability (#1804, #1810)', () => {
       await expect(activityTab).toBeVisible({ timeout: 30_000 })
       await activityTab.click()
 
-      const addNewTrigger = page.getByRole('button', { name: /^Add new$/ })
-      await expect(addNewTrigger).toBeVisible({ timeout: 30_000 })
-      await addNewTrigger.click()
-
-      // Schedule a Task — the dialog opens with the task tab pre-selected.
-      const newTaskItem = page.getByRole('button', { name: /New task/i }).first()
-      await expect(newTaskItem).toBeVisible({ timeout: 15_000 })
-      await newTaskItem.click()
+      // The shared activity layout (#7494) opens the Schedule dialog from the
+      // composer's "Schedule" action; switch it to the Task type inside.
+      const scheduleTrigger = page.getByRole('button', { name: /^Schedule$/ }).first()
+      await expect(scheduleTrigger).toBeVisible({ timeout: 30_000 })
+      await scheduleTrigger.click()
+      const taskTab = page.getByRole('dialog').getByRole('button', { name: 'Task', exact: true })
+      await expect(taskTab).toBeVisible({ timeout: 15_000 })
+      await taskTab.click()
 
       // Scope to the Radix-rendered Schedule Activity dialog (named after the
       // selected activity type via VisuallyHidden DialogTitle) so we don't
@@ -194,6 +194,7 @@ test.describe('TC-CRM-056: Confirm-dialog stability (#1804, #1810)', () => {
           .first()
         await expect(nameInput).toBeVisible({ timeout: 30_000 })
         await nameInput.fill(jsonName)
+        await page.locator('[data-crud-field-id="taxId"] input').first().fill('PL1234567890')
 
         // CrudForm's submit label is configured via `submitLabel` — the
         // companies create page uses `customers.companies.form.submit` =

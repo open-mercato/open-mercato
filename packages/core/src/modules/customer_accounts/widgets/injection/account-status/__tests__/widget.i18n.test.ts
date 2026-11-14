@@ -11,13 +11,16 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import type { ModuleInjectionSlot } from '@open-mercato/shared/modules/widgets/injection'
 import widget from '../widget'
+import { injectionTable } from '../../../injection-table'
 
 const I18N_DIR = path.resolve(__dirname, '../../../../i18n')
 const LOCALES = ['en', 'pl', 'es', 'de', 'ko'] as const
 const TARGET_LOCALES = ['pl', 'es', 'de', 'ko'] as const
 
 const DESCRIPTION_KEY = 'customer_accounts.widgets.accountStatus.description'
+const PORTAL_ACCOUNT_TAB_KEY = 'customer_accounts.widgets.portalAccountTab'
 
 const INVITE_KEYS = [
   'customer_accounts.widgets.invite.button',
@@ -49,6 +52,7 @@ const MUST_DIFFER_KEYS = [
   'customer_accounts.widgets.invite.submit',
   'customer_accounts.widgets.invite.success',
   DESCRIPTION_KEY,
+  PORTAL_ACCOUNT_TAB_KEY,
 ]
 
 function loadLocale(locale: string): Record<string, string> {
@@ -62,7 +66,7 @@ const dictionaries = Object.fromEntries(LOCALES.map((locale) => [locale, loadLoc
 >
 
 describe('customer_accounts invite widget i18n (#3953)', () => {
-  const allKeys = [...INVITE_KEYS, DESCRIPTION_KEY, 'customer_accounts.actions.cancelInvitation']
+  const allKeys = [...INVITE_KEYS, DESCRIPTION_KEY, PORTAL_ACCOUNT_TAB_KEY, 'customer_accounts.actions.cancelInvitation']
 
   it('defines every invite key and the description key in all locales', () => {
     for (const locale of LOCALES) {
@@ -77,6 +81,14 @@ describe('customer_accounts invite widget i18n (#3953)', () => {
       for (const key of MUST_DIFFER_KEYS) {
         expect(dictionaries[locale][key]).not.toBe(dictionaries.en[key])
       }
+    }
+  })
+
+  it('registers the person tab with a label key that resolves in every locale (#7499)', () => {
+    const [tabSlot] = injectionTable['detail:customers.person:tabs'] as ModuleInjectionSlot[]
+    expect(tabSlot.groupLabel).toBe(PORTAL_ACCOUNT_TAB_KEY)
+    for (const locale of LOCALES) {
+      expect(dictionaries[locale][PORTAL_ACCOUNT_TAB_KEY]).toBeTruthy()
     }
   })
 

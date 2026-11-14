@@ -31,6 +31,9 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   DialogContent: ({ children, onKeyDown }: { children: React.ReactNode; onKeyDown: React.KeyboardEventHandler }) =>
     <div role="dialog" onKeyDown={onKeyDown}>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
+  // ConfirmDialog composes the status-modal chrome from the dialog primitives.
+  DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
 beforeEach(() => {

@@ -31,7 +31,6 @@
   "attachments.library.actions.upload": "Subir",
   "attachments.library.confirm.delete": "¿Eliminar el archivo adjunto \"{{name}}\"? Esta acción no se puede deshacer.",
   "attachments.library.delete": "Eliminar archivo adjunto",
-  "attachments.library.description": "Explore, etiquete y administre todos los archivos almacenados en este espacio de trabajo.",
   "attachments.library.errors.delete": "No se pudo eliminar el archivo adjunto.",
   "attachments.library.errors.load": "No se pudieron cargar los archivos adjuntos.",
   "attachments.library.errors.saveBlocked": "El cambio del adjunto fue bloqueado por la validación.",

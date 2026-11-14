@@ -51,7 +51,8 @@ it.each(['Outside overlay', 'Close', 'Escape'])('protects a changed draft with t
   expect(confirmMock).toHaveBeenCalledTimes(1)
   // The draft-losing action is named and destructive; the safe one keeps editing.
   expect(confirmMock).toHaveBeenCalledWith({
-    title: 'You have unsaved changes. Are you sure you want to leave?',
+    title: 'Discard unsaved changes?',
+    description: 'Your edits will be lost if you leave now.',
     confirmText: 'Discard changes',
     cancelText: 'Keep editing',
     variant: 'destructive',

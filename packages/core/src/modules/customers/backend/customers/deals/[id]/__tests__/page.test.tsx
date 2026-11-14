@@ -141,7 +141,7 @@ jest.mock('#generated/entities.ids.generated', () => ({
 }), { virtual: true })
 
 jest.mock('../../../../../components/detail/DealDetailHeader', () => ({
-  DealDetailHeader: ({ deal }: { deal: { title: string } }) => <div>{deal.title}</div>,
+  DealDetailHeader: ({ deal, secondaryActions }: { deal: { title: string }; secondaryActions?: React.ReactNode }) => <div>{deal.title}{secondaryActions}</div>,
 }))
 
 jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
@@ -235,7 +235,7 @@ jest.mock('../../../../../components/detail/DealPeopleSection', () => ({
 }))
 
 jest.mock('../../../../../components/detail/PipelineStepper', () => ({
-  PipelineStepper: ({ footer }: { footer?: React.ReactNode }) => <div>pipeline{footer}</div>,
+  PipelineStepper: () => <div>pipeline</div>,
 }))
 
 jest.mock('../../../../../components/detail/DealClosureActionBar', () => ({
@@ -547,7 +547,7 @@ describe('DealDetailPage', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('attachments-section')).toHaveTextContent(
-        'customer_deal:deal-1:Files:Upload and manage files linked to this deal.',
+        'customer_deal:deal-1:Files:',
       )
     })
   })

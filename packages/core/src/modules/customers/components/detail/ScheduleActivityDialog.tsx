@@ -574,7 +574,7 @@ export function ScheduleActivityDialog({
             {entityName ? (
               <p className="mt-0.5 text-xs text-muted-foreground/80">
                 {t('customers.schedule.context', 'On timeline: {{name}}', { name: entityName })}
-                {companyName ? ` · ${companyName}` : ''}
+                {companyName ? `, ${companyName}` : ''}
               </p>
             ) : null}
           </div>

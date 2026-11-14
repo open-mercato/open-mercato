@@ -33,6 +33,8 @@ interface AccountStatusProps {
   context?: {
     entityId?: string
     recordId?: string
+    resourceId?: string
+    personId?: string
   }
 }
 
@@ -263,7 +265,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   const queryClient = useQueryClient()
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
   const canCancelInvitation = chromeReady && hasFeature(chromePayload?.grantedFeatures, 'customer_accounts.invite')
-  const personEntityId = context?.recordId
+  // CrudForm hosts pass `recordId`; the person detail tab host passes the page's
+  // injection context (`resourceId` / `personId`).
+  const personEntityId = context?.recordId ?? context?.resourceId ?? context?.personId
   const [showInviteForm, setShowInviteForm] = React.useState(false)
   const [isCancellingInvitation, setIsCancellingInvitation] = React.useState(false)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -386,7 +390,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
 
   if (!data) {
     return (
-      <div className="rounded-md border p-3">
+      <div className="max-w-xl rounded-lg border bg-card p-4">
         {ConfirmDialogElement}
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
         {isResolvingInvitation ? (
@@ -450,7 +454,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   }
 
   return (
-    <div className="rounded-md border p-3">
+    <div className="max-w-xl rounded-lg border bg-card p-4">
       {ConfirmDialogElement}
       <div className="text-sm font-medium mb-2">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
       <div className="space-y-1 text-sm">

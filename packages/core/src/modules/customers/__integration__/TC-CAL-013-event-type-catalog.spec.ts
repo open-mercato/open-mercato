@@ -378,10 +378,11 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
         await login(page, 'admin')
         await page.goto(`/backend/customers/companies-v2/${companyId}`)
         await page.getByRole('tab', { name: /Activity log/i }).click()
-        await page.getByRole('button', { name: /^Add new$/ }).click()
-        await page.getByRole('button', { name: /New task/i }).first().click()
+        // The shared activity layout (#7494) opens the Schedule dialog from the
+        // composer; the activity type is picked inside the dialog.
+        await page.getByRole('button', { name: /^Schedule$/ }).first().click()
         const dialog = page.getByRole('dialog')
-        if (activityType === 'call') await dialog.getByRole('button', { name: 'Call', exact: true }).click()
+        await dialog.getByRole('button', { name: activityType === 'call' ? 'Call' : 'Task', exact: true }).click()
         await dialog.getByPlaceholder(/Activity title/i).fill(title)
         const createdPromise = page.waitForResponse((response) => response.url().includes('/api/customers/interactions') && response.request().method() === 'POST')
         await dialog.getByRole('button', { name: activityType === 'call' ? /^Log call$/ : /^Save task$/ }).click()
@@ -391,14 +392,14 @@ test.describe('TC-CAL-013: scoped event-type catalog and command enforcement', (
         const payload = created.request().postDataJSON() as { durationMinutes: number; scheduledAt: string }
         expect(payload.durationMinutes).toBeGreaterThan(0)
         await expect(dialog).toBeHidden()
+        // The shared activity layout (#7494) lists the created activity in the
+        // history timeline; clicking its row opens the edit dialog. Tasks are
+        // hidden from the history until the Task filter chip is on (the last
+        // "Task" chip: the composer renders a type chip of the same name above).
         if (activityType === 'task') {
-          await page.getByRole('button', { name: /^Task \d+$/ }).click()
-          await page.getByRole('heading', { name: new RegExp(`^${title} \\(`) }).click()
-        } else {
-          const dayNumber = await page.evaluate((scheduledAt) => String(new Date(scheduledAt).getDate()).padStart(2, '0'), payload.scheduledAt)
-          await page.getByRole('button', { name: new RegExp(` ${dayNumber}$`) }).click()
-          await page.getByText(title, { exact: true }).first().click()
+          await page.getByRole('button', { name: /^Task( \d+)?$/ }).last().click()
         }
+        await page.getByText(new RegExp(`^${title} \\(`)).first().click()
         const editDialog = page.getByRole('dialog', { name: 'Edit activity', exact: true })
         await expect(editDialog).toBeVisible()
         await editDialog.getByPlaceholder(/Activity title/i).fill(`${title} edited`)

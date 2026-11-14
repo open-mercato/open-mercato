@@ -12,8 +12,9 @@ export interface CollapsibleGroupProps {
   title?: string
   pageType: string
   defaultExpanded?: boolean
-  errorCount?: number
+  /** @deprecated No longer rendered; kept so existing callers keep compiling. */
   fieldCount?: number
+  errorCount?: number
   chevronPosition?: 'left' | 'right'
   icon?: React.ReactNode
   children: React.ReactNode
@@ -24,7 +25,7 @@ export interface CollapsibleGroupHandle {
 }
 
 export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, CollapsibleGroupProps>(
-  function CollapsibleGroup({ groupId, title, pageType, defaultExpanded = true, errorCount = 0, fieldCount, chevronPosition = 'right', icon, children }, ref) {
+  function CollapsibleGroup({ groupId, title, pageType, defaultExpanded = true, errorCount = 0, chevronPosition = 'right', icon, children }, ref) {
     const t = useT()
     const { expanded, toggle, setExpanded, isHydrated } = useGroupCollapse(pageType, groupId, defaultExpanded)
     const contentId = `collapsible-group-${groupId}`
@@ -43,14 +44,6 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
         )}
       />
     )
-
-    const fieldCountLabel = typeof fieldCount === 'number' && fieldCount > 0 ? (
-      <span className="text-xs font-normal text-muted-foreground">
-        · {fieldCount} {fieldCount === 1
-          ? t('ui.collapsible.fieldSingular', 'field')
-          : t('ui.collapsible.fieldPlural', 'fields')}
-      </span>
-    ) : null
 
     const errorBadge = errorCount > 0 ? (
       <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
@@ -122,7 +115,6 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
                   <span className="flex items-center gap-2">
                     {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
                     <span>{title}</span>
-                    {fieldCountLabel}
                     {errorBadge}
                   </span>
                 </>
@@ -131,7 +123,6 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
                   <span className="flex items-center gap-2">
                     {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
                     <span>{title}</span>
-                    {fieldCountLabel}
                     {errorBadge}
                   </span>
                   {chevronIcon}

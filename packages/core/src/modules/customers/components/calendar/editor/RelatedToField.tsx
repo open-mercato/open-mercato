@@ -130,7 +130,7 @@ export function RelatedToField({
           <span className="flex shrink-0 items-center">
             {deal ? (
               <UppercaseBadge className="h-7 bg-status-info-bg text-status-info-text">
-                {t('customers.calendar.editor.dealBadge', '{name} · Deal', { name: deal.label })}
+                {t('customers.calendar.editor.dealBadge', 'Deal: {name}', { name: deal.label })}
               </UppercaseBadge>
             ) : null}
             <span aria-hidden className="h-px w-2" />

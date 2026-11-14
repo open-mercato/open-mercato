@@ -206,7 +206,7 @@ describe('CrudForm unsaved navigation guard', () => {
     })
 
     expect(confirmDialogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Unsaved changes' }),
+      expect.objectContaining({ title: 'Discard unsaved changes?' }),
     )
     expect(window.location.pathname).toBe('/')
 

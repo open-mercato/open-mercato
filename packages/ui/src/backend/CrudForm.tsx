@@ -1157,7 +1157,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     navigationConfirmPendingRef.current = true
     try {
       const confirmed = await confirm({
-        title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+        title: t('ui.forms.unsavedChangesTitle', 'Discard unsaved changes?'),
+        description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
+        confirmText: t('ui.forms.unsavedChangesDiscard', 'Discard changes'),
+        cancelText: t('ui.forms.unsavedChangesKeep', 'Keep editing'),
+        variant: 'destructive',
       })
       if (confirmed) allowNextNavigation()
       return confirmed
@@ -3915,13 +3919,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           if (renderedSections.length) customFieldsInnerNodes.push(...renderedSections)
 
           if (collapsibleGroupsEnabled && g.title) {
-            const customFieldCount = customFieldLayout.reduce(
-              (sum, entity) => sum + entity.sections.reduce(
-                (sSum, section) => sSum + section.groups.reduce(
-                  (gSum, group) => gSum + group.fields.length, 0,
-                ), 0,
-              ), 0,
-            )
             const customFieldErrors = customFieldLayout.reduce(
               (sum, entity) => sum + entity.sections.reduce(
                 (sSum, section) => sSum + section.groups.reduce(
@@ -3940,7 +3937,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                 title={t(g.title, g.title)}
                 pageType={collapsiblePageType}
                 errorCount={customFieldErrors}
-                fieldCount={customFieldCount}
                 chevronPosition={collapsibleChevronPosition}
               >
                 <div className={densityStackMd}>
@@ -4000,7 +3996,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               title={t(g.title, g.title)}
               pageType={collapsiblePageType}
               errorCount={groupErrorCount}
-              fieldCount={groupFields.length}
               chevronPosition={collapsibleChevronPosition}
             >
               <div className={densityStackMd}>

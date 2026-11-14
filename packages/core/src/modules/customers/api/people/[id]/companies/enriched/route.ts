@@ -133,7 +133,7 @@ function buildSubtitle(industry: string | null | undefined, address: CustomerAdd
     const locationParts = [address.city, address.region].filter(Boolean)
     if (locationParts.length > 0) parts.push(locationParts.join(', '))
   }
-  return parts.length > 0 ? parts.join(' · ') : null
+  return parts.length > 0 ? parts.join(', ') : null
 }
 
 function matchesSearch(item: Record<string, unknown>, query: string): boolean {

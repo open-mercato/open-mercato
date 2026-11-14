@@ -177,7 +177,7 @@ describe('LookupSelect keyboard accessibility', () => {
       <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={1} />,
     )
     expect(collapsed.queryByRole('listbox')).toBeNull()
-    expect(collapsed.getByText('Start typing to search.')).toBeInTheDocument()
+    expect(collapsed.queryByText('Start typing to search.')).toBeNull()
 
     fireEvent.change(getInput(collapsed.container), { target: { value: 'F' } })
     expect(await collapsed.findAllByRole('option')).toHaveLength(2)
@@ -231,6 +231,19 @@ describe('LookupSelect keyboard accessibility', () => {
       <LookupSelect value={null} onChange={() => {}} fetchItems={async () => ITEMS} minQuery={1} />,
     )
     expect(view.queryByRole('listbox')).toBeNull()
+    expect(view.queryByText('Start typing to search.')).toBeNull()
+  })
+
+  it('shows a start-typing hint only when the caller passes one', () => {
+    const view = render(
+      <LookupSelect
+        value={null}
+        onChange={() => {}}
+        fetchItems={async () => ITEMS}
+        minQuery={1}
+        startTypingLabel="Start typing to search."
+      />,
+    )
     expect(view.getByText('Start typing to search.')).toBeInTheDocument()
   })
 })

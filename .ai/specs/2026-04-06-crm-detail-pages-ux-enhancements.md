@@ -823,7 +823,7 @@ Each `ActivityCard` exposes a row of contextual AI action chips (e.g., "Draft re
 | `packages/core/src/modules/customers/components/detail/AiActionChips.tsx` | New — chip row |
 | `packages/core/src/modules/customers/components/detail/ActivityAiActions.tsx` | New — execution wrapper |
 | `packages/core/src/modules/customers/components/detail/ActivityCard.tsx` | New — canonical activity card composition |
-| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell |
+| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell. Since #7494 it composes the deal reference layout (`InlineActivityComposer` → `PlannedActivitiesSection` → `ActivitiesSection`) for both person and company pages; `ActivitiesCard` / `ActivityHistorySection` stay exported but are no longer mounted by the detail pages |
 | `packages/core/src/modules/customers/components/detail/ActivityHistorySection.tsx` | New — grouped history list |
 
 ---
@@ -1353,6 +1353,21 @@ Pin an activity:
 
 This section satisfies the root `BACKWARD_COMPATIBILITY.md` deprecation-protocol requirement for every PR that touches contract surfaces. The feat/crm-details-screens branch introduces:
 
+### Deprecated deal header inputs (2026-11-10, #8552)
+
+The decluttered deal header (Enhancement 4 revisited) moved stage changes to clickable `PipelineStepper` segments and the Won / Lost buttons to a "Close deal" menu in `DealDetailHeader.secondaryActions`. The component inputs that drove the previous presentation remain accepted and `@deprecated`, with a functional bridge where the input carried behavior:
+
+| Surface | Bridge | Removal |
+| ------- | ------ | ------- |
+| `DealDetailHeader.stageOptions` / `currentStageId` / `onStageChange` / `isStageSaving` | Rendered as a `StageSelectMenu` in the action cluster when `stageOptions` and `onStageChange` are both passed for an open deal; disabled while dirty, saving or a stage change is in flight | Not before one minor release after 0.10.0 |
+| `PipelineStepper.footer` | Rendered under the strip, separated by a rule, with and without stages | Same |
+| `DealClosureActionBar.embedded` | Accepted, no effect (popover trigger, no card) | Same |
+| `CollapsibleGroupProps.fieldCount` (`packages/ui`) | Accepted, no effect | Same |
+
+`DealCreateSidebar` itself was removed on `main` by the create-deal rebuild (#8650), so its `customCount` input needs no bridge here.
+
+`StageSelectMenu` is also what `PipelineStepper` renders below `sm`, so narrow screens keep a quick stage change with the same callback and dirty/saving guards as the desktop strip. Consumer-side regressions: `components/detail/__tests__/{DealDetailHeader,PipelineStepper,DealClosureActionBar,StageSelectMenu}.test.tsx`; browser coverage in `TC-CRM-8552-deal-header-write-paths.spec.ts` (desktop strip and phone-width menu). Release note: `UPGRADE_NOTES.md`.
+
 ### New contract surfaces (purely additive — no deprecation bridge required)
 
 | Surface | Addition | Notes |
@@ -1430,7 +1445,14 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-11-14 | Rev 10 (#7494, QA follow-up #9483 #9484 #9489 #9491): `GET /api/customers/interactions` gains the additive `sortField=activityDate` (`coalesce(occurred_at, scheduled_at)`), which the history's newest-first order now requests so open activities are on the first page instead of the last. Mark done in the history sends the row's `updatedAt` and shows the record-conflict bar. `ActivityLogTab` checks `customers.interactions.manage` and renders the lists without the composer or write actions for a view-only user; `ActivitiesSection` gains the optional `readOnly` prop. The Log activity box wraps at phone width. |
+| 2026-11-10 | Rev 9 (#8552): deal header declutter review follow-up. `DealDetailHeader` stage inputs, `PipelineStepper.footer`, `DealClosureActionBar.embedded` restored as deprecated inputs with a functional bridge (`StageSelectMenu`); the same menu gives `PipelineStepper` a stage change below `sm`. Removal target and consumer regressions recorded under Migration & Backward Compatibility. |
+| 2026-11-05 | Rev 9 (#7494): a failed planned-list read no longer empties the list. `usePlannedActivities` keeps the last good rows, exposes `plannedLoadFailed` and reports the error; `PlannedActivitiesSection` shows a localized error with Retry on deal, person and company pages. Rows and the failure reset when the record changes, and a response older than the latest load is ignored. |
+| 2026-11-04 | Rev 8 (#7494): The planned list selects open activities with the new additive `excludeStatus` query parameter on `GET /api/customers/interactions`, so custom non-terminal statuses stay visible on person, company and deal records. Complete and cancel send the displayed activity's `updatedAt` as the optimistic-lock version. |
 | 2026-11-01 | Rev 7 (#7490): one modal flow for role assignment and reassignment. `AssignRoleDialog` gains optional `editingAssignment` + `onReassign` (role fixed, incumbent preselected, `PUT …/roles?roleId=`), `RoleAssignmentRow` gains optional `onChangeUser`, the generic shortcut is labelled *Assign role* and hidden once every role type is assigned. Existing routes, commands, schema and ACLs unchanged; the inline lookup remains as a fallback for hosts that do not pass `onChangeUser` |
+| 2026-11-03 | Rev 7 (#7494): `ActivitiesSection` gains the optional `serverHistoryControls` prop, set by `ActivityLogTab` for person and company. It sends `search` and `sortField`/`sortDir` to `GET /api/customers/interactions`, shows the sort control, and turns failed interaction loads into `ErrorMessage` with retry. Other callers keep the local filter. Loaded rows are still matched locally because the API search does not cover author, deal or type. |
+| 2026-11-03 | `GET /api/customers/interactions` with `search` no longer returns nothing when `title` or `body` are encrypted: it drops the ILIKE, decrypts a candidate set ordered by the requested sort, and matches title and body case-insensitively. The scan is capped by `OM_ENCRYPTED_SEARCH_MAX_ROWS` (default 5000); a capped scan logs a warning and can miss older matches. Tenants without encrypted `title`/`body` keep the SQL search. |
+| 2026-10-29 | Rev 6 (#7494): Person and company activity tabs now reuse the deal Activities composition. `ActivityLogTab` renders `InlineActivityComposer` → `PlannedActivitiesSection` → `ActivitiesSection` scoped to the owning record (planned list fetched by `entityId`, never a deal filter) and accepts `entityType`, `entityName`, `addActionLabel`, `emptyState`, `onActionChange`; its `onAddActivity` / `entityCompanyName` props are deprecated no-ops. Planned/complete/cancel state moved into the shared `usePlannedActivities` hook (`useDealActivities` delegates to it). No route, API, schema or ACL changes |
 | 2026-10-22 | Implement the four advertised Sales order/quote stage-bar and closure render-widget hosts (#7782), with live canonical declarations, unchanged native lifecycle, context/compatibility documentation, and rendering coverage. |
 | 2026-04-19 | Rev 5: Retroactively documented UX iterations that shipped alongside Phases 1–5 after the initial 2026-04-06 draft. Added "Additional UX Iterations" section covering Enhancements 6–16 (Company Dashboard tab + widgets, AI Action Chips, per-user Customer Labels, Dictionary Kind Settings, Dictionary Entry Reorder/Set-Default, Company Billing extension, Person-Company Roles junction, Deal Stage Transitions audit, Decision Makers Footer, Mini Week Calendar, Coming Soon Placeholder). Extended Implementation Phases table with Phases 5–8. Updated Scope list in TLDR. No contract or migration changes beyond what Rev 3/Rev 4 already documented in the Migration & Backward Compatibility section — the new tables, columns, events, routes and ACL features referenced here are the same ones already enumerated there. This revision closes the gap where the spec described the original 5 enhancements but the branch delivered 16 |
 | 2026-04-18 | Rev 4: Post-review fixes. Documented `audit_logs` schema + service + CLI + export route additions that back the Changelog tab. Added `aria-*` semantics (`role="progressbar"`, `aria-valuenow`, `aria-valuetext`, `aria-current="step"`) to `PipelineStepper`. Added `Cmd/Ctrl+Enter` handler to `CreatePersonDialog`. Restored `data-component-handle` on the UMES example `PageBody` that was removed by an unrelated commit on this branch |
