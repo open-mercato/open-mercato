@@ -96,6 +96,7 @@ test('the starter passes the authorized immutable connection snapshot to migrati
     const context = {
       repoRoot: dir, env: {}, flags: { noInfra: true, remoteDatabaseArgs: ['--allow-remote-database=staging.example:6543/app'] }, log() {},
       dbMarker: 'init-fixture', dbMigrationsMarker: 'migrations-fixture', migrationsFingerprint: 'fixture',
+      assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
       assertDatabaseWriteAllowedImpl: options => assertDatabaseWriteAllowed({ ...options, loadModule: () => pg, input: {}, output: {} }),
       runStreamingImpl(_command, args, options) {
         commands.push({ args, databaseUrl: options.env.DATABASE_URL })

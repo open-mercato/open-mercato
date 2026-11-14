@@ -182,6 +182,7 @@
   "communication_channels.push.connect.title.fcm": "Firebase 클라우드 메시징 연결",
   "communication_channels.push.flash.registerFailed": "푸시 등록에 실패했습니다",
   "communication_channels.push.status.active": "푸시 활성",
+  "communication_channels.push.status.expired": "푸시 만료됨 — 전송을 재개하려면 다시 등록하세요",
   "communication_channels.push.status.failed": "푸시 실패 — 폴링 사용 중",
   "communication_channels.push.status.inactive": "폴링만 사용",
   "communication_channels.push.status.notRegistered": "푸시 미등록",

@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { fillEmptyEnvSecrets } from './dev-env-file.mjs'
 import { fillGeneratedSecrets } from './dev-env-secrets.mjs'
 import { parseEnv } from 'node:util'
 import { collectForwardedSetupFlags, previewDatabaseNameOverride } from './dev-database-url.mjs'
@@ -65,7 +66,7 @@ try {
 
 try {
   if (!existsSync('.env') && existsSync('.env.example')) {
-    writeFileSync('.env', fillGeneratedSecrets(readFileSync('.env.example', 'utf8')))
+    writeFileSync('.env', fillEmptyEnvSecrets(fillGeneratedSecrets(readFileSync('.env.example', 'utf8'))))
     console.log('[setup] Copied .env.example to .env (generated JWT_SECRET, AUTH_SECRET, LOOKUP_HASH_PEPPER)')
   }
   let mode

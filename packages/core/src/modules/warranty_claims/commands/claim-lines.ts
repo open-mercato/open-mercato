@@ -801,7 +801,7 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
       async () => {
         await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
         assertParentMutable(claim)
-        if (input.lineNo !== undefined) await assertClaimLineNumberAvailable(em, claim, input.lineNo, line.id)
+        if (input.lineNo !== undefined) await assertClaimLineNumberAvailable(em, claim, input.lineNo, line.id, true)
         if (effectiveOrderLineId && (claim.orderId || effectiveOrderLineId !== (line.orderLineId ?? null))) {
           await validateClaimReferences(ctx, scope, {
             lineOrderRefs: [{

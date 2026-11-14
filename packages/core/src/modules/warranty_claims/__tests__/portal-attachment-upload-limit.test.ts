@@ -1,5 +1,6 @@
 /** @jest-environment node */
 
+import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { resolveLinkedCustomerAuth } from '../lib/portalAuthGuard'
 
 const MAX_UPLOAD_MB = 1
@@ -115,15 +116,18 @@ function uploadRequest(method: 'POST' | 'PUT', fileBytes: number): Request {
 
 describe('warranty portal attachment upload size limit', () => {
   const originalMaxUpload = process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
+  const originalEntityIds: EntityIds = getEntityIds(false)
 
   beforeAll(async () => {
     process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = String(MAX_UPLOAD_MB)
+    registerEntityIds({ attachments: { attachment: 'attachments:attachment' } })
     const routeModule = await import('../api/portal/attachments/route')
     POST = routeModule.POST
     PUT = routeModule.PUT
   })
 
   afterAll(() => {
+    registerEntityIds(originalEntityIds)
     if (originalMaxUpload === undefined) delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
     else process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = originalMaxUpload
   })
