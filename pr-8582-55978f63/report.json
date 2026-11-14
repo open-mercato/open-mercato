@@ -1,0 +1,157 @@
+{
+  "runId": "55978f63-4fb0-4cdf-8fec-53796973a669",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8582,
+    "title": "fix(auth): enforce password policy on credential creation",
+    "branch": "cez/d85da487",
+    "headSha": "aaa9008d1a1373c37bc2b2d37737f4d140eb78ee"
+  },
+  "verdict": "FAIL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "admin plus owned customer and narrow staff fixtures",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "EN weak customer creation",
+      "expected": "400 with editable dialog",
+      "observed": "HTTP 400; dialog remains open",
+      "result": "PASS",
+      "screenshot": "step-02-weak-create-refused.png"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "EN compliant create retry",
+      "expected": "User created and detail opens",
+      "observed": "HTTP 201; owned fixture detail renders",
+      "result": "PASS",
+      "screenshot": "step-03-compliant-create-detail.png"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "EN weak reset and whole-record integrity",
+      "expected": "400, editable dialog and unchanged record",
+      "observed": "HTTP 400; full detail equality true",
+      "result": "PASS",
+      "screenshot": "step-04-weak-reset-refused.png"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Login after refused reset",
+      "expected": "Original credential still works",
+      "observed": "HTTP 200",
+      "result": "PASS"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "API weak portal password change",
+      "expected": "400 before mutation",
+      "observed": "HTTP 400",
+      "result": "PASS"
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "EN compliant reset retry",
+      "expected": "200, success and closed dialog",
+      "observed": "HTTP 200",
+      "result": "PASS",
+      "screenshot": "step-05-compliant-reset.png"
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "PL mobile weak reset feedback",
+      "expected": "Localized Polish validation in a Polish dialog",
+      "observed": "HTTP 400; visible English \u201cValidation failed\u201d in Polish dialog",
+      "result": "FAIL",
+      "screenshot": "step-06-polish-mobile-validation.png"
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "PL compliant retry after refusal",
+      "expected": "200 and dialog closes",
+      "observed": "HTTP 200",
+      "result": "PASS"
+    },
+    {
+      "step": 9,
+      "priority": "P0",
+      "action": "API rapid reset \u2192 fresh login \u2192 authenticated profile (10 attempts)",
+      "expected": "Freshly issued session authenticates immediately",
+      "observed": "8/10 sequences returned reset200 \u2192 login200 \u2192 profile401",
+      "result": "FAIL"
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "action": "API spaced authorized portal change",
+      "expected": "200 for compliant change after fresh login",
+      "observed": "HTTP 200",
+      "result": "PASS"
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "action": "Fixture cleanup",
+      "expected": "Owned customer removed",
+      "observed": "HTTP 200",
+      "result": "PASS"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "API signup weak rejection / compliant retry / real email verification",
+      "expected": "400 \u2192 202 \u2192 verify200 \u2192 login200",
+      "observed": "400 \u2192 202 \u2192 verify200 \u2192 login200",
+      "result": "PASS"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "API reset-confirm with real token and same-token retry",
+      "expected": "weak400 retains old login; same token compliant200; new login200",
+      "observed": "request200, weak400, oldLogin200, valid200, newLogin200",
+      "result": "PASS"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "API invitation acceptance and retry with real token",
+      "expected": "weak400 preserves invitation; same token201 creates user; login200",
+      "observed": "invite201, weak400, accept201, login200",
+      "result": "PASS"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "API own narrow-role actor denied reset",
+      "expected": "403 with unchanged record and retained credential",
+      "observed": "reset403, full record equality true, retained login200",
+      "result": "PASS"
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "Exact reviewed head aaa9008d1a1373c37bc2b2d37737f4d140eb78ee; production app, disposable PostgreSQL; Playwright package 1.62.1 uses browser runner 1.61.1.",
+    "Evidence-only complex QA. Two observed failures remain in unchanged supporting code; no attribution as PR-introduced defects and no QA approval.",
+    "UI interaction covered EN create/reset, Polish mobile reset, retry after refusal, roles loading and record preservation. API-only observations explicitly named API.",
+    "Own staff role/user fixtures proved denied reset403 and preserved credential; seeded admin used only for fixture setup.",
+    "Signup verification, password-reset confirmation and invitation acceptance used real tokens read internally from the disposable email sink. No token/password values published.",
+    "One accepted-invitation role cleanup returned400; all created users and staff role deleted200. Residual disposable role removed with environment teardown.",
+    "Not exercised in this pass: separate-tenant/organization isolation; two distinct actors with a stale UI save; full keyboard/focus/double-submit matrix; portal profile mobile clipping; representative shared Combobox interaction; end-to-end production CLI setup. Prior exact-head QA and matching-head CI cover some of these, separately attributed and not claimed as fresh execution.",
+    "No new browser-level regression ships in the diff; a follow-up scenario is posted. Existing added integration test is API-only.",
+    "Bootstrap script emitted a late parsing error because it was updated during execution after readiness; saved entrypoint passes syntax validation and an independent warm reuse completed. Browser waits use DOM readiness because backend SSE prevents network-idle.",
+    "QA source remained unchanged except the tracked disposable email capture; runtime capture will be restored and all owned runtime processes stopped before release."
+  ]
+}
