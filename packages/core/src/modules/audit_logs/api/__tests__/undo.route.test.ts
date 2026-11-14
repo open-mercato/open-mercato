@@ -35,11 +35,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScope: jest.fn(),
   resolveFeatureCheckContext: jest.fn(),
   resolveOrganizationScopeForRequest: jest.fn(),
 }))
 
-function makeRequest(body: any) {
+function makeRequest(body: unknown) {
   return new Request('http://localhost/api/audit_logs/audit-logs/actions/undo', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -50,7 +51,7 @@ function makeRequest(body: any) {
 describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
-    const { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    const { resolveFeatureCheckContext, resolveOrganizationScopeForRequest, resolveOrganizationScope } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
       organizationId: 'org-1',
       scope: { allowedIds: null },
@@ -60,6 +61,9 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       filterIds: ['org-1'],
       allowedIds: null,
     })
+    ;(resolveOrganizationScope as jest.Mock).mockImplementation(async () => ({
+      selectedId: 'org-1', filterIds: ['org-1'], allowedIds: null, tenantId: 'tenant-1',
+    }))
     mockRbac.userHasAllFeaturesWithEntityManager.mockImplementation(
       async (_em, _userId, features: string[]) => features[0]?.endsWith('_self') === true,
     )
@@ -73,6 +77,90 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
         logEntry: await mockLogs.findByUndoToken(_undoToken),
         transactionalEm: mockReplayEm,
       })
+    })
+  })
+
+
+  it('replays an own child-organization action while the parent stays selected (#7370)', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { resolveFeatureCheckContext, resolveOrganizationScopeForRequest, resolveOrganizationScope } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-parent' })
+    const scope = { selectedId: 'org-parent', filterIds: ['org-parent', 'org-child'], allowedIds: ['org-parent', 'org-child'], tenantId: 'tenant-1' }
+    ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({ organizationId: 'org-parent', scope })
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue(scope)
+    ;(resolveOrganizationScope as jest.Mock).mockResolvedValue(scope)
+    const target = {
+      id: 'child-log', actorUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-child',
+      commandId: 'auth.users.update', commandPayload: { __redoInput: { id: 'child-user', name: 'Updated' } },
+      resourceKind: 'auth.user', resourceId: 'child-user', executionState: 'done',
+    }
+    mockLogs.findByUndoToken.mockResolvedValue(target)
+    mockLogs.latestUndoableForResource.mockResolvedValue(target)
+
+    const response = await POST(makeRequest({ undoToken: 'child-token' }))
+
+    expect(response.status).toBe(200)
+    expect(mockLogs.latestUndoableForResource).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 'org-child' }))
+  })
+
+
+  describe('child replay isolation (#7370)', () => {
+    const target = {
+      id: 'child-log', actorUserId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-child',
+      commandId: 'auth.users.update', commandPayload: { __redoInput: { id: 'child-user', name: 'Updated' } },
+      resourceKind: 'auth.user', resourceId: 'child-user', executionState: 'done',
+    }
+    beforeEach(async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext, resolveOrganizationScope } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-parent' })
+      const scope = { selectedId: 'org-parent', filterIds: ['org-parent', 'org-child'], allowedIds: ['org-parent', 'org-child'], tenantId: 'tenant-1' }
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({ organizationId: 'org-parent', scope })
+      ;(resolveOrganizationScope as jest.Mock).mockResolvedValue(scope)
+      mockLogs.findByUndoToken.mockResolvedValue(target)
+      mockLogs.latestUndoableForResource.mockResolvedValue(target)
+    })
+
+    it.each([
+      ['another actor', { actorUserId: 'user-2' }],
+      ['another tenant', { tenantId: 'tenant-other' }],
+      ['a sibling organization', { organizationId: 'org-sibling' }],
+      ['an already consumed replay', { executionState: 'undone' }],
+    ])('rejects %s before dispatch', async (_label, overrides) => {
+      mockLogs.findByUndoToken.mockResolvedValue({ ...target, ...overrides })
+      const response = await POST(makeRequest({ undoToken: 'child-token' }))
+      expect(response.status).toBe(400)
+      expect(mockCommandBus.undo).not.toHaveBeenCalled()
+    })
+
+    it('rejects a sibling even with tenant replay permission', async () => {
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      mockLogs.findByUndoToken.mockResolvedValue({ ...target, organizationId: 'org-sibling' })
+      const response = await POST(makeRequest({ undoToken: 'child-token' }))
+      expect(response.status).toBe(400)
+      expect(mockCommandBus.undo).not.toHaveBeenCalled()
+    })
+
+    it('rejects a stale token when a newer action exists in the child', async () => {
+      mockLogs.latestUndoableForResource.mockResolvedValue({ ...target, id: 'newer-child-log' })
+      const response = await POST(makeRequest({ undoToken: 'child-token' }))
+      expect(response.status).toBe(400)
+      expect(mockCommandBus.undo).not.toHaveBeenCalled()
+    })
+
+    it('rechecks revoked organization scope inside replay', async () => {
+      const { resolveOrganizationScope } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(resolveOrganizationScope as jest.Mock).mockResolvedValue({ selectedId: null, filterIds: [], allowedIds: [], tenantId: 'tenant-1' })
+      const response = await POST(makeRequest({ undoToken: 'child-token' }))
+      expect(response.status).toBe(400)
+      expect(mockCommandBus.undo).toHaveBeenCalled()
+    })
+
+    it('rechecks revoked features inside replay', async () => {
+      mockRbac.userHasAllFeaturesWithEntityManager.mockResolvedValue(false)
+      const response = await POST(makeRequest({ undoToken: 'child-token' }))
+      expect(response.status).toBe(400)
+      expect(mockCommandBus.undo).toHaveBeenCalled()
     })
   })
 
