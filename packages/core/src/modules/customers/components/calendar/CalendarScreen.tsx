@@ -145,6 +145,18 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
   )
   const { items, isLoading, error, truncated, typeLabels, typeColors, typeIcons, refetch } = useCalendarItems(range)
 
+  // Mount the (closed) editor once the screen is idle so its chunk, the type
+  // catalog and the custom-field structure are warm before the first open.
+  React.useEffect(() => {
+    const mount = () => setEditorMounted(true)
+    if (typeof window.requestIdleCallback === 'function') {
+      const handle = window.requestIdleCallback(mount)
+      return () => window.cancelIdleCallback(handle)
+    }
+    const timer = window.setTimeout(mount, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
+
   React.useEffect(() => {
     if (!isLoading) setHasLoadedOnce(true)
   }, [isLoading])
@@ -511,6 +523,8 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
         onItemClick={openEditEditor}
         onJoin={handleJoin}
         onNavigate={handleTimeGridNavigate}
+        typeIcons={typeIcons}
+        onCancelItem={handleCancelItem}
         onCreate={canManage ? openCreateEditor : undefined}
         onCreateRange={canManage ? handleCreateRange : undefined}
       />
