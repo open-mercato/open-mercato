@@ -1218,7 +1218,7 @@ export class VectorIndexService {
     if (!this.opts.embeddingService.available) {
       throw new Error('[vector] Embedding service unavailable (missing OPENAI_API_KEY)')
     }
-    const embedding = await this.opts.embeddingService.createEmbedding(request.query)
+    const embedding = await this.opts.embeddingService.createEmbedding(request.query, { purpose: 'query' })
     const hits = await driver.query({
       vector: embedding,
       limit: request.limit ?? 10,

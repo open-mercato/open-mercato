@@ -202,3 +202,8 @@ starters/company/certs/
 # Local Storybook build and generated previews
 packages/ui/storybook-static/
 packages/ui/.storybook/generated/
+
+# Private QA credentials and per-machine automation state
+.ai/qa/credentials.json
+.ai/meta/
+.ai/runs/merge-buddy/
