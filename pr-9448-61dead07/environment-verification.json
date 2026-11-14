@@ -1,0 +1,14 @@
+{
+  "NODE_ENV": "production",
+  "RATE_LIMIT_STRATEGY": "redis",
+  "RATE_LIMIT_TRUST_PROXY_DEPTH": "1",
+  "RATE_LIMIT_KEY_PREFIX": "qa9448continued",
+  "OM_TEST_RATE_LIMIT_MODE": "enabled",
+  "OM_TEST_MODE": "1",
+  "OM_INTEGRATION_TEST": "true",
+  "REDIS_URL": "redis://127.0.0.1:32844",
+  "OM_OPTIMISTIC_LOCK": "all",
+  "appPid": 528846,
+  "headSha": "75f71cceb0ae18b322743c39ef6b1b85cabd15e2",
+  "freshDatabasePort": 33283
+}
