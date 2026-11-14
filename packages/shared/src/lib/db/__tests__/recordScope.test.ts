@@ -25,7 +25,12 @@ function buildEm(options: {
     selectFrom: jest.fn((table: string) => {
       const builder = {
         select: jest.fn((columns: unknown) => {
-          selects.push({ table, columns })
+          selects.push({
+            table,
+            columns: Array.isArray(columns) ? columns.map((column: unknown) => (
+              typeof column === 'string' ? column : (column as { toOperationNode: () => { alias: { name: string } } }).toOperationNode().alias.name
+            )) : columns,
+          })
           return builder
         }),
         where: jest.fn(() => builder),
@@ -86,6 +91,22 @@ describe('recordScope', () => {
     await expect(loadEntityRecordScope(em, 'mod:tenant_things', 't1'))
       .resolves.toEqual({ organizationId: null, tenantId: 'tenant-1' })
     expect(selects).toEqual([{ table: 'tenant_things', columns: ['tenant_id'] }])
+  })
+
+  it('reads custom metadata scope column names through quoted SQL identifiers', async () => {
+    const { em, selects } = buildEm({
+      metadata: [{
+        tableName: 'custom_records',
+        properties: {
+          tenantId: { fieldNames: ['owning_tenant_id'] },
+          organizationId: { fieldNames: ['owning_organization_id'] },
+        },
+      }],
+      row: { owning_tenant_id: 'tenant-1', owning_organization_id: 'org-1' },
+    })
+    await expect(loadEntityRecordScope(em, 'mod:custom_records', 'r1'))
+      .resolves.toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(selects).toEqual([{ table: 'custom_records', columns: ['owning_organization_id', 'owning_tenant_id'] }])
   })
 
   it('returns null when the row is missing', async () => {

@@ -91,6 +91,13 @@ const normalizeErrorMessage = (error: unknown, fallback: string): string => {
   return fallback
 }
 
+const environmentHints: Record<string, { key: string; fallback: string }> = {
+  MEILISEARCH_HOST: { key: 'search.settings.fulltext.hints.host', fallback: 'The URL of your Meilisearch server (e.g., http://localhost:7700)' },
+  MEILISEARCH_API_KEY: { key: 'search.settings.fulltext.hints.apiKey', fallback: 'API key for authentication with Meilisearch' },
+  MEILISEARCH_INDEX_PREFIX: { key: 'search.settings.fulltext.hints.indexPrefix', fallback: 'Prefix for index names to namespace indexes per tenant' },
+  SEARCH_EXCLUDE_ENCRYPTED_FIELDS: { key: 'search.settings.fulltext.hints.excludeEncrypted', fallback: 'Exclude encrypted fields from full-text indexing for security' },
+}
+
 export function FulltextSearchSection({
   fulltextConfig,
   fulltextConfigLoading,
@@ -101,12 +108,6 @@ export function FulltextSearchSection({
   onRefresh,
 }: FulltextSearchSectionProps) {
   const t = useT()
-  const environmentHints: Record<string, string> = {
-    MEILISEARCH_HOST: t('search.settings.fulltext.hints.host', 'The URL of your Meilisearch server (e.g., http://localhost:7700)'),
-    MEILISEARCH_API_KEY: t('search.settings.fulltext.hints.apiKey', 'API key for authentication with Meilisearch'),
-    MEILISEARCH_INDEX_PREFIX: t('search.settings.fulltext.hints.indexPrefix', 'Prefix for index names to namespace indexes per tenant'),
-    SEARCH_EXCLUDE_ENCRYPTED_FIELDS: t('search.settings.fulltext.hints.excludeEncrypted', 'Exclude encrypted fields from full-text indexing for security'),
-  }
   const [reindexing, setReindexing] = React.useState<ReindexAction | null>(null)
   const [showReindexDialog, setShowReindexDialog] = React.useState<ReindexAction | null>(null)
   const [activityLogs, setActivityLogs] = React.useState<ActivityLog[]>([])
@@ -329,7 +330,7 @@ export function FulltextSearchSection({
                             {status.set ? t('search.settings.fulltext.envSet', 'Set') : t('search.settings.fulltext.envMissing', 'Missing')}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">{environmentHints[key] ?? status.hint}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{environmentHints[key] ? t(environmentHints[key].key, environmentHints[key].fallback) : status.hint}</p>
                       </div>
                     </div>
                   ))}
@@ -346,7 +347,7 @@ export function FulltextSearchSection({
                     <div key={key} className="flex min-w-0 flex-col items-start gap-3 p-2 rounded-md bg-muted/30 sm:flex-row">
                       <code className="max-w-full break-all text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{key}</code>
                       <div className="min-w-0 break-words text-xs text-muted-foreground sm:flex-1">
-                        <span>{environmentHints[key] ?? status.hint}</span>
+                        <span>{environmentHints[key] ? t(environmentHints[key].key, environmentHints[key].fallback) : status.hint}</span>
                         {status.set ? (
                           <span className="ml-2 text-status-success-text">
                             ({t('search.settings.fulltext.currentValue', 'Current')}: {String(status.value)})

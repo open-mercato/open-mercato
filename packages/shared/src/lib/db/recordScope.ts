@@ -24,7 +24,17 @@ type ScopeLookupEntityManager = {
 }
 
 type ScopePropertyMetadata = { fieldNames?: unknown }
-type ScopeDatabase = Record<string, Record<string, unknown>>
+type ScopeDatabase = Record<string, {
+  id: unknown
+  tenant_id?: unknown
+  organization_id?: unknown
+}> & {
+  'information_schema.columns': {
+    column_name: unknown
+    table_name: unknown
+    table_schema: unknown
+  }
+}
 
 const ORGANIZATION_COLUMN = 'organization_id'
 const TENANT_COLUMN = 'tenant_id'
@@ -102,7 +112,6 @@ export async function resolveEntityScopeColumns(
   entityType: string,
 ): Promise<EntityScopeColumns | null> {
   const table = resolveEntityTableName(em as never, entityType)
-  if (!table) return null
   const columns = resolveScopeColumnsFromMetadata(em, table)
     ?? await probeScopeColumns(em.getKysely<ScopeDatabase>(), table)
   if (!columns) return null
@@ -126,7 +135,7 @@ export async function loadEntityRecordScope(
   if (selected.length === 0) return null
   const row = await em.getKysely<ScopeDatabase>()
     .selectFrom(columns.table)
-    .select(selected)
+    .select(selected.map((column) => sql<unknown>`${sql.ref(column)}`.as(column)))
     .where('id', '=', recordId)
     .executeTakeFirst()
   if (!row) return null

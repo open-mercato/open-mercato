@@ -197,29 +197,6 @@ export function VectorSearchSection({
   onRefreshEmbeddings,
 }: VectorSearchSectionProps) {
   const t = useT()
-  const providerUnavailableReason = (reason: string): string => {
-    const missingKey = /^Set (.+) to enable (.+)$/.exec(reason)
-    if (missingKey) {
-      return t('search.settings.vector.providerMissingKey', 'Set {environmentVariable} to enable {provider}', {
-        environmentVariable: missingKey[1],
-        provider: missingKey[2],
-      })
-    }
-    const unreachable = /^Ollama not reachable at (.+?)( \(timed out\))?$/.exec(reason)
-    if (unreachable) {
-      return unreachable[2]
-        ? t('search.settings.vector.ollamaTimedOut', 'Ollama did not respond at {url} (timed out)', { url: unreachable[1] })
-        : t('search.settings.vector.ollamaUnreachable', 'Ollama is not reachable at {url}', { url: unreachable[1] })
-    }
-    const response = /^Ollama responded (\d+) at (.+)$/.exec(reason)
-    if (response) {
-      return t('search.settings.vector.ollamaResponseError', 'Ollama returned status {status} at {url}', {
-        status: response[1],
-        url: response[2],
-      })
-    }
-    return reason
-  }
   const [embeddingSaving, setEmbeddingSaving] = React.useState(false)
   const autoIndexingPreviousRef = React.useRef<boolean>(true)
 
@@ -668,7 +645,7 @@ export function VectorSearchSection({
                                 </p>
                               ) : availability?.reason ? (
                                 <p className="mt-1 break-words text-xs text-status-warning-text">
-                                  {providerUnavailableReason(availability.reason)}
+                                  {availability.reason}
                                 </p>
                               ) : (
                                 <p className="mt-1 text-xs text-muted-foreground">

@@ -285,7 +285,7 @@ describe('VectorSearchSection Polish provider availability', () => {
     ['ollama', 'Ollama not reachable at http://localhost:11434', 'Ollama jest niedostępna pod adresem http://localhost:11434'],
     ['ollama', 'Ollama not reachable at http://localhost:11434 (timed out)', 'Ollama nie odpowiedziała pod adresem http://localhost:11434 (przekroczono limit czasu)'],
     ['ollama', 'Ollama responded 503 at http://localhost:11434', 'Ollama zwróciła status 503 pod adresem http://localhost:11434'],
-  ] as const)('localizes %s probe messages without changing provider availability', (providerId, reason, translatedReason) => {
+  ] as const)('preserves server-localized %s probe messages without changing provider availability', (providerId, reason, translatedReason) => {
     render(
       <I18nProvider locale="pl" dict={polishTranslations}>
         <VectorSearchSection
@@ -293,7 +293,7 @@ describe('VectorSearchSection Polish provider availability', () => {
             ...embeddingSettings,
             embeddingConfig: null,
             configuredProviders: [],
-            providerAvailability: [{ providerId, available: false, reason }],
+            providerAvailability: [{ providerId, available: false, reason: translatedReason }],
           }}
           embeddingLoading={false}
           vectorStoreConfig={vectorStoreConfig}
