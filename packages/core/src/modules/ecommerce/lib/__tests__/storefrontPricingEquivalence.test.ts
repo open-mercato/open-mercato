@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CatalogProductPrice } from '@open-mercato/core/modules/catalog/data/entities'
 import { filterRowsForVariant, type PriceRow } from '@open-mercato/core/modules/catalog/lib/pricing'
@@ -178,7 +179,7 @@ function buyerContext(overrides: Partial<BuyerPricingContext> = {}): BuyerPricin
   }
 }
 
-const em = { getMetadata: () => ({ has: () => true }) } as any
+const em = { getMetadata: () => ({ has: () => true }) } as unknown as EntityManager
 const scope = { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
 
 beforeEach(() => {

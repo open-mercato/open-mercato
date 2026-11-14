@@ -1,5 +1,6 @@
 import { MetadataStorage } from '@mikro-orm/core'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
 
 const registerCommand = jest.fn()
 const findOneWithDecryption = jest.fn()
@@ -35,11 +36,11 @@ jest.mock('../shared', () => ({
 
 const metadataError = new Error('[internal] Metadata for entity SalesTaxRate not found')
 
-function buildContext() {
+function buildContext({ withSales = false }: { withSales?: boolean } = {}) {
   const em = {
     fork: jest.fn(),
-    getMetadata: () => new MetadataStorage(),
-    findOne: jest.fn().mockRejectedValue(metadataError),
+    getMetadata: () => (withSales ? { has: (entity: unknown) => entity === SalesTaxRate } : new MetadataStorage()),
+    findOne: withSales ? jest.fn().mockResolvedValue(null) : jest.fn().mockRejectedValue(metadataError),
   }
   em.fork.mockReturnValue(em)
   const ctx = {
@@ -94,5 +95,32 @@ describe('catalog tax class lookups when the sales module is disabled', () => {
       body: { error: 'catalog.products.errors.taxClassNotFound|Tax class not found' },
     })
     expect(em.findOne).not.toHaveBeenCalled()
+  })
+
+  it('still looks up the product tax class when the sales module is enabled', async () => {
+    findOneWithDecryption.mockReset().mockResolvedValue(null)
+    const { ctx } = buildContext({ withSales: true })
+    await expect(
+      command('catalog.products.create').execute(
+        { title: 'Plain product', organizationId: ORG_ID, tenantId: TENANT_ID, taxRateId: TAX_RATE_ID },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 400 })
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      SalesTaxRate,
+      expect.objectContaining({ id: TAX_RATE_ID, organizationId: ORG_ID, tenantId: TENANT_ID }),
+    )
+  })
+
+  it('still looks up the variant tax class when the sales module is enabled', async () => {
+    const { ctx, em } = buildContext({ withSales: true })
+    await expect(
+      command('catalog.variants.create').execute(
+        { productId: PRODUCT.id, name: 'Plain variant', organizationId: ORG_ID, tenantId: TENANT_ID, taxRateId: TAX_RATE_ID },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 400, body: { error: 'Tax class not found' } })
+    expect(em.findOne).toHaveBeenCalledWith(SalesTaxRate, expect.objectContaining({ id: TAX_RATE_ID }))
   })
 })
