@@ -199,7 +199,7 @@ function makeHarness(organizations: TestOrganization[], generatedIds: readonly s
 
 function makeContext(
   harness: ReturnType<typeof makeHarness>,
-  options: { isSuperAdmin?: boolean; systemActor?: boolean; tenantId?: string | null } = {},
+  options: { isSuperAdmin?: boolean; systemActor?: boolean; tenantId?: string | null; allowedIds?: string[] | null; aclOrganizations?: string[] | null } = {},
 ) {
   const isSuperAdmin = options.isSuperAdmin ?? false
   const auth = options.systemActor
@@ -216,12 +216,17 @@ function makeContext(
         if (token === 'em') return harness.em
         if (token === 'dataEngine') return harness.dataEngine
         if (token === 'actionLogService') return harness.actionLogService
-        if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin }) }
+        if (token === 'rbacService') return { loadAcl: async () => ({ isSuperAdmin, organizations: options.aclOrganizations ?? null }) }
         throw new Error(`[internal] Unexpected DI token: ${token}`)
       },
     },
     auth,
-    organizationScope: null,
+    organizationScope: options.allowedIds !== undefined ? {
+      tenantId: options.tenantId ?? ACTOR_TENANT_ID,
+      selectedId: null,
+      allowedIds: options.allowedIds,
+      filterIds: options.allowedIds,
+    } : null,
     selectedOrganizationId: null,
     organizationIds: null,
     systemActor: options.systemActor ?? false,
@@ -935,6 +940,37 @@ describe('directory organization command tenant ownership', () => {
     expect(created.parentId).toBe(PARENT_ID)
   })
 
+  it.each([
+    { label: 'finite', allowedIds: [PARENT_ID] },
+    { label: 'empty', allowedIds: [] },
+  ])('rejects a parentless create for a $label organization scope before side effects', async ({ allowedIds }) => {
+    const harness = makeHarness([makeOrganization(PARENT_ID, ACTOR_TENANT_ID)])
+
+    await expect(new CommandBus().execute('directory.organizations.create', {
+      input: { name: 'Unauthorized root' },
+      ctx: makeContext(harness, { allowedIds }),
+    })).rejects.toMatchObject({ status: 404, body: { error: 'Not found' } })
+
+    expect(lockOrganizationHierarchyForTenant).not.toHaveBeenCalled()
+    expect(harness.em.findOne).not.toHaveBeenCalled()
+    expect(harness.createOrmEntity).not.toHaveBeenCalled()
+    expect(harness.dataEngine.setCustomFields).not.toHaveBeenCalled()
+    expect(harness.logs).toHaveLength(0)
+  })
+
+  it('allows a finite-scope actor to create below an allowed parent', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([parent])
+
+    const created = await createHandler.execute(
+      { name: 'Allowed child', parentId: PARENT_ID },
+      makeContext(harness, { allowedIds: [PARENT_ID] }),
+    )
+
+    expect(created.parentId).toBe(PARENT_ID)
+    expect(harness.createOrmEntity).toHaveBeenCalledTimes(1)
+  })
+
   it('re-reads the update target and validates the hierarchy only under the lock', async () => {
     const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
     const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
@@ -978,4 +1014,258 @@ describe('directory organization command tenant ownership', () => {
     expect(target.slug).toBe('renamed')
     expect(child.parentId).toBe(TARGET_ID)
   })
+
+  it.each(commandScenarios)('rejects an out-of-scope same-tenant $label through CommandBus before snapshots or writes', async (scenario) => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target])
+    const original = { ...target }
+    await expect(new CommandBus().execute(scenario.commandId, {
+      input: scenario.input,
+      ctx: makeContext(harness, { allowedIds: [PARENT_ID] }),
+    })).rejects.toMatchObject({ status: 404, body: { error: 'Not found' } })
+    expect(target).toEqual(original)
+    expect(harness.em.findOne).not.toHaveBeenCalled()
+    expect(loadCustomFieldSnapshot).not.toHaveBeenCalled()
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(harness.logs).toHaveLength(0)
+  })
+
+  it.each(commandScenarios)('allows an in-scope same-tenant $label through CommandBus', async (scenario) => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target])
+    const { logEntry } = await new CommandBus().execute(scenario.commandId, {
+      input: scenario.input,
+      ctx: makeContext(harness, { allowedIds: [TARGET_ID] }),
+    })
+    expect(logEntry?.resourceId).toBe(TARGET_ID)
+    expect(harness.logs).toHaveLength(1)
+  })
+
+  it.each(commandScenarios)('preserves deny-all for an empty organization scope on $label', async (scenario) => {
+    const harness = makeHarness([makeOrganization(TARGET_ID, ACTOR_TENANT_ID)])
+    await expect(new CommandBus().execute(scenario.commandId, {
+      input: scenario.input,
+      ctx: makeContext(harness, { allowedIds: [] }),
+    })).rejects.toMatchObject({ status: 404 })
+    expect(harness.logs).toHaveLength(0)
+  })
+
+  it.each(commandScenarios)('resolves expanded ACL descendants for direct $label callers with no scope object', async (scenario) => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID, { descendantIds: [TARGET_ID] })
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([parent, target])
+    await new CommandBus().execute(scenario.commandId, {
+      input: scenario.input,
+      ctx: makeContext(harness, { aclOrganizations: [PARENT_ID] }),
+    })
+    expect(harness.logs).toHaveLength(1)
+  })
+
+  it.each([
+    { label: 'new parent', input: { parentId: PARENT_ID }, target: {}, child: {} },
+    { label: 'detached old parent', input: { parentId: null }, target: { parentId: PARENT_ID }, child: {} },
+    { label: 'new child', input: { childIds: [CHILD_ID] }, target: {}, child: {} },
+    { label: 'removed child', input: { childIds: [] }, target: { childIds: [CHILD_ID] }, child: { parentId: TARGET_ID } },
+    { label: 'previous parent of an allowed child', input: { childIds: [CHILD_ID] }, target: {}, child: { parentId: PARENT_ID }, allowedIds: [TARGET_ID, CHILD_ID] },
+  ])('rejects an out-of-scope $label without hierarchy, custom-field, or domain writes', async (scenario) => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, scenario.target)
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, scenario.child)
+    const harness = makeHarness([target, child, makeOrganization(PARENT_ID, ACTOR_TENANT_ID)])
+    const original = harness.records.map((record) => ({ ...record }))
+    await expect(updateHandler.execute({ id: TARGET_ID, name: 'Forbidden', ...scenario.input },
+      makeContext(harness, { allowedIds: scenario.allowedIds ?? [TARGET_ID] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(harness.records).toEqual(original)
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(harness.dataEngine.setCustomFields).not.toHaveBeenCalled()
+    expect(harness.em.persist).not.toHaveBeenCalled()
+  })
+
+  it('allows in-scope hierarchy reassignment and removal', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target, parent, child])
+    const ctx = makeContext(harness, { allowedIds: [TARGET_ID, PARENT_ID, CHILD_ID] })
+    await updateHandler.execute({ id: TARGET_ID, parentId: PARENT_ID, childIds: [CHILD_ID] }, ctx)
+    expect(target.parentId).toBe(PARENT_ID)
+    expect(child.parentId).toBe(TARGET_ID)
+    await updateHandler.execute({ id: TARGET_ID, parentId: null, childIds: [] }, ctx)
+    expect(target.parentId).toBeNull()
+    expect(child.parentId).toBeNull()
+  })
+
+  it.each([
+    { label: 'child', allowedIds: [TARGET_ID, PARENT_ID] },
+    { label: 'reparent destination', allowedIds: [TARGET_ID, CHILD_ID] },
+  ])('rejects deletion with an out-of-scope $label before deleting anything', async ({ allowedIds }) => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { parentId: PARENT_ID, childIds: [CHILD_ID] })
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: TARGET_ID })
+    const harness = makeHarness([target, child, makeOrganization(PARENT_ID, ACTOR_TENANT_ID)])
+    await expect(deleteHandler.execute({ body: { id: TARGET_ID }, query: {} }, makeContext(harness, { allowedIds })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(target.deletedAt).toBeNull()
+    expect(child.parentId).toBe(TARGET_ID)
+  })
+
+  it('rechecks delete reparenting under the hierarchy lock after a concurrent move', async () => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target, makeOrganization(PARENT_ID, ACTOR_TENANT_ID)])
+    jest.mocked(lockOrganizationHierarchyForTenant).mockImplementationOnce(async () => {
+      target.parentId = PARENT_ID
+      return []
+    })
+    await expect(deleteHandler.execute({ body: { id: TARGET_ID }, query: {} }, makeContext(harness, { allowedIds: [TARGET_ID] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(target.parentId).toBe(PARENT_ID)
+  })
+
+  it.each(commandScenarios)('refuses $label undo when the actor loses target organization access and releases the replay claim', async (scenario) => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute(scenario.commandId, {
+      input: scenario.input, ctx: makeContext(harness, { allowedIds: [TARGET_ID] }),
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable log')
+    clearUndoObservationMocks(harness)
+    harness.deleteOrmEntity.mockClear()
+    const original = { ...target }
+    await expect(bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(target).toEqual(original)
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expectFailedUndoReleasedClaim(harness, logEntry)
+  })
+
+  it.each(commandScenarios)('refuses $label undo restoring an out-of-scope hierarchy endpoint before writes', async (scenario) => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID, { childIds: [CHILD_ID] })
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: TARGET_ID })
+    const harness = makeHarness([target, child])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute(scenario.commandId, {
+      input: scenario.label === 'update' ? { id: TARGET_ID, childIds: [] } : scenario.input,
+      ctx: makeContext(harness),
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable log')
+    clearUndoObservationMocks(harness)
+    const original = harness.records.map((record) => ({ ...record }))
+    await expect(bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [TARGET_ID] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(harness.records).toEqual(original)
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(harness.dataEngine.setCustomFields).not.toHaveBeenCalled()
+    expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
+    expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
+  })
+
+  it('refuses create redo outside actor scope and refuses an out-of-scope saved parent', async () => {
+    const harness = makeHarness([makeOrganization(PARENT_ID, ACTOR_TENANT_ID)])
+    const bus = new CommandBus()
+    const ctx = makeContext(harness)
+    const { logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Replayed', parentId: PARENT_ID }, ctx,
+    })
+    if (!logEntry) throw new Error('[internal] Expected an undoable log')
+    await bus.undo(String(logEntry.undoToken), ctx)
+    harness.createOrmEntity.mockClear()
+    const original = harness.records.map((record) => ({ ...record }))
+    for (const allowedIds of [[], [NEW_ORG_ID]]) {
+      await expect(createHandler.redo?.({ input: {}, logEntry, ctx: makeContext(harness, { allowedIds }) }))
+        .rejects.toMatchObject({ status: 404 })
+      expect(harness.records).toEqual(original)
+    }
+    expect(harness.createOrmEntity).not.toHaveBeenCalled()
+  })
+
+
+  it('fails closed when a direct caller has no resolved scope and its ACL omits organization authority', async () => {
+    const harness = makeHarness([makeOrganization(TARGET_ID, ACTOR_TENANT_ID)])
+    const ctx = makeContext(harness)
+    const resolve = ctx.container.resolve.bind(ctx.container)
+    ctx.container.resolve = ((token: string) => token === 'rbacService'
+      ? { loadAcl: async () => ({ isSuperAdmin: false }) }
+      : resolve(token)) as typeof ctx.container.resolve
+    await expect(updateHandler.execute({ id: TARGET_ID, name: 'Denied' }, ctx)).rejects.toMatchObject({ status: 404 })
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('uses the full entitlement set instead of narrowing it to the active organization selection', async () => {
+    const harness = makeHarness([makeOrganization(TARGET_ID, ACTOR_TENANT_ID)])
+    const ctx = makeContext(harness, { allowedIds: [PARENT_ID, TARGET_ID] })
+    if (!ctx.organizationScope) throw new Error('[internal] Expected scope')
+    ctx.organizationScope.filterIds = [PARENT_ID]
+    ctx.organizationScope.selectedId = PARENT_ID
+    await updateHandler.execute({ id: TARGET_ID, name: 'Authorized elsewhere' }, ctx)
+    expect(harness.records[0].name).toBe('Authorized elsewhere')
+  })
+
+  it.each(globalActorScenarios)('preserves $actorLabel global authority for $label even with an empty local organization scope', async (scenario) => {
+    const harness = makeHarness([makeOrganization(TARGET_ID, FOREIGN_TENANT_ID)])
+    await new CommandBus().execute(scenario.commandId, {
+      input: scenario.input,
+      ctx: makeContext(harness, { ...scenario.actorOptions, allowedIds: [] }),
+    })
+    expect(harness.logs[0].tenantId).toBe(FOREIGN_TENANT_ID)
+  })
+
+  it.each(commandScenarios)('permits an in-scope $label undo', async (scenario) => {
+    const target = makeOrganization(TARGET_ID, ACTOR_TENANT_ID)
+    const harness = makeHarness([target])
+    const ctx = makeContext(harness, { allowedIds: [TARGET_ID] })
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute(scenario.commandId, { input: scenario.input, ctx })
+    await bus.undo(String(logEntry?.undoToken), ctx)
+    expect(target.name).toBe(`Organization ${TARGET_ID}`)
+    expect(target.deletedAt).toBeNull()
+    expect(harness.actionLogService.markUndone).toHaveBeenCalled()
+  })
+
+  it('refuses create undo when a restored child parent is outside actor scope', async () => {
+    const parent = makeOrganization(PARENT_ID, ACTOR_TENANT_ID)
+    const child = makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: PARENT_ID })
+    const harness = makeHarness([parent, child])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Created', childIds: [CHILD_ID] }, ctx: makeContext(harness),
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    const original = harness.records.map((record) => ({ ...record }))
+    await expect(bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [NEW_ORG_ID, CHILD_ID] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(harness.records).toEqual(original)
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
+  })
+
+
+  it.each(['acl', 'context'] as const)('preserves an empty %s organization list for callers without a resolved scope', async (source) => {
+    const harness = makeHarness([makeOrganization(TARGET_ID, ACTOR_TENANT_ID)])
+    const ctx = makeContext(harness, source === 'acl' ? { aclOrganizations: [] } : {})
+    if (source === 'context') ctx.organizationIds = []
+    await expect(updateHandler.execute({ id: TARGET_ID, name: 'Denied' }, ctx)).rejects.toMatchObject({ status: 404 })
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+  })
+
+
+  it('refuses create undo when an out-of-scope child was attached after the recorded creation', async () => {
+    const harness = makeHarness([])
+    const bus = new CommandBus()
+    const { logEntry } = await bus.execute('directory.organizations.create', {
+      input: { name: 'Created' }, ctx: makeContext(harness),
+    })
+    if (!logEntry) throw new Error('[internal] Expected log')
+    harness.records.push(makeOrganization(CHILD_ID, ACTOR_TENANT_ID, { parentId: NEW_ORG_ID }))
+    await expect(bus.undo(String(logEntry.undoToken), makeContext(harness, { allowedIds: [NEW_ORG_ID] })))
+      .rejects.toMatchObject({ status: 404 })
+    expect(harness.records[0].deletedAt).toBeNull()
+    expect(harness.records[1].parentId).toBe(NEW_ORG_ID)
+    expect(harness.deleteOrmEntity).not.toHaveBeenCalled()
+    expect(harness.actionLogService.releaseUndoClaim).toHaveBeenCalledWith(logEntry.id)
+  })
+
 })
