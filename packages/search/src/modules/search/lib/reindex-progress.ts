@@ -48,7 +48,7 @@ async function findActiveJob(
 
 export async function ensureReindexProgressJob(params: {
   em: EntityManager
-  progressService: ProgressService
+  progressService: ProgressService | null
   type: ReindexProgressType
   tenantId: string
   organizationId?: string | null
@@ -56,6 +56,7 @@ export async function ensureReindexProgressJob(params: {
   totalCount?: number | null
   description?: string | null
 }): Promise<string | null> {
+  if (!params.progressService) return null
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
   if (current) {
     if (typeof params.totalCount === 'number') {
@@ -150,12 +151,13 @@ export async function hasActiveReindexProgress(params: {
 
 export async function completeReindexProgress(params: {
   em: EntityManager
-  progressService: ProgressService
+  progressService: ProgressService | null
   type: ReindexProgressType
   tenantId: string
   organizationId?: string | null
   resultSummary?: Record<string, unknown>
 }): Promise<void> {
+  if (!params.progressService) return
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
   if (!current) return
   await params.progressService.completeJob(
@@ -171,12 +173,13 @@ export async function completeReindexProgress(params: {
 
 export async function failReindexProgress(params: {
   em: EntityManager
-  progressService: ProgressService
+  progressService: ProgressService | null
   type: ReindexProgressType
   tenantId: string
   organizationId?: string | null
   errorMessage: string
 }): Promise<void> {
+  if (!params.progressService) return
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
   if (!current) return
   await params.progressService.failJob(
@@ -192,12 +195,13 @@ export async function failReindexProgress(params: {
 
 export async function cancelReindexProgress(params: {
   em: EntityManager
-  progressService: ProgressService
+  progressService: ProgressService | null
   type: ReindexProgressType
   tenantId: string
   organizationId?: string | null
   userId?: string | null
 }): Promise<void> {
+  if (!params.progressService) return
   const current = await findActiveJob(params.em, params.type, params.tenantId, params.organizationId)
   if (!current) return
   await params.progressService.cancelJob(

@@ -1,7 +1,9 @@
 /** @jest-environment node */
 import {
+  buildAttachmentContentDisposition,
   getAttachmentExtension,
   hasDangerousExecutableExtension,
+  sanitizeAttachmentDisplayName,
   sanitizeUploadedFileName,
 } from '@open-mercato/core/modules/attachments/lib/security'
 
@@ -75,5 +77,56 @@ describe('hasDangerousExecutableExtension', () => {
     const raw = `evil.exe${NUL}.png`
     expect(hasDangerousExecutableExtension(raw)).toBe(true)
     expect(sanitizeUploadedFileName(raw)).toBe('evil_exe.png')
+  })
+})
+
+describe('sanitizeAttachmentDisplayName (#8727)', () => {
+  const RIGHT_TO_LEFT_OVERRIDE = String.fromCharCode(0x202e)
+
+  it('keeps non-ASCII letters and spaces that the storage name replaces', () => {
+    expect(sanitizeUploadedFileName('Karta techniczna źródło.pdf')).toBe('Karta_techniczna_r_d_o.pdf')
+    expect(sanitizeAttachmentDisplayName('Karta techniczna źródło.pdf')).toBe('Karta techniczna źródło.pdf')
+    expect(sanitizeAttachmentDisplayName('Größenübersicht.xlsx')).toBe('Größenübersicht.xlsx')
+    expect(sanitizeAttachmentDisplayName('견적서.docx')).toBe('견적서.docx')
+  })
+
+  it('normalizes decomposed characters to NFC', () => {
+    expect(sanitizeAttachmentDisplayName('z\u0301ro\u0301dło.pdf')).toBe('źródło.pdf')
+  })
+
+  it('drops path, control and bidi-override characters', () => {
+    expect(sanitizeAttachmentDisplayName('../../etc/passwd')).toBe(sanitizeUploadedFileName('../../etc/passwd'))
+    expect(sanitizeAttachmentDisplayName('reports/2026/raport.pdf')).toBe('reports 2026 raport.pdf')
+    expect(sanitizeAttachmentDisplayName('C:\\temp\\raport.pdf')).toBe('C temp raport.pdf')
+    expect(sanitizeAttachmentDisplayName(`a${NUL}b${TAB}c${ZERO_WIDTH_SPACE}.txt`)).toBe('a b c.txt')
+    expect(sanitizeAttachmentDisplayName(`invoice${RIGHT_TO_LEFT_OVERRIDE}fdp.exe`)).toBe('invoice fdp.exe')
+  })
+
+  it('carries the extension the security checks resolve, so double extensions stay visible', () => {
+    expect(sanitizeAttachmentDisplayName('faktura.pdf.exe')).toBe('faktura_pdf.exe')
+    expect(sanitizeAttachmentDisplayName('Zdjęcie.JPG')).toBe('Zdjęcie.jpg')
+    expect(getAttachmentExtension(sanitizeAttachmentDisplayName('raport.exe.pdf'))).toBe(
+      getAttachmentExtension(sanitizeUploadedFileName('raport.exe.pdf')),
+    )
+  })
+
+  it('falls back to the storage name when nothing readable is left', () => {
+    expect(sanitizeAttachmentDisplayName('')).toBe('file')
+    expect(sanitizeAttachmentDisplayName(null)).toBe('file')
+    expect(sanitizeAttachmentDisplayName('///.pdf')).toBe('file.pdf')
+  })
+})
+
+describe('buildAttachmentContentDisposition (#8727)', () => {
+  it('sends an ASCII fallback and the UTF-8 display name', () => {
+    expect(buildAttachmentContentDisposition('Karta techniczna źródło.pdf')).toBe(
+      `attachment; filename="Karta_techniczna_r_d_o.pdf"; filename*=UTF-8''Karta%20techniczna%20%C5%BAr%C3%B3d%C5%82o.pdf`,
+    )
+  })
+
+  it('percent-encodes the RFC 5987 reserved characters left by encodeURIComponent', () => {
+    expect(buildAttachmentContentDisposition("O'Brien (draft).txt", 'inline')).toBe(
+      `inline; filename="O_Brien_draft.txt"; filename*=UTF-8''O%27Brien%20%28draft%29.txt`,
+    )
   })
 })

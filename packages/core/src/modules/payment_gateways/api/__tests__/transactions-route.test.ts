@@ -41,11 +41,12 @@ function listRequest(query: string): Request {
 
 describe('payment_gateways transactions list route', () => {
   let rawWheres: RawWhere[]
+  let qb: ReturnType<typeof makeQueryBuilder>
 
   beforeEach(() => {
     jest.clearAllMocks()
     rawWheres = []
-    const qb = makeQueryBuilder(rawWheres)
+    qb = makeQueryBuilder(rawWheres)
     mockResolve.mockImplementation((key: string) => {
       if (key === 'em') return { createQueryBuilder: jest.fn(() => qb) }
       throw new Error(`[internal] unexpected resolve(${key})`)
@@ -82,5 +83,13 @@ describe('payment_gateways transactions list route', () => {
 
     expect(response.status).toBe(200)
     expect(rawWheres).toHaveLength(0)
+  })
+
+  it('breaks createdAt ties by id so offset pages stay stable', async () => {
+    const response = await GET(listRequest('page=2&pageSize=5'))
+
+    expect(response.status).toBe(200)
+    expect(qb.orderBy).toHaveBeenCalledTimes(1)
+    expect(qb.orderBy).toHaveBeenCalledWith({ createdAt: 'desc', id: 'desc' })
   })
 })
