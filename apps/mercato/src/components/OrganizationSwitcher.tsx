@@ -349,6 +349,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     ? state.tenantId ?? ''
     : tenantValue
   const showTenantSelect = state.status === 'ready' && state.isSuperAdmin && tenantSelectOptions.length > 0
+  const hasSwitcherContent = hasOptions || showAllOption || showTenantSelect
 
   const flatOrgOptions = React.useMemo(() => {
     const out: Array<{ id: string; label: string; selectable: boolean; depth: number }> = []
@@ -441,7 +442,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
   if (state.status === 'error') {
     return <span className="hidden md:inline text-xs text-destructive">{t('organizationSwitcher.error')}</span>
   }
-  if (!hasOptions) {
+  if (!hasSwitcherContent) {
     return <span className="hidden md:inline text-xs text-muted-foreground">{t('organizationSwitcher.empty')}</span>
   }
 
@@ -530,6 +531,11 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
                 </Button>
               )
             })}
+            {!flatOrgOptions.length ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                {t('organizationSwitcher.empty', 'No organizations')}
+              </div>
+            ) : null}
           </div>
         </div>
         {canManage ? (
