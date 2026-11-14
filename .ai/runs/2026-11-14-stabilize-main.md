@@ -53,6 +53,8 @@ Runner: GitHub Actions for the full suite. For evidence-only changes the local g
 - Main Snapshot Release `43511764426` at the baseline SHA has published successfully; its standalone integration remains pending as of 2026-11-13T23:47Z. Older failed manual preview/deployment runs are not current-main CI regressions. Do not equate the green CI suite with all historical workflows being green.
 - Completion-only documentation commits must receive fresh CI at the final pushed head. Live final review/check results will be linked in the PR body and outcome comment; do not treat the initial run as proof of a later head.
 
+- [Independent final review](https://github.com/open-mercato/open-mercato/pull/9497#issuecomment-6868238844), task `7e1c1b72-864b-4c01-b9b0-27f9700da300`, approved the entire diff at `5ac46e189b5504165ad01f7b9aa9efb77e58ab74` with zero findings. The parent inspected the report and empty child diff, then repeated all 42 named regression tests successfully. GitHub rejected native self-approval by the shared App; this attributed review does not replace any separate-account approval requirement. The reviewer permits verdict/link/checklist-only completion records after parent delta inspection and fresh final-head CI. No child branch was merged.
+
 ## Progress
 
 PR: #9497
@@ -71,5 +73,5 @@ PR: #9497
 
 ### Phase 3: Independent review and handoff
 
-- [ ] 3.1 Dispatch exactly one final review using om-auto-review-pr / om-code-review
+- [x] 3.1 Dispatch exactly one final review using om-auto-review-pr / om-code-review — 5ac46e189b
 - [ ] 3.2 Once the current head is green and review approves, mark ready and apply automerge with evidence
