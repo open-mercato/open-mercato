@@ -45,6 +45,23 @@ describe('OIDC outbound request safety', () => {
 
     await expect(guardedFetch('https://mixed.example/jwks', requestOptions)).rejects.toMatchObject({
       reason: 'private_ip_resolved',
+      message: 'OIDC endpoint URL host resolves to a private or reserved IP address',
+    })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  test('does not expose resolver errors when DNS lookup fails', async () => {
+    const fetchImpl = jest.fn() as unknown as typeof fetch
+    const guardedFetch = createOidcFetch({
+      fetchImpl,
+      lookupHost: async () => {
+        throw new Error('getaddrinfo ENOTFOUND internal.resolver.example')
+      },
+    })
+
+    await expect(guardedFetch('https://idp.example/discovery', requestOptions)).rejects.toMatchObject({
+      reason: 'dns_resolution_failed',
+      message: 'OIDC endpoint URL host could not be resolved',
     })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
