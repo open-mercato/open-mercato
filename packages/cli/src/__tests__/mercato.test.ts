@@ -1152,9 +1152,16 @@ describe('init command failure output', () => {
     fileSystem.writeFileSync(payloadPath, output)
     try {
       const root = paths.resolve(__dirname, '../../../..')
+      fileSystem.writeFileSync(paths.join(temporaryDirectory, 'encryption-preflight.mjs'), [
+        "import { spawnSync } from 'node:child_process'",
+        "const result = spawnSync('sh', ['-lc', process.argv[3]], { stdio: 'inherit', env: process.env })",
+        'process.exit(result.status ?? 1)',
+      ].join('\n'))
       for (const script of ['docker/scripts/init-or-migrate.sh', 'packages/create-app/template/docker/scripts/init-or-migrate.sh']) {
         const marker = paths.join(temporaryDirectory, script.startsWith('packages/') ? 'template.seeded' : 'starter.seeded')
-        const result = spawnSync('sh', [paths.join(root, script).replace(/\\/g, '/')], {
+        const copiedScript = paths.join(temporaryDirectory, `${script.startsWith('packages/') ? 'template-' : 'starter-'}init-or-migrate.sh`)
+        fileSystem.copyFileSync(paths.join(root, script), copiedScript)
+        const result = spawnSync('sh', [copiedScript.replace(/\\/g, '/')], {
           env: {
             ...process.env,
             INIT_MARKER_FILE: marker.replace(/\\/g, '/'),
