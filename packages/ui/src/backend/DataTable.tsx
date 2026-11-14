@@ -1967,6 +1967,8 @@ function DataTableImpl<T extends RowData>({
       onExpandedChange: handleExpandedChange,
     } : {}),
     manualSorting: manualSorting === true,
+    sortDescFirst: false,
+    enableMultiSort: false,
     getRowId: resolveDataTableRowId,
     state: { sorting, columnVisibility, columnOrder, rowSelection, ...(expansionEnabled ? { expanded: expandedState } : {}) },
     enableRowSelection: hasInjectedBulkActions,
@@ -3652,6 +3654,9 @@ function DataTableImpl<T extends RowData>({
   const stickySurfaceClass = embedded ? 'md:bg-background' : 'md:bg-card'
   const stickyHeaderSurfaceClass = `${stickySurfaceClass} ${STICKY_HEADER_TINT_CLASS}`
   const stickyBodySurfaceClass = `${stickySurfaceClass} ${STICKY_ROW_HOVER_TINT_CLASS}`
+  const stickySelectionColumn = stickyFirstColumn && hasInjectedBulkActions
+  const selectionCellClass = 'w-12 min-w-12 max-w-12'
+  const stickyFirstColumnLeftClass = stickySelectionColumn ? 'md:left-12' : 'md:left-0'
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
   // Measure the horizontal scroll viewport so the empty and error states can center within
@@ -3862,9 +3867,9 @@ function DataTableImpl<T extends RowData>({
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hasInjectedBulkActions ? (
-                  <TableHead className="w-8">
+                  <TableHead className={cn(selectionCellClass, stickySelectionColumn && `md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass}`)}>
                     <Checkbox
-                      checked={table.getIsAllPageRowsSelected()}
+                      checked={table.getIsAllPageRowsSelected() ? true : table.getIsSomePageRowsSelected() ? 'indeterminate' : false}
                       onCheckedChange={(checked) => {
                         table.toggleAllPageRowsSelected(Boolean(checked))
                       }}
@@ -3876,7 +3881,7 @@ function DataTableImpl<T extends RowData>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky ${stickyFirstColumnLeftClass} md:z-10 ${stickyHeaderSurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const isColumnSortable = sortable && !!header.column.getCanSort?.()
                   const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
                   // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
@@ -3888,7 +3893,7 @@ function DataTableImpl<T extends RowData>({
                       variant="ghost"
                       type="button"
                       className="h-auto p-0 has-[>svg]:px-0 font-medium cursor-pointer select-none"
-                      onClick={() => header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
+                      onClick={header.column.getToggleSortingHandler()}
                     >
                       {headerContent}
                       {(() => {
@@ -4002,7 +4007,7 @@ function DataTableImpl<T extends RowData>({
                     } : undefined}
                   >
                     {hasInjectedBulkActions ? (
-                      <TableCell className="w-8">
+                      <TableCell className={cn(selectionCellClass, stickySelectionColumn && `md:sticky md:left-0 md:z-10 ${stickyBodySurfaceClass}`)}>
                         <Checkbox
                           checked={row.getIsSelected()}
                           onCheckedChange={(checked) => row.toggleSelected(Boolean(checked))}
@@ -4098,7 +4103,7 @@ function DataTableImpl<T extends RowData>({
                       return (
                         <TableCell
                           key={cell.id}
-                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : '')}
+                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky ${stickyFirstColumnLeftClass} md:z-10 ${stickyBodySurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : '')}
                           style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
                         >
                           {expandAffordance ? (
