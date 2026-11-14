@@ -1,0 +1,65 @@
+[
+  {
+    "file": "step-01-default-en.png",
+    "bytes": 92250,
+    "width": 1440,
+    "height": 1000,
+    "sha256": "9da7d8f30181cd506e8292ba2a19e43d3d8f571db8d0c0e9ae16c3d85f58c2d6"
+  },
+  {
+    "file": "step-02-empty-refusal.png",
+    "bytes": 100206,
+    "width": 1440,
+    "height": 1000,
+    "sha256": "7d05da6bcabde31982e4fd274f6b12279ebca26b4243d16c18d6c10f8721d9e3"
+  },
+  {
+    "file": "step-03-saved-en.png",
+    "bytes": 111144,
+    "width": 1440,
+    "height": 1000,
+    "sha256": "1b17ed22d942472525ecc422821bb3bfef6e2c958f4337a4ada478dcb750466d"
+  },
+  {
+    "file": "step-04-mobile.png",
+    "bytes": 56456,
+    "width": 390,
+    "height": 935,
+    "sha256": "fe40957c09f78bdd82ca02bdc05fcad2622164f9c99a673308169e3e43621952"
+  },
+  {
+    "file": "step-05-polish.png",
+    "bytes": 100620,
+    "width": 1440,
+    "height": 1000,
+    "sha256": "f2e0af77aada1042625f3ab39635a4b70401f87208331980d4dfe160905475a4"
+  },
+  {
+    "file": "step-06-viewer-denied.png",
+    "bytes": 38193,
+    "width": 1280,
+    "height": 720,
+    "sha256": "fb619a640284572ffa5a3440d6d74e6b8a8cf6f25cc79ced8438a9f63330f30a"
+  },
+  {
+    "file": "step-08-list.png",
+    "bytes": 143015,
+    "width": 1440,
+    "height": 1000,
+    "sha256": "495d0bcd44e39c1e4614f884d4543cb03685b0299b46a790753ca7163ea6a702"
+  },
+  {
+    "file": "step-09-stale-conflict.png",
+    "bytes": 109995,
+    "width": 1280,
+    "height": 720,
+    "sha256": "0d88a063ed9ca5b13682fdad55ac4b6a2873e5882b66d71f270c589bbd9f0cc6"
+  },
+  {
+    "file": "step-10-empty-list.png",
+    "bytes": 94804,
+    "width": 1440,
+    "height": 1000,
+    "sha256": "5836cedfaaa12fe0150bf099bf9b0dc1e33da8d35ac88883d065b59269c8f8fd"
+  }
+]
