@@ -780,6 +780,7 @@
   "customers.companies.form.status.placeholder": "Status wählen",
   "customers.companies.form.submit": "Unternehmen erstellen",
   "customers.companies.form.success": "Unternehmen erstellt",
+  "customers.companies.form.taxId.tooLong": "Die USt-IdNr. ist zu lang (max. 64 Zeichen)",
   "customers.companies.form.updateSuccess": "Unternehmen aktualisiert.",
   "customers.companies.list.actions.bulkDelete": "Auswahl löschen",
   "customers.companies.list.actions.delete": "Löschen",

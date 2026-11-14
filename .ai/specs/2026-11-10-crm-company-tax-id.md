@@ -46,8 +46,8 @@ Additive fields on existing routes; no route, method, status or existing field c
 
 | Route | Change |
 |---|---|
-| `POST /api/customers/companies` | Body accepts optional `taxId` (top-level or nested `profile.taxId`). |
-| `PUT /api/customers/companies` | Body accepts optional `taxId`; `null` clears the value. |
+| `POST /api/customers/companies` | Body accepts optional top-level `taxId`. |
+| `PUT /api/customers/companies` | Body accepts optional `taxId` (top-level or nested `profile.taxId`); `null` clears the value. |
 | `GET /api/customers/companies` | Each list item carries `tax_id: string \| null`, declared in `companyListItemSchema`. |
 | `GET /api/customers/companies/{id}` | `profile.taxId: string \| null`. |
 

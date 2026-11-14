@@ -780,6 +780,7 @@
   "customers.companies.form.status.placeholder": "상태를 선택하세요",
   "customers.companies.form.submit": "회사 등록",
   "customers.companies.form.success": "회사가 생성되었습니다",
+  "customers.companies.form.taxId.tooLong": "사업자등록번호가 너무 깁니다(최대 64자)",
   "customers.companies.form.updateSuccess": "회사 정보가 업데이트되었습니다.",
   "customers.companies.list.actions.bulkDelete": "선택 항목 삭제",
   "customers.companies.list.actions.delete": "삭제",

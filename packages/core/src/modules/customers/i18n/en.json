@@ -780,6 +780,7 @@
   "customers.companies.form.status.placeholder": "Select a status",
   "customers.companies.form.submit": "Create Company",
   "customers.companies.form.success": "Company created",
+  "customers.companies.form.taxId.tooLong": "VAT ID is too long (max 64 characters)",
   "customers.companies.form.updateSuccess": "Company updated.",
   "customers.companies.list.actions.bulkDelete": "Delete selected",
   "customers.companies.list.actions.delete": "Delete",

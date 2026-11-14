@@ -780,6 +780,7 @@
   "customers.companies.form.status.placeholder": "Wybierz status",
   "customers.companies.form.submit": "Utwórz firmę",
   "customers.companies.form.success": "Firma została utworzona",
+  "customers.companies.form.taxId.tooLong": "NIP / VAT ID jest za długi (maks. 64 znaki)",
   "customers.companies.form.updateSuccess": "Firma została zaktualizowana.",
   "customers.companies.list.actions.bulkDelete": "Usuń zaznaczone",
   "customers.companies.list.actions.delete": "Usuń",

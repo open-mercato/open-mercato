@@ -32,7 +32,12 @@ import {
   type Translator,
   createCompanyEditFields,
 } from '../formConfig'
-import { COMPANY_TAX_ID_MAX_LENGTH, companyCreateSchema } from '../../data/validators'
+import { COMPANY_TAX_ID_MAX_LENGTH, COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY, companyCreateSchema } from '../../data/validators'
+import enLocale from '../../i18n/en.json'
+import plLocale from '../../i18n/pl.json'
+import deLocale from '../../i18n/de.json'
+import esLocale from '../../i18n/es.json'
+import koLocale from '../../i18n/ko.json'
 
 const t: Translator = (_key, fallback) => fallback ?? _key
 
@@ -410,15 +415,29 @@ describe('company VAT / tax ID (required company field)', () => {
     expect(editField).toMatchObject({ required: false, type: 'text' })
   })
 
-  it('caps the VAT ID input at the length the API accepts, so the form cannot submit a longer value', () => {
-    const t = (_key: string, fallback?: string) => fallback ?? _key
-    const createField = createCompanyFormFields(t as any).find((entry) => entry.id === 'taxId')
-    const editField = createCompanyEditFields(t as any).find((entry) => entry.id === 'taxId')
-    expect(createField).toMatchObject({ maxLength: COMPANY_TAX_ID_MAX_LENGTH })
-    expect(editField).toMatchObject({ maxLength: COMPANY_TAX_ID_MAX_LENGTH })
+  it('refuses a VAT ID longer than the API accepts in both form schemas, with a translatable message', () => {
     const atLimit = 'X'.repeat(COMPANY_TAX_ID_MAX_LENGTH)
+    const overLimit = `${atLimit}X`
+    const schemas = [
+      { schema: createCompanyFormSchema(), base: { displayName: 'Acme' } },
+      { schema: createCompanyEditSchema(), base: { id: COMPANY_ID, displayName: 'Acme' } },
+    ]
+    for (const { schema, base } of schemas) {
+      expect(schema.safeParse({ ...base, taxId: atLimit }).success).toBe(true)
+      const refused = schema.safeParse({ ...base, taxId: overLimit })
+      expect(refused.success).toBe(false)
+      if (refused.success) continue
+      const issue = refused.error.issues.find((entry) => entry.path.join('.') === 'taxId')
+      expect(issue?.message).toBe(COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY)
+    }
     expect(companyCreateSchema.shape.taxId.safeParse(atLimit).success).toBe(true)
-    expect(companyCreateSchema.shape.taxId.safeParse(`${atLimit}X`).success).toBe(false)
+    expect(companyCreateSchema.shape.taxId.safeParse(overLimit).success).toBe(false)
+  })
+
+  it('keeps the too-long message translated in every locale', () => {
+    for (const dictionary of [enLocale, plLocale, deLocale, esLocale, koLocale]) {
+      expect((dictionary as Record<string, string>)[COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY]).toEqual(expect.stringContaining(String(COMPANY_TAX_ID_MAX_LENGTH)))
+    }
   })
 
   it('lets a host opt into a required VAT ID on either form', () => {
