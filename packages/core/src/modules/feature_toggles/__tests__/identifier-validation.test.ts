@@ -24,6 +24,7 @@ describe('feature toggle identifier validation (#2055 QA round-6)', () => {
       identifier: 'customers.interactions.legacy-adapters',
       name: 'Legacy adapters',
       type: 'boolean',
+      defaultValue: false,
     })
     expect(parsed.success).toBe(true)
   })
