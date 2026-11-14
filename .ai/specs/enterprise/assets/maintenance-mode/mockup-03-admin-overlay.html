@@ -1,0 +1,31 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Backend — overlay</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,sans-serif;color:#18181b;background:#fafafa}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px;height:100vh}
+.app{position:relative;border:1px solid #e4e4e7;border-radius:10px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+.cap{font-size:12px;color:#71717a;margin:0 0 6px}
+.top{height:48px;border-bottom:1px solid #e4e4e7;display:flex;align-items:center;padding:0 16px;gap:12px;font-weight:600}
+.banner{background:#fffbeb;color:#92400e;border-bottom:1px solid #fde68a;padding:8px 16px;font-size:13px;display:flex;gap:8px;align-items:center}
+.body{display:flex;flex:1}.side{width:150px;border-right:1px solid #e4e4e7;padding:12px;color:#71717a}.side div{padding:4px 0}
+.content{flex:1;padding:16px}.row{height:34px;border-bottom:1px solid #f4f4f5;display:flex;align-items:center;color:#52525b}
+.input{border:1px solid #e4e4e7;border-radius:6px;height:34px;margin:8px 0;padding:6px 10px;color:#71717a}
+.overlay{position:absolute;inset:0;background:rgba(9,9,11,.55);display:grid;place-items:center}
+.dialog{background:#fff;border-radius:12px;padding:24px;width:320px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.dialog h2{margin:0 0 8px;font-size:18px}.dialog p{color:#52525b;margin:0 0 16px}
+.btn{background:#18181b;color:#fff;border-radius:6px;padding:8px 14px;display:inline-block}
+.wrap{display:flex;flex-direction:column;min-height:0}.app{flex:1}
+</style></head><body><div class="split">
+<div class="wrap"><p class="cap">A — Admin with an open form when the window starts (overlay)</p>
+<div class="app"><div class="top">Open Mercato · Sales › Order #10432</div>
+<div class="body"><div class="side"><div>Dashboard</div><div>Customers</div><div>Sales</div><div>Catalog</div></div>
+<div class="content"><div class="input">Shipping address…</div><div class="input">Notes…</div><div class="row">Line items (3)</div></div></div>
+<div class="overlay" role="alertdialog" aria-labelledby="t"><div class="dialog"><h2 id="t">Maintenance in progress</h2>
+<p>Saving is paused while we perform scheduled maintenance. Expected back at 02:00.</p><span class="btn">Reload when available</span></div></div>
+</div></div>
+<div class="wrap"><p class="cap">B — Operator using the bypass link (warning banner)</p>
+<div class="app"><div class="top">Open Mercato · Dashboard</div>
+<div class="banner" role="status">⚠ Maintenance mode is on — you are bypassing it. Window ends 02:00. Changes you make are live.</div>
+<div class="body"><div class="side"><div>Dashboard</div><div>Customers</div><div>Sales</div><div>Catalog</div></div>
+<div class="content"><div class="row">Orders today — 0</div><div class="row">Queue workers — paused (drained)</div><div class="row">Last backup — 01:12 (quiesced)</div></div></div>
+</div></div>
+</div></body></html>
