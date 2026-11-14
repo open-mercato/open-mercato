@@ -3,9 +3,9 @@
   "budgetBytes": 32768,
   "rootMaxBytes": 31232,
   "chains": {
-    "packages/ai-assistant": 103618,
-    "packages/core": 41559,
-    "packages/core/src/modules/sales": 45890,
-    "packages/ui": 35358
+    "packages/ai-assistant": 104055,
+    "packages/core": 41412,
+    "packages/core/src/modules/sales": 45874,
+    "packages/ui": 35352
   }
 }

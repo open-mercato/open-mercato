@@ -1150,7 +1150,7 @@ Request → Check x-api-key header → Validate against the api_keys table (find
 | **Delivery to OpenCode** | `MCP_SERVER_API_KEY` env var when set (wins); otherwise the file at `MCP_SERVER_API_KEY_FILE` — the containerized stacks' `mcp` service provisions it idempotently via `mercato ai_assistant mcp:ensure-api-key` into the shared `mcp_shared` volume |
 | **Configured In** | Generated into `opencode.jsonc` by `docker/opencode/entrypoint.sh` |
 | **Validation** | Prefix-indexed lookup + bcrypt verification (`findApiKeyBySecret`) |
-| **Result** | Grants access to call MCP endpoints; header-only calls resolve ACL context via the key's `createdBy` user |
+| **Result** | Grants access; header-only calls resolve ACL via `createdBy` only with `--allow-api-key-fallback` (default off, #5173) |
 
 **Code reference**: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:370-391`
 
@@ -1435,6 +1435,10 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 ---
 
 ## Changelog
+
+### 2026-11-12 - HTTP MCP server fails closed without a session token (#5173)
+
+`createMcpServerForRequest` (`lib/http-server.ts`) no longer falls back to the transport `x-api-key`'s ACL when `_sessionToken` is missing; defaults to `UNAUTHORIZED`. Opt-in via additive `McpServerConfig.allowApiKeyFallback` / `mcp:serve-http --allow-api-key-fallback` — never for chat-facing deployments. Test: `lib/__tests__/http-server-session-fallback.test.ts`.
 
 ### 2026-07-07 - Containerized MCP server + file-based key delivery
 

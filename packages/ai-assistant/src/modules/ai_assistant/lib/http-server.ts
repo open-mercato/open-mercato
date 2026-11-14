@@ -163,7 +163,7 @@ async function resolveApiKeyContext(
  * Tools are registered without pre-filtering - permission checks happen at execution time
  * based on the session token provided in each tool call.
  */
-function createMcpServerForRequest(
+export function createMcpServerForRequest(
   config: McpServerConfig,
   toolContext: McpToolContext,
   apiKeyRecord: ApiKey
@@ -199,7 +199,7 @@ function createMcpServerForRequest(
         const properties = (jsonSchema.properties ?? {}) as Record<string, unknown>
         properties._sessionToken = {
           type: 'string',
-          description: 'Session authorization token. If omitted, the server API key roles are used instead.',
+          description: 'Session authorization token. REQUIRED for all tool calls — omitting it fails the call closed.',
         }
         jsonSchema.properties = properties
 
@@ -268,8 +268,11 @@ function createMcpServerForRequest(
                 isError: true,
               }
             }
-          } else {
-            // No session token — fall back to header API key auth
+          } else if (config.allowApiKeyFallback) {
+            // No session token — operator has explicitly opted into header API key auth (#5173).
+            // Never the default: the transport key is typically provisioned from the
+            // superadmin account, so an unconditional fallback here is a confused-deputy path
+            // for any chat-facing deployment.
             const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext, config.debug)
             if (apiKeyContext) {
               effectiveContext = apiKeyContext
@@ -295,6 +298,21 @@ function createMcpServerForRequest(
                 ...effectiveContext,
                 sessionId: deriveApiKeySessionId(effectiveContext.apiKeySecret),
               }
+            }
+          } else {
+            // No session token and header-only fallback is not explicitly enabled — fail closed
+            // rather than silently authorizing this call with the transport key's ACL (#5173).
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: 'Authentication failed: a session token (_sessionToken) is required for this tool call.',
+                    code: 'UNAUTHORIZED',
+                  }),
+                },
+              ],
+              isError: true,
             }
           }
 

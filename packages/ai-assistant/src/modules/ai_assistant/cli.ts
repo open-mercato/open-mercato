@@ -142,10 +142,20 @@ const mcpServeHttp: ModuleCli = {
     const portArg = parseInt(String(args.port ?? ''), 10)
     const port = !portArg || isNaN(portArg) ? MCP_DEFAULT_PORT : portArg
     const debug = args.debug === true || args.debug === 'true'
+    const allowApiKeyFallback =
+      args['allow-api-key-fallback'] === true || args['allow-api-key-fallback'] === 'true'
     const host = resolveMcpHost(
       typeof args.host === 'string' ? args.host : undefined,
       process.env.MCP_HTTP_HOST,
     )
+
+    if (allowApiKeyFallback) {
+      console.error(
+        '[MCP] WARNING: --allow-api-key-fallback is enabled — tool calls without a ' +
+          '_sessionToken will be authorized as the transport x-api-key owner. ' +
+          'OPERATOR/AUTOMATION USE ONLY — never enable this on a chat-facing deployment (#5173).'
+      )
+    }
 
     await ensureBootstrap()
     const container = await createRequestContainer()
@@ -157,6 +167,7 @@ const mcpServeHttp: ModuleCli = {
         name: 'open-mercato-mcp',
         version: '0.1.0',
         debug,
+        allowApiKeyFallback,
       },
       container,
       port,
