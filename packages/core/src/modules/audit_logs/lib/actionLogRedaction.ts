@@ -1,11 +1,30 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 
-/** Per-module local soft-resolve helper — see `packages/core/AGENTS.md` § Cross-Module Coupling. */
-function tryResolve<T>(resolver: { resolve: <R = unknown>(name: string) => R }, name: string): T | undefined {
+type SoftResolver = {
+  resolve: <R = unknown>(name: string) => R
+  hasRegistration?: (name: string) => boolean
+}
+
+/**
+ * Per-module local soft-resolve helper — see `packages/core/AGENTS.md` §
+ * Cross-Module Coupling. A module simply not registering `name` (its
+ * provider is absent, e.g. the owning module is disabled) is expected and
+ * not reported. A registered token that fails to resolve — a broken
+ * provider — is NOT indistinguishable from absence: it is reported, since
+ * silently treating it as "absent" would hide a real initialization failure
+ * behind the same fail-closed suppression.
+ */
+function tryResolve<T>(resolver: SoftResolver, name: string): T | undefined {
+  if (typeof resolver.hasRegistration === 'function' && !resolver.hasRegistration(name)) return undefined
   try {
     return resolver.resolve<T>(name)
-  } catch {
+  } catch (err) {
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'audit_logs',
+      code: 'audit_logs.redaction_provider_resolve_failed',
+    })
     return undefined
   }
 }
@@ -70,7 +89,7 @@ function suppressProtectedEntry(entry: ActionLog): ActionLog {
  * touched by this module.
  */
 export async function redactActionLogEntries(
-  container: { resolve: <R = unknown>(name: string) => R },
+  container: SoftResolver,
   em: EntityManager,
   scope: { tenantId: string; organizationId: string | null },
   viewerUserId: string | null,

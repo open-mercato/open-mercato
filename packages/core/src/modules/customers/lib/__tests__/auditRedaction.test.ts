@@ -1,9 +1,41 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadCustomerAuditRedactionContext, redactCustomerAuditEntry, type CustomerAuditRedactionContext } from '../auditRedaction'
 import * as conversationShares from '../conversationShares'
 
 const OWNER = 'user-owner'
 const VIEWER = 'user-viewer'
 const PERSON_ID = 'person-1'
+const mockEm = {} as unknown as EntityManager
+
+type InteractionFields = {
+  entityId?: string
+  interactionType?: string
+  visibility?: string | null
+  authorUserId?: string
+  title?: unknown
+  body?: unknown
+  participants?: unknown
+  linkedEntities?: unknown
+  custom?: unknown
+}
+
+type InteractionSnapshot = {
+  interaction: InteractionFields
+  custom?: unknown
+}
+
+type EmbeddedInteractionsSnapshot = {
+  entity: { id: string }
+  interactions: InteractionFields[]
+}
+
+function interactionSnapshot(value: unknown): InteractionSnapshot {
+  return value as InteractionSnapshot
+}
+
+function embeddedInteractionsSnapshot(value: unknown): EmbeddedInteractionsSnapshot {
+  return value as EmbeddedInteractionsSnapshot
+}
 
 function ctx(overrides: Partial<CustomerAuditRedactionContext> = {}): CustomerAuditRedactionContext {
   return {
@@ -36,7 +68,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
 
   it('redacts title/body for a private email when the viewer is not the author', () => {
     const redacted = redactCustomerAuditEntry(interactionEntry(), ctx())
-    const interaction = (redacted.snapshotBefore as any).interaction
+    const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBeNull()
     expect(interaction.body).toBeNull()
     // Non-content fields stay intact.
@@ -45,7 +77,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
 
   it('leaves title/body visible to the email author', () => {
     const redacted = redactCustomerAuditEntry(interactionEntry(), ctx({ viewerUserId: OWNER }))
-    const interaction = (redacted.snapshotBefore as any).interaction
+    const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBe('Private subject')
     expect(interaction.body).toBe('Private body')
   })
@@ -55,7 +87,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       interactionEntry(),
       ctx({ sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }] }),
     )
-    const interaction = (redacted.snapshotBefore as any).interaction
+    const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBe('Private subject')
     expect(interaction.body).toBe('Private body')
   })
@@ -74,7 +106,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
     })
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    const interaction = (redacted.snapshotBefore as any).interaction
+    const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBe('Legacy subject')
     expect(interaction.body).toBe('Legacy body')
   })
@@ -95,7 +127,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
     })
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    const interaction = (redacted.snapshotBefore as any).interaction
+    const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.participants).toBeNull()
     expect(interaction.linkedEntities).toBeNull()
   })
@@ -116,7 +148,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
     })
     const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
-    const interaction = (redacted.snapshotBefore as any).interaction
+    const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.participants).toEqual([{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }])
     expect(interaction.linkedEntities).toEqual([{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }])
   })
@@ -148,7 +180,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
     })
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    expect((redacted.snapshotBefore as any).custom).toBeNull()
+    expect(interactionSnapshot(redacted.snapshotBefore).custom).toBeNull()
   })
 
   it('leaves the custom-field snapshot visible to the email author', () => {
@@ -166,7 +198,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
     })
     const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
-    expect((redacted.snapshotBefore as any).custom).toEqual({ privateEmail: 'ghost@example.com', note: 'internal' })
+    expect(interactionSnapshot(redacted.snapshotBefore).custom).toEqual({ privateEmail: 'ghost@example.com', note: 'internal' })
   })
 
   it('leaves non-email interactions untouched', () => {
@@ -183,7 +215,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
     })
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    const interaction = (redacted.snapshotBefore as any).interaction
+    const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBe('Call notes')
     expect(interaction.body).toBe('Call body')
   })
@@ -334,7 +366,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
       { interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
     ])
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    const interactions = (redacted.snapshotBefore as any).interactions
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].title).toBeNull()
     expect(interactions[0].body).toBeNull()
   })
@@ -344,7 +376,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
       { interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
     ])
     const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
-    const interactions = (redacted.snapshotBefore as any).interactions
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].title).toBe('Secret')
     expect(interactions[0].body).toBe('Secret body')
   })
@@ -357,7 +389,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
       entry,
       ctx({ sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }] }),
     )
-    const interactions = (redacted.snapshotBefore as any).interactions
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].title).toBe('Secret')
   })
 
@@ -366,7 +398,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
       { interactionType: 'call', authorUserId: OWNER, title: 'Call notes', body: 'Call body' },
     ])
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    const interactions = (redacted.snapshotBefore as any).interactions
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].title).toBe('Call notes')
   })
 
@@ -382,7 +414,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
       },
     ])
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    const interactions = (redacted.snapshotBefore as any).interactions
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].participants).toBeNull()
     expect(interactions[0].linkedEntities).toBeNull()
   })
@@ -398,7 +430,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
       },
     ])
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    const interactions = (redacted.snapshotBefore as any).interactions
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].custom).toBeNull()
   })
 
@@ -413,7 +445,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
       },
     ])
     const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
-    const interactions = (redacted.snapshotBefore as any).interactions
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].custom).toEqual({ privateEmail: 'ghost@example.com' })
   })
 
@@ -426,7 +458,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
       },
     }
     const redacted = redactCustomerAuditEntry(entry, ctx())
-    const interactions = (redacted.snapshotBefore as any).interactions
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].title).toBeNull()
   })
 })
@@ -439,7 +471,7 @@ describe('loadCustomerAuditRedactionContext', () => {
       { personEntityId: PERSON_ID, ownerUserId: OWNER },
     ])
     jest.spyOn(conversationShares, 'listSharedChannelIds').mockResolvedValue(['channel-1'])
-    const result = await loadCustomerAuditRedactionContext({} as any, scope, VIEWER)
+    const result = await loadCustomerAuditRedactionContext(mockEm, scope, VIEWER)
     expect(result).toEqual({
       viewerUserId: VIEWER,
       sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
@@ -450,7 +482,7 @@ describe('loadCustomerAuditRedactionContext', () => {
   it('fails closed to empty grants when the lookup throws', async () => {
     jest.spyOn(conversationShares, 'listGrantsForViewer').mockRejectedValue(new Error('db down'))
     jest.spyOn(conversationShares, 'listSharedChannelIds').mockResolvedValue([])
-    const result = await loadCustomerAuditRedactionContext({} as any, scope, VIEWER)
+    const result = await loadCustomerAuditRedactionContext(mockEm, scope, VIEWER)
     expect(result).toEqual({ viewerUserId: VIEWER, sharedConversations: [], sharedChannelIds: [] })
   })
 })
