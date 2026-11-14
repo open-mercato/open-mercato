@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
+import { PasswordReset, Session } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../../events'
 import { PasswordService } from '../PasswordService'
@@ -38,9 +39,15 @@ function createUser(passwordHash: string | null): TestUser {
 function createService() {
   const emMock = {
     flush: jest.fn().mockResolvedValue(undefined),
+    nativeDelete: jest.fn().mockResolvedValue(2),
+    nativeUpdate: jest.fn().mockResolvedValue(2),
   }
-  const service = new PasswordService(emMock as unknown as EntityManager)
-  return { service, emMock }
+  const rootEm = {
+    ...emMock,
+    transactional: jest.fn(async (work: (em: EntityManager) => Promise<unknown>) => work(emMock as unknown as EntityManager)),
+  }
+  const service = new PasswordService(rootEm as unknown as EntityManager)
+  return { service, emMock, rootEm }
 }
 
 const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
@@ -146,4 +153,67 @@ describe('PasswordService', () => {
       message: 'New password must be different from current password',
     })
   })
+  test('revokes every other session and consumes all unused resets in the password transaction', async () => {
+    const { service, emMock, rootEm } = createService()
+    const user = createUser('hashed:CurrentPass1!')
+    mockedFindOneWithDecryption.mockResolvedValueOnce(user as never)
+
+    await service.changePassword(user.id, 'CurrentPass1!', 'StrongPass2!', 'caller-session')
+
+    expect(rootEm.transactional).toHaveBeenCalledTimes(1)
+    expect(mockedFindOneWithDecryption).toHaveBeenCalledWith(
+      emMock, expect.anything(), { id: user.id, deletedAt: null },
+      expect.objectContaining({ refresh: true, lockMode: expect.anything() }), {},
+    )
+    expect(emMock.nativeDelete).toHaveBeenCalledWith(Session, { user: user.id, id: { $ne: 'caller-session' } })
+    expect(emMock.nativeUpdate).toHaveBeenCalledWith(
+      PasswordReset, { user: user.id, usedAt: null }, { usedAt: expect.any(Date) },
+    )
+    expect(mockedEmitSecurityEvent.mock.invocationCallOrder[0]).toBeGreaterThan(emMock.flush.mock.invocationCallOrder[0])
+  })
+
+  test.each([undefined, null])('revokes all sessions without a caller binding (%s)', async (sessionId) => {
+    const { service, emMock } = createService()
+    const user = createUser('hashed:CurrentPass1!')
+    mockedFindOneWithDecryption.mockResolvedValueOnce(user as never)
+
+    await service.changePassword(user.id, 'CurrentPass1!', 'StrongPass2!', sessionId)
+
+    expect(emMock.nativeDelete).toHaveBeenCalledWith(Session, { user: user.id })
+  })
+
+  test('invalid credentials leave sessions and reset tokens untouched', async () => {
+    const { service, emMock } = createService()
+    const user = createUser('hashed:CurrentPass1!')
+    mockedFindOneWithDecryption.mockResolvedValueOnce(user as never)
+
+    await expect(service.changePassword(user.id, 'WrongPass1!', 'StrongPass2!', 'caller')).rejects.toMatchObject({ statusCode: 401 })
+
+    expect(emMock.nativeDelete).not.toHaveBeenCalled()
+    expect(emMock.nativeUpdate).not.toHaveBeenCalled()
+    expect(emMock.flush).not.toHaveBeenCalled()
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+    expect(user.passwordHash).toBe('hashed:CurrentPass1!')
+  })
+
+  test.each(['nativeDelete', 'nativeUpdate', 'flush'] as const)('propagates %s failure without success events', async (method) => {
+    const { service, emMock } = createService()
+    const user = createUser('hashed:CurrentPass1!')
+    mockedFindOneWithDecryption.mockResolvedValueOnce(user as never)
+    emMock[method].mockRejectedValueOnce(new Error('[internal] database failure'))
+
+    await expect(service.changePassword(user.id, 'CurrentPass1!', 'StrongPass2!', 'caller')).rejects.toThrow('database failure')
+
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+  })
+
+  test('does not emit success events when committing the transaction fails', async () => {
+    const { service, rootEm } = createService()
+    rootEm.transactional.mockRejectedValueOnce(new Error('[internal] commit failed'))
+
+    await expect(service.changePassword('user', 'CurrentPass1!', 'StrongPass2!', 'caller')).rejects.toThrow('commit failed')
+
+    expect(mockedEmitSecurityEvent).not.toHaveBeenCalled()
+  })
+
 })
