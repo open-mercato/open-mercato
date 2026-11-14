@@ -43,7 +43,10 @@ function parseArgs(rest: string[]) {
     const a = rest[i]
     if (!a) continue
     if (a.startsWith('--')) {
-      const [k, v] = a.replace(/^--/, '').split('=')
+      const option = a.replace(/^--/, '')
+      const separator = option.indexOf('=')
+      const k = separator === -1 ? option : option.slice(0, separator)
+      const v = separator === -1 ? undefined : option.slice(separator + 1)
       if (v !== undefined) args[k] = v
       else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
       else args[k] = true
