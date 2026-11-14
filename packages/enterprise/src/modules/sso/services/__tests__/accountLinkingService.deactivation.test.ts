@@ -18,6 +18,7 @@ jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: jest.fn(() => '
 const config = {
   id: 'config-1', protocol: 'oidc', tenantId: 'tenant-1', organizationId: 'org-1',
   allowedDomains: ['example.com'], autoLinkByEmail: true, appRoleMappings: {},
+  requiredAcrValues: [], requiredAmrValues: [],
 } as SsoConfig
 const payload = { subject: 'subject-1', email: 'user@example.com', emailVerified: true }
 

@@ -6,6 +6,12 @@ import { Attachment, AttachmentPartition } from '../../attachments/data/entities
 import { buildAttachmentFileUrl } from '../../attachments/lib/imageUrls'
 import { ensureDefaultPartitions } from '../../attachments/lib/partitions'
 import { resolveAttachmentAbsolutePath, storePartitionFile } from '../../attachments/lib/storage'
+import { assertAttachmentScopeInvariant } from '../../attachments/lib/access'
+import {
+  ensureAttachmentScanReceipt,
+  type AttachmentScanGate,
+  type AttachmentScanReceipt,
+} from '../../attachments/lib/scanning'
 
 const SYNC_EXCEL_ATTACHMENT_ENTITY_ID = 'sync_excel:upload'
 const SYNC_EXCEL_PARTITION_CODE = 'privateAttachments'
@@ -18,13 +24,27 @@ export async function createSyncExcelUploadAttachment(input: {
   fileName: string
   mimeType: string
   buffer: Buffer
+  attachmentScanGate?: AttachmentScanGate | null
+  securityScanReceipt?: AttachmentScanReceipt | null
 }): Promise<Attachment> {
+  const securityScan = await ensureAttachmentScanReceipt({
+    gate: input.attachmentScanGate,
+    receipt: input.securityScanReceipt,
+    request: {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      source: 'sync_excel',
+      buffer: input.buffer,
+    },
+  })
   await ensureDefaultPartitions(input.em)
 
   // Attachment partitions are global storage configuration, not tenant-scoped payload data.
   const partition = await input.em.findOne(AttachmentPartition, { code: SYNC_EXCEL_PARTITION_CODE })
   if (!partition) {
-    throw new Error('Storage partition is not configured.')
+    throw new Error('[internal] Storage partition is not configured.')
   }
 
   const stored = await storePartitionFile({
@@ -36,6 +56,7 @@ export async function createSyncExcelUploadAttachment(input: {
   })
 
   const attachmentId = randomUUID()
+  assertAttachmentScopeInvariant({ tenantId: input.tenantId, organizationId: input.organizationId })
   const attachment = input.em.create(Attachment, {
     id: attachmentId,
     entityId: SYNC_EXCEL_ATTACHMENT_ENTITY_ID,
@@ -53,6 +74,7 @@ export async function createSyncExcelUploadAttachment(input: {
       module: 'sync_excel',
       temporary: true,
       uploadId: input.uploadId,
+      securityScan,
     },
   })
 

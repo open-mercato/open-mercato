@@ -3,6 +3,8 @@ import { SsoAdminAuthError } from './admin-context'
 import { SsoConfigError } from '../services/ssoConfigService'
 import { ScimTokenError } from '../services/scimTokenService'
 import { ScimServiceError } from '../services/scimService'
+import { ScimGroupInputError } from '../lib/scim-group'
+import { ScimGroupServiceError } from '../services/scimGroupService'
 import { scimJson, buildScimError } from '../lib/scim-response'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -33,6 +35,12 @@ export function handleSsoAdminApiError(err: unknown, label: string): NextRespons
 export function handleScimApiError(err: unknown, label: string): Response {
   if (err instanceof ScimServiceError) {
     return scimJson(buildScimError(err.statusCode, err.message), err.statusCode)
+  }
+  if (err instanceof ScimGroupServiceError) {
+    return scimJson(buildScimError(err.statusCode, err.message, err.scimType), err.statusCode)
+  }
+  if (err instanceof ScimGroupInputError) {
+    return scimJson(buildScimError(400, err.message, 'invalidValue'), 400)
   }
   logger.error('SCIM API error', { label, err })
   return scimJson(buildScimError(500, 'Internal server error'), 500)

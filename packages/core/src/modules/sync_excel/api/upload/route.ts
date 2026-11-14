@@ -17,6 +17,16 @@ import {
   parseMultipartFormDataWithinUploadLimit,
   resolveDefaultAttachmentMaxUploadBytes,
 } from '../../../attachments/lib/upload-limits'
+import {
+  ensureAttachmentScanReceipt,
+  resolveAttachmentScanGate,
+  resolveAttachmentScanHttpError,
+  type AttachmentScanReceipt,
+} from '../../../attachments/lib/scanning'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sync_excel').child({ component: 'upload' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['sync_excel.run'] },
@@ -46,13 +56,15 @@ export const openApi = {
         { status: 400, description: 'Invalid multipart payload', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 413, description: 'CSV upload exceeds the maximum upload size', schema: errorSchema },
-        { status: 422, description: 'Unsupported entity type, file type, or upload blocked by a mutation guard', schema: errorSchema },
+        { status: 422, description: 'Unsupported input, file type, or upload blocked by a mutation guard or security scanner', schema: errorSchema },
+        { status: 503, description: 'Required attachment scanning is unavailable', schema: errorSchema },
       ],
     },
   },
 }
 
 export async function POST(request: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(request)
   if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -137,6 +149,31 @@ export async function POST(request: Request) {
   const entityType = guardedPayload.data.entityType
 
   const fileBuffer = Buffer.from(await file.arrayBuffer())
+  const attachmentScanGate = resolveAttachmentScanGate(container)
+  let securityScanReceipt: AttachmentScanReceipt
+  try {
+    securityScanReceipt = await ensureAttachmentScanReceipt({
+      gate: attachmentScanGate,
+      request: {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        fileName: file.name,
+        mimeType: file.type || 'text/csv',
+        source: 'sync_excel',
+        buffer: fileBuffer,
+      },
+    })
+  } catch (error) {
+    const mapped = resolveAttachmentScanHttpError(error) ?? {
+      status: 503 as const,
+      translationKey: 'attachments.errors.scanUnavailable',
+      fallback: 'Attachment scanning is temporarily unavailable.',
+    }
+    logger.error('Attachment scan gate failed', {
+      errorType: error instanceof Error ? error.name : typeof error,
+    })
+    return NextResponse.json({ error: t(mapped.translationKey, mapped.fallback) }, { status: mapped.status })
+  }
   const preview = parseCsvPreview(fileBuffer, { maxRows: 5 })
   const suggestedMapping = buildSuggestedMapping(entityType, preview.headers)
 
@@ -149,6 +186,8 @@ export async function POST(request: Request) {
     fileName: file.name,
     mimeType: file.type || 'text/csv',
     buffer: fileBuffer,
+    attachmentScanGate,
+    securityScanReceipt,
   })
 
   const upload = em.create(SyncExcelUpload, {

@@ -3,6 +3,12 @@ import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { isHardenedAiRuntimeProfile } from '@open-mercato/shared/lib/ai/runtime-security-profile'
+import {
+  AiContentSafetyBlockedError,
+  AiContentSafetyUnavailableError,
+  enforceAiContentSafety,
+} from './content-safety'
 
 const logger = createLogger('ai_assistant')
 
@@ -86,6 +92,27 @@ export async function executeTool(
   const handlerContext: McpToolContext = { ...context, tool }
   try {
     const result = await tool.handler(parseResult.data, handlerContext)
+    if (isHardenedAiRuntimeProfile()) {
+      try {
+        await enforceAiContentSafety(context.container, { phase: 'tool_result', content: result })
+      } catch (error) {
+        if (error instanceof AiContentSafetyBlockedError) {
+          return {
+            success: false,
+            error: 'Tool result rejected by the content safety filter',
+            errorCode: 'CONTENT_SAFETY_BLOCKED',
+          }
+        }
+        if (error instanceof AiContentSafetyUnavailableError) {
+          return {
+            success: false,
+            error: 'Tool result content safety check is unavailable',
+            errorCode: 'CONTENT_SAFETY_UNAVAILABLE',
+          }
+        }
+        throw error
+      }
+    }
     return { success: true, result }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)

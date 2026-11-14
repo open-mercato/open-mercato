@@ -46,7 +46,13 @@ describe('passkey enrollment route with the real service and provider', () => {
     }
     const pending = { ...method }
     const em = {
-      findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => query.secret === setup.setupId ? method : null),
+      findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
+        if (query.id === 'user-1') return { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+        const clauses = Array.isArray(query.$or) ? query.$or as Array<Record<string, unknown>> : []
+        const matchesSetup = query.secret === setup.setupId
+          || clauses.some((clause) => clause.secret === setup.setupId)
+        return matchesSetup ? method : null
+      }),
       flush: jest.fn(),
     }
     const registry = new MfaProviderRegistry()

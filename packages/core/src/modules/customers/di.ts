@@ -1,4 +1,4 @@
-import { asValue } from 'awilix'
+import { asClass, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
@@ -7,6 +7,7 @@ import { createCalendarEventTypeRegistry } from './calendar-event-types'
 import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from './lib/calendar/eventTypeResolver'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
+import { CustomerPeoplePrivacyHandler } from './privacy'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
 // The CRUD factory derives resourceKind via singularize-the-second-segment of
@@ -74,6 +75,7 @@ export function register(container: AppContainer) {
     CustomerEntity: asValue(CustomerEntity),
     CustomerAddress: asValue(CustomerAddress),
     CustomerInteraction: asValue(CustomerInteraction),
+    customerPeoplePrivacyHandler: asClass(CustomerPeoplePrivacyHandler).scoped(),
     calendarEventTypeRegistry: asValue(calendarEventTypeRegistry),
     calendarEventTypeCatalogService: asValue({
       async resolveBehavior(input: { tenantId: string; organizationId: string; key: string }) {

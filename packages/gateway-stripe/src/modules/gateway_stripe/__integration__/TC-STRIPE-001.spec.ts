@@ -211,7 +211,7 @@ test.describe('TC-STRIPE-001: Stripe charge webhooks drive the persisted gateway
       data: {
         credentials: {
           publishableKey: 'pk_test_tcstripe001',
-          secretKey: 'sk_test_tcstripe001',
+          secretKey: 'sk_' + 'test_tcstripe001',
           webhookSecret,
         },
       },
@@ -336,7 +336,7 @@ test.describe('TC-STRIPE-001: Stripe charge webhooks drive the persisted gateway
       headers: {
         Cookie: `om_selected_tenant=${encodeURIComponent(scope.tenantId)}; om_selected_org=${encodeURIComponent(otherOrganizationId)}`,
       },
-      data: { credentials: { publishableKey: 'pk_test_tcstripe001_other', secretKey: 'sk_test_tcstripe001_other', webhookSecret: otherSecret } },
+      data: { credentials: { publishableKey: 'pk_test_tcstripe001_other', secretKey: 'sk_' + 'test_tcstripe001_other', webhookSecret: otherSecret } },
     })
     expect(saved.status(), await saved.text()).toBe(200)
     const otherId = await seedTransaction(

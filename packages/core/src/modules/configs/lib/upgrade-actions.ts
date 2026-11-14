@@ -153,6 +153,20 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     },
   },
   {
+    id: 'audit_logs.register-access-log-retention',
+    version: '0.6.8',
+    messageKey: 'audit_logs.upgradeActions.accessLogRetention.message',
+    ctaKey: 'audit_logs.upgradeActions.accessLogRetention.cta',
+    successKey: 'audit_logs.upgradeActions.accessLogRetention.success',
+    loadingKey: 'audit_logs.upgradeActions.accessLogRetention.loading',
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerAccessLogRetentionSchedules } = await import(
+        '@open-mercato/core/modules/audit_logs/setup'
+      )
+      await registerAccessLogRetentionSchedules(container, { tenantId, organizationId })
+    },
+  },
+  {
     id: 'phone_calls.seed-call-encryption-maps',
     version: '0.7.1',
     messageKey: 'phone_calls.config.upgradeActions.encryptionMaps.message',

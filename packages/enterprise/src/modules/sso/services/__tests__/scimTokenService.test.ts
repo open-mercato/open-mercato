@@ -46,6 +46,7 @@ describe('ScimTokenService.generateToken', () => {
     isSuperAdmin: false,
     organizationId: 'org-1',
     tenantId: 'tenant-1',
+    actorId: 'user-1',
   }
 
   beforeEach(() => { mockReportError.mockReset() })
@@ -72,6 +73,7 @@ describe('ScimTokenService.generateToken', () => {
       ssoConfigId: 'sso-config-1',
       organizationId: 'org-1',
       tenantId: 'tenant-1',
+      createdBy: 'user-1',
       tokenLookupHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     }))
     expect(flush).toHaveBeenCalledTimes(1)

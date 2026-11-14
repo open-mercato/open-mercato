@@ -300,6 +300,7 @@
   "security.audit.sudo.delete": "Delete sudo configuration",
   "security.audit.sudo.update": "Update sudo configuration",
   "security.label": "Seguridad",
+  "security.login.errors.mfaUnavailable": "La autenticación multifactor no está disponible temporalmente. Inténtalo de nuevo.",
   "security.login.mfaChallenge.actions.back": "Volver al inicio de sesión",
   "security.login.mfaChallenge.actions.moreOptions": "More options",
   "security.login.mfaChallenge.actions.verify": "Verificar",

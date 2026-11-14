@@ -3,9 +3,13 @@ import type { EntityMetadata, EventArgs, EventSubscriber, FlushEventArgs } from 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DriverException, ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
-import { TenantDataEncryptionService, parseDecryptedFieldValue } from './tenantDataEncryptionService'
+import {
+  TenantDataEncryptionService,
+  TenantDataEncryptionUnavailableError,
+  parseDecryptedFieldValue,
+} from './tenantDataEncryptionService'
 import { forgetEncryptionPolicyMemo } from './policyMemo'
-import { isTenantDataEncryptionEnabled } from './toggles'
+import { isTenantDataEncryptionEnabled, isTenantDataEncryptionRequired } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { createLogger } from '../logger'
@@ -287,9 +291,20 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     changeSet?: { payload?: Record<string, unknown> },
   ) {
     const encryptionConfigured = isTenantDataEncryptionEnabled()
-    if (!encryptionConfigured || !this.service.isEnabled()) {
+    const encryptionRequired = isTenantDataEncryptionRequired()
+    if (!encryptionConfigured && !encryptionRequired) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
+      return
+    }
+    if (!this.service.isEnabled()) {
       if (encryptionConfigured) warnEncryptionPaused(meta?.className || meta?.name)
+      if (encryptionRequired) {
+        throw new TenantDataEncryptionUnavailableError(
+          meta?.className || meta?.name || 'unknown',
+          'kms-unhealthy',
+        )
+      }
+      debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
       return
     }
     const resolvedMeta = this.resolveMeta(meta, target, em)

@@ -321,6 +321,10 @@ export default function LoginPage() {
       }
       // In case API returns 200 with JSON
       const data = await res.json().catch(() => null) as LoginResponseEventDetail
+      if (data && data.ok === false) {
+        setError(extractErrorMessage(data) || translate('auth.login.errors.generic', 'An error occurred. Please try again.'))
+        return
+      }
       emitLoginResponseEvent(data)
       clearAllOperations()
       clearAllPerspectiveState()

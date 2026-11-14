@@ -102,6 +102,13 @@ describe('auth.users.* buildLog organization scoping (issue #1978)', () => {
     expect(metadata.tenantId).toBe('tenant-1')
     expect(metadata.resourceKind).toBe('auth.user')
     expect(metadata.resourceId).toBe(user.id)
+    expect(metadata.sensitiveInput).toBe(false)
+
+    const passwordMetadata = (await handler.buildLog!({
+      ...args,
+      input: { ...args.input, password: 'StrongPass1!' },
+    })) as CommandLogMetadata
+    expect(passwordMetadata.sensitiveInput).toBe(true)
   })
 
   it('auth.users.update attaches the user organization to the audit log', async () => {
@@ -151,6 +158,13 @@ describe('auth.users.* buildLog organization scoping (issue #1978)', () => {
     expect(metadata.tenantId).toBe('tenant-1')
     expect(metadata.resourceKind).toBe('auth.user')
     expect(metadata.resourceId).toBe(user.id)
+    expect(metadata.sensitiveInput).toBe(false)
+
+    const passwordMetadata = (await handler.buildLog!({
+      ...args,
+      input: { ...args.input, password: 'StrongPass2!' },
+    })) as CommandLogMetadata
+    expect(passwordMetadata.sensitiveInput).toBe(true)
   })
 
   it('auth.users.delete attaches the user organization to the audit log', async () => {

@@ -62,6 +62,9 @@ describe('ai_assistant encryption maps', () => {
       'normalized_input',
       'field_diff',
       'records',
+      'failed_records',
+      'side_effects_summary',
+      'execution_result',
     ])
   })
 

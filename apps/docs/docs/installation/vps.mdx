@@ -76,6 +76,10 @@ NODE_ENV=production
 # NODE_OPTIONS=--max-old-space-size=3072  # default; raise for larger hosts — see Troubleshooting
 OM_WEBHOOK_MAX_BODY_BYTES=1048576
 
+# Field-level encryption (use Vault instead if available)
+TENANT_DATA_ENCRYPTION=true
+TENANT_DATA_ENCRYPTION_FALLBACK_KEY=replace-with-a-stable-random-secret
+
 # Cache
 CACHE_REDIS_URL=redis://redis:6379
 CACHE_STRATEGY=redis
@@ -99,6 +103,7 @@ Generate strong secrets:
 
 ```bash
 openssl rand -hex 32   # for JWT_SECRET
+openssl rand -base64 48 # for TENANT_DATA_ENCRYPTION_FALLBACK_KEY
 openssl rand -hex 24   # for MEILISEARCH_MASTER_KEY
 ```
 
@@ -238,6 +243,8 @@ Use the shared [Production Readiness checklist](../deployment/production-readine
 - [ ] PostgreSQL, Redis, and Meilisearch remain on the private Docker network and are not published to the internet.
 - [ ] The nginx routes and body-size limits match the enabled webhook providers and application limits.
 - [ ] Named-volume backups, a restore rehearsal, container resource limits, and disk-space alerts cover this host.
+- [ ] Vault or a stable `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` is configured; production refuses to boot without one.
+- [ ] `GET /api/configs/health/ready` returns HTTP 200 once the required encryption dependencies are ready.
 
 If deploying a generated standalone app on a VPS, also follow the [Readiness Scanner guide](../deployment/readiness-scanner): scan locally before deployment and inside the staging and production application containers with their injected environment. Use runtime secret injection and keep plaintext secret files out of the release image. The framework-monorepo checkout used in this page's quick start is not a supported scanner target; complete the shared checklist manually for that topology.
 

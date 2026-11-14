@@ -95,6 +95,51 @@ describe('runCustomRouteAfterInterceptors', () => {
     })
   })
 
+  test('propagates an interceptor-declared status code with the replaced body', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.unavailable',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return { replace: { ok: false, code: 'MFA_UNAVAILABLE' }, statusCode: 503 }
+            },
+          },
+        ],
+      },
+    ])
+
+    const result = await runCustomRouteAfterInterceptors(buildArgs())
+    expect(result.ok).toBe(true)
+    expect(result.statusCode).toBe(503)
+    expect(result.body).toEqual({ ok: false, code: 'MFA_UNAVAILABLE' })
+  })
+
+  test('ignores a status code outside the HTTP range', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.bad-status',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return { merge: { flagged: true }, statusCode: 42 }
+            },
+          },
+        ],
+      },
+    ])
+
+    const result = await runCustomRouteAfterInterceptors(buildArgs())
+    expect(result.statusCode).toBe(200)
+    expect(result.body).toMatchObject({ flagged: true })
+  })
+
   test('propagates timeout failures from interceptor runner', async () => {
     registerApiInterceptors([
       {

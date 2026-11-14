@@ -1,4 +1,4 @@
-import { asFunction, asValue } from 'awilix'
+import { asClass, asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { IntegrationCredentials, IntegrationLog, IntegrationState, SyncExternalIdMapping } from './data/entities'
@@ -11,6 +11,7 @@ import type { IntegrationStateService } from './lib/state-service'
 import type { IntegrationLogService } from './lib/log-service'
 import type { KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { IntegrationEnvironmentPrivacyHandler } from './privacy'
 
 type Cradle = {
   em: EntityManager
@@ -45,6 +46,7 @@ export function register(container: AppContainer) {
     integrationHealthService: asFunction(({ integrationStateService, integrationLogService }: Cradle) =>
       createHealthService(container, integrationStateService, integrationLogService),
     ).scoped().proxy(),
+    integrationEnvironmentPrivacyHandler: asClass(IntegrationEnvironmentPrivacyHandler).scoped(),
     SyncExternalIdMapping: asValue(SyncExternalIdMapping),
     IntegrationCredentials: asValue(IntegrationCredentials),
     IntegrationState: asValue(IntegrationState),

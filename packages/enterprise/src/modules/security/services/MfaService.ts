@@ -3,13 +3,20 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { ZodError } from 'zod'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { EnforcementScope, MfaEnforcementPolicy, MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import type { MfaProviderConfirmResult, MfaProviderRuntimeContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
+import {
+  TenantDataEncryptionUnavailableError,
+  type TenantDataEncryptionService,
+} from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { isTenantDataEncryptionRequired } from '@open-mercato/shared/lib/encryption/toggles'
+import { SECURITY_MFA_METHOD_ENCRYPTION_ENTITY_ID } from '../encryption'
 
 type SetupResult = {
   setupId: string
@@ -44,6 +51,7 @@ export class MfaService {
     private readonly em: EntityManager,
     private readonly mfaProviderRegistry: MfaProviderRegistry,
     private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
+    private readonly tenantEncryptionService?: TenantDataEncryptionService,
   ) {}
 
   async setupMethod(
@@ -76,6 +84,11 @@ export class MfaService {
     const result = context
       ? await provider.setup(userId, resolvedPayload, context)
       : await provider.setup(userId, resolvedPayload)
+    const encryptedSecret = await this.encryptSecret(
+      result.setupId,
+      user.tenantId,
+      user.organizationId ?? null,
+    )
     const now = new Date()
     const method = this.em.create(UserMfaMethod, {
       userId,
@@ -83,7 +96,8 @@ export class MfaService {
       organizationId: user.organizationId ?? null,
       type: providerType,
       isActive: false,
-      secret: result.setupId,
+      secret: encryptedSecret.secret,
+      secretHash: encryptedSecret.secretHash,
       providerMetadata: null,
       createdAt: now,
       updatedAt: now,
@@ -101,12 +115,19 @@ export class MfaService {
     providerType?: string,
     context?: MfaProviderRuntimeContext,
   ): Promise<{ recoveryCodes?: string[] }> {
-    const method = await this.em.findOne(UserMfaMethod, {
+    const user = await this.findUserById(userId)
+    if (!user?.tenantId) {
+      throw new MfaServiceError('User not found', 404)
+    }
+    const method = await findOneWithDecryption(this.em, UserMfaMethod, {
       userId,
       isActive: false,
       deletedAt: null,
-      secret: setupId,
-    })
+      $or: [
+        { secretHash: { $in: lookupHashCandidates(setupId) } },
+        { secret: setupId },
+      ],
+    }, undefined, { tenantId: user.tenantId, organizationId: user.organizationId ?? null })
     if (!method) {
       throw new MfaServiceError('MFA setup session not found', 404)
     }
@@ -133,20 +154,26 @@ export class MfaService {
     const resolvedLabel = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
 
     if (resolvedLabel && provider.allowMultiple) {
-      const duplicate = await this.em.findOne(UserMfaMethod, {
+      const duplicate = await findOneWithDecryption(this.em, UserMfaMethod, {
         userId,
         type: method.type,
         label: resolvedLabel,
         isActive: true,
         deletedAt: null,
-      })
+      }, undefined, { tenantId: user.tenantId, organizationId: user.organizationId ?? null })
       if (duplicate) {
         throw new MfaServiceError(`An MFA method with this name already exists`, 409)
       }
     }
 
+    const encryptedSecret = await this.encryptSecret(
+      confirmation.secret ?? null,
+      method.tenantId,
+      method.organizationId ?? null,
+    )
     method.providerMetadata = confirmation.metadata
-    method.secret = confirmation.secret ?? null
+    method.secret = encryptedSecret.secret
+    method.secretHash = encryptedSecret.secretHash
     method.label = resolvedLabel
     method.isActive = true
     method.updatedAt = new Date()
@@ -165,7 +192,8 @@ export class MfaService {
   }
 
   async getUserMethods(userId: string): Promise<UserMfaMethod[]> {
-    return this.em.find(
+    return findWithDecryption(
+      this.em,
       UserMfaMethod,
       {
         userId,
@@ -175,6 +203,7 @@ export class MfaService {
       {
         orderBy: { createdAt: 'asc' },
       },
+      {},
     )
   }
 
@@ -191,12 +220,12 @@ export class MfaService {
   }
 
   async removeMethod(userId: string, methodId: string): Promise<void> {
-    const method = await this.em.findOne(UserMfaMethod, {
+    const method = await findOneWithDecryption(this.em, UserMfaMethod, {
       id: methodId,
       userId,
       isActive: true,
       deletedAt: null,
-    })
+    }, undefined, {})
     if (!method) {
       throw new MfaServiceError('MFA method not found', 404)
     }
@@ -293,6 +322,41 @@ export class MfaService {
     return randomBytes(5).toString('hex').toUpperCase()
   }
 
+  private async encryptSecret(
+    secret: string | null,
+    tenantId: string,
+    organizationId: string | null,
+  ): Promise<{ secret: string | null; secretHash: string | null }> {
+    if (secret === null) return { secret: null, secretHash: null }
+    if (!this.tenantEncryptionService) {
+      if (isTenantDataEncryptionRequired()) {
+        throw new MfaServiceError('MFA encryption service is unavailable', 503)
+      }
+      return { secret, secretHash: null }
+    }
+
+    let encrypted: Record<string, unknown>
+    try {
+      encrypted = await this.tenantEncryptionService.encryptEntityPayload(
+        SECURITY_MFA_METHOD_ENCRYPTION_ENTITY_ID,
+        { secret, secretHash: null },
+        tenantId,
+        organizationId,
+      )
+    } catch (error) {
+      if (error instanceof TenantDataEncryptionUnavailableError) {
+        throw new MfaServiceError('MFA secret encryption is unavailable', 503)
+      }
+      throw error
+    }
+    const storedSecret = typeof encrypted.secret === 'string' ? encrypted.secret : null
+    const secretHash = typeof encrypted.secretHash === 'string' ? encrypted.secretHash : null
+    if (isTenantDataEncryptionRequired() && (!storedSecret || storedSecret === secret || !secretHash)) {
+      throw new MfaServiceError('MFA secret encryption is unavailable', 503)
+    }
+    return { secret: storedSecret, secretHash }
+  }
+
   private buildRecoveryCodeCandidates(input: string): string[] {
     const trimmed = input.trim()
     const compact = trimmed.replace(/[\s-]/g, '')
@@ -314,12 +378,12 @@ export class MfaService {
   ): Promise<void> {
     if (allowMultiple) return
 
-    const existingMethod = await this.em.findOne(UserMfaMethod, {
+    const existingMethod = await findOneWithDecryption(this.em, UserMfaMethod, {
       userId,
       type: providerType,
       isActive: true,
       deletedAt: null,
-    })
+    }, undefined, {})
     if (existingMethod) {
       throw new MfaServiceError(`MFA provider '${providerType}' is already configured`, 409)
     }

@@ -118,7 +118,7 @@ test('the deterministic step budgets its process independently of the per-model 
   // present one, so a future edit that reintroduces the scaling has to break this assertion to do
   // it. The assertion holds for any size, so catalog growth never makes these figures wrong.
   for (const caseTimeout of [1_000, 120_000, 600_000, 3_600_000]) {
-    for (const caseCount of [1, 234, 2_340]) {
+    for (const caseCount of [1, 235, 2_350]) {
       assert.notEqual(invocation.timeout, caseTimeout * Math.max(1, caseCount) + 60_000)
     }
   }

@@ -36,10 +36,46 @@ Non-numeric, zero, or negative values fall back to the 10s default. The variable
 
 ## Retention
 
-Access log retention is automatic and environment-configurable:
+Access logs are retained for **90 days** by default. You may increase this period with `AUDIT_LOGS_RETENTION_DAYS`; values below 90 days are raised to the minimum. `AUDIT_LOGS_RETENTION_BATCH_SIZE` controls how many rows one worker job deletes and defaults to 1000.
 
-- **Core resources** (`auth.user`, `auth.role`) are retained for **7 days** by default. Override with `AUDIT_LOGS_CORE_RETENTION_DAYS`.
-- **All other resources** rotate after **8 hours** by default. Override with `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`.
-- **Rotation frequency** is throttled to at most one sweep per **60 seconds** per process. Override with `AUDIT_LOGS_ROTATE_INTERVAL_MS`; setting it to `0` runs the sweep after every write.
+Cleanup runs outside the request path through the queue worker registered by the module. If the scheduler module is not enabled, logging continues and an operator can run cleanup manually:
 
-Configure these in your `.env` file to keep the volume of access logs under control while preserving critical trails for longer investigations.
+```bash
+yarn mercato audit_logs access-retention:prune --dry-run --tenant <uuid> --org <uuid>
+yarn mercato audit_logs access-retention:prune --tenant <uuid> --org <uuid>
+```
+
+Use `--class core` or `--class non_core` for class-specific runs, `--retention-days` to increase the period, and `--batch` to adjust the bounded batch size. A global run requires the explicit `--all-scopes` flag.
+
+CRUD access-log writes are blocking by default: a successful response is not returned until the log insert succeeds, and a failed insert fails the request instead of being dropped. `OM_CRUD_ACCESS_LOG_MODE=async` is available for low-assurance deployments that explicitly accept possible log loss on process failure. The older `OM_CRUD_ACCESS_LOG_BLOCKING=0|1` switch is deprecated; it is still read when `OM_CRUD_ACCESS_LOG_MODE` is unset and will be removed in a later minor release.
+
+The Access Log page shows the normalized request context, including method, path, request and session identifiers, result, user agent, and source IP when trusted proxy depth is configured. The source IP uses the same `RATE_LIMIT_TRUST_PROXY_DEPTH` safety rule as rate limiting; forwarded headers are ignored by default.
+
+Access records can be downloaded from `GET /api/audit_logs/audit-logs/access/export`. The CSV export applies the same tenant, organization and actor scope as the Access Log list.
+
+## Signed evidence bundles
+
+For an offline evidence package, use the scoped JSON export:
+
+```bash
+export OM_AUDIT_EVIDENCE_HMAC_KEY="<secret-from-your-secret-manager>"
+yarn mercato audit_logs evidence:export --tenant <uuid> --org <uuid> --out ./evidence/audit.json
+yarn mercato audit_logs evidence:verify --file ./evidence/audit.json
+```
+
+The file combines action and access records, gives each record a correlation ID, and protects their content and order with an HMAC-SHA256 chain and bundle signature.
+
+The JSON can contain sensitive data. It is written with owner-only permissions but is not encrypted by the export command. Store it in an encrypted, access-controlled location. The signature detects changes made after export; it does not prove that source database rows were unchanged before the export was created.
+
+## Removing credentials from older action logs
+
+New action logs filter passwords, tokens, API keys, private keys, recovery codes and similar credential fields before they reach the database. The database migration removes these values from plaintext historical JSON fields.
+
+If tenant data encryption has been used, run the application-level cleanup after deploying the migration. It decrypts each affected field with the configured KMS or Vault key, replaces credentials with `[REDACTED]`, and encrypts the sanitized value again:
+
+```bash
+yarn mercato audit_logs sensitive-data:redact --dry-run --batch 250
+yarn mercato audit_logs sensitive-data:redact --batch 250
+```
+
+Use `--tenant <uuid>` and `--org <uuid>` to limit the scan. The command uses bounded, keyset-ordered batches and can be repeated safely. It prints row identifiers and counts only, never stored payloads. If an encrypted row cannot be decrypted or encrypted again, that row is left unchanged and the command exits with an error. Restore access to the configured KMS or Vault keys before retrying.

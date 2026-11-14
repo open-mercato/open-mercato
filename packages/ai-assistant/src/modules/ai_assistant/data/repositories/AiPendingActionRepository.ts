@@ -82,10 +82,9 @@ export interface AiPendingActionSetStatusExtra {
  *   to a 409 Conflict response.
  * - `listExpired` for the cleanup worker (Step 5.12).
  *
- * Every read goes through `findOneWithDecryption` / `findWithDecryption`
- * because `normalized_input`, `field_diff` and `records` are declared in the
- * module's `encryption.ts` and are encrypted at rest when tenant data
- * encryption is enabled.
+ * Every read goes through `findOneWithDecryption` / `findWithDecryption` so
+ * encrypted proposal inputs, diffs and execution results are transparently
+ * restored for the confirmation flow.
  */
 export class AiPendingActionRepository {
   constructor(private readonly em: EntityManager) {}

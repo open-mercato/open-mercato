@@ -25,6 +25,10 @@
       "types": "./src/lib/commands/index.ts",
       "default": "./dist/lib/commands/index.js"
     },
+    "./lib/privacy": {
+      "types": "./src/lib/privacy/index.ts",
+      "default": "./dist/lib/privacy/index.js"
+    },
     "./lib/catalog-visibility": {
       "types": "./src/lib/catalog-visibility/index.ts",
       "default": "./dist/lib/catalog-visibility/index.js"

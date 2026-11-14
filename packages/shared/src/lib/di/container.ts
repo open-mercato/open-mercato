@@ -9,8 +9,8 @@ import { applyDiOverridesToContainer } from '@open-mercato/shared/modules/overri
 import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { createLogger } from '../logger'
+import { isTenantDataEncryptionEnabled, isTenantDataEncryptionRequired } from '../encryption/toggles'
 
 const logger = createLogger('shared').child({ component: 'di' })
 
@@ -32,6 +32,7 @@ const APP_DI_REGISTER_WARNING_KEY = '__openMercatoAppDiRegisterWarningEmitted__'
 // exist, so retrying the import per request container only repeats a failed module resolution
 // (and its log line) once per job.
 const APP_DI_MODULE_UNRESOLVABLE_KEY = '__openMercatoAppDiModuleUnresolvable__'
+const ENCRYPTION_ENABLED_KEY = '__openMercatoEncryptionEnabledCache__'
 // Phase 5 — process-scoped bootstrap cache. The cache/event-bus/encryption
 // services bootstrap() creates are inherently process-scoped (they hold
 // state across requests). Caching them on globalThis after the first
@@ -40,7 +41,6 @@ const APP_DI_MODULE_UNRESOLVABLE_KEY = '__openMercatoAppDiModuleUnresolvable__'
 // instances. Same globalThis pattern as registerDiRegistrars so HMR
 // keeps working.
 const BOOTSTRAP_CACHE_KEY = '__openMercatoBootstrapCache__'
-const ENCRYPTION_ENABLED_KEY = '__openMercatoEncryptionEnabledCache__'
 
 const BOOTSTRAP_CACHE_KEYS = [
   'cache',
@@ -281,7 +281,9 @@ export async function createRequestContainer(): Promise<AppContainer> {
           await bootstrap(container)
           setBootstrapCache(harvestBootstrapCache(container))
         }
-      } catch { /* optional */ }
+      } catch (error) {
+        if (isTenantDataEncryptionRequired()) throw error
+      }
     }
   }
   // App-level DI override. Scaffolded apps register this callback explicitly
@@ -340,17 +342,17 @@ export async function createRequestContainer(): Promise<AppContainer> {
     // override supplying a service without it would throw per operation. Keep
     // the shape check that the old health-probe helper performed.
     const serviceCanReportEnabled = typeof tenantEncryptionService?.isEnabled === 'function'
-    if (emForEnc && serviceCanReportEnabled && getCachedEncryptionConfigured()) {
+    const encryptionRequired = isTenantDataEncryptionRequired()
+    if (emForEnc && serviceCanReportEnabled && (getCachedEncryptionConfigured() || encryptionRequired)) {
       const { registerTenantEncryptionSubscriber } = await import('@open-mercato/shared/lib/encryption/subscriber')
       registerTenantEncryptionSubscriber(emForEnc, tenantEncryptionService)
     }
-  } catch {
-    // best-effort; do not block container creation
+  } catch (error) {
+    if (isTenantDataEncryptionRequired()) throw error
   }
   return container
 }
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   require('server-only')
 } catch {
   // allow CLI/generator usage where Next server-only is not present

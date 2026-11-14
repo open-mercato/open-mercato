@@ -102,6 +102,10 @@ Handlers can opt into structured audit logs by returning metadata from `buildLog
 
 When metadata is provided, the bus writes to `ActionLogService` (if registered in the container) and persists undo tokens automatically. Snapshot fields (`snapshotBefore` / `snapshotAfter`) make it easy to render diffs in the admin UI.
 
+Command inputs and audit metadata are recursively filtered before persistence. Keys that represent passwords, tokens, API keys, private keys, recovery codes, authorization headers, cookies, OTP values, and other credentials are replaced with `[REDACTED]`. The same filtering runs again in `ActionLogService` for callers that do not use the command bus.
+
+Set `sensitiveInput: true` in `buildLog` when a credential is carried under a generic key such as `value`. Sensitive commands do not receive undo or redo metadata because replay would require retaining the original credential. Automatic key detection cannot be disabled, so a command cannot opt back into raw credential history.
+
 ### Helper Utilities
 
 Reusable helpers in `@open-mercato/shared/lib/commands/helpers` cover common patterns:

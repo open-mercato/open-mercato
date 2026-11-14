@@ -9,7 +9,11 @@ import {
   isEncryptedPayloadShape,
 } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
-import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
+import {
+  isTenantDataEncryptionEnabled,
+  isTenantDataEncryptionRequired,
+  isEncryptionDebugEnabled,
+} from './toggles'
 import { createLogger } from '../logger'
 import {
   getEncryptionPolicyMemo,
@@ -29,6 +33,22 @@ export type EncryptionMapRecord = {
   entityId: string
   keyScope?: EncryptionKeyScope
   fields: EncryptedFieldRule[]
+}
+
+export class TenantDataEncryptionUnavailableError extends Error {
+  readonly code = 'TENANT_DATA_ENCRYPTION_UNAVAILABLE'
+
+  constructor(readonly entityId: string, reason: 'disabled' | 'kms-unhealthy' | 'dek-unavailable') {
+    super(`Tenant data encryption is unavailable for ${entityId}: ${reason}`)
+    this.name = 'TenantDataEncryptionUnavailableError'
+  }
+}
+
+export type TenantDataEncryptionReadiness = {
+  enabled: boolean
+  kmsHealthy: boolean
+  ready: boolean
+  required: boolean
 }
 
 type MapCacheKey = {
@@ -255,9 +275,24 @@ export function resolveEncryptionKeyId(
  * transaction-aware map write needs.
  */
 function getSqlExecutor(em: EntityManager): SqlConnection | null {
-  const candidate = em as unknown as { execute?: unknown }
-  if (typeof candidate.execute !== 'function') return null
-  return candidate as unknown as SqlConnection
+  const candidate = em as unknown as {
+    execute?: unknown
+    getConnection?: () => { execute?: unknown } | null | undefined
+  }
+  if (typeof candidate.execute === 'function') return candidate as unknown as SqlConnection
+  // Test doubles and some MikroORM wrappers expose the driver only through
+  // `getConnection()`; both shapes can run the policy statement.
+  if (typeof candidate.getConnection === 'function') {
+    try {
+      const connection = candidate.getConnection()
+      if (connection && typeof connection.execute === 'function') {
+        return connection as unknown as SqlConnection
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
 }
 
 export class TenantDataEncryptionService {
@@ -287,6 +322,18 @@ export class TenantDataEncryptionService {
 
   isEnabled(): boolean {
     return isTenantDataEncryptionEnabled() && this.kms.isHealthy()
+  }
+
+  getReadiness(): TenantDataEncryptionReadiness {
+    const enabled = isTenantDataEncryptionEnabled()
+    const kmsHealthy = this.kms.isHealthy()
+    const required = isTenantDataEncryptionRequired()
+    return {
+      enabled,
+      kmsHealthy,
+      ready: !required || (enabled && kmsHealthy),
+      required,
+    }
   }
 
   private isDekExpired(dek: TenantDek): boolean {
@@ -608,7 +655,9 @@ export class TenantDataEncryptionService {
     organizationId?: string | null,
     options?: { createMissingDek?: boolean; em?: EntityManager }
   ): Promise<Record<string, unknown>> {
-    if (!this.isEnabled()) {
+    const encryptionEnabled = isTenantDataEncryptionEnabled()
+    const encryptionRequired = isTenantDataEncryptionRequired()
+    if (!encryptionEnabled && !encryptionRequired) {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
@@ -620,9 +669,30 @@ export class TenantDataEncryptionService {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
       return payload
     }
+    const hasProtectedValue = fields.some((rule) => {
+      const key = findKey(payload, rule.field)
+      return key !== null && payload[key] !== null && payload[key] !== undefined
+    })
+    if (!hasProtectedValue) return payload
+    // `isEnabled()` folds the environment toggle together with KMS health. In a
+    // required-encryption deployment this must fail closed instead of writing
+    // plaintext (production boot already asserts a healthy KMS).
+    if (!this.isEnabled()) {
+      if (encryptionRequired) {
+        throw new TenantDataEncryptionUnavailableError(
+          entityId,
+          encryptionEnabled ? 'kms-unhealthy' : 'disabled',
+        )
+      }
+      debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
+      return payload
+    }
     const keyId = resolveEncryptionKeyId(entityId, map?.keyScope, tenantId)
     const dek = await this.resolveDekForEncrypt(keyId, { createIfMissing: options?.createMissingDek !== false })
     if (!dek) {
+      if (encryptionRequired) {
+        throw new TenantDataEncryptionUnavailableError(entityId, 'dek-unavailable')
+      }
       debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId, keyScope: map?.keyScope ?? 'tenant' })
       return payload
     }

@@ -63,6 +63,14 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     expect(mfaLogin.challenge_id).toBeTruthy()
     expect(mfaLogin.available_methods?.map((method) => method.type)).toContain('totp')
 
+    const pendingMethodsResponse = await fetchJson<{ error?: string }>(
+      request,
+      'GET',
+      '/api/security/mfa/methods',
+      { token: mfaLogin.token },
+    )
+    expect(pendingMethodsResponse.status).toBe(401)
+
     const totpVerify = await verifyTotpChallenge(
       request,
       mfaLogin.token,
@@ -72,6 +80,17 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     expect(totpVerify.status).toBe(200)
     expect(totpVerify.body.ok).toBe(true)
     expect(totpVerify.body.redirect).toBe('/backend')
+
+    const verifiedToken = totpVerify.body.token
+    expect(typeof verifiedToken).toBe('string')
+    const verifiedMethodsResponse = await fetchJson<{ methods: Array<{ type: string }> }>(
+      request,
+      'GET',
+      '/api/security/mfa/methods',
+      { token: verifiedToken as string },
+    )
+    expect(verifiedMethodsResponse.status).toBe(200)
+    expect(verifiedMethodsResponse.body.methods.map((method) => method.type)).toContain('totp')
 
     const regenerateResponse = await fetchJson<{ recoveryCodes?: string[] }>(
       request,
@@ -98,13 +117,12 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     expect(recoveryVerify.status).toBe(200)
     expect(recoveryVerify.body.ok).toBe(true)
 
-    const verifiedToken = typeof totpVerify.body.token === 'string' ? totpVerify.body.token : userToken
     const rotateResponse = await fetchJson<{ recoveryCodes?: string[] }>(
       request,
       'POST',
       '/api/security/mfa/recovery-codes/regenerate',
       {
-        token: verifiedToken,
+        token: verifiedToken as string,
         data: {},
       },
     )

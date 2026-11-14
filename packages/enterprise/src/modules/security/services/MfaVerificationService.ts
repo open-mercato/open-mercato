@@ -7,6 +7,7 @@ import type { MfaEnforcementService } from './MfaEnforcementService'
 import type { MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type AvailableMethod = {
   type: string
@@ -83,6 +84,14 @@ export class MfaVerificationService {
       challengeId: challenge.id,
       availableMethods,
     }
+  }
+
+  async hasChallengeMethods(userId: string): Promise<boolean> {
+    return (await this.em.count(UserMfaMethod, {
+      userId,
+      isActive: true,
+      deletedAt: null,
+    })) > 0
   }
 
   /**
@@ -268,7 +277,8 @@ export class MfaVerificationService {
   }
 
   private async getActiveMethods(userId: string): Promise<UserMfaMethod[]> {
-    const methods = await this.em.find(
+    const methods = await findWithDecryption(
+      this.em,
       UserMfaMethod,
       {
         userId,
@@ -278,6 +288,7 @@ export class MfaVerificationService {
       {
         orderBy: { createdAt: 'asc' },
       },
+      {},
     )
 
     const policy = await this.mfaEnforcementService.getEffectivePolicyForUser(userId)
@@ -289,12 +300,12 @@ export class MfaVerificationService {
   }
 
   private async findMethod(userId: string, methodType: string): Promise<UserMfaMethod> {
-    const method = await this.em.findOne(UserMfaMethod, {
+    const method = await findOneWithDecryption(this.em, UserMfaMethod, {
       userId,
       type: methodType,
       isActive: true,
       deletedAt: null,
-    })
+    }, undefined, {})
     if (!method) {
       throw new MfaVerificationServiceError(`MFA method '${methodType}' not found`, 404)
     }
@@ -302,12 +313,12 @@ export class MfaVerificationService {
   }
 
   private async findMethodById(userId: string, methodId: string): Promise<UserMfaMethod> {
-    const method = await this.em.findOne(UserMfaMethod, {
+    const method = await findOneWithDecryption(this.em, UserMfaMethod, {
       id: methodId,
       userId,
       isActive: true,
       deletedAt: null,
-    })
+    }, undefined, {})
     if (!method) {
       throw new MfaVerificationServiceError(`MFA method '${methodId}' not found`, 404)
     }

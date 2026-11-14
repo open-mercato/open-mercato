@@ -5,10 +5,14 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { FormField } from '@open-mercato/ui/primitives/form-field'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 
 type WizardStep = 'protocol' | 'credentials' | 'domains' | 'options' | 'review'
 
@@ -23,6 +27,9 @@ interface WizardState {
   domains: string[]
   jitEnabled: boolean
   autoLinkByEmail: boolean
+  ssoRequired: boolean
+  requiredAcrInput: string
+  requiredAmrInput: string
 }
 
 const initialState: WizardState = {
@@ -34,6 +41,9 @@ const initialState: WizardState = {
   domains: [],
   jitEnabled: true,
   autoLinkByEmail: true,
+  ssoRequired: false,
+  requiredAcrInput: '',
+  requiredAmrInput: '',
 }
 
 export default function SsoConfigCreateWizard() {
@@ -129,6 +139,9 @@ export default function SsoConfigCreateWizard() {
         allowedDomains: state.domains,
         jitEnabled: state.jitEnabled,
         autoLinkByEmail: state.autoLinkByEmail,
+        ssoRequired: state.ssoRequired,
+        requiredAcrValues: parseCommaSeparatedList(state.requiredAcrInput),
+        requiredAmrValues: parseCommaSeparatedList(state.requiredAmrInput),
       }
       const call = await runMutationWithContext(
         () => apiCallOrThrow<{ id: string }>(
@@ -334,34 +347,42 @@ export default function SsoConfigCreateWizard() {
             <div>
               <h2 className="text-lg font-semibold mb-4">{t('sso.admin.wizard.options.title', 'Options')}</h2>
               <div className="space-y-4">
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={state.jitEnabled}
-                    onChange={(e) => setState((prev) => ({ ...prev, jitEnabled: e.target.checked }))}
-                    className="accent-primary"
+                <CheckboxField
+                  checked={state.jitEnabled}
+                  onCheckedChange={(checked) => setState((prev) => ({ ...prev, jitEnabled: checked === true }))}
+                  label={t('sso.admin.field.jitEnabled', 'Just-in-Time Provisioning')}
+                  description={t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
+                />
+                <CheckboxField
+                  checked={state.autoLinkByEmail}
+                  onCheckedChange={(checked) => setState((prev) => ({ ...prev, autoLinkByEmail: checked === true }))}
+                  label={t('sso.admin.field.autoLinkByEmail', 'Auto-link by Email')}
+                  description={t('sso.admin.field.autoLinkByEmailDesc', 'Automatically link existing users by matching email address')}
+                />
+                <CheckboxField
+                  checked={state.ssoRequired}
+                  onCheckedChange={(checked) => setState((prev) => ({ ...prev, ssoRequired: checked === true }))}
+                  label={t('sso.admin.field.ssoRequired', 'Require SSO for password login')}
+                  description={t('sso.admin.field.ssoRequiredDesc', 'Block password login for organization users while this active configuration is enabled. Superadmin break-glass remains available.')}
+                />
+                <FormField
+                  label={t('sso.admin.field.requiredAcrValues', 'Required ACR values')}
+                  description={t('sso.admin.field.requiredAcrValuesDesc', 'Comma-separated OIDC authentication context values. Login is accepted when the identity provider returns one of them.')}
+                >
+                  <Input
+                    value={state.requiredAcrInput}
+                    onChange={(event) => setState((prev) => ({ ...prev, requiredAcrInput: event.target.value }))}
                   />
-                  <div>
-                    <div className="font-medium text-sm">{t('sso.admin.field.jitEnabled', 'Just-in-Time Provisioning')}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {t('sso.admin.field.jitEnabledDesc', 'Automatically create user accounts on first SSO login')}
-                    </div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={state.autoLinkByEmail}
-                    onChange={(e) => setState((prev) => ({ ...prev, autoLinkByEmail: e.target.checked }))}
-                    className="accent-primary"
+                </FormField>
+                <FormField
+                  label={t('sso.admin.field.requiredAmrValues', 'Required AMR values')}
+                  description={t('sso.admin.field.requiredAmrValuesDesc', 'Comma-separated authentication method values. Login is accepted only when the identity provider returns all of them.')}
+                >
+                  <Input
+                    value={state.requiredAmrInput}
+                    onChange={(event) => setState((prev) => ({ ...prev, requiredAmrInput: event.target.value }))}
                   />
-                  <div>
-                    <div className="font-medium text-sm">{t('sso.admin.field.autoLinkByEmail', 'Auto-link by Email')}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {t('sso.admin.field.autoLinkByEmailDesc', 'Automatically link existing users by matching email address')}
-                    </div>
-                  </div>
-                </label>
+                </FormField>
               </div>
             </div>
           )}
@@ -399,6 +420,18 @@ export default function SsoConfigCreateWizard() {
                     <span className="text-sm text-muted-foreground">{t('sso.admin.field.autoLinkByEmail', 'Auto-link')}</span>
                     <span className="text-sm font-medium">{state.autoLinkByEmail ? t('common.enabled', 'Enabled') : t('common.disabled', 'Disabled')}</span>
                   </div>
+                  <div className="flex justify-between p-3">
+                    <span className="text-sm text-muted-foreground">{t('sso.admin.field.ssoRequired', 'Require SSO for password login')}</span>
+                    <span className="text-sm font-medium">{state.ssoRequired ? t('common.enabled', 'Enabled') : t('common.disabled', 'Disabled')}</span>
+                  </div>
+                  <div className="flex justify-between gap-4 p-3">
+                    <span className="text-sm text-muted-foreground">{t('sso.admin.field.requiredAcrValues', 'Required ACR values')}</span>
+                    <span className="text-sm font-medium text-right break-all">{state.requiredAcrInput || '—'}</span>
+                  </div>
+                  <div className="flex justify-between gap-4 p-3">
+                    <span className="text-sm text-muted-foreground">{t('sso.admin.field.requiredAmrValues', 'Required AMR values')}</span>
+                    <span className="text-sm font-medium text-right break-all">{state.requiredAmrInput || '—'}</span>
+                  </div>
                 </div>
 
                 {/* Test connection before saving */}
@@ -413,7 +446,7 @@ export default function SsoConfigCreateWizard() {
                       : t('sso.admin.action.test', 'Verify Discovery')}
                   </Button>
                   {testResult && (
-                    <span className={`text-sm ${testResult.ok ? 'text-green-600' : 'text-destructive'}`}>
+                    <span className={`text-sm ${testResult.ok ? 'text-status-success-text' : 'text-destructive'}`}>
                       {testResult.ok
                         ? t('sso.admin.test.success', 'Discovery successful')
                         : testResult.error || t('sso.admin.test.failed', 'Discovery failed')}

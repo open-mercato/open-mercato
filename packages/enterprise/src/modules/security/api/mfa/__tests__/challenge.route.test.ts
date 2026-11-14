@@ -101,6 +101,10 @@ describe('security MFA challenge routes', () => {
     }))
 
     expect(response.status).toBe(200)
+    expect(mockedResolveMfaRequestContext).toHaveBeenCalledWith(
+      expect.any(Request),
+      { allowPending: true },
+    )
     expect(context.mfaVerificationService.verifyChallenge).toHaveBeenCalledWith(
       'challenge-1',
       'totp',

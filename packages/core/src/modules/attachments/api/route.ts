@@ -61,6 +61,12 @@ import type { AttachmentQuotaService } from '../lib/quota-service'
 import { resolveAttachmentsUploadRateLimitConfig } from '../lib/ocrLimits'
 import { checkRateLimit, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+import {
+  ensureAttachmentScanReceipt,
+  resolveAttachmentScanGate,
+  resolveAttachmentScanHttpError,
+  type AttachmentScanReceipt,
+} from '../lib/scanning'
 
 const logger = createLogger('attachments')
 
@@ -448,6 +454,30 @@ async function uploadAttachment(req: Request) {
   if (isActiveContentAttachment(buf, safeName, fileMimeType)) {
     return NextResponse.json({ error: t('attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
   }
+  let securityScan: AttachmentScanReceipt
+  try {
+    securityScan = await ensureAttachmentScanReceipt({
+      gate: resolveAttachmentScanGate(container),
+      request: {
+        tenantId,
+        organizationId: orgId,
+        fileName: safeName,
+        mimeType: fileMimeType,
+        source: 'http_upload',
+        buffer: buf,
+      },
+    })
+  } catch (error) {
+    const mapped = resolveAttachmentScanHttpError(error) ?? {
+      status: 503 as const,
+      translationKey: 'attachments.errors.scanUnavailable',
+      fallback: 'Attachment scanning is temporarily unavailable.',
+    }
+    logger.error('Attachment scan gate failed', {
+      errorType: error instanceof Error ? error.name : typeof error,
+    })
+    return NextResponse.json({ error: t(mapped.translationKey, mapped.fallback) }, { status: mapped.status })
+  }
   const defaultPartitionCode = resolveDefaultPartitionCode(entityId)
   const resolvedPartitionCode = partitionOverride ?? partitionFromField ?? defaultPartitionCode
   const partitionCodeCandidates = Array.from(
@@ -599,6 +629,7 @@ async function uploadAttachment(req: Request) {
     assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
   }
   const metadata = mergeAttachmentMetadata(null, { assignments, tags })
+  metadata.securityScan = securityScan
   const attachmentId = randomUUID()
   assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: orgId })
   const att = em.create(Attachment, {
@@ -823,6 +854,9 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Payload validation error', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Attachment violates field constraints', schema: errorSchema },
+        { status: 413, description: 'Attachment size or tenant quota exceeded', schema: errorSchema },
+        { status: 422, description: 'Attachment rejected or quarantined by the security scanner', schema: errorSchema },
+        { status: 503, description: 'Required attachment scanning is unavailable', schema: errorSchema },
       ],
     },
     DELETE: {

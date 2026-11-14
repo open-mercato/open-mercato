@@ -1,0 +1,81 @@
+---
+title: Database backup and restore
+description: Create, verify, and restore encrypted Open Mercato database backups with an audited operator CLI.
+---
+
+# Database backup and restore
+
+The Enterprise `backups` module creates an encrypted whole-database PostgreSQL archive. It records who ran the operation, when it ran, which database scope was involved, the archive checksum, the application and PostgreSQL versions, and the migration fingerprint.
+
+The CLI requires `pg_dump`, `pg_restore`, and `psql` on the application host. The standard Open Mercato Docker images include these tools. For other deployments, install PostgreSQL client tools at least as new as the database server.
+
+## Configuration
+
+Enable Enterprise modules and set the following variables outside the repository:
+
+```bash
+OM_ENABLE_ENTERPRISE_MODULES=true
+DATABASE_URL=postgres://...
+OM_BACKUP_DIRECTORY=/var/lib/open-mercato/backups
+OM_BACKUP_AUDIT_DIRECTORY=/var/log/open-mercato/backup-receipts
+OM_BACKUP_ACTOR=operator@example.com
+OM_BACKUP_ENCRYPTION_KEY=<32-byte base64 or 64-character hex key>
+OM_BACKUP_AUDIT_HMAC_KEY=<at-least-32-byte base64 or hex key>
+```
+
+Generate separate keys and keep them in a secrets manager. Store the archive key separately from the backup host. Losing it makes the archives unreadable.
+
+The audit directory should be on separate operator-controlled storage. Each operation creates signed `started` and `completed` or `failed` receipts there. Copy or ship these receipts to append-only storage so a database restore cannot remove its own evidence.
+
+## Create a backup
+
+```bash
+yarn mercato backups run --label nightly
+```
+
+The command writes two files:
+
+- `<operation-id>.ombak`: AES-256-GCM encrypted `pg_dump -Fc` archive
+- `<operation-id>.manifest.json`: checksum, schema state, versions, actor, scope, and encryption metadata
+
+List available local archives with:
+
+```bash
+yarn mercato backups list
+```
+
+## Verify an archive
+
+```bash
+yarn mercato backups verify <operation-id>
+```
+
+Verification checks the encrypted-file checksum, key fingerprint, application and PostgreSQL tool compatibility, AES-GCM authentication, and whether `pg_restore` can read the archive. It does not connect to a restore target.
+
+Run verification regularly and after moving archives between storage systems.
+
+## Restore
+
+Set the target through the environment. Database URLs are intentionally not accepted as command arguments.
+
+```bash
+OM_BACKUP_RESTORE_DATABASE_URL=postgres://... \
+  yarn mercato backups restore <operation-id> --dry-run
+```
+
+The dry-run performs all archive checks without changing the database.
+
+For the real restore, pass both an explicit force flag and the target database name:
+
+```bash
+OM_BACKUP_RESTORE_DATABASE_URL=postgres://... \
+  yarn mercato backups restore <operation-id> --force --confirm open_mercato
+```
+
+The command checks the target before restore, runs `pg_restore` with ownership and privilege restoration disabled, and compares the restored migration fingerprint with the manifest. Stop application traffic before restoring a live database.
+
+An application-version or PostgreSQL tool-version mismatch blocks restore. Use `--allow-version-mismatch` only after testing the archive with the exact target application build and PostgreSQL client version.
+
+## Operational boundary
+
+This CLI is a portable recovery baseline. The operator remains responsible for backup scheduling, off-host replication, retention, monitoring, restore drills, key escrow, and access to the backup host. Production systems that need a low recovery point objective should also use PostgreSQL replication and WAL-based point-in-time recovery.

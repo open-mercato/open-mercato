@@ -1,0 +1,63 @@
+# Trivy ignore policy shared by the CI image scan (ci.yml, docker-build) and the
+# repository secret/misconfiguration scan (security.yml, repository-scan).
+# Every entry is path-scoped and carries a statement; vulnerability entries also
+# carry an expiry so an exception cannot outlive the reason for it.
+
+vulnerabilities:
+  # Go standard library and golang.org/x/text findings inside the native TypeScript
+  # compiler (typescript@7.0.2 ships @typescript/typescript-linux-x64, a Go binary).
+  # It lands in the production image through @open-mercato/cli and only runs as a
+  # build-time compiler over repository-controlled source; it never listens on a
+  # socket or parses request data. No stable TypeScript release built with a patched
+  # Go toolchain exists yet (7.0.2 is the latest stable; 7.1 is nightly-only).
+  # Re-evaluate when TypeScript 7.0.3+ or 7.1 ships, and at the expiry at the latest.
+  - id: CVE-2026-56852
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: golang.org/x/text inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-33818
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-39821
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-39822
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-46600
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-56853
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-56858
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-56859
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-56860
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+  - id: CVE-2026-56862
+    paths: ["app/node_modules/@typescript/typescript-linux-x64/lib/tsc"]
+    statement: Go stdlib inside the build-time tsc binary; not reachable at runtime.
+    expired_at: 2026-11-30
+
+misconfigurations:
+  - id: DS-0002
+    paths: ["docker/preview/Dockerfile"]
+    statement: >-
+      The QA preview image (docker-compose.preview.yaml, qa-deploy.yml) mounts the
+      host Docker socket for Testcontainers and installs and builds the workspace at
+      container start; both need root inside this disposable, non-production
+      container. The production Dockerfile and the create-app template already run
+      as a non-root user.

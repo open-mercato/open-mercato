@@ -33,6 +33,12 @@ import type { CommandInterceptorContext } from './command-interceptor'
 import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
+import {
+  containsSensitiveAuditData,
+  markAuditRedoUnavailable,
+  redactSensitiveAuditData,
+} from './audit-redaction'
+import { mergeCommandCorrelationContext } from './correlation'
 import { withAtomicFlush } from './flush'
 import { getTelemetryRuntime } from '../telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -407,12 +413,17 @@ export class CommandBus {
           ...logMetaContext,
         }
       }
-      const undoable = this.isUndoable(handler)
+      const sensitiveInput = mergedMeta?.sensitiveInput === true
+        || (mergedMeta?.redoInput === undefined
+          && mergedMeta?.replayable !== false
+          && containsSensitiveAuditData(executionOptions.input))
+      const undoable = this.isUndoable(handler) && !sensitiveInput
       if (undoable && mergedMeta?.replayable !== false) {
         mergedMeta = mergedMeta ?? {}
         if (!mergedMeta.undoToken) mergedMeta.undoToken = defaultUndoToken()
         if (mergedMeta.actorUserId === undefined) mergedMeta.actorUserId = executionOptions.ctx.auth?.sub ?? null
-      } else if (mergedMeta?.replayable === false) {
+      } else if (sensitiveInput || mergedMeta?.replayable === false) {
+        mergedMeta = mergedMeta ?? {}
         mergedMeta.undoToken = null
       }
       if (afterSnapshot !== undefined && afterSnapshot !== null) {
@@ -938,6 +949,7 @@ export class CommandBus {
     if (!primary && !secondary) return null
     return {
       skipLog: secondary?.skipLog ?? primary?.skipLog ?? false,
+      sensitiveInput: secondary?.sensitiveInput === true || primary?.sensitiveInput === true,
       replayable:
         secondary?.replayable === false || primary?.replayable === false
           ? false
@@ -1026,6 +1038,8 @@ export class CommandBus {
       }
     }
 
+    const correlatedContext = mergeCommandCorrelationContext(payload.context, options.ctx)
+    if (correlatedContext) payload.context = correlatedContext
     if (runAs) {
       // Stamp the audit source so `deriveActionLogSource` projects `sourceKey='agent'`.
       // Merge into any caller-provided context rather than replacing it.
@@ -1033,7 +1047,31 @@ export class CommandBus {
       payload.context = { ...baseContext, source: runAs.source }
     }
 
-    if (metadata.replayable === false) {
+    const sensitiveInput = metadata.sensitiveInput === true
+      || (metadata.redoInput === undefined
+        && metadata.replayable !== false
+        && containsSensitiveAuditData(options.input))
+    const auditFields = [
+      'commandPayload',
+      'snapshotBefore',
+      'snapshotAfter',
+      'changes',
+      'context',
+    ] as const
+    let redacted = sensitiveInput
+    for (const field of auditFields) {
+      if (!(field in payload)) continue
+      const result = redactSensitiveAuditData(payload[field])
+      payload[field] = result.value
+      redacted = redacted || result.redacted
+    }
+
+    if (sensitiveInput || redacted) {
+      payload.undoToken = undefined
+      payload.commandPayload = markAuditRedoUnavailable(
+        'commandPayload' in payload ? payload.commandPayload : undefined,
+      )
+    } else if (metadata.replayable === false) {
       delete payload.commandPayload
     } else {
       const redoInput = metadata.redoInput !== undefined ? metadata.redoInput : options.input

@@ -9,7 +9,11 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
-import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import {
+  assertTenantDataEncryptionConfiguration,
+  isTenantDataEncryptionEnabled,
+  isTenantDataEncryptionRequired,
+} from '@open-mercato/shared/lib/encryption/toggles'
 import { warnUnresolvedEncryptionMapEntityIds } from '@open-mercato/shared/lib/encryption/unresolvedMapEntityIds'
 import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import {
@@ -192,6 +196,7 @@ export async function bootstrap(container: AwilixContainer) {
 
   // KMS + tenant encryption
   const kmsService = createKmsService()
+  assertTenantDataEncryptionConfiguration(kmsService.isHealthy())
   container.register({ kmsService: asValue(kmsService) })
   let defaultEncryptionMaps: ModuleEncryptionMap[] = []
   if (isTenantDataEncryptionEnabled()) {
@@ -221,11 +226,12 @@ export async function bootstrap(container: AwilixContainer) {
     // starts encrypting again the moment KMS recovers. Gating registration on
     // health instead left a boot-time outage fail-open for the whole process
     // lifetime, recoverable only by a restart (#5948).
-    if (isTenantDataEncryptionEnabled()) {
+    if (isTenantDataEncryptionEnabled() || isTenantDataEncryptionRequired()) {
       try {
         registerTenantEncryptionSubscriber(em, tenantEncryptionService)
       } catch (err) {
         logger.warn('Failed to register MikroORM encryption subscriber', { component: 'encryption', err })
+        if (isTenantDataEncryptionRequired()) throw err
       }
       if (!kmsService.isHealthy()) {
         logger.warn(
@@ -235,7 +241,8 @@ export async function bootstrap(container: AwilixContainer) {
       }
     }
   } catch (err) {
-    logger.warn('Failed to initialize tenant encryption service', { component: 'encryption', err })
+    logger.error('Failed to initialize tenant encryption service', { component: 'encryption', err })
+    if (isTenantDataEncryptionRequired()) throw err
   }
 
   // Register rate limiter service (singleton via globalThis — reused across request containers)

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import type { SsoConfig } from '../data/entities'
 import type { SsoIdentityPayload, SsoProtocolProvider } from './types'
 import { createOidcFetch } from './oidc-url-safety'
+import { SsoAssuranceError } from './errors'
 
 const OIDC_DISCOVERY_TIMEOUT_SECONDS = 10
 const OIDC_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000
@@ -41,6 +42,7 @@ export class OidcProvider implements SsoProtocolProvider {
       scope: 'openid email profile',
       state: params.state,
       nonce: params.nonce,
+      ...buildOidcAssuranceAuthorizationParameters(config),
       ...(codeChallenge
         ? { code_challenge: codeChallenge, code_challenge_method: 'S256' }
         : {}),
@@ -91,6 +93,10 @@ export class OidcProvider implements SsoProtocolProvider {
 
     const emailVerified = normalizeEmailVerifiedClaim(mergedClaims.email_verified)
     const groups = extractIdentityGroups(mergedClaims)
+    const acr = normalizeAcrClaim(mergedClaims.acr)
+    const amr = normalizeAmrClaim(mergedClaims.amr)
+
+    assertOidcAssurance(config, { acr, amr })
 
     return {
       subject,
@@ -98,6 +104,8 @@ export class OidcProvider implements SsoProtocolProvider {
       ...(emailVerified === undefined ? {} : { emailVerified }),
       name: (mergedClaims.name as string) ?? undefined,
       groups,
+      acr,
+      amr,
     }
   }
 
@@ -179,6 +187,60 @@ export class OidcProvider implements SsoProtocolProvider {
       })
     return promise
   }
+}
+
+export function buildOidcAssuranceAuthorizationParameters(
+  config: Pick<SsoConfig, 'requiredAcrValues'>,
+): Record<string, string> {
+  if (config.requiredAcrValues.length === 0) return {}
+
+  return {
+    claims: JSON.stringify({
+      id_token: {
+        acr: {
+          essential: true,
+          values: config.requiredAcrValues,
+        },
+      },
+    }),
+  }
+}
+
+export function assertOidcAssurance(
+  config: Pick<SsoConfig, 'requiredAcrValues' | 'requiredAmrValues'>,
+  assurance: Pick<SsoIdentityPayload, 'acr' | 'amr'>,
+): void {
+  if (
+    config.requiredAcrValues.length > 0
+    && (!assurance.acr || !config.requiredAcrValues.includes(assurance.acr))
+  ) {
+    throw new SsoAssuranceError('The identity provider did not satisfy the required authentication context')
+  }
+
+  const actualAmr = new Set(assurance.amr ?? [])
+  if (
+    config.requiredAmrValues.length > 0
+    && !config.requiredAmrValues.every((value) => actualAmr.has(value))
+  ) {
+    throw new SsoAssuranceError('The identity provider did not satisfy the required authentication methods')
+  }
+}
+
+export function normalizeAcrClaim(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
+export function normalizeAmrClaim(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const normalized = Array.from(new Set(
+    value
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  ))
+  return normalized.length > 0 ? normalized : undefined
 }
 
 async function mergeWithUserInfoClaims(

@@ -26,6 +26,9 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
   pull-requests: write
   issues: write
   actions: read
@@ -95,14 +98,24 @@ jobs:
           echo "image_full=${IMAGE}:${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
+        id: build
         uses: useblacksmith/build-push-action@v2
         with:
           context: ${{ env.BUILD_CONTEXT }}
           file: ${{ env.DOCKERFILE }}
           push: true
           platforms: linux/amd64
+          provenance: mode=max
+          sbom: true
           tags: |
             ${{ steps.meta.outputs.image_full }}
+
+      - name: Attest published image digest
+        uses: actions/attest@v4.2.2
+        with:
+          subject-name: ${{ steps.meta.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
       - name: Resolve Dokploy applicationId
         id: app

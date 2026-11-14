@@ -7,10 +7,15 @@ import * as client from 'openid-client'
 
 import {
   OidcProvider,
+  assertOidcAssurance,
+  buildOidcAssuranceAuthorizationParameters,
   extractIdentityGroups,
   coerceClaimValues,
+  normalizeAcrClaim,
+  normalizeAmrClaim,
   normalizeEmailVerifiedClaim,
 } from '../oidc-provider'
+import { isSsoAssuranceError } from '../errors'
 
 describe('OidcProvider outbound request safety', () => {
   beforeEach(() => {
@@ -33,6 +38,8 @@ describe('OidcProvider outbound request safety', () => {
       autoLinkByEmail: false,
       isActive: false,
       ssoRequired: false,
+      requiredAcrValues: [],
+      requiredAmrValues: [],
       appRoleMappings: {},
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -63,6 +70,8 @@ describe('OidcProvider outbound request safety', () => {
       autoLinkByEmail: false,
       isActive: false,
       ssoRequired: false,
+      requiredAcrValues: [],
+      requiredAmrValues: [],
       appRoleMappings: {},
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -89,6 +98,8 @@ describe('OidcProvider outbound request safety', () => {
       autoLinkByEmail: false,
       isActive: false,
       ssoRequired: false,
+      requiredAcrValues: [],
+      requiredAmrValues: [],
       appRoleMappings: {},
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -98,6 +109,64 @@ describe('OidcProvider outbound request safety', () => {
     await new OidcProvider().validateConfig(config)
 
     expect(discovery).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('OIDC login assurance', () => {
+  test('requests an essential ACR claim without combining it with acr_values', () => {
+    const result = buildOidcAssuranceAuthorizationParameters({
+      requiredAcrValues: ['urn:example:loa:2', 'urn:example:loa:3'],
+    })
+
+    expect(result).toEqual({
+      claims: JSON.stringify({
+        id_token: {
+          acr: {
+            essential: true,
+            values: ['urn:example:loa:2', 'urn:example:loa:3'],
+          },
+        },
+      }),
+    })
+    expect(result).not.toHaveProperty('acr_values')
+  })
+
+  test('accepts one configured ACR and every required AMR value', () => {
+    expect(() => assertOidcAssurance(
+      {
+        requiredAcrValues: ['urn:example:loa:2', 'urn:example:loa:3'],
+        requiredAmrValues: ['pwd', 'otp'],
+      },
+      { acr: 'urn:example:loa:3', amr: ['pwd', 'otp', 'hwk'] },
+    )).not.toThrow()
+  })
+
+  test('rejects a callback whose ACR does not meet policy', () => {
+    let thrown: unknown
+    try {
+      assertOidcAssurance(
+        { requiredAcrValues: ['urn:example:loa:3'], requiredAmrValues: [] },
+        { acr: 'urn:example:loa:2', amr: [] },
+      )
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(isSsoAssuranceError(thrown)).toBe(true)
+  })
+
+  test('rejects a callback missing any required AMR value', () => {
+    expect(() => assertOidcAssurance(
+      { requiredAcrValues: [], requiredAmrValues: ['pwd', 'otp'] },
+      { amr: ['pwd'] },
+    )).toThrow('authentication methods')
+  })
+
+  test('normalizes only valid ACR and AMR claim shapes', () => {
+    expect(normalizeAcrClaim('  urn:example:loa:2  ')).toBe('urn:example:loa:2')
+    expect(normalizeAcrClaim(['urn:example:loa:2'])).toBeUndefined()
+    expect(normalizeAmrClaim([' pwd ', 'otp', 'pwd', 12])).toEqual(['pwd', 'otp'])
+    expect(normalizeAmrClaim('pwd otp')).toBeUndefined()
   })
 })
 

@@ -15,6 +15,7 @@ import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entit
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isAuditRedoUnavailable } from '@open-mercato/shared/lib/commands/audit-redaction'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
 import {
@@ -232,6 +233,7 @@ function asActionLog(entry: unknown): ActionLog | null {
 }
 
 function resolveRedoInput(payload: unknown, log: ActionLog): unknown | null {
+  if (isAuditRedoUnavailable(payload)) return null
   if (payload && typeof payload === 'object' && !Array.isArray(payload) && '__redoInput' in payload) {
     const envelope = payload as { __redoInput?: unknown }
     return envelope.__redoInput ?? {}

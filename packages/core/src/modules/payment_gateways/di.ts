@@ -9,6 +9,7 @@ import { GatewayTransaction, WebhookProcessedEvent } from './data/entities'
 import { createPaymentGatewayDescriptorService } from './lib/descriptor-service'
 import { createPaymentGatewayService } from './lib/gateway-service'
 import { isPaymentOrderTotalResolver } from './lib/order-amount-reconciliation'
+import './privacy'
 
 type Cradle = {
   em: EntityManager

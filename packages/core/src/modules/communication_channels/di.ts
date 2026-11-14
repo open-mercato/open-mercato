@@ -15,6 +15,7 @@ import { sendAsUser } from './lib/send-as-user'
 import { isSystemEmailTransportConfigured, sendSystemEmail } from './lib/system-email'
 import { resolveChannelTypeSafely } from './lib/resolve-channel-type'
 import { resolveChannelThreadAccessSafely } from './lib/channel-thread-access'
+import './privacy'
 
 export function register(container: AppContainer) {
   // Test-only: register the network-free stub channel adapter when

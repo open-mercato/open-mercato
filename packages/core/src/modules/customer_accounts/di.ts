@@ -7,6 +7,7 @@ import { CustomerTokenService } from '@open-mercato/core/modules/customer_accoun
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
+import './privacy'
 
 type DomainCacheService = {
   get: (key: string, options?: unknown) => Promise<unknown>

@@ -74,6 +74,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'dashboards', from: '@open-mercato/core' },
   { id: 'auth', from: '@open-mercato/core' },
   { id: 'directory', from: '@open-mercato/core' },
+  { id: 'tenant_exports', from: '@open-mercato/core' },
   { id: 'customers', from: '@open-mercato/core' },
   { id: 'customer_groups', from: '@open-mercato/core' },
   { id: 'perspectives', from: '@open-mercato/core' },
@@ -244,12 +245,14 @@ if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
+const enterpriseDataErasureEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_DATA_ERASURE, false)
 const enterpriseAgentsEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_AGENTS, false)
 
 if (enterpriseModulesEnabled) {
   enabledModules.push(
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
+    { id: 'backups', from: '@open-mercato/enterprise' },
   )
 }
 
@@ -267,4 +270,7 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
   // It imports the orchestrator SDK, so it is only enabled alongside it.
   enabledModules.push({ id: 'agent_examples', from: '@app' })
+}
+if (enterpriseModulesEnabled && enterpriseDataErasureEnabled) {
+  enabledModules.push({ id: 'data_erasure', from: '@open-mercato/enterprise' })
 }

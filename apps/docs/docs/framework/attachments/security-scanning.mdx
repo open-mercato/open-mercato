@@ -1,0 +1,77 @@
+---
+title: Attachment security scanning
+---
+
+Open Mercato sends untrusted attachment buffers through one security gate before
+normal storage, parsing, OCR, thumbnail generation, indexing, or attachment-row
+persistence.
+
+The MIT Core package supplies the gate, policy handling, scan receipts, and an
+isolated local quarantine store. It does not bundle an antivirus engine. Deploy a
+scanner adapter through the `attachmentScanner` DI registration, for example an
+adapter backed by ClamAV or an ICAP service.
+
+## Policy
+
+Set `OM_ATTACHMENT_SCAN_POLICY` to one of:
+
+- `required`: allow only a clean verdict. Rejected or suspicious content is
+  blocked. Scanner errors and timeouts are quarantined and return `503`.
+- `optional`: block rejected or suspicious content, but allow a scanner outage.
+  The accepted attachment records `scanner_unavailable` in its scan receipt.
+- `disabled`: do not call the adapter. The attachment records that scanning was
+  disabled.
+
+The compatibility default is `optional`. Use `required` for hardened deployments
+after the scanner adapter and quarantine storage are ready.
+
+The timeout defaults to 15 seconds and can be set with
+`OM_ATTACHMENT_SCAN_TIMEOUT_MS`. Values are limited to 1 to 120 seconds.
+
+## Scanner adapter
+
+Register an object implementing `AttachmentScanner` under `attachmentScanner`:
+
+```ts
+import { asValue } from 'awilix'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { AttachmentScanner } from '@open-mercato/core/modules/attachments/lib/scanning'
+
+const scanner: AttachmentScanner = {
+  id: 'deployment-scanner',
+  async scan(input) {
+    const result = await inspectWithDeploymentService(input.buffer, input.signal)
+    return result.clean
+      ? { status: 'clean' }
+      : { status: 'quarantined', reasonCode: 'malware_detected' }
+  },
+}
+
+export function register(container: AppContainer) {
+  container.register({ attachmentScanner: asValue(scanner) })
+}
+```
+
+The adapter receives tenant and organization scope, submitted file details, the
+bounded in-memory buffer, and an abort signal. Return only the documented status
+and a short machine-readable reason code. Do not put raw provider payloads,
+credentials, or customer data in the result.
+
+## Quarantine
+
+Blocked bytes are stored outside all attachment partitions. The default root is
+`.mercato/quarantine/attachments`; change it with
+`OM_ATTACHMENT_QUARANTINE_DIR`. Quarantine files have opaque generated names and
+are never exposed through an application route.
+
+For production, place the quarantine root on encrypted persistent storage with
+restricted operator access. Monitor capacity and define retention and deletion
+procedures. A deployment may replace `attachmentQuarantineStore` through DI when
+quarantine must use separate object storage.
+
+## Evidence
+
+Accepted attachments add a bounded `securityScan` receipt to `storage_metadata`.
+It contains status, scanner ID, policy, time, content digest, and reason code. It
+does not contain a provider response, storage path, submitted file name, or threat
+details.

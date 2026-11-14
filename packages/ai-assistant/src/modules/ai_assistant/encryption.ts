@@ -22,6 +22,9 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'normalized_input' },
       { field: 'field_diff' },
       { field: 'records' },
+      { field: 'failed_records' },
+      { field: 'side_effects_summary' },
+      { field: 'execution_result' },
     ],
   },
 ]

@@ -9,7 +9,10 @@ import { SsoConfigService } from './services/ssoConfigService'
 import { HrdService } from './services/hrdService'
 import { ScimTokenService } from './services/scimTokenService'
 import { ScimService } from './services/scimService'
+import { ScimGroupService } from './services/scimGroupService'
+import { ScimBulkService } from './services/scimBulkService'
 import { SsoAuthService } from './services/ssoAuthService'
+import './privacy'
 
 export function register(container: AppContainer) {
   const registry = new SsoProviderRegistry()
@@ -24,5 +27,7 @@ export function register(container: AppContainer) {
     hrdService: asClass(HrdService).scoped(),
     scimTokenService: asClass(ScimTokenService).scoped(),
     scimService: asClass(ScimService).scoped(),
+    scimGroupService: asClass(ScimGroupService).scoped(),
+    scimBulkService: asClass(ScimBulkService).scoped(),
   })
 }

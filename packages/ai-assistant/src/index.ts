@@ -75,6 +75,20 @@ export {
 // Tool executor
 export { executeTool } from './modules/ai_assistant/lib/tool-executor'
 
+export {
+  createContentSafetyService,
+  scanAiContentSafety,
+  enforceAiContentSafety,
+  AiContentSafetyBlockedError,
+  AiContentSafetyUnavailableError,
+  type AiContentSafetyService,
+  type AiContentSafetyCheck,
+  type AiContentSafetyPhase,
+  type AiContentSafetyRule,
+  type AiContentSafetyFinding,
+  type AiContentSafetyResult,
+} from './modules/ai_assistant/lib/content-safety'
+
 // MCP server (stdio)
 export { createMcpServer, runMcpServer } from './modules/ai_assistant/lib/mcp-server'
 

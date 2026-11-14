@@ -264,7 +264,7 @@ RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_
 
 # Build toolchain kept: the entrypoint's fallback `yarn install` (stale
 # lockfile vs prebuilt image) still compiles native modules.
-RUN apk add --no-cache python3 make g++ ca-certificates openssl
+RUN apk add --no-cache python3 make g++ ca-certificates openssl postgresql-client
 RUN corepack enable
 
 # Prebuilt artifacts, staged OUTSIDE /app because the repo bind mount masks
@@ -344,13 +344,17 @@ RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_
 # Install only production system dependencies (Alpine uses apk)
 # sudo runs only the fixed, root-owned storage mount initializer.
 RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
-      apk add --no-cache ca-certificates chromium openssl sudo; \
+      apk add --no-cache ca-certificates chromium openssl postgresql-client sudo; \
     else \
-      apk add --no-cache ca-certificates openssl sudo; \
+      apk add --no-cache ca-certificates openssl postgresql-client sudo; \
     fi
 
 # Enable Corepack for Yarn
 RUN corepack enable
+
+# npm is not used at runtime (Yarn runs through Corepack) and its bundled
+# dependencies lag behind CVE fixes, so it stays out of the production image.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 # Copy workspace configuration for production install
 COPY package.json yarn.lock .yarnrc.yml turbo.json ./

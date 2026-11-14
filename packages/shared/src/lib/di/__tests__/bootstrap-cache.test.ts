@@ -120,13 +120,11 @@ describe('bootstrap once-guard cache', () => {
     else process.env.OM_BOOTSTRAP_CACHE = ORIGINAL_FLAG
   })
 
-  it('resetBootstrapCache clears the process-scoped bootstrap cache and encryption flag', () => {
+  it('resetBootstrapCache clears the process-scoped bootstrap cache', () => {
     const g = globalThis as Record<string, unknown>
     g.__openMercatoBootstrapCache__ = { cache: { tag: 'memo' } }
-    g.__openMercatoEncryptionEnabledCache__ = true
     resetBootstrapCache()
     expect(g.__openMercatoBootstrapCache__).toBeNull()
-    expect(g.__openMercatoEncryptionEnabledCache__).toBeUndefined()
   })
 
   it('runs bootstrap() on the first createRequestContainer() and replays cached services on the second when OM_BOOTSTRAP_CACHE=1', async () => {

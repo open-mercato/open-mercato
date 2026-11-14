@@ -1335,6 +1335,20 @@ jobs:
           context: .
           file: Dockerfile
           push: false
+          load: true
+          tags: open-mercato-ci:${{ github.sha }}
+
+      - name: Scan fullapp image for fixable high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: open-mercato-ci:${{ github.sha }}
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
+          trivyignores: .trivyignore.yaml
 
       - name: Build opencode container
         uses: useblacksmith/build-push-action@v2

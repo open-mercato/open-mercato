@@ -1,9 +1,11 @@
-import { asFunction, asValue } from 'awilix'
+import { asClass, asFunction, asValue } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import { toolRegistry } from './lib/tool-registry'
 import { createModerationService } from './lib/moderation'
+import { createContentSafetyService } from './lib/content-safety'
 import { createDecisionModelService } from './lib/decision-model-service'
 import { createOpenCodeClient } from './lib/opencode-client'
+import { AiAssistantEnvironmentPrivacyHandler } from './privacy'
 
 export function register(container: AwilixContainer): void {
   container.register({
@@ -11,6 +13,8 @@ export function register(container: AwilixContainer): void {
     // Input pre-moderation service (OpenAI /v1/moderations). Singleton +
     // overridable by downstream apps via the module overrides DI seam.
     moderationService: asFunction(() => createModerationService()).singleton(),
+    contentSafetyService: asFunction(() => createContentSafetyService()).singleton(),
+    aiAssistantEnvironmentPrivacyHandler: asClass(AiAssistantEnvironmentPrivacyHandler).scoped(),
     // Decision model port (typed answers with probabilities). Singleton that
     // owns the only decision model registry; consumers resolve it soft-optionally.
     decisionModelService: asFunction(() => createDecisionModelService()).singleton(),

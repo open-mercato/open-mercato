@@ -71,6 +71,7 @@ const sidebars: SidebarsConfig = {
         "deployment/production-readiness",
         "deployment/readiness-scanner",
         "deployment/railway",
+        "deployment/backups",
         "deployment/github-ci",
         "deployment/agent-orchestration-scaling",
       ],
@@ -519,6 +520,7 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Security",
           items: [
+            "framework/security/audit-evidence",
             "framework/security/rate-limiting",
             "framework/security/cross-site-login",
           ],

@@ -44,6 +44,7 @@ export type CommandRuntimeContext = {
   selectedOrganizationId: string | null
   organizationIds: string[] | null
   request?: Request
+  correlationId?: string | null
   syncOrigin?: string | null
   /**
    * See {@link BulkImportSuppression}. Set by bulk backfill callers to defer heavy
@@ -122,6 +123,13 @@ export type CommandRunAsContext = {
 
 export type CommandLogMetadata = {
   skipLog?: boolean
+  /**
+   * Marks this execution as carrying a raw credential or secret. The command bus
+   * still records safe action metadata, but it never stores the redo input and
+   * never issues an undo token for this execution. The central key detector can
+   * also force this behavior and cannot be overridden with `false`.
+   */
+  sensitiveInput?: boolean
   /**
    * Per-execution replay policy. `false` records the audit entry without an undo
    * token or command payload, so neither undo nor redo can replay sensitive input.

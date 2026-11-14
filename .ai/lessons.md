@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 185 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 186 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -37,6 +37,7 @@ This catalog indexes 185 focused lessons. Route the task first, then read only r
 
 ### architecture
 
+- [Awilix services with optional constructor configuration need explicit factories](lessons/awilix-services-with-optional-constructor-configuration-need-explicit-factories.md) — area:architecture,testing; module:attachments; topic:provider-lifecycle,runtime-startup,testing
 - [Shutdown failure reporting must not block cleanup](lessons/shutdown-failure-reporting-must-not-block-cleanup.md) — area:architecture,testing; module:telemetry; topic:error-reporting,runtime-startup,shutdown
 
 - [Dev-session orphan recovery requires consent and full descendant cleanup](lessons/dev-session-orphan-recovery-requires-consent.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,shutdown,concurrency,template-sync

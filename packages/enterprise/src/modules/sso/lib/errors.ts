@@ -3,6 +3,7 @@
 // bundled into separate chunks where `instanceof` silently returns false
 // (same rationale as isCrudHttpError in @open-mercato/shared).
 const EMAIL_NOT_VERIFIED_ERROR_MARKER = Symbol.for('@open-mercato/sso/EmailNotVerifiedError')
+const SSO_ASSURANCE_ERROR_MARKER = Symbol.for('@open-mercato/sso/SsoAssuranceError')
 
 export class EmailNotVerifiedError extends Error {
   readonly [EMAIL_NOT_VERIFIED_ERROR_MARKER] = true
@@ -21,6 +22,21 @@ export class EmailNotVerifiedError extends Error {
 export function isEmailNotVerifiedError(err: unknown): err is EmailNotVerifiedError {
   return !!err && typeof err === 'object' && (err as Record<symbol, unknown>)[EMAIL_NOT_VERIFIED_ERROR_MARKER] === true
 }
+
+export class SsoAssuranceError extends Error {
+  readonly [SSO_ASSURANCE_ERROR_MARKER] = true
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'SsoAssuranceError'
+  }
+}
+
+export function isSsoAssuranceError(err: unknown): err is SsoAssuranceError {
+  return !!err && typeof err === 'object' && (err as Record<symbol, unknown>)[SSO_ASSURANCE_ERROR_MARKER] === true
+}
+
+export type SsoCallbackErrorCode = 'sso_email_not_verified' | 'sso_assurance_required' | 'sso_failed'
 
 const SSO_ROLES_REVOKED_ERROR_MARKER = Symbol.for('@open-mercato/sso/SsoRolesRevokedError')
 
@@ -42,7 +58,6 @@ export function isSsoRolesRevokedError(err: unknown): err is SsoRolesRevokedErro
   return !!err && typeof err === 'object' && (err as Record<symbol, unknown>)[SSO_ROLES_REVOKED_ERROR_MARKER] === true
 }
 
-export type SsoCallbackErrorCode = 'sso_email_not_verified' | 'sso_failed'
 
 /**
  * Maps an error thrown during the OIDC callback to the login-page UX error code.
@@ -51,5 +66,7 @@ export type SsoCallbackErrorCode = 'sso_email_not_verified' | 'sso_failed'
  * unreachable (#2741).
  */
 export function resolveSsoCallbackErrorCode(err: unknown): SsoCallbackErrorCode {
-  return isEmailNotVerifiedError(err) ? 'sso_email_not_verified' : 'sso_failed'
+  if (isEmailNotVerifiedError(err)) return 'sso_email_not_verified'
+  if (isSsoAssuranceError(err)) return 'sso_assurance_required'
+  return 'sso_failed'
 }

@@ -1,0 +1,4 @@
+Contact: mailto:info@openmercato.com
+Expires: 2027-08-24T23:59:59Z
+Preferred-Languages: en, pl
+Policy: https://github.com/open-mercato/open-mercato/security/policy

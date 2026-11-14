@@ -1,11 +1,19 @@
 import { flushPendingCrudAccessLogs, logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
-function makeContainer(service: { log: jest.Mock; logMany?: jest.Mock }) {
-  const registrations = { accessLogService: service }
+function makeContainer(service: { log: jest.Mock; logMany?: jest.Mock }, trustProxyDepth?: number) {
+  const rateLimiterService = trustProxyDepth === undefined ? undefined : { trustProxyDepth }
+  const registrations = {
+    accessLogService: service,
+    ...(rateLimiterService ? { rateLimiterService } : {}),
+  }
   return {
     registrations,
-    resolve: (key: string) => (key === 'accessLogService' ? service : undefined),
+    resolve: (key: string) => {
+      if (key === 'accessLogService') return service
+      if (key === 'rateLimiterService') return rateLimiterService
+      return undefined
+    },
   } as any
 }
 
@@ -14,6 +22,7 @@ const auth: AuthContext = {
   email: 'u@example.com',
   tenantId: '22222222-2222-4222-8222-222222222222',
   orgId: '33333333-3333-4333-8333-333333333333',
+  sid: '44444444-4444-4444-8444-444444444444',
 } as any
 
 function makeItems(count: number) {
@@ -25,11 +34,14 @@ function makeItems(count: number) {
 
 describe('logCrudAccess', () => {
   const originalBlocking = process.env.OM_CRUD_ACCESS_LOG_BLOCKING
+  const originalMode = process.env.OM_CRUD_ACCESS_LOG_MODE
 
   afterEach(async () => {
     await flushPendingCrudAccessLogs()
     if (originalBlocking === undefined) delete process.env.OM_CRUD_ACCESS_LOG_BLOCKING
     else process.env.OM_CRUD_ACCESS_LOG_BLOCKING = originalBlocking
+    if (originalMode === undefined) delete process.env.OM_CRUD_ACCESS_LOG_MODE
+    else process.env.OM_CRUD_ACCESS_LOG_MODE = originalMode
   })
 
   it('prefers logMany() when the service exposes it', async () => {
@@ -74,8 +86,9 @@ describe('logCrudAccess', () => {
     expect(result.count).toBe(3)
   })
 
-  it('does not await writes when OM_CRUD_ACCESS_LOG_BLOCKING is unset', async () => {
+  it('waits for writes by default', async () => {
     delete process.env.OM_CRUD_ACCESS_LOG_BLOCKING
+    delete process.env.OM_CRUD_ACCESS_LOG_MODE
     let resolveLogMany: () => void = () => {}
     const pendingLogMany = new Promise<void>((resolve) => {
       resolveLogMany = resolve
@@ -87,28 +100,26 @@ describe('logCrudAccess', () => {
       }),
     }
     const items = makeItems(5)
-    const start = process.hrtime.bigint()
-    const result = await logCrudAccess({
+    let settled = false
+    const resultPromise = logCrudAccess({
       container: makeContainer(service),
       auth,
       items,
       idField: 'id',
       resourceKind: 'example.todo',
     })
-    const elapsedMs = Number(process.hrtime.bigint() - start) / 1_000_000
-    // The outer logCrudAccess call should return immediately, even though
-    // logMany has not resolved yet. Allow a generous 50 ms ceiling for CI noise.
-    expect(elapsedMs).toBeLessThan(50)
+    void resultPromise.finally(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
     expect(service.logMany).toHaveBeenCalledTimes(1)
-    expect(result.mode).toBe('batch')
-    expect(result.count).toBe(5)
-    expect(result.pending).toBeGreaterThan(0)
     resolveLogMany()
-    await flushPendingCrudAccessLogs()
+    const result = await resultPromise
+    expect(result.mode).toBe('blocking')
+    expect(result.count).toBe(5)
   })
 
-  it('flushPendingCrudAccessLogs drains in-flight writes', async () => {
-    delete process.env.OM_CRUD_ACCESS_LOG_BLOCKING
+  it('supports explicit asynchronous writes and drains them', async () => {
+    process.env.OM_CRUD_ACCESS_LOG_MODE = 'async'
     let completed = 0
     const service = {
       log: jest.fn(async () => {}),
@@ -117,16 +128,93 @@ describe('logCrudAccess', () => {
         completed += 1
       }),
     }
-    await logCrudAccess({
+    const result = await logCrudAccess({
       container: makeContainer(service),
       auth,
       items: makeItems(2),
       idField: 'id',
       resourceKind: 'example.todo',
     })
+    expect(result.mode).toBe('batch')
     expect(completed).toBe(0)
     await flushPendingCrudAccessLogs()
     expect(completed).toBe(1)
+  })
+
+  it('propagates write failures in blocking mode', async () => {
+    delete process.env.OM_CRUD_ACCESS_LOG_MODE
+    const service = {
+      log: jest.fn(async () => {}),
+      logMany: jest.fn(async () => {
+        throw new Error('database unavailable')
+      }),
+    }
+
+    await expect(logCrudAccess({
+      container: makeContainer(service),
+      auth,
+      items: makeItems(1),
+      idField: 'id',
+      resourceKind: 'example.todo',
+    })).rejects.toThrow('database unavailable')
+  })
+
+  it('records normalized request context and respects trusted proxy depth', async () => {
+    const service = {
+      log: jest.fn(async () => {}),
+      logMany: jest.fn(async (_payloads: unknown[]) => {}),
+    }
+    const request = new Request('https://app.example.test/api/example/todos?page=1', {
+      headers: {
+        'user-agent': 'Audit Browser',
+        'x-forwarded-for': '198.51.100.4, 10.0.0.10',
+        'x-request-id': 'request-123',
+      },
+      method: 'GET',
+    })
+
+    await logCrudAccess({
+      container: makeContainer(service, 1),
+      auth,
+      items: makeItems(1),
+      idField: 'id',
+      query: { page: 1 },
+      request,
+      resourceKind: 'example.todo',
+    })
+
+    const batch = service.logMany.mock.calls[0]?.[0] as Array<Record<string, unknown>>
+    expect(batch[0]?.context).toEqual(expect.objectContaining({
+      method: 'GET',
+      operation: 'read',
+      path: '/api/example/todos',
+      requestId: 'request-123',
+      result: 'success',
+      sessionId: '44444444-4444-4444-8444-444444444444',
+      sourceIp: '10.0.0.10',
+      statusCode: 200,
+      userAgent: 'Audit Browser',
+    }))
+  })
+
+  it('does not trust forwarded IP headers without proxy configuration', async () => {
+    const service = {
+      log: jest.fn(async () => {}),
+      logMany: jest.fn(async (_payloads: unknown[]) => {}),
+    }
+    const request = new Request('https://app.example.test/api/example/todos', {
+      headers: { 'x-forwarded-for': '198.51.100.4' },
+    })
+
+    await logCrudAccess({
+      container: makeContainer(service, 0),
+      auth,
+      items: makeItems(1),
+      request,
+      resourceKind: 'example.todo',
+    })
+    const batch = service.logMany.mock.calls[0]?.[0] as Array<Record<string, unknown>>
+    expect(batch[0]?.context).toEqual(expect.objectContaining({ sourceIp: null }))
   })
 
   it('skips items without a normalized id and dedupes duplicate ids', async () => {
