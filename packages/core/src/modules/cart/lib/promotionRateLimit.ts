@@ -19,6 +19,7 @@ import type { ResolvedCartRouteContext } from './routeContext'
 const WINDOW_SECONDS = 60
 const CLIENT_LIMIT: RateLimitConfig = { points: 20, duration: WINDOW_SECONDS, keyPrefix: 'cart_promotion_client' }
 const STORE_LIMIT: RateLimitConfig = { points: 100, duration: WINDOW_SECONDS, keyPrefix: 'cart_promotion_store_failures' }
+const UNRESOLVED_CLIENT_LIMIT: RateLimitConfig = { points: STORE_LIMIT.points, duration: WINDOW_SECONDS, keyPrefix: 'cart_promotion_unresolved_clients' }
 const logger = createLogger('cart').child({ component: 'promotion-rate-limit' })
 
 type PromotionAttempt =
@@ -38,9 +39,11 @@ export async function reserveCartPromotionAttempt(
     const limiter = container.resolve<RateLimiterService>('rateLimiterService')
     if (!limiter) throw new Error('[internal] promotion rate limiter unavailable')
     const scopeKey = `${scope.tenantId}:${scope.organizationId}:${scope.storeId}`
-    const clientKey = getClientIp(request, limiter.trustProxyDepth) ?? RATE_LIMIT_FALLBACK_KEY
+    const clientIp = getClientIp(request, limiter.trustProxyDepth)
+    const clientKey = clientIp ?? RATE_LIMIT_FALLBACK_KEY
+    const clientLimit = clientIp ? CLIENT_LIMIT : UNRESOLVED_CLIENT_LIMIT
     const options = { failClosed: true, unavailableMessage }
-    const clientLimited = await checkRateLimit(limiter, CLIENT_LIMIT, `${scopeKey}:${clientKey}`, limitedMessage, options)
+    const clientLimited = await checkRateLimit(limiter, clientLimit, `${scopeKey}:${clientKey}`, limitedMessage, options)
     if (clientLimited) {
       clientLimited.headers.set('Cache-Control', 'no-store')
       return { ok: false, response: clientLimited }

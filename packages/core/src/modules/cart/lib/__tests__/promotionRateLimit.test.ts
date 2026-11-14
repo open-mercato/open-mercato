@@ -35,10 +35,10 @@ it('keeps the client budget across rotating cart tokens and guessed codes', asyn
   expect(blocked.response.headers.get('Cache-Control')).toBe('no-store')
 })
 
-it.each([0, 2])('uses one fallback budget when client IP cannot be resolved with proxy depth %s', async (trustProxyDepth) => {
+it.each([0, 2])('uses a store-sized fallback budget when client IP cannot be resolved with proxy depth %s', async (trustProxyDepth) => {
   await limiter.destroy()
   limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'test', trustProxyDepth })
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
     expect((await reserveCartPromotionAttempt(containerFor(limiter), requestFor(`192.0.2.${attempt}`, `cart-${attempt}`), scope)).ok).toBe(true)
   }
   const blocked = await reserveCartPromotionAttempt(containerFor(limiter), requestFor('198.51.100.1', 'fresh-cart'), scope)
@@ -110,4 +110,23 @@ it('retains the slot when refund fails without turning a successful mutation int
   const success = await reserveCartPromotionAttempt(containerFor(limiter), requestFor('192.0.2.1'), scope)
   if (!success.ok) throw new Error('[internal] expected successful attempt')
   await expect(success.succeeded()).resolves.toBeUndefined()
+})
+
+it('isolates an exhausted unresolved-client fallback by store, organization and tenant', async () => {
+  await limiter.destroy()
+  limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'test', trustProxyDepth: 0 })
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await reserveCartPromotionAttempt(containerFor(limiter), requestFor('192.0.2.1', `cart-${attempt}`), scope)
+    if (!result.ok) throw new Error('[internal] expected successful attempt')
+    await result.succeeded()
+  }
+  const blocked = await reserveCartPromotionAttempt(containerFor(limiter), requestFor('198.51.100.1', 'fresh-cart'), scope)
+  expect(!blocked.ok && blocked.response.status).toBe(429)
+  for (const isolated of [
+    { ...scope, storeId: 'store-b' },
+    { ...scope, organizationId: 'org-b' },
+    { ...scope, tenantId: 'tenant-b' },
+  ]) {
+    expect((await reserveCartPromotionAttempt(containerFor(limiter), requestFor('198.51.100.1'), isolated)).ok).toBe(true)
+  }
 })

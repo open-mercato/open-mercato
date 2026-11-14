@@ -80,10 +80,21 @@ it('fails closed before executing the command when the limiter is unavailable', 
   expect(executeCommand).not.toHaveBeenCalled()
 })
 
-it('bounds guesses when unresolved IPs and cart tokens both rotate', async () => {
+it('bounds unresolved guests by the store-sized fallback when cart tokens rotate', async () => {
   await limiter?.destroy()
   limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'test', trustProxyDepth: 0 })
-  for (let index = 0; index < 20; index += 1) expect((await POST(requestFor(index, `192.0.2.${index}`))).status).toBe(409)
-  expect((await POST(requestFor(20, '198.51.100.1'))).status).toBe(429)
-  expect(executeCommand).toHaveBeenCalledTimes(20)
+  for (let index = 0; index < 100; index += 1) expect((await POST(requestFor(index, `192.0.2.${index}`))).status).toBe(409)
+  expect((await POST(requestFor(100, '198.51.100.1'))).status).toBe(429)
+  expect(executeCommand).toHaveBeenCalledTimes(100)
+})
+
+it('keeps another unresolved guest eligible after the trusted-IP allowance is exhausted', async () => {
+  await limiter?.destroy()
+  limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'test', trustProxyDepth: 0 })
+  for (let index = 0; index < 20; index += 1) expect((await POST(requestFor(index))).status).toBe(409)
+  executeCommand.mockResolvedValueOnce({ result: {} })
+
+  expect((await POST(requestFor(1000))).status).toBe(200)
+  expect(executeCommand).toHaveBeenCalledTimes(21)
+  expect(runAfterSuccess).toHaveBeenCalledTimes(1)
 })
