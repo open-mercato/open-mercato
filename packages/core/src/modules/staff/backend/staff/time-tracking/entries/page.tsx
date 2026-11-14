@@ -83,7 +83,8 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { TimeEntryDialog } from '../../../../lib/time-tracking-ui/TimeEntryDialog'
 import { REPORTS_PATH, reportDetailHref } from '../../../../lib/time-tracking-ui/reportLinks'
 import { TimeEntryDurationCell } from '../../../../lib/time-tracking-ui/TimeEntryDurationCell'
-import { TimeEntriesSummaryFooter } from '../../../../lib/time-tracking-ui/TimeEntriesSummaryFooter'
+import type { TimeEntriesTableInjectionContext } from '../../../../widgets/injection/time-entries-summary-footer/widget'
+import type { TimeEntryTotals } from '../../../../lib/timesheets/timeEntryTotals'
 import {
   collectDirectoryIds,
   currentWeekRange,
@@ -91,6 +92,7 @@ import {
   formatEntryDay,
   isEntryLockedError,
   readCopyDayTargetConflict,
+  readTimeEntryTotals,
   summarizeTimeEntries,
   toTimeEntryListRow,
   type TimeEntryDirectory,
@@ -129,6 +131,7 @@ type EntriesResponse = {
   total?: number
   totalIsCapped?: boolean
   totalPages?: number
+  totals?: unknown
 }
 
 type CopyDayResponse = {
@@ -240,6 +243,7 @@ export default function TimeTrackingEntriesPage() {
   const [rows, setRows] = React.useState<TimeEntryListRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
+  const [filteredTotals, setFilteredTotals] = React.useState<TimeEntryTotals | null>(null)
   const [totalPages, setTotalPages] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isRefreshing, setIsRefreshing] = React.useState(false)
@@ -353,7 +357,7 @@ export default function TimeTrackingEntriesPage() {
         }
       }
       const [selfRes, projectsRes, tagsRes, peopleRes] = await Promise.all([
-        safeCall<{ member?: { id?: string } | null }>('/api/staff/team-members/self'),
+        safeCall<{ member?: { id?: string; displayName?: string } | null }>('/api/staff/team-members/self'),
         safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/timesheets/time-projects?page=1&pageSize=100'),
         safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/timesheets/tags?page=1&pageSize=100'),
         safeCall<{ items?: Array<Record<string, unknown>> }>('/api/staff/team-members?page=1&pageSize=100'),
@@ -399,19 +403,25 @@ export default function TimeTrackingEntriesPage() {
       )
 
       const people = peopleRes?.ok && Array.isArray(peopleRes.result?.items) ? peopleRes.result.items : []
-      setPeopleOptions(
-        people
-          .map((row: Record<string, unknown>) => {
-            const id = typeof row.id === 'string' ? row.id : null
-            const label = typeof row.display_name === 'string'
-              ? row.display_name
-              : typeof row.displayName === 'string'
-                ? row.displayName
-                : null
-            return id && label ? { value: id, label } : null
-          })
-          .filter((option): option is { value: string; label: string } => option !== null),
-      )
+      const personOptions = people
+        .map((row: Record<string, unknown>) => {
+          const id = typeof row.id === 'string' ? row.id : null
+          const label = typeof row.display_name === 'string'
+            ? row.display_name
+            : typeof row.displayName === 'string'
+              ? row.displayName
+              : null
+          return id && label ? { value: id, label } : null
+        })
+        .filter((option): option is { value: string; label: string } => option !== null)
+      // The team list is closed to a caller without team-member access, yet the
+      // self filter is seeded for everyone — name it from the self lookup so its
+      // chip never falls back to the raw member id.
+      const selfName = selfRes?.ok ? selfRes.result?.member?.displayName : undefined
+      if (selfId && selfName && !personOptions.some((option) => option.value === selfId)) {
+        personOptions.push({ value: selfId, label: selfName })
+      }
+      setPeopleOptions(personOptions)
     })()
     return () => { cancelled = true }
   }, [scopeVersion])
@@ -508,7 +518,11 @@ export default function TimeTrackingEntriesPage() {
     if (hasLoadedOnceRef.current) setIsRefreshing(true)
     else setIsLoading(true)
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) })
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+        includeTotals: 'true',
+      })
       const sort = sorting[0]
       params.set('sortField', sort?.id ?? 'date')
       params.set('sortDir', sort?.desc === false ? 'asc' : 'desc')
@@ -557,6 +571,7 @@ export default function TimeTrackingEntriesPage() {
       )
       setTotal(typeof listPayload.total === 'number' ? listPayload.total : items.length)
       setTotalIsCapped(listPayload.totalIsCapped === true)
+      setFilteredTotals(readTimeEntryTotals(listPayload.totals))
       setTotalPages(
         typeof listPayload.totalPages === 'number'
           ? listPayload.totalPages
@@ -666,13 +681,14 @@ export default function TimeTrackingEntriesPage() {
           }),
           'success',
         )
+        handleRefresh()
       } catch (error) {
         setRows(previousRows)
         setTotal((current) => current + 1)
         reportFailure(error, labels.errors.delete, 'staff.time_tracking.entries delete failed')
       }
     },
-    [labels.errors.delete, labels.noTask, mutationContext, reportFailure, rows, runMutation, t],
+    [handleRefresh, labels.errors.delete, labels.noTask, mutationContext, reportFailure, rows, runMutation, t],
   )
 
   const handleDuplicate = React.useCallback(
@@ -1083,12 +1099,22 @@ export default function TimeTrackingEntriesPage() {
   ])
 
   const summary = React.useMemo(() => summarizeTimeEntries(rows), [rows])
+  const tableId = extensionPoints.hosts.timeEntriesTable.tableId
+  const tableInjectionContext = React.useMemo<TimeEntriesTableInjectionContext>(
+    () => ({
+      tableId,
+      title: labels.title,
+      entriesSummary: { summary, totalCount: total, canSeeMoney, totals: filteredTotals },
+    }),
+    [tableId, labels.title, summary, total, canSeeMoney, filteredTotals],
+  )
 
   return (
     <Page>
       <PageBody>
         <DataTable<TimeEntryListRow>
-          extensionTableId={extensionPoints.hosts.timeEntriesTable.tableId}
+          extensionTableId={tableId}
+          injectionContext={tableInjectionContext}
           title={labels.title}
           titleHeadingLevel={1}
           data={rows}
@@ -1104,8 +1130,12 @@ export default function TimeTrackingEntriesPage() {
             dropDeepLinkParams(DEEP_LINK_PARAMS.filter((id) => !values[id]))
           }}
           onFiltersClear={clearAllFilters}
+          showActiveFilterChips={false}
           activeFilterChips={
-            <div className="flex flex-col gap-2">
+            <div
+              className="flex flex-col gap-2 border-b border-border px-4 py-3"
+              data-staff-entries-filter-chips=""
+            >
               <EntryFilterPresets
                 presets={presets}
                 activePresetId={activePresetId}
@@ -1203,8 +1233,6 @@ export default function TimeTrackingEntriesPage() {
             openEdit(row.id)
           }}
         />
-
-        <TimeEntriesSummaryFooter summary={summary} totalCount={total} canSeeMoney={canSeeMoney} />
 
         {!canManage ? (
           <p className="mt-2 text-xs text-muted-foreground">

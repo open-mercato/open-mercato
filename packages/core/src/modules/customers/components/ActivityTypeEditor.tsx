@@ -35,12 +35,12 @@ type FormValues = Record<string, unknown>
 
 const defaults = calendarEventTypes[0]!.behavior
 
-function initialValues(item: ScopedCalendarEventType | null): FormValues {
+function initialValues(item: ScopedCalendarEventType | null, version: string | null | undefined): FormValues {
   const behavior = item?.behavior ?? defaults
   return {
     value: item?.key ?? '', label: item?.label ?? '', icon: item?.icon ?? '', color: item?.color ?? '',
     order: behavior.order, baseKind: behavior.baseKind, selectable: behavior.selectable,
-    ...behavior.fields, customFieldsetIds: [...behavior.customFieldsetIds], updatedAt: item?.updatedAt ?? undefined,
+    ...behavior.fields, customFieldsetIds: [...behavior.customFieldsetIds], updatedAt: version ?? undefined,
   }
 }
 
@@ -51,6 +51,7 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
   const [items, setItems] = React.useState<ScopedCalendarEventType[]>([])
   const [rows, setRows] = React.useState<DictionaryRow[]>([])
   const [selected, setSelected] = React.useState<ScopedCalendarEventType | null | undefined>(undefined)
+  const [selectedVersion, setSelectedVersion] = React.useState<string | null | undefined>(undefined)
   const [fieldsets, setFieldsets] = React.useState<Fieldset[]>([])
   const [fieldsetsStatus, setFieldsetsStatus] = React.useState<'loading' | 'ready' | 'error'>('loading')
   const [fieldsetAttempt, setFieldsetAttempt] = React.useState(0)
@@ -103,6 +104,10 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
   }, [selected, fieldsetAttempt])
 
   const localRow = (key: string) => rows.find((row) => row.value.toLowerCase() === key && !row.isInherited)
+  const openEditor = (item: ScopedCalendarEventType | null) => {
+    setSelectedVersion(item ? localRow(item.key)?.updatedAt ?? item.updatedAt : undefined)
+    setSelected(item)
+  }
   const remove = async (item: ScopedCalendarEventType) => {
     const row = localRow(item.key)
     if (!row) return
@@ -157,6 +162,7 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
     { id: 'behavior', title: t('customers.config.activityTypes.behavior', 'Form behavior'), fields: ['baseKind', 'selectable', 'endTime', 'allDay', 'recurrence', 'location', 'people', 'priority', 'resources'] },
     ...(fieldsets.length || selected?.behavior.customFieldsetIds.length ? [{ id: 'fieldsets', fields: ['customFieldsetIds'] }] : []),
   ]
+  const formInitialValues = React.useMemo(() => initialValues(selected ?? null, selectedVersion), [selected, selectedVersion])
   const save = async (values: FormValues) => {
     const key = String(values.value ?? '').trim()
     if (!calendarEventTypeKeySchema.safeParse(key).success) throw createCrudFormError(t('customers.config.activityTypes.invalidKey', 'Use a lowercase key with letters, numbers, hyphens, or underscores.'), { value: t('customers.config.activityTypes.invalidKey', 'Use a lowercase key with letters, numbers, hyphens, or underscores.') })
@@ -206,11 +212,11 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
       {status === 'error' ? <div className="space-y-3"><ErrorMessage label={t('customers.config.activityTypes.loadFailed', 'Failed to load activity types.')} /><Button type="button" onClick={() => { void load() }}>{t('customers.config.activityTypes.retry', 'Retry')}</Button></div> :
         <DataTable<ScopedCalendarEventType> embedded columns={columns} data={items} isLoading={status === 'loading'}
           title={title} titleHeadingLevel={2} emptyState={t('customers.config.activityTypes.empty', 'No activity types available.')}
-          actions={<Button type="button" size="sm" onClick={() => setSelected(null)}>{t('customers.config.activityTypes.new', 'New activity type')}</Button>}
+          actions={<Button type="button" size="sm" onClick={() => openEditor(null)}>{t('customers.config.activityTypes.new', 'New activity type')}</Button>}
           refreshButton={{ label: t('customers.config.activityTypes.refresh', 'Refresh'), onRefresh: load, isRefreshing: status === 'loading' }}
           rowActions={(item) => {
             const actions: RowActionItem[] = [{ id: 'edit', label: item.adminConfigurable
-              ? t('customers.config.activityTypes.configure', 'Configure') : t('customers.config.activityTypes.view', 'View'), onSelect: () => setSelected(item) }]
+              ? t('customers.config.activityTypes.configure', 'Configure') : t('customers.config.activityTypes.view', 'View'), onSelect: () => openEditor(item) }]
             if (localRow(item.key)) actions.push({ id: 'delete', label: item.source === 'dictionary'
               ? t('customers.config.activityTypes.delete', 'Delete') : t('customers.config.activityTypes.reset', 'Reset override'),
               destructive: true, onSelect: () => { void remove(item) } })
@@ -230,7 +236,7 @@ export function ActivityTypeEditor({ title, description }: { title: string; desc
         {fieldsetsStatus === 'ready' && fieldsets.length === 0 ? <p className="text-sm text-muted-foreground">{t('customers.config.activityTypes.noFieldsets', 'No custom-field fieldsets are defined yet.')}</p> : null}
         {selected !== undefined && fieldsetsStatus === 'ready' ? <CrudForm<FormValues> key={selected?.key ?? 'new'} embedded
           readOnly={selected?.adminConfigurable === false} fields={fields} groups={groups}
-          initialValues={initialValues(selected)} onSubmit={save} submitLabel={t('customers.config.activityTypes.save', 'Save')}
+          initialValues={formInitialValues} onSubmit={save} submitLabel={t('customers.config.activityTypes.save', 'Save')}
           extraActions={<Button type="button" variant="outline" onClick={() => setSelected(undefined)}>{t('customers.config.dictionaries.dialog.cancel', 'Cancel')}</Button>} /> : null}
       </DialogContent>
     </Dialog>

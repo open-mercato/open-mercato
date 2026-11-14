@@ -2,14 +2,14 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { SalesOrderWarehouseAssignment, Warehouse } from '../data/entities'
 import type { SalesOrderWarehouseAssignInput, SalesOrderWarehouseUnassignInput } from '../data/validators'
 import { z } from 'zod'
-import { reserveInventoryForConfirmedOrder } from '../lib/salesOrderInventoryAutomation'
+import { isSalesOrderCancelled, reserveInventoryForConfirmedOrder } from '../lib/salesOrderInventoryAutomation'
 import { invalidateWmsInventoryEnricherCache } from '../lib/invalidateInventoryEnricherCache'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 
@@ -345,10 +345,21 @@ const reRunReservationHandler: CommandHandler<ReRunReservationInput, { ok: boole
     const eventCtx = {
       resolve: <T>(name: string) => ctx.container.resolve<T>(name),
     }
-    await reserveInventoryForConfirmedOrder(
-      { orderId: input.salesOrderId, tenantId: input.tenantId, organizationId: input.organizationId },
-      eventCtx,
-    )
+    const lifecyclePayload = {
+      orderId: input.salesOrderId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    }
+    if (await isSalesOrderCancelled(lifecyclePayload, eventCtx)) {
+      const { translate } = await resolveTranslations()
+      throw conflict(
+        translate(
+          'wms.errors.salesOrder.reRunReservationCancelled',
+          'A cancelled order cannot hold a stock reservation.',
+        ),
+      )
+    }
+    await reserveInventoryForConfirmedOrder(lifecyclePayload, eventCtx)
     return { ok: true }
   },
   async buildLog({ input, ctx }) {

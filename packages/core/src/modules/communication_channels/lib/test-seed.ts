@@ -142,6 +142,41 @@ export async function createTestSeedPlatformMessage(
   return rows[0]?.id ?? null
 }
 
+/**
+ * Hard-delete a platform message created by the test-seed harness. Matches only
+ * the direct seed stamp or a test-prefixed conversation already verified by the
+ * test-seed route, so integration teardown cannot remove real traffic.
+ */
+export async function deleteTestSeedPlatformMessage(
+  em: EntityManager,
+  input: {
+    messageId: string
+    channelId: string
+    conversationId: string
+    tenantId: string
+    organizationId: string | null
+  },
+): Promise<void> {
+  await em.getConnection().execute(
+    `DELETE FROM messages
+     WHERE id = ?
+       AND (
+         (source_entity_type = 'communication_channels.test_seed_inbound' AND source_entity_id = ?)
+         OR
+         (source_entity_type = 'communication_channels.external_conversation' AND source_entity_id = ?)
+       )
+       AND tenant_id = ?
+       AND organization_id IS NOT DISTINCT FROM ?`,
+    [
+      input.messageId,
+      input.channelId,
+      input.conversationId,
+      input.tenantId,
+      input.organizationId,
+    ],
+  )
+}
+
 function normalizeToken(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const normalized = value.trim()
@@ -316,10 +351,39 @@ class TestSeedChannelAdapter implements ChannelAdapter {
     }
   }
 
-  async normalizeInbound(_raw: InboundMessage): Promise<NormalizedInboundMessage> {
-    // The test-seed inbound path seeds MessageChannelLink rows directly and emits
-    // the hub event, so this adapter never normalizes a raw inbound payload.
-    throw new Error('[internal] TestSeedChannelAdapter.normalizeInbound is not used by the seed harness')
+  async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {
+    // Email-shaped frame for the test-seed `ingest-inbound` action: the sender is
+    // an address, so the message travels the REAL ingest path for an email
+    // channel — `ingest_inbound_message` derives `externalEmail` from it and
+    // composes through `messages.messages.compose` with `sendViaEmail: false`.
+    // That is the only way a test can prove the hub does not echo inbound mail
+    // back to its sender (#6089); `emit-inbound` bypasses compose entirely.
+    const frame = (raw.raw ?? {}) as Record<string, unknown>
+    const senderIdentifier = String(frame.senderIdentifier ?? '').trim()
+    if (!senderIdentifier.includes('@')) {
+      throw new Error('[internal] TestSeedChannelAdapter requires an email-shaped senderIdentifier')
+    }
+    const subject = typeof frame.subject === 'string' ? frame.subject : undefined
+    const body = typeof frame.body === 'string' ? frame.body : ''
+    const senderDisplayName =
+      typeof frame.senderDisplayName === 'string' ? frame.senderDisplayName : undefined
+    return {
+      externalMessageId: String(frame.externalMessageId ?? ''),
+      externalConversationId: String(frame.externalConversationId ?? ''),
+      senderIdentifier,
+      senderDisplayName,
+      subject,
+      body,
+      bodyFormat: 'text',
+      timestamp: new Date(),
+      channelPayload: {
+        from: { address: senderIdentifier, ...(senderDisplayName ? { name: senderDisplayName } : {}) },
+        ...(subject !== undefined ? { subject } : {}),
+        text: body,
+      },
+      channelContentType: 'text/plain',
+      channelMetadata: {},
+    }
   }
 
   async validateCredentials(_input: ValidateCredentialsInput): Promise<ValidateCredentialsResult> {

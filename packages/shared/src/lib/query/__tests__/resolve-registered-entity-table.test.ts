@@ -5,8 +5,13 @@ import {
   ENTITY_ID_PATTERN,
 } from '../engine'
 
+// MikroORM v7's real MetadataStorage.getAll() returns a Map, not an array (#6725,
+// same getAll()-returns-a-Map class of bug as #5579). A plain-array double here
+// would let the secondary lookup's broken `for...of` iteration pass trivially.
 function makeEm(metaByClass: Record<string, string>) {
-  const all = Object.entries(metaByClass).map(([className, tableName]) => ({ className, tableName }))
+  const all = new Map(
+    Object.entries(metaByClass).map(([className, tableName]) => [className, { className, tableName }]),
+  )
   return {
     getMetadata: () => ({
       find: (className: string) => {
@@ -44,6 +49,19 @@ describe('resolveRegisteredEntityTableName', () => {
     const em = makeEm({})
     expect(resolveRegisteredEntityTableName(em, 'foo:auth_user')).toBeNull()
     expect(resolveRegisteredEntityTableName(em, 'foo:user')).toBeNull()
+  })
+
+  it('the secondary lookup actually scans metadata on a real MikroORM 7 MetadataStorage (#6725)', () => {
+    // getMetadata().getAll() returns a Map keyed by class, not an array, so a
+    // registered entity whose class name does not match any PascalCase candidate
+    // (step 1 misses) must still be found by the table-name scan (step 2).
+    const em = makeEm({ SomeUnrelatedClassName: 'directory_organizations' })
+    expect(resolveRegisteredEntityTableName(em, 'directory:organization')).toBe('directory_organizations')
+  })
+
+  it('the secondary lookup does not match an unregistered id to an unrelated table', () => {
+    const em = makeEm({ Invoice: 'sales_invoices' })
+    expect(resolveRegisteredEntityTableName(em, 'clinic:patient')).toBeNull()
   })
 })
 

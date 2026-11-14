@@ -90,22 +90,24 @@ describe('crud ids helpers', () => {
     })
   })
 
-  it('mergeIdFilter preserves existing filter for unknown filter shape (fail closed)', () => {
-    // Regression: previously the unrecognised shape was silently discarded and
-    // replaced with `{ id: { $in: parsedIds } }`, widening access. The contract
-    // is "intersect with existing id filters — never widen" — so unknown shapes
-    // must degrade closed.
+  it('mergeIdFilter AND-combines an unknown filter shape with parsedIds (fail closed, never dropped)', () => {
+    // Regression for #7641: an earlier fix made the unrecognised shape fail
+    // closed by discarding `parsedIds` and keeping only the existing filter —
+    // but `parsedIds` can itself be server-supplied narrowing (an
+    // interceptor's `before` hook setting `query.ids`), so dropping it
+    // silently disabled that narrowing. Both constraints must survive via
+    // `$and` — this neither widens (still an AND) nor drops either side.
     expect(
       mergeIdFilter({ id: { $ne: idA } as any }, [idA, idB]),
-    ).toEqual({ id: { $ne: idA } })
+    ).toEqual({ $and: [{ id: { $ne: idA } }, { id: { $in: [idA, idB] } }] })
   })
 
-  it('mergeIdFilter preserves existing $eq with unsupported value (fail closed)', () => {
-    // An `$eq` with a non-UUID payload is also an unrecognised narrowing — we
-    // must not drop it and substitute `parsedIds`.
+  it('mergeIdFilter AND-combines an unsupported $eq value with parsedIds (fail closed, never dropped)', () => {
+    // An `$eq` with a non-UUID payload is also an unrecognised narrowing — it
+    // must survive alongside `parsedIds`, not be replaced or dropped.
     expect(
       mergeIdFilter({ id: { $eq: 'not-a-uuid' } as any }, [idA]),
-    ).toEqual({ id: { $eq: 'not-a-uuid' } })
+    ).toEqual({ $and: [{ id: { $eq: 'not-a-uuid' } }, { id: { $in: [idA] } }] })
   })
 
   it('mergeIdFilter treats undefined/null id as no existing narrowing', () => {

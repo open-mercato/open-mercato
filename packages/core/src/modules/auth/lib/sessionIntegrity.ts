@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleAcl, Session, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const INVALID_SCOPE = Symbol('invalid-scope')
@@ -106,6 +107,7 @@ export async function resolveCanonicalStaffAuthContext(
   ) {
     return null
   }
+  if (!(await isStaffTenantActive(em, currentTenantId))) return null
 
   // Role links and the per-user super-admin flag are likewise independent, so they
   // run concurrently. The role-level super-admin lookup depends on the resolved

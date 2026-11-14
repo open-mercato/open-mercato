@@ -193,6 +193,41 @@ describe('buildScopedTimeEntryListFilters — project access', () => {
     expect(filters.staff_member_id).toBe(MEMBER_ID)
     expect(filters.$or).toEqual([{ time_project_id: { $eq: null }, staff_member_id: OTHER_MEMBER_ID }])
   })
+
+  it('keeps project access immutable when an advanced filter targets another project', async () => {
+    asMember([MEMBER_PROJECT_ID])
+
+    await expect(runFilters({
+      'filter[conditions][0][field]': 'time_project_id',
+      'filter[conditions][0][op]': 'equals',
+      'filter[conditions][0][value]': FOREIGN_PROJECT_ID,
+    })).resolves.toEqual({
+      $and: [
+        {
+          $or: [
+            { time_project_id: { $in: [MEMBER_PROJECT_ID] } },
+            { time_project_id: { $eq: null }, staff_member_id: MEMBER_ID },
+          ],
+        },
+        { time_project_id: { $eq: FOREIGN_PROJECT_ID } },
+      ],
+    })
+  })
+
+  it('keeps the fail-closed predicate immutable when an advanced filter targets an entry', async () => {
+    asMember([], null)
+
+    await expect(runFilters({
+      'filter[conditions][0][field]': 'id',
+      'filter[conditions][0][op]': 'equals',
+      'filter[conditions][0][value]': ENTRY_ID,
+    })).resolves.toEqual({
+      $and: [
+        { id: { $in: [IMPOSSIBLE_ID] } },
+        { id: { $eq: ENTRY_ID } },
+      ],
+    })
+  })
 })
 
 // T3.10 (c) — the task filter. Before it, the drawer's billable / non-billable /

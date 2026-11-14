@@ -24,18 +24,20 @@ export type ModuleActivationEntry = {
 }
 
 export const EXAMPLE_ACTIVATION_ENTRY: ModuleActivationEntry = {
-  id: 'example', from: '@app', additionalPropertiesSource: 'overrides: { calendar: exampleCalendarOverrides },',
+  id: 'example', from: '@app',
 }
 export const EXAMPLE_INTEGRATION_ACTIVATION_ENTRY: ModuleActivationEntry = {
   id: 'example',
   from: '@app',
   additionalPropertiesSource: `overrides: {
-      calendar: exampleCalendarOverrides,
       acl: {
         features: { 'example.manage': null },
       },
       nav: {
         groupOrder: ['example.nav.group'],
+      },
+      widgets: {
+        injection: { 'example:override-probe:widget': null },
       },
       routes: {
         api: {

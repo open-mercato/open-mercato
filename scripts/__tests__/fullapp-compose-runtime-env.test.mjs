@@ -51,3 +51,22 @@ for (const relPath of COMPOSE_FILES) {
     }
   })
 }
+
+for (const relPath of ['starters/docker/compose.fullapp.dev.yml', 'docker-compose.fullapp.dev.yml']) {
+  test(`${relPath} leaves MCP to the dedicated mcp service`, () => {
+    const content = fs.readFileSync(path.resolve(ROOT, relPath), 'utf8')
+    const appStart = content.indexOf('\n  app:')
+    const appEnd = content.indexOf('\n  documents-collab:', appStart)
+    assert.notStrictEqual(appStart, -1, `${relPath} must define the app service`)
+    assert.notStrictEqual(appEnd, -1, `${relPath} must define documents-collab after app`)
+    const appService = content.slice(appStart, appEnd)
+
+    assert.match(content, /\n  mcp:\n/, `${relPath} must keep the dedicated mcp service`)
+    assert.match(appService, /mcp_shared:\/run\/mcp-shared:ro/, `${relPath} mounts the MCP key volume read-only into app`)
+    assert.match(
+      appService,
+      /^\s+OM_DEV_WITH_MCP:\s+"0"$/m,
+      `${relPath} must stop yarn dev from starting a second MCP runtime that writes into the read-only key volume`,
+    )
+  })
+}

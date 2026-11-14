@@ -1,15 +1,23 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import {
+  buildChanges,
+  requireId,
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+  emitCrudSideEffects,
+  emitCrudUndoSideEffects,
+} from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { UniqueConstraintViolationException } from '@mikro-orm/core'
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot, restoreCreatedRow } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CatalogProductVariant,
   CatalogProductPrice,
@@ -33,6 +41,7 @@ import type { CatalogGtinType } from '../data/types'
 import {
   cloneJson,
   commandActorScope,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   emitCatalogQueryIndexEvent,
@@ -43,7 +52,7 @@ import {
   getErrorMessage,
 } from './shared'
 import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
-import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 
 const variantCrudEvents: CrudEventsConfig = {
   module: 'catalog',
@@ -54,6 +63,21 @@ const variantCrudEvents: CrudEventsConfig = {
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
+}
+
+const variantPriceCrudEvents: CrudEventsConfig = {
+  module: 'catalog',
+  entity: 'price',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+const variantPriceCrudIndexer: CrudIndexerConfig = {
+  entityType: E.catalog.catalog_product_price,
 }
 
 type VariantSnapshot = {
@@ -111,9 +135,13 @@ const VARIANT_CHANGE_KEYS = [
 async function loadVariantSnapshot(
   em: EntityManager,
   id: string,
-  options: { includePrices?: boolean } = {}
+  options: { includePrices?: boolean; scopeWhere?: Record<string, unknown> } = {}
 ): Promise<VariantSnapshot | null> {
-  const record = await em.findOne(CatalogProductVariant, { id, deletedAt: null })
+  const record = await findOneWithDecryption(em, CatalogProductVariant, {
+    id,
+    deletedAt: null,
+    ...options.scopeWhere,
+  })
   if (!record) return null
   const prices = options.includePrices
     ? await loadVariantPriceSnapshots(em, record.id, {
@@ -350,6 +378,24 @@ async function loadVariantPriceSnapshots(
     })
   }
   return snapshots
+}
+
+async function resetVariantPriceCustomFields(
+  dataEngine: DataEngine,
+  snapshots: VariantPriceSnapshot[]
+): Promise<void> {
+  for (const snapshot of snapshots) {
+    const resetValues = buildCustomFieldResetMap(snapshot.custom ?? undefined, undefined)
+    if (!Object.keys(resetValues).length) continue
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: E.catalog.catalog_product_price,
+      recordId: snapshot.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      values: resetValues,
+    })
+  }
 }
 
 async function restoreVariantPricesFromSnapshots(
@@ -723,8 +769,57 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    em.remove(record)
-    await em.flush()
+    const variantScope = { tenantId: record.tenantId, organizationId: record.organizationId }
+    let priceSnapshots: VariantPriceSnapshot[] = []
+    let variantLocked = false
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          const locked = await findOneWithDecryption(
+            em,
+            CatalogProductVariant,
+            { id: record.id },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+            variantScope,
+          )
+          if (!locked) return
+          variantLocked = true
+          priceSnapshots = await loadVariantPriceSnapshots(em.fork({ keepTransactionContext: true }), record.id, variantScope)
+          if (priceSnapshots.length) {
+            await em.nativeDelete(CatalogProductPrice, { id: { $in: priceSnapshots.map((price) => price.id) } })
+          }
+        },
+        () => {
+          if (variantLocked) em.remove(record)
+        },
+      ],
+      { transaction: true }
+    )
+    if (!variantLocked) return
+    await capturePriceHistoryEntries(em, priceSnapshots, 'delete', {
+      metadata: { undoneCommand: 'catalog.variants.create' },
+      cache: resolveOmnibusCache(ctx.container),
+    })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await resetVariantPriceCustomFields(dataEngine, priceSnapshots)
+    for (const price of priceSnapshots) {
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: price,
+        identifiers: { id: price.id, organizationId: price.organizationId, tenantId: price.tenantId },
+        events: variantPriceCrudEvents,
+        indexer: variantPriceCrudIndexer,
+      })
+      await invalidateCrudCache(
+        ctx.container,
+        'catalog.price',
+        { id: price.id, organizationId: price.organizationId, tenantId: price.tenantId },
+        price.tenantId,
+        'command:catalog.variants.create:undo'
+      )
+    }
     if (payload?.previousDefaultVariantId) {
       const previousDefault = await em.findOne(CatalogProductVariant, { id: payload.previousDefaultVariantId })
       if (previousDefault) {
@@ -813,7 +908,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadVariantSnapshot(em, id)
+    const snapshot = await loadVariantSnapshot(em, id, { scopeWhere: commandScopeWhere(ctx) })
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -823,7 +918,11 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductVariant, { id: parsed.id, deletedAt: null })
+    const record = await findOneWithDecryption(em, CatalogProductVariant, {
+      id: parsed.id,
+      deletedAt: null,
+      ...commandScopeWhere(ctx),
+    })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1049,7 +1148,10 @@ const deleteVariantCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadVariantSnapshot(em, id, { includePrices: true })
+    const snapshot = await loadVariantSnapshot(em, id, {
+      includePrices: true,
+      scopeWhere: commandScopeWhere(ctx),
+    })
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -1059,7 +1161,10 @@ const deleteVariantCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductVariant, { id })
+    const record = await findOneWithDecryption(em, CatalogProductVariant, {
+      id,
+      ...commandScopeWhere(ctx),
+    })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1083,18 +1188,7 @@ const deleteVariantCommand: CommandHandler<
     em.remove(record)
     await em.flush()
     await capturePriceHistoryEntries(em, priceSnapshots, 'delete', { cache: resolveOmnibusCache(ctx.container) })
-    for (const priceSnapshot of priceSnapshots) {
-      const resetValues = buildCustomFieldResetMap(priceSnapshot.custom ?? undefined, undefined)
-      if (!Object.keys(resetValues).length) continue
-      await setCustomFieldsIfAny({
-        dataEngine,
-        entityId: E.catalog.catalog_product_price,
-        recordId: priceSnapshot.id,
-        organizationId: priceSnapshot.organizationId,
-        tenantId: priceSnapshot.tenantId,
-        values: resetValues,
-      })
-    }
+    await resetVariantPriceCustomFields(dataEngine, priceSnapshots)
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {

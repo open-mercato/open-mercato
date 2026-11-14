@@ -48,6 +48,13 @@ const TOOL_DEFINITIONS = [
 
 const TOOL_BY_ID = new Map(TOOL_DEFINITIONS.map((tool) => [tool.id, tool]))
 
+const START_CODING_PATH = '/actions/start-coding'
+const START_BUILDING_PATH = '/actions/start-building'
+const BUILDING_TOOL_ID = 'cezar'
+const BUILDING_PACKAGE_NAME = 'cezar-run'
+const BUILDING_RELAUNCH_COOLDOWN_MS = 5000
+export const BUILDING_MANUAL_COMMAND = `npx ${BUILDING_PACKAGE_NAME}`
+
 export function isCodingFlowEnabled(value) {
   if (typeof value !== 'string' || value.trim().length === 0) return true
   return !FALSE_TOKENS.has(value.trim().toLowerCase())
@@ -492,6 +499,8 @@ function resolveTerminalLauncher(env, platform) {
 
 async function launchInteractiveTerminal(commandPath, options = {}) {
   const safeCommandPath = assertShellSafePath(commandPath, 'Coding tool executable path')
+  const safeArgs = (Array.isArray(options.args) ? options.args : [])
+    .map((arg) => assertShellSafePath(arg, 'Coding tool argument'))
   const rawLaunchDir = options.launchDir ?? process.cwd()
   const safeLaunchDir = assertShellSafePath(rawLaunchDir, 'Launch directory')
   const env = options.env ?? process.env
@@ -502,8 +511,10 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
     throw new Error('No supported terminal launcher was detected on this system.')
   }
 
+  const posixCommand = [safeCommandPath, ...safeArgs].map(quotePosix).join(' ')
+
   if (launcher.type === 'osascript') {
-    const shellCommand = `cd ${quotePosix(safeLaunchDir)} && ${quotePosix(safeCommandPath)}`
+    const shellCommand = `cd ${quotePosix(safeLaunchDir)} && ${posixCommand}`
     await spawnDetached('osascript', [
       '-e',
       'tell application "Terminal" to activate',
@@ -514,7 +525,8 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
   }
 
   if (launcher.type === 'cmd') {
-    const shellCommand = `cd /d ${quoteWindowsArgument(safeLaunchDir)} && ${quoteWindowsArgument(safeCommandPath)}`
+    const windowsCommand = [safeCommandPath, ...safeArgs].map(quoteWindowsArgument).join(' ')
+    const shellCommand = `cd /d ${quoteWindowsArgument(safeLaunchDir)} && ${windowsCommand}`
     await spawnDetached('cmd', ['/c', `start "" cmd /k ${quoteWindowsArgument(shellCommand)}`], {
       cwd: safeLaunchDir,
       env,
@@ -522,7 +534,7 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
     return
   }
 
-  const shellCommand = `cd ${quotePosix(safeLaunchDir)} && ${quotePosix(safeCommandPath)}; exec "\${SHELL:-bash}"`
+  const shellCommand = `cd ${quotePosix(safeLaunchDir)} && ${posixCommand}; exec "\${SHELL:-bash}"`
   await spawnDetached(launcher.command, launcher.argsFor(shellCommand), {
     cwd: safeLaunchDir,
     env,
@@ -606,17 +618,90 @@ function buildSuccessMessage(toolState, setupApplied) {
   return `Opened ${toolState.label} for this workspace.`
 }
 
+function hasPackageManifest(directory) {
+  return hasFileSystemEntry(path.join(directory, 'package.json'))
+}
+
+export function resolveBuildingProjectDirectory(options = {}) {
+  const launchDir = sanitizeLaunchDirectory(options.launchDir)
+  const candidates = [options.projectDir, options.launchDir]
+    .filter((candidate) => isShellSafePathString(candidate) && candidate.trim().length > 0)
+
+  for (const candidate of candidates) {
+    const startDir = sanitizeLaunchDirectory(candidate)
+    if (startDir !== path.resolve(candidate)) continue
+
+    let currentDir = startDir
+    while (true) {
+      if (hasPackageManifest(currentDir)) {
+        return currentDir
+      }
+      const parentDir = path.dirname(currentDir)
+      if (parentDir === currentDir) break
+      currentDir = parentDir
+    }
+  }
+
+  return launchDir
+}
+
+export function detectBuildingLauncher(options = {}) {
+  const env = options.env ?? process.env
+  const platform = options.platform ?? process.platform
+  const npxPath = findExecutable(['npx'], { env, platform })
+
+  if (!npxPath) {
+    return { available: false, reason: 'npx_missing', npxPath: null }
+  }
+
+  if (!isShellSafePathString(npxPath)) {
+    return { available: false, reason: 'npx_missing', npxPath: null }
+  }
+
+  if (!resolveTerminalLauncher(env, platform)) {
+    return { available: false, reason: 'terminal_missing', npxPath }
+  }
+
+  return { available: true, reason: null, npxPath }
+}
+
+function describeBuildingUnavailable(reason, projectDir) {
+  if (reason === 'npx_missing') {
+    return `npx was not found on PATH. Install Node.js with npm, then run \`${BUILDING_MANUAL_COMMAND}\` in ${projectDir}.`
+  }
+  return `No supported terminal launcher was detected. Run \`${BUILDING_MANUAL_COMMAND}\` in ${projectDir}.`
+}
+
 export function createDevSplashCodingFlow(options = {}) {
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
   const launchDir = sanitizeLaunchDirectory(options.launchDir)
   const agenticSetupDir = options.agenticSetupDir ?? null
+  const buildingProjectDir = resolveBuildingProjectDirectory({
+    projectDir: options.projectDir,
+    launchDir,
+  })
+  const now = typeof options.now === 'function' ? options.now : () => Date.now()
   const enabled = isCodingFlowEnabled(env.OM_ENABLE_CODING_FLOW_FROM_SPLASH)
   const actionToken = enabled ? randomUUID() : null
   const actionState = {
     busy: false,
     activeToolId: null,
     lastResult: null,
+  }
+  const buildingState = {
+    lastResult: null,
+    lastStartedAt: null,
+  }
+
+  function getBuildingSnapshot() {
+    const launcher = detectBuildingLauncher({ env, platform })
+    return {
+      available: launcher.available,
+      reason: launcher.reason,
+      manualCommand: BUILDING_MANUAL_COMMAND,
+      lastResult: buildingState.lastResult,
+    }
   }
 
   function getSnapshot(extraState = {}) {
@@ -646,6 +731,7 @@ export function createDevSplashCodingFlow(options = {}) {
       activeToolId: actionState.activeToolId,
       lastResult: actionState.lastResult,
       tools,
+      building: getBuildingSnapshot(),
     }
   }
 
@@ -687,15 +773,25 @@ export function createDevSplashCodingFlow(options = {}) {
     return buildSuccessMessage(toolState, setupApplied)
   }
 
-  async function handleRequest(req, res, extraState = {}) {
-    if (!enabled) return false
-    if (!req.url) return false
-
-    const requestUrl = new URL(req.url, 'http://localhost')
-    if (requestUrl.pathname !== '/actions/start-coding') {
-      return false
+  async function startBuilding() {
+    const launcher = detectBuildingLauncher({ env, platform })
+    if (!launcher.available) {
+      const error = new Error(describeBuildingUnavailable(launcher.reason, buildingProjectDir))
+      error.code = launcher.reason
+      throw error
     }
 
+    await launchInteractiveTerminal(launcher.npxPath, {
+      args: [BUILDING_PACKAGE_NAME],
+      launchDir: buildingProjectDir,
+      env,
+      platform,
+    })
+
+    return `Opened a new terminal and started Cezar (${BUILDING_MANUAL_COMMAND}) in ${buildingProjectDir}.`
+  }
+
+  function rejectActionRequest(req, res) {
     if (req.method !== 'POST') {
       writeJson(res, 405, { ok: false, error: 'Method not allowed.' })
       return true
@@ -710,6 +806,96 @@ export function createDevSplashCodingFlow(options = {}) {
     if (req.headers['x-om-dev-splash-token'] !== actionToken) {
       writeJson(res, 403, { ok: false, error: 'Invalid splash action token.' })
       return true
+    }
+
+    return false
+  }
+
+  async function handleStartBuilding(req, res, extraState) {
+    if (actionState.busy) {
+      writeJson(res, 409, {
+        ok: false,
+        code: 'busy',
+        error: 'Another coding flow action is already in progress.',
+        codingFlow: getSnapshot(extraState),
+      })
+      return true
+    }
+
+    let payload = null
+    try {
+      payload = await readJsonBody(req)
+    } catch (error) {
+      writeJson(res, 400, {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Invalid start building request.',
+      })
+      return true
+    }
+
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length > 0) {
+      writeJson(res, 400, { ok: false, error: 'Start building does not accept request parameters.' })
+      return true
+    }
+
+    if (buildingState.lastStartedAt !== null && now() - buildingState.lastStartedAt < BUILDING_RELAUNCH_COOLDOWN_MS) {
+      buildingState.lastResult = {
+        kind: 'info',
+        code: 'already_started',
+        message: 'Cezar was just started. Check the terminal window that opened.',
+      }
+      writeJson(res, 409, {
+        ok: false,
+        code: 'already_started',
+        error: 'Cezar was just started. Check the terminal window that opened.',
+        codingFlow: getSnapshot(extraState),
+      })
+      return true
+    }
+
+    actionState.busy = true
+    actionState.activeToolId = BUILDING_TOOL_ID
+    buildingState.lastResult = { kind: 'info', code: 'starting', message: 'Starting Cezar...' }
+
+    let ok = false
+    try {
+      const message = await startBuilding()
+      buildingState.lastStartedAt = now()
+      buildingState.lastResult = { kind: 'success', code: 'started', message }
+      ok = true
+    } catch (error) {
+      const code = error && typeof error.code === 'string' && (error.code === 'npx_missing' || error.code === 'terminal_missing')
+        ? error.code
+        : 'failed'
+      const message = error instanceof Error ? error.message : 'Unable to start Cezar.'
+      buildingState.lastResult = { kind: 'error', code, message }
+    } finally {
+      actionState.busy = false
+      actionState.activeToolId = null
+    }
+
+    const codingFlow = getSnapshot(extraState)
+    writeJson(res, ok ? 200 : 500, ok
+      ? { ok: true, codingFlow }
+      : { ok: false, code: buildingState.lastResult.code, error: buildingState.lastResult.message, codingFlow })
+    return true
+  }
+
+  async function handleRequest(req, res, extraState = {}) {
+    if (!enabled) return false
+    if (!req.url) return false
+
+    const requestUrl = new URL(req.url, 'http://localhost')
+    if (requestUrl.pathname !== START_CODING_PATH && requestUrl.pathname !== START_BUILDING_PATH) {
+      return false
+    }
+
+    if (rejectActionRequest(req, res)) {
+      return true
+    }
+
+    if (requestUrl.pathname === START_BUILDING_PATH) {
+      return handleStartBuilding(req, res, extraState)
     }
 
     if (actionState.busy) {

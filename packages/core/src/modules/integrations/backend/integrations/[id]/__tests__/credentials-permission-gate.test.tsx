@@ -10,10 +10,11 @@
  * to every viewer, even though the backend correctly rejects the write with 403.
  */
 import * as React from 'react'
-import { waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
 const apiCallMock = jest.fn()
+let mockSearchParams = new URLSearchParams()
 const flashMock = jest.fn()
 
 jest.mock('next/link', () => ({
@@ -24,7 +25,7 @@ jest.mock('next/link', () => ({
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/integrations/gateway_stripe',
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mockSearchParams,
 }))
 
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
@@ -256,5 +257,72 @@ describe('Integration credentials — permission gate (#5816)', () => {
     expect(container.querySelector('[data-crud-field-id="secretKey"]')).not.toBeNull()
     expect(container).not.toHaveTextContent(NO_PERMISSION_MESSAGE)
     expect(findSaveAction(container)).not.toBeNull()
+  })
+})
+
+describe('Integration detail — view-only access without integrations.manage (#6415)', () => {
+  const LOGS_NO_PERMISSION = 'You do not have permission to view the logs of this integration.'
+  const viewOnlyDict = {
+    ...dict,
+    'integrations.detail.logs.noPermission': LOGS_NO_PERMISSION,
+    'integrations.detail.tabs.logs': 'Logs',
+  }
+  const logsRequests = () => apiCallMock.mock.calls.filter(([url]) => typeof url === 'string' && url.includes('/api/integrations/logs'))
+
+  beforeEach(() => {
+    apiCallMock.mockReset()
+    flashMock.mockReset()
+    mockSearchParams = new URLSearchParams()
+  })
+
+  afterAll(() => {
+    mockSearchParams = new URLSearchParams()
+  })
+
+  it('does not request logs, disables the state switch and explains the empty Logs tab', async () => {
+    mockApiResponses(['integrations.view'])
+
+    const { container } = renderWithProviders(
+      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
+      { dict: viewOnlyDict },
+    )
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent(NO_PERMISSION_MESSAGE)
+    })
+
+    expect(screen.getByRole('switch')).toBeDisabled()
+    expect(logsRequests()).toHaveLength(0)
+    expect(flashMock).not.toHaveBeenCalled()
+  })
+
+  it('explains the Logs tab instead of showing an empty list', async () => {
+    mockSearchParams = new URLSearchParams({ tab: 'logs' })
+    mockApiResponses(['integrations.view'])
+
+    const { container } = renderWithProviders(
+      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
+      { dict: viewOnlyDict },
+    )
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent(LOGS_NO_PERMISSION)
+    })
+    expect(logsRequests()).toHaveLength(0)
+  })
+
+  it('loads logs and keeps the state switch enabled for a user with integrations.manage', async () => {
+    mockApiResponses(['integrations.view', 'integrations.manage'])
+
+    const { container } = renderWithProviders(
+      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
+      { dict: viewOnlyDict },
+    )
+
+    await waitFor(() => {
+      expect(logsRequests().length).toBeGreaterThan(0)
+    })
+    expect(screen.getByRole('switch')).not.toBeDisabled()
+    expect(container).not.toHaveTextContent(LOGS_NO_PERMISSION)
   })
 })

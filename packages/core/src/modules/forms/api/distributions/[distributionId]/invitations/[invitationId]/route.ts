@@ -84,7 +84,7 @@ export const openApi: OpenApiRouteDoc = {
     DELETE: {
       summary: 'Revoke invitation',
       description:
-        'Soft-revokes an invitation — the row is retained and its status becomes revoked so a revoked token resolves to 410 (not 404).',
+        'Soft-revokes an invitation — the row is retained and its status becomes revoked so a revoked token resolves to 410 (not 404); access tokens already issued for the invitation stop working (401).',
       responses: [{ status: 200, description: 'Invitation revoked', schema: deleteResponseSchema }],
       errors: [{ status: 404, description: 'Invitation not found', schema: errorSchema }],
     },

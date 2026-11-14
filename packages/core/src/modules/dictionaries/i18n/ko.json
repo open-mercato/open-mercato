@@ -1,4 +1,5 @@
 {
+  "dictionaries.appearance.preview": "미리보기",
   "dictionaries.config.delete.confirm": "사전 \"{{name}}\"을(를) 삭제하시겠습니까?",
   "dictionaries.config.dialog.cancel": "취소",
   "dictionaries.config.dialog.createTitle": "사전 생성",

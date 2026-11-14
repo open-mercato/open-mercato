@@ -121,6 +121,15 @@ describe('messages.messages.compose — sentAt (#6095)', () => {
     expect(createdMessage()?.sentAt).toEqual(sentAt)
   })
 
+  it('preserves an explicitly unknown imported send time', async () => {
+    const { command, ctx, createdMessage } = createHarness()
+
+    await command.execute(composeInput({ sentAt: null, inboundFromChannel: true }), ctx)
+
+    expect(createdMessage()?.sentAt).toBeNull()
+    expect(createdMessage()?.isDraft).toBe(false)
+  })
+
   it('still stamps "now" when no sentAt is supplied', async () => {
     const { command, ctx, createdMessage } = createHarness()
     const before = Date.now()

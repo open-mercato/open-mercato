@@ -51,11 +51,21 @@ describe('record-page coverage', () => {
       widgetIdsAt(spotId).includes('workflows.injection.pending-work'),
     )
     expect(wired.sort()).toEqual([
-      'detail:customers.company:footer',
-      'detail:customers.deal:footer',
-      'detail:customers.person:footer',
+      'detail:customers.company:tabs',
+      'detail:customers.deal:tabs',
+      'detail:customers.person:tabs',
       'sales.document.detail.order:tabs',
     ])
+  })
+
+  test('mounts as a tab of the CRM related-content workspace, never as a detached footer card (#7488)', () => {
+    for (const entity of ['person', 'company', 'deal']) {
+      const slots = injectionTable[`detail:customers.${entity}:tabs`] as Array<Slot & { groupId?: string }>
+      const slot = slots.find((entry) => entry.widgetId === 'workflows.injection.pending-work')
+      expect(slot?.kind).toBe('tab')
+      expect(slot?.groupId).toBe('pending-work')
+      expect(injectionTable[`detail:customers.${entity}:footer`]).toBeUndefined()
+    }
   })
 
   test('every wired spot is a real record-detail spot id, not an invented one', () => {

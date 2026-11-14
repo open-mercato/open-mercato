@@ -110,7 +110,11 @@ export class CustomerRole {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  // `onCreate` initializes the optimistic-lock version on insert (#8846) — without it
+  // a freshly created role persists `updated_at = NULL`, and the command-level lock
+  // guard (`enforceCommandOptimisticLock`) treats a null `current` as unlockable and
+  // no-ops, so the role's very first concurrent edit always wins the race silently.
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
   updatedAt?: Date
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
