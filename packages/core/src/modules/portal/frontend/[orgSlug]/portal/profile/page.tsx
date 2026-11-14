@@ -2,7 +2,8 @@
 import { useEffect, useMemo } from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
@@ -14,6 +15,7 @@ type Props = { params: { orgSlug: string } }
 
 export default function PortalProfilePage({ params }: Props) {
   const t = useT()
+  const locale = useLocale()
   const { auth } = usePortalContext()
   const { user, roles, resolvedFeatures, isPortalAdmin, loading } = auth
 
@@ -38,9 +40,7 @@ export default function PortalProfilePage({ params }: Props) {
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return t('portal.dashboard.never', 'Never')
-    return new Date(dateString).toLocaleDateString(undefined, {
-      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    })
+    return formatDisplayDateTime(dateString, locale) ?? dateString
   }
 
   return (

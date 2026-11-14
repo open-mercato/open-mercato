@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Client, Pool } from 'pg'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import { getPgSessionConfig } from '@open-mercato/shared/lib/db/session'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
 import type { EmitOptions, EventPayload } from './types'
@@ -84,6 +85,7 @@ function getPublisherPool(): InstanceType<typeof Pool> | null {
     connectionString,
     max: 2,
     ...(ssl ? { ssl } : {}),
+    ...getPgSessionConfig(),
   })
   return publisherPool
 }
@@ -136,6 +138,7 @@ async function ensureCrossProcessListener(): Promise<void> {
     const client = new Client({
       connectionString,
       ...(ssl ? { ssl } : {}),
+      ...getPgSessionConfig(),
     })
 
     client.on('notification', (message: PgNotificationMessage) => {

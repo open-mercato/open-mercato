@@ -4,7 +4,8 @@ import { extensionPoints } from '@open-mercato/checkout/modules/checkout/extensi
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -40,14 +41,14 @@ type ListResponse = {
   totalIsCapped?: boolean
 }
 
-function formatDate(value: string | null | undefined): string {
+function formatDate(value: string | null | undefined, locale: string): string {
   if (!value) return '—'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
+  return formatDisplayDate(value, locale) ?? value
 }
 
 export default function CheckoutPayLinksPage() {
   const t = useT()
+  const locale = useLocale()
   const [rows, setRows] = React.useState<LinkRow[]>([])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -181,9 +182,9 @@ export default function CheckoutPayLinksPage() {
     {
       accessorKey: 'createdAt',
       header: t('checkout.admin.payLinks.columns.created'),
-      cell: ({ row }) => formatDate(row.original.createdAt),
+      cell: ({ row }) => formatDate(row.original.createdAt, locale),
     },
-  ], [t])
+  ], [locale, t])
 
   return (
     <Page>

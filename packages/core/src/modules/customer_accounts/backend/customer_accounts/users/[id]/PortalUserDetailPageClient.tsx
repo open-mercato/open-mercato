@@ -14,7 +14,8 @@ import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@ope
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -42,11 +43,8 @@ type UserDetail = {
   }>
 }
 
-function formatDate(value: string | null | undefined, fallback: string): string {
-  if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleString()
+function formatDate(value: string | null | undefined, fallback: string, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? fallback
 }
 
 function ResetPasswordDialog({
@@ -150,6 +148,7 @@ export type PortalUserDetailPageClientProps = {
 export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserDetailPageClientProps) {
   const id = params?.id
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [data, setData] = React.useState<UserDetail | null>(null)
@@ -573,11 +572,11 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
             </div>
             <div className="flex justify-between">
               <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.lastLogin', 'Last Login')}</dt>
-              <dd>{formatDate(data.lastLoginAt, '-')}</dd>
+              <dd>{formatDate(data.lastLoginAt, '-', locale)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.createdAt', 'Created')}</dt>
-              <dd>{formatDate(data.createdAt, '-')}</dd>
+              <dd>{formatDate(data.createdAt, '-', locale)}</dd>
             </div>
           </dl>
         </div>
@@ -810,7 +809,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                     {session.userAgent || t('customer_accounts.admin.detail.unknownDevice', 'Unknown device')}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {t('customer_accounts.admin.detail.fields.lastUsed', 'Last used')}: {formatDate(session.lastUsedAt, '-')}
+                    {t('customer_accounts.admin.detail.fields.lastUsed', 'Last used')}: {formatDate(session.lastUsedAt, '-', locale)}
                   </p>
                 </div>
                 <Button

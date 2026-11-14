@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { resolveDateFnsLocale } from '@open-mercato/ui/primitives/date-locale'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateRangeLabel } from '../../lib/calendar/format'
 import type {
@@ -52,6 +53,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
   } = props
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const dateFnsLocale = resolveDateFnsLocale(locale)
   const [rangeOpen, setRangeOpen] = React.useState(false)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
@@ -127,7 +129,7 @@ export function CalendarToolbar(props: CalendarToolbarProps) {
                 className="min-w-0 text-muted-foreground sm:-ml-px sm:rounded-l-none"
               >
                 <CalendarRange aria-hidden="true" />
-                <span className="truncate">{formatDateRangeLabel(locale, range.from, range.to)}</span>
+                <span className="truncate">{formatDateRangeLabel(locale, range.from, range.to, dateSettings)}</span>
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-auto min-w-0 p-2">

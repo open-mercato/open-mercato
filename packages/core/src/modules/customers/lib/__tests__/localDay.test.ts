@@ -1,9 +1,34 @@
-import { USER_TIMEZONE, isSameDay, toLocalZonedDate } from '../localDay'
+/** @jest-environment jsdom */
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { setClientDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
+import { USER_TIMEZONE, getUserTimeZone, isSameDay, toLocalZonedDate } from '../localDay'
 
-describe('USER_TIMEZONE', () => {
+const noEnv = { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null }
+
+function configureTimeZone(timeZone: string | null): void {
+  setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone }, env: noEnv }))
+}
+
+afterEach(() => setClientDateLocaleSettings(null))
+
+describe('getUserTimeZone', () => {
   it('resolves to a non-empty IANA zone the platform accepts', () => {
-    expect(USER_TIMEZONE).toEqual(expect.any(String))
-    expect(USER_TIMEZONE.length).toBeGreaterThan(0)
+    expect(getUserTimeZone()).toEqual(expect.any(String))
+    expect(getUserTimeZone().length).toBeGreaterThan(0)
+    expect(() => new Intl.DateTimeFormat(undefined, { timeZone: getUserTimeZone() })).not.toThrow()
+  })
+
+  it('follows the configured display timezone', () => {
+    configureTimeZone('Pacific/Kiritimati')
+    expect(getUserTimeZone()).toBe('Pacific/Kiritimati')
+  })
+
+  it('falls back to the runtime zone when none is configured', () => {
+    configureTimeZone(null)
+    expect(getUserTimeZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  })
+
+  it('keeps the deprecated USER_TIMEZONE alias as a valid zone', () => {
     expect(() => new Intl.DateTimeFormat(undefined, { timeZone: USER_TIMEZONE })).not.toThrow()
   })
 })
@@ -43,13 +68,13 @@ describe('toLocalZonedDate', () => {
 
   it('projects an instant onto the calendar day the reader would name', () => {
     // The projected wall-clock fields are what the day comparison reads, so they must
-    // agree with what `Intl` renders for the same instant in USER_TIMEZONE — this is
+    // agree with what `Intl` renders for the same instant in getUserTimeZone() — this is
     // the property that keeps the day strip and the activity list on the same day for
     // late-evening activities near a UTC boundary (issue #1809 — E3).
     const instant = new Date('2026-04-10T21:30:00.000Z')
     const projected = toLocalZonedDate(instant)
     const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: USER_TIMEZONE,
+      timeZone: getUserTimeZone(),
       year: 'numeric',
       month: 'numeric',
       day: 'numeric',
@@ -59,5 +84,13 @@ describe('toLocalZonedDate', () => {
     expect(projected.getFullYear()).toBe(partValue('year'))
     expect(projected.getMonth() + 1).toBe(partValue('month'))
     expect(projected.getDate()).toBe(partValue('day'))
+  })
+})
+
+describe('toLocalZonedDate with a configured display timezone', () => {
+  it('projects onto the configured zone rather than the runtime zone', () => {
+    configureTimeZone('Pacific/Kiritimati')
+    const projected = toLocalZonedDate('2026-04-10T21:30:00.000Z')
+    expect([projected.getFullYear(), projected.getMonth() + 1, projected.getDate(), projected.getHours()]).toEqual([2026, 4, 11, 11])
   })
 })

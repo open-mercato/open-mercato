@@ -2,6 +2,7 @@ import { asValue } from 'awilix'
 import { Pool } from 'pg'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
+import { getPgSessionConfig } from '@open-mercato/shared/lib/db/session'
 import { EmbeddingService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '../../vector'
 import type { PgPool } from '../../vector/drivers/pgvector'
 import { createVectorIndexingQueue, type VectorIndexJobPayload } from '../../queue/vector-indexing'
@@ -75,7 +76,7 @@ function getOrCreateSingletons(): {
   let pgPool: PgPool | undefined
   const dbUrl = process.env.DATABASE_URL
   if (dbUrl) {
-    pgPool = new Pool({ connectionString: dbUrl }) as unknown as PgPool
+    pgPool = new Pool({ connectionString: dbUrl, ...getPgSessionConfig() }) as unknown as PgPool
     g[PG_POOL_KEY] = pgPool
   }
 

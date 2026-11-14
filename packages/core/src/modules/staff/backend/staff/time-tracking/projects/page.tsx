@@ -27,7 +27,7 @@ import { formatCurrency, formatDate } from '@open-mercato/ui/utils/format'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { ProjectColorDot } from '../../../../lib/timesheets-ui/ProjectColorDot'
 import { resolveProjectColorHex } from '../../../../lib/timesheets-ui/colors'
 import { formatDuration } from '../../../../lib/time-tracking/duration'
@@ -163,7 +163,7 @@ function formatRelativeTime(iso: string | null, fallback: string, t: TranslateFn
   if (hours < 24) return t('staff.timesheets.projects.portfolio.relativeTime.hoursAgo', '{hours}h ago', { hours })
   const days = Math.round(hours / 24)
   if (days < 14) return t('staff.timesheets.projects.portfolio.relativeTime.daysAgo', '{days}d ago', { days })
-  return formatDateTime(iso) ?? fallback
+  return formatDisplayDateTime(iso) ?? fallback
 }
 
 function mapApiProject(item: Record<string, unknown>): ProjectRow {

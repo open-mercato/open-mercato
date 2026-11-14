@@ -137,6 +137,56 @@ describe('aggregations', () => {
     it('throws for invalid granularity', () => {
       expect(() => buildDateTruncExpression('created_at', 'invalid' as any)).toThrow('Invalid granularity')
     })
+
+    it('keeps the ISO Monday week when no week start or Monday is configured', () => {
+      expect(buildDateTruncExpression('created_at', 'week')).toBe("DATE_TRUNC('week', created_at)")
+      expect(buildDateTruncExpression('created_at', 'week', 1)).toBe("DATE_TRUNC('week', created_at)")
+    })
+
+    it('shifts week buckets to start on the configured day', () => {
+      expect(buildDateTruncExpression('created_at', 'week', 0)).toBe(
+        "(DATE_TRUNC('week', created_at + INTERVAL '1 days') - INTERVAL '1 days')",
+      )
+      expect(buildDateTruncExpression('created_at', 'week', 6)).toBe(
+        "(DATE_TRUNC('week', created_at + INTERVAL '2 days') - INTERVAL '2 days')",
+      )
+    })
+
+    it('ignores the week start for other granularities', () => {
+      expect(buildDateTruncExpression('created_at', 'month', 0)).toBe("DATE_TRUNC('month', created_at)")
+      expect(buildDateTruncExpression('created_at', 'day', 6)).toBe("DATE_TRUNC('day', created_at)")
+    })
+
+    it('rejects a week start outside 0–6 instead of interpolating it', () => {
+      expect(() => buildDateTruncExpression('created_at', 'week', 7)).toThrow('Invalid weekStartsOn')
+      expect(() => buildDateTruncExpression('created_at', 'week', 1.5)).toThrow('Invalid weekStartsOn')
+    })
+
+    it('puts every day of the week in the bucket that starts on the configured day', () => {
+      // Mirrors the SQL: Postgres DATE_TRUNC('week', x) is the Monday on or before x.
+      const isoMondayOnOrBefore = (date: Date) => {
+        const result = new Date(date)
+        result.setUTCDate(result.getUTCDate() - ((result.getUTCDay() + 6) % 7))
+        return result
+      }
+      const shiftDays = (weekStartsOn: number) => {
+        const match = /INTERVAL '(\d+) days'/.exec(buildDateTruncExpression('x', 'week', weekStartsOn))
+        return match ? Number(match[1]) : 0
+      }
+      for (let weekStartsOn = 0; weekStartsOn <= 6; weekStartsOn += 1) {
+        const shift = shiftDays(weekStartsOn)
+        for (let offset = 0; offset < 14; offset += 1) {
+          const day = new Date(Date.UTC(2026, 5, 1 + offset))
+          const shifted = new Date(day)
+          shifted.setUTCDate(shifted.getUTCDate() + shift)
+          const bucket = isoMondayOnOrBefore(shifted)
+          bucket.setUTCDate(bucket.getUTCDate() - shift)
+          expect(bucket.getUTCDay()).toBe(weekStartsOn)
+          expect(bucket.getTime()).toBeLessThanOrEqual(day.getTime())
+          expect(day.getTime() - bucket.getTime()).toBeLessThan(7 * 24 * 60 * 60 * 1000)
+        }
+      }
+    })
   })
 
   describe('buildJsonbFieldExpression', () => {
@@ -230,6 +280,18 @@ describe('aggregations', () => {
       })
       expect(result?.sql).toContain("DATE_TRUNC('month', placed_at)")
       expect(result?.sql).toContain('GROUP BY')
+    })
+
+    it('groups weeks from the configured first day of the week', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        groupBy: { field: 'placedAt', granularity: 'week' },
+        weekStartsOn: 0,
+      })
+      const bucket =
+        "(((DATE_TRUNC('week', placed_at + INTERVAL '1 days') - INTERVAL '1 days'))::timestamp AT TIME ZONE 'UTC')"
+      expect(result?.sql).toContain(`SELECT ${bucket} AS group_key`)
+      expect(result?.sql).toContain(`GROUP BY ${bucket}`)
     })
 
     it('includes LIMIT when groupBy has limit', () => {
@@ -532,7 +594,7 @@ describe('aggregations', () => {
         granularity: 'month',
       })
       expect(resolved).toEqual({
-        expression: "DATE_TRUNC('month', placed_at)",
+        expression: "((DATE_TRUNC('month', placed_at))::timestamp AT TIME ZONE 'UTC')",
         dbColumn: 'placed_at',
         jsonPath: null,
       })

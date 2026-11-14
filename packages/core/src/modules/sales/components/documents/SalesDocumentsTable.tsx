@@ -16,7 +16,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -166,6 +167,7 @@ function normalizeNumberInput(value: unknown): number | null {
 
 export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const t = useT()
+  const locale = useLocale()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
@@ -758,10 +760,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       header: t('sales.documents.list.table.date', 'Date'),
       cell: ({ row }) =>
         row.original.date
-          ? <span className="text-xs text-muted-foreground">{new Date(row.original.date).toLocaleString()}</span>
+          ? <span className="text-xs text-muted-foreground">{formatDisplayDateTime(row.original.date, locale) ?? '—'}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [channelsEnabled, kind, statusMap, t])
+  ], [channelsEnabled, kind, locale, statusMap, t])
 
   const emptyLabel = kind === 'order'
     ? t('sales.documents.list.table.emptyOrders', 'No orders yet.')

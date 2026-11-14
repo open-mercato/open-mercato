@@ -13,7 +13,8 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { CreateDistributionDialog } from './CreateDistributionDialog'
 import { EmbedSettingsDialog } from './EmbedSettingsDialog'
@@ -58,11 +59,8 @@ const STATUS_VARIANT: Record<DistributionStatus, StatusBadgeVariant> = {
   closed: 'neutral',
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString()
+function formatDate(value: string | null, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? ''
 }
 
 function publicLinkFor(slug: string | null): string | null {
@@ -85,6 +83,7 @@ async function copyToClipboard(value: string): Promise<boolean> {
 
 export function DistributionsPanel({ formId }: { formId: string }) {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation({ contextId: 'forms.distributions' })
@@ -266,10 +265,10 @@ export function DistributionsPanel({ formId }: { formId: string }) {
       {
         header: t('forms.distribution.columns.created_at', { fallback: 'Created' }),
         accessorKey: 'createdAt',
-        cell: ({ row }) => formatDate(row.original.createdAt) || '—',
+        cell: ({ row }) => formatDate(row.original.createdAt, locale) || '—',
       },
     ],
-    [handleCopyLink, t],
+    [handleCopyLink, locale, t],
   )
 
   const renderRowActions = React.useCallback(

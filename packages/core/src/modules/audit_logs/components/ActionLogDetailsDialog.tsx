@@ -4,7 +4,7 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from './AuditLogsActions'
 import {
   ChangedFieldsTable,
@@ -16,6 +16,7 @@ import {
 
 export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem; onClose: () => void }) {
   const t = useT()
+  const locale = useLocale()
   const noneLabel = t('audit_logs.common.none')
   const [mounted, setMounted] = React.useState(false)
 
@@ -75,7 +76,7 @@ export function ActionLogDetailsDialog({ item, onClose }: { item: ActionLogItem;
               {item.actionLabel || item.commandId}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              {formatDate(item.createdAt)}
+              {formatDate(item.createdAt, locale)}
             </p>
           </div>
           <Button

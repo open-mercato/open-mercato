@@ -135,6 +135,24 @@ describe('scheduling conflict email visibility', () => {
     auth = { sub: viewerId, tenantId, orgId: organizationId }
   })
 
+  it('reports conflict times in the caller offset and as ISO instants', async () => {
+    candidates = [candidate('owned', { interaction_type: 'meeting' })]
+    const params = new URLSearchParams({ date: '2026-10-04', startTime: '11:00', duration: '30', timezoneOffsetMinutes: '120' })
+    const response = await GET(new Request(`http://localhost/api/customers/interactions/conflicts?${params}`))
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      result: { conflicts: Array<{ startTime: string; endTime: string; startsAt: string; endsAt: string }> }
+    }
+    expect(body.result.conflicts).toEqual([
+      expect.objectContaining({
+        startTime: '11:00',
+        endTime: '11:30',
+        startsAt: '2026-10-04T09:00:00.000Z',
+        endsAt: '2026-10-04T09:30:00.000Z',
+      }),
+    ])
+  })
+
   it('defaults interactive scheduling to sub and preserves author and owner matches', async () => {
     candidates = [
       candidate('authored', { author_user_id: viewerId, owner_user_id: null }),

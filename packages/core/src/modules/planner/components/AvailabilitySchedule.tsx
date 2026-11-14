@@ -16,6 +16,7 @@ import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiC
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { GanttChart } from 'lucide-react'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 
@@ -127,7 +128,7 @@ export function AvailabilitySchedule({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingRule, setEditingRule] = React.useState<AvailabilityRule | null>(null)
   const [scheduleView, setScheduleView] = React.useState<ScheduleViewMode>('week')
-  const [timezone, setTimezone] = React.useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
+  const [timezone, setTimezone] = React.useState<string>(() => resolveDisplayTimeZone())
   const [range, setRange] = React.useState<ScheduleRange>(() => {
     const now = new Date()
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())

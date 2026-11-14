@@ -147,6 +147,7 @@ export function childMinutes(loggedMinutes: number, ownMinutes: number): number 
   return delta > 0 ? delta : 0
 }
 
+/** Today's calendar day in the browser zone — the frame time entries are typed, stored and read back in. */
 export function todayIsoDate(now: Date = new Date()): string {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')

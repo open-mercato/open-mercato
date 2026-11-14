@@ -23,6 +23,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
@@ -101,16 +102,6 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
   const asnCompleteLockRef = React.useRef<string | null>(null)
   // Fresh ASN If-Match across receives — query refetch is async after onSuccess.
   const asnReceiveLockRef = React.useRef<string | null>(null)
-
-  const dateFormatter = React.useMemo(
-    () =>
-      new Intl.DateTimeFormat(locale, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }),
-    [locale],
-  )
 
   const asnQuery = useQuery({
     queryKey: ['wms-asn-detail', asnId, 'header'],
@@ -518,9 +509,7 @@ export default function WmsAsnDetailPage({ asnId }: { asnId: string }) {
                     {t('wms.backend.asns.columns.expectedAt', 'Expected')}
                   </dt>
                   <dd>
-                    {asn.expected_at && !Number.isNaN(new Date(asn.expected_at).getTime())
-                      ? dateFormatter.format(new Date(asn.expected_at))
-                      : '—'}
+                    {formatDisplayDate(toUtcDateInputValue(asn.expected_at), locale) ?? '—'}
                   </dd>
                 </div>
                 <div>

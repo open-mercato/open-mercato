@@ -19,7 +19,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type TenantRow = {
   id: string
@@ -49,6 +50,7 @@ export default function DirectoryTenantsPage() {
   const [canManage, setCanManage] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const locale = useLocale()
   const columns = React.useMemo<ColumnDef<TenantRow>[]>(() => [
     { accessorKey: 'name', header: t('directory.tenants.list.columns.tenant', 'Tenant'), meta: { priority: 1 } },
     {
@@ -63,14 +65,12 @@ export default function DirectoryTenantsPage() {
       header: t('directory.tenants.list.columns.created', 'Created'),
       meta: { priority: 3 },
       cell: ({ getValue }) => {
-        const timestamp = getValue() as string | null
-        if (!timestamp) return <span className="text-xs text-muted-foreground">—</span>
-        const date = new Date(timestamp)
-        if (Number.isNaN(date.getTime())) return <span className="text-xs text-muted-foreground">—</span>
-        return <span>{date.toLocaleString()}</span>
+        const formatted = formatDisplayDateTime(getValue() as string | null, locale)
+        if (!formatted) return <span className="text-xs text-muted-foreground">—</span>
+        return <span>{formatted}</span>
       },
     },
-  ], [t])
+  ], [t, locale])
 
   React.useEffect(() => {
     let cancelled = false

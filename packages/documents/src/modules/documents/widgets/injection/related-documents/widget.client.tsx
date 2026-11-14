@@ -10,7 +10,7 @@ import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../backend/documents/documentUi'
 import { LinkDocumentDialog } from './LinkDocumentDialog'
 import { resolveRelatedDocumentActions, resolveRelatedDocumentContext } from './context'
@@ -40,6 +40,7 @@ const NewFromTemplateDialog = dynamic(
 
 export default function RelatedDocumentsWidget({ context, data, disabled }: InjectionWidgetComponentProps<Record<string, unknown>, Record<string, unknown>>) {
   const t = useT()
+  const locale = useLocale()
   const target = React.useMemo(() => resolveRelatedDocumentContext(context, data), [context, data])
   const related = useRelatedDocuments(target)
   const [linkOpen, setLinkOpen] = React.useState(false)
@@ -64,7 +65,7 @@ export default function RelatedDocumentsWidget({ context, data, disabled }: Inje
         {related.status === 'ready' && related.items.length === 0 ? <EmptyState size="sm" variant="subtle" title={t('documents.relatedDocuments.empty')} icon={<Link2 className="size-5" />} /> : null}
         {related.status === 'ready' && related.items.length > 0 ? <div className="space-y-2">{related.items.map((row) => (
           <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3">
-            <div className="min-w-0"><Link className="block truncate text-sm font-medium hover:underline focus-visible:underline focus-visible:outline-none" href={`/backend/documents/${row.id}`}>{row.title}</Link><p className="truncate text-xs text-muted-foreground">{t('documents.relatedDocuments.meta', { owner: row.ownerLabel, updated: formatDateTime(row.updatedAt, t('documents.relatedDocuments.unknownDate')) })}</p></div>
+            <div className="min-w-0"><Link className="block truncate text-sm font-medium hover:underline focus-visible:underline focus-visible:outline-none" href={`/backend/documents/${row.id}`}>{row.title}</Link><p className="truncate text-xs text-muted-foreground">{t('documents.relatedDocuments.meta', { owner: row.ownerLabel, updated: formatDateTime(row.updatedAt, t('documents.relatedDocuments.unknownDate'), locale) })}</p></div>
             <LinkButton asChild size="sm" variant="gray"><Link href={`/backend/documents/${row.id}`}><ExternalLink />{t('documents.actions.open')}</Link></LinkButton>
           </div>
         ))}</div> : null}

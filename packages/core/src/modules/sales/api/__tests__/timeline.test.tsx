@@ -26,7 +26,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
     const template = translations[key] ?? fallback ?? key
     return template.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match)
   }
-  return { useT: () => t }
+  return { useT: () => t, useLocale: () => 'en' }
 })
 
 jest.mock('@open-mercato/shared/lib/time', () => ({

@@ -27,6 +27,7 @@ import { resolveCountryName } from '@open-mercato/shared/lib/location/countries'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { EudrCommodity, EudrSubmissionStatus } from '../../../data/validators'
 import { commodityOptions, statusBadgeVariant, submissionStatusOptions, type CompanySnapshot } from '../../../components/formConfig'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type EvidenceSubmissionRow = {
   id: string
@@ -59,9 +60,7 @@ type EvidenceSubmissionsResponse = {
 
 function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString(locale || undefined)
+  return formatDisplayDateTime(value, locale || undefined) ?? emptyLabel
 }
 
 function formatSupplier(row: EvidenceSubmissionRow, unavailableLabel: string): string {

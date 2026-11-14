@@ -6,6 +6,8 @@ import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { resolveSupportedLocalesForRequest, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { resolveDateLocaleSettingsForRequest } from '@open-mercato/shared/lib/date-locale/registry'
+import { DateLocaleSettingsProvider } from '@open-mercato/ui/primitives/date-locale-settings'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile-sections'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
@@ -61,6 +63,9 @@ export default async function BackendLayout({
   // let the admin subtree render a locale the root layout already rejected.
   const supportedLocales = await resolveSupportedLocalesForRequest()
   const { translate, locale, dict } = await resolveTranslations({ supportedLocales })
+  // The root layout's settings are not re-rendered by a client-side navigation, so a login
+  // redirect into the backend would keep the anonymous defaults without this nested provider.
+  const dateLocaleSettings = await resolveDateLocaleSettingsForRequest()
   const embeddingConfigured = Boolean(
     process.env.OPENAI_API_KEY ||
     process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
@@ -115,40 +120,42 @@ export default async function BackendLayout({
 
   return (
     <I18nProvider locale={locale} dict={dict} localeLocked={resolveForcedLocale(process.env) !== null} supportedLocales={supportedLocales}>
-      <AppShell
-        productName={productName}
-        email={auth?.email}
-        canManageUpgradeActions={canManageUpgradeActions}
-        groups={[]}
-        currentTitle={currentTitle}
-        breadcrumb={breadcrumb}
-        sidebarCollapsedDefault={initialCollapsed}
-        rightHeaderSlot={(
-          <BackendHeaderChrome
-            email={auth?.email}
-            userId={auth?.sub ?? null}
-            embeddingConfigured={embeddingConfigured}
-            missingConfigMessage={missingConfigMessage}
-            tenantId={auth?.tenantId ?? null}
-            organizationId={auth?.orgId ?? null}
-          />
-        )}
-        adminNavApi="/api/auth/admin/nav"
-        version={APP_VERSION}
-        hideFooter={hideBackendFooter}
-        settingsPathPrefixes={collectStaticSettingsPathPrefixes()}
-        settingsSections={[]}
-        settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
-        profileSections={[]}
-        profileSectionTitle={translate('profile.page.title', 'Profile')}
-        profilePathPrefixes={profilePathPrefixes}
-      >
-        <PageInjectionBoundary path={path} context={injectionContext}>
-          {children}
-        </PageInjectionBoundary>
-        {demoModeEnabled ? <DemoFeedbackWidget demoModeEnabled={demoModeEnabled} /> : null}
-        <BrowserTelemetry config={browserTelemetryConfig} />
-      </AppShell>
+      <DateLocaleSettingsProvider value={dateLocaleSettings}>
+        <AppShell
+          productName={productName}
+          email={auth?.email}
+          canManageUpgradeActions={canManageUpgradeActions}
+          groups={[]}
+          currentTitle={currentTitle}
+          breadcrumb={breadcrumb}
+          sidebarCollapsedDefault={initialCollapsed}
+          rightHeaderSlot={(
+            <BackendHeaderChrome
+              email={auth?.email}
+              userId={auth?.sub ?? null}
+              embeddingConfigured={embeddingConfigured}
+              missingConfigMessage={missingConfigMessage}
+              tenantId={auth?.tenantId ?? null}
+              organizationId={auth?.orgId ?? null}
+            />
+          )}
+          adminNavApi="/api/auth/admin/nav"
+          version={APP_VERSION}
+          hideFooter={hideBackendFooter}
+          settingsPathPrefixes={collectStaticSettingsPathPrefixes()}
+          settingsSections={[]}
+          settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
+          profileSections={[]}
+          profileSectionTitle={translate('profile.page.title', 'Profile')}
+          profilePathPrefixes={profilePathPrefixes}
+        >
+          <PageInjectionBoundary path={path} context={injectionContext}>
+            {children}
+          </PageInjectionBoundary>
+          {demoModeEnabled ? <DemoFeedbackWidget demoModeEnabled={demoModeEnabled} /> : null}
+          <BrowserTelemetry config={browserTelemetryConfig} />
+        </AppShell>
+      </DateLocaleSettingsProvider>
     </I18nProvider>
   )
 }

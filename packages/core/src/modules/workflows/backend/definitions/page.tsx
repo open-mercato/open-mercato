@@ -17,7 +17,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -93,6 +94,7 @@ export default function WorkflowDefinitionsListPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const queryClient = useQueryClient()
   const { payload } = useBackendChrome()
@@ -431,8 +433,7 @@ export default function WorkflowDefinitionsListPage() {
       header: t('workflows.fields.createdAt'),
       accessorKey: 'createdAt',
       cell: ({ row }) => {
-        const date = new Date(row.original.createdAt)
-        return <span className="text-sm text-muted-foreground">{date.toLocaleDateString()}</span>
+        return <span className="text-sm text-muted-foreground">{formatDisplayDate(row.original.createdAt, locale)}</span>
       },
     },
     {

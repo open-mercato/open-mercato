@@ -4,18 +4,16 @@ import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictiona
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, CUSTOMER_INTERACTION_TASK_TYPE } from '../../lib/interactionCompatibility'
 import { WORKFLOW_TASK_TODO_SOURCE, workflowTaskHref } from '../../lib/workflowTaskLink'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 
 
 /**
  * Pass `locale` to format in the application locale (`useLocale()` in client components).
- * Omitting it keeps the runtime default, which varies per machine and is therefore not
- * assertable in tests.
+ * Renders through the configured date settings and display timezone (`formatDisplayDate`).
  */
 export function formatDate(value?: string | null, locale?: string): string | null {
   if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleDateString(locale)
+  return formatDisplayDate(value, locale)
 }
 
 export function formatTemplate(template: string, params?: Record<string, string | number>): string {

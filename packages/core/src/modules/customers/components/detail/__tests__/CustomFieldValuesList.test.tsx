@@ -131,7 +131,7 @@ describe('CustomFieldValuesList visibility and formatting (#4373)', () => {
 
   it('date-formats values only for date-kind fields', () => {
     render(<CustomFieldValuesList values={values} definitions={definitions} />)
-    const expected = new Date('2026-01-15T10:00:00.000Z').toLocaleString()
+    const expected = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date('2026-01-15T10:00:00.000Z'))
     expect(screen.getByText(expected)).toBeInTheDocument()
   })
 

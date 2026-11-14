@@ -16,7 +16,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -46,6 +47,7 @@ type Props = { params: { orgSlug: string } }
 
 export default function PortalTasksPage({ params }: Props) {
   const t = useT()
+  const locale = useLocale()
   const [tasks, setTasks] = React.useState<PortalTaskRow[] | null>(null)
   const [failed, setFailed] = React.useState(false)
 
@@ -82,11 +84,7 @@ export default function PortalTasksPage({ params }: Props) {
 
   const formatDate = (value: string | null) => {
     if (!value) return null
-    return new Date(value).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
+    return formatDisplayDate(value, locale)
   }
 
   const renderRow = (task: PortalTaskRow) => {

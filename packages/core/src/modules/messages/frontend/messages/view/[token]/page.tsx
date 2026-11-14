@@ -6,7 +6,8 @@ import type {
   MessageContentProps,
   MessageObjectAction,
 } from '@open-mercato/shared/modules/messages/types'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -94,11 +95,8 @@ function toErrorMessage(payload: unknown): string | null {
   return null
 }
 
-function formatDateTime(value: string | null | undefined, unknownDate: string): string {
-  if (!value) return unknownDate
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return unknownDate
-  return date.toLocaleString()
+function formatDateTime(value: string | null | undefined, unknownDate: string, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? unknownDate
 }
 
 function toObjectActions(
@@ -168,6 +166,7 @@ function mergeTokenActions(
 
 export default function MessageTokenPage({ params }: { params: { token: string } }) {
   const t = useT()
+  const locale = useLocale()
   const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
   const token = params?.token
 
@@ -309,7 +308,7 @@ export default function MessageTokenPage({ params }: { params: { token: string }
         <h1 className="text-2xl font-semibold">{data.subject}</h1>
         <p className="text-sm text-muted-foreground">
           {t('messages.token.sentAt', 'Sent')}:{' '}
-          {formatDateTime(data.sentAt, t('messages.unknownDate', 'Unknown date'))}
+          {formatDateTime(data.sentAt, t('messages.unknownDate', 'Unknown date'), locale)}
         </p>
       </header>
 

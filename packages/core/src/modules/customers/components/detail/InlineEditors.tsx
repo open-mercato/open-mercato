@@ -6,7 +6,7 @@ import { AtSign, Briefcase, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -32,7 +32,7 @@ import {
 import { DictionarySelectField } from '../formConfig'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { createDictionarySelectLabels } from './utils'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import {
   invalidateCustomerDictionary,
   useCustomerDictionary,
@@ -359,6 +359,7 @@ export function InlineNextInteractionEditor({
   activateOnClick = false,
 }: NextInteractionEditorProps) {
   const t = useT()
+  const locale = useLocale()
   const [editing, setEditing] = React.useState(false)
   const [draftDate, setDraftDate] = React.useState<string>(() => (valueAt ? valueAt.slice(0, 16) : ''))
   const [draftName, setDraftName] = React.useState(valueName ?? '')
@@ -677,7 +678,7 @@ export function InlineNextInteractionEditor({
                     </span>
                   ) : null}
                   <div className="flex-1">
-                    <span className="block">{formatDateTime(valueAt)}</span>
+                    <span className="block">{formatDisplayDateTime(valueAt, locale)}</span>
                     {valueName ? <span className="text-xs text-muted-foreground">{valueName}</span> : null}
                     {valueRefId ? <span className="text-xs text-muted-foreground">#{valueRefId}</span> : null}
                   </div>

@@ -223,6 +223,8 @@ export type WidgetDataResponse = {
 export type WidgetDataScope = {
   tenantId: string
   organizationIds?: string[]
+  /** The tenant's configured first day of the week for week presets; unset keeps Monday. */
+  weekStartsOn?: 0 | 1 | 2 | 3 | 4 | 5 | 6
 }
 
 export type WidgetDataServiceOptions = {
@@ -278,7 +280,7 @@ export class WidgetDataService {
     let comparisonRange: { start: Date; end: Date } | undefined
 
     if (request.dateRange) {
-      dateRangeResolved = resolveDateRange(request.dateRange.preset, now)
+      dateRangeResolved = resolveDateRange(request.dateRange.preset, now, { weekStartsOn: this.scope.weekStartsOn })
       if (request.comparison) {
         comparisonRange = getPreviousPeriod(dateRangeResolved, request.dateRange.preset)
       }
@@ -477,6 +479,7 @@ export class WidgetDataService {
       entityType: request.entityType,
       metric: request.metric,
       groupBy: request.groupBy,
+      weekStartsOn: this.scope.weekStartsOn,
       dateRange: dateRange && request.dateRange ? { field: request.dateRange.field, ...dateRange } : undefined,
       filters: request.filters,
       scope: this.scope,

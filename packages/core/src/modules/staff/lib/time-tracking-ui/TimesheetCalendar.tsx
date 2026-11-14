@@ -23,6 +23,7 @@ import {
   type TimesheetCalendarCell,
 } from './timesheetPeriod'
 import { entryChipLabel, loadPercent, type TimesheetDayIndex, type TimesheetEntry } from './timesheetData'
+import { useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 
 /**
  * Screen 11 — the month calendar (T5.2).
@@ -59,11 +60,13 @@ export type TimesheetCalendarProps = {
   showMonthHeadings?: boolean
 }
 
-function weekdayLabels(locale: string | undefined): string[] {
-  // 2024-01-01 was a Monday, so the seven days from it are Mon…Sun in order.
+function weekdayLabels(locale: string | undefined, weekStartsOn: number): string[] {
+  // 2024-01-01 was a Monday, so the seven days from it are Mon…Sun in order;
+  // the offset rotates the header to the configured first day of the week.
   const base = new Date(2024, 0, 1)
+  const offset = (weekStartsOn + 6) % 7
   return Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + index)
+    const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset + index)
     try {
       return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(day)
     } catch {
@@ -83,7 +86,8 @@ function DefaultTimesheetCalendar({
   showMonthHeadings = false,
 }: TimesheetCalendarProps) {
   const t = useT()
-  const weekdays = React.useMemo(() => weekdayLabels(locale), [locale])
+  const weekStartsOn = useWeekStartsOn()
+  const weekdays = React.useMemo(() => weekdayLabels(locale, weekStartsOn), [locale, weekStartsOn])
   const addLabel = t('staff.time_tracking.timesheet.calendar.add', '+ add')
   const nonBillableLabel = t('staff.time_tracking.timesheet.calendar.nonBillable', 'Non-billable')
   /**
@@ -109,7 +113,7 @@ function DefaultTimesheetCalendar({
                 {label}
               </div>
             ))}
-            {buildCalendarWeeks(anchor, todayDate)
+            {buildCalendarWeeks(anchor, todayDate, weekStartsOn)
               .flat()
               .map((cell) => (
                 <CalendarDayCell

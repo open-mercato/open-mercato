@@ -8,6 +8,7 @@ import {
 } from '@open-mercato/ui/primitives/accordion'
 import type { ChangeRow } from './changeRows'
 import { isRecord } from './changeRows'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 export { extractChangeRows, isRecord } from './changeRows'
 export type { ChangeRow } from './changeRows'
 
@@ -58,13 +59,8 @@ export function formatResource(
   return [item.resourceKind, item.resourceId].filter(Boolean).join(' · ')
 }
 
-export function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
+export function formatDate(value: string, locale?: string) {
+  return formatDisplayDateTime(value, locale) ?? value
 }
 
 export type ChangedFieldsTableProps = {

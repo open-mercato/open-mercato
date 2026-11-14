@@ -4,7 +4,7 @@ import { act, render, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { fromZonedTime } from 'date-fns-tz'
-import { USER_TIMEZONE } from '../../../lib/localDay'
+import { getUserTimeZone } from '../../../lib/localDay'
 import { expandCreatedAtDayRules } from '../../../lib/createdAtDayFilter'
 import CustomersPeoplePage from '../people/page'
 import CustomersCompaniesPage from '../companies/page'
@@ -113,6 +113,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useT: () => mockT,
+  useLocale: () => 'en',
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
@@ -264,7 +265,7 @@ describe.each(surfaces)('$label list — Created column', ({ Page, pathname, api
     const rows = dataTablePropsCapture.current?.data as Array<Record<string, unknown>>
     const column = capturedColumns().find((candidate) => candidate.accessorKey === 'createdAt')
     const { container } = render(<>{column?.cell?.({ row: { original: rows[0] } })}</>)
-    expect(container.textContent).toBe(new Date(CREATED_AT).toLocaleDateString())
+    expect(container.textContent).toBe(new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(CREATED_AT)))
   })
 
   it('requests the list sorted by createdAt when the column is sorted', async () => {
@@ -295,7 +296,7 @@ function createdAtIsDayQuery(day: string): string {
 
 describe.each(surfaces)('$label list — Created filter in the reader time zone', ({ Page, pathname, apiPrefix, item }) => {
   const displayedDay = '2026-01-17'
-  const createdJustAfterLocalMidnight = fromZonedTime(`${displayedDay}T00:30:00.000`, USER_TIMEZONE).toISOString()
+  const createdJustAfterLocalMidnight = fromZonedTime(`${displayedDay}T00:30:00.000`, getUserTimeZone()).toISOString()
 
   beforeEach(() => {
     activePathname = pathname
@@ -320,8 +321,8 @@ describe.each(surfaces)('$label list — Created filter in the reader time zone'
     expect(request.get('filter[root][children][0][field]')).toBe('created_at')
     expect(request.get('filter[root][children][0][op]')).toBe('between')
     const [start, end] = JSON.parse(request.get('filter[root][children][0][value]') ?? '[]') as string[]
-    expect(start).toBe(fromZonedTime(`${displayedDay}T00:00:00.000`, USER_TIMEZONE).toISOString())
-    expect(end).toBe(fromZonedTime(`${displayedDay}T23:59:59.999`, USER_TIMEZONE).toISOString())
+    expect(start).toBe(fromZonedTime(`${displayedDay}T00:00:00.000`, getUserTimeZone()).toISOString())
+    expect(end).toBe(fromZonedTime(`${displayedDay}T23:59:59.999`, getUserTimeZone()).toISOString())
   })
 
   it('matches a record created just after local midnight on the day its Created cell shows', async () => {
@@ -334,7 +335,7 @@ describe.each(surfaces)('$label list — Created filter in the reader time zone'
     const rows = dataTablePropsCapture.current?.data as Array<Record<string, unknown>>
     const column = capturedColumns().find((candidate) => candidate.accessorKey === 'createdAt')
     const { container } = render(<>{column?.cell?.({ row: { original: rows[0] } })}</>)
-    expect(container.textContent).toBe(new Date(`${displayedDay}T12:00:00`).toLocaleDateString())
+    expect(container.textContent).toBe(new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(`${displayedDay}T12:00:00`)))
 
     const request = listRequests(apiPrefix)[0]
     const [start, end] = JSON.parse(request.get('filter[root][children][0][value]') ?? '[]') as string[]
@@ -375,13 +376,13 @@ describe('companies list — Recently created preset', () => {
 
     const presets = filterPanelPropsCapture.current?.presets as FilterPreset[]
     const preset = presets.find((candidate) => candidate.id === 'recently-created')
-    const now = fromZonedTime(localNow, USER_TIMEZONE)
+    const now = fromZonedTime(localNow, getUserTimeZone())
     const tree = preset!.build({ now, userId: null })
     const [presetRule] = tree.root.children
     expect(presetRule).toMatchObject({ field: 'created_at', operator: 'is_after', value: dayBeforeWindow })
 
-    const sentRule = expandCreatedAtDayRules(tree, USER_TIMEZONE).root.children[0]
-    const localMidnight = fromZonedTime(`${firstIncludedDay}T00:00:00.000`, USER_TIMEZONE).getTime()
+    const sentRule = expandCreatedAtDayRules(tree, getUserTimeZone()).root.children[0]
+    const localMidnight = fromZonedTime(`${firstIncludedDay}T00:00:00.000`, getUserTimeZone()).getTime()
     expect(sentRule).toMatchObject({ operator: 'greater_than', value: new Date(localMidnight - 1).toISOString() })
   })
 })

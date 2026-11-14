@@ -455,7 +455,7 @@ export default function TimeTrackingEntriesPage() {
   )
 
   const presetContext = React.useMemo(
-    () => ({ staffMemberId: selfStaffMemberId, today: new Date().toISOString().slice(0, 10) }),
+    () => ({ staffMemberId: selfStaffMemberId, today: todayIsoDate() }),
     [selfStaffMemberId],
   )
   const activePresetId = React.useMemo(

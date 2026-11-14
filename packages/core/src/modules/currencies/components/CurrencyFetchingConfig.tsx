@@ -11,7 +11,8 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { TimeInput } from '@open-mercato/ui/backend/inputs/TimeInput'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('currencies').child({ component: 'CurrencyFetchingConfig' })
@@ -36,6 +37,7 @@ const STATUS_BADGE_VARIANT: Record<string, StatusBadgeVariant> = {
 
 export default function CurrencyFetchingConfig() {
   const t = useT()
+  const locale = useLocale()
   const [configs, setConfigs] = useState<FetchConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [fetching, setFetching] = useState<string | null>(null)
@@ -267,7 +269,7 @@ export default function CurrencyFetchingConfig() {
 
   function formatLastSync(date: string | null): string {
     if (!date) return t('currencies.fetch.last_sync_never')
-    return new Date(date).toLocaleString()
+    return formatDisplayDateTime(date, locale) ?? date
   }
 
   function getStatusBadge(status: string | null) {

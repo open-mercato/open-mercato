@@ -2,7 +2,9 @@
  * @jest-environment jsdom
  */
 import { renderHook } from '@testing-library/react'
-import { useScheduleFormState } from '../useScheduleFormState'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/resolve'
+import { setClientDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
+import { resolveDefaultActivityStart, useScheduleFormState } from '../useScheduleFormState'
 import type { ScheduleActivityEditData } from '../useScheduleFormState'
 
 function pad(value: number): string {
@@ -75,5 +77,40 @@ describe('useScheduleFormState — edit-mode date/time seed precedence (#5939)',
       expect(seed(editData({ scheduledAt: null, occurredAt: null }))).toEqual({ date: '', startTime: '' })
       expect(seed(editData({ scheduledAt: 'not-a-date' }))).toEqual({ date: '', startTime: '' })
     })
+  })
+})
+
+describe('useScheduleFormState — seeds on the configured display zone', () => {
+  afterEach(() => setClientDateLocaleSettings(null))
+
+  it('opens an activity at the time its card shows, whatever the device zone', () => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'Europe/Warsaw' }, env: {} }))
+    expect(seed(editData({ interactionType: 'meeting', scheduledAt: '2026-06-12T08:00:00.000Z' }))).toEqual({
+      date: '2026-06-12',
+      startTime: '10:00',
+    })
+  })
+
+  it('names the next day when the configured zone has already passed midnight', () => {
+    setClientDateLocaleSettings(resolveDateLocaleSettings({ tenant: { timeZone: 'Asia/Tokyo' }, env: {} }))
+    expect(seed(editData({ interactionType: 'meeting', scheduledAt: '2026-06-12T20:30:00.000Z' }))).toEqual({
+      date: '2026-06-13',
+      startTime: '05:30',
+    })
+  })
+})
+
+describe('resolveDefaultActivityStart in a configured zone', () => {
+  it('reads the working day and slots on that zone clock', () => {
+    // 01:10 UTC is 10:10 in Tokyo: a task defaults to 17:00 Tokyo, a meeting to the 10:30 slot.
+    const now = new Date('2026-06-12T01:10:00.000Z')
+    expect(resolveDefaultActivityStart('task', now, 'Asia/Tokyo').toISOString()).toBe('2026-06-12T08:00:00.000Z')
+    expect(resolveDefaultActivityStart('meeting', now, 'Asia/Tokyo').toISOString()).toBe('2026-06-12T01:30:00.000Z')
+  })
+
+  it('moves a late slot to 09:00 the next day in that zone', () => {
+    // 14:50 UTC is 23:50 in Tokyo.
+    const now = new Date('2026-06-12T14:50:00.000Z')
+    expect(resolveDefaultActivityStart('meeting', now, 'Asia/Tokyo').toISOString()).toBe('2026-06-13T00:00:00.000Z')
   })
 })

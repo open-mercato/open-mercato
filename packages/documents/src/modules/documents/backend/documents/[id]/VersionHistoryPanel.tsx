@@ -13,7 +13,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { readArrayPayload } from '../documentUi'
 import { resolveVersionRestoreCapability, type DocumentTier } from './componentCapabilities'
 import { restoreVersionWithCurrentContentToken } from './restoreVersion'
@@ -79,6 +80,7 @@ export function VersionHistoryPanel({
   onBeforeSnapshot,
 }: VersionHistoryPanelProps) {
   const t = useT()
+  const locale = useLocale()
   const mayRestore = resolveVersionRestoreCapability(canRestore, tier)
   const labelInputId = React.useId()
   const [state, setState] = React.useState<VersionsState>({ status: 'loading' })
@@ -245,7 +247,7 @@ export function VersionHistoryPanel({
         {versions.map((version) => (
           <article key={version.id} className="space-y-3 rounded-lg border border-border bg-background p-3">
             <p className="text-sm font-medium">{version.label ?? t('documents.versions.snapshot.defaultLabel')}</p>
-            <p className="flex items-center gap-2 text-xs text-muted-foreground"><Clock className="size-3" aria-hidden="true" />{new Date(version.createdAt).toLocaleString()}</p>
+            <p className="flex items-center gap-2 text-xs text-muted-foreground"><Clock className="size-3" aria-hidden="true" />{formatDisplayDateTime(version.createdAt, locale) ?? version.createdAt}</p>
             <p className="text-xs text-muted-foreground">{version.creatorLabel || t('documents.users.unknown')}</p>
             <Button type="button" size="sm" variant="outline" onClick={() => setPreviewVersionId(version.id)}><Eye />{t('documents.versions.actions.preview')}</Button>
           </article>

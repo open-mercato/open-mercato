@@ -49,6 +49,7 @@ describe('CalendarToolbar — the range popover calendar follows the app locale'
     renderWithProviders(<CalendarToolbar {...baseProps()} />, { locale: 'en' })
     await openRangeCalendar()
     expect(screen.getByText(/January 2026/)).toBeInTheDocument()
-    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-28')
+    // No formatting locale or first day configured, so the week starts on the Monday default.
+    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-29')
   })
 })

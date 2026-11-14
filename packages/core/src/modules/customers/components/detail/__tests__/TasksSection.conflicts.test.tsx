@@ -29,7 +29,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (key: string, fallback?: string) => fallback ?? key
-  return { useT: () => translate }
+  return { useT: () => translate, useLocale: () => 'en' }
 })
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({

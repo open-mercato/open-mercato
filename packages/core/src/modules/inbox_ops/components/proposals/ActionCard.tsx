@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import {
   CheckCircle,
   XCircle,
@@ -237,6 +238,7 @@ export function ActionCard({
   resolveDiscrepancyDescription?: (description: string, foundValue?: string | null) => string
 }) {
   const t = useT()
+  const locale = useLocale()
   const Icon = ACTION_TYPE_ICONS[action.actionType] || Package
   const label = actionTypeLabels[action.actionType] || action.actionType
   const resolveActionDescription = useActionDescriptionResolver()
@@ -256,7 +258,7 @@ export function ActionCard({
         {action.createdEntityId && (
           <div className="mt-2">
             <span className="text-xs text-status-success-text">
-              {t('inbox_ops.action.created_entity', 'Created {type}').replace('{type}', action.createdEntityType || '')} · {action.executedAt && new Date(action.executedAt).toLocaleString()}
+              {t('inbox_ops.action.created_entity', 'Created {type}').replace('{type}', action.createdEntityType || '')} · {formatDisplayDateTime(action.executedAt, locale)}
             </span>
           </div>
         )}

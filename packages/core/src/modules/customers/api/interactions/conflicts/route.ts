@@ -15,6 +15,7 @@ import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus
 import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
 import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { formatConflictClock } from '../../../lib/interactionConflictClock'
 
 const logger = createLogger('customers')
 
@@ -30,8 +31,10 @@ const querySchema = z.object({
 const conflictItemSchema = z.object({
   id: z.string(),
   title: z.string().nullable(),
-  startTime: z.string(),
-  endTime: z.string(),
+  startTime: z.string().describe('Legacy `HH:mm` in the caller `timezoneOffsetMinutes` (UTC when omitted). Prefer `startsAt`.'),
+  endTime: z.string().describe('Legacy `HH:mm` in the caller `timezoneOffsetMinutes` (UTC when omitted). Prefer `endsAt`.'),
+  startsAt: z.string().describe('Conflict start as an ISO 8601 instant.'),
+  endsAt: z.string().describe('Conflict end as an ISO 8601 instant.'),
   type: z.string(),
 })
 
@@ -198,8 +201,10 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         title: titleById.has(row.id) ? titleById.get(row.id) ?? null : null,
-        startTime: start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-        endTime: end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        startTime: formatConflictClock(start, query.timezoneOffsetMinutes),
+        endTime: formatConflictClock(end, query.timezoneOffsetMinutes),
+        startsAt: start.toISOString(),
+        endsAt: end.toISOString(),
         type: row.interaction_type,
       }
     })

@@ -12,6 +12,7 @@ const mockRunMutation = jest.fn(({ operation }: { operation: () => unknown }) =>
 const mockRetryLastMutation = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => mockTranslate,
 }))
 

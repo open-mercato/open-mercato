@@ -69,7 +69,7 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
 }))
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useLocale: () => 'en', useT: () => mockTranslate }))
 
 import { VersionHistoryPanel } from '../backend/documents/[id]/VersionHistoryPanel'
 import { useFallbackContentPersistence } from '../backend/documents/[id]/useFallbackContentPersistence'

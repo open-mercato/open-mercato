@@ -9,6 +9,7 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { InjectionRowActionWidget } from '@open-mercato/shared/modules/widgets/injection'
 import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
 import { registerCoreInjectionTables, registerCoreInjectionWidgets, registerEnabledModuleIds } from '@open-mercato/shared/modules/widgets/injection-loader'
 
@@ -178,9 +179,7 @@ describe('AuditLogsActions row controls', () => {
     const row = name.closest('tr')!
     expect(within(row).getByText('Nazwa: Organization A → Organization B')).toBeInTheDocument()
     expect(within(row).getByText(polish['audit_logs.version_history.status.done'])).toBeInTheDocument()
-    expect(within(row).getByText(new Intl.DateTimeFormat(undefined, {
-      dateStyle: 'medium', timeStyle: 'medium',
-    }).format(new Date(createdAt)))).toBeInTheDocument()
+    expect(within(row).getByText(formatDisplayDateTime(createdAt, 'en')!)).toBeInTheDocument()
     const undo = within(row).getByRole('button', { name: 'Cofnij to działanie' })
     expect(undo).toHaveAttribute('title', 'Cofnij to działanie')
     expect(undo.closest('td')).toHaveClass('md:sticky', 'md:right-0')

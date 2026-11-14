@@ -90,7 +90,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (_key: string, fallback?: string) => fallback ?? ''
-  return { useT: () => translate }
+  return { useLocale: () => 'en', useT: () => translate }
 })
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({

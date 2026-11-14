@@ -1,5 +1,48 @@
 # Upgrade Notes
 
+## Date & locale settings (`.ai/specs/2026-05-18-date-locale-settings.md`)
+
+Dates across the backend and customer portal now render through one settings contract (the
+portal uses the settings of the tenant that owns the organization in its URL; other public pages,
+which have no tenant, use the env defaults): the tenant's **Settings → System → Date & time**
+values, then the env defaults
+(`OM_DEFAULT_LOCALE`, `OM_DEFAULT_TIMEZONE`, `OM_FIRST_DAY_OF_WEEK`,
+`NEXT_PUBLIC_OM_DATE_FORMAT`, `NEXT_PUBLIC_OM_DATE_TIME_FORMAT`, `NEXT_PUBLIC_OM_TIME_FORMAT`;
+`NEXT_PUBLIC_DATE_FORMAT` stays a legacy alias), then the locale. A user can pick a personal
+time zone on **Profile → Time zone**.
+
+**Visible changes with no configuration:**
+- Bare `toLocaleString()` cells now use the app locale's `Intl` medium/short styles (`11/3/2026`
+  becomes `Nov 3, 2026`), and times follow the locale's 12/24-hour clock.
+- `DatePicker` / `DateRangePicker` render through `Intl` instead of the day-first heuristic and no
+  longer force `HH:mm`. Pin the old look with `NEXT_PUBLIC_OM_DATE_TIME_FORMAT=yyyy-MM-dd HH:mm`.
+- Week grids start on Monday unless a first day of week, or a formatting locale with its own
+  week start (`en-US` → Sunday), is configured.
+- Invalid env date patterns are ignored instead of producing raw values.
+- A tenant that pins only a date format keeps the time on timestamps: the date-time format becomes
+  the date format followed by the time format, or date-fns' localized short time (`p`) when none is
+  set. An env-only `NEXT_PUBLIC_OM_DATE_FORMAT` keeps rendering timestamps bare, as before.
+
+**API additions:** `GET /api/sales/quotes/public/{token}` adds an optional `display`
+(`timeZone`, `locale`) with the tenant's settings; the public quote page uses it.
+
+**API value change:** `GET /api/customers/interactions/conflicts` now computes `startTime` /
+`endTime` in the caller's `timezoneOffsetMinutes` (UTC when omitted) instead of the server
+process zone, and adds ISO `startsAt` / `endsAt`. Prefer the ISO fields in new clients.
+
+**Database:** `users.timezone` (nullable) is added by `Migration20261103120000_auth`. Optional
+`OM_DB_DEFAULT_TIMEZONE` pins the Postgres session `TimeZone` for every connection; it shifts
+`date_trunc` / `CURRENT_DATE` results, so pick the zone reports should use before enabling it.
+
+**Permissions:** new `configs.date_locale.view` (admin, employee) and `configs.date_locale.manage`
+(admin). Existing tenants need `yarn mercato auth sync-role-acls`.
+
+**Audit:** saving the settings runs the `configs.date_locale.update` command, so each change is in
+the action log with the previous values and can be undone.
+
+**Deprecated:** `USER_TIMEZONE` from `customers/lib/localDay` is read once at import, before the
+configured zone is known. Call `getUserTimeZone()` instead; the constant is removed in 0.12.0.
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

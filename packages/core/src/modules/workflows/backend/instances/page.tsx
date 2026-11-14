@@ -15,7 +15,8 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useLiveRunUpdates } from '../../components/run/useLiveRunUpdates'
@@ -75,6 +76,7 @@ export default function WorkflowInstancesListPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const queryClient = useQueryClient()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
@@ -407,7 +409,7 @@ export default function WorkflowInstancesListPage() {
 
         return (
           <div className="text-sm">
-            <div className="text-foreground">{started.toLocaleString()}</div>
+            <div className="text-foreground">{formatDisplayDateTime(started, locale)}</div>
             <div className="text-xs text-muted-foreground">
               {completed ? t('workflows.instances.duration') : t('workflows.instances.elapsed')}: {durationText}
             </div>

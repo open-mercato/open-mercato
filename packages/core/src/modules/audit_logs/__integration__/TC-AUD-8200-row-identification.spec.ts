@@ -50,7 +50,7 @@ test('TC-AUD-8200: identify and undo the intended organization from a laptop aud
     await expect(secondRow).toBeVisible()
     await expect(firstRow.getByText(`Nazwa: ${first.before} → ${first.after}`, { exact: true })).toBeVisible()
     await expect(firstRow.getByText('Wykonano', { exact: true })).toBeVisible()
-    await expect(firstRow).toContainText(/\d{1,2}:\d{2}:\d{2}/)
+    await expect(firstRow).toContainText(/\d{1,2}:\d{2}/)
 
     const undo = firstRow.getByRole('button', { name: 'Cofnij to działanie', exact: true })
     await expect(undo).toBeInViewport()

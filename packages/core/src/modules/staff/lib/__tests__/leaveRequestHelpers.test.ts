@@ -65,5 +65,11 @@ describe('leaveRequestHelpers', () => {
     it('returns dash when neither provided', () => {
       expect(formatDateRange(null, null)).toBe('-')
     })
+
+    it('reads leave days stored as UTC midnight in UTC, so the day never moves', () => {
+      expect(formatDateRange('2025-06-01T00:00:00.000Z', '2025-06-15T00:00:00.000Z')).toBe(
+        `${formatDateLabel('2025-06-01')} -> ${formatDateLabel('2025-06-15')}`,
+      )
+    })
   })
 })

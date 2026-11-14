@@ -22,6 +22,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import {
@@ -342,6 +343,7 @@ export default function WmsOperationalDashboardPage() {
     setMoveOpen(true)
   }, [])
 
+  const displayTimeZone = useDisplayTimeZone()
   const activityTimeFormatter = React.useMemo(
     () =>
       createDateTimeFormatter(locale, {
@@ -349,8 +351,9 @@ export default function WmsOperationalDashboardPage() {
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: displayTimeZone,
       }),
-    [locale],
+    [displayTimeZone, locale],
   )
 
   const lastUpdatedFormatter = React.useMemo(
@@ -358,16 +361,19 @@ export default function WmsOperationalDashboardPage() {
       createDateTimeFormatter(locale, {
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: displayTimeZone,
       }),
-    [locale],
+    [displayTimeZone, locale],
   )
 
+  // `expiresAt` is a day picked in a date input and stored as UTC midnight: read it in UTC.
   const expiryDateFormatter = React.useMemo(
     () =>
       createDateTimeFormatter(locale, {
         month: '2-digit',
         day: '2-digit',
         year: '2-digit',
+        timeZone: 'UTC',
       }),
     [locale],
   )

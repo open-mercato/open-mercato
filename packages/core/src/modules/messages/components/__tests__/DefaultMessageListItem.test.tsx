@@ -7,6 +7,7 @@ import { DefaultMessageListItem } from '../defaults/DefaultMessageListItem'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback?: string) => fallback ?? '',
+  useLocale: () => 'en',
 }))
 
 describe('DefaultMessageListItem', () => {

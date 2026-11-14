@@ -1,3 +1,5 @@
+import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
+
 export type FormatCurrencyOptions = {
   currency?: string | null
   locale?: string
@@ -157,5 +159,40 @@ export function createCurrencyFormatters(
     formatWithDecimals: (value: number) => formatCurrencyWithDecimals(value, { currency: code, locale }),
     formatCompact: (value: number) => formatCurrencyCompact(value, { currency: code, locale }),
     formatSafe: (value: unknown) => formatCurrencySafe(value, fallback, { currency: code, locale }),
+  }
+}
+
+/**
+ * Labels a date-bucket group key. The aggregation re-anchors each bucket's calendar date at UTC
+ * midnight, so the label is read in UTC: reading it in the display zone would shift a bucket
+ * west of UTC into the previous day, month, quarter or year.
+ */
+export function formatDateBucketLabel(
+  value: string | null,
+  granularity: DateGranularity,
+  locale?: string,
+): string {
+  if (!value) return '--'
+  try {
+    const date = new Date(value)
+    const format = (options: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat(locale, { ...options, timeZone: 'UTC' }).format(date)
+    switch (granularity) {
+      case 'day':
+      case 'week':
+        return format({ month: 'short', day: 'numeric' })
+      case 'month':
+        return format({ month: 'short', year: 'numeric' })
+      case 'quarter': {
+        const quarter = Math.floor(date.getUTCMonth() / 3) + 1
+        return `Q${quarter} ${date.getUTCFullYear()}`
+      }
+      case 'year':
+        return format({ year: 'numeric' })
+      default:
+        return format({ month: 'short', day: 'numeric' })
+    }
+  } catch {
+    return String(value)
   }
 }

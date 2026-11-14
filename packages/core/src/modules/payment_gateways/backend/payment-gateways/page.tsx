@@ -14,7 +14,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
@@ -105,11 +106,9 @@ const STATUS_STYLES: Record<string, string> = {
   unknown: 'bg-purple-100 text-purple-800',
 }
 
-function formatDateTime(value: string | null | undefined): string {
+function formatDateTime(value: string | null | undefined, locale: string): string {
   if (!value) return '—'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
+  return formatDisplayDateTime(value, locale) ?? value
 }
 
 function formatAmount(value: string, currencyCode: string): string {
@@ -178,6 +177,7 @@ function DetailStat({ label, value }: { label: string; value: React.ReactNode })
 
 export default function PaymentTransactionsPage() {
   const t = useT()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<TransactionRow[]>([])
@@ -448,9 +448,9 @@ export default function PaymentTransactionsPage() {
     {
       accessorKey: 'updatedAt',
       header: t('payment_gateways.transactions.columns.updatedAt', 'Updated'),
-      cell: ({ row }) => formatDateTime(row.original.updatedAt),
+      cell: ({ row }) => formatDateTime(row.original.updatedAt, locale),
     },
-  ], [t])
+  ], [locale, t])
 
   const selectedSummary = React.useMemo(
     () => rows.find((row) => row.id === selectedId) ?? null,
@@ -577,10 +577,10 @@ export default function PaymentTransactionsPage() {
                             [t('payment_gateways.transactions.columns.gatewayPaymentId', 'Gateway payment ID'), detail.transaction.gatewayPaymentId ?? '—'],
                             [t('payment_gateways.transactions.columns.gatewayRefundId', 'Gateway refund ID'), detail.transaction.gatewayRefundId ?? '—'],
                             [t('payment_gateways.transactions.columns.redirectUrl', 'Redirect URL'), detail.transaction.redirectUrl ?? '—'],
-                            [t('payment_gateways.transactions.columns.createdAt', 'Created at'), formatDateTime(detail.transaction.createdAt)],
-                            [t('payment_gateways.transactions.columns.updatedAt', 'Updated at'), formatDateTime(detail.transaction.updatedAt)],
-                            [t('payment_gateways.transactions.columns.lastWebhookAt', 'Last webhook'), formatDateTime(detail.transaction.lastWebhookAt)],
-                            [t('payment_gateways.transactions.columns.lastPolledAt', 'Last poll'), formatDateTime(detail.transaction.lastPolledAt)],
+                            [t('payment_gateways.transactions.columns.createdAt', 'Created at'), formatDateTime(detail.transaction.createdAt, locale)],
+                            [t('payment_gateways.transactions.columns.updatedAt', 'Updated at'), formatDateTime(detail.transaction.updatedAt, locale)],
+                            [t('payment_gateways.transactions.columns.lastWebhookAt', 'Last webhook'), formatDateTime(detail.transaction.lastWebhookAt, locale)],
+                            [t('payment_gateways.transactions.columns.lastPolledAt', 'Last poll'), formatDateTime(detail.transaction.lastPolledAt, locale)],
                           ].map(([label, value]) => (
                             <div key={label} className="rounded-lg border bg-muted/30 px-4 py-3">
                               <dt className="text-overline font-medium uppercase tracking-wide text-muted-foreground">{label}</dt>
@@ -616,7 +616,7 @@ export default function PaymentTransactionsPage() {
                                       </Badge>
                                     </td>
                                     <td className="px-4 py-2">{entry.processed ? t('common.yes', 'Yes') : t('common.no', 'No')}</td>
-                                    <td className="px-4 py-2 text-muted-foreground">{formatDateTime(entry.receivedAt)}</td>
+                                    <td className="px-4 py-2 text-muted-foreground">{formatDateTime(entry.receivedAt, locale)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -632,7 +632,7 @@ export default function PaymentTransactionsPage() {
                         <LogList
                           entries={detail.logs.map<LogListEntry>((log) => {
                             const metadataEntries = [
-                              [t('payment_gateways.transactions.log.time', 'Time'), formatDateTime(log.createdAt)],
+                              [t('payment_gateways.transactions.log.time', 'Time'), formatDateTime(log.createdAt, locale)],
                               [t('payment_gateways.transactions.log.level', 'Level'), t(`payment_gateways.transactions.level.${log.level}`, log.level)],
                               [t('payment_gateways.transactions.log.code', 'Code'), log.code ?? null],
                               [t('payment_gateways.transactions.log.runId', 'Run ID'), log.runId ?? null],
@@ -643,7 +643,7 @@ export default function PaymentTransactionsPage() {
 
                             return {
                               id: log.id,
-                              time: formatDateTime(log.createdAt),
+                              time: formatDateTime(log.createdAt, locale),
                               level: log.level,
                               levelLabel: t(`payment_gateways.transactions.level.${log.level}`, log.level),
                               message: log.message,

@@ -9,7 +9,8 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { loadDeviceUserOptions, type DeviceUserOption } from './userOptions'
@@ -37,15 +38,8 @@ type ResponsePayload = {
   totalIsCapped?: boolean
 }
 
-function formatDate(value: string | null, t: (key: string) => string) {
-  if (!value) return t('devices.list.noValue')
-  try {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return t('devices.list.noValue')
-    return date.toLocaleString()
-  } catch {
-    return t('devices.list.noValue')
-  }
+function formatDate(value: string | null, t: (key: string) => string, locale: string) {
+  return formatDisplayDateTime(value, locale) ?? t('devices.list.noValue')
 }
 
 export default function DevicesAdminListPage() {
@@ -58,6 +52,7 @@ export default function DevicesAdminListPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [userOptions, setUserOptions] = React.useState<DeviceUserOption[]>([])
@@ -221,9 +216,9 @@ export default function DevicesAdminListPage() {
     {
       accessorKey: 'lastSeenAt',
       header: t('devices.list.columns.lastSeen'),
-      cell: ({ row }) => formatDate(row.original.lastSeenAt, t),
+      cell: ({ row }) => formatDate(row.original.lastSeenAt, t, locale),
     },
-  ], [t, userLabelById, resolvedUserLabels])
+  ], [t, locale, userLabelById, resolvedUserLabels])
 
   return (
     <Page>

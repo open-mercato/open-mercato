@@ -11,7 +11,8 @@ import { TimesheetCalendar } from '../TimesheetCalendar'
 import { buildTimesheetDays, indexDaysByDate, type TimesheetEntry } from '../timesheetData'
 
 const mockTranslate = (key: string, fallback?: string): string => fallback ?? key
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+// Pinned to a Monday-first locale: the grid's first day follows the configured/locale week start.
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate, useOptionalLocale: () => 'pl' }))
 
 const MONTH = { from: '2026-07-01', to: '2026-07-31' }
 

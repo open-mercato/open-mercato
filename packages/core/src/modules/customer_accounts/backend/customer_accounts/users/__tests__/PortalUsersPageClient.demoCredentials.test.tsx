@@ -21,6 +21,7 @@ jest.mock('next/navigation', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (key: string, fallback?: string, params?: Record<string, string>) => {
     const template = fallback ?? key
     if (!params) return template

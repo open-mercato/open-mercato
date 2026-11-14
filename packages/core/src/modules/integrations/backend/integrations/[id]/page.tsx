@@ -29,7 +29,8 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, formatDisplayDateTime, formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
   type CredentialFieldType,
@@ -219,6 +220,7 @@ function RunActivityStrip({
   onRefresh: () => void
   t: ReturnType<typeof useT>
 }) {
+  const locale = useLocale()
   if (!run) return null
 
   const progress = typeof run.progressJob?.progressPercent === 'number' ? run.progressJob.progressPercent : 0
@@ -246,7 +248,7 @@ function RunActivityStrip({
       </span>
       {refreshedAt ? (
         <span className="text-muted-foreground">
-          {t('integrations.detail.runActivity.lastRefreshed', 'Last refreshed')}: {new Date(refreshedAt).toLocaleTimeString()}
+          {t('integrations.detail.runActivity.lastRefreshed', 'Last refreshed')}: {formatDisplayTime(refreshedAt, locale)}
         </span>
       ) : null}
       <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={onRefresh} disabled={isRefreshing}>
@@ -375,7 +377,7 @@ function formatHealthValue(value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (typeof value === 'string') return value
   if (typeof value === 'number') return String(value)
-  if (value instanceof Date) return value.toLocaleString()
+  if (value instanceof Date) return formatDisplayDateTime(value) ?? value.toISOString()
   return JSON.stringify(value)
 }
 
@@ -434,6 +436,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const searchParams = useSearchParams()
   const integrationId = params?.id
   const t = useT()
+  const locale = useLocale()
 
   const [detail, setDetail] = React.useState<IntegrationDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -1162,7 +1165,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
               </p>
               <p>
                 {detail.analytics.lastActivityAt
-                  ? `${t('integrations.detail.analytics.lastActivity')}: ${new Date(detail.analytics.lastActivityAt).toLocaleString()}`
+                  ? `${t('integrations.detail.analytics.lastActivity')}: ${formatDisplayDateTime(detail.analytics.lastActivityAt, locale) ?? detail.analytics.lastActivityAt}`
                   : t('integrations.detail.analytics.never')}
               </p>
             </div>
@@ -1339,7 +1342,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                           </Badge>
                           {version.status === 'deprecated' && version.sunsetAt ? (
                             <span className="ml-2 text-xs text-muted-foreground">
-                              {t('integrations.detail.version.sunsetAt', { date: new Date(version.sunsetAt).toLocaleDateString() })}
+                              {t('integrations.detail.version.sunsetAt', { date: formatDisplayDate(version.sunsetAt, locale) ?? version.sunsetAt })}
                             </span>
                           ) : null}
                         </div>
@@ -1417,7 +1420,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                     ) : null}
                     <p className="text-xs text-muted-foreground md:ml-auto">
                       {resolvedState.lastHealthCheckedAt
-                        ? t('integrations.detail.health.lastChecked', { date: new Date(resolvedState.lastHealthCheckedAt).toLocaleString() })
+                        ? t('integrations.detail.health.lastChecked', { date: formatDisplayDateTime(resolvedState.lastHealthCheckedAt, locale) ?? resolvedState.lastHealthCheckedAt })
                         : t('integrations.detail.health.neverChecked')
                       }
                     </p>
@@ -1504,7 +1507,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
               <LogList
                 entries={logs.map<LogListEntry>((log) => {
                   const metadataEntries = [
-                    ['Time', new Date(log.createdAt).toLocaleString()],
+                    ['Time', formatDisplayDateTime(log.createdAt, locale)],
                     ['Level', log.level],
                     ['Code', log.code ?? null],
                     ['Run ID', log.runId ?? null],
@@ -1515,7 +1518,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
 
                   return {
                     id: log.id,
-                    time: new Date(log.createdAt).toLocaleString(),
+                    time: formatDisplayDateTime(log.createdAt, locale) ?? log.createdAt,
                     level: log.level,
                     message: log.message,
                     body: (

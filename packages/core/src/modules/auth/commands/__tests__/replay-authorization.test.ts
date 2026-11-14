@@ -905,6 +905,90 @@ describe('auth command replay authorization', () => {
     expect(harness.dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
   })
 
+  function selfTimeZoneLog(id: string, after: Record<string, unknown> = {}) {
+    return {
+      id,
+      commandId: 'auth.users.update',
+      resourceId: actorId,
+      commandPayload: {
+        __redoInput: { id: actorId, timezone: 'Asia/Tokyo', ...after },
+        undo: {
+          before: userSnapshot({ id: actorId, timezone: null }),
+          after: userSnapshot({ id: actorId, timezone: 'Asia/Tokyo', ...after }),
+        },
+      },
+    }
+  }
+
+  function selfServiceHarness(user: Record<string, unknown>) {
+    const harness = makeHarness({ user: userSnapshot({ id: actorId, ...user }) }, { featureAllowed: false })
+    harness.ctx.auth = {
+      sub: actorId,
+      tenantId: tenantA,
+      orgId: organizationA,
+    } as CommandRuntimeContext['auth']
+    return harness
+  }
+
+  it('lets a user without auth.users.edit undo their own time zone change', async () => {
+    const harness = selfServiceHarness({ timezone: 'Asia/Tokyo' })
+    harness.actionLogService.findByUndoToken.mockResolvedValue(selfTimeZoneLog('self-tz-log'))
+
+    await new CommandBus().undo('self-tz-token', harness.ctx)
+
+    expect(harness.state.user).toMatchObject({ timezone: null })
+    expect(harness.actionLogService.markUndone).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets a user without auth.users.edit redo their own time zone change', async () => {
+    const harness = selfServiceHarness({ timezone: null })
+    const sourceLog = selfTimeZoneLog('self-tz-redo-log')
+
+    await new CommandBus().execute('auth.users.update', {
+      input: { id: actorId, timezone: 'Asia/Tokyo' },
+      ctx: harness.ctx,
+      redoLogEntry: sourceLog,
+    })
+
+    expect(harness.state.user).toMatchObject({ timezone: 'Asia/Tokyo' })
+  })
+
+  it('still requires auth.users.edit when a self time zone undo also restores a name', async () => {
+    const harness = selfServiceHarness({ timezone: 'Asia/Tokyo', name: 'Renamed' })
+    harness.actionLogService.findByUndoToken.mockResolvedValue(
+      selfTimeZoneLog('self-tz-name-log', { name: 'Renamed' }),
+    )
+
+    await expect(
+      new CommandBus().undo('self-tz-name-token', harness.ctx),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('rejects a time zone undo after a newer time zone change', async () => {
+    const harness = makeHarness({ user: userSnapshot({ timezone: 'Europe/Warsaw' }) })
+    harness.actionLogService.findByUndoToken.mockResolvedValue({
+      id: 'stale-tz-log',
+      commandId: 'auth.users.update',
+      resourceId: userId,
+      commandPayload: {
+        __redoInput: { id: userId, timezone: 'Asia/Tokyo' },
+        undo: {
+          before: userSnapshot({ timezone: null }),
+          after: userSnapshot({ timezone: 'Asia/Tokyo' }),
+        },
+      },
+    })
+
+    await expect(
+      new CommandBus().undo('stale-tz-token', harness.ctx),
+    ).rejects.toMatchObject<Partial<CrudHttpError>>({ status: 409 })
+
+    expect(harness.actionLogService.claimForUndo).not.toHaveBeenCalled()
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+  })
+
   it('requires current canonical superadmin authority to undo an empty-ACL role tenant move', async () => {
     const harness = makeHarness({
       role: roleSnapshot({ tenantId: tenantB, acls: [] }),
@@ -982,6 +1066,55 @@ describe('auth command replay authorization', () => {
     )
     expect(harness.updateOrmEntity).not.toHaveBeenCalled()
     expect(harness.actionLogService.log).not.toHaveBeenCalled()
+  })
+
+  it.each(['Asia/Tokyo', null, undefined])('restores the personal time zone %s when undoing a hard delete and permits redo', async (timezone) => {
+    const harness = makeHarness({ user: null })
+    const before = userSnapshot({ timezone })
+    const handler = commandRegistry.get('auth.users.delete') as CommandHandler
+    const logEntry = {
+      commandId: 'auth.users.delete',
+      resourceId: userId,
+      tenantId: tenantA,
+      commandPayload: { undo: { before } },
+    }
+    harness.dataEngine.createOrmEntity.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      harness.state.user = data
+      return data
+    })
+
+    await handler.undo!({ input: { id: userId }, logEntry, ctx: harness.ctx })
+
+    expect(harness.state.user?.timezone).toBe(timezone ?? null)
+    expect(harness.dataEngine.createOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ timezone: timezone ?? null }),
+    }))
+    await expect(handler.authorizeReplay!({
+      operation: 'redo',
+      input: { id: userId },
+      logEntry,
+      ctx: { ...harness.ctx, transactionalEm: harness.em as never },
+    })).resolves.toBeUndefined()
+  })
+
+  it('restores the personal time zone when redoing a user create', async () => {
+    const harness = makeHarness({ user: null })
+    const after = userSnapshot({ timezone: 'Asia/Tokyo', passwordHash: null })
+    const handler = commandRegistry.get('auth.users.create') as CommandHandler
+    const logEntry = {
+      commandId: 'auth.users.create',
+      resourceId: userId,
+      tenantId: tenantA,
+      commandPayload: { undo: { after } },
+    }
+    harness.dataEngine.createOrmEntity.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      harness.state.user = data
+      return data
+    })
+
+    await handler.redo!({ input: {}, logEntry, ctx: harness.ctx })
+
+    expect(harness.state.user?.timezone).toBe('Asia/Tokyo')
   })
 
   it('keeps password-bearing create logs undoable while omitting every credential', async () => {

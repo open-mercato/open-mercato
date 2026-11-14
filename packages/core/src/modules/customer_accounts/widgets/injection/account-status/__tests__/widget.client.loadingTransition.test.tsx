@@ -17,6 +17,7 @@ import AccountStatusWidget from '../widget.client'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (_key: string, fallback: string) => fallback || _key,
 }))
 

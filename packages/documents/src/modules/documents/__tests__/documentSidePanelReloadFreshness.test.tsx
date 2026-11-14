@@ -12,7 +12,7 @@ jest.mock('next/dynamic', () => ({
   __esModule: true,
   default: () => function MockVersionPreviewDialog() { return null },
 }))
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => translate }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useLocale: () => 'en', useT: () => translate }))
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),

@@ -11,6 +11,7 @@ jest.mock('@dnd-kit/core', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string) => key,
+  useLocale: () => 'en',
 }))
 
 jest.mock('../DealCard', () => ({

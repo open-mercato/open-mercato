@@ -139,7 +139,9 @@ test.describe('TC-CRM-created-at-list: sort and filter people/companies by creat
         await page.goto(`/backend/customers/companies?${query.toString()}`)
         const row = page.getByRole('row').filter({ hasText: marker })
         await expect(row).toBeVisible()
-        await expect(row).toContainText('1/17/2026')
+        // Tables render dates through the date & time settings: the locale's medium date style
+        // when no pattern is configured.
+        await expect(row).toContainText('Jan 17, 2026')
 
         const sortButton = page.getByRole('button', { name: 'Created', exact: true })
         await sortButton.scrollIntoViewIfNeeded()

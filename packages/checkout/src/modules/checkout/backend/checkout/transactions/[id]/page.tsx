@@ -14,7 +14,8 @@ import {
   UserRound,
   WalletCards,
 } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
@@ -84,17 +85,18 @@ function formatAmount(amount: number | null | undefined, currencyCode: string): 
   }
 }
 
-function formatDateTime(value: string | null | undefined): string {
+function formatDateTime(value: string | null | undefined, locale: string): string {
   if (!value) return '—'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: 'short',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    timeZone: resolveDisplayTimeZone(),
   }).format(parsed)
 }
 
@@ -130,6 +132,7 @@ function buildSectionJson(section: SectionDefinition): string {
 
 export default function CheckoutTransactionDetailPage({ params }: { params: Promise<{ id: string }> | { id: string } }) {
   const t = useT()
+  const locale = useLocale()
   const [payload, setPayload] = React.useState<DetailPayload | null>(null)
   const [transactionId, setTransactionId] = React.useState('')
   const [isCapturing, setIsCapturing] = React.useState(false)
@@ -229,13 +232,13 @@ export default function CheckoutTransactionDetailPage({ params }: { params: Prom
       },
       {
         label: t('checkout.admin.transactionDetail.fields.created'),
-        plainValue: formatDateTime(payload.transaction.createdAt),
-        value: formatDateTime(payload.transaction.createdAt),
+        plainValue: formatDateTime(payload.transaction.createdAt, locale),
+        value: formatDateTime(payload.transaction.createdAt, locale),
       },
       {
         label: t('checkout.admin.transactionDetail.fields.updated'),
-        plainValue: formatDateTime(payload.transaction.updatedAt),
-        value: formatDateTime(payload.transaction.updatedAt),
+        plainValue: formatDateTime(payload.transaction.updatedAt, locale),
+        value: formatDateTime(payload.transaction.updatedAt, locale),
       },
     ]
 
@@ -367,7 +370,7 @@ export default function CheckoutTransactionDetailPage({ params }: { params: Prom
         emptyMessage: t('checkout.admin.transactionDetail.emptyCustomFields'),
       },
     ]
-  }, [canCapturePayment, handleCapturePayment, isCapturing, payload, t, transactionId])
+  }, [canCapturePayment, handleCapturePayment, isCapturing, locale, payload, t, transactionId])
 
   const copyToClipboard = React.useCallback(async (text: string, successMessage: string) => {
     try {

@@ -126,6 +126,27 @@ describe('public quote view — tenant guard against the real auth resolver (#43
     expect(body.quote.quoteNumber).toBe('SQ-4309')
   })
 
+  test('returns the tenant display zone and locale so the page names the same validity day as the email', async () => {
+    const registry = await import('@open-mercato/shared/lib/date-locale/registry')
+    const { resolveDateLocaleSettings } = await import('@open-mercato/shared/lib/date-locale/resolve')
+    const scopeResolver = jest.fn(async () =>
+      resolveDateLocaleSettings({
+        tenant: { timeZone: 'Asia/Tokyo', locale: 'en-GB' },
+        env: { locale: null, dateFormat: null, dateTimeFormat: null, timeFormat: null, timeZone: null, firstDayOfWeek: null },
+      }),
+    )
+    registry.registerDateLocaleSettingsScopeResolver(scopeResolver)
+    try {
+      const res = await getPublicQuote(makeRequest(), makeCtx())
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.display).toEqual({ timeZone: 'Asia/Tokyo', locale: 'en-GB' })
+      expect(scopeResolver).toHaveBeenCalledWith(expect.anything(), { tenantId: TENANT_A, userId: null })
+    } finally {
+      registry.registerDateLocaleSettingsScopeResolver(null)
+    }
+  })
+
   test('same-tenant staff session returns the quote', async () => {
     const cookie = `auth_token=${staffToken({ tenantId: TENANT_A, orgId: null })}`
     const res = await getPublicQuote(makeRequest(cookie), makeCtx())

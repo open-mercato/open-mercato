@@ -3,8 +3,9 @@
 import * as React from 'react'
 import { Check } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
+import { formatZonedDateParts } from '../../lib/displayDate'
 
 type PipelineStageInfo = {
   id: string
@@ -34,24 +35,25 @@ function isTerminalOutcomeStage(stage: PipelineStageInfo): boolean {
   return isTerminalPipelineOutcomeLabel(stage.label)
 }
 
-function formatTransitionDate(value: string, t: ReturnType<typeof useT>): string {
+function formatTransitionDate(value: string, t: ReturnType<typeof useT>, locale: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return t('customers.deals.detail.pipeline.current', 'current')
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatZonedDateParts(date, { month: 'short', day: 'numeric' }, locale)
 }
 
 function formatStageSubtitle(
   transition: StageTransitionInfo | null,
   isCurrent: boolean,
   t: ReturnType<typeof useT>,
+  locale: string,
 ): string {
   if (transition && isCurrent) {
     return t('customers.deals.detail.pipeline.currentWithDate', '{{date}} · {{state}}', {
-      date: formatTransitionDate(transition.transitionedAt, t),
+      date: formatTransitionDate(transition.transitionedAt, t, locale),
       state: t('customers.deals.detail.pipeline.current', 'current'),
     })
   }
-  if (transition) return formatTransitionDate(transition.transitionedAt, t)
+  if (transition) return formatTransitionDate(transition.transitionedAt, t, locale)
   if (isCurrent) return t('customers.deals.detail.pipeline.current', 'current')
   return '—'
 }
@@ -65,6 +67,7 @@ export function PipelineStepper({
   footer = null,
 }: PipelineStepperProps) {
   const t = useT()
+  const locale = useLocale()
   const allStages = React.useMemo(
     () => [...stages].sort((left, right) => left.order - right.order),
     [stages],
@@ -162,7 +165,7 @@ export function PipelineStepper({
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-foreground">{compactStage.label}</div>
                 <div className="text-xs text-muted-foreground">
-                  {formatStageSubtitle(transitionByStageId.get(compactStage.id) ?? null, !renderClosedProgress, t)}
+                  {formatStageSubtitle(transitionByStageId.get(compactStage.id) ?? null, !renderClosedProgress, t, locale)}
                 </div>
               </div>
             </div>
@@ -227,7 +230,7 @@ export function PipelineStepper({
                   {stage.label}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {formatStageSubtitle(transition, isCurrent, t)}
+                  {formatStageSubtitle(transition, isCurrent, t, locale)}
                 </div>
               </div>
             </div>

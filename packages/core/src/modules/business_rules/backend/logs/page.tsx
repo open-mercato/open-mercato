@@ -7,8 +7,9 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type RuleExecutionLog = {
   id: string
@@ -48,6 +49,7 @@ export default function ExecutionLogsPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
+  const locale = useLocale()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error } = useQuery({
@@ -155,7 +157,7 @@ export default function ExecutionLogsPage() {
       accessorKey: 'executedAt',
       cell: ({ row }) => (
         <div className="text-sm">
-          {new Date(row.original.executedAt).toLocaleString()}
+          {formatDisplayDateTime(row.original.executedAt, locale)}
         </div>
       ),
     },

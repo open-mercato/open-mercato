@@ -44,7 +44,7 @@ jest.mock('@open-mercato/ui/backend/conflicts', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => translateMock }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useLocale: () => 'en', useT: () => translateMock }))
 
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useTemplatesPage } from '../backend/documents/templates/useTemplatesPage'

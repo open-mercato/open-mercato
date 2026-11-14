@@ -17,7 +17,8 @@ import * as React from 'react'
 import { Clock, Pencil, Plus, X } from 'lucide-react'
 import { IconButton } from '../primitives/icon-button'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { resolveDisplayTimeZone } from '../primitives/date-locale-settings'
 import {
   defaultSessionLabel,
   useAiChatSessions,
@@ -31,6 +32,7 @@ export interface ChatPaneTabsProps {
 
 export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
   const t = useT()
+  const locale = useLocale()
   const sessions = useAiChatSessions()
   const open = sessions.getOpenSessions(agentId)
   const closed = sessions.getClosedSessions(agentId)
@@ -86,7 +88,7 @@ export function ChatPaneTabs({ agentId, className }: ChatPaneTabsProps) {
         open.map((session) => {
           const isActive = active?.id === session.id
           const isRenaming = renamingId === session.id
-          const label = defaultSessionLabel(session)
+          const label = defaultSessionLabel(session, locale)
           return (
             <div
               key={session.id}
@@ -225,6 +227,7 @@ interface HistoryDropdownProps {
  */
 function HistoryDropdown({ open, onOpenChange, closed, onPick }: HistoryDropdownProps) {
   const t = useT()
+  const locale = useLocale()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
 
   React.useEffect(() => {
@@ -291,12 +294,13 @@ function HistoryDropdown({ open, onOpenChange, closed, onPick }: HistoryDropdown
                   data-ai-chat-history-item={session.id}
                 >
                   <span className="min-w-0 flex-1 truncate">
-                    {defaultSessionLabel(session)}
+                    {defaultSessionLabel(session, locale)}
                   </span>
                   <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {new Date(session.lastUsedAt).toLocaleDateString(undefined, {
+                    {new Date(session.lastUsedAt).toLocaleDateString(locale, {
                       month: 'short',
                       day: 'numeric',
+                      timeZone: resolveDisplayTimeZone(),
                     })}
                   </span>
                 </button>

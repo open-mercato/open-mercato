@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -54,6 +55,7 @@ const CHANNELS_LIST_HREF = '/backend/communication_channels/channels'
  */
 export default function DiscordAiAutoReplyPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const channelId = params?.id ?? ''
 
   const [settings, setSettings] = React.useState<AiAutoReplySettings | null>(null)
@@ -276,7 +278,7 @@ export default function DiscordAiAutoReplyPage({ params }: { params?: { id?: str
                   {settings.aiAutoReplyLastErrorAt ? (
                     <span className="ml-1">
                       {t('channel_discord.aiAutoReply.lastErrorAt', '(first seen {at})', {
-                        at: new Date(settings.aiAutoReplyLastErrorAt).toLocaleString(),
+                        at: formatDisplayDateTime(settings.aiAutoReplyLastErrorAt, locale) ?? settings.aiAutoReplyLastErrorAt,
                       })}
                     </span>
                   ) : null}

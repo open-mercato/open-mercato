@@ -3,10 +3,12 @@
 import * as React from 'react'
 import { Calendar, ChevronRight } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { InteractionSummary } from '../../formConfig'
+import { formatZonedDateParts } from '../../../lib/displayDate'
 
 export function UpcomingMeetingsWidget({ meetings, t }: { meetings: InteractionSummary[]; t: TranslateFn }) {
+  const locale = useLocale()
   if (meetings.length === 0) {
     return (
       <div className="rounded-lg border bg-card p-5">
@@ -42,7 +44,7 @@ export function UpcomingMeetingsWidget({ meetings, t }: { meetings: InteractionS
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">
-                    {date ? date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : '—'}
+                    {date ? formatZonedDateParts(date, { weekday: 'short', month: 'short', day: 'numeric' }, locale) : '—'}
                   </span>
                 </div>
                 <p className="mt-0.5 truncate text-sm font-medium text-foreground">{meeting.title || meeting.interactionType}</p>

@@ -13,7 +13,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { TaskDrawer } from '../../../../lib/time-tracking-ui/TaskDrawer'
 import { readItems, readString, readTotal, type BoardApiRow } from '../../../../lib/time-tracking-ui/kanbanBoardData'
 import {
@@ -351,7 +351,7 @@ export default function SupportTicketsPage() {
       {
         accessorKey: 'updatedAt',
         header: t('staff.support.tickets.columns.lastActivity', 'Last activity'),
-        cell: ({ row }) => (row.original.updatedAt ? formatDateTime(row.original.updatedAt) ?? '' : ''),
+        cell: ({ row }) => (row.original.updatedAt ? formatDisplayDateTime(row.original.updatedAt) ?? '' : ''),
       },
     ],
     [t],

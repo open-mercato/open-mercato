@@ -69,3 +69,11 @@ describe('formatDate', () => {
     expect(formatDate(LOCAL_MIDDAY, PL)).toBe('9 cze 2026')
   })
 })
+
+describe('formatDate non-ISO input', () => {
+  it('still formats strings that only `new Date` understands', () => {
+    expect(formatDate('2026/07/01', 'en-US')).toBe('Jul 1, 2026')
+    expect(formatDate('July 1, 2026', 'en-US')).toBe('Jul 1, 2026')
+    expect(formatDate('not a date', 'en-US')).toBe('not a date')
+  })
+})

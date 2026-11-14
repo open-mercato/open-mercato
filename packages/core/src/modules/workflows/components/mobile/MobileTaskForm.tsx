@@ -16,9 +16,10 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { UserTaskDecision, UserTaskResponse, UserTaskStatus, JsonSchemaField } from '../../data/types'
 import { flattenTaskText } from '../../lib/task-resolution'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 interface MobileTaskFormProps {
   task: UserTaskResponse
@@ -57,6 +58,7 @@ export function MobileTaskForm({
   onDecision,
 }: MobileTaskFormProps) {
   const t = useT()
+  const locale = useLocale()
 
   const fieldValue = (fieldName: string): string | number => {
     const val = formData[fieldName]
@@ -220,13 +222,13 @@ export function MobileTaskForm({
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">{t('workflows.tasks.fields.createdAt')}:</span>
-            <span className="text-right text-xs">{new Date(task.createdAt).toLocaleString()}</span>
+            <span className="text-right text-xs">{formatDisplayDateTime(task.createdAt, locale)}</span>
           </div>
           {task.dueDate && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">{t('workflows.tasks.fields.dueDate')}:</span>
               <span className={`text-right text-xs ${isOverdue ? 'text-status-error-text font-medium' : ''}`}>
-                {new Date(task.dueDate).toLocaleString()}
+                {formatDisplayDateTime(task.dueDate, locale)}
               </span>
             </div>
           )}

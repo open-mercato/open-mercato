@@ -21,7 +21,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { Plus } from 'lucide-react'
 import type { TroubleshootingNode } from '../../../lib/troubleshooting'
 import { CLAIM_TYPES } from '../../../data/validators'
@@ -363,7 +364,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
       accessorKey: 'updatedAt',
       header: t('warranty_claims.troubleshootingGuides.list.column.updated', 'Updated'),
       cell: ({ row }) => (
-        <span className="text-sm text-muted-foreground" title={formatDateTime(row.original.updatedAt) ?? undefined}>
+        <span className="text-sm text-muted-foreground" title={formatDisplayDateTime(row.original.updatedAt) ?? undefined}>
           {formatRelativeTime(row.original.updatedAt, { locale }) ?? t('warranty_claims.common.noValue', 'Not set')}
         </span>
       ),

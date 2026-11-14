@@ -20,7 +20,7 @@ import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { truncate } from 'fs'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -180,7 +180,7 @@ export default function StaffTeamRolesPage() {
       cell: ({ row }) => row.original.kind === 'team'
         ? <span className="text-xs text-muted-foreground">-</span>
         : row.original.updatedAt
-          ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
+          ? <span className="text-xs text-muted-foreground">{formatDisplayDateTime(row.original.updatedAt)}</span>
           : <span className="text-xs text-muted-foreground">-</span>,
     },
   ], [labels.actions.showMembers, labels.table.description, labels.table.members, labels.table.name, labels.table.updatedAt])

@@ -1,5 +1,6 @@
 import type { CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { buildCountryOptions, resolveCountryName } from '@open-mercato/shared/lib/location/countries'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 const OPTION_LIMIT = 100
 
@@ -40,14 +41,6 @@ export async function loadCountryOptions(query?: string, locale?: string): Promi
   return filtered.slice(0, OPTION_LIMIT)
 }
 
-function resolveLocalTimeZone(): string | undefined {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
-  } catch {
-    return undefined
-  }
-}
-
 function listSupportedTimeZones(): string[] {
   try {
     const intlWithSupportedValues = Intl as typeof Intl & { supportedValuesOf?: (input: 'timeZone') => string[] }
@@ -59,7 +52,8 @@ function listSupportedTimeZones(): string[] {
 }
 
 export async function loadTimezoneOptions(query?: string): Promise<CrudFieldOption[]> {
-  const localZone = resolveLocalTimeZone()
+  // The configured display zone is suggested first; it is the viewer's own zone when none is set.
+  const localZone = resolveDisplayTimeZone()
   const preferred = localZone && localZone !== 'UTC' ? ['UTC', localZone] : ['UTC']
   const zones = new Set<string>([...preferred, ...listSupportedTimeZones()])
   const rest = Array.from(zones).filter((tz) => !preferred.includes(tz))

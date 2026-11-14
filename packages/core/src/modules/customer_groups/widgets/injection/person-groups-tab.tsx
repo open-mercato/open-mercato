@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import { Plus, Trash2, Users } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import {
   buildOptimisticLockHeader,
@@ -180,10 +180,11 @@ function MembershipRowItem({
   onRemove?: (row: MembershipRow, groupLabel: string) => void
 }) {
   const t = useT()
+  const locale = useLocale()
   const statusLabel = t(`customer_groups.groups.personTab.status.${status}`, status)
   const statusVariant: StatusBadgeVariant = MEMBERSHIP_STATUS_BADGE_VARIANTS[status]
-  const validFromLabel = formatDateTime(row.validFrom)
-  const validUntilLabel = formatDateTime(row.validUntil)
+  const validFromLabel = formatDisplayDateTime(row.validFrom, locale)
+  const validUntilLabel = formatDisplayDateTime(row.validUntil, locale)
   const rangeLabel = validFromLabel && validUntilLabel
     ? t('customer_groups.groups.personTab.validRange', '{from} – {until}', { from: validFromLabel, until: validUntilLabel })
     : validFromLabel

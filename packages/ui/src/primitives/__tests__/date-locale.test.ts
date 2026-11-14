@@ -1,4 +1,5 @@
 import { de } from 'date-fns/locale/de'
+import { enGB } from 'date-fns/locale/en-GB'
 import { enUS } from 'date-fns/locale/en-US'
 import { es } from 'date-fns/locale/es'
 import { ko } from 'date-fns/locale/ko'
@@ -16,8 +17,13 @@ describe('resolveDateFnsLocale', () => {
 
   it('resolves a region-qualified code by its language', () => {
     expect(resolveDateFnsLocale('pl-PL')).toBe(pl)
-    expect(resolveDateFnsLocale('en-GB')).toBe(enUS)
+    expect(resolveDateFnsLocale('en-AU')).toBe(enUS)
     expect(resolveDateFnsLocale('DE')).toBe(de)
+  })
+
+  it('prefers an exact regional locale over its language', () => {
+    expect(resolveDateFnsLocale('en-GB')).toBe(enGB)
+    expect(resolveDateFnsLocale('en-gb')).toBe(enGB)
   })
 
   it('returns undefined for an unmapped or absent locale so consumers keep their own default', () => {

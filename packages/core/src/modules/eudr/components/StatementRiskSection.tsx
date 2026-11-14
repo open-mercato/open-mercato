@@ -11,6 +11,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import type {
   EudrRiskConclusion,
   EudrRiskTier,
@@ -63,9 +64,7 @@ export function riskConclusionBadgeVariant(conclusion: string | null | undefined
 
 function formatDate(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleDateString(locale || undefined)
+  return formatDisplayDate(value, locale || undefined) ?? emptyLabel
 }
 
 function isOverdue(value: string | null | undefined): boolean {

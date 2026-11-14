@@ -1,11 +1,13 @@
 'use client'
 
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 
 export function InboxEmailContent({ message }: MessageContentProps) {
   const t = useT()
+  const locale = useLocale()
 
   return (
     <div className="space-y-4">
@@ -24,7 +26,7 @@ export function InboxEmailContent({ message }: MessageContentProps) {
         <h3 className="text-base font-semibold">{message.subject}</h3>
         {message.sentAt ? (
           <p className="text-xs text-muted-foreground">
-            {new Date(message.sentAt).toLocaleString()}
+            {formatDisplayDateTime(message.sentAt, locale)}
           </p>
         ) : null}
       </div>

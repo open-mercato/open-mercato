@@ -11,9 +11,9 @@ import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActi
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type ScheduleRow = {
@@ -76,6 +76,7 @@ function mapApiItem(item: Record<string, unknown>): ScheduleRow | null {
 
 export default function SchedulerPage() {
   const t = useT()
+  const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const [rows, setRows] = React.useState<ScheduleRow[]>([])
@@ -212,7 +213,7 @@ export default function SchedulerPage() {
         header: t('scheduler.field.next_run', 'Next Run'),
         cell: ({ row }) => (
           <span className="text-sm">
-            {formatDateTime(row.original.nextRunAt) || '-'}
+            {formatDisplayDateTime(row.original.nextRunAt, locale) || '-'}
           </span>
         ),
       },
@@ -234,7 +235,7 @@ export default function SchedulerPage() {
         ),
       },
     ],
-    [t]
+    [t, locale]
   )
 
   const rowActions = React.useCallback(

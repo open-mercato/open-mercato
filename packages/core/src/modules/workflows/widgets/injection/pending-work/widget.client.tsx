@@ -25,7 +25,7 @@ import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import {
   EntityContextPanel,
   workItemsToEntityContextItems,
@@ -77,6 +77,7 @@ export default function PendingWorkWidget({
   data,
 }: InjectionWidgetComponentProps<RecordContext, RecordData>) {
   const t = useT()
+  const locale = useLocale()
   const target = resolvePendingWorkTarget(context, data)
 
   const { data: rows, isLoading } = useQuery({
@@ -109,7 +110,7 @@ export default function PendingWorkWidget({
         priority: (priority) => t(`workflows.workInbox.priorities.${priority}`, priority),
         overdue: t('workflows.tasks.overdue'),
         due: (formatted) => `${t('workflows.tasks.fields.dueDate')}: ${formatted}`,
-      })}
+      }, locale)}
       emptyLabel={t('workflows.pendingWork.empty')}
       linkLabel={t('workflows.pendingWork.open')}
       loading={isLoading}

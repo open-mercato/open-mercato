@@ -1,5 +1,6 @@
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { parseInventoryQuantity } from './inventoryMutationUi'
+import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 
 export type InventoryDisplayTranslator = TranslateFn
 
@@ -86,8 +87,10 @@ export function createInventoryDateTimeFormatter(
     hour: '2-digit',
     minute: '2-digit',
   },
+  /** The configured display timezone; the runtime zone when none is configured. */
+  timeZone: string | null = getActiveDateLocaleSettings().timeZone,
 ): Intl.DateTimeFormat {
-  return new Intl.DateTimeFormat(locale, options)
+  return new Intl.DateTimeFormat(locale, timeZone ? { ...options, timeZone } : options)
 }
 
 export function formatInventoryDateTime(

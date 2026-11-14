@@ -7,7 +7,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { InteractionSummary } from './types'
-import { isSameDay, toLocalZonedDate } from '../../lib/localDay'
+import { fromZonedTime } from 'date-fns-tz'
+import { getUserTimeZone, isSameDay, toLocalZonedDate } from '../../lib/localDay'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -107,8 +108,10 @@ function emptyBusyness(): DayBusyness {
 
 function computeDayBusyness(events: InteractionSummary[], day: Date): DayBusyness {
   if (events.length === 0) return emptyBusyness()
-  const dayStart = startOfDay(day).getTime()
-  const slotMs = ((SLOT_END_HOUR - SLOT_START_HOUR) * 60 * 60 * 1000) / BUSYNESS_SLOTS
+  const zone = getUserTimeZone()
+  const slotsStartMs = fromZonedTime(new Date(day.getFullYear(), day.getMonth(), day.getDate(), SLOT_START_HOUR), zone).getTime()
+  const slotsEndMs = fromZonedTime(new Date(day.getFullYear(), day.getMonth(), day.getDate(), SLOT_END_HOUR), zone).getTime()
+  const slotMs = (slotsEndMs - slotsStartMs) / BUSYNESS_SLOTS
   const slotMinutes = slotMs / 60000
   const slotCounts: number[] = Array(BUSYNESS_SLOTS).fill(0)
   const slotMinutesUsed: number[] = Array(BUSYNESS_SLOTS).fill(0)
@@ -129,7 +132,6 @@ function computeDayBusyness(events: InteractionSummary[], day: Date): DayBusynes
     totalMinutes += durationMinutes
     const eventStartMs = start.getTime()
     const eventEndMs = eventStartMs + durationMinutes * 60000
-    const slotsStartMs = dayStart + SLOT_START_HOUR * 60 * 60 * 1000
     for (let slot = 0; slot < BUSYNESS_SLOTS; slot += 1) {
       const slotStart = slotsStartMs + slot * slotMs
       const slotEnd = slotStart + slotMs
@@ -232,7 +234,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
     return () => controller.abort()
   }, [entityId, visibleDays, refreshKey, useProvidedEvents])
 
-  const todayDate = React.useMemo(() => startOfDay(new Date()), [])
+  const todayDate = React.useMemo(() => startOfDay(toLocalZonedDate(new Date())), [])
 
   const handlePrev = React.useCallback(() => {
     setAnchor((current) => addDays(current, -VISIBLE_DAYS))

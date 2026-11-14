@@ -19,6 +19,7 @@
 
 import type { RunExecution, StepWaitEvidence } from './run-execution'
 import type { WorkflowStatus } from './status-colors'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 export type StepPresentationState =
   /** The system is doing something right now. Blue, and it moves. */
@@ -81,6 +82,8 @@ export type StepPresentationOptions = {
   agentId?: string | null
   /** Child-workflow label for the sub-workflow line, when the caller knows one. */
   childWorkflowLabel?: string | null
+  /** The viewer's locale, for the absolute times in timer and condition reasons. */
+  locale?: string | null
 }
 
 function agentName(
@@ -143,14 +146,14 @@ function reasonFromEvidence(
       return {
         state: 'waiting',
         reason: evidence.fireAt
-          ? { key: 'workflows.runState.reason.timer', fallback: 'Waiting until {time}', params: { time: evidence.fireAt.toLocaleString() } }
+          ? { key: 'workflows.runState.reason.timer', fallback: 'Waiting until {time}', params: { time: formatDisplayDateTime(evidence.fireAt, options.locale) ?? evidence.fireAt.toISOString() } }
           : { key: 'workflows.runState.reason.timerUnnamed', fallback: 'Waiting for a timer' },
       }
     case 'condition':
       return {
         state: 'waiting',
         reason: evidence.deadlineAt
-          ? { key: 'workflows.runState.reason.conditionUntil', fallback: 'Waiting for a condition, until {time}', params: { time: evidence.deadlineAt.toLocaleString() } }
+          ? { key: 'workflows.runState.reason.conditionUntil', fallback: 'Waiting for a condition, until {time}', params: { time: formatDisplayDateTime(evidence.deadlineAt, options.locale) ?? evidence.deadlineAt.toISOString() } }
           : { key: 'workflows.runState.reason.condition', fallback: 'Waiting for a condition' },
       }
     case 'userTask':

@@ -32,7 +32,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { isValidScheduleInterval } from '@open-mercato/shared/lib/schedule/interval'
 import { hasScheduleValueFieldError } from '@open-mercato/core/modules/data_sync/lib/schedule-value'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
   ArrowRightLeft,
@@ -145,7 +147,6 @@ type SyncScheduleEditorState = {
   updatedAt?: string | null
 }
 
-const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
 const SCHEDULE_VALUE_ERROR_ID = 'data-sync-dashboard-schedule-value-error'
 
@@ -186,7 +187,7 @@ function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState 
   return {
     scheduleType: 'interval',
     scheduleValue: longerInterval ? '6h' : '1h',
-    timezone: DEFAULT_TIMEZONE,
+    timezone: resolveDisplayTimeZone(),
     fullSync: normalized !== 'products',
     isEnabled: true,
     lastRunAt: null,
@@ -262,6 +263,7 @@ export default function SyncRunsDashboardPage() {
   const [seedSource, setSeedSource] = React.useState<{ integrationId: string; entityType: string; droppedKeys: string[] } | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const locale = useLocale()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: 'data_sync.dashboard',
   })
@@ -772,7 +774,7 @@ export default function SyncRunsDashboardPage() {
               direction: selectedDirection,
               scheduleType: scheduleEditor.scheduleType,
               scheduleValue,
-              timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
+              timezone: scheduleEditor.timezone.trim() || resolveDisplayTimeZone(),
               fullSync: scheduleEditor.fullSync,
               isEnabled: scheduleEditor.isEnabled,
             }),
@@ -784,7 +786,7 @@ export default function SyncRunsDashboardPage() {
           direction: selectedDirection,
           scheduleType: scheduleEditor.scheduleType,
           scheduleValue,
-          timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
+          timezone: scheduleEditor.timezone.trim() || resolveDisplayTimeZone(),
           fullSync: scheduleEditor.fullSync,
           isEnabled: scheduleEditor.isEnabled,
         },
@@ -938,9 +940,9 @@ export default function SyncRunsDashboardPage() {
     {
       accessorKey: 'createdAt',
       header: t('data_sync.dashboard.columns.createdAt'),
-      cell: ({ row }) => new Date(row.original.createdAt).toLocaleString(),
+      cell: ({ row }) => formatDisplayDateTime(row.original.createdAt, locale),
     },
-  ], [t])
+  ], [t, locale])
 
   const canStartSelectedIntegration = Boolean(
     canRunSync
@@ -1337,7 +1339,7 @@ export default function SyncRunsDashboardPage() {
                       {hasSavedSchedule
                         ? (scheduleEditor.lastRunAt
                           ? t('data_sync.dashboard.schedule.lastRun', 'Last scheduled run: {value}', {
-                              value: new Date(scheduleEditor.lastRunAt).toLocaleString(),
+                              value: formatDisplayDateTime(scheduleEditor.lastRunAt, locale) ?? scheduleEditor.lastRunAt,
                             })
                           : t('data_sync.dashboard.schedule.neverRun', 'Saved, but no scheduled execution has completed yet.'))
                         : t('data_sync.dashboard.schedule.none', 'No recurring schedule saved for this target yet.')}

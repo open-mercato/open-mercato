@@ -4,7 +4,8 @@ import * as React from 'react'
 import { Check } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { RunnerActiveFormResponse, RunnerSubmission } from '../types'
 
 export type CompletionScreenProps = {
@@ -21,11 +22,8 @@ export type CompletionScreenProps = {
   pdfError?: string | null
 }
 
-function formatTime(iso: string | null): string {
-  if (!iso) return ''
-  const parsed = new Date(iso)
-  if (Number.isNaN(parsed.getTime())) return ''
-  return parsed.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+function formatTime(iso: string | null, locale: string): string {
+  return formatDisplayDateTime(iso, locale) ?? ''
 }
 
 export function CompletionScreen({
@@ -39,8 +37,9 @@ export function CompletionScreen({
   pdfError,
 }: CompletionScreenProps) {
   const t = useT()
+  const locale = useLocale()
   const submittedAt = submission.submittedAt ?? submission.updatedAt ?? null
-  const submittedLabel = formatTime(submittedAt)
+  const submittedLabel = formatTime(submittedAt, locale)
 
   const title = completionTitle?.trim()
     ? completionTitle
