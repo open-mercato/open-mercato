@@ -63,9 +63,9 @@ Affected areas:
 
 ### Phase 2: Strings the tools print
 
-- [ ] 2.1 packages/cli MODULES_SITE_URL and its test
-- [ ] 2.2 packages/create-app ready-apps hint, help text, catalog-step MODULES_SITE_URL and tests
+- [x] 2.1 packages/cli MODULES_SITE_URL and its test — d51fa1d99
+- [x] 2.2 packages/create-app ready-apps hint, help text, catalog-step MODULES_SITE_URL and tests — 28c3ab5d8
 
 ### Phase 3: om-find-module skill
 
-- [ ] 3.1 curl -sL on every fetch and the module card, pinned in the overlay test
+- [x] 3.1 curl -sL on every fetch and the module card, pinned in the overlay test — 381e89d3c
