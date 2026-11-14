@@ -241,6 +241,7 @@ type CompanySnapshot = {
     websiteUrl: string | null
     industry: string | null
     sizeBucket: string | null
+    taxId: string | null
     annualRevenue: string | null
   }
   tagIds: string[]
@@ -344,6 +345,7 @@ async function loadCompanySnapshot(
       websiteUrl: profile.websiteUrl ?? null,
       industry: profile.industry ?? null,
       sizeBucket: profile.sizeBucket ?? null,
+      taxId: profile.taxId ?? null,
       annualRevenue: profile.annualRevenue ?? null,
     },
     tagIds,
@@ -559,6 +561,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       websiteUrl: parsed.websiteUrl ?? null,
       industry: parsed.industry ?? null,
       sizeBucket: parsed.sizeBucket ?? null,
+      taxId: parsed.taxId ?? null,
       annualRevenue:
         parsed.annualRevenue !== undefined && parsed.annualRevenue !== null
           ? String(parsed.annualRevenue)
@@ -726,6 +729,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         websiteUrl: after.profile.websiteUrl,
         industry: after.profile.industry,
         sizeBucket: after.profile.sizeBucket,
+        taxId: after.profile.taxId,
         annualRevenue: after.profile.annualRevenue,
       })
       em.persist(profile)
@@ -736,6 +740,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       profile.websiteUrl = after.profile.websiteUrl
       profile.industry = after.profile.industry
       profile.sizeBucket = after.profile.sizeBucket
+      profile.taxId = after.profile.taxId
       profile.annualRevenue = after.profile.annualRevenue
     }
     const restoredProfile = profile
@@ -820,13 +825,14 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         if (parsed.websiteUrl !== undefined) profile.websiteUrl = parsed.websiteUrl ?? null
         if (parsed.industry !== undefined) profile.industry = parsed.industry ?? null
         if (parsed.sizeBucket !== undefined) profile.sizeBucket = parsed.sizeBucket ?? null
+        if (parsed.taxId !== undefined) profile.taxId = parsed.taxId ?? null
         if (parsed.annualRevenue !== undefined) {
           profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
         }
 
         const profileFieldsUpdated = [
           parsed.legalName, parsed.brandName, parsed.domain, parsed.websiteUrl,
-          parsed.industry, parsed.sizeBucket, parsed.annualRevenue,
+          parsed.industry, parsed.sizeBucket, parsed.annualRevenue, parsed.taxId,
         ].some((value) => value !== undefined)
         if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
@@ -951,6 +957,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
         websiteUrl: before.profile.websiteUrl,
         industry: before.profile.industry,
         sizeBucket: before.profile.sizeBucket,
+        taxId: before.profile.taxId,
         annualRevenue: before.profile.annualRevenue,
       })
       em.persist(profile)
@@ -961,6 +968,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       profile.websiteUrl = before.profile.websiteUrl
       profile.industry = before.profile.industry
       profile.sizeBucket = before.profile.sizeBucket
+      profile.taxId = before.profile.taxId
       profile.annualRevenue = before.profile.annualRevenue
     }
 
@@ -1283,6 +1291,7 @@ const deleteCompanyCommand: CommandHandler<
           websiteUrl: before.profile.websiteUrl,
           industry: before.profile.industry,
           sizeBucket: before.profile.sizeBucket,
+          taxId: before.profile.taxId,
           annualRevenue: before.profile.annualRevenue,
         })
         em.persist(profile)
@@ -1293,6 +1302,7 @@ const deleteCompanyCommand: CommandHandler<
         profile.websiteUrl = before.profile.websiteUrl
         profile.industry = before.profile.industry
         profile.sizeBucket = before.profile.sizeBucket
+        profile.taxId = before.profile.taxId
         profile.annualRevenue = before.profile.annualRevenue
       }
 
