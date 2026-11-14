@@ -25,7 +25,7 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 ## Data Models
 - `onboarding_requests`
   - `status`: add `processing`
-  - `processing_started_at`: timestamp used to gate duplicate runs
+  - `processing_started_at`: timestamp used to gate duplicate runs; once the tenant ids are stored it is the provisioning lease, renewed every 5 seconds until the request completes. Every renew, reset and completion is conditional on the exact value the runner last wrote, so a runner that lost its lease can no longer write to the request
   - `preparation_completed_at`: timestamp used to indicate deferred demo preparation has finished and login can be opened safely
   - `ready_email_sent_at`: timestamp used to avoid duplicate ready notifications
 
@@ -33,6 +33,7 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 - `GET /api/onboarding/onboarding/verify?token=...`
   - Redirects to `/login?tenant=<tenantId>` on completion or when already processed.
   - Uses a 15-minute processing lock to prevent duplicate provisioning.
+  - Completes a `processing` request that already has tenant ids only after its provisioning lease is 60 seconds stale; `GET /api/onboarding/onboarding/status` follows the same rule.
 - `GET /api/directory/tenants/lookup?tenantId=<uuid>`
   - Public endpoint returning `{ id, name }` for login display.
 - `POST /api/auth/login`
@@ -51,6 +52,7 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 ## Configuration
 - No new environment variables.
 - Processing lock window: 15 minutes (configurable in code).
+- Provisioning lease: 5-second heartbeat, 60-second stale window (configurable in code).
 
 ## Alternatives Considered
 - Ignoring prefetch requests based on request headers.
@@ -85,3 +87,7 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 ### 2026-04-01
 - Redirect activation to a preparation screen until deferred demo seeding completes.
 - Send a tenant-scoped ready email after deferred onboarding preparation succeeds.
+
+### 2026-11-02
+- A duplicate verify or a status poll no longer completes a request while the original verify is still running `seedDefaults`; recovery waits until the provisioning lease is stale.
+- A verify that loses its lease stops before the next provisioning step and cannot complete or reset a newer run of the same request.
