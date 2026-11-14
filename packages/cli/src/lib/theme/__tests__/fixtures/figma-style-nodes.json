@@ -1,0 +1,30 @@
+{
+  "2:1": {
+    "document": {
+      "id": "2:1",
+      "name": "Brand/Primary",
+      "type": "RECTANGLE",
+      "fills": [
+        { "blendMode": "NORMAL", "type": "SOLID", "color": { "r": 0.047058823529411764, "g": 0.44313725490196076, "b": 0.7764705882352941, "a": 1 } }
+      ]
+    }
+  },
+  "2:2": {
+    "document": {
+      "id": "2:2",
+      "name": "Brand/Coral",
+      "type": "RECTANGLE",
+      "fills": [
+        { "blendMode": "NORMAL", "type": "SOLID", "color": { "r": 0.9490196078431372, "g": 0.396078431372549, "b": 0.22745098039215686, "a": 1 } }
+      ]
+    }
+  },
+  "2:3": {
+    "document": {
+      "id": "2:3",
+      "name": "Heading/H1",
+      "type": "TEXT",
+      "style": { "fontFamily": "Inter", "fontPostScriptName": "Inter-SemiBold", "fontWeight": 600, "fontSize": 32 }
+    }
+  }
+}

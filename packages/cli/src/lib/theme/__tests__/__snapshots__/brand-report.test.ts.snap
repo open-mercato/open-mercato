@@ -1,0 +1,105 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`renderBrandReport renders the mapped report (snapshot) 1`] = `
+"# Figma brand import — Acme Brand Book
+
+## Source summary
+
+- **File:** \`Ac9mEbR4nDb0oKf1LeKeY0\` ("Acme Brand Book")
+- **Last modified:** 2026-07-01T09:30:00Z
+- **Extracted:** 2026-07-21T10:00:00.000Z
+- **Variables API:** unavailable (plan-gated — styles + fill analysis used instead)
+- **Local styles:** available
+- **Scan coverage:** 2 page(s), 3 top-level frame(s), 25 node(s) visited (budget 20000)
+- **Excluded from ranking:** 2 image fill(s), 1 gradient(s), 1 semi-transparent fill(s) — raw hexes under opacity or imagery are not brand evidence
+
+> --map primary #0c71c6 confirmed against candidate #1.
+
+## Mapped values
+
+| Token | Value | Evidence |
+|---|---|---|
+| \`--primary\` | \`#0c71c6\` | candidate #1, 6 uses, style "Brand/Primary", fill:frame |
+| \`--radius\` | \`8px\` | radius histogram: 8px×4, 999px×1 |
+| \`--font-geist-sans\` | \`Inter\` | fonts in file: Inter |
+| \`--font-geist-mono\` | \`JetBrains Mono\` | manual step — the generator does not emit mono font overrides; add it to theme.css yourself |
+
+Derived by the shared \`theme init\` pipeline:
+
+| Token | Light | Dark |
+|---|---|---|
+| \`--primary\` | \`#0c71c6\` | \`#3a92ea\` |
+| \`--primary-hover\` | \`#005fab\` | \`#247fd6\` |
+| \`--primary-foreground\` | \`#ffffff\` (auto) | \`#0a0a0a\` (auto) |
+
+## Contrast results (WCAG 2.1)
+
+| Mode | Pair | Ratio | Requires | Verdict |
+|---|---|---|---|---|
+| light | --primary-foreground (#ffffff) on --primary (#0c71c6) | 5:1 | 4.5:1 | pass |
+| dark | --primary-foreground (#0a0a0a) on --primary (#3a92ea) | 6.1:1 | 4.5:1 | pass |
+| light | --primary against --background (#ffffff) | 5:1 | 3:1 | pass |
+| dark | --primary against --background (#0a0a0a) | 6.1:1 | 3:1 | pass |
+
+## Unmapped candidates
+
+Not imported, **by design**: the import surface is exactly the safe identity tokens. Secondary accents, illustration palettes, and neutral scales stay out of \`theme.css\` — see the advanced-overrides section of the Brand your app docs before touching anything below.
+
+| # | Hex | Uses | Tier | Evidence |
+|---|---|---|---|---|
+| 2 | \`#f2653a\` | 3 | style | style "Brand/Coral", fill:frame |
+| 3 | \`#ffffff\` | 7 | fill | fill:frame + fill:text |
+| 4 | \`#e5e5e5\` | 4 | fill | fill:frame + stroke:frame |
+| 5 | \`#1a1a2e\` | 3 | fill | fill:frame + fill:text |
+
+## Suggested next steps
+
+- Load the "Inter" font (next/font in \`layout.tsx\`, or \`@font-face\` in \`theme.css\`) — the token override alone does nothing until the font is loaded.
+- Add \`--font-geist-mono: JetBrains Mono, …\` to \`theme.css\` by hand — the generator does not emit mono overrides.
+- Review the generated \`.dark\` block against the client's dark-mode designs, if any exist.
+- Re-run \`mercato theme from-figma <key> --report-only\` after the client updates their file.
+- Run MODE B of the \`om-figma-design-with-ds\` skill (attach the extraction JSON) for a full screen-level audit.
+"
+`;
+
+exports[`renderBrandReport renders the report-only report (snapshot) 1`] = `
+"# Figma brand import — Acme Brand Book
+
+## Source summary
+
+- **File:** \`Ac9mEbR4nDb0oKf1LeKeY0\` ("Acme Brand Book")
+- **Last modified:** 2026-07-01T09:30:00Z
+- **Extracted:** 2026-07-21T10:00:00.000Z
+- **Variables API:** unavailable (plan-gated — styles + fill analysis used instead)
+- **Local styles:** available
+- **Scan coverage:** 2 page(s), 3 top-level frame(s), 25 node(s) visited (budget 20000)
+- **Excluded from ranking:** 2 image fill(s), 1 gradient(s), 1 semi-transparent fill(s) — raw hexes under opacity or imagery are not brand evidence
+
+## Mapped values
+
+_No mapping performed (\`--report-only\`). Re-run without \`--report-only\` to map candidates onto the theme token contract._
+
+## Contrast results (WCAG 2.1)
+
+_Not computed — contrast is checked when a mapping is confirmed._
+
+## Unmapped candidates
+
+Not imported, **by design**: the import surface is exactly the safe identity tokens. Secondary accents, illustration palettes, and neutral scales stay out of \`theme.css\` — see the advanced-overrides section of the Brand your app docs before touching anything below.
+
+| # | Hex | Uses | Tier | Evidence |
+|---|---|---|---|---|
+| 1 | \`#0c71c6\` | 6 | style | style "Brand/Primary", fill:frame |
+| 2 | \`#f2653a\` | 3 | style | style "Brand/Coral", fill:frame |
+| 3 | \`#ffffff\` | 7 | fill | fill:frame + fill:text |
+| 4 | \`#e5e5e5\` | 4 | fill | fill:frame + stroke:frame |
+| 5 | \`#1a1a2e\` | 3 | fill | fill:frame + fill:text |
+
+## Suggested next steps
+
+- If you map a font later, remember loading it (next/font or \`@font-face\`) is your responsibility.
+- Review the generated \`.dark\` block against the client's dark-mode designs, if any exist.
+- Re-run \`mercato theme from-figma <key> --report-only\` after the client updates their file.
+- Run MODE B of the \`om-figma-design-with-ds\` skill (attach the extraction JSON) for a full screen-level audit.
+"
+`;
