@@ -6,7 +6,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { extensionPoints } from '@open-mercato/core/modules/staff/extension-points'
 import { formatDuration } from '../time-tracking/duration'
-import type { TimesheetSummary } from './timesheetData'
+import type { TimesheetCapacity, TimesheetSummary } from './timesheetData'
 
 /**
  * The footer both timesheet views share — `Okres · Rozliczalne · Cel · delta`
@@ -16,21 +16,44 @@ import type { TimesheetSummary } from './timesheetData'
  * `targets.dailyHours` (screen 11 note 6): a delta against nothing is not a
  * smaller number, it is a meaningless one. Time is the only quantity here; cost
  * belongs to the entries list and the report, which subtotal per currency.
+ *
+ * When a contributed capacity provider (EP-40) answered, the "days × hours"
+ * caption would describe arithmetic that did not happen, so the label is the
+ * provider's own or a neutral "Target".
  */
 export function TimesheetPeriodFooter({
   summary,
   dailyHours,
+  capacity = null,
+  periodFrom = null,
+  periodTo = null,
+  staffMemberId = null,
 }: {
   summary: TimesheetSummary
   dailyHours: number | null
+  capacity?: TimesheetCapacity | null
+  periodFrom?: string | null
+  periodTo?: string | null
+  /** The person whose timesheet is on screen — not necessarily the caller. */
+  staffMemberId?: string | null
 }) {
   const t = useT()
   const footerInjectionContext = React.useMemo(
-    () => ({ workingDays: summary.workingDays, dailyHours }),
-    [dailyHours, summary.workingDays],
+    () => ({
+      workingDays: summary.workingDays,
+      dailyHours,
+      periodFrom,
+      periodTo,
+      staffMemberId,
+      capacityProviderId: capacity?.providerId ?? null,
+    }),
+    [capacity?.providerId, dailyHours, periodFrom, periodTo, staffMemberId, summary.workingDays],
   )
-  const targetLabel =
-    dailyHours !== null
+  const targetLabel = capacity
+    ? capacity.labelKey
+      ? t(capacity.labelKey, capacity.label ?? t('staff.time_tracking.timesheet.footer.target', 'Target'))
+      : capacity.label ?? t('staff.time_tracking.timesheet.footer.target', 'Target')
+    : dailyHours !== null
       ? t('staff.time_tracking.timesheet.footer.targetWithDays', 'Target ({days} d × {hours} h)', {
           days: String(summary.workingDays),
           hours: String(dailyHours),
