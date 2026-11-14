@@ -76,4 +76,4 @@ PR: #9497
 ### Phase 3: Independent review and handoff
 
 - [x] 3.1 Dispatch exactly one final review using om-auto-review-pr / om-code-review — 5ac46e189b
-- [ ] 3.2 Once the current head is green and review approves, mark ready and apply automerge with evidence
+- [x] 3.2 Once the current head is green and review approves, mark ready and apply automerge with evidence — 3e296f8660
