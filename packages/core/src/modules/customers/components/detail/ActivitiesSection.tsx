@@ -248,7 +248,7 @@ export function ActivitiesSection({
       const canonicalParams = new URLSearchParams({
         entityId,
         limit: '50',
-        sortField: sortMode === 'recent' ? 'occurredAt' : 'title',
+        sortField: sortMode === 'recent' ? 'activityDate' : 'title',
         sortDir: sortMode === 'title-asc' ? 'asc' : 'desc',
       })
       // Hide the configured type (tasks by default — they have their own tab)

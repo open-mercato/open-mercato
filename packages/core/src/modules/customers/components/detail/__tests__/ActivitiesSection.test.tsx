@@ -99,7 +99,7 @@ describe('Customer ActivitiesSection wrapper', () => {
 
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        '/api/customers/interactions?entityId=company-123&limit=50&sortField=occurredAt&sortDir=desc&excludeInteractionType=task',
+        '/api/customers/interactions?entityId=company-123&limit=50&sortField=activityDate&sortDir=desc&excludeInteractionType=task',
       )
     })
     expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('/api/customers/activities?'))
