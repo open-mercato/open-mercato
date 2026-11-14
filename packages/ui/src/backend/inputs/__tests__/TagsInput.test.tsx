@@ -116,6 +116,47 @@ describe('TagsInput', () => {
     jest.useRealTimers()
   })
 
+  describe('closeSuggestionsOnSelect', () => {
+    const pickSuggestions = [
+      { value: 'cat-1', label: 'Category One' },
+      { value: 'cat-2', label: 'Category Two' },
+    ]
+
+    function PickHarness({ closeSuggestionsOnSelect }: { closeSuggestionsOnSelect?: boolean }) {
+      const [value, setValue] = React.useState<string[]>([])
+      return (
+        <TagsInput
+          value={value}
+          onChange={setValue}
+          suggestions={pickSuggestions}
+          closeSuggestionsOnSelect={closeSuggestionsOnSelect}
+        />
+      )
+    }
+
+    it('keeps the remaining suggestions open after a pick by default', () => {
+      renderWithProviders(<PickHarness />)
+      const input = screen.getByRole('textbox')
+      fireEvent.focus(input)
+      fireEvent.click(screen.getByRole('button', { name: /Category One/ }))
+
+      expect(screen.getByRole('button', { name: /Category Two/ })).toBeInTheDocument()
+    })
+
+    it('dismisses the suggestions after a pick when opted in and reopens them on the next interaction', () => {
+      renderWithProviders(<PickHarness closeSuggestionsOnSelect />)
+      const input = screen.getByRole('textbox')
+      fireEvent.focus(input)
+      fireEvent.click(screen.getByRole('button', { name: /Category One/ }))
+
+      expect(screen.queryByRole('button', { name: /Category Two/ })).not.toBeInTheDocument()
+
+      fireEvent.mouseDown(input)
+
+      expect(screen.getByRole('button', { name: /Category Two/ })).toBeInTheDocument()
+    })
+  })
+
   describe('Escape on the suggestions list', () => {
     it('closes only the suggestions and keeps Escape away from the host', () => {
       const onHostKeyDown = jest.fn()

@@ -6,6 +6,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type AvailabilityState = 'in_stock' | 'low_stock' | 'out_of_stock' | 'backorder' | 'preorder' | 'not_tracked'
@@ -152,50 +153,52 @@ export default function AvailabilityCheckPage() {
           </Button>
 
           {error && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive" data-testid="availability-check-error">
-              {error}
+            <div data-testid="availability-check-error">
+              <ErrorMessage label={error} />
             </div>
           )}
 
-          {availability && (
-            <div className="space-y-4 rounded-md border p-4" data-testid="availability-check-result">
-              <div className="flex items-center gap-3">
-                <StatusBadge variant={STATE_VARIANTS[availability.state]}>{t(`availability.states.${availability.state}`)}</StatusBadge>
-                {!availability.isAuthoritative && (
-                  <span className="text-xs text-muted-foreground">{t('availability.check.advisoryNote')}</span>
+          <div role="status" aria-live="polite" data-testid="availability-check-result-region">
+            {availability && (
+              <div className="space-y-4 rounded-md border p-4" data-testid="availability-check-result">
+                <div className="flex items-center gap-3">
+                  <StatusBadge variant={STATE_VARIANTS[availability.state]}>{t(`availability.states.${availability.state}`)}</StatusBadge>
+                  {!availability.isAuthoritative && (
+                    <span className="text-xs text-muted-foreground">{t('availability.check.advisoryNote')}</span>
+                  )}
+                </div>
+                <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">{t('availability.check.result.availableQuantity')}</dt>
+                    <dd className="text-sm">{availability.availableQuantity ?? t('availability.policies.form.preview.notSet')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">{t('availability.check.result.canFulfil')}</dt>
+                    <dd className="text-sm">{availability.canFulfil ? t('availability.common.yes') : t('availability.common.no')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">{t('availability.check.result.policySourceId')}</dt>
+                    <dd className="text-sm">{availability.policySourceId ?? t('availability.policies.form.preview.moduleDefault')}</dd>
+                  </div>
+                  {availability.leadTimeDays != null && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">{t('availability.policies.form.field.backorderLeadTimeDays')}</dt>
+                      <dd className="text-sm">{availability.leadTimeDays}</dd>
+                    </div>
+                  )}
+                  {availability.releaseAt && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">{t('availability.policies.form.field.preorderReleaseAt')}</dt>
+                      <dd className="text-sm">{availability.releaseAt}</dd>
+                    </div>
+                  )}
+                </dl>
+                {availability.state === 'not_tracked' && (
+                  <p className="text-xs text-muted-foreground">{t('availability.check.notTrackedExplanation')}</p>
                 )}
               </div>
-              <dl className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div>
-                  <dt className="text-xs text-muted-foreground">{t('availability.check.result.availableQuantity')}</dt>
-                  <dd className="text-sm">{availability.availableQuantity ?? t('availability.policies.form.preview.notSet')}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">{t('availability.check.result.canFulfil')}</dt>
-                  <dd className="text-sm">{availability.canFulfil ? t('availability.common.yes') : t('availability.common.no')}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">{t('availability.check.result.policySourceId')}</dt>
-                  <dd className="text-sm">{availability.policySourceId ?? t('availability.policies.form.preview.moduleDefault')}</dd>
-                </div>
-                {availability.leadTimeDays != null && (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">{t('availability.policies.form.field.backorderLeadTimeDays')}</dt>
-                    <dd className="text-sm">{availability.leadTimeDays}</dd>
-                  </div>
-                )}
-                {availability.releaseAt && (
-                  <div>
-                    <dt className="text-xs text-muted-foreground">{t('availability.policies.form.field.preorderReleaseAt')}</dt>
-                    <dd className="text-sm">{availability.releaseAt}</dd>
-                  </div>
-                )}
-              </dl>
-              {availability.state === 'not_tracked' && (
-                <p className="text-xs text-muted-foreground">{t('availability.check.notTrackedExplanation')}</p>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
           {policyTrace && (
             <div className="rounded-md border bg-muted p-4" data-testid="availability-check-policy-trace">

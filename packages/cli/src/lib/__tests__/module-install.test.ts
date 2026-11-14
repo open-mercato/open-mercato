@@ -1,8 +1,21 @@
+import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { PackageResolver } from '../resolver'
+import { readEnabledModulesFromConfig, type PackageResolver } from '../resolver'
 import { addOfficialModule, enableOfficialModule } from '../module-install'
+import * as github from '../module-github'
+import * as inspection from '../module-inspection'
+import spawn from 'cross-spawn'
+import { execFileSync } from 'node:child_process'
+import { getModuleLocators } from '../module-identity'
+import { resolveModuleRequirement } from '@open-mercato/shared/modules/module-locators'
+
+import * as modulesConfig from '../modules-config'
+
+jest.mock('cross-spawn', () => ({ __esModule: true, default: jest.fn() }))
+
+const mockedSpawn = spawn as unknown as jest.Mock
 
 function buildPackageFixture(
   packageRoot: string,
@@ -11,10 +24,12 @@ function buildPackageFixture(
     ejectable?: boolean
     extraSourceFiles?: Array<{ relativePath: string; content: string }>
     packageName?: string
+    requires?: string[]
   },
 ): void {
   const ejectable = options?.ejectable ?? false
   const packageName = options?.packageName ?? '@open-mercato/test-package'
+  const requires = options?.requires ?? []
   for (const base of ['src', 'dist']) {
     fs.mkdirSync(path.join(packageRoot, base, 'modules', moduleId), { recursive: true })
   }
@@ -24,7 +39,7 @@ function buildPackageFixture(
   )
   fs.writeFileSync(
     path.join(packageRoot, 'src', 'modules', moduleId, 'index.ts'),
-    `export const metadata = { title: 'Test', ejectable: ${ejectable ? 'true' : 'false'} }\n`,
+    `export const metadata = { title: 'Test', ejectable: ${ejectable ? 'true' : 'false'}, requires: ${JSON.stringify(requires)} }\n`,
   )
   fs.writeFileSync(
     path.join(packageRoot, 'dist', 'modules', moduleId, 'index.js'),
@@ -35,6 +50,18 @@ function buildPackageFixture(
     const targetPath = path.join(packageRoot, 'src', 'modules', moduleId, file.relativePath)
     fs.mkdirSync(path.dirname(targetPath), { recursive: true })
     fs.writeFileSync(targetPath, file.content)
+
+    if (/\.[jt]sx?$/.test(file.relativePath)) {
+      const runtimePath = path.join(
+        packageRoot,
+        'dist',
+        'modules',
+        moduleId,
+        file.relativePath.replace(/\.[jt]sx?$/, '.js'),
+      )
+      fs.mkdirSync(path.dirname(runtimePath), { recursive: true })
+      fs.writeFileSync(runtimePath, 'module.exports = {}\n')
+    }
   }
 }
 
@@ -46,6 +73,7 @@ function buildResolver(
   const modulesTsPath = path.join(appDir, 'src', 'modules.ts')
   fs.mkdirSync(path.join(appDir, 'src'), { recursive: true })
   fs.writeFileSync(modulesTsPath, modulesTsContent)
+  const initiallyEnabledModules = readEnabledModulesFromConfig(modulesTsPath)
 
   return {
     getAppDir: () => appDir,
@@ -53,8 +81,17 @@ function buildResolver(
     getPackageRoot: () => packageRoot,
     isMonorepo: () => false,
     getRootDir: () => appDir,
-    loadEnabledModules: () => [],
-    getModulePaths: () => ({ appBase: '', pkgBase: '' }),
+    discoverPackages: () => [],
+    loadEnabledModules: () => initiallyEnabledModules,
+    getModulePaths: (entry) => ({
+      appBase: path.join(appDir, 'src', 'modules', entry.id),
+      pkgBase: path.join(packageRoot, 'src', 'modules', entry.id),
+    }),
+    getModuleImportBase: (entry) => ({
+      appBase: `@/modules/${entry.id}`,
+      pkgBase: `${entry.from ?? '@open-mercato/core'}/modules/${entry.id}`,
+    }),
+    getPackageOutputDir: () => path.join(packageRoot, 'generated'),
     getOutputDir: () => path.join(appDir, '.mercato', 'generated'),
   } as unknown as PackageResolver
 }
@@ -70,7 +107,15 @@ describe('enableOfficialModule', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('throws when module is already enabled in modules.ts with the same source', async () => {
+  it.each(['../outside-package', '/absolute/package', 'npm:package', '@vendor/package@next'])('rejects %s as an installed binding before package resolution', async (binding) => {
+    const resolver = buildResolver(path.join(tmpDir, 'app'), path.join(tmpDir, 'package'), 'export const enabledModules = []\n')
+    const lookup = jest.spyOn(resolver, 'getPackageRoot')
+    await expect(enableOfficialModule(resolver, binding, undefined, false, true)).rejects.toThrow('Unsupported installed package binding')
+    expect(lookup).not.toHaveBeenCalled()
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe('export const enabledModules = []\n')
+  })
+
+  it('succeeds without changes when the module is already enabled with the same source', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
     const appDir = path.join(tmpDir, 'app')
     buildPackageFixture(packageRoot, 'test_package')
@@ -81,9 +126,17 @@ describe('enableOfficialModule', () => {
       "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n",
     )
 
+    const modulesTsBefore = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+
     await expect(
       enableOfficialModule(resolver, '@open-mercato/test-package'),
-    ).rejects.toThrow('already enabled in modules.ts')
+    ).resolves.toEqual({
+      moduleId: 'test_package',
+      packageName: '@open-mercato/test-package',
+      from: '@open-mercato/test-package',
+      registrationChanged: false,
+    })
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(modulesTsBefore)
   })
 
   it('throws when module is already enabled with different casing in the source field', async () => {
@@ -104,7 +157,7 @@ describe('enableOfficialModule', () => {
     ).rejects.toThrow('already registered from')
   })
 
-  it('error message includes the module id and package name', async () => {
+  it('stays a no-op success when enable runs again for an enabled module', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
     const appDir = path.join(tmpDir, 'app')
     buildPackageFixture(packageRoot, 'test_package')
@@ -115,16 +168,14 @@ describe('enableOfficialModule', () => {
       "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n",
     )
 
-    await expect(
-      enableOfficialModule(resolver, '@open-mercato/test-package'),
-    ).rejects.toThrow('"test_package"')
-
-    await expect(
-      enableOfficialModule(resolver, '@open-mercato/test-package'),
-    ).rejects.toThrow('"@open-mercato/test-package"')
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(
+        enableOfficialModule(resolver, '@open-mercato/test-package'),
+      ).resolves.toMatchObject({ moduleId: 'test_package', registrationChanged: false })
+    }
   })
 
-  it('throws when the specific module is already enabled in a multi-module package', async () => {
+  it('succeeds without changes when the specific module is already enabled in a multi-module package', async () => {
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'multi')
     const appDir = path.join(tmpDir, 'app')
 
@@ -155,15 +206,15 @@ describe('enableOfficialModule', () => {
 
     await expect(
       enableOfficialModule(resolver, '@open-mercato/multi', 'alpha'),
-    ).rejects.toThrow('already enabled in modules.ts')
+    ).resolves.toMatchObject({ moduleId: 'alpha', registrationChanged: false })
 
-    // beta is not yet enabled — must not throw "already enabled", even if generators fail afterwards
     try {
       await enableOfficialModule(resolver, '@open-mercato/multi', 'beta')
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      expect(message).not.toContain('already enabled in modules.ts')
+      expect(message).toContain('Module "beta" is enabled')
     }
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toContain("id: 'beta'")
   })
 
   it('copies module source into the app when enabling with --eject', async () => {
@@ -184,6 +235,7 @@ describe('enableOfficialModule', () => {
       packageRoot,
       "export const enabledModules = []\n",
     )
+    fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { '@open-mercato/test-package': '0.1.0' } }))
 
     await expect(
       enableOfficialModule(
@@ -202,8 +254,75 @@ describe('enableOfficialModule', () => {
     expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
     expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'backend', 'page.tsx'))).toBe(true)
     expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toContain(
-      "{ id: 'test_package', from: '@app' }",
+      "{ id: 'test_package', from: '@app', locator: 'npm:@open-mercato/test-package', packageName: '@open-mercato/test-package' }",
     )
+  })
+
+  it('rejects missing descriptor dependencies before registration or ejection', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    const initialModulesSource = "export const enabledModules = [{ id: 'customers' }]\n"
+    buildPackageFixture(packageRoot, 'test_package', {
+      ejectable: true,
+      requires: ['customers', 'catalog'],
+    })
+    const resolver = buildResolver(appDir, packageRoot, initialModulesSource)
+
+    await expect(
+      enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true),
+    ).rejects.toThrow(
+      'Module "test_package" requires module(s) that are not enabled: catalog.\n'
+      + 'Enable the missing module(s) in src/modules.ts first, then rerun this command.',
+    )
+
+    expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toBe(initialModulesSource)
+    expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package'))).toBe(false)
+  })
+
+  it('allows registration when every descriptor dependency is enabled', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package', {
+      requires: ['customers', 'catalog'],
+    })
+    const resolver = buildResolver(
+      appDir,
+      packageRoot,
+      "export const enabledModules = [{ id: 'customers' }, { id: 'catalog' }]\n",
+    )
+
+    await expect(
+      enableOfficialModule(resolver, '@open-mercato/test-package'),
+    ).resolves.toMatchObject({ moduleId: 'test_package', registrationChanged: true })
+  })
+
+  it('rejects --eject for a module gated behind a disabled env flag before copying any source', async () => {
+    const originalFlag = process.env.OM_ENABLE_TEST_PACKAGE
+    delete process.env.OM_ENABLE_TEST_PACKAGE
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package', { ejectable: true })
+
+    const resolver = buildResolver(
+      appDir,
+      packageRoot,
+      [
+        'export const enabledModules = []',
+        "if (process.env.OM_ENABLE_TEST_PACKAGE === 'true') {",
+        "  enabledModules.push({ id: 'test_package', from: '@open-mercato/test-package' })",
+        '}',
+      ].join('\n'),
+    )
+
+    try {
+      await expect(
+        enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true),
+      ).rejects.toThrow('behind a condition that is currently off')
+      expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package'))).toBe(false)
+    } finally {
+      if (originalFlag === undefined) delete process.env.OM_ENABLE_TEST_PACKAGE
+      else process.env.OM_ENABLE_TEST_PACKAGE = originalFlag
+    }
   })
 
   it('rejects enabling with --eject when the package is not ejectable', async () => {
@@ -299,5 +418,481 @@ describe('third-party module packages', () => {
     expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toContain(
       "{ id: 'ksef_direct', from: '@fast-white-cat/integration-ksef-direct' }",
     )
+  })
+})
+
+
+describe('canonical module preflight', () => {
+  let root: string
+  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-canonical-')) })
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it.each(['directory', 'archive'] as const)('keeps an already-enabled file %s a no-op without reinstalling', async (kind) => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const packageName = '@vendor/consents'
+    buildPackageFixture(packageRoot, 'consents', { packageName })
+    if (kind === 'archive') execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    const fileLocator = kind === 'archive' ? 'file:../candidate.tgz' : 'file:../package'
+    const source = `export const enabledModules = [{ id: 'consents', from: '${packageName}' }]\n`
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const manifest = JSON.stringify({ dependencies: { [packageName]: fileLocator } })
+    fs.writeFileSync(path.join(appDir, 'package.json'), manifest)
+    jest.mocked(spawn).mockClear()
+
+    await expect(addOfficialModule(resolver, `${packageName}@${fileLocator}`, false, undefined, true)).resolves.toMatchObject({ moduleId: 'consents', registrationChanged: false })
+    expect(spawn).not.toHaveBeenCalled()
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+    expect(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).toBe(manifest)
+    expect(fs.existsSync(resolver.getOutputDir())).toBe(false)
+  })
+
+  it.each(['directory', 'archive'] as const)('rejects a different unknown file %s even when its module is already enabled', async (kind) => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const packageName = '@vendor/consents'
+    buildPackageFixture(packageRoot, 'consents', { packageName })
+    if (kind === 'archive') execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    const fileLocator = kind === 'archive' ? 'file:../candidate.tgz' : 'file:../package'
+    const source = `export const enabledModules = [{ id: 'consents', from: '${packageName}' }]\n`
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const manifest = JSON.stringify({ dependencies: { [packageName]: 'file:../other-package' } })
+    fs.writeFileSync(path.join(appDir, 'package.json'), manifest)
+    jest.mocked(spawn).mockClear()
+
+    await expect(addOfficialModule(resolver, `${packageName}@${fileLocator}`, false, undefined, true)).rejects.toThrow('Package binding collision')
+    expect(spawn).not.toHaveBeenCalled()
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+    expect(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).toBe(manifest)
+  })
+
+  it.each([
+    ['directory', false], ['archive', false], ['directory', true], ['archive', true],
+  ] as const)('keeps a new file %s install provenance unknown with eject=%s', async (kind, eject) => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const packageName = '@vendor/consents'
+    buildPackageFixture(packageRoot, 'consents', { packageName, ejectable: true })
+    if (kind === 'archive') execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    const fileLocator = kind === 'archive' ? 'file:../candidate.tgz' : 'file:../package'
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    resolver.loadEnabledModules = () => readEnabledModulesFromConfig(resolver.getModulesConfigPath())
+    jest.mocked(spawn).mockImplementation(() => {
+      fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { [packageName]: fileLocator } }))
+      const child = new EventEmitter()
+      queueMicrotask(() => child.emit('exit', 0))
+      return child as ReturnType<typeof spawn>
+    })
+    try {
+      await addOfficialModule(resolver, `${packageName}@${fileLocator}`, eject, undefined, true)
+      const [entry] = resolver.loadEnabledModules()
+      expect(entry).toMatchObject({ id: 'consents', from: eject ? '@app' : packageName })
+      expect(entry.locator).toBeUndefined()
+      if (eject) {
+        expect(entry.packageName).toBe(packageName)
+        expect(fs.readFileSync(path.join(appDir, 'src/modules/consents/index.ts'), 'utf8')).toBe(fs.readFileSync(path.join(packageRoot, 'src/modules/consents/index.ts'), 'utf8'))
+      }
+      const locators = getModuleLocators(entry, resolver)
+      expect(locators).toEqual([])
+      expect(resolveModuleRequirement(`npm:${packageName}`, [{ id: entry.id, locators }])).toBeUndefined()
+      expect(resolveModuleRequirement('consents', [{ id: entry.id, locators }])).toBe('consents')
+
+      const dependentRoot = path.join(root, 'dependent')
+      buildPackageFixture(dependentRoot, 'dependent', { packageName: '@vendor/dependent', requires: [`npm:${packageName}`], ejectable: true })
+      resolver.getPackageRoot = (binding) => binding === '@vendor/dependent' ? dependentRoot : packageRoot
+      const sourceBefore = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+      await expect(enableOfficialModule(resolver, '@vendor/dependent', undefined, true, true)).rejects.toThrow('requires module(s) that are not enabled: npm:@vendor/consents')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(sourceBefore)
+      expect(fs.existsSync(path.join(appDir, 'src/modules/dependent'))).toBe(false)
+    } finally { jest.mocked(spawn).mockReset() }
+  })
+
+  it.each([
+    ['directory', false], ['archive', false], ['directory', true], ['archive', true],
+  ] as const)('rejects an unknown file %s origin before replacing an enabled binding with implicit core=%s', async (kind, implicitCore) => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const packageName = implicitCore ? '@open-mercato/core' : '@vendor/consents'
+    buildPackageFixture(packageRoot, 'consents', { packageName, ejectable: true })
+    if (kind === 'archive') execFileSync('tar', ['-czf', path.join(root, 'candidate.tgz'), '-C', root, 'package'])
+    const source = `export const enabledModules = [{ id: 'consents', ${implicitCore ? '' : `from: '${packageName}', `}locator: 'npm:${packageName}' }]\n`
+    const resolver = buildResolver(appDir, packageRoot, source)
+    if (implicitCore) resolver.loadEnabledModules = () => [{ id: 'consents', locator: `npm:${packageName}` }]
+    const manifest = JSON.stringify({ dependencies: { [packageName]: '1.0.0' } })
+    fs.writeFileSync(path.join(appDir, 'package.json'), manifest)
+    jest.mocked(spawn).mockClear()
+    const fileLocator = kind === 'archive' ? 'file:../candidate.tgz' : 'file:../package'
+    await expect(addOfficialModule(resolver, `${packageName}@${fileLocator}`, true, undefined, true)).rejects.toThrow('Package binding collision')
+    expect(spawn).not.toHaveBeenCalled()
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+    expect(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).toBe(manifest)
+    expect(fs.existsSync(path.join(appDir, 'src/modules/consents'))).toBe(false)
+  })
+
+  it('revalidates implicit core binding consumers after package installation before any registration or eject copy', async () => {
+    const appDir = path.join(root, 'app')
+    const packageRoot = path.join(appDir, 'node_modules', '@open-mercato', 'core')
+    const packageName = '@open-mercato/core'
+    buildPackageFixture(packageRoot, 'active', { packageName })
+    buildPackageFixture(packageRoot, 'candidate', { packageName, ejectable: true })
+    const source = "export const enabledModules = [{ id: 'active' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    resolver.loadEnabledModules = () => [{ id: 'active' }]
+    fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { [packageName]: '0.1.0' } }))
+    const inspect = jest.spyOn(inspection, 'inspectNpmModuleTarget').mockReturnValue({ packageName, packageSpec: `${packageName}@next`, locator: `npm:${packageName}`, moduleIds: ['active', 'candidate'] })
+    jest.mocked(spawn).mockImplementation(() => {
+      for (const base of ['src', 'dist']) fs.rmSync(path.join(packageRoot, base, 'modules/active'), { recursive: true })
+      const child = new EventEmitter()
+      queueMicrotask(() => child.emit('exit', 0))
+      return child as ReturnType<typeof spawn>
+    })
+    try {
+      await expect(addOfficialModule(resolver, `${packageName}@next`, true, 'candidate')).rejects.toThrow('does not contain module "active"')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+      expect(fs.existsSync(path.join(appDir, 'src/modules/candidate'))).toBe(false)
+    } finally { inspect.mockRestore(); jest.mocked(spawn).mockReset() }
+  })
+
+  it('does not satisfy a required scoped package with a same-name module from another scope', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@other/marketing_consents' }]\n"
+    buildPackageFixture(packageRoot, 'test_package', { requires: ['@pkarw/marketing_consents@latest'] })
+    const resolver = buildResolver(appDir, packageRoot, source)
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package')).rejects.toThrow("npx create-mercato-module install '@pkarw/marketing_consents@latest'")
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
+  it('matches canonical npm requirements to the enabled package source', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'test_package', { requires: ['npm:@pkarw/marketing_consents@1.2.0'] })
+    for (const base of ['src', 'dist']) {
+      fs.mkdirSync(path.join(packageRoot, base, 'modules', 'marketing_consents'), { recursive: true })
+      fs.writeFileSync(path.join(packageRoot, base, 'modules', 'marketing_consents', base === 'src' ? 'index.ts' : 'index.js'), 'export const metadata = {}')
+    }
+    const resolver = buildResolver(appDir, packageRoot, "export const enabledModules = [{ id: 'marketing_consents', from: '@pkarw/marketing_consents' }]\n")
+    const requiredPackageRoot = path.join(root, 'required-package')
+    fs.mkdirSync(requiredPackageRoot, { recursive: true })
+    fs.writeFileSync(path.join(requiredPackageRoot, 'package.json'), JSON.stringify({ name: '@pkarw/marketing_consents' }))
+    fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ dependencies: { '@pkarw/marketing_consents': '1.2.0' } }))
+    resolver.getPackageRoot = (packageName) => packageName === '@pkarw/marketing_consents' ? requiredPackageRoot : packageRoot
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package', 'test_package')).resolves.toMatchObject({ moduleId: 'test_package' })
+  })
+
+  it('rejects name collisions before copying ejected sources', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'marketing_consents', { ejectable: true })
+    const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@other/marketing_consents' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true)).rejects.toThrow('Module name collision')
+    expect(fs.existsSync(path.join(appDir, 'src/modules/marketing_consents'))).toBe(false)
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
+  it('rejects a GitHub same-name collision before package installation', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@other/marketing_consents' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const lookup = jest.spyOn(github, 'resolveGithubModuleTarget').mockReturnValue({
+      packageName: '@pkarw/marketing_consents', moduleIds: ['marketing_consents'],
+      packageSpec: '@pkarw/marketing_consents@github:pkarw/consents#' + 'a'.repeat(40), locator: 'github:pkarw/consents',
+    })
+    try {
+      await expect(addOfficialModule(resolver, 'github:pkarw/consents', false, undefined, true)).rejects.toThrow('Module name collision')
+      expect(fs.existsSync(path.join(appDir, 'package.json'))).toBe(false)
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+    } finally {
+      lookup.mockRestore()
+    }
+  })
+
+  it('rejects replacing the same npm name from a different GitHub origin', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    const resolver = buildResolver(appDir, packageRoot, "export const enabledModules = [{ id: 'marketing_consents', from: '@pkarw/consents', locator: 'github:pkarw/original' }]\n")
+    const lookup = jest.spyOn(github, 'resolveGithubModuleTarget').mockReturnValue({
+      packageName: '@pkarw/consents', moduleIds: ['marketing_consents'],
+      packageSpec: '@pkarw/consents@github:pkarw/replacement#' + 'a'.repeat(40), locator: 'github:pkarw/replacement',
+    })
+    try {
+      await expect(addOfficialModule(resolver, 'github:pkarw/replacement', false, undefined, true)).rejects.toThrow('github:pkarw/original')
+    } finally {
+      lookup.mockRestore()
+    }
+  })
+
+
+  it('requires explicit trust for GitHub sources even if they declare an official npm namespace', async () => {
+    const resolver = buildResolver(path.join(root, 'app'), path.join(root, 'package'), 'export const enabledModules = []\n')
+    const lookup = jest.spyOn(github, 'resolveGithubModuleTarget').mockReturnValue({
+      packageName: '@open-mercato/consents', moduleIds: ['marketing_consents'],
+      packageSpec: '@open-mercato/consents@github:attacker/consents#' + 'a'.repeat(40), locator: 'github:attacker/consents',
+    })
+    try {
+      await expect(addOfficialModule(resolver, 'github:attacker/consents', false)).rejects.toThrow('--allow-third-party')
+      expect(lookup).not.toHaveBeenCalled()
+    } finally {
+      lookup.mockRestore()
+    }
+  })
+
+
+  it('rejects duplicate existing registrations before eject source writes', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'marketing_consents', { ejectable: true })
+    const source = "export const enabledModules = [{ id: 'marketing_consents', from: '@open-mercato/test-package' }, { id: 'marketing_consents', from: '@other/consents' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true)).rejects.toThrow('Duplicate enabled module ID')
+    expect(fs.existsSync(path.join(appDir, 'src/modules/marketing_consents'))).toBe(false)
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
+  it('rejects a changed GitHub binding before Yarn even when the selected ID differs', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'original', { packageName: '@vendor/bundle' })
+    const source = "export const enabledModules = [{ id: 'original', from: '@vendor/bundle', locator: 'github:vendor/original' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const lookup = jest.spyOn(github, 'resolveGithubModuleTarget').mockReturnValue({
+      packageName: '@vendor/bundle', moduleIds: ['replacement'], locator: 'github:vendor/replacement',
+      packageSpec: '@vendor/bundle@github:vendor/replacement#' + 'a'.repeat(40),
+    })
+    try {
+      await expect(addOfficialModule(resolver, 'github:vendor/replacement', false, undefined, true)).rejects.toThrow('Package binding collision')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+      expect(fs.existsSync(path.join(appDir, 'package.json'))).toBe(false)
+    } finally { lookup.mockRestore() }
+  })
+
+  it('rejects npm updates that remove an active sibling before installation', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'original', { packageName: '@vendor/bundle' })
+    const source = "export const enabledModules = [{ id: 'original', from: '@vendor/bundle', locator: 'npm:@vendor/bundle' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const lookup = jest.spyOn(inspection, 'inspectNpmModuleTarget').mockReturnValue({
+      packageName: '@vendor/bundle', moduleIds: ['replacement'], locator: 'npm:@vendor/bundle', packageSpec: '@vendor/bundle@2.0.0',
+    })
+    try {
+      await expect(addOfficialModule(resolver, '@vendor/bundle@next', false, 'replacement', true)).rejects.toThrow('preserve its source and module layout')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+    } finally { lookup.mockRestore() }
+  })
+
+  it('preserves a single package registration with a local overlay on repeated enable', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    const source = "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n"
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const localPath = path.join(appDir, 'src/modules/test_package/index.ts')
+    fs.mkdirSync(path.dirname(localPath), { recursive: true })
+    fs.writeFileSync(localPath, 'export const metadata = { title: "Overlay" }')
+    await expect(enableOfficialModule(resolver, '@open-mercato/test-package')).resolves.toMatchObject({ registrationChanged: false })
+    expect(fs.readFileSync(localPath, 'utf8')).toContain('Overlay')
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+  })
+
+  it('reports a post-install version disagreement without registering or ejecting', async () => {
+    const packageRoot = path.join(root, 'package')
+    const appDir = path.join(root, 'app')
+    buildPackageFixture(packageRoot, 'test_package', { ejectable: true })
+    const source = 'export const enabledModules = []\n'
+    const resolver = buildResolver(appDir, packageRoot, source)
+    const lookup = jest.spyOn(inspection, 'inspectNpmModuleTarget').mockReturnValue({
+      packageName: '@open-mercato/test-package', packageSpec: '@open-mercato/test-package@next',
+      locator: 'npm:@open-mercato/test-package', moduleIds: ['test_package'], version: '2.0.0',
+    })
+    jest.mocked(spawn).mockImplementation(() => {
+      const child = new EventEmitter()
+      queueMicrotask(() => child.emit('exit', 0))
+      return child as ReturnType<typeof spawn>
+    })
+    try {
+      await expect(addOfficialModule(resolver, '@open-mercato/test-package@next', true)).rejects.toThrow('differs from inspected version')
+      expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(source)
+      expect(fs.existsSync(path.join(appDir, 'src/modules/test_package'))).toBe(false)
+      expect(spawn).toHaveBeenCalledWith(expect.anything(), ['add', '@open-mercato/test-package@next'], expect.anything())
+    } finally { lookup.mockRestore(); jest.mocked(spawn).mockReset() }
+  })
+
+})
+
+describe('addOfficialModule', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'module-install-add-test-'))
+    mockedSpawn.mockReset()
+    jest.spyOn(inspection, 'inspectNpmModuleTarget').mockImplementation((packageSpec, packageName) => ({
+      packageName,
+      packageSpec,
+      moduleIds: ['test_package'],
+      locator: `npm:${packageName}`,
+    }))
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  function simulateYarnAdd(appDir: string, packageName: string): void {
+    mockedSpawn.mockImplementation(() => {
+      const child = new EventEmitter()
+      const packageJsonPath = path.join(appDir, 'package.json')
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
+        dependencies?: Record<string, string>
+      }
+      packageJson.dependencies = { ...packageJson.dependencies, [packageName]: '0.1.0' }
+      fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson))
+      setImmediate(() => child.emit('exit', 0))
+      return child
+    })
+  }
+
+  function writeAppPackageJson(appDir: string, dependencies: Record<string, string> = {}): void {
+    fs.mkdirSync(appDir, { recursive: true })
+    fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'test-app', dependencies }))
+  }
+
+  it('succeeds without changes when the module is already enabled', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    writeAppPackageJson(appDir, { '@open-mercato/test-package': '0.1.0' })
+    const resolver = buildResolver(
+      appDir,
+      packageRoot,
+      "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n",
+    )
+    simulateYarnAdd(appDir, '@open-mercato/test-package')
+    const modulesTsBefore = fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')
+
+    await expect(
+      addOfficialModule(resolver, '@open-mercato/test-package@0.1.0', false),
+    ).resolves.toEqual({
+      moduleId: 'test_package',
+      packageName: '@open-mercato/test-package',
+      from: '@open-mercato/test-package',
+      registrationChanged: false,
+    })
+    expect(mockedSpawn).toHaveBeenCalledTimes(1)
+    expect(fs.readFileSync(resolver.getModulesConfigPath(), 'utf8')).toBe(modulesTsBefore)
+  })
+
+  it('tells the user how to remove a newly added package that has no modules', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'no-modules')
+    const appDir = path.join(tmpDir, 'app')
+    fs.mkdirSync(packageRoot, { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/no-modules', version: '0.1.0' }),
+    )
+    writeAppPackageJson(appDir)
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/no-modules')
+
+    const failure = addOfficialModule(resolver, '@open-mercato/no-modules', false)
+    await expect(failure).rejects.toThrow('has no modules in src/modules/ or dist/modules/.')
+    await expect(failure).rejects.toThrow(
+      'The package "@open-mercato/no-modules" stayed in package.json. To remove it, run: yarn remove @open-mercato/no-modules',
+    )
+  })
+
+  it('names the app workspace in the remove command inside a monorepo', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'no-modules')
+    const appDir = path.join(tmpDir, 'apps', 'mercato')
+    fs.mkdirSync(packageRoot, { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/no-modules', version: '0.1.0' }),
+    )
+    writeAppPackageJson(appDir)
+    const resolver = {
+      ...buildResolver(appDir, packageRoot, 'export const enabledModules = []\n'),
+      isMonorepo: () => true,
+      getRootDir: () => tmpDir,
+    } as PackageResolver
+    simulateYarnAdd(appDir, '@open-mercato/no-modules')
+
+    await expect(addOfficialModule(resolver, '@open-mercato/no-modules', false)).rejects.toThrow(
+      'To remove it, run: yarn workspace test-app remove @open-mercato/no-modules',
+    )
+  })
+
+  it('does not suggest removing a package the app already depended on', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'no-modules')
+    const appDir = path.join(tmpDir, 'app')
+    fs.mkdirSync(packageRoot, { recursive: true })
+    fs.writeFileSync(
+      path.join(packageRoot, 'package.json'),
+      JSON.stringify({ name: '@open-mercato/no-modules', version: '0.1.0' }),
+    )
+    writeAppPackageJson(appDir, { '@open-mercato/no-modules': '0.0.9' })
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/no-modules')
+
+    const failure = addOfficialModule(resolver, '@open-mercato/no-modules', false)
+    await expect(failure).rejects.toThrow('has no modules')
+    await expect(failure).rejects.not.toThrow('yarn remove')
+  })
+
+  it('rethrows a gated-off registration error without the leftover-package hint', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    writeAppPackageJson(appDir)
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/test-package')
+    const gatedOffError = Object.assign(
+      new Error('Module "test_package" is gated off. Enable it by setting OM_ENABLE_TEST_PACKAGE=true, then run `yarn generate`.'),
+      { code: 'MODULE_GATED_OFF' },
+    )
+    const prepareRegistration = modulesConfig.prepareModuleRegistration
+    const registrationSpy = jest
+      .spyOn(modulesConfig, 'prepareModuleRegistration')
+      .mockImplementationOnce(prepareRegistration)
+      .mockImplementationOnce(() => {
+        throw gatedOffError
+      })
+
+    try {
+      const failure = addOfficialModule(resolver, '@open-mercato/test-package', false)
+      await expect(failure).rejects.toBe(gatedOffError)
+      await expect(failure).rejects.not.toThrow('stayed in package.json')
+    } finally {
+      registrationSpy.mockRestore()
+    }
+  })
+
+  it('keeps the leftover-package hint for a plain registration error on a newly added package', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+    writeAppPackageJson(appDir)
+    const resolver = buildResolver(appDir, packageRoot, 'export const enabledModules = []\n')
+    simulateYarnAdd(appDir, '@open-mercato/test-package')
+    const prepareRegistration = modulesConfig.prepareModuleRegistration
+    const registrationSpy = jest
+      .spyOn(modulesConfig, 'prepareModuleRegistration')
+      .mockImplementationOnce(prepareRegistration)
+      .mockImplementationOnce(() => {
+        throw new Error('Could not update modules.ts.')
+      })
+
+    try {
+      const failure = addOfficialModule(resolver, '@open-mercato/test-package', false)
+      await expect(failure).rejects.toThrow('Could not update modules.ts.')
+      await expect(failure).rejects.toThrow(
+        'The package "@open-mercato/test-package" stayed in package.json. To remove it, run: yarn remove @open-mercato/test-package',
+      )
+    } finally {
+      registrationSpy.mockRestore()
+    }
   })
 })

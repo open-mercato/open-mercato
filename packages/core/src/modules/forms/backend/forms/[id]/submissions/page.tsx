@@ -17,6 +17,7 @@ import {
   type SubmissionInboxRow,
 } from './components/RowBadges'
 import { SubmissionDrawer } from './components/SubmissionDrawer'
+import { resolvePublishedVersionRoles, type FormSummaryResponse } from './components/formSummary'
 
 type InboxResponse = {
   items: Array<SubmissionInboxRow & {
@@ -30,15 +31,6 @@ type InboxResponse = {
   page: number
   pageSize: number
   totalPages: number
-}
-
-type FormSummaryResponse = {
-  form: {
-    id: string
-    name: string
-    currentPublishedVersionId: string | null
-  }
-  versions?: Array<{ id: string; status: string; roles: string[]; versionNumber: number }>
 }
 
 function formatDate(value: string | null): string {
@@ -129,11 +121,7 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
 
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
 
-  const formVersionRoles = React.useMemo(() => {
-    if (!formSummary?.versions) return []
-    const published = formSummary.versions.find((v) => v.id === formSummary.form.currentPublishedVersionId)
-    return published?.roles ?? []
-  }, [formSummary])
+  const formVersionRoles = React.useMemo(() => resolvePublishedVersionRoles(formSummary), [formSummary])
 
   const columns = React.useMemo<ColumnDef<InboxResponse['items'][number]>[]>(
     () => [
@@ -225,8 +213,8 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
       <PageBody>
         <DataTable
           title={
-            formSummary?.form?.name
-              ? `${formSummary.form.name} — ${t('forms.inbox.title', { fallback: 'Submissions' })}`
+            formSummary?.name
+              ? `${formSummary.name} — ${t('forms.inbox.title', { fallback: 'Submissions' })}`
               : t('forms.inbox.title', { fallback: 'Submissions' })
           }
           columns={columns}

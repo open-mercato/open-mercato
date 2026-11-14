@@ -9,6 +9,8 @@
  * then mark the invitation submitted. A capped distribution returns 410 BEFORE
  * any submission state changes. Customer-session submits skip the
  * reserve/mark-invitation steps — those are anonymous-distribution concerns.
+ * A customer-session submit of a submission the caller started themselves
+ * must carry their own subject (`lib/portal-subject-policy.ts`).
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -23,7 +25,9 @@ import { submissionSubmitInputSchema } from '../../../../../data/validators'
 import { resolveRuntimePrincipal } from '../../../../../lib/runtime-principal'
 import {
   buildSubmitMetadata,
+  isPortalSubjectForbiddenError,
   mapDistributionError,
+  portalSubjectForbiddenResponse,
   readJsonBody,
   serializeSubmission,
 } from '../../../../runtime-helpers'
@@ -104,6 +108,7 @@ export async function POST(
       baseRevisionId: parsed.data.base_revision_id,
       submittedBy: principal.principal,
       submitMetadata: buildSubmitMetadata(req, parsed.data.submit_metadata),
+      submittedByPortalCustomer: principal.source === 'customer',
     })
 
     if (principal.source === 'token') {
@@ -121,6 +126,7 @@ export async function POST(
       redirect_url: distribution?.redirectUrl ?? null,
     })
   } catch (error) {
+    if (isPortalSubjectForbiddenError(error)) return portalSubjectForbiddenResponse()
     return mapDistributionError(error)
   }
 }
@@ -144,6 +150,7 @@ const postMethodDoc: OpenApiMethodDoc = {
   responses: [{ status: 200, description: 'Submission submitted', schema: responseSchema }],
   errors: [
     { status: 401, description: 'Missing or invalid access token / session', schema: errorSchema },
+    { status: 403, description: 'SUBJECT_FORBIDDEN: customer-started submission is not on the caller\'s own customer subject', schema: errorSchema },
     { status: 404, description: 'Submission or invitation not found', schema: errorSchema },
     { status: 409, description: 'Stale base_revision_id', schema: errorSchema },
     { status: 410, description: 'Distribution response cap reached or unavailable', schema: errorSchema },

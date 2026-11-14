@@ -1,6 +1,6 @@
 # Payment Gateway Webhook Raw Locator Context
 
-- **Status:** planned
+- **Status:** implemented
 - **Date:** 2026-08-01
 - **Type:** OSS shared/core framework capability
 - **Hub:** `payment_gateways`
@@ -37,6 +37,19 @@ type WebhookHandlerRegistration = {
 ```
 
 The second parameter is optional. Existing one-argument callbacks continue compiling and receiving the same parsed JSON value.
+
+Registrations opt into exact bytes explicitly:
+
+```typescript
+type WebhookHandlerRegistration = {
+  rawBody?: 'text' | 'bytes'
+}
+```
+
+- `'text'` (default): the route keeps today's decoded string for `VerifyWebhookInput.rawBody` and passes the same string as `context.rawBody`.
+- `'bytes'`: the route reads the body as bytes (bounded by `maxBodyBytes` when set) and passes the same `Buffer` instance to `context.rawBody` and `VerifyWebhookInput.rawBody`.
+- The first locator parameter is always the JSON-safe parse of the decoded text, so JSON providers see no difference.
+- `packages/shared/src/lib/webhooks/body.ts` gains `readBoundedRequestBytes`; `readBoundedRequestBody` decodes its result and keeps identical output.
 
 ## Architecture
 
@@ -164,6 +177,14 @@ None identified; architecture review remains required for the protected shared c
 Fully compliant — ready for implementation.
 
 ## Changelog
+
+### 2026-10-09 (implementation)
+
+- Implemented: `rawBody: 'text' | 'bytes'`, raw locator context, `readBoundedRequestBytes`, route tests (`packages/core/src/modules/payment_gateways/api/__tests__/webhook-route.test.ts`), docs, and `UPGRADE_NOTES.md`.
+
+### 2026-10-09
+
+- Pre-implementation analysis: explicit `rawBody: 'text' | 'bytes'` opt-in and a shared bounded byte reader (`.ai/specs/analysis/ANALYSIS-2026-08-01-payment-gateway-webhook-extensions.md`).
 
 ### 2026-08-01
 

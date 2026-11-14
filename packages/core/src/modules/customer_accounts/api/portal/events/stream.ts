@@ -6,19 +6,36 @@
  * Events are scoped to the authenticated customer's tenant and organization.
  *
  * Uses customer JWT auth (cookie or Bearer token) instead of staff auth.
+ * The customer session is re-checked periodically and every connection has a
+ * bounded, jittered lifetime, so revoked sessions stop receiving events.
  *
  * Client consumer: `packages/ui/src/portal/hooks/usePortalEventBridge.ts`
  */
 
 import { NextResponse } from 'next/server'
-import { isPortalBroadcastEvent } from '@open-mercato/shared/modules/events'
-import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { isPortalBroadcastEvent, isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
+import { resolveSseConnectionBounds } from '@open-mercato/shared/lib/sse/connectionBounds'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4096
+
+type PortalSseIdentity = {
+  tenantId: string
+  organizationId: string
+  customerUserId: string
+  sessionId: string
+}
+
+type TrustedEmitScope = {
+  tenantId?: string | null
+  organizationId?: string | null
+  organizationIds?: readonly string[] | null
+}
 
 type PortalSseConnection = {
   tenantId: string
@@ -28,11 +45,36 @@ type PortalSseConnection = {
   close: () => void
 }
 
-function normalizeAudience(data: Record<string, unknown>): {
+function toIdentity(auth: CustomerAuthContext): PortalSseIdentity {
+  return {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    customerUserId: auth.sub,
+    sessionId: auth.sid,
+  }
+}
+
+function identitiesMatch(left: PortalSseIdentity, right: PortalSseIdentity): boolean {
+  return left.tenantId === right.tenantId
+    && left.organizationId === right.organizationId
+    && left.customerUserId === right.customerUserId
+    && left.sessionId === right.sessionId
+}
+
+function createAuthRevalidationRequest(req: Request): Request {
+  return new Request(req.url, {
+    method: req.method,
+    headers: req.headers,
+  })
+}
+
+type PortalAudience = {
   tenantId: string | null
   organizationScopes: string[]
   recipientUserScopes: string[]
-} {
+}
+
+function normalizeAudience(data: Record<string, unknown>): PortalAudience {
   const tenantId = typeof data.tenantId === 'string' ? data.tenantId : null
   const organizationScopes = new Set<string>()
   if (typeof data.organizationId === 'string' && data.organizationId.trim().length > 0) {
@@ -65,7 +107,37 @@ function normalizeAudience(data: Record<string, unknown>): {
   }
 }
 
-function matchesAudience(conn: PortalSseConnection, audience: ReturnType<typeof normalizeAudience>): boolean {
+function trustedOrganizationScopes(options?: TrustedEmitScope): string[] {
+  const scopes = new Set<string>()
+  if (typeof options?.organizationId === 'string' && options.organizationId.trim().length > 0) {
+    scopes.add(options.organizationId.trim())
+  }
+  for (const organizationId of options?.organizationIds ?? []) {
+    if (typeof organizationId === 'string' && organizationId.trim().length > 0) scopes.add(organizationId.trim())
+  }
+  return Array.from(scopes)
+}
+
+/**
+ * Trusted emit options (the module boundary, a tenant-managed workflow adapter, or
+ * the cross-process bus) are authoritative, as on the backoffice stream. A payload
+ * naming another tenant, or an organization outside the trusted set, is dropped; a
+ * payload without organizations is limited to the trusted set instead of reaching
+ * every organization of the tenant.
+ */
+function applyTrustedScope(audience: PortalAudience, options?: TrustedEmitScope): PortalAudience | null {
+  const trustedTenantId = typeof options?.tenantId === 'string' ? options.tenantId.trim() : ''
+  if (!trustedTenantId) return audience
+  if (audience.tenantId && audience.tenantId.trim() !== trustedTenantId) return null
+  const trustedOrganizations = trustedOrganizationScopes(options)
+  const scoped = { ...audience, tenantId: trustedTenantId }
+  if (trustedOrganizations.length === 0) return scoped
+  if (audience.organizationScopes.length === 0) return { ...scoped, organizationScopes: trustedOrganizations }
+  const withinTrusted = audience.organizationScopes.every((organizationId) => trustedOrganizations.includes(organizationId))
+  return withinTrusted ? scoped : null
+}
+
+function matchesAudience(conn: PortalSseConnection, audience: PortalAudience): boolean {
   if (!audience.tenantId) return false
   if (conn.tenantId !== audience.tenantId) return false
   if (audience.organizationScopes.length > 0) {
@@ -81,12 +153,17 @@ const portalConnections = new Set<PortalSseConnection>()
 
 let portalTapRegistered = false
 
-async function broadcastPortalEvent(eventName: string, payload: Record<string, unknown>): Promise<void> {
+async function broadcastPortalEvent(
+  eventName: string,
+  payload: Record<string, unknown>,
+  options?: TrustedEmitScope,
+): Promise<void> {
   if (!eventName || portalConnections.size === 0) return
-  if (!isPortalBroadcastEvent(eventName)) return
+  if (!isPortalBroadcastEvent(eventName) || isPrivateCrossProcessBroadcastEvent(eventName)) return
 
   const data = payload ?? {}
-  const audience = normalizeAudience(data)
+  const audience = applyTrustedScope(normalizeAudience(data), options)
+  if (!audience) return
   const organizationId = audience.organizationScopes[0] ?? ''
 
   let ssePayload = JSON.stringify({
@@ -100,6 +177,7 @@ async function broadcastPortalEvent(eventName: string, payload: Record<string, u
     const entityRef: Record<string, unknown> = { truncated: true }
     if (typeof data.id === 'string' && data.id.trim().length > 0) entityRef.id = data.id.trim()
     if (typeof data.entityId === 'string' && data.entityId.trim().length > 0) entityRef.entityId = data.entityId.trim()
+    if (typeof data.entityType === 'string' && data.entityType.trim().length > 0) entityRef.entityType = data.entityType.trim()
     ssePayload = JSON.stringify({
       id: eventName,
       payload: entityRef,
@@ -127,16 +205,21 @@ function ensurePortalTap(): void {
 
   // Dynamically import to avoid circular dependency — the events bus
   // registers a global tap that fires for every emitted event.
-  import('@open-mercato/events/bus').then(({ registerGlobalEventTap, registerCrossProcessEventListener }) => {
-    registerGlobalEventTap(async (eventName, payload) => {
-      await broadcastPortalEvent(eventName, (payload ?? {}) as Record<string, unknown>)
+  import('@open-mercato/events/bus').then(({
+    registerGlobalEventTap,
+    registerCrossProcessEventListener,
+    CROSS_PROCESS_EVENT_INSTANCE_ID,
+  }) => {
+    registerGlobalEventTap(async (eventName, payload, options) => {
+      await broadcastPortalEvent(eventName, (payload ?? {}) as Record<string, unknown>, options)
     })
 
     registerCrossProcessEventListener(async (envelope) => {
-      if (envelope.originPid === process.pid) return
+      if (envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID) return
       await broadcastPortalEvent(
         envelope.event,
         (envelope.payload ?? {}) as Record<string, unknown>,
+        envelope.options,
       )
     })
   }).catch(() => {
@@ -150,26 +233,39 @@ export async function GET(req: Request): Promise<Response> {
   if (!auth) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
+  const authorizedIdentity = toIdentity(auth)
+  const { authRevalidationIntervalMs, connectionMaxAgeMs } = resolveSseConnectionBounds()
 
   ensurePortalTap()
 
   const encoder = new TextEncoder()
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  let authRevalidationTimer: ReturnType<typeof setInterval> | null = null
+  let maxAgeTimer: ReturnType<typeof setTimeout> | null = null
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null
   let connection: PortalSseConnection | null = null
-  const onAbort = () => cleanup()
+  let authRevalidationInFlight = false
+  let cleanedUp = false
+  const onAbort = () => closeConnection()
 
-  const stream = new ReadableStream({
+  const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      streamController = controller
       const send = (data: string) => {
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+        if (cleanedUp) return
+        try {
+          streamController?.enqueue(encoder.encode(`data: ${data}\n\n`))
+        } catch {
+          closeConnection()
+        }
       }
 
       connection = {
-        tenantId: auth.tenantId,
-        organizationId: auth.orgId,
-        customerUserId: auth.sub,
+        tenantId: authorizedIdentity.tenantId,
+        organizationId: authorizedIdentity.organizationId,
+        customerUserId: authorizedIdentity.customerUserId,
         send,
-        close: () => controller.close(),
+        close: closeConnection,
       }
       portalConnections.add(connection)
 
@@ -181,32 +277,81 @@ export async function GET(req: Request): Promise<Response> {
 
       heartbeatTimer = setInterval(() => {
         try {
-          controller.enqueue(encoder.encode(':heartbeat\n\n'))
+          streamController?.enqueue(encoder.encode(':heartbeat\n\n'))
         } catch {
-          // Stream may have been closed
+          closeConnection()
         }
       }, HEARTBEAT_INTERVAL_MS)
+
+      authRevalidationTimer = setInterval(() => {
+        void revalidateAuthorization()
+      }, authRevalidationIntervalMs)
+
+      maxAgeTimer = setTimeout(() => {
+        closeConnection()
+      }, connectionMaxAgeMs)
     },
     cancel() {
       cleanup()
     },
   })
 
+  async function revalidateAuthorization(): Promise<void> {
+    if (cleanedUp || authRevalidationInFlight) return
+    authRevalidationInFlight = true
+    try {
+      const freshAuth = await getCustomerAuthFromRequest(createAuthRevalidationRequest(req))
+      if (cleanedUp) return
+      if (!freshAuth || !identitiesMatch(authorizedIdentity, toIdentity(freshAuth))) {
+        closeConnection()
+      }
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'customer_accounts',
+        code: 'customer_accounts.portal_sse_revalidation_failed',
+      })
+      closeConnection()
+    } finally {
+      authRevalidationInFlight = false
+    }
+  }
+
+  function closeConnection(): void {
+    if (cleanedUp) return
+    const controller = streamController
+    cleanup()
+    try {
+      controller?.close()
+    } catch {}
+  }
+
   function cleanup() {
+    if (cleanedUp) return
+    cleanedUp = true
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer)
       heartbeatTimer = null
+    }
+    if (authRevalidationTimer) {
+      clearInterval(authRevalidationTimer)
+      authRevalidationTimer = null
+    }
+    if (maxAgeTimer) {
+      clearTimeout(maxAgeTimer)
+      maxAgeTimer = null
     }
     if (connection) {
       portalConnections.delete(connection)
       connection = null
     }
+    streamController = null
     // Detach from the request signal so reconnect churn does not accumulate
     // listeners and closures on long-lived AbortSignals.
     req.signal.removeEventListener('abort', onAbort)
   }
 
   req.signal.addEventListener('abort', onAbort, { once: true })
+  if (req.signal.aborted) onAbort()
 
   return new Response(stream, {
     status: 200,
@@ -221,7 +366,7 @@ export async function GET(req: Request): Promise<Response> {
 
 const methodDoc: OpenApiMethodDoc = {
   summary: 'Subscribe to portal events via SSE (Portal Event Bridge)',
-  description: 'Long-lived SSE connection that receives server-side events marked with portalBroadcast: true. Events are filtered by the customer\'s tenant, organization, and recipient user audience.',
+  description: 'Server-bounded SSE connection that receives server-side events marked with portalBroadcast: true. Events are filtered by the customer\'s tenant, organization, and recipient user audience. The customer session is revalidated periodically and the connection is closed once the session is no longer valid or its bounded lifetime ends; clients must reconnect.',
   tags: ['Customer Portal'],
   responses: [
     {

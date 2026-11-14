@@ -147,4 +147,43 @@ describe('customer dictionary kind settings route', () => {
       }),
     )
   })
+
+  it('rejects a kind longer than 100 characters with 400', async () => {
+    const response = await PATCH(
+      new Request('http://localhost/api/customers/dictionaries/kind-settings', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: 'k'.repeat(101) }),
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Validation failed')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed organizationId query with 400', async () => {
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/kind-settings?organizationId=not-a-uuid'),
+    )
+
+    expect(response.status).toBe(400)
+  })
+
+  it('still reports unexpected PATCH failures as 500', async () => {
+    commandBusExecuteMock.mockRejectedValueOnce(new Error('boom'))
+
+    const response = await PATCH(
+      new Request('http://localhost/api/customers/dictionaries/kind-settings', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: 'status' }),
+      }),
+    )
+
+    expect(response.status).toBe(500)
+  })
 })

@@ -42,7 +42,7 @@ export const SUBMISSION_DRAWER_ANONYMIZE_ACTION_SPOT = extensionPoints.hosts.sub
 export type DrawerSubmission = {
   id: string
   status: 'draft' | 'submitted' | 'reopened' | 'archived' | 'anonymized'
-  formVersionNumber: number
+  formVersionNumber?: number
   subjectType: string
   subjectId: string
   anonymizedAt: string | null
@@ -72,6 +72,7 @@ export type DrawerSubmissionDetail = {
   revision: DrawerRevision
   decoded_data: Record<string, unknown>
   actors: DrawerActor[]
+  formVersion?: { id: string; versionNumber: number; roles: string[] }
 }
 
 export type DrawerInjectionContext = {
@@ -114,7 +115,7 @@ export function SubmissionDrawer({
     try {
       const [detailResp, revisionsResp] = await Promise.all([
         apiCall<DrawerSubmissionDetail>(`/api/forms/submissions/${encodeURIComponent(submissionId)}`),
-        apiCall<{ items: DrawerRevision[] }>(
+        apiCall<{ revisions?: DrawerRevision[] }>(
           `/api/forms/submissions/${encodeURIComponent(submissionId)}/revisions`,
         ),
       ])
@@ -125,7 +126,7 @@ export function SubmissionDrawer({
         throw new Error(t('forms.errors.internal'))
       }
       setDetail(detailResp.result)
-      setRevisions(revisionsResp.result.items)
+      setRevisions(revisionsResp.result.revisions ?? [])
       setActiveRevisionId(detailResp.result.revision.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : t('forms.errors.internal'))
@@ -243,7 +244,7 @@ export function SubmissionDrawer({
     <DrawerShell
       ref={triggerRef}
       onClose={onClose}
-      title={`${t('forms.drawer.title', { fallback: 'Submission' })} — v${detail.submission.formVersionNumber}`}
+      title={detail.formVersion ? `${t('forms.drawer.title', { fallback: 'Submission' })} — v${detail.formVersion.versionNumber}` : t('forms.drawer.title', { fallback: 'Submission' })}
       headerExtras={
         <div className="flex items-center gap-2">
           <Tag variant={isAnonymized ? 'error' : 'success'} dot>
@@ -312,7 +313,7 @@ export function SubmissionDrawer({
 
         <ActorPanel
           actors={detail.actors.filter((actor) => !actor.revokedAt)}
-          formVersionRoles={formVersionRoles}
+          formVersionRoles={detail.formVersion?.roles?.length ? detail.formVersion.roles : formVersionRoles}
           submissionId={detail.submission.id}
           onAssigned={() => {
             setActorOpen(false)

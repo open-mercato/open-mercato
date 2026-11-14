@@ -1,5 +1,5 @@
 <!--
-Please ensure this pull request targets the `develop` branch.
+Please ensure this pull request targets the `main` branch. Fixes that users of a released line need also get the `backport release/vX.Y.x` label (see CONTRIBUTING.md § Releasing).
 Checking the CLA box below confirms you accept the terms in docs/cla.md.
 -->
 
@@ -30,7 +30,8 @@ List the tests or commands you ran to validate the change.
 
 ## Checklist
 
-- [ ] This pull request targets `develop`.
+- [ ] This pull request targets `main` (only a can't-wait hotfix targets a `release/vX.Y.x` line, labelled `backport main`).
+- [ ] Category set: this PR carries a category label (`bug`, `feature`, …), and `backport release/vX.Y.x` if a released line needs the fix.
 - [ ] I have read and accept the Open Mercato Contributor License Agreement (see `docs/cla.md`).
 - [ ] I updated documentation, locales, or generators if the change requires it.
 - [ ] I added or adjusted tests that cover the change.

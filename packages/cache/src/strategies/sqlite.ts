@@ -5,6 +5,8 @@ import path from 'node:path'
 import { CacheDependencyUnavailableError } from '../errors'
 import { DEFAULT_SQLITE_CACHE_PATH } from '../defaults'
 import { matchCacheKeyPattern } from '../patterns'
+import { decodeCacheText, encodeCacheText, resolveCacheCodecConfig } from '../codec'
+import type { CacheCodecOptions } from '../codec'
 
 type SqliteStatement<TResult = unknown> = {
   get(...args: unknown[]): TResult | undefined
@@ -23,7 +25,7 @@ type SqliteDatabase = {
 
 type SqliteConstructor = new (file: string) => SqliteDatabase
 type SqliteModule = SqliteConstructor | { default: SqliteConstructor }
-type SqliteStrategyOptions = { defaultTtl?: number; databaseConstructor?: SqliteConstructor }
+type SqliteStrategyOptions = { defaultTtl?: number; databaseConstructor?: SqliteConstructor } & CacheCodecOptions
 
 const sqliteRequire = createRequire(path.join(process.cwd(), 'package.json'))
 
@@ -38,6 +40,7 @@ const sqliteRequire = createRequire(path.join(process.cwd(), 'package.json'))
 export function createSqliteStrategy(dbPath?: string, options?: SqliteStrategyOptions): CacheStrategy {
   let db: SqliteDatabase | null = null
   const defaultTtl = options?.defaultTtl
+  const codec = resolveCacheCodecConfig(options)
   const filePath = dbPath || process.env.CACHE_SQLITE_PATH || DEFAULT_SQLITE_CACHE_PATH
 
   async function getDb(): Promise<SqliteDatabase> {
@@ -93,7 +96,7 @@ export function createSqliteStrategy(dbPath?: string, options?: SqliteStrategyOp
     return Date.now() > expiresAt
   }
 
-  type EntryRow = { value: string; expires_at: number | null }
+  type EntryRow = { value: string | Buffer; expires_at: number | null }
   type ExpiresRow = { expires_at: number | null }
   type CountRow = { count: number }
   type KeyRow = { key: string }
@@ -107,7 +110,7 @@ export function createSqliteStrategy(dbPath?: string, options?: SqliteStrategyOp
     if (!row) return null
 
     try {
-      const value = JSON.parse(row.value) as CacheValue
+      const value = JSON.parse(decodeCacheText(row.value)) as CacheValue
       const expiresAt = row.expires_at
 
       if (isExpired(expiresAt)) {
@@ -134,7 +137,7 @@ export function createSqliteStrategy(dbPath?: string, options?: SqliteStrategyOp
     const expiresAt = ttl ? Date.now() + ttl : null
     const createdAt = Date.now()
 
-    const serialized = JSON.stringify(value)
+    const serialized = encodeCacheText(JSON.stringify(value), codec)
 
     database.transaction(() => {
       // Delete old tags

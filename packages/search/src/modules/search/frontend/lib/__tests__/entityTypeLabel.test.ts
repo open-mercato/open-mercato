@@ -31,8 +31,9 @@ describe('resolveEntityTypeLabel', () => {
   })
 })
 
-// Regression coverage for https://github.com/open-mercato/open-mercato/issues/6006:
-// wms, eudr and documents shipped no `search.entityType.<module>.<entity>` keys,
+// Regression coverage for https://github.com/open-mercato/open-mercato/issues/6006
+// and https://github.com/open-mercato/open-mercato/issues/7408:
+// wms, eudr, documents and ecommerce shipped no `search.entityType.<module>.<entity>` keys,
 // so their chips silently fell back to a humanized id instead of the real label.
 // This loads each module's real `en.json` (not a mock) so a missing/renamed key
 // fails here instead of only being visible in the rendered UI.
@@ -41,6 +42,7 @@ describe('resolveEntityTypeLabel against the real module dictionaries', () => {
     ...loadModuleDictionary('../../../../../../../core/src/modules/wms/i18n'),
     ...loadModuleDictionary('../../../../../../../core/src/modules/eudr/i18n'),
     ...loadModuleDictionary('../../../../../../../documents/src/modules/documents/i18n'),
+    ...loadModuleDictionary('../../../../../../../core/src/modules/ecommerce/i18n'),
   }
   const t: TranslateFn = (key, fallbackOrParams) =>
     key in merged ? merged[key] : (typeof fallbackOrParams === 'string' ? fallbackOrParams : key)
@@ -54,6 +56,7 @@ describe('resolveEntityTypeLabel against the real module dictionaries', () => {
     ['eudr:eudr_plot', 'Plot'],
     ['eudr:eudr_evidence_submission', 'Evidence submission'],
     ['documents:document', 'Document'],
+    ['ecommerce:ecommerce_store', 'Store'],
   ])('resolves %s to its localized label, not a humanized fallback', (entityId, expectedLabel) => {
     const resolved = resolveEntityTypeLabel(t, entityId)
     expect(resolved).toBe(expectedLabel)

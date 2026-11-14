@@ -13,6 +13,8 @@ export type {
 
   // Search options
   SearchOptions,
+  SearchIndexDocCondition,
+  SearchIndexDocFilter,
 
   // Indexable record
   IndexableRecord,

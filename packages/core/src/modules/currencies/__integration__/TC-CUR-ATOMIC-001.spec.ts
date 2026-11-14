@@ -41,11 +41,6 @@ async function setBase(request: APIRequestContext, token: string, id: string, is
 async function cleanupCurrency(request: APIRequestContext, token: string | null, id: string | null): Promise<void> {
   if (!token || !id) return;
   try {
-    await setBase(request, token, id, false);
-  } catch {
-    /* ignore */
-  }
-  try {
     await apiRequest(request, 'DELETE', `/api/currencies/currencies?id=${encodeURIComponent(id)}`, { token });
   } catch {
     /* ignore */
@@ -91,9 +86,8 @@ test.describe('TC-CUR-ATOMIC-001: base-currency writes are atomic', () => {
       expect((await getCurrency(request, token, aId))?.isBase, 'A is base after switch').toBe(true);
       expect((await getCurrency(request, token, bId))?.isBase, 'B demoted after switch').toBe(false);
     } finally {
-      await cleanupCurrency(request, token, aId);
-      await cleanupCurrency(request, token, bId);
-      // Restore the original base currency so we leave shared state as we found it.
+      // Restore the original base currency first: a base currency cannot be
+      // un-flagged or deleted, so the fixtures are only removable once demoted.
       if (token && priorBaseId) {
         try {
           await setBase(request, token, priorBaseId, true);
@@ -101,6 +95,8 @@ test.describe('TC-CUR-ATOMIC-001: base-currency writes are atomic', () => {
           /* ignore */
         }
       }
+      await cleanupCurrency(request, token, aId);
+      await cleanupCurrency(request, token, bId);
     }
   });
 

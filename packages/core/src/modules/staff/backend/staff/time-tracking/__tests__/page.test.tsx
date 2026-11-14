@@ -10,6 +10,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open-mercato/shared/modules/widgets/injection-loader'
 import TimeTrackingMyWorkPage from '../page'
 
 function renderWithQueryClient(children: React.ReactElement) {
@@ -93,6 +94,8 @@ function resolveWith(payload: MyWorkResponse): void {
 }
 
 beforeEach(() => {
+  registerCoreInjectionWidgets([])
+  registerCoreInjectionTables([])
   jest.clearAllMocks()
   apiCallMock.mockResolvedValue({
     ok: true,

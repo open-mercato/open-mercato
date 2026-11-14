@@ -77,4 +77,21 @@ test.describe('TC-CHANNEL-EMAIL-001: IMAP provider registration', () => {
       expect(body?.fieldErrors ?? body?.error).toBeTruthy()
     }
   })
+
+  test('POST connect/credentials with an empty display name returns per-field details (#5593)', async ({ request }) => {
+    const token = await getAuthToken(request)
+    const response = await apiRequest(
+      request,
+      'POST',
+      '/api/communication_channels/channels/connect/credentials',
+      {
+        token,
+        data: { providerKey: 'imap', displayName: '', credentials: {} },
+      },
+    )
+    expect(response.status()).toBe(422)
+    const body = await readJsonSafe<{ error?: string; details?: Array<{ path?: unknown[] }> }>(response)
+    expect(body?.error).toBe('Invalid request body')
+    expect(body?.details?.map((issue) => issue.path?.[0])).toEqual(['displayName'])
+  })
 })

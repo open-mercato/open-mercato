@@ -1,4 +1,5 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isEquivalentLoopbackOrigin, readConfiguredAppOrigins } from '@open-mercato/shared/lib/url'
 
 export type SameOriginViolation = {
   reason: 'missing-origin' | 'invalid-origin' | 'cross-origin'
@@ -11,11 +12,13 @@ function isSafeMethod(method: string | null | undefined) {
   return normalized === 'GET' || normalized === 'HEAD' || normalized === 'OPTIONS'
 }
 
-function readExpectedOrigin(req: Request): string | null {
+function readExpectedOrigins(req: Request, env: NodeJS.ProcessEnv): string[] {
+  const configuredOrigins = readConfiguredAppOrigins(env)
+  if (configuredOrigins.length > 0) return configuredOrigins
   try {
-    return new URL(req.url).origin
+    return [new URL(req.url).origin]
   } catch {
-    return null
+    return []
   }
 }
 
@@ -45,12 +48,14 @@ export function validateSameOriginMutationRequest(
     return null
   }
 
-  const expectedOrigin = readExpectedOrigin(req)
+  const expectedOrigins = readExpectedOrigins(req, env)
   const requestOrigin = readRequestOrigin(req)
 
-  if (!expectedOrigin) {
+  if (expectedOrigins.length === 0) {
     return null
   }
+
+  const expectedOrigin = expectedOrigins[0]
 
   if (!requestOrigin) {
     return {
@@ -62,7 +67,12 @@ export function validateSameOriginMutationRequest(
 
   try {
     const normalizedRequestOrigin = new URL(requestOrigin).origin
-    if (normalizedRequestOrigin === expectedOrigin) {
+    const matchesExpectedOrigin = expectedOrigins.some(
+      (origin) =>
+        origin === normalizedRequestOrigin ||
+        isEquivalentLoopbackOrigin(normalizedRequestOrigin, origin, { requireSameProtocol: true }),
+    )
+    if (matchesExpectedOrigin) {
       return null
     }
 

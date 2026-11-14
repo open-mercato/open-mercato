@@ -7,6 +7,7 @@ import type {
   IndexableRecord,
 } from '../types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { buildIndexDocFilterExists } from '../lib/index-doc-filter'
 
 /**
  * Configuration for TokenSearchStrategy.
@@ -86,6 +87,7 @@ export class TokenSearchStrategy implements SearchStrategy {
   readonly id: SearchStrategyId = 'tokens'
   readonly name = 'Token Search'
   readonly priority = 10 // Lowest priority, always available as fallback
+  readonly supportsIndexDocFilter = true
 
   private readonly minMatchRatio: number
   private readonly defaultLimit: number
@@ -116,6 +118,9 @@ export class TokenSearchStrategy implements SearchStrategy {
     const { listSearchTokenExcludedEntityTypes } = await import(
       '@open-mercato/core/modules/query_index/lib/search-entity-policy'
     )
+    const { resolveQueryIndexSearchScope, buildQueryIndexSearchScopePredicate } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    const globalTypes = new Set(scope.tenantGlobalEntityTypes)
 
     const config = resolveSearchConfig()
     if (!config.enabled) return []
@@ -134,6 +139,21 @@ export class TokenSearchStrategy implements SearchStrategy {
     const minMatches = Math.max(1, Math.ceil(hashes.length * this.minMatchRatio))
     const limit = options.limit ?? this.defaultLimit
 
+    // Entity types declared as platform-wide catalogues are indexed once, under the
+    // null tenant, so an exact tenant match alone would never return them. This is
+    // the same widening `fetchDocsBatch()` in ../lib/presenter-enricher.ts performs
+    // for the projection row, and the two must agree: a hit this predicate returns
+    // and the enricher's does not is a result with no title and no URL.
+    //
+    // Narrowed to the entity types the rest of this query can return, so the widening
+    // never reaches a row the caller was not going to be offered anyway — and gated on
+    // the declaration rather than on `tenant_id IS NULL`, which is also the stored
+    // scope of private tables with neither scope column (`directory:tenant`,
+    // `auth:user_role`).
+    const globalEntityTypes = requestedEntityTypes
+      ? requestedEntityTypes.filter((entityType) => globalTypes.has(entityType))
+      : scope.tenantGlobalEntityTypes.filter((entityType) => !excludedEntityTypes.includes(entityType))
+
     let queryBuilder = this.db
       .selectFrom('search_tokens' as any)
       .select([
@@ -143,20 +163,57 @@ export class TokenSearchStrategy implements SearchStrategy {
         sql<string>`count(*)`.as('match_count'),
       ])
       .where('token_hash' as any, 'in', hashes)
-      .where('tenant_id' as any, '=', options.tenantId)
+      .where(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: 'search_tokens.entity_type', recordIdRef: 'search_tokens.entity_id', organizationIdRef: 'search_tokens.organization_id' }, options.tenantId))
+      .where((eb) => (globalEntityTypes.length === 0
+        ? eb('tenant_id' as any, '=', options.tenantId)
+        : eb.or([
+          eb('tenant_id' as any, '=', options.tenantId),
+          eb.and([
+            eb('tenant_id' as any, 'is', null),
+            eb('entity_type' as any, 'in', globalEntityTypes),
+          ]),
+        ])))
       .groupBy(['entity_type' as any, 'entity_id' as any, 'organization_id' as any])
       .having(sql<SqlBool>`count(distinct token_hash) >= ${minMatches}`)
       .orderBy(sql`count(distinct token_hash) desc`)
       .limit(limit)
 
+    if (scope.blockedEntityTypes.length) {
+      queryBuilder = queryBuilder.where((expression) => expression('entity_type', 'not in', [...scope.blockedEntityTypes]))
+    }
+
+    // A declared catalogue's canonical tokens carry no organization either, so the
+    // organization filter takes the same declaration-gated branch, narrowed to the fully
+    // unscoped row: `SearchService` passes the selected organization even for a superadmin,
+    // and an organization-only predicate would drop every catalogue hit.
     if (organizationIds) {
-      queryBuilder = queryBuilder.where('organization_id' as any, 'in', organizationIds)
+      queryBuilder = queryBuilder.where((eb) => (globalEntityTypes.length === 0
+        ? eb('organization_id' as any, 'in', organizationIds)
+        : eb.or([
+          eb('organization_id' as any, 'in', organizationIds),
+          eb.and([
+            eb('organization_id' as any, 'is', null),
+            eb('tenant_id' as any, 'is', null),
+            eb('entity_type' as any, 'in', globalEntityTypes),
+          ]),
+        ])))
     }
 
     if (requestedEntityTypes?.length) {
       queryBuilder = queryBuilder.where('entity_type' as any, 'in', requestedEntityTypes)
     } else if (excludedEntityTypes.length) {
       queryBuilder = queryBuilder.where('entity_type' as any, 'not in', excludedEntityTypes)
+    }
+
+    if (options.indexDocFilter) {
+      queryBuilder = queryBuilder.where(
+        buildIndexDocFilterExists(options.indexDocFilter, {
+          entityTypeRef: 'search_tokens.entity_type',
+          recordIdRef: 'search_tokens.entity_id',
+          tenantIdRef: 'search_tokens.tenant_id',
+          tenantGlobalEntityTypes: globalEntityTypes,
+        }),
+      )
     }
 
     const rows = await queryBuilder.execute() as Array<{
@@ -189,11 +246,15 @@ export class TokenSearchStrategy implements SearchStrategy {
       '@open-mercato/core/modules/query_index/lib/search-tokens'
     )
 
+    const { resolveQueryIndexSearchScope, filterQueryIndexSearchRecords } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    if (!(await filterQueryIndexSearchRecords(this.db, scope, [record])).length) return
+    const global = scope.tenantGlobalEntityTypes.includes(record.entityId)
     await replaceSearchTokensForRecord(this.db, {
       entityType: record.entityId,
       recordId: record.recordId,
-      tenantId: record.tenantId,
-      organizationId: record.organizationId,
+      tenantId: global ? null : record.tenantId,
+      organizationId: global ? null : record.organizationId,
       doc: normalizeCustomFieldKeys(record.fields),
     })
   }
@@ -204,10 +265,12 @@ export class TokenSearchStrategy implements SearchStrategy {
       '@open-mercato/core/modules/query_index/lib/search-tokens'
     )
 
+    const { resolveQueryIndexSearchScope } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
     await deleteSearchTokensForRecord(this.db, {
       entityType: entityId,
       recordId,
-      tenantId,
+      tenantId: scope.tenantGlobalEntityTypes.includes(entityId) ? null : tenantId,
     })
   }
 
@@ -218,15 +281,18 @@ export class TokenSearchStrategy implements SearchStrategy {
       '@open-mercato/core/modules/query_index/lib/search-tokens'
     )
 
-    const payloads = records.map((record) => ({
+    const { resolveQueryIndexSearchScope, filterQueryIndexSearchRecords } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    const allowedRecords = await filterQueryIndexSearchRecords(this.db, scope, records)
+    const payloads = allowedRecords.map((record) => ({
       entityType: record.entityId,
       recordId: record.recordId,
-      tenantId: record.tenantId,
-      organizationId: record.organizationId,
+      tenantId: scope.tenantGlobalEntityTypes.includes(record.entityId) ? null : record.tenantId,
+      organizationId: scope.tenantGlobalEntityTypes.includes(record.entityId) ? null : record.organizationId,
       doc: normalizeCustomFieldKeys(record.fields) as Record<string, unknown>,
     }))
 
-    await replaceSearchTokensForBatch(this.db, payloads)
+    if (payloads.length) await replaceSearchTokensForBatch(this.db, payloads)
   }
 
   async purge(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void> {

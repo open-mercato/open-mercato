@@ -149,6 +149,9 @@ test.describe('TC-CGRP-028: group delete is limited to members in the caller org
         { token: restrictedToken },
       );
       expect(crossDelete.status(), 'deleting a group with an org-B member must be 409').toBe(409);
+      const crossDeleteBody = await readJsonSafe<{ error?: unknown }>(crossDelete);
+      expect(typeof crossDeleteBody?.error, 'the refusal must carry a reason the UI can show (#7060)').toBe('string');
+      expect(String(crossDeleteBody?.error).trim().length).toBeGreaterThan(0);
 
       const groupAfter = await apiRequest(request, 'GET', `${GROUPS_PATH}?id=${encodeURIComponent(sharedGroupId)}`, {
         token: adminToken,

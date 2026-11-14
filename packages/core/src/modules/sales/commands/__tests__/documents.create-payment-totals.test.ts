@@ -86,6 +86,7 @@ function num(value: unknown): number {
 
 function buildHarness() {
   const createdOrders: Record<string, unknown>[] = []
+  const createdLines: Record<string, unknown>[] = []
   const generatedNumbers: string[] = []
   let em: Record<string, unknown>
   em = {
@@ -93,6 +94,7 @@ function buildHarness() {
     create: (_entity: unknown, data: Record<string, unknown>) => ({ ...data }),
     persist: (entity: Record<string, unknown>) => {
       if (typeof entity.orderNumber === 'string') createdOrders.push(entity)
+      if ('unitPriceNet' in entity) createdLines.push(entity)
     },
     find: async () => [],
     findOne: async () => null,
@@ -131,7 +133,7 @@ function buildHarness() {
     organizationIds: [TEST_ORG_ID],
   }
 
-  return { createdOrders, generatedNumbers, ctx }
+  return { createdOrders, createdLines, generatedNumbers, ctx }
 }
 
 function buildInput(extra: Record<string, unknown> = {}) {
@@ -239,5 +241,76 @@ describe('sales.orders.create — deprecated payment ledger input (#4695)', () =
     expect(num(order.paidTotalAmount)).toBeCloseTo(0, 4)
     expect(num(order.refundedTotalAmount)).toBeCloseTo(0, 4)
     expect(num(order.outstandingAmount)).toBeCloseTo(100, 4)
+  })
+})
+
+const DISCOUNTED_LINE_CASES: Array<{ label: string; line: Record<string, unknown>; unitPriceNet: number }> = [
+  {
+    label: 'a gross-only line with a percentage discount',
+    line: { quantity: 1, unitPriceGross: 123, taxRate: 23, discountPercent: 10 },
+    unitPriceNet: 100,
+  },
+  {
+    label: 'a gross-only line with a line-basis amount discount',
+    line: { quantity: 1, unitPriceGross: 123, taxRate: 23, discountAmount: 10, discountAmountBasis: 'line' },
+    unitPriceNet: 100,
+  },
+  {
+    label: 'a gross-only multi-unit line with a percentage discount',
+    line: { quantity: 2, unitPriceGross: 61.5, taxRate: 23, discountPercent: 10 },
+    unitPriceNet: 50,
+  },
+  {
+    label: 'a gross-only multi-unit line with a per-unit amount discount',
+    line: { quantity: 2, unitPriceGross: 61.5, taxRate: 23, discountAmount: 5 },
+    unitPriceNet: 50,
+  },
+  {
+    label: 'a gross-only fractional-quantity line with a percentage discount',
+    line: { quantity: 0.5, unitPriceGross: 246, taxRate: 23, discountPercent: 10 },
+    unitPriceNet: 200,
+  },
+  {
+    label: 'a line with both unit prices',
+    line: { quantity: 1, unitPriceNet: 100, unitPriceGross: 123, taxRate: 23, discountPercent: 10 },
+    unitPriceNet: 100,
+  },
+  {
+    label: 'a net-only line',
+    line: { quantity: 1, unitPriceNet: 100, taxRate: 23, discountPercent: 10 },
+    unitPriceNet: 100,
+  },
+]
+
+describe.each([
+  ['sales.orders.create'],
+  ['sales.quotes.create'],
+])('%s — unit net before the line discount (#8232)', (commandId) => {
+  beforeAll(async () => {
+    await import('../documents')
+  })
+
+  it.each(DISCOUNTED_LINE_CASES)('stores the unit net before the discount for $label', async ({ line, unitPriceNet }) => {
+    const { createdLines, ctx } = buildHarness()
+    const handler = commandRegistry.get<unknown, unknown>(commandId)
+    expect(handler).toBeTruthy()
+
+    await handler!.execute(
+      {
+        organizationId: TEST_ORG_ID,
+        tenantId: TEST_TENANT_ID,
+        currencyCode: 'USD',
+        lines: [{ kind: 'product', name: 'Discounted item', currencyCode: 'USD', ...line }],
+      } as never,
+      ctx,
+    )
+
+    expect(createdLines).toHaveLength(1)
+    const stored = createdLines[0]
+    expect(num(stored.unitPriceNet)).toBeCloseTo(unitPriceNet, 4)
+    expect(num(stored.discountAmount)).toBeCloseTo(10, 4)
+    expect(num(stored.totalNetAmount)).toBeCloseTo(90, 4)
+    expect(num(stored.taxAmount)).toBeCloseTo(20.7, 4)
+    expect(num(stored.totalGrossAmount)).toBeCloseTo(110.7, 4)
   })
 })

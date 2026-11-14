@@ -61,4 +61,21 @@ describe('payment_gateways setup schedules', () => {
     expect(resolve).not.toHaveBeenCalled()
     expect(register).not.toHaveBeenCalled()
   })
+
+  it('registers the prune schedule when an organization is created later', async () => {
+    const { container, register } = makeContainer()
+
+    await setup.onOrganizationCreated?.({
+      container,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+    } as never)
+
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      scopeType: 'organization',
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      targetQueue: 'payment-gateway-session-initialization-prune',
+    }))
+  })
 })

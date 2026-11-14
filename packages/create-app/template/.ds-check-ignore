@@ -28,12 +28,6 @@
     {
       "file": "src/components/DemoFeedbackWidget.tsx",
       "rule": "arbitrary-tailwind",
-      "match": "min-w-[90px]",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/components/DemoFeedbackWidget.tsx",
-      "rule": "arbitrary-tailwind",
       "match": "animate-[caption-slide_0.3s_ease-out]",
       "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },
@@ -375,120 +369,6 @@
     },
     {
       "file": "src/modules/example/backend/payments/page.tsx",
-      "rule": "manual-dark-override",
-      "match": "dark:",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "border-amber-500/40",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "bg-amber-50",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "dark:bg-amber-400/10",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "text-amber-800",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "dark:text-amber-100/90",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "manual-dark-override",
-      "match": "dark:",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "manual-dark-override",
-      "match": "dark:",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "text-amber-900",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "dark:text-amber-50",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "manual-dark-override",
-      "match": "dark:",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "text-amber-900",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "dark:text-amber-50",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "manual-dark-override",
-      "match": "dark:",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "text-amber-900",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "dark:text-amber-50",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "manual-dark-override",
-      "match": "dark:",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "text-amber-900",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
-      "rule": "hardcoded-palette",
-      "match": "dark:text-amber-50",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/modules/example/backend/umes-extensions/page.tsx",
       "rule": "manual-dark-override",
       "match": "dark:",
       "reason": "Existing scaffold styling retained as a bounded migration baseline."

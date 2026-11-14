@@ -1,4 +1,5 @@
-import { asClass, asValue } from 'awilix'
+import { asClass, asFunction, asValue } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoProviderRegistry } from './lib/registry'
 import { OidcProvider } from './lib/oidc-provider'
@@ -8,12 +9,14 @@ import { SsoConfigService } from './services/ssoConfigService'
 import { HrdService } from './services/hrdService'
 import { ScimTokenService } from './services/scimTokenService'
 import { ScimService } from './services/scimService'
+import { SsoAuthService } from './services/ssoAuthService'
 
 export function register(container: AppContainer) {
   const registry = new SsoProviderRegistry()
   registry.register(new OidcProvider())
 
   container.register({
+    authService: asFunction(({ em }: { em: EntityManager }) => new SsoAuthService(em)).scoped().proxy(),
     ssoProviderRegistry: asValue(registry),
     ssoService: asClass(SsoService).scoped(),
     accountLinkingService: asClass(AccountLinkingService).scoped(),

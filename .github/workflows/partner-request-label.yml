@@ -1,0 +1,55 @@
+name: Partner request label
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+  issues:
+    types: [opened, reopened]
+
+# Labels pull requests and issues opened by certified partner contributors with
+# `partner-request`. pull_request_target runs in the base repository context so
+# fork pull requests can be labeled; the only checkout is a sparse,
+# credential-free copy of the certified partner registry and its parser pinned
+# to the default branch, so no pull request head and no contributor-supplied
+# code ever reaches this job.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Check out the certified partner registry
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            .github/certified-partners.yml
+            .github/scripts/certified-partners.mts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Add partner-request label
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { readPartnerLogins } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/certified-partners.mts`);
+
+            const item = context.payload.pull_request ?? context.payload.issue;
+            const author = item.user.login;
+
+            if (!readPartnerLogins().has(author.toLowerCase())) {
+              core.info(`@${author} is not a certified partner contributor; skipping.`);
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: item.number,
+              labels: ['partner-request'],
+            });

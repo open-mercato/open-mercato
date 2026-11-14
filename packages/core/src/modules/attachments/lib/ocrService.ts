@@ -3,6 +3,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 import fs from 'fs/promises'
 import path from 'path'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOcrMaxOutputTokens, resolveOcrPageTimeoutMs } from './ocrLimits'
 
 const logger = createLogger('attachments').child({ component: 'ocr-service' })
 
@@ -102,6 +103,9 @@ export class OcrService {
     try {
       const result = await generateText({
         model: client(model),
+        abortSignal: AbortSignal.timeout(resolveOcrPageTimeoutMs()),
+        maxRetries: 0,
+        maxOutputTokens: resolveOcrMaxOutputTokens(),
         messages: [
           {
             role: 'user',
@@ -151,6 +155,14 @@ export class OcrService {
           guidance = 'Rate limit exceeded. Please try again later.'
           break
         default:
+          if (err?.name === 'TimeoutError') {
+            guidance = `OCR request timed out: ${rawMessage}`
+            break
+          }
+          if (err?.name === 'AbortError') {
+            guidance = `OCR request was aborted: ${rawMessage}`
+            break
+          }
           guidance = rawMessage.includes('https://')
             ? rawMessage
             : `${rawMessage}. Check OPENAI_API_KEY.`

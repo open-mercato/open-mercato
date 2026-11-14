@@ -94,8 +94,11 @@ const errorResponseSchema = z.object({ error: z.string() })
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.roles.list'] },
-  POST: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
+  // `honorsBodyTenantId`: create/update read `tenantId` from the body to target a tenant other
+  // than the actor's own (superadmin-gated below) — the dispatcher's tenant-selection gate must
+  // fail closed on this route when it cannot peek the body (issue #7877).
+  POST: { requireAuth: true, requireFeatures: ['auth.roles.manage'], honorsBodyTenantId: true },
+  PUT: { requireAuth: true, requireFeatures: ['auth.roles.manage'], honorsBodyTenantId: true },
   DELETE: { requireAuth: true, requireFeatures: ['auth.roles.manage'] },
 }
 
@@ -201,7 +204,7 @@ export async function GET(req: Request) {
   }
   let superAdminRoleIds: Set<string> | null = null
   if (!isSuperAdmin && actorTenantId) {
-    const superAdminAcls = await findWithDecryption(em, RoleAcl, { tenantId: actorTenantId, isSuperAdmin: true }, {}, { tenantId: actorTenantId, organizationId: null })
+    const superAdminAcls = await findWithDecryption(em, RoleAcl, { tenantId: actorTenantId, isSuperAdmin: true, deletedAt: null }, {}, { tenantId: actorTenantId, organizationId: null })
     if (superAdminAcls.length) {
       superAdminRoleIds = new Set(
         superAdminAcls

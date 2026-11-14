@@ -42,7 +42,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 export const openApi = {
   PUT: {
     summary: 'Restore dismissed notification',
-    description: 'Undo a dismissal and restore a notification to read or unread.',
+    description: 'Undo a dismissal and restore a notification to read or unread. A notification whose action was already executed is restored as actioned, whatever status is requested.',
     tags: ['Notifications'],
     parameters: [
       {

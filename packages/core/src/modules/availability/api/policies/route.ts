@@ -10,7 +10,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { availabilityPolicyCreateSchema, availabilityPolicyUpdateSchema } from '../../data/validators'
-import { resolveAvailabilityOrganizationId } from '../../lib/organizationScope'
+import { resolveAvailabilityListOrganizationIds, scopeAvailabilityPolicyWriteInput } from '../../lib/organizationScope'
 import {
   createAvailabilityCrudOpenApi,
   createPagedListResponseSchema,
@@ -47,7 +47,7 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
     create: {
       commandId: 'availability.policies.create',
       schema: rawBodySchema,
-      mapInput: ({ parsed }) => parsed,
+      mapInput: ({ parsed, ctx }) => scopeAvailabilityPolicyWriteInput(parsed, ctx),
       response: ({ result }) => ({ id: String(result.policyId) }),
       status: 201,
     },
@@ -130,13 +130,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
   }
   const container = await createRequestContainer()
-  const organizationId = await resolveAvailabilityOrganizationId(container, auth, req)
-  // A superadmin with no organization selected legitimately sees every
-  // organization in the tenant (om_selected_org=__all__); anyone else with
-  // an unresolved scope gets the standard 400, never a 401 (that reads as an
-  // expired session to the client and redirect-loops through session
-  // refresh — see organizationScope.ts).
-  if (!organizationId && !auth.isSuperAdmin) return organizationScopeRequiredResponse()
+  const organizationIds = await resolveAvailabilityListOrganizationIds(container, auth, req)
+  // "All organizations" (om_selected_org=__all__) lists every organization the
+  // caller may access; a caller with no organization in scope gets the standard
+  // 400, never a 401 (that reads as an expired session to the client and
+  // redirect-loops through session refresh — see organizationScope.ts).
+  if (organizationIds?.length === 0) return organizationScopeRequiredResponse()
 
   const url = new URL(req.url)
   const parsed = listQuerySchema.safeParse({
@@ -161,7 +160,7 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId,
     deletedAt: null,
   }
-  if (organizationId) filter.organizationId = organizationId
+  if (organizationIds) filter.organizationId = organizationIds.length === 1 ? organizationIds[0] : { $in: organizationIds }
   if (id) filter.id = id
   if (storeId) filter.storeId = storeId
   if (productId) filter.productId = productId
@@ -178,7 +177,7 @@ export async function GET(req: Request) {
     AvailabilityPolicy,
     filter,
     { orderBy, limit: pageSize, offset },
-    { tenantId: auth.tenantId, organizationId: organizationId ?? null },
+    { tenantId: auth.tenantId, organizationId: organizationIds?.length === 1 ? organizationIds[0] : null },
   )
   const items = rows.map(toRow)
   const totalPages = Math.max(1, Math.ceil(total / pageSize))

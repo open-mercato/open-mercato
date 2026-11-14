@@ -150,13 +150,9 @@ const createToggleCommand: CommandHandler<ToggleCreateInput, { toggleId: string 
     const toggleId = logEntry?.resourceId ?? null
     if (!toggleId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const overrides = await em.find(FeatureToggleOverride, { toggle: toggleId })
-    if (overrides.length > 0) {
-      em.remove(overrides)
-    }
     const toggle = await em.findOne(FeatureToggle, { id: toggleId })
     if (toggle) {
-      em.remove(toggle)
+      toggle.deletedAt = new Date()
       await em.flush()
       const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
       await emitCrudUndoSideEffects({

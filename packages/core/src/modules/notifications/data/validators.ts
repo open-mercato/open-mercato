@@ -15,7 +15,7 @@ export const notificationActionSchema = z.object({
   labelKey: z.string().optional(),
   variant: z.enum(['default', 'secondary', 'destructive', 'outline', 'ghost']).optional(),
   icon: z.string().optional(),
-  commandId: z.string().optional(),
+  commandId: z.string().optional().describe('Refused by the HTTP create routes (400 notification_action_command_not_allowed); command actions are attached by server code from the notification type definition'),
   href: safeRelativeHrefSchema.optional(),
   confirmRequired: z.boolean().optional(),
   confirmMessage: z.string().optional(),

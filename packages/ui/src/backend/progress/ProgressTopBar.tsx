@@ -53,26 +53,29 @@ function ProgressTopBarContent({ className, t, completedAutoHideMs }: ProgressTo
 
   const hasActiveJobs = activeJobs.length > 0
   const hasRecentJobs = visibleCompleted.length > 0
+  const failedCount = visibleCompleted.filter((job) => job.status === 'failed').length
+  const cancelledCount = visibleCompleted.filter((job) => job.status === 'cancelled').length
+  const hasUnsuccessfulJobs = failedCount > 0 || cancelledCount > 0
 
   if (!hasActiveJobs && !hasRecentJobs) return null
 
   return (
-    <div className={cn('border-b bg-background', className)}>
+    <div className={cn('min-w-0 border-b bg-background', className)}>
       <Button
         type="button"
         variant="ghost"
         onClick={() => setExpanded(!expanded)}
-        className="h-auto w-full justify-between rounded-none bg-background px-4 py-2 hover:bg-muted"
+        className="h-auto min-w-0 w-full justify-between rounded-none bg-background px-4 py-2 hover:bg-muted"
       >
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
           {hasActiveJobs ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <span>
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+              <span className="shrink-0">
                 {t('progress.activeCount', '{count} operations running', { count: activeJobs.length })}
               </span>
               {activeJobs[0] && (
-                <span className="text-muted-foreground">
+                <span className="truncate text-muted-foreground">
                   — {activeJobs[0].name}{' '}
                   {activeJobs[0].totalCount && activeJobs[0].totalCount > 0
                     ? `(${activeJobs[0].progressPercent}%)`
@@ -82,17 +85,25 @@ function ProgressTopBarContent({ className, t, completedAutoHideMs }: ProgressTo
             </>
           ) : (
             <>
-              <CheckCircle className="h-4 w-4 text-status-success-icon" />
-              <span className="text-muted-foreground">
-                {t('progress.recentlyCompleted', '{count} operations completed', { count: visibleCompleted.length })}
+              {hasUnsuccessfulJobs ? (
+                <XCircle className={cn('h-4 w-4 shrink-0', failedCount > 0 ? 'text-status-error-icon' : 'text-muted-foreground')} />
+              ) : (
+                <CheckCircle className="h-4 w-4 shrink-0 text-status-success-icon" />
+              )}
+              <span className="truncate text-muted-foreground">
+                {failedCount > 0
+                  ? t('progress.recentlyFailed', '{count} operations failed', { count: failedCount })
+                  : cancelledCount > 0
+                    ? t('progress.recentlyCancelled', '{count} operations cancelled', { count: cancelledCount })
+                    : t('progress.recentlyCompleted', '{count} operations completed', { count: visibleCompleted.length })}
               </span>
             </>
           )}
         </div>
         {expanded ? (
-          <ChevronUp className="h-4 w-4" />
+          <ChevronUp className="h-4 w-4 shrink-0" />
         ) : (
-          <ChevronDown className="h-4 w-4" />
+          <ChevronDown className="h-4 w-4 shrink-0" />
         )}
       </Button>
 

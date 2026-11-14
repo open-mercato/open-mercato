@@ -8,13 +8,14 @@
 // exercises directly, with fakes standing in for the GitHub calls. Run
 // directly with `node` (no build step) — Node strips the type annotations.
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 export const ENTERPRISE_PREFIX = 'packages/enterprise/'
 
 // Keep in sync by hand; do not widen this to an org/team or association
 // check — membership changes shouldn't silently grant enterprise write
 // access. Derived from `git log` authorship on packages/enterprise/ across
-// origin/main + origin/develop (everyone with merged history there today).
+// origin/main and the retired develop branch (everyone with merged history there).
 export const ALLOWED_LOGINS: Set<string> = new Set([
   'pkarw',
   'patzick',
@@ -224,7 +225,7 @@ export async function main({ env = process.env }: { env?: NodeJS.ProcessEnv } = 
   return 1
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   main()
     .then((code) => {
       process.exitCode = code

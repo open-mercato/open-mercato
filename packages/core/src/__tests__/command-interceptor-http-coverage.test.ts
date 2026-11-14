@@ -100,6 +100,29 @@ const ROUTES_WITH_BATCH_ITEM_ERROR_HANDLING = [
   'eudr/api/product-mappings/suggestions/apply/route.ts',
 ]
 
+/**
+ * `cart`'s own module-level mapper, the SAME documented boundary this file's own header
+ * comment already carves out for checkout/enterprise-security/documents: every
+ * `/current/*` route's `catch` delegates to `mapRouteErrorToResponse`
+ * (`cart/lib/currentCartRoute.ts`), which correctly calls `getCommandInterceptorHttpRejection`
+ * internally — but that call lives in a DIFFERENT file than the route's own `catch` clause,
+ * which this guard's AST walk (deliberately file-scoped, per the header comment) cannot
+ * trace into. Verified instead by `cart/lib/__tests__/currentCartRoute.error-mapping.test.ts`,
+ * `cart`'s own equivalent of checkout's `helpers.error-mapping.test.ts`. A cart route whose
+ * own `catch` stops delegating to `mapRouteErrorToResponse` is not caught by anything here —
+ * same residual the header comment already accepts for the other three module-mapper cases.
+ */
+const ROUTES_WITH_MODULE_LEVEL_MAPPER = [
+  'cart/api/current/route.ts',
+  'cart/api/current/lines/route.ts',
+  'cart/api/current/lines/[lineId]/route.ts',
+  'cart/api/current/lines/bulk/route.ts',
+  'cart/api/current/promotions/route.ts',
+  'cart/api/current/promotions/[id]/route.ts',
+  'cart/api/current/merge/route.ts',
+  'cart/api/current/undo-merge/route.ts',
+]
+
 type FunctionLike = ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | ts.MethodDeclaration
 
 function isFunctionLike(node: ts.Node): node is FunctionLike {
@@ -221,6 +244,7 @@ describe('command interceptor HTTP status coverage (core routes)', () => {
   it('maps interceptor rejections on every catch chain that receives a command-bus failure', () => {
     const missing = commandBusRoutes
       .filter(({ rel }) => !ROUTES_WITH_BATCH_ITEM_ERROR_HANDLING.includes(rel))
+      .filter(({ rel }) => !ROUTES_WITH_MODULE_LEVEL_MAPPER.includes(rel))
       .filter(({ chains }) => chains
         .filter((chain) => chain.length > 0)
         .some((chain) => !chain.some((clause) => clause.getText().includes(MAPPER))))

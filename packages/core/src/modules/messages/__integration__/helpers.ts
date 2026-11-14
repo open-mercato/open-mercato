@@ -2,6 +2,7 @@ import { expect, type APIRequestContext, type Locator, type Page } from '@playwr
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash';
+import type { MessagePriority } from '../lib/priorityUtils';
 
 export type IntegrationRole = 'admin' | 'employee' | 'superadmin';
 
@@ -12,6 +13,7 @@ export type ComposeMessagePayload = {
   recipients: Array<{ userId: string; type?: 'to' | 'cc' | 'bcc' }>;
   subject: string;
   body: string;
+  priority?: MessagePriority;
   sendViaEmail?: boolean;
   isDraft?: boolean;
   actionData?: {
@@ -80,6 +82,7 @@ export async function composeInternalMessage(
     body?: string;
     senderRole?: IntegrationRole;
     recipientRole?: IntegrationRole;
+    priority?: MessagePriority;
     actionData?: ComposeMessagePayload['actionData'];
   },
 ): Promise<{
@@ -101,6 +104,7 @@ export async function composeInternalMessage(
     recipients: [{ userId: recipientUserId, type: 'to' }],
     subject,
     body,
+    priority: options?.priority,
     sendViaEmail: false,
     actionData: options?.actionData,
   });

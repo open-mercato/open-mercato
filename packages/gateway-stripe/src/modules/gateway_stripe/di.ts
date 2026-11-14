@@ -1,5 +1,6 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { DEFAULT_WEBHOOK_BODY_LIMIT_BYTES, resolveWebhookBodyLimitBytes } from '@open-mercato/shared/lib/webhooks'
 import {
   registerGatewayAdapter,
   registerPaymentGatewayDescriptor,
@@ -18,6 +19,7 @@ export function register(container: AppContainer) {
   registerWebhookHandler('stripe', verifyStripeWebhook, {
     queue: 'stripe-webhook',
     readSessionIdHint: readStripeSessionIdHint,
+    maxBodyBytes: Math.min(resolveWebhookBodyLimitBytes(), DEFAULT_WEBHOOK_BODY_LIMIT_BYTES),
   })
   registerPaymentGatewayDescriptor({
     providerKey: 'stripe',

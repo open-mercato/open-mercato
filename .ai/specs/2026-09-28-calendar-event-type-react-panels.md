@@ -1,6 +1,6 @@
 # Calendar Event Type React Panels
 
-**Status:** Proposed
+**Status:** Implemented; QA pending
 **Issue:** [#6684](https://github.com/open-mercato/open-mercato/issues/6684)
 **Depends on:** Calendar-type foundation in [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md)
 **Related:** [CRM Calendar](./2026-06-11-crm-calendar.md), [Calendar Event Type Extensions](./2026-09-28-calendar-event-type-extensions.md), [Configurable Calendar Event Types](./2026-09-28-configurable-calendar-event-types.md)
@@ -120,7 +120,7 @@ type CalendarEventTypePanelProps = {
 
 The props intentionally omit submit, delete, `apiCall`, transaction, request-header, retry, and raw validation-bypass callbacks. A replacement remains trusted code and can import APIs independently, so server validation and code review remain enforcement boundaries.
 
-Existing frozen spots `crud-form:customers.customer_interaction` and `crud-form:customers.customer_interaction:fields` remain unchanged. The new panel handle does not supersede generic CrudForm field widgets or the selected-type mounted widget's `onBeforeSave` validation. A wrapper/replacement cannot bypass the host's injection event pipeline.
+Existing frozen spots `crud-form:customers.customer_interaction` and `crud-form:customers.customer_interaction:fields` remain unchanged. The new panel handle does not supersede generic CrudForm field widgets or the example widget's self-gated Visit `onBeforeSave` validation. Generic `CrudForm`, `InjectionSpot`, shared widget loading, and widget metadata remain unchanged. A wrapper/replacement cannot bypass the host's injection event pipeline.
 
 ## Three React override paths
 
@@ -168,19 +168,7 @@ This is the existing `ComponentOverride` descriptor shape, including the repeate
 
 Bootstrap code and tests may call the existing `applyComponentOverrides()` with the same handle. Programmatic component overrides retain the current highest precedence, composed-state introspection, idempotent registration, and internal test reset behavior.
 
-Because the component registry exists separately in server and browser runtimes, an app-level programmatic decision MUST execute in both before component entries register. The app/template `modules.ts` gains one synchronous, browser-safe export:
-
-```ts
-export function applyProgrammaticComponentOverrides(): void {
-  applyComponentOverrides({
-    'section:customers.calendar-event-editor.type-panel': shouldUseCustomPanel
-      ? myPanelOverride
-      : null,
-  })
-}
-```
-
-`bootstrap-common.ts` calls it before `applyModuleOverridesFromEnabledModules()` and registry first-load. `ClientBootstrap.ensureModuleOverridesApplied()` calls the same export after applying inline widget overrides but before `ComponentOverridesBootstrap` filters/registers generated entries. The programmatic store wins regardless of call order, but this sequence makes initialization explicit. The function must be deterministic in both runtimes: use literals or `NEXT_PUBLIC_*` flags, never server-only environment values, request/tenant state, or async I/O. Both `apps/mercato` and the create-app template receive the hook and SSR→hydration regression coverage; tests reset the store between runs.
+The component registry exists separately in server and browser runtimes. Programmatic applications must register their existing UMES override in each applicable runtime before rendering; this feature does not add an `applyProgrammaticComponentOverrides()` export, global bootstrap hook, or calendar-specific dispatcher. The canonical example uses the already-discovered `widgets/components.ts` contribution. Tests use the existing registry reset and `applyComponentOverrides()` utilities without changing shared component infrastructure.
 
 For all three paths, existing UMES composition remains authoritative: base registration, file contributions, inline overrides, then programmatic overrides. The client resolver selects the highest-priority replacement, composes wrappers in ascending priority, and reduces props transforms in ascending priority before the final render; focused tests pin this host to that resolver. `null` disables the contributed override and falls back to the host default; it does not disable the event type.
 
@@ -226,7 +214,7 @@ export const componentOverrides: ComponentOverride<CalendarEventTypePanelProps>[
 export default componentOverrides
 ```
 
-`VisitPanel` replaces the default type-field layout for `visit` with a custom React editor: schedule interval, recipient and resource selection, location, and per-subject availability state. It uses `props.values`, `props.errors`, and `props.setValue`, renders translated inline errors and a retry action, and delegates submission to the host `CrudForm`. Its preview calls the scoped evaluator endpoint through `apiCall`, never raw `fetch`; the selected-type injection widget performs a fresh pre-save check independently, including when another panel replaces `VisitPanel`. The optional server rule protects direct API writes. Use shared UI primitives, semantic tokens, and accessible controls. The local handle expression remains statically foldable by the existing UMES generator; after enabling the example module, run normal `yarn generate`.
+`VisitPanel` wraps the default type-field layout for `visit`: the module wrapper supplies `Original` as a child, preserving the standard datepicker, time selects, recipient/resource fields, location, and two-column layout, and adds availability feedback around those fields. It uses `props.values`, `props.errors`, and `props.setValue`, renders translated inline errors and a retry action, and delegates submission to the host `CrudForm`. Its preview calls the scoped evaluator endpoint through `apiCall`, never raw `fetch`; the selected-type injection widget performs a fresh pre-save check independently, including when another panel replaces `VisitPanel`. The optional server rule protects direct API writes. Visit is code-owned (`adminConfigurable: false`). Absent/disabled staff, resources, or planner integrations show translated warnings and skip only unavailable checks; enabled peers still enforce authorization and availability. The evaluator explicitly opts into planner `respectTimezone: true` without changing other planner callers. Empty custom fieldsets remain unrestricted legacy fields. Only Meeting label customization uses the declaration's demo flag, default false. Example adds Visit and preserves all baseline types with either flag value; it never removes or disables a type. Use shared UI primitives, semantic tokens, and accessible controls. The local handle expression remains statically foldable by the existing UMES generator; after enabling the example module, run normal `yarn generate`.
 
 ## Runtime and UI behavior
 
@@ -292,7 +280,7 @@ Existing UMES logs contain the component handle, outcome, and replacement module
 
 ### Phase B — Override tiers and safety
 
-4. Add `modules.ts` fixtures and the mirrored, synchronous `applyProgrammaticComponentOverrides()` app/template hook invoked before server and browser registration; do not add a calendar-specific component registry.
+4. Verify existing `modules.ts` component overrides and programmatic UMES application in applicable runtimes; do not add a global app/template hook or calendar-specific registry.
 5. Add props-transform/wrapper/replacement precedence, SSR→hydration programmatic persistence, existing error-boundary behavior, form-state preservation, module-disabled, and no-capability-leak tests.
 6. Document the three paths beside AI/component override documentation and add frozen surfaces to `BACKWARD_COMPATIBILITY.md` and `UPGRADE_NOTES.md`.
 
@@ -307,7 +295,7 @@ Existing UMES logs contain the component handle, outcome, and replacement module
 Fixtures use a canonical example module and clean created records in `finally`.
 
 - **TC-CETP-001 — default and module lifecycle:** render every core/contributed type through the handle, disable the contributor, and verify default fallback plus unchanged persisted data.
-- **TC-CETP-002 — React override tiers:** target the handle through file, `modules.ts`, and the dual-runtime programmatic UMES hook; verify existing precedence, `null` fallback, composed-state introspection, internal reset isolation, and the same component before/after hydration.
+- **TC-CETP-002 — React override tiers:** target the handle through file, `modules.ts`, and existing programmatic UMES registration in each applicable runtime; verify existing precedence, `null` fallback, composed-state introspection, internal reset isolation, and the same component before/after hydration.
 - **TC-CETP-003 — standalone Visit editor:** in a scaffolded app with `example` enabled, select `visit` and verify `VisitPanel` renders its custom time, recipients, resources, and location controls; change fields through `setValue`. With scoped staff-user-to-member and resource fixtures, assert per-subject pending, available, and unavailable states, mapped inline errors, and blocked save for unavailable choices. An available Visit submits through the host, and every other type delegates to `Original`.
 - **TC-CETP-004 — host authority:** verify no submit/network callback is present, generic custom-field widgets and selected-type `onBeforeSave` validation still run under default/wrapped/replaced panels; `Cmd/Ctrl+Enter`, `Escape`, guarded mutation, optimistic locking, conflicts, and retry remain host-owned.
 - **TC-CETP-005 — render failure boundaries:** force a composed wrapper-component render error and a replacement render error, assert the plain default fallback preserves the draft, and verify current UMES diagnostics omit form values while allowing unknown wrapper attribution; separately prove wrapper-factory/props-transform errors are outside the fallback guarantee.
@@ -363,8 +351,34 @@ Approved for review as a companion capability deployed after the canonical custo
 
 ### 2026-09-29 — Widget validation alignment
 
-- Clarified that panel overrides preserve the selected-type mounted widget validation owned by the extension spec.
+- Clarified that panel overrides preserve the Visit-self-gated widget validation owned by the extension spec.
 
 ### 2026-09-29 — Standalone Visit example
 
 - Required a real custom `VisitPanel` in the standalone template's existing `example` module, including staff/resource availability feedback and standalone integration coverage.
+
+### 2026-09-30 — Module-boundary implementation alignment
+
+- Aligned the implementation with Customers-owned widget payloads, contributor DI registration, and unchanged shared forms/loaders/override contracts.
+- Preserved unrestricted empty fieldsets, Call/Task end times, internal-command compatibility, and historical keys; calendar-picker selection remains explicit.
+- Documented immutable Visit behavior, opt-in demo overrides, missing optional-module warnings, and opt-in planner time-zone evaluation. QA remains pending.
+
+### 2026-09-30 — Event-local timezone selection
+
+- Every type, including code-owned Visit and Task, supports a selected IANA timezone independently of field applicability; Customers stores it as a nullable interaction column and preserves it through API reads and undo/redo.
+- Editor wall-clock conversion and recurrence use the selected event timezone; planner time-zone evaluation remains an explicit, separate opt-in.
+
+### 2026-09-30 — Standard presentation and explicit timezone follow-up
+
+- Reused the original Customers panel for Visit and normalized server error aliases in the module wrapper; no changes to shared forms or widget infrastructure.
+- Added an event-local IANA timezone selector in the host, persisted its optional nullable zone, and restored wall-time fields on edit. Preview conversion uses that zone instead of the browser zone; weekly event recurrence retains its wall time across daylight-saving transitions.
+- Added self-contained TC-CAL-014 API/editor/DST cases and expanded TC-EXAMPLE-018 weekly/one-off staff/resource coverage. Live verification requires the new nullable Customers timezone migration; QA remains pending until the gate runs.
+
+### 2026-09-30 — Preserve shipped calendar types
+
+- Example adds Visit and optionally patches Meeting without removing or disabling any built-in type, regardless of the demo flag. Generic app-owned removal instructions and Customers tombstone support remain available.
+
+### 2026-09-30 — Named availability and calendar booking conflicts
+
+- Visit reports each selected staff member or resource by display name and distinguishes missing schedules or intervals outside working hours from an existing booking (`example.calendar.visitAvailability.booked`). Booking checks include overlapping Customers interactions of every event type, including recurrence occurrences, in the authorized tenant and organization. Use half-open intervals: touching boundaries do not overlap. Canceled and deleted interactions do not reserve subjects. On edit, pass the validated current `excludeInteractionId` to preview; the command guard excludes that same existing interaction automatically, while retaining other collisions. Preview and rejected writes return the blocked subject names and reason keys without disclosing other event titles or IDs. Booking reads and recurrence expansion are bounded; failed, incomplete, or unsupported booking checks fail closed rather than reporting an available subject. These guards protect Visit scheduling against bookings from any type; they do not impose Visit rules on other event-type writes.
+- TC-EXAMPLE-018 creates its own staff/resource, availability, normal Meeting and recurring Event fixtures; asserts named preview/POST/PUT conflicts, self-edit exclusion, boundary contact, cancellation and deletion release, and preserved failed-update data. Frontend unit coverage checks the named booking messages. Both new booking API cases passed locally with the shared 20-second timeout; full UI QA remains pending.

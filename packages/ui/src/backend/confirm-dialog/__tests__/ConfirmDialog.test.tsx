@@ -61,6 +61,35 @@ describe('ConfirmDialog', () => {
     expect(dialog.parentElement).toBe(document.body)
   })
 
+  it('stays exposed to assistive technology when a modal underneath hid its siblings', () => {
+    const renderDialog = (open: boolean) => (
+      <ConfirmDialog
+        open={open}
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Discard unsaved changes?"
+        confirmText="Discard"
+        cancelText="Cancel"
+      />
+    )
+    const { rerender } = renderWithProviders(renderDialog(false))
+    const dialog = document.body.querySelector('dialog')!
+    dialog.setAttribute('aria-hidden', 'true')
+    dialog.setAttribute('data-aria-hidden', 'true')
+
+    rerender(renderDialog(true))
+    expect(dialog).not.toHaveAttribute('aria-hidden')
+    expect(screen.getByRole('alertdialog')).toBe(dialog)
+
+    rerender(renderDialog(false))
+    expect(dialog).toHaveAttribute('aria-hidden', 'true')
+
+    rerender(renderDialog(true))
+    dialog.removeAttribute('data-aria-hidden')
+    rerender(renderDialog(false))
+    expect(dialog).not.toHaveAttribute('aria-hidden')
+  })
+
   it('renders the destructive confirmation as the solid variant', () => {
     renderWithProviders(
       <ConfirmDialog
@@ -126,5 +155,37 @@ describe('ConfirmDialog', () => {
 
     expect(firstOpenChange).not.toHaveBeenCalled()
     expect(secondOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('prevents the native cancel default so the dialog can reopen after Escape', () => {
+    const onOpenChange = jest.fn()
+    const renderDialog = (open: boolean) => (
+      <ConfirmDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        onConfirm={() => undefined}
+        title="Discard unsaved changes?"
+        confirmText="Discard"
+        cancelText="Cancel"
+      />
+    )
+
+    const { rerender } = renderWithProviders(renderDialog(true))
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toHaveAttribute('open')
+
+    // Simulate the browser's own Escape-to-cancel default action, which
+    // jsdom does not emit automatically.
+    const cancelEvent = new Event('cancel', { cancelable: true })
+    dialog.dispatchEvent(cancelEvent)
+
+    expect(cancelEvent.defaultPrevented).toBe(true)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    rerender(renderDialog(false))
+    expect(dialog).not.toHaveAttribute('open')
+
+    rerender(renderDialog(true))
+    expect(dialog).toHaveAttribute('open')
   })
 })

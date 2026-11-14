@@ -2,6 +2,7 @@
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/undo/route'
 import { buildActionLogQueryHarness } from '@open-mercato/core/modules/audit_logs/services/__tests__/actionLogServiceQueryHarness'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+import * as i18nServer from '@open-mercato/shared/lib/i18n/server'
 
 const mockReplayEm = {
   find: jest.fn(async () => []),
@@ -247,7 +248,10 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
   // A command can refuse an undo for a reason the operator can act on — reverting a
   // role grant that would drop a tenant below a protected role's active-holder floor.
   // Flattening that to a generic "Undo failed" leaves them with no idea why.
-  it('surfaces a command CrudHttpError body and status instead of a generic failure', async () => {
+  it.each([
+    ['localized text', 'Cannot remove the last active holder of role "admin"', 'Cannot remove the last active holder of role "admin"'],
+    ['translation key', 'warranty_claims.errors.replacementOrderChangedUndoAborted', 'Replacement order changed. Undo was aborted.'],
+  ])('surfaces a command CrudHttpError with %s and preserves its status and details', async (_label, error, expected) => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
       sub: 'user-1',
@@ -267,14 +271,20 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
     mockLogs.latestUndoableForResource.mockResolvedValue(target)
     const { CrudHttpError } = await import('@open-mercato/shared/lib/crud/errors')
     mockCommandBus.undo.mockRejectedValue(
-      new CrudHttpError(400, { error: 'Cannot remove the last active holder of role "admin"' }),
+      new CrudHttpError(409, { error, code: 'record_modified', details: { resourceId: 'order-42' } }),
     )
-
-    const res = await POST(makeRequest({ undoToken: 'token-1' }))
-    expect(res.status).toBe(400)
-    await expect(res.json()).resolves.toEqual({
-      error: 'Cannot remove the last active holder of role "admin"',
-    })
+    const i18n = await import('@open-mercato/shared/lib/i18n/server')
+    const translateSpy = jest.spyOn(i18n, 'resolveTranslations').mockResolvedValue({
+      translate: (key: string, fallback?: string) => key === 'warranty_claims.errors.replacementOrderChangedUndoAborted'
+        ? 'Replacement order changed. Undo was aborted.' : fallback ?? key,
+    } as Awaited<ReturnType<typeof i18n.resolveTranslations>>)
+    try {
+      const res = await POST(makeRequest({ undoToken: 'token-1' }))
+      expect(res.status).toBe(409)
+      await expect(res.json()).resolves.toEqual({ error: expected, code: 'record_modified', details: { resourceId: 'order-42' } })
+    } finally {
+      translateSpy.mockRestore()
+    }
   })
 
   it('keeps unexpected failures generic so internals are not leaked', async () => {
@@ -471,6 +481,23 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
       const res = await POST(makeRequest({ undoToken: 'token-1' }))
       expect(res.status).toBe(400)
       await expect(res.json()).resolves.toEqual({ error: 'Undo failed' })
+    })
+
+    it('translates the generic failure message for the caller locale', async () => {
+      await authorizeUndo()
+      mockCommandBus.undo.mockRejectedValue(new Error('duplicate key value violates unique constraint'))
+      const translateSpy = jest.spyOn(i18nServer, 'resolveTranslations').mockResolvedValue({
+        translate: (key: string, fallback?: string) =>
+          key === 'audit_logs.error.undo_failed' ? 'Nie udało się cofnąć operacji' : fallback ?? key,
+      } as Awaited<ReturnType<typeof i18nServer.resolveTranslations>>)
+
+      try {
+        const res = await POST(makeRequest({ undoToken: 'token-1' }))
+        expect(res.status).toBe(400)
+        await expect(res.json()).resolves.toEqual({ error: 'Nie udało się cofnąć operacji' })
+      } finally {
+        translateSpy.mockRestore()
+      }
     })
 
     it('keeps the generic 400 for an unrelated undo failure', async () => {
