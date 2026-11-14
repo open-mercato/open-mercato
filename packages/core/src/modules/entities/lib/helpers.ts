@@ -188,6 +188,57 @@ export async function setRecordCustomFields(
   const ownCustomFieldTransaction = txCapable && !txEm.isInTransaction!()
   if (ownCustomFieldTransaction) await txEm.begin!()
   try {
+  // ONE value read for every key that takes the scalar branch, instead of one per key in the
+  // loop below. The cost of writing a record's custom fields was linear in its key count in
+  // sequential round trips: an entity with 24 defined keys spent ~18 of them here, which on a
+  // bulk import is the dominant cost of the whole write path — the queries themselves are
+  // ~1 ms each, it is their number that hurts.
+  //
+  // Only the SCALAR-branch keys are prefetched. The array branch replaces its key's rows
+  // wholesale through `nativeDelete`, so a row loaded here for such a key would be a managed
+  // entity standing behind a deleted row; the two sets are disjoint, so the loop below reads
+  // exactly the rows it always did.
+  //
+  // The filter is the reconciliation scope, NOT the caller's exact scope: the scalar branch may
+  // reuse a row from the caller's scope and delete every other reachable row as stale (#5970),
+  // so the prefetch must load exactly the rows that branch would have loaded. A key that takes
+  // the branch with an echoed array (single-value def, #6468) is prefetched too — it has to see
+  // the duplicates it heals.
+  //
+  // It does move the auto-flush schedule, which this file cares about elsewhere: under
+  // FlushMode.AUTO an `em.find` flushes only when the unit of work has a queued action for the
+  // entity it queries, so the per-key lookups used to interleave N such trigger points with the
+  // array branch's delete-then-insert. There is now exactly one, and it runs before this
+  // function has dirtied anything.
+  //
+  // Bounded by MAX_CUSTOM_FIELD_KEYS_PER_RECORD (128) — but note that cap is only enforced above
+  // when `preferDefs` is set.
+  const scalarKeys = keys.filter((key) => {
+    const raw = values[key]
+    if (raw === undefined) return false
+    const def = defsByKey?.get(key)
+    const collapseToSingle = Array.isArray(raw) && Boolean(def) && (def as any).configJson?.multi !== true
+    const isArray = (Array.isArray(raw) && !collapseToSingle)
+      || (raw === null && def?.configJson?.multi === true)
+    return !isArray
+  })
+  const existingRowsByKey = new Map<string, CustomFieldValue[]>()
+  if (scalarKeys.length > 0) {
+    const existing = await em.find(CustomFieldValue, {
+      entityId,
+      recordId,
+      fieldKey: { $in: scalarKeys },
+      ...reconcileScopeFilter,
+    })
+    // Group in query order: the survivor search below keeps the first non-deleted row in the
+    // caller's exact scope, which is the same row (and same undefined-order tie-break) the
+    // per-key lookup produced.
+    for (const row of existing) {
+      const rows = existingRowsByKey.get(row.fieldKey)
+      if (rows) rows.push(row)
+      else existingRowsByKey.set(row.fieldKey, [row])
+    }
+  }
   for (const fieldKey of keys) {
     const raw = values[fieldKey]
     if (raw === undefined) continue
@@ -237,14 +288,14 @@ export async function setRecordCustomFields(
       continue
     }
 
-    // Same reconciliation as the multi-value branch (see tenantScopeFilter): load every
-    // reachable row for the logical key, reuse the one already in the caller's exact
-    // scope and drop the rest, so a row left behind by a previous organization — and
-    // same-scope duplicates from two writes that both missed the lookup — cannot
-    // survive (#5970). Picking the survivor in JS rather than narrowing the query keeps
-    // NULL organizations out of SQL three-valued logic, where an inequality predicate
-    // would silently spare exactly the stale rows this is meant to remove.
-    const existingRows = await em.find(CustomFieldValue, { entityId, recordId, fieldKey, ...reconcileScopeFilter })
+    // Same reconciliation as the multi-value branch (see tenantScopeFilter): reuse the row
+    // already in the caller's exact scope and drop every other reachable row as stale, so a
+    // row left behind by a previous organization — and same-scope duplicates from two writes
+    // that both missed the lookup — cannot survive (#5970). The rows were prefetched above for
+    // this logical key; picking the survivor in JS rather than narrowing the query keeps NULL
+    // organizations out of SQL three-valued logic, where an inequality predicate would
+    // silently spare exactly the stale rows this is meant to remove.
+    const existingRows = existingRowsByKey.get(fieldKey) ?? []
     // A soft-deleted row is never the survivor: writing the new value onto it would leave
     // deleted_at set, hiding the field from loadCustomFieldValues while the live row it
     // replaced goes into staleIds. Tombstones still get deleted as stale — the Query
