@@ -998,18 +998,28 @@ async function emitOrderLifecycleEvent(input: {
   order: SalesOrder;
   previousStatus: string | null;
 }): Promise<void> {
-  await emitSalesEvent(input.eventId, {
-    id: input.order.id,
-    orderId: input.order.id,
-    orderNumber: input.order.orderNumber,
-    previousStatus: input.previousStatus,
-    status: normalizeStatusValue(input.order.status),
-    tenantId: input.order.tenantId,
-    organizationId: input.order.organizationId,
-  });
+  // Trusted scope (#7174): also pass the order's own scope as EmitOptions. Subscribers
+  // (e.g. outbound webhook dispatch) read ctx.tenantId, which the bus populates from
+  // options — never from payload — for a non-broadcast event like this.
+  await emitSalesEvent(
+    input.eventId,
+    {
+      id: input.order.id,
+      orderId: input.order.id,
+      orderNumber: input.order.orderNumber,
+      previousStatus: input.previousStatus,
+      status: normalizeStatusValue(input.order.status),
+      tenantId: input.order.tenantId,
+      organizationId: input.order.organizationId,
+    },
+    {
+      tenantId: input.order.tenantId,
+      organizationId: input.order.organizationId,
+    },
+  );
 }
 
-function emitOrderLifecycleEventsForTransition(input: {
+export function emitOrderLifecycleEventsForTransition(input: {
   order: SalesOrder;
   previousStatus: string | null;
 }): void {
@@ -3093,7 +3103,7 @@ function mapQuoteAdjustmentToDraft(
   };
 }
 
-async function emitTotalsCalculated(
+export async function emitTotalsCalculated(
   eventBus: EventBus | null | undefined,
   payload: {
     documentKind: SalesDocumentKind;
@@ -3106,7 +3116,13 @@ async function emitTotalsCalculated(
   },
 ): Promise<void> {
   if (!eventBus) return;
-  await eventBus.emitEvent("sales.document.totals.calculated", payload);
+  // Trusted scope (#7174): pass the document's own tenantId/organizationId as EmitOptions, not
+  // just in the payload. Subscribers (e.g. outbound webhook dispatch) read ctx.tenantId, which
+  // the bus populates from options — never from payload — for a non-broadcast event like this.
+  await eventBus.emitEvent("sales.document.totals.calculated", payload, {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  });
 }
 
 function isStoredRowSourcedLine(line: DocumentLineCreateInput): boolean {
