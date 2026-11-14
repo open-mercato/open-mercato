@@ -3,6 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
 import { deleteAttachmentIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
 import { getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import { createOrderLineFixture, deleteSalesEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
+import { createDictionaryFixture } from '@open-mercato/core/modules/core/__integration__/helpers/dictionariesFixtures'
 import {
   createCustomerCompanyFixture,
   createCustomerRoleFixture,
@@ -17,6 +18,7 @@ import {
   assignClaim,
   cancelThenDeleteClaimIfPossible,
   listClaimLines,
+  OPTIMISTIC_LOCK_HEADER,
   postClaimEvent,
   readClaim,
   readWarrantyClaimSettings,
@@ -395,6 +397,186 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
       await deleteCustomerRoleFixture(request, adminToken, roleId)
       await deleteCustomerCompanyFixture(request, adminToken, companyBId)
       await deleteCustomerCompanyFixture(request, adminToken, companyAId)
+    }
+  })
+
+  test('titles the portal claim detail header with the dictionary label, prefers a seeded translation over an injected label, falls back on an unknown code or unavailable options, recovers, and wraps at 390px', async ({ browser, request }, testInfo) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const { tenantId, organizationId } = getTokenContext(adminToken)
+    const stamp = uniqueLabel('tc-wc-005-reason-header')
+    const code = `custom-reason-${stamp}`
+    const label = `Tenant custom reason ${stamp}`
+
+    let roleId: string | null = null
+    let companyId: string | null = null
+    let userId: string | null = null
+    let orderId: string | null = null
+    let claimId: string | null = null
+    let dictionaryId: string | null = null
+    let ownsDictionary = false
+    let entryId: string | null = null
+    let entryUpdatedAt: string | null = null
+
+    try {
+      const organization = await apiRequest(
+        request,
+        'GET',
+        `/api/directory/organizations?view=manage&ids=${organizationId}&tenantId=${tenantId}`,
+        { token: adminToken },
+      )
+      expect(organization.status()).toBe(200)
+      const orgSlug = (await readJsonSafe<{ items?: Array<{ slug?: string }> }>(organization))?.items?.[0]?.slug ?? null
+      expect(orgSlug, 'org slug should resolve for portal navigation').toBeTruthy()
+
+      const dictionaryKey = 'warranty_claims.warranty_claim_reason'
+      const dictionaries = await apiRequest(request, 'GET', '/api/dictionaries', { token: adminToken })
+      expect(dictionaries.status()).toBe(200)
+      dictionaryId = (await readJsonSafe<{ items: Array<{ id: string; key: string; organizationId: string }> }>(dictionaries))?.items.find(
+        (item) => item.key === dictionaryKey && item.organizationId === organizationId,
+      )?.id ?? null
+      if (!dictionaryId) {
+        dictionaryId = await createDictionaryFixture(request, adminToken, { key: dictionaryKey, name: `QA claim reasons ${stamp}` })
+        ownsDictionary = true
+      }
+      const createdEntry = await apiRequest(request, 'POST', `/api/dictionaries/${dictionaryId}/entries`, {
+        token: adminToken,
+        data: { value: code, label },
+      })
+      expect(createdEntry.status(), 'owned reason dictionary entry should be created').toBe(201)
+      const entry = await readJsonSafe<{ id: string; updatedAt: string }>(createdEntry)
+      entryId = entry?.id ?? null
+      entryUpdatedAt = entry?.updatedAt ?? null
+      expect(entryId).toBeTruthy()
+      expect(entryUpdatedAt).toBeTruthy()
+
+      roleId = (await createCustomerRoleFixture(request, adminToken, { features: ['portal.account.manage'] })).id
+      companyId = await createCustomerCompanyFixture(request, adminToken, `QA WC Reason Header ${stamp}`)
+      const user = await createCustomerUserFixture(request, adminToken, {
+        roleIds: [roleId],
+        customerEntityId: companyId,
+        displayName: `QA WC Reason Header User ${stamp}`,
+      })
+      userId = user.id
+      const session = await portalLogin(request, { email: user.email, password: user.password, tenantId })
+
+      const orderCreate = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token: adminToken,
+        data: {
+          currencyCode: 'USD',
+          lines: [{ currencyCode: 'USD', quantity: 1, name: `QA seed line ${Date.now()}`, unitPriceNet: 0, unitPriceGross: 0 }],
+          customerEntityId: companyId,
+          customerReference: `WC-REASON-HEADER-${stamp}`,
+        },
+      })
+      expect(orderCreate.status(), 'sales order fixture should be created').toBe(201)
+      orderId = (await readJsonSafe<{ id?: string }>(orderCreate))?.id ?? null
+      expect(orderId).toBeTruthy()
+
+      const createClaim = await request.post('/api/warranty_claims/portal/claims', {
+        headers: portalCookieHeaders(session, { 'Content-Type': 'application/json' }),
+        data: {
+          orderId,
+          reasonCode: code,
+          lines: [
+            {
+              sku: `WC-REASON-${stamp}`,
+              serialNumber: `SER-${stamp}`,
+              faultDescription: 'Portal reason header regression',
+              qtyClaimed: 1,
+            },
+          ],
+        },
+      })
+      expect(createClaim.status(), 'portal claim intake should return 201').toBe(201)
+      claimId = (await readJsonSafe<{ claimId?: string }>(createClaim))?.claimId ?? null
+      expect(claimId).toBeTruthy()
+
+      const baseURL = testInfo.project.use.baseURL!
+      const detailPath = `/api/warranty_claims/portal/claims/${claimId}`
+      const optionsPath = '/api/warranty_claims/portal/options'
+      const trackerPath = `/${orgSlug}/portal/claims/${claimId}`
+      const context = await browser.newContext({ baseURL, locale: 'en-US' })
+      try {
+        await context.addCookies([
+          { name: 'customer_auth_token', value: session.authToken, url: baseURL, sameSite: 'Lax' },
+          { name: 'customer_session_token', value: session.sessionToken, url: baseURL, sameSite: 'Lax' },
+          { name: 'locale', value: 'en', url: baseURL, sameSite: 'Lax' },
+        ])
+        const page = await context.newPage()
+        const heading = page.getByRole('heading', { level: 1 })
+
+        await page.goto(trackerPath, { waitUntil: 'domcontentloaded' })
+        await expect(heading).toHaveText(`${label}, Warranty claim`)
+        await page.screenshot({ path: testInfo.outputPath('custom-label-desktop.png'), fullPage: true })
+
+        await page.setViewportSize({ width: 390, height: 844 })
+        await expect(heading).toHaveText(`${label}, Warranty claim`)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+        await page.screenshot({ path: testInfo.outputPath('custom-label-mobile.png'), fullPage: true })
+        await page.setViewportSize({ width: 1280, height: 800 })
+
+        await page.route(`**${optionsPath}`, async (route) => {
+          const response = await route.fetch()
+          const body = (await response.json()) as { result?: { reasons?: Array<{ value: string; label: string }>; faultCodes?: unknown } }
+          const reasons = [...(body.result?.reasons ?? []), { value: 'warranty-defect', label: 'Injected override label' }]
+          await route.fulfill({ response, json: { ...body, result: { ...body.result, reasons } } })
+        })
+        await page.route(`**${detailPath}`, async (route) => {
+          const response = await route.fetch()
+          const body = (await response.json()) as { item: Record<string, unknown> }
+          await route.fulfill({ response, json: { item: { ...body.item, reasonCode: 'warranty-defect' } } })
+        })
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await expect(heading).toHaveText('Warranty defect, Warranty claim')
+        await page.screenshot({ path: testInfo.outputPath('seeded-translation-precedence.png'), fullPage: true })
+        await page.unroute(`**${optionsPath}`)
+        await page.unroute(`**${detailPath}`)
+
+        const unknownCode = `unmapped-${stamp}`
+        await page.route(`**${detailPath}`, async (route) => {
+          const response = await route.fetch()
+          const body = (await response.json()) as { item: Record<string, unknown> }
+          await route.fulfill({ response, json: { item: { ...body.item, reasonCode: unknownCode } } })
+        })
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await expect(heading).toHaveText(`${unknownCode}, Warranty claim`)
+        await page.screenshot({ path: testInfo.outputPath('unknown-code-fallback.png'), fullPage: true })
+        await page.unroute(`**${detailPath}`)
+
+        await page.route(`**${optionsPath}`, async (route) => {
+          await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'options unavailable' }) })
+        })
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await expect(heading).toHaveText(`${code}, Warranty claim`)
+        await page.screenshot({ path: testInfo.outputPath('options-unavailable-fallback.png'), fullPage: true })
+        await page.unroute(`**${optionsPath}`)
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await expect(heading).toHaveText(`${label}, Warranty claim`)
+        await page.screenshot({ path: testInfo.outputPath('options-recovered.png'), fullPage: true })
+      } finally {
+        await context.close()
+      }
+    } finally {
+      if (entryId && dictionaryId) {
+        const deleteEntry = await apiRequest(request, 'DELETE', `/api/dictionaries/${dictionaryId}/entries/${entryId}`, {
+          token: adminToken,
+          headers: { [OPTIMISTIC_LOCK_HEADER]: entryUpdatedAt! },
+        })
+        expect(deleteEntry.status(), 'owned reason dictionary entry should be deleted').toBe(200)
+      }
+      if (ownsDictionary && dictionaryId) {
+        const dictionary = await apiRequest(request, 'GET', `/api/dictionaries/${dictionaryId}`, { token: adminToken })
+        const record = await readJsonSafe<{ updatedAt: string }>(dictionary)
+        await apiRequest(request, 'DELETE', `/api/dictionaries/${dictionaryId}`, {
+          token: adminToken,
+          headers: { [OPTIMISTIC_LOCK_HEADER]: record!.updatedAt },
+        })
+      }
+      await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
+      await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderId)
+      await deleteCustomerUserFixture(request, adminToken, userId)
+      await deleteCustomerRoleFixture(request, adminToken, roleId)
+      await deleteCustomerCompanyFixture(request, adminToken, companyId)
     }
   })
 })
