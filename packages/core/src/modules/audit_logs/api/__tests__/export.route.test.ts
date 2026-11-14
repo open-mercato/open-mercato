@@ -9,10 +9,12 @@ import {
 const mockRbac = { userHasAllFeatures: jest.fn() }
 const mockActionLogs = { list: jest.fn() }
 const mockEm = {}
-// Mirrors the real DI registration in `customers/di.ts` — the production
-// container resolves this exact shape; a missing token simulates the customers
-// module being disabled (see the "customers module disabled" test below).
-const mockCustomersAuditRedactionService = {
+// Mirrors the real DI registration in `customers/di.ts` against the generic
+// `actionLogRedactionProvider` extension point (see
+// `audit_logs/lib/actionLogRedaction.ts`) — a missing token simulates the
+// customers module being disabled (see the "customers module disabled" test
+// below).
+const mockActionLogRedactionProvider = {
   loadContext: loadCustomerAuditRedactionContext,
   redactEntry: redactCustomerAuditEntry,
 }
@@ -30,9 +32,9 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (token === 'rbacService') return mockRbac
       if (token === 'actionLogService') return mockActionLogs
       if (token === 'em') return mockEm
-      if (token === 'customersAuditRedactionService') {
-        if (!customersModuleEnabled) throw new Error('AwilixResolutionError: Could not resolve customersAuditRedactionService')
-        return mockCustomersAuditRedactionService
+      if (token === 'actionLogRedactionProvider') {
+        if (!customersModuleEnabled) throw new Error('AwilixResolutionError: Could not resolve actionLogRedactionProvider')
+        return mockActionLogRedactionProvider
       }
       return null
     },
@@ -408,8 +410,11 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
   // Regression for the maintainer review on #8978 — this generic route must not
   // statically import CRM business logic (`packages/core/AGENTS.md` § Cross-Module
   // Coupling). When the `customers` module is disabled (its DI service is never
-  // registered), the export degrades gracefully instead of throwing.
-  it('exports entries unredacted when the customers module is disabled', async () => {
+  // registered), the export must fail CLOSED for protected resource kinds —
+  // disabling the module does not delete existing `action_logs` rows, so a stored
+  // private email must never be disclosed just because its policy provider is
+  // unavailable.
+  it('suppresses protected entries when the customers module is disabled', async () => {
     customersModuleEnabled = false
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
@@ -456,7 +461,50 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
 
     expect(res.status).toBe(200)
     const csv = await res.text()
-    expect(csv).toContain('Private subject')
+    expect(csv).not.toContain('Private subject')
+    expect(csv).not.toContain('Private body')
+  })
+
+  it('keeps unrelated resource kinds usable in the export when the customers module is disabled', async () => {
+    customersModuleEnabled = false
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [
+        {
+          id: 'action-6',
+          commandId: 'cmd-6',
+          actionLabel: 'Update product',
+          actorUserId: 'user-2',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          resourceKind: 'product',
+          resourceId: 'product-1',
+          createdAt: new Date('2024-06-19T12:00:00.000Z'),
+          contextJson: null,
+          snapshotBefore: null,
+          changesJson: { name: { from: 'Old Widget', to: 'New Widget' } },
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+    expect(res.status).toBe(200)
+    const csv = await res.text()
+    expect(csv).toContain('Old Widget')
+    expect(csv).toContain('New Widget')
   })
 
   it('uses the canonical API-key subject for self-only exports', async () => {

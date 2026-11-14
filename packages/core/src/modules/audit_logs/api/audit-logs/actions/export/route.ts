@@ -16,7 +16,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
-import { redactActionLogEntries } from '@open-mercato/core/modules/audit_logs/lib/customersAuditRedaction'
+import { redactActionLogEntries } from '@open-mercato/core/modules/audit_logs/lib/actionLogRedaction'
 import { loadAuditLogDisplayMaps } from '../../display'
 import { requireResolvedTenantScope } from '../../readScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -194,10 +194,10 @@ export async function GET(req: Request) {
     }
     throw err
   }
-  // The CRM owns private-email visibility (customers/lib/visibilityFilter.ts); the
-  // export must never show MORE than a live CRM read would (#8887). Redaction is an
-  // optional CRM enhancement resolved via DI — this generic route never statically
-  // imports CRM business logic (see `packages/core/AGENTS.md` § Cross-Module Coupling).
+  // Redaction is a generic extension point an optional module (e.g. `customers`)
+  // registers into (#8887, #8978) — this route never statically imports or names
+  // that module (see `packages/core/AGENTS.md` § Cross-Module Coupling and
+  // `audit_logs/lib/actionLogRedaction.ts`).
   const entries = await redactActionLogEntries(
     container,
     em,

@@ -9,14 +9,16 @@ import {
 const mockRbac = { userHasAllFeatures: jest.fn() }
 const mockActionLogs = { list: jest.fn() }
 const mockEm = {}
-// Mirrors the real DI registration in `customers/di.ts` — the production
-// container resolves this exact shape; a missing token simulates the customers
-// module being disabled (see the "customers module disabled" test below).
-const mockCustomersAuditRedactionService = {
+// Mirrors the real DI registration in `customers/di.ts` against the generic
+// `actionLogRedactionProvider` extension point (see
+// `audit_logs/lib/actionLogRedaction.ts`) — a missing token simulates the
+// customers module being disabled (see the "customers module disabled" tests
+// below).
+const mockActionLogRedactionProvider = {
   loadContext: loadCustomerAuditRedactionContext,
   redactEntry: redactCustomerAuditEntry,
 }
-// Toggled by the "customers module disabled" test — mirrors Awilix throwing on
+// Toggled by the "customers module disabled" tests — mirrors Awilix throwing on
 // an unregistered token, which is exactly what `tryResolve` guards against.
 let customersModuleEnabled = true
 
@@ -30,9 +32,9 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (token === 'rbacService') return mockRbac
       if (token === 'actionLogService') return mockActionLogs
       if (token === 'em') return mockEm
-      if (token === 'customersAuditRedactionService') {
-        if (!customersModuleEnabled) throw new Error('AwilixResolutionError: Could not resolve customersAuditRedactionService')
-        return mockCustomersAuditRedactionService
+      if (token === 'actionLogRedactionProvider') {
+        if (!customersModuleEnabled) throw new Error('AwilixResolutionError: Could not resolve actionLogRedactionProvider')
+        return mockActionLogRedactionProvider
       }
       return null
     },
@@ -308,8 +310,10 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
   // Regression for the maintainer review on #8978 — this generic route must not
   // statically import CRM business logic (`packages/core/AGENTS.md` § Cross-Module
   // Coupling). When the `customers` module is disabled (its DI service is never
-  // registered), the route degrades gracefully instead of throwing.
-  it('passes entries through unredacted when the customers module is disabled', async () => {
+  // registered), the route must fail CLOSED for protected resource kinds — disabling
+  // the module does not delete existing `action_logs` rows, so a stored private
+  // email must never be disclosed just because its policy provider is unavailable.
+  it('suppresses protected entries when the customers module is disabled', async () => {
     customersModuleEnabled = false
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
@@ -333,6 +337,7 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
             },
           },
           snapshotAfter: null,
+          changesJson: { title: { from: 'Old private subject', to: 'Private subject' } },
         }),
       ],
       total: 1,
@@ -344,7 +349,34 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.items[0].snapshotBefore.interaction.title).toBe('Private subject')
+    expect(data.items[0].snapshotBefore).toBeNull()
+    expect(data.items[0].snapshotAfter).toBeNull()
+    expect(data.items[0].changes).toBeNull()
+    expect(JSON.stringify(data)).not.toContain('Private subject')
+    expect(JSON.stringify(data)).not.toContain('Private body')
+  })
+
+  it('keeps unrelated resource kinds usable when the customers module is disabled', async () => {
+    customersModuleEnabled = false
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockActionLogs.list.mockResolvedValue({
+      items: [makeActionLogEntry()],
+      total: 1,
+      page: 1,
+      pageSize: 50,
+      totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].snapshotAfter).toEqual({ name: 'Widget' })
   })
 
   it('passes page and pageSize to service', async () => {

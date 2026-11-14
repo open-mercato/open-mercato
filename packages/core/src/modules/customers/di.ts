@@ -91,10 +91,13 @@ export function register(container: AppContainer) {
         return resolveCatalogEventType(catalog, input.key)?.behavior ?? null
       },
     }),
-    // Optional integration point for `audit_logs` (generic infra, never statically
-    // imports CRM business logic — see `packages/core/AGENTS.md` § Cross-Module
-    // Coupling): resolved via a soft `tryResolve`, never a hard dependency.
-    customersAuditRedactionService: asValue({
+    // Registers this module's implementation of `audit_logs`'s generic
+    // `ActionLogRedactionProvider` extension point (see
+    // `audit_logs/lib/actionLogRedaction.ts`). The optional consumer
+    // (`customers`) owns this glue and resolves the peer's generic DI key —
+    // `audit_logs` never imports, resolves, or names `customers` (see
+    // `packages/core/AGENTS.md` § Cross-Module Coupling).
+    actionLogRedactionProvider: asValue({
       loadContext: loadCustomerAuditRedactionContext,
       redactEntry: redactCustomerAuditEntry,
     }),
