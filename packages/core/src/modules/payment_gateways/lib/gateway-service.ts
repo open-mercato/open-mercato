@@ -24,10 +24,11 @@ import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransacti
 import { canApplyManualAction, isValidTransition, resolveImpliedCaptureStatus, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
-import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
+import { reconcileSessionAmountWithOrder, resolveConflictTranslator } from './order-amount-reconciliation'
 import {
   alignCapturedAmountWithStatus,
   assertCaptureWithinRemaining,
+  assertNothingCapturedBeforeCancel,
   formatAmountUnits,
   parseAmountUnits,
   releaseCaptureAmount,
@@ -669,12 +670,18 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       scope: { organizationId: string; tenantId: string },
       operationId?: string,
     ): Promise<CancelResult> {
+      const translate = await resolveConflictTranslator()
       return executeManualOperation({
         action: 'cancel',
         transactionId,
         operationId,
         payload: { reason: reason ?? null },
         scope,
+        assertInitialAllowed: (transaction) => { assertNothingCapturedBeforeCancel(transaction, translate) },
+        beforeInvoke: async () => {
+          const current = await findTransactionOrThrow(transactionId, scope, em.fork())
+          assertNothingCapturedBeforeCancel(current, translate)
+        },
         invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.cancel({
           sessionId: readProviderSessionId(transaction),
           reason,
