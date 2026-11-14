@@ -5,6 +5,7 @@ const userId = '33333333-3333-4333-8333-333333333333'
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const setValueMock = jest.fn()
+const translateMock = jest.fn((key: string, fallback?: string) => fallback ?? key)
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -29,6 +30,14 @@ jest.mock('@open-mercato/core/modules/translations/api/context', () => ({
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   validateCrudMutationGuard: (...args: unknown[]) => validateCrudMutationGuardMock(...args),
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    locale: 'en',
+    t: (key: string, fallback?: string) => fallback ?? key,
+    translate: (key: string, fallback?: string) => translateMock(key, fallback),
+  })),
 }))
 
 import PUT from '../locales'
@@ -88,5 +97,32 @@ describe('translations locales route mutation guard', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Conflict' })
     expect(setValueMock).not.toHaveBeenCalled()
     expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 503 without running the guard or persisting when the configs module is disabled', async () => {
+    container.resolve.mockImplementationOnce((name: string) => {
+      throw new Error(`[internal] Could not resolve '${name}'`)
+    })
+
+    const response = await PUT(makeRequest())
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ error: 'Settings storage unavailable' })
+    expect(translateMock).toHaveBeenCalledWith('translations.locales.errors.storageUnavailable', expect.any(String))
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(setValueMock).not.toHaveBeenCalled()
+    expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('still rejects an invalid body with 400 before checking settings storage', async () => {
+    const response = await PUT(new Request('http://localhost/api/translations/locales', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ locales: [] }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(container.resolve).not.toHaveBeenCalled()
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
   })
 })

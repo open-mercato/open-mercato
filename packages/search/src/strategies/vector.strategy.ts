@@ -15,7 +15,7 @@ import { plaintextSearchFields } from '../lib/plaintext-fields'
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.
  */
 export interface EmbeddingService {
-  createEmbedding(text: string): Promise<number[]>
+  createEmbedding(text: string, options?: { purpose?: 'document' | 'query' }): Promise<number[]>
   available: boolean
 }
 
@@ -89,7 +89,7 @@ export class VectorSearchStrategy implements SearchStrategy {
     if (options.indexDocFilter && !this.supportsIndexDocFilter) return []
 
     await this.ensureReady()
-    const embedding = await this.embeddingService.createEmbedding(query)
+    const embedding = await this.embeddingService.createEmbedding(query, { purpose: 'query' })
 
     // Build filter - only include organizationId if it's a real value
     // The pgvector driver treats null as "only records with null org_id",

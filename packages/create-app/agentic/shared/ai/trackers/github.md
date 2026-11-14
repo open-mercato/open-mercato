@@ -6,8 +6,12 @@ At runtime: `om-setup-agent-pipeline` copies this file into the repository at `.
 
 ## Prerequisites
 
-- `gh` CLI installed and authenticated. Verify with the **auth-check** operation before a batch run; fail fast when unauthenticated.
+- `gh` CLI installed and authenticated; `jq` is required for JSON operations. Verify with the **auth-check** operation before a batch run; fail fast when unauthenticated.
 - All operations accept an optional `{repo}` (`owner/name`); when omitted, `gh` infers it from the current checkout's git remote. Pass `--repo {owner}/{repo}` explicitly whenever a skill operates on a repository other than the current one.
+
+Older GitHub CLI clients can fail mutation commands when GraphQL requests retired
+Projects (classic) fields. Use the REST examples below for automated writes;
+upgrade `gh` if reads also fail. Do not request `projectCards` in JSON field lists.
 
 ## Conventions
 
@@ -18,54 +22,68 @@ At runtime: `om-setup-agent-pipeline` copies this file into the repository at `.
 - Long, multi-line comment bodies are posted with `--body-file` (or a heredoc via process substitution) so formatting is preserved.
 - CI status truth comes from **get-pr-checks**; the set of *required* checks comes from **get-required-checks** (branch protection). When branch protection is not readable (404), treat every reported check as required.
 
+Before declaring CI green, inspect both **get-pr-checks** and **list-runs** for the
+exact head SHA. A workflow can be queued before any check jobs appear. An unfinished
+workflow is pending even if the currently visible checks passed; missing or unreadable
+required evidence is not a successful check.
+
 ## Label guards
 
 Every label mutation goes through an existence guard so a missing label degrades to a logged skip instead of a failure, and `labels.enabled: false` in the config skips label operations entirely.
 
 ```bash
+tracker_repo() {
+  if [ -n "${REPO:-}" ]; then
+    printf '%s\n' "$REPO"
+  else
+    gh repo view --json nameWithOwner --jq .nameWithOwner
+  fi
+}
+
 label_exists() {
-  gh label list --limit 200 --json name --jq '.[].name' | grep -Fxq "$1"
+  tracker_labels=$(gh api --paginate "repos/$(tracker_repo)/labels" --jq '.[].name') || return 1
+  printf '%s\n' "$tracker_labels" | grep -Fxq -- "$1"
 }
 
-# PR labels
 apply_label() {
-  if [ "$LABELS_ENABLED" != "true" ]; then return 0; fi
+  [ "$LABELS_ENABLED" = true ] || return 0
   if label_exists "$1"; then
-    gh pr edit "$2" --add-label "$1"
+    gh api --method POST "repos/$(tracker_repo)/issues/$2/labels" -f "labels[]=$1" >/dev/null
   else
-    echo "Skipping label '$1' (not defined in this repo). Create it with: gh label create '$1'"
+    printf "Skipping undefined or unreadable label: %s\n" "$1" >&2
   fi
 }
 
-# Issue labels
-apply_issue_label() {
-  if [ "$LABELS_ENABLED" != "true" ]; then return 0; fi
-  if label_exists "$1"; then
-    gh issue edit "$2" --add-label "$1"
-  else
-    echo "Skipping label '$1' (not defined in this repo). Create it with: gh label create '$1'"
-  fi
+apply_issue_label() { apply_label "$1" "$2"; }
+
+remove_label() {
+  [ "$LABELS_ENABLED" = true ] || return 0
+  tracker_label_path=$(printf '%s' "$1" | jq -sRr @uri) || return 1
+  tracker_remove_result=$(gh api --method DELETE "repos/$(tracker_repo)/issues/$2/labels/$tracker_label_path" 2>&1) && return 0
+  case "$tracker_remove_result" in
+    *"(HTTP 404)"*) return 0 ;;
+    *) printf '%s\n' "$tracker_remove_result" >&2; return 1 ;;
+  esac
 }
 
-remove_issue_label() {
-  if [ "$LABELS_ENABLED" != "true" ]; then return 0; fi
-  if label_exists "$1"; then
-    gh issue edit "$2" --remove-label "$1"
-  fi
-}
+remove_issue_label() { remove_label "$1" "$2"; }
 
-# Pipeline labels are mutually exclusive: setting one removes the others first.
 set_pipeline_label() {
-  if [ "$LABELS_ENABLED" != "true" ]; then return 0; fi
-  for label in $PIPELINE_LABELS; do
-    [ "$label" = "$2" ] && continue
-    gh pr edit "$1" --remove-label "$label" 2>/dev/null || true
-  done
+  [ "$LABELS_ENABLED" = true ] || return 0
+  label_exists "$2" || return 1
+  printf '%s\n' "$PIPELINE_LABELS" | tr ' ' '\n' | while IFS= read -r tracker_label; do
+    [ -n "$tracker_label" ] || continue
+    [ "$tracker_label" = "$2" ] || remove_label "$tracker_label" "$1" || exit 1
+  done || return 1
   apply_label "$2" "$1"
 }
 ```
 
-When operating on a different repository than the current checkout, add `--repo "$REPO"` to each command inside the guards and check label existence against that repo (`gh label list --repo "$REPO"`).
+Set `REPO=owner/name` for another repository: existence checks and writes resolve
+the same target. Pipeline splitting also works in shells that do not implicitly
+split variable expansions. Read labels back before using them as gate evidence;
+a skipped mutation never proves a label was applied. Removal ignores only a
+missing label (404); permission and transport failures stop the transition.
 
 ## Operations
 
@@ -213,13 +231,13 @@ gh issue comment {issueId} --repo {owner}/{repo} --body "<body>"
 #### update-issue
 `{issueId}`, new title and/or body (use a body-file for multi-line bodies). Edits the issue's own fields; does not touch labels or assignees (those have their own operations).
 ```bash
-gh issue edit {issueId} --repo {owner}/{repo} --title "<title>" --body-file <file>
+gh api --method PATCH repos/{owner}/{repo}/issues/{issueId} -f title="<title>" -F body=@<file>
 ```
 
 #### assign-issue / unassign-issue
 ```bash
-gh issue edit {issueId} --repo {owner}/{repo} --add-assignee "<login>"
-gh issue edit {issueId} --repo {owner}/{repo} --remove-assignee "<login>"
+gh api --method POST repos/{owner}/{repo}/issues/{issueId}/assignees -f "assignees[]=<login>"
+gh api --method DELETE repos/{owner}/{repo}/issues/{issueId}/assignees -f "assignees[]=<login>"
 ```
 
 #### label-issue / unlabel-issue
@@ -487,15 +505,12 @@ PR_NUMBER=$(gh pr view --json number --jq .number)
 ```
 
 #### update-pr
-`{prNumber}`, new title and/or new body → the PR's own title/body rewritten in place (not a comment), e.g. reframing a doc-originated spec PR that grew a feature implementation. Pass whichever of `--title` / `--body-file` changed; omit the other. Use a body file so multi-line bodies survive.
+`{prNumber}`, new title and/or new body → the PR's own title/body rewritten in place (not a comment), e.g. reframing a doc-originated spec PR that grew a feature implementation. Patch only the fields that changed; omit the other operation. Use a body file so multi-line bodies survive.
 ```bash
-gh pr edit {prNumber} --title "<title>"
-gh pr edit {prNumber} --body-file <path-or-process-substitution>
+gh api --method PATCH repos/{owner}/{repo}/pulls/{prNumber} -f title="<title>"
+gh api --method PATCH repos/{owner}/{repo}/pulls/{prNumber} -F body=@<path>
 ```
-If `gh pr edit` silently no-ops in this repo (some GitHub setups do), fall back to the REST API:
-```bash
-gh api -X PATCH repos/{owner}/{repo}/pulls/{prNumber} -f title="<title>" -f body="$(cat <path>)"
-```
+Omit the title or body operation when that field is unchanged.
 
 #### comment-pr
 `{prNumber}`, body. For long structured comments:
@@ -544,14 +559,14 @@ Fallbacks: for a **private** repo the raw URLs need auth and will not render —
 
 #### assign-pr / unassign-pr
 ```bash
-gh pr edit {prNumber} --add-assignee "<login>"
-gh pr edit {prNumber} --remove-assignee "<login>"
+gh api --method POST repos/{owner}/{repo}/issues/{prNumber}/assignees -f "assignees[]=<login>"
+gh api --method DELETE repos/{owner}/{repo}/issues/{prNumber}/assignees -f "assignees[]=<login>"
 ```
 
 #### label-pr / unlabel-pr
 Always through the guards: `apply_label "<label>" {prNumber}` / `set_pipeline_label {prNumber} "<label>"` for the mutually exclusive pipeline group; direct removal:
 ```bash
-gh pr edit {prNumber} --remove-label "<label>"
+remove_label "<label>" {prNumber}
 ```
 
 #### get-pr-diff
@@ -582,9 +597,9 @@ gh pr review {prNumber} --request-changes --body "<body>"
 GitHub rejects self-approval (reviewing your own PR); surface that instead of working around it.
 
 #### merge-pr
-`{prNumber}`; squash is the default merge strategy. `--auto` merges when checks pass; `--delete-branch` only when asked.
+`{prNumber}`, `{headSha}` (the reviewed full commit SHA); squash is the default merge strategy. GitHub branch rules remain enforced; this operation has no administrative bypass. `--auto` merges when checks pass; `--delete-branch` only when asked.
 ```bash
-gh pr merge {prNumber} --squash
+gh pr merge {prNumber} --repo {owner}/{repo} --squash --match-head-commit "{headSha}"
 ```
 
 #### mark-pr-ready
