@@ -338,9 +338,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           id: data.deal.pipelineId,
           name: currentPipelineName ?? t('customers.deals.detail.pipeline.defaultName', 'Current pipeline'),
           isDefault: false,
+          stageProbabilitiesEnabled: data.pipelineStageProbabilitiesEnabled === true,
         }]
       : [],
-    [currentPipelineName, data?.deal.pipelineId, t],
+    [currentPipelineName, data?.deal.pipelineId, data?.pipelineStageProbabilitiesEnabled, t],
   )
 
   if (isLoading) {

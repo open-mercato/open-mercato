@@ -91,4 +91,59 @@ describe('PipelineSettings', () => {
       expect.objectContaining({ method: 'POST' }),
     )
   })
+
+  it('sends the stage probabilities flag when creating a pipeline', async () => {
+    renderWithProviders(<PipelineSettings />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add pipeline' }))
+    fireEvent.change(await screen.findByPlaceholderText('e.g. New Business'), { target: { value: 'Weighted' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Use default stage probabilities' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalled())
+    const [, init] = apiCallMock.mock.calls[0] as [string, { body: string }]
+    expect(JSON.parse(init.body)).toEqual({ name: 'Weighted', isDefault: false, stageProbabilitiesEnabled: true })
+  })
+
+  function mockPipelineWithStages(stageProbabilitiesEnabled: boolean) {
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/pipeline-stages')) {
+        return {
+          items: [{ id: 'stage-1', pipelineId: 'pipeline-1', label: 'Negotiation', order: 0, defaultProbability: 60 }],
+        }
+      }
+      return { items: [{ id: 'pipeline-1', name: 'Sales', isDefault: true, stageProbabilitiesEnabled }] }
+    })
+  }
+
+  it('shows stage defaults and sends defaultProbability when the pipeline opted in', async () => {
+    mockPipelineWithStages(true)
+    renderWithProviders(<PipelineSettings />)
+
+    fireEvent.click(await screen.findByText('Sales'))
+    expect(await screen.findByText('60%')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add stage' }))
+    fireEvent.change(await screen.findByPlaceholderText('e.g. Discovery'), { target: { value: 'Proposal' } })
+    fireEvent.change(screen.getByLabelText('Default probability (%)'), { target: { value: '40' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalled())
+    const [url, init] = apiCallMock.mock.calls[0] as [string, { body: string }]
+    expect(url).toBe('/api/customers/pipeline-stages')
+    expect(JSON.parse(init.body)).toEqual({ pipelineId: 'pipeline-1', label: 'Proposal', defaultProbability: 40 })
+  })
+
+  it('hides stage defaults when the pipeline did not opt in', async () => {
+    mockPipelineWithStages(false)
+    renderWithProviders(<PipelineSettings />)
+
+    fireEvent.click(await screen.findByText('Sales'))
+    expect(await screen.findByText('Negotiation')).toBeInTheDocument()
+    expect(screen.queryByText('60%')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add stage' }))
+    await screen.findByPlaceholderText('e.g. Discovery')
+    expect(screen.queryByLabelText('Default probability (%)')).not.toBeInTheDocument()
+  })
 })

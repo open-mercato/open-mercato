@@ -5747,6 +5747,23 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "default_probability": {
+          "name": "default_probability",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "id": {
           "name": "id",
           "type": "uuid",
@@ -5994,6 +6011,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "stage_probabilities_enabled": {
+          "name": "stage_probabilities_enabled",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
         },
         "tenant_id": {
           "name": "tenant_id",
