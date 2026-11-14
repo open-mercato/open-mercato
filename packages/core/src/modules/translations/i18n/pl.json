@@ -1,5 +1,6 @@
 {
   "translations.config.nav.title": "Tłumaczenia",
+  "translations.errors.undoConflict": "Te tłumaczenia zmieniły się po akcji, którą próbujesz cofnąć. Cofnięcie zostało odrzucone.",
   "translations.locales.add": "Dodaj",
   "translations.locales.addPlaceholder": "np. fr, it, ja...",
   "translations.locales.alwaysServed": "{{locale}} jest językiem domyślnym i zawsze pozostaje dostępny, dlatego nie można go usunąć.",
