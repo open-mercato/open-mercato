@@ -178,7 +178,7 @@ function buyerContext(overrides: Partial<BuyerPricingContext> = {}): BuyerPricin
   }
 }
 
-const em = {} as any
+const em = { getMetadata: () => ({ has: () => true }) } as any
 const scope = { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
 
 beforeEach(() => {
