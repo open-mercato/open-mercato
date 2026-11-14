@@ -1,0 +1,362 @@
+# CRM Company Relationships
+
+## 📝 TLDR
+
+Let CRM users record typed relationships between two companies. Each tenant/organization defines its own **relationship types**. A type has a name and a **dependency type**: `parent_child` (directional; each side has its own label, e.g. "Parent company" / "Subsidiary") or `equal` (symmetric, one label, e.g. "Partner"). A new **Relationships** tab on the v2 company detail page lists the company's direct relationships and lets users add, edit and remove them. Corporate parentage is **not** duplicated here: the single canonical parent is `CustomerCompanyProfile.parentCompanyId` from `2026-10-22-crm-company-hierarchy.md`, and the tab shows it read-only above the typed links. Everything stays inside the `customers` module.
+
+## 📝 Overview
+
+- **Module:** `packages/core/src/modules/customers` (the reference CRUD module).
+- **Surfaces touched:** two new entities plus migration, two CRUD APIs, one read API scoped to a company, one settings section, one new tab on `backend/customers/companies-v2/[id]`, and an extra blocker in the company delete command.
+- **Out of scope (deferred):** corporate/ownership hierarchy (owned by `2026-10-22-crm-company-hierarchy.md`; this spec only displays it read-only), hierarchy tree / corporate-group view, extra fields on a relationship (notes, dates, custom fields), the classic `companies/[id]` page, person↔person and person↔company relationships, AI tools, fulltext search over relationships.
+
+## 📝 Problem Statement
+
+The CRM links people to companies (`customer_person_company_links`) and deals to companies (`customer_deal_companies`). It cannot say how two companies relate to each other. B2B users can't record corporate groups (holding → subsidiaries), franchise networks or peer partnerships. Today they fall back on tags or notes, which can't be queried, aren't directional, and don't show up from the other company's side.
+
+## 📝 Proposed Solution
+
+1. **Relationship types** (entity identity `CustomerCompanyLinkType` / `customer_company_link_types`, because `CustomerCompanyRelationshipType` is already taken by the classification spec — see *Relationship to the existing CRM specifications*): a new tenant/org-scoped entity managed in Customers configuration (`/backend/config/customers`), next to Pipelines and Dictionaries.
+2. **Company relationships** (entity identity `CustomerCompanyLink` / `customer_company_links`): a new entity with one row per relationship, connecting two `customer_entities` rows of kind `company`. For `parent_child`, `source` is the parent and `target` is the child. For `equal`, the pair is stored in canonical order (lower UUID as `source`), so A↔B and B↔A are the same row.
+3. **Invariants enforced by the server** (inside the command, in a transaction):
+   - no relationship from a company to itself;
+   - no duplicate (same type + same pair; for `equal` types the order of the pair doesn't matter);
+   - **one parent per company per `parent_child` type**;
+   - **no cycles** within a `parent_child` type;
+   - both companies are in the same tenant and organization as the relationship.
+4. **Relationships tab** (v2 company page only): a flat list of the company's direct relationships, each shown from the viewed company's point of view ("Parent company: Acme Holding", "Subsidiary: Acme Retail", "Partner: Foo Ltd"), with search, a type filter and pagination over the complete set (no truncated candidate window — see the read contract below). Adding reuses `LinkEntityDialog` + `companyAdapter`; editing and deleting are row actions. Above the typed links, a read-only **Corporate hierarchy** group shows the canonical parent and direct children from `GET /api/customers/companies/{id}/hierarchy` (hierarchy spec), with a link to the company form that owns that field.
+5. **Seeded defaults** per tenant/org in `setup.ts` → `seedDefaults`: **"Partner"** (`equal`) only. There is no seeded "Corporate group" type: corporate parentage has exactly one home (`CustomerCompanyProfile.parentCompanyId`), and seeding a second, unrelated `parent_child` data path would let the hierarchy picker and this tab disagree. Names and labels are resolved through `resolveTranslations()` at seed time (locale keys under `customers.companyLinkTypes.defaults.*`); after seeding they are ordinary user-editable data, and tenants may add their own descriptive `parent_child` types (for example "Franchisor" / "Franchisee") that never write the corporate hierarchy.
+
+### Alternatives considered
+
+| Alternative | Why it lost |
+|---|---|
+| A new dictionary kind in `customer_dictionary_entries` | A dictionary entry has nowhere to store the dependency type or the per-side labels, and can't enforce "block delete while in use" or "dependency type frozen while in use" without special-casing the generic dictionary commands. |
+| A self-referencing `parent_company_id` column on `customer_companies` (the Odoo/Salesforce "Parent Account" approach) | Covers only one hierarchy and no peer relationships. Typed relationships handle both. |
+| Two directed rows for `equal` relationships (A→B and B→A) | Two rows to keep in sync on every write and undo. A canonical single row plus a direction-agnostic read query is simpler. |
+
+### Relationship to the existing CRM specifications
+
+Two earlier CRM specs already own the concepts this feature might otherwise re-implement. Both stay untouched; this spec consumes them and uses distinct identities so no entity, table, route or migration can collide.
+
+- **Company classification (`2026-10-22-crm-company-relationship-types.md`, #7700)** already specifies `CustomerCompanyRelationshipType` / `customer_company_relationship_types` as a *per-company assignment* (`company_id` + dictionary token) used to classify an account as customer, supplier or partner. This spec therefore does **not** reuse that name: the tenant-level type dictionary here is `CustomerCompanyLinkType` / `customer_company_link_types`, the pair rows are `CustomerCompanyLink` / `customer_company_links`, and the routes, commands, events and i18n keys follow the same `Link*` identity (`/api/customers/company-link-types`, `/api/customers/company-links`, `customers.company_link_types.*`, `customers.company_link_type.*`). User-facing copy still says "relationship" / "relationship type"; only the implementation identity differs, which is what keeps entity discovery, migrations and readers of the classification spec unambiguous. This feature neither reads nor writes classification assignments, and the two capabilities can ship in either order.
+- **Corporate hierarchy (`2026-10-22-crm-company-hierarchy.md`, #7700)** already specifies the single canonical parent: `CustomerCompanyProfile.parentCompanyId` / `parent_company_id`, with its own parent picker, hierarchy route and list filter. This spec does not create a second one:
+  - it seeds **no** corporate `parent_child` type and never writes `parentCompanyId` from the relationships API;
+  - the Relationships tab **consumes** the hierarchy — it renders the canonical parent and direct children read-only at the top of the tab from the existing `GET /api/customers/companies/{id}/hierarchy` route, and its only navigation action links to the company form where the field is edited. There is no Add/Edit/Remove control for corporate parentage in the tab;
+  - `parent_child` link types remain available for descriptive business relations (franchisor/franchisee, managed-by, referral), but their rows are labelled as a link and can never present themselves as the company's corporate parent, so the hierarchy picker and the tab can never disagree about who a company's parent is;
+  - **ordering:** if this feature lands before the hierarchy column/route exists, the tab simply omits the corporate-hierarchy group and renders only the typed links — it never derives corporate parentage from links. When the hierarchy ships, the group appears with no schema change or data migration on this side.
+
+### Market check
+
+- **Salesforce:** "Parent Account" (one parent, one hierarchy) plus, in Financial Services Cloud, *Account-Account Relationships* with **reciprocal roles**, where each side has its own label. This matches our per-side labels for `parent_child`.
+- **HubSpot:** company-to-company *association labels*, either paired (e.g. "Parent"/"Child", one parent company) or unpaired (symmetric). This is the same split as `parent_child` vs `equal`. HubSpot limits the built-in parent/child association to one parent, the same as our single-parent rule.
+- **Odoo:** a single `parent_id` on the partner record, so one hierarchy and no peers.
+- **What we skip for v1:** the hierarchy tree view (Salesforce "View Hierarchy"), association limits per type, and relationship-level custom fields. Corporate hierarchy itself is specified separately (`2026-10-22-crm-company-hierarchy.md`) and only displayed here.
+
+## 📝 Architecture
+
+```
+Settings (config/customers)                  Company v2 detail page
+  CompanyLinkTypeSettings              CompanyDetailTabs  ── 'relationships' tab
+        │ apiCall + useGuardedMutation              │
+        ▼                                           ▼ CompanyLinksSection
+/api/customers/company-link-types    GET /api/customers/companies/{id}/links   (oriented read)
+        │ makeCrudRoute + commands            /api/customers/company-links             (writes)
+        ▼                                           │ makeCrudRoute + commands
+customer_company_link_types ◄──FK── customer_company_links ──FK──► customer_entities (×2)
+```
+
+- **Reused:** `makeCrudRoute` with `indexer`, the undoable command pattern (`commands/pipelines.ts`, `commands/personCompanyLinks.ts`), `withAtomicFlush`, `emitCrudSideEffects` / `emitCrudUndoSideEffects`, `LinkEntityDialog` + `components/linking/adapters/companyAdapter.tsx` (with `renderLinkSettings` for type and direction), `useGuardedMutation`, `buildOptimisticLockHeader` / `surfaceRecordConflict`, `CompanyDetailTabs`.
+- **New files** (under `customers/`): `commands/companyLinkTypes.ts`, `commands/companyLinks.ts`, `lib/companyLinks.ts` (invariant checks, canonical ordering, orientation helper), `api/company-link-types/route.ts`, `api/company-links/route.ts`, `api/companies/[id]/links/route.ts`, `components/CompanyLinkTypeSettings.tsx`, `components/detail/CompanyLinksSection.tsx`, `components/detail/CompanyLinkDialog.tsx`.
+- **ACL:** no new features. Types: read with `customers.companies.view`, write with `customers.settings.manage`. Relationships: read with `customers.companies.view`, write with `customers.companies.manage`. All three features already exist. With the default grants in `setup.ts`, only admins (via `customers.*`) can manage types; employees can view types and manage relationships if they hold `customers.companies.manage`.
+- **Coupling:** everything is inside `customers`. ORM relations between these entities and `CustomerEntity` are allowed because they are in the same module. No other module is touched.
+
+## 📝 Data Model
+
+### `customer_company_link_types` — `CustomerCompanyLinkType`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | `gen_random_uuid()` |
+| `organization_id`, `tenant_id` | uuid | scope |
+| `name` | text | required, 1–150 chars; the type's name in settings and pickers; also the label on both sides for `equal` |
+| `dependency_type` | text | `'parent_child' \| 'equal'`; **cannot change while active relationships use the type** |
+| `parent_label` | text, nullable | how the parent is described from the child's side (e.g. "Parent company"); required when `parent_child`, null when `equal` |
+| `child_label` | text, nullable | how the child is described from the parent's side (e.g. "Subsidiary"); required when `parent_child`, null when `equal` |
+| `normalized_name` | text | lower-cased, trimmed `name`; used for uniqueness |
+| `created_at`, `updated_at`, `deleted_at` | timestamptz | `updated_at` has onCreate + onUpdate (optimistic locking) |
+
+Indexes: `(organization_id, tenant_id)`; unique `(organization_id, tenant_id, normalized_name) WHERE deleted_at IS NULL`.
+
+### `customer_company_links` — `CustomerCompanyLink`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `organization_id`, `tenant_id` | uuid | scope; must equal both companies' scope |
+| `link_type_id` | uuid FK → `customer_company_link_types.id` | `ManyToOne` |
+| `dependency_type` | text | copied from the type at write time; lets partial unique indexes target `parent_child` rows (it stays correct because the type's dependency type is frozen while in use) |
+| `source_company_entity_id` | uuid FK → `customer_entities.id` | parent for `parent_child`; lower UUID for `equal` |
+| `target_company_entity_id` | uuid FK → `customer_entities.id` | child for `parent_child`; higher UUID for `equal` |
+| `created_at`, `updated_at`, `deleted_at` | timestamptz | soft delete for undo |
+
+Constraints and indexes:
+- `CHECK (source_company_entity_id <> target_company_entity_id)`
+- `CHECK (dependency_type <> 'equal' OR source_company_entity_id < target_company_entity_id)` (backs the canonical order in the DB; JS compares lowercased UUID strings, which sorts the same as Postgres `uuid` ordering)
+- unique `(link_type_id, source_company_entity_id, target_company_entity_id) WHERE deleted_at IS NULL` (no duplicates)
+- unique `(link_type_id, target_company_entity_id) WHERE deleted_at IS NULL AND dependency_type = 'parent_child'` (single parent)
+- indexes `(organization_id, tenant_id)`, `(source_company_entity_id)`, `(target_company_entity_id)`
+
+The two unique indexes back up the application-level checks: a concurrent race fails with a mapped 409 instead of writing a bad row. No column holds sensitive data, so there are no encryption entries.
+
+Migration: one SQL migration in `customers/migrations/` plus an updated `.snapshot-open-mercato.json`. Purely additive. Both entities are registered for the query indexer (entity ids generated by `yarn generate`; `makeCrudRoute` `indexer: { entityType }`).
+
+## 📝 API Contracts
+
+All routes are tenant/org scoped through the standard `withScopedPayload` / organization-scope helpers. List and detail responses include `updatedAt`. Writes go through the command bus (undoable), mutation guards and optimistic locking (default ON).
+
+### Relationship types — `/api/customers/company-link-types` (`makeCrudRoute`)
+
+- `GET` (`customers.companies.view`): paginated (`pageSize` ≤ 100), `search`, `ids`. Each item: `{ id, name, dependencyType, parentLabel, childLabel, usageCount, updatedAt }`. `usageCount` is the number of active relationships of the type, used by the settings UI to explain why a type can't be deleted or have its dependency type changed. It is added in the route's `afterList` hook with one grouped `count(*) … group by link_type_id` query over the ids on the page.
+- `POST` / `PUT` (`customers.settings.manage`): zod schema in `data/validators.ts`:
+  ```ts
+  { name: string(1..150), dependencyType: 'parent_child' | 'equal',
+    parentLabel?: string(1..150) | null, childLabel?: string(1..150) | null }
+  ```
+  Refinement: `parentLabel` and `childLabel` are both required when `parent_child` and both forced to `null` when `equal`.
+  - `409 customers.companyLinkTypes.errors.duplicateName` when the name is taken.
+  - `409 …errors.dependencyTypeLocked` when `PUT` changes `dependencyType` while `usageCount > 0`.
+- `DELETE` (`customers.settings.manage`): soft delete.
+  - `409 …errors.inUse` (with `count`) while active relationships reference the type.
+- Commands: `customers.company_link_types.{create,update,delete}`, each with undo.
+
+### Relationships — writes at `/api/customers/company-links` (`makeCrudRoute`)
+
+- `POST` (`customers.companies.manage`):
+  ```ts
+  { linkTypeId: uuid, sourceCompanyId: uuid, targetCompanyId: uuid }
+  ```
+  For `parent_child`, `source` is the parent. For `equal`, the server puts the pair in canonical order before storing, so callers can send it in either order.
+- `PUT` (`customers.companies.manage`): `{ id, linkTypeId?, sourceCompanyId?, targetCompanyId? }`. Lets the user change the type or swap the direction. The pair of companies must stay the same (only its order may change). On every update the command:
+  - recomputes `dependency_type` from the (possibly new) type;
+  - re-canonicalizes the pair when the new type is `equal`;
+  - requires explicit `sourceCompanyId` and `targetCompanyId` when the new type is `parent_child` and the old one was `equal` (otherwise `400 …errors.directionRequired`), so the stored UUID order never silently becomes the direction;
+  - re-runs all invariant checks against the new type.
+- `DELETE` (`customers.companies.manage`): soft delete.
+- `GET` (`customers.companies.view`): generic list filtered by `companyId` / `linkTypeId` / `ids` (for API consumers and the indexer).
+- Commands: `customers.company_links.{create,update,delete}`, each with undo.
+- Errors (`409`, translated):
+
+  | Key | When |
+  |---|---|
+  | `…errors.selfRelation` | both sides are the same company |
+  | `…errors.duplicate` | the same type already links this pair |
+  | `…errors.parentExists` | the child already has a parent of this type; the response includes `{ existingParent: { id, displayName } }` |
+  | `…errors.cycle` | the new link would make the parent its own descendant |
+  | `…errors.companyNotFound` | a company is missing, deleted, or in another scope; returned as `404` |
+  | `…errors.typeNotFound` | the type is missing, deleted, or in another scope; returned as `404` |
+  | `…errors.cardinalityLimit` | adding the link would give one of the companies more than `MAX_COMPANY_LINKS` (2,000) active relationships; the response includes `{ limit }` |
+
+### Relationships for one company — `GET /api/customers/companies/{id}/links`
+
+Feature `customers.companies.view`. This is a read-only route modelled on `api/companies/[id]/people/route.ts`. Query: `page`, `pageSize` (≤ 100, default 50), `search` (related company name), `linkTypeId`, `sort` (`name-asc` default, `name-desc`).
+
+```ts
+{ items: Array<{
+    id, updatedAt,
+    role: 'parent' | 'child' | 'peer',          // the RELATED company's role relative to {id}
+    label: string,                               // parentLabel | childLabel | name, chosen by role
+    linkType: { id, name, dependencyType, parentLabel, childLabel },
+    relatedCompany: { id, displayName, deletedAt: null },
+  }>,
+  total, page, pageSize, totalPages }
+```
+
+Related company names are loaded with `findWithDecryption`. `display_name` is encrypted (`encryption.ts`), so `search` and the name sort can't run in SQL. Unlike the People tab's single unbounded read, this route reads the **complete** candidate set in bounded keyset batches, so no saved relationship is silently dropped from search, the type filter, `total` or pagination:
+
+- `linkTypeId` and the tenant/organization scope are applied in the SQL `WHERE` clause.
+- The route walks the rows where `{id}` is either side in `id`-ascending keyset batches of `RELATIONSHIP_READ_BATCH_SIZE` (250): `… WHERE id > :lastId ORDER BY id ASC LIMIT 250`, stopping only when a batch returns fewer rows than the batch size. Each batch hydrates and decrypts its related `customer_entities` rows with `findWithDecryption`.
+- The merged set is filtered by `search` (case-insensitive substring on the decrypted `displayName`, the same matcher as the People tab) and sorted by type name, then related company name (locale-compared, case-insensitive), then relationship `id` as a stable tie-break. `total` is the size of the post-filter set; `totalPages` and the clamped `page` are computed from it, as in `api/companies/[id]/people/route.ts`.
+- Rows whose related company isn't visible under the caller's organization scope are left out before filtering, so `total` never counts them.
+
+Completeness is bounded rather than assumed: writes cap each company at `MAX_COMPANY_LINKS` (2,000) active relationships, so the walk always terminates (at most eight batches) and one request decrypts at most 2,000 names — the same order of work as the People tab's full read, but with a hard bound and without a truncated candidate window.
+
+### Invariant checks (`lib/companyLinks.ts`)
+
+These run inside `withAtomicFlush(em, …, { transaction: true })` in the create, update, undo-of-update and undo-of-delete commands:
+
+1. Lock the involved type rows with `PESSIMISTIC_WRITE` (`SELECT … FOR UPDATE`): the one type on create/undo-of-delete; the old and the new type on update/undo-of-update, always in ascending id order to avoid deadlocks. This serializes all writes for one type, so two concurrent inserts can't together form a cycle. The type's `dependency_type` is read **after** the lock is taken.
+2. Lock both company `customer_entities` rows with `PESSIMISTIC_WRITE`, in ascending id order. `deleteCompanyCommand` takes the same lock (issue #7613), so a relationship insert and a company delete serialize instead of racing into an FK violation.
+3. Check both companies (`kind = 'company'`, not deleted, same tenant and organization) and the type (not deleted).
+4. Check self-relation, duplicate and single parent (these mirror the DB indexes and produce friendly errors).
+5. **Cycle check** (`parent_child` only): use a recursive CTE to walk *up* from the proposed parent over active rows of the same type. If the proposed child appears among the ancestors, reject. The single-parent rule means the walk is a simple chain, bounded by the depth of the hierarchy. Add a guard limit (e.g. 1000 hops) that fails closed.
+6. **Cardinality cap** (`MAX_COMPANY_LINKS = 2000` in `lib/companyLinks.ts`): count the active relationships where either company id is one of the new relationship's two companies, and reject with `409 …errors.cardinalityLimit` (response carries `{ limit }`) when the insert would take either company past the cap. Both company rows were locked `PESSIMISTIC_WRITE` in step 2, so two concurrent inserts that would together cross the cap serialize and the second sees the first. Undo-of-delete re-runs the same check, so an undo that would exceed the cap fails with the same 409 and leaves the row deleted. `PUT` never changes the company pair, so it never changes either company's count and skips the check.
+
+**Type-side serialization.** The type update, type delete, undo-of-type-update and undo-of-type-delete commands take the same `PESSIMISTIC_WRITE` lock on the type row before checking `dependencyTypeLocked` / `inUse`. A relationship write and a type change therefore can't interleave, which is what keeps the copied `dependency_type` on relationship rows correct.
+
+### Company delete (`commands/companies.ts`)
+
+`deleteCompanyCommand` counts active relationships where the company is the source or the target, and adds a `customers.companies.delete.blockers.relationships` entry ("company relationships ({{count}})") to `buildCompanyHasDependentsError`. The company delete is blocked, the same way active person links already block it. Soft-deleted relationship rows referencing the company are hard-deleted in the same transaction to satisfy the FKs, following the existing person-link precedent. Because the company itself is hard-deleted:
+- an earlier relationship delete can no longer be undone once the company is gone (undo fails with `404 companyNotFound`);
+- undoing the company delete restores the company but none of its earlier, already-removed relationships.
+
+### Events (`events.ts`, additive)
+
+- `customers.company_link_type.{created,updated,deleted}` (`category: 'crud'`)
+- `customers.company_link.{created,updated,deleted}` (`category: 'crud'`, `clientBroadcast: true`, so open company pages on either side refresh the tab). The payload carries `id`, `linkTypeId`, `sourceCompanyEntityId`, `targetCompanyEntityId`, `organizationId` and `tenantId`; the tab refetches when its company id is either side.
+
+## 📝 UI/UX
+
+### Settings: `CompanyLinkTypeSettings` in `CustomersConfigurationSections`
+
+- A table with columns Name, Dependency type ("Parent → child" / "Equal"), Labels ("Parent company / Subsidiary" or "—") and In use (count). Row actions: Edit, Delete. These labels are descriptive copy for the link type; none of them is the company's corporate parent, which stays in the hierarchy group and the company form.
+- The create/edit dialog has Name, Dependency type (radio) and, for `parent_child` only, Parent label and Child label, with a short preview line: "Acme Holding is the *Parent company* of Acme Retail; Acme Retail is a *Subsidiary* of Acme Holding".
+- The Dependency type radio is disabled while the type is in use, with a hint explaining why.
+- Delete on a type that's in use shows the `inUse` error through the standard flash; the button isn't hidden, so the reason is visible.
+- Non-`CrudForm` writes go through `useGuardedMutation` with optimistic-lock headers. Dialogs support `Cmd/Ctrl+Enter` to submit and `Escape` to cancel.
+
+### Company v2 detail page: Relationships tab
+
+- **Tab registration:** `CompanyDetailTabs` gets a built-in `'relationships'` tab (icon `Network`, label `customers.companies.tabs.relationships`) placed after People, with an optional additive `relationshipsCount` badge prop. The tab is shown to everyone with `customers.companies.view`. Add/Edit/Delete controls appear only with `customers.companies.manage`.
+- **Corporate hierarchy group (read-only):** above the typed list, the tab renders the canonical parent and the first page of direct children from `GET /api/customers/companies/{id}/hierarchy` (hierarchy spec), labelled "Parent company" / "Subsidiary" from the hierarchy's own fields. It has **no** Add/Edit/Remove action; one "Manage in company details" link opens the company form group that owns `parentCompanyId`. The group is hidden when the company has neither a parent nor children, and a failure there degrades to a compact inline error while the typed list still renders.
+- **`CompanyLinksSection`:** a flat list of typed links (never the corporate hierarchy) sorted by type name and then related company name. Each row shows:
+  - the **label** chip (the link type's own label, e.g. "Partner", or the per-side label of a tenant-defined `parent_child` type);
+  - the related company name, linking to that company's v2 page;
+  - the type name, as muted secondary text;
+  - row actions: Edit, Remove (with a confirm dialog).
+
+  Above the list sit a search box, a type filter, and an **Add relationship** button that owns its own toolbar action, following `2026-10-03-customer-tab-actions.md`.
+- **Add:** opens `LinkEntityDialog` with an adapter from `createCompanyLinkAdapter({ excludeIds })`, where `excludeIds` holds the current company. Already-related companies stay selectable, because a company can be related through several types. `renderLinkSettings` provides:
+  - a **Type** select;
+  - for `parent_child` types, a **"Selected company is"** toggle with the two labels as options ("Parent company" / "Subsidiary").
+
+  On confirm, the client sends one `POST` per company in `addedIds`. Successes and failures are reported separately: a success flash with the count, and one error line per failed company with the translated reason. When "Selected company is" is set to the parent side and more than one company is added, the confirm handler rejects before any `POST` with a translated local error (`createCrudFormError`), because the current company can have only one parent *of that link type*. This needs no change to the `LinkEntityDialog` contract and never touches the corporate hierarchy group.
+- **Edit:** `CompanyLinkDialog` changes the type and/or swaps the direction. The related company can't change; to point at another company, remove the relationship and add a new one. The `PUT` is wrapped in `withScopedApiRequestHeaders(buildOptimisticLockHeader(row.updatedAt), …)`, and conflicts go through `surfaceRecordConflict(err, t)`.
+- **States:** `LoadingMessage`, `ErrorMessage`, and an empty state with a short explanation plus an Add button (when permitted). An SSE event `customers.company_link.*` that involves this company triggers a refetch.
+- All strings come from the `customers` locale files. Only DS tokens are used, with no status colors (the label chip uses the neutral `Tag`/`Badge` variant).
+
+### Frontend architecture contract
+
+Both surfaces live inside **existing client roots**: the settings page at `/backend/config/customers` (inside `CustomersConfigurationSections`) and the company detail page at `/backend/customers/companies-v2/[id]` (inside `CompanyDetailTabs`). This feature adds no top-level `use client` page root, no global provider, no new context and no new runtime dependency; those roots keep their existing legacy client-root exception and gain only the leaf mount points plus, for the tab, an optional `relationshipsCount` prop.
+
+| Client unit | Kind | Responsibility and guardrail |
+|---|---|---|
+| `CompanyLinkTypeSettings` (`components/CompanyLinkTypeSettings.tsx`) | client leaf rendered in the existing settings root | type list and create/edit/delete dialogs; all reads/writes through `apiCall` + `useGuardedMutation`; aborts in-flight loads on unmount; under 300 LOC |
+| `CompanyLinksSection` (`components/detail/CompanyLinksSection.tsx`) | client leaf rendered in the existing company-detail tab | typed-link list, search, type filter, pagination, SSE refetch, and the read-only hierarchy group fetched from `/api/customers/companies/{id}/hierarchy`; takes `companyId` and `canManage` as props; under 300 LOC |
+| `CompanyLinkDialog` (`components/detail/CompanyLinkDialog.tsx`) | client leaf | edit dialog (type + direction), scoped optimistic-lock header, conflict bar, `Cmd/Ctrl+Enter` submit and `Escape` cancel; under 300 LOC |
+
+- **Server-side data owners:** the three API routes plus `makeCrudRoute` own tenant/org scoping, decryption, invariant checks, the keyset-batched complete-set read and the cardinality cap. No client file imports ORM (`@mikro-orm/*`) or encryption helpers, and neither leaf runs a recursive or unpaginated query.
+- **Provider and dependency scope:** no new React context or global provider; the existing app shell supplies auth/tenant scope, and the section receives `companyId`/`canManage` explicitly.
+- **Client-root growth:** no orchestration moves into either legacy root; the company-detail root gains only the tab's lazy section mount.
+- **Bundle budgets:** no new shared dependency chunk; added route code is capped at **5 KiB gzip** for the settings route and **10 KiB gzip** for the company-detail route (the same budget as the hierarchy spec for this page). Investigate any growth above budget before merge.
+- **Required evidence when implemented:** route hydration and keyboard tests for both routes, `yarn check:client-boundaries` (with `yarn check:client-boundaries:fail` in CI), and a before/after production bundle comparison for both routes recorded in the implementation PR.
+
+## 📝 Edge Cases & Failure Scenarios
+
+| Scenario | Behavior |
+|---|---|
+| Two users at once make A parent of B and B parent of A (same type) | The type-row lock serializes them. The second write sees the first and gets `409 cycle`. |
+| Two users at once add different parents to the same child | The single-parent partial unique index rejects the second insert, and the DB error maps to `409 parentExists`. |
+| Changing the dependency type of a type that's in use | `409 dependencyTypeLocked`; the UI disables the control in advance. |
+| Deleting a type that's in use | `409 inUse` with a count. |
+| Deleting a company that has relationships | Blocked by the existing dependents error, which now also lists "company relationships (N)". |
+| Undo of a relationship delete after the same slot was taken (another parent added, or a cycle formed) | Undo re-runs the invariant checks and fails with the same translated 409. The row stays deleted. |
+| Undo of a type delete when the name is taken again | Fails with `409 duplicateName`. |
+| Undo of a relationship update after the old slot was taken | Undo-of-update locks old and new types, re-runs the checks and fails with the matching 409; the row keeps its current state. |
+| Changing a relationship from an `equal` to a `parent_child` type without choosing a direction | `400 directionRequired`; the edit dialog always sends the direction, so only raw API callers hit this. |
+| A company is deleted while someone adds a relationship to it | Both commands lock the company row, so they serialize: either the delete is blocked by the new relationship, or the create gets `404 companyNotFound`. |
+| Undo of an old relationship delete after one of its companies was deleted | Fails with `404 companyNotFound` (the company delete hard-deleted the soft-deleted row). |
+| Related company is outside the caller's organization scope | Writes return 404 `companyNotFound`; the read endpoint leaves the row out. |
+| Renaming a type or its labels | Every relationship of that type shows the new labels immediately, because labels are resolved at read time. |
+| Stale edit | `409` optimistic-lock conflict, shown through the unified conflict bar. |
+| A large group (hundreds of subsidiaries) | The tab paginates (`pageSize` ≤ 100), with complete-set search and a type filter. |
+| A company reaches the 2,000-relationship cap | The next create or undo-of-delete is rejected with `409 cardinalityLimit`; existing links keep working and the per-company read stays complete and bounded. |
+| The company's corporate parent is changed in the hierarchy picker while the tab is open | The tab's read-only hierarchy group refreshes from the hierarchy route and shows the new parent; typed links are unaffected. No relationship write ever changes `parentCompanyId`, so the two can never disagree about the corporate parent. |
+| A tenant defines its own descriptive `parent_child` type (e.g. "Franchisor" / "Franchisee") | It appears in the typed list with its own labels, visually separate from the corporate hierarchy group, and never becomes the company's `parentCompanyId`. |
+
+## 📝 Risks & Impact Review
+
+| Risk | Severity | Area | Mitigation | Residual |
+|---|---|---|---|---|
+| Company deletion is newly blocked by relationships | Medium | `commands/companies.ts`, UX | Uses the existing blocker message pattern, the user sees exactly what to remove, and only data created after this feature is affected | Low |
+| Contention from the cycle-check lock | Low | write throughput for one type | The lock is per type, the transaction is short, and relationship writes are rare | Low |
+| `dependency_type` copy on relationship rows drifts from the type | Medium | data integrity | The type's `dependencyType` is immutable while `usageCount > 0`; type commands and relationship commands take the same type-row lock, and relationship updates recompute the copy | Low |
+| Deadlock between relationship writes | Low | write availability | Type rows and then company rows are always locked in ascending id order | Low |
+| In-memory filtering on the per-company read | Low | performance | Complete-set keyset-batched read, hard-bounded by the 2,000-active-relationships-per-company write cap; search, the type filter and `total` cover the whole set | Low |
+| Cross-tenant leak through the related company | High | security | Writes require both companies to match the relationship scope, reads filter by scope, and integration tests cover a cross-org attempt | Low |
+| Two sources of truth for corporate parentage | High | data integrity, hierarchy spec | `CustomerCompanyProfile.parentCompanyId` stays the only corporate parent: no corporate `parent_child` seed, no relationship write touches it, and the tab renders it read-only from the hierarchy route; descriptive `parent_child` link types are shown in a separate group | Low |
+| Entity/table identity collision with the classification spec | High | schema, entity discovery | This feature uses `CustomerCompanyLinkType` / `customer_company_link_types` and `CustomerCompanyLink` / `customer_company_links`; `CustomerCompanyRelationshipType` / `customer_company_relationship_types` remains owned by `2026-10-22-crm-company-relationship-types.md` | None |
+| Contract surfaces (`BACKWARD_COMPATIBILITY.md`) | Low | API, events, DB, UI | Everything is additive: new tables, routes and events; a new built-in tab id (`CompanyTabId` already accepts `string`); a new optional `relationshipsCount` prop on `CompanyDetailTabs` for the badge; no change to `LinkEntityDialog`; no existing route, event or ACL id changes | None |
+
+**Rollback:** turn off the UI by reverting the tab and settings section. The tables are additive and can stay. Reverting the migration drops both new tables and nothing else.
+
+## 📋 Phasing
+
+1. **Phase 1 — Relationship types:** entity, migration, validators, commands, CRUD API, events, seed defaults, settings section, i18n, tests. It ships alone: admins can define types.
+2. **Phase 2 — Relationships backend:** entity, migration, invariant library, commands with undo, write API plus the per-company read API, company-delete blocker, events, tests. It ships alone: the API is usable.
+3. **Phase 3 — Relationships tab (v2):** tab registration, section, add/edit dialogs, live refresh, integration tests. This completes the feature.
+
+## 📋 Implementation Plan
+
+### Phase 1 — Relationship types
+1. Add `CustomerCompanyLinkType` to `data/entities.ts`, generate the migration with `yarn db:generate` (keep only this change) and update the snapshot. **Test:** `yarn db:generate` reports no changes afterwards.
+2. Add zod schemas (create/update/delete, with the `parent_child` label refinement) to `data/validators.ts`. **Test:** validator unit tests.
+3. Add `commands/companyLinkTypes.ts` (create/update/delete with undo, all under the type-row lock; duplicate-name check now; the `dependencyTypeLocked` and `inUse` checks are written against a usage-count helper that returns 0 until Phase 2) and register the events. **Test:** command unit tests, including undo.
+4. Add `api/company-link-types/route.ts` (`makeCrudRoute` + `indexer`, OpenAPI; `usageCount` in `afterList`, always 0 until Phase 2). Run `yarn generate`. **Test:** route unit tests.
+5. Seed **"Partner" only** (no corporate `parent_child` default) in `seedDefaults`, skipping when a type with the same normalized name exists. **Test:** seeding is idempotent and creates no `parent_child` type.
+6. Add `CompanyLinkTypeSettings` to `CustomersConfigurationSections`, plus i18n keys for all locales. **Test:** component test; `yarn i18n:check-sync`; `yarn check:client-boundaries`.
+7. Integration tests TC-CRM-REL-001/002 (below).
+
+### Phase 2 — Relationships backend
+1. Add `CustomerCompanyLink` with the check constraint and partial unique indexes, migration and snapshot.
+2. Add `lib/companyLinks.ts`: canonical ordering, orientation (`role`/`label`), the `MAX_COMPANY_LINKS` constant and the invariant checks, including the recursive-CTE cycle check and the cardinality cap, all under the type-row and company-row locks. **Test:** unit tests for each invariant, for the cap (including a concurrent-insert race) and for orientation.
+3. Add `commands/companyLinks.ts` (create/update/delete with undo; update and both undos re-validate; type change recomputes `dependency_type` and the pair order; DB unique violations map to translated 409s) and events with `clientBroadcast` and both company ids in the payload. Wire the real usage count into the type commands and `afterList`. **Test:** command unit tests, including a type change from `equal` to `parent_child` and back, and a cap-rejecting create and undo.
+4. Add `api/company-links/route.ts` (writes plus generic GET) and `api/companies/[id]/links/route.ts` (oriented read with the keyset-batched complete-set fetch). **Test:** route unit tests, including a candidate set larger than one read batch.
+5. Extend `deleteCompanyCommand` with the relationships blocker and the cleanup of soft-deleted rows. **Test:** extend the existing company-delete tests.
+6. Integration tests TC-CRM-REL-003..006, TC-CRM-REL-010 and TC-CRM-REL-011.
+
+### Phase 3 — Relationships tab (v2 company page)
+1. Add the `'relationships'` tab plus the optional `relationshipsCount` to `CompanyDetailTabs`. **Test:** update `CompanyDetailTabs.test.tsx`.
+2. Add `CompanyLinksSection` (read-only corporate-hierarchy group from the hierarchy route, typed list, search, type filter, empty/loading/error states, SSE refetch) and render it in `companies-v2/[id]/page.tsx` when `activeTab === 'relationships'`. **Test:** section component test, including a hierarchy failure that leaves the typed list usable.
+3. Add the add flow through `LinkEntityDialog` + `companyAdapter` with `renderLinkSettings`, per-company result reporting, and the single-parent selection limit. **Test:** component test.
+4. Add `CompanyLinkDialog` (edit: type and direction, optimistic lock, conflict bar) and remove with confirm, both through `useGuardedMutation`. **Test:** component test.
+5. Integration tests TC-CRM-REL-007..009 and TC-CRM-REL-012, route hydration and keyboard tests for both routes, `yarn check:client-boundaries:fail` plus the before/after production bundle comparison for both routes, then the full validation gate (`.ai/agentic.config.json`).
+
+### Integration coverage (`customers/__integration__/`, self-contained fixtures created via the API, cleaned up in teardown)
+
+| ID | Path | Scenario |
+|---|---|---|
+| TC-CRM-REL-001 | `/api/customers/company-link-types` | CRUD; label refinement; duplicate name → 409 |
+| TC-CRM-REL-002 | `/backend/config/customers` | create/edit/delete a type in settings |
+| TC-CRM-REL-003 | `/api/customers/company-links` | create `parent_child` and `equal`; `equal` stored canonically (B↔A duplicate → 409); self-relation → 409 |
+| TC-CRM-REL-004 | same | second parent → 409 `parentExists`; A→B→C then C→A → 409 `cycle`; update swap direction |
+| TC-CRM-REL-005 | same + `/api/customers/companies/{id}/links` | orientation (`role`/`label`) from both sides; company in another org → 404 and not listed |
+| TC-CRM-REL-006 | `DELETE /api/customers/companies` | delete blocked while relationships exist; allowed after they're removed |
+| TC-CRM-REL-007 | `/backend/customers/companies-v2/{id}?tab=relationships` | add a subsidiary through the dialog; it appears on both companies with the correct labels |
+| TC-CRM-REL-008 | same | edit (swap direction), remove with confirm, empty state |
+| TC-CRM-REL-009 | same | a user with `customers.companies.view` only sees the list without Add/Edit/Remove |
+| TC-CRM-REL-010 | `/api/customers/company-link-types` + `/backend/config/customers` (Phase 2) | type in use: `PUT` changing `dependencyType` → 409, `DELETE` → 409 `inUse`; settings UI disables the dependency type and shows the delete error |
+| TC-CRM-REL-011 | `/api/customers/companies/{id}/links` + `/api/customers/company-links` | complete-set read past one batch: with 1,001 relationships on one company, an exact-name match that sorts beyond the first batch is reachable through `search` and through its own page, and `total` is exact with and without `linkTypeId`; the 2,001st link → 409 `cardinalityLimit` |
+| TC-CRM-REL-012 | `/backend/customers/companies-v2/{id}?tab=relationships` + `/api/customers/companies` + `/api/customers/companies/{id}/hierarchy` | canonical hierarchy is the only corporate parent: the tab shows the parent/children from `parentCompanyId`, adding a descriptive `parent_child` link and an `equal` link leaves `parentCompanyId` and the hierarchy route unchanged, and the tab offers no corporate Add/Edit/Remove control |
+
+## 📝 Final Compliance Report
+
+- Inside a single module; no cross-module ORM relations: ✅
+- Tenant/org scoping on every read and write; cross-org test included: ✅
+- `makeCrudRoute` + `indexer`, undoable commands, `withAtomicFlush`, side effects after commit: ✅
+- Optimistic locking (`updated_at`, `updatedAt` in responses, lock headers in custom dialogs): ✅
+- Reuses existing ACL features; no new ones: ✅
+- i18n for all strings; DS tokens only; dialog keyboard shortcuts: ✅
+- Additive contract changes only (`BACKWARD_COMPATIBILITY.md`): ✅
+- Distinct entity/table/route identities from the classification spec; no second corporate-parent source of truth: ✅
+- Frontend architecture contract (client leaves, server-side data owners, provider/dependency scope, client-root growth, bundle budgets, hydration/keyboard/client-boundary evidence): ✅
+- Integration tests listed for every new API and UI path: ✅
+
+## Changelog
+
+- 2026-11-14: Added the required frontend architecture contract for both UI routes (client leaves and their guardrails, server-side data owners, no new provider/dependency, client-root growth limits, 5/10 KiB gzip route budgets, hydration/keyboard tests, `yarn check:client-boundaries` and bundle evidence), and wired the checks into the Phase 1 and Phase 3 implementation steps.
+- 2026-11-14: Reconciled with the existing CRM specs (review findings on `:65–78` and `:28`): renamed the entities to `CustomerCompanyLinkType` / `customer_company_link_types` and `CustomerCompanyLink` / `customer_company_links` (with matching routes, commands, events, i18n and files), so nothing collides with the classification spec's `CustomerCompanyRelationshipType`; removed the "Corporate group" seed and made `CustomerCompanyProfile.parentCompanyId` the only corporate parent, which the tab now displays read-only from the hierarchy route, with descriptive `parent_child` link types kept separate. Added TC-CRM-REL-012 and the corresponding risk, edge-case and implementation-plan entries.
+- 2026-11-14: Complete-set per-company read (review finding on `:163`): the route now walks the whole candidate set in bounded keyset batches instead of silently capping the fetch at 1,000 rows, so `search`, the type filter, `total` and pagination cover every saved relationship; the read is bounded by a new explicit write-side cap of 2,000 active relationships per company (`409 cardinalityLimit`), and TC-CRM-REL-011 covers 1,001 links with a match beyond the first batch.
+
+- 2026-10-26: Applied the architectural review: type-change semantics on `PUT` (`directionRequired`, recomputed `dependency_type` and pair order); lock ordering for types and company rows (company-delete race, #7613); type-side lock serialization; undo-of-update re-validation; `excludeIds` instead of `clientFilter`, and a single-parent check in the confirm handler; in-memory search because `display_name` is encrypted; consequences of the company hard delete for undo; DB `CHECK` for canonical order; `usageCount` via `afterList`; both company ids in the event payload; translated seeds; precise ACL wording; in-use integration case moved to Phase 2 (TC-CRM-REL-010).
+- 2026-10-26: Initial spec. Open Questions resolved: per-side labels for `parent_child`; dedicated types table; block cycles and allow one parent per type; reject duplicates; no extra relationship fields; block deleting a type in use; v2 company page only; seed default types; flat list (tree view deferred).

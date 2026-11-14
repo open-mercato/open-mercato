@@ -386,9 +386,12 @@ it('does not emit a save failure when the post-save success callback throws', as
     const { container } = renderForm({ onSubmit, onSubmitSuccess, successRedirect: '/saved' })
     fireEvent.submit(container.querySelector('form')!)
     await waitFor(() => expect(onSubmitSuccess).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(container.querySelector('button[type="submit"]')).not.toBeDisabled())
-    expect(onSubmit).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/saved'))
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    // A successful save that redirects keeps the submit lock held until the
+    // route actually unmounts the form (issue #8645) — the button stays
+    // disabled rather than re-opening a window for a duplicate submit.
+    expect(container.querySelector('button[type="submit"]')).toBeDisabled()
     expect(saveError).not.toHaveBeenCalled()
     expect(container.textContent).not.toContain('refresh failed')
   } finally {
