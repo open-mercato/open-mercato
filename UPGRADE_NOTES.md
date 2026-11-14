@@ -1,5 +1,33 @@
 # Upgrade Notes
 
+## File-agent attachment inputs enforce read permissions (#9117)
+
+OpenCode file-agent runs with nonempty `__files.attachments` now require the
+execution principal to hold `attachments.view` and pass each attachment owner's
+existing read policy. All inputs are authorized before storage reads, sandbox
+writes, cached OCR disclosure, or billable OCR. Previously accepted runs that
+lacked these permissions now fail. Empty envelopes retain their behavior.
+
+**Clients and custom runtimes:** submit only files the execution principal may
+read. Custom callers of `stageAttachments` must supply that principal as `userId`
+for nonempty envelopes. A direct run uses its authenticated subject; workflow
+runs use the resolved workflow principal: the configured execution grant, or
+otherwise the initiating user and then the definition creator. Audit-only `runAs`
+does not replace that principal. A denial fails the run before the model is prompted; do not retry
+it with a more privileged identity.
+
+**Operators:** review existing file-agent and workflow grants for
+`attachments.view` and the protected owner's read requirements. Grant only
+intended access through existing permissions and record sharing. No environment,
+startup, dependency, or database migration is required. Already staged files,
+model input, and cached OCR from earlier unauthorized runs are not revoked or
+erased by this change; assess affected run artifacts and retention using your
+existing incident process. Rolling back restores the authorization bypass.
+
+Maintainer @pkarw explicitly acknowledged the steps 1–3 security exception on
+2026-11-13 in the task conversation; [the acknowledgment is recorded on the PR](https://github.com/open-mercato/open-mercato/pull/9127#issuecomment-6852864115).
+QA sign-off remains separate. See the
+[migration and compatibility specification](.ai/specs/enterprise/agent-orchestrator/next/2026-06-26-agent-attachments-and-artifacts.md#migration--backward-compatibility).
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app
