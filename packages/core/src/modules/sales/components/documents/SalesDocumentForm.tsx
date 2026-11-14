@@ -31,7 +31,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import {
   DictionaryEntrySelect,
@@ -150,6 +150,7 @@ type CustomerQuickCreateProps = {
 }
 
 function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
+  const locale = useLocale()
   const [menuOpen, setMenuOpen] = React.useState(false)
   const [dialog, setDialog] = React.useState<'person' | 'company' | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -271,7 +272,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
     async (values: CompanyFormValues) => {
       setSaving(true)
       try {
-        const payload = buildCompanyPayload(values, organizationId)
+        const payload = buildCompanyPayload(values, organizationId, locale)
         const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/companies', payload, {
           errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
         })
@@ -308,7 +309,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
         setSaving(false)
       }
     },
-    [closeDialog, onCreated, organizationId, t],
+    [closeDialog, locale, onCreated, organizationId, t],
   )
 
   const renderMenu = () => (
