@@ -14,7 +14,6 @@ export type ComboboxOption = {
 }
 
 export type ComboboxInputProps = {
-  id?: string
   value: string
   onChange: (next: string) => void
   placeholder?: string
@@ -70,7 +69,6 @@ function areOptionsEqual(a: ComboboxOption[], b: ComboboxOption[]): boolean {
 }
 
 export function ComboboxInput({
-  id,
   value,
   onChange,
   placeholder,
