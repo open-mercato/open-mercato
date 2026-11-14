@@ -13,6 +13,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import * as crudCacheHelpers from '@open-mercato/shared/lib/crud/cache'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
@@ -323,6 +324,115 @@ describe('CRUD Factory', () => {
         queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
       }),
     }))
+  })
+
+  describe('soft-deleted list visibility (#9154)', () => {
+    const liveRow = { id: 'live', title: 'Visible', deleted_at: null }
+    const deletedRow = { id: 'deleted', title: 'Retracted', deleted_at: '2026-01-01T00:00:00Z' }
+
+    function makeDeletedRoute(allowWithDeleted?: boolean, useQueryEngine = true) {
+      return makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, orgField: 'organizationId', tenantField: 'tenantId' },
+        list: {
+          schema: z.object({ withDeleted: z.string().optional() }),
+          allowWithDeleted,
+          ...(useQueryEngine ? { entityId: 'example.todo', fields: ['id', 'title', 'deleted_at'] } : {}),
+          export: { enabled: true, formats: ['json'] },
+        },
+      })
+    }
+
+    function queueDeletedRows() {
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: { withDeleted?: boolean }) => {
+        const items = options.withDeleted ? [liveRow, deletedRow] : [liveRow]
+        return { items, total: items.length }
+      })
+    }
+
+    it.each([undefined, false])('ignores withDeleted=true when allowWithDeleted is %s despite the schema declaration', async (allowWithDeleted) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(allowWithDeleted).GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({
+        withDeleted: false,
+        tenantId: defaultTenantId,
+        organizationIds: [defaultOrganizationId],
+      }))
+    })
+
+    it('ignores a raw flag stripped by the default route schema', async () => {
+      queueDeletedRows()
+      const response = await route.GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items.map((item: { id: string }) => item.id)).toEqual(['live'])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: false }))
+    })
+
+    it.each([
+      ['true', true], ['1', true], ['yes', true], ['on', true],
+      ['false', false], ['0', false], ['no', false], ['off', false], ['', false], ['invalid', false],
+    ])('allows opted-in routes to parse withDeleted=%s as %s', async (token, expected) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(true).GET(new Request(`http://x/api/example/todos?withDeleted=${token}`))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual(expected ? [liveRow, deletedRow] : [liveRow])
+    })
+
+    it('keeps deleted rows hidden on an opted-in route when the flag is absent', async () => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(true).GET(new Request('http://x/api/example/todos'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+    })
+
+    it.each([false, true])('applies the explicit opt-in policy to full exports (allowWithDeleted=%s)', async (allowWithDeleted) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(allowWithDeleted).GET(new Request('http://x/api/example/todos?withDeleted=true&format=json&exportScope=full'))
+      expect(response.status).toBe(200)
+      const exported = await response.json()
+      expect(JSON.stringify(exported)).toContain('Visible')
+      expect(JSON.stringify(exported).includes('Retracted')).toBe(allowWithDeleted)
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: allowWithDeleted }))
+    })
+
+    it.each([undefined, false, true])('applies the opt-in policy to the ORM fallback (allowWithDeleted=%s)', async (allowWithDeleted) => {
+      db = {
+        live: { id: 'live', title: 'Visible', organizationId: defaultOrganizationId, tenantId: defaultTenantId },
+        deleted: { id: 'deleted', title: 'Retracted', deletedAt: new Date(), organizationId: defaultOrganizationId, tenantId: defaultTenantId },
+      }
+      const response = await makeDeletedRoute(allowWithDeleted, false).GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual(allowWithDeleted ? ['live', 'deleted'] : ['live'])
+      expect(queryEngine.query).not.toHaveBeenCalled()
+    })
+
+    it('separates opted-in cached results from default-hidden routes and legacy cache keys', async () => {
+      const cacheEnabled = jest.spyOn(crudCacheHelpers, 'isCrudCacheEnabled').mockReturnValue(true)
+      try {
+        queueDeletedRows()
+        queueDeletedRows()
+        const request = new Request('http://x/api/example/todos?withDeleted=true')
+        const allowedResponse = await makeDeletedRoute(true).GET(request)
+        expect((await allowedResponse.json()).items).toEqual([liveRow, deletedRow])
+        const allowedKey = crudCache.get.mock.calls.at(-1)?.[0] ?? ''
+        expect(allowedKey).toContain('deletedPolicy:allowed')
+        const legacyKey = allowedKey.replace('|deletedPolicy:allowed', '')
+        expect(legacyKey).toBeDefined()
+        crudCacheStore.set(legacyKey, { payload: { items: [liveRow, deletedRow], total: 2 } })
+        const hiddenRoute = makeDeletedRoute()
+        const hiddenResponse = await hiddenRoute.GET(request)
+        expect((await hiddenResponse.json()).items).toEqual([liveRow])
+        expect(crudCache.get.mock.calls.at(-1)?.[0]).toContain('deletedPolicy:hidden')
+        const cachedResponse = await hiddenRoute.GET(request)
+        expect((await cachedResponse.json()).items).toEqual([liveRow])
+        expect(queryEngine.query).toHaveBeenCalledTimes(2)
+      } finally {
+        cacheEnabled.mockRestore()
+      }
+    })
   })
 
   it('GET returns an empty page before hooks, cache, query engine, EM, RBAC, or data engine for explicit empty scope', async () => {
