@@ -114,11 +114,14 @@ The reassign gate deliberately checks **visibility, not ownership** — requirin
 | `canClaim` | `claimable` — may take it off its role queue. |
 | `canRelease` | Holds the claim on an `IN_PROGRESS` row and may release it. |
 | `canReassign` | Visible **and** holds `workflows.tasks.reassign` **and** the row is still open — the gate the reassign endpoint applies, ownership included nowhere. |
-| `actBlockedReason` | Why `canComplete` is `false`: `not-workable` · `owned-by-another` · `not-in-your-queue` · `unowned` · `unavailable`. `null` when it is `true`. |
+| `actBlockedReason` | Why `canComplete` is `false`: `not-workable` · `owned-by-another` · `not-in-your-queue` · `unowned` · `unavailable` · `completion-guard`. `null` when it is `true`. |
+| `completionGuard` | `{ guardId, code, messageKey }` of the host [completion guard](./extending#task-completion-guards) that vetoed, when `actBlockedReason` is `completion-guard`; otherwise `null`. |
 
-All six are **additive** and every pre-existing field is unchanged. `resolveTaskAffordances` (`lib/task-visibility.ts`, pure) computes them from the same `decideTaskVisibility` result the read gate used — a second copy of the rule in a client is a review failure, exactly as it is on the server.
+All seven are **additive** and every pre-existing field is unchanged. `resolveTaskAffordances` (`lib/task-visibility.ts`, pure) computes them from the same `decideTaskVisibility` result the read gate used — a second copy of the rule in a client is a review failure, exactly as it is on the server.
 
 `actBlockedReason` names only distinctions the caller can already draw from the same payload (`status`, `assignedTo`, `claimedBy`, `assignedToRoles`). `unavailable` is the deliberate exception: it stands for the entity-gate refusal reachable under the tenant opt-out, which the act routes answer as a bare 404, so it names neither the binding nor the reason code. Widening it would hand a caller precisely what that 404 withholds.
+
+`completion-guard` is reached only when the row is otherwise the caller's to complete, so every reason above keeps its precedence. The guards run in `preview` mode on a never-flushed fork, and the guard's free-text `message` stays out of the read payload — the page renders `messageKey`.
 
 The backoffice task page gates Complete, Claim, Release and Reassign on these flags, states the reason when an action is unavailable, and offers the reassign control inline wherever reassignment is the named remedy.
 
