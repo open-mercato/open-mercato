@@ -212,6 +212,39 @@ describe('runTimeTrackingRecalculations', () => {
     }
   })
 
+  it.each([
+    ['no progress job id', null],
+    ['a progress job id queued before the module was disabled', 'job-queued-earlier'],
+  ])('runs the hooks with %s when the progress module is disabled', async (_label, progressJobId) => {
+    const dispose = registerTimeTrackingRecalculation({
+      id: 'test.recalculation.no-progress',
+      labelKey: 'test.no-progress',
+      run: async (ctx: TimeTrackingRecalculationContext) => {
+        await ctx.report.setTotal(3)
+        await ctx.report.advance(3)
+        expect(await ctx.report.isCancellationRequested()).toBe(false)
+        return summaryWith({ totalCount: 3, processedCount: 3, updatedCount: 3 })
+      },
+    })
+    const container = {
+      resolve: (name: string) => {
+        throw new Error(`[internal] Could not resolve ${name}`)
+      },
+    } as unknown as TimeTrackingRecalculationContext['container']
+    try {
+      const summary = await runTimeTrackingRecalculations({
+        container,
+        progressJobId,
+        scope: SCOPE,
+        hookIds: ['test.recalculation.no-progress'],
+      })
+      expect(summary.updatedCount).toBe(3)
+      expect(summary.cancelled).toBe(false)
+    } finally {
+      dispose()
+    }
+  })
+
   /**
    * The worker owns `failJob`; the runner must not write the failure a second
    * time, and must not complete a job whose hook threw.

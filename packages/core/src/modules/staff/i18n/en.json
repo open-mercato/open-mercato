@@ -1860,6 +1860,7 @@
   "staff.time_tracking.settings.retro.jobName": "Reapply rounding to existing entries",
   "staff.time_tracking.settings.retro.nothing": "There is nothing to recalculate.",
   "staff.time_tracking.settings.retro.queued": "Recalculating rounded time on {count} entries. Progress is shown in the top bar.",
+  "staff.time_tracking.settings.retro.queuedWithoutProgress": "Recalculating rounded time on {count} entries in the background.",
   "staff.time_tracking.settings.retro.saveFirst": "Save the rule first — the recalculation uses the saved rule, not the one on screen.",
   "staff.time_tracking.settings.retro.title": "Apply retroactively to existing entries",
   "staff.time_tracking.settings.retry": "Try again",

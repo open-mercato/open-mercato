@@ -8,6 +8,7 @@ import { migrateProjectCodes } from './lib/time-tracking/migrateProjectCodes'
 import { resolveContainerProjectCodeGenerator, seedSupportDefaults } from './lib/support/seedDefaults'
 import { appendWidgetsToRoles } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
+import { tryResolve } from './lib/tryResolve'
 import {
   STAFF_TIME_REAPPLY_ROUNDING_JOB_TYPE,
   STAFF_TIME_REAPPLY_ROUNDING_QUEUE,
@@ -340,8 +341,8 @@ const recalculateCommand: ModuleCli = {
         userId: null,
       }
       const jobName = await resolveRecalculationJobName()
-      const progressService = container.resolve<ProgressService>('progressService')
-      const progressJob = await progressService.createJob(
+      const progressService = tryResolve<ProgressService>(container, 'progressService')
+      const progressJob = progressService ? await progressService.createJob(
         {
           jobType: STAFF_TIME_REAPPLY_ROUNDING_JOB_TYPE,
           name: jobName,
@@ -351,11 +352,11 @@ const recalculateCommand: ModuleCli = {
           meta: { source: 'staff.timesheets.cli.recalculate', hookIds: resolvedHookIds },
         },
         { tenantId, organizationId: organizationId || null, userId: null },
-      )
+      ) : null
       const queue = getStaffQueue(STAFF_TIME_REAPPLY_ROUNDING_QUEUE)
-      await queue.enqueue({ progressJobId: progressJob.id, scope, hookIds: resolvedHookIds })
+      await queue.enqueue({ progressJobId: progressJob?.id ?? null, scope, hookIds: resolvedHookIds })
       console.log('⏱️  Time-tracking recalculation enqueued:', resolvedHookIds.join(', '))
-      console.log('    Progress job:', progressJob.id)
+      console.log('    Progress job:', progressJob?.id ?? 'none (progress module disabled)')
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {

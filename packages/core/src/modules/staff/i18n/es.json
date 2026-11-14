@@ -1860,6 +1860,7 @@
   "staff.time_tracking.settings.retro.jobName": "Aplicar el redondeo a las entradas existentes",
   "staff.time_tracking.settings.retro.nothing": "No hay nada que recalcular.",
   "staff.time_tracking.settings.retro.queued": "Recalculando el tiempo redondeado de {count} entradas. El progreso se muestra en la barra superior.",
+  "staff.time_tracking.settings.retro.queuedWithoutProgress": "Recalculando en segundo plano el tiempo redondeado de {count} entradas.",
   "staff.time_tracking.settings.retro.saveFirst": "Guarda primero la regla: el recálculo usa la regla guardada, no la que se ve en pantalla.",
   "staff.time_tracking.settings.retro.title": "Aplicar retroactivamente a las entradas existentes",
   "staff.time_tracking.settings.retry": "Reintentar",
