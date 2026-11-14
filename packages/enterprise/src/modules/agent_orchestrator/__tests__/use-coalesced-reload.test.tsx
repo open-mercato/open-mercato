@@ -89,4 +89,21 @@ describe('useCoalescedReload', () => {
     })
     expect(reload).toHaveBeenCalledTimes(1)
   })
+
+  it('replaces a pending trailing run when another trigger fires at its deadline', () => {
+    const reload = jest.fn()
+    const { result } = renderHook(() => useCoalescedReload(reload))
+
+    act(() => {
+      result.current()
+      setTimeout(() => result.current(), 5000)
+      result.current()
+    })
+
+    act(() => { jest.advanceTimersByTime(5000) })
+    expect(reload).toHaveBeenCalledTimes(2)
+    expect(jest.getTimerCount()).toBe(0)
+    act(() => { jest.advanceTimersByTime(5000) })
+    expect(reload).toHaveBeenCalledTimes(2)
+  })
 })
