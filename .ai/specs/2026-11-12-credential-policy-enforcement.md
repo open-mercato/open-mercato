@@ -24,6 +24,12 @@ Clients must submit passwords satisfying the configured policy on signup, invita
 ## Validation Plan
 Retain the six-schema unit matrix, setup/alias/derived-account regressions and request-handler rejection-before-mutation checks. The executable customer regression covers weak admin creation/reset/change rejection, retained login and compliant reset/login. Current-head runtime coverage still needs signup, invitation acceptance, reset-confirm, compliant change, denied scope, retry, CLI setup, English/Polish and mobile evidence. Required CI and personal QA remain merge gates.
 
+## Supporting QA repairs (2026-11-14)
+
+The admin reset validation headline uses a module translation key in all five locales before user lookup or mutation. Session-bound API and SSR authentication compare the verified, owner-and-scope-bound session row's existing `createdAt` Date with `sessionsRevokedAt`, retaining millisecond precision. Numeric JWT `iat` remains the fallback for legacy or unavailable creation metadata. The private session helpers retain the existing liveness query and fail closed on lookup failure. Public signatures, JWT/cookie shapes, TTLs, canonical user scope and RBAC behavior remain unchanged. Pre-reset sessions remain refused even with later refreshed JWT timestamps.
+
+Request/cookie unit regressions cover same-second new sessions and pre-reset-session refusal; existing revoked/wrong-owner/wrong-scope/legacy and TypeScript compatibility cases remain. `TC-AUTH-3821-password-policy.spec.ts` adds ten rapid reset/login/profile cycles and verifies each previous session is immediately unauthorized. The original human compatibility decision is retained for its documented password-policy scope; these changes grant no current-head personal QA or CI approval.
+
 ## Final Compliance Report
 Source changes retain shared mechanisms and introduce no schema or dependency changes. The named compatibility exception is approved and recorded. Exact-head validation and QA remain required.
 
@@ -32,3 +38,5 @@ Source changes retain shared mechanisms and introduce no schema or dependency ch
 
 - 2026-11-13: Recorded Piotr Karwatka’s scoped security-exception approval; validation and QA gates retained.
 - 2026-11-13: Repaired init credential forwarding so development defaults remain disposable and generated production derived credentials satisfy the configured policy.
+
+- 2026-11-14: Added translated admin reset validation and precise verified-session revocation checks with request/cookie and rapid-reset regressions; protected current-head QA and CI remain required.

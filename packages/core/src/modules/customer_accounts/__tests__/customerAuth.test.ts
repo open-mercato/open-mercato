@@ -86,6 +86,34 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     })
   })
 
+  it.each(['cookie', 'bearer'])('accepts a post-reset session created within the same JWT second via %s', async (credential) => {
+    const second = Math.floor(Date.now() / 1000)
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId, tenantId, organizationId: orgId, customerEntityId: null, personEntityId: null,
+      sessionsRevokedAt: new Date(second * 1000 + 100), deletedAt: null, isActive: true,
+    })
+    findActiveSessionForClaims.mockResolvedValueOnce({ id: sessionId, createdAt: new Date(second * 1000 + 200) })
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload({ iat: second }))
+    const headers: Record<string, string> = credential === 'cookie' ? { cookie: buildCustomerCookieHeader(token) } : { authorization: `Bearer ${token}` }
+
+    await expect(getCustomerAuthFromRequest(new Request('http://localhost/api/customer/me', { headers }))).resolves.toMatchObject({ sub: userId, sid: sessionId })
+  })
+
+  it('rejects a pre-reset session even when its refreshed JWT has a later issued-at', async () => {
+    const second = Math.floor(Date.now() / 1000)
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId, tenantId, organizationId: orgId, customerEntityId: null, personEntityId: null,
+      sessionsRevokedAt: new Date(second * 1000 + 100), deletedAt: null, isActive: true,
+    })
+    findActiveSessionForClaims.mockResolvedValueOnce({ id: sessionId, createdAt: new Date(second * 1000 - 100) })
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload({ iat: second + 1 }))
+
+    await expect(getCustomerAuthFromRequest(new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    }))).resolves.toBeNull()
+    expect(loadAcl).not.toHaveBeenCalled()
+  })
+
   it('accepts a valid customer token and looks up the referenced session', async () => {
     const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
     const req = new Request('http://localhost/api/customer/me', {

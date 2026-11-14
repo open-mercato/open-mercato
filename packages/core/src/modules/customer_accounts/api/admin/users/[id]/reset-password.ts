@@ -9,6 +9,7 @@ import { CustomerUserService } from '@open-mercato/core/modules/customer_account
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { adminResetPasswordSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {}
 
@@ -34,7 +35,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const parsed = adminResetPasswordSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.admin.detail.resetPassword.error.validation'), details: parsed.error.flatten().fieldErrors }, { status: 400 })
   }
 
   const customerUserService = container.resolve('customerUserService') as CustomerUserService

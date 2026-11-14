@@ -7,6 +7,7 @@ const mockUpdatePassword = jest.fn()
 const mockRevokeAllUserSessions = jest.fn()
 const mockTransactional = jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => cb({}))
 const mockEmit = jest.fn(async () => undefined)
+const mockTranslate = jest.fn()
 
 const rbacService = { userHasAllFeatures: mockUserHasAllFeatures }
 
@@ -41,6 +42,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: mockTranslate }),
+}))
+
 jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
   emitCustomerAccountsEvent: (...args: unknown[]) => mockEmit(...args),
 }))
@@ -65,6 +70,7 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockTranslate.mockReturnValue('Check the password requirements and try again.')
     mockUserHasAllFeatures.mockResolvedValue(true)
     mockFindById.mockResolvedValue({ id: userId, tenantId, organizationId: orgId, email: 'user@example.com' })
     mockUpdatePassword.mockResolvedValue(undefined)
@@ -83,6 +89,20 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
       expect(mockEmit).not.toHaveBeenCalled()
     },
   )
+
+  it('localizes policy rejection before user lookup or mutation', async () => {
+    mockTranslate.mockReturnValueOnce('Sprawdź wymagania dotyczące hasła i spróbuj ponownie.')
+    const response = await POST(makeRequest({ newPassword: 'longpassword' }), { params: { id: userId } })
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('Sprawdź wymagania dotyczące hasła i spróbuj ponownie.')
+    expect(body.details).toHaveProperty('newPassword')
+    expect(mockTranslate).toHaveBeenCalledWith('customer_accounts.admin.detail.resetPassword.error.validation')
+    expect(mockFindById).not.toHaveBeenCalled()
+    expect(mockTransactional).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
 
   it('runs updatePassword + revokeAllUserSessions inside em.transactional and emits both password.reset and password.changed after commit', async () => {
     const res = await POST(
