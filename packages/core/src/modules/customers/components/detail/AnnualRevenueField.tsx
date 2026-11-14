@@ -97,7 +97,7 @@ export function AnnualRevenueField({
           style: currency ? 'currency' : 'decimal',
           currency: currency ?? undefined,
           maximumFractionDigits: 2,
-        }).format(numeric)
+        }).format(numeric as `${number}`)
       } catch {
         formatted = currency ? `${currency} ${numeric}` : `${numeric}`
       }
@@ -147,11 +147,12 @@ export function AnnualRevenueField({
     }
     let numeric: number | null = null
     if (trimmedAmount.length) {
-      numeric = parseCompanyAnnualRevenue(trimmedAmount, locale)
-      if (numeric === null) {
+      const normalized = parseCompanyAnnualRevenue(trimmedAmount, locale)
+      if (normalized === null) {
         setError(t('customers.companies.detail.currency.invalidAmount', 'Enter a valid amount.'))
         return
       }
+      numeric = Number(normalized)
     }
     setSaving(true)
     try {

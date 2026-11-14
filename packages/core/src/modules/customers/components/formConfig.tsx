@@ -1586,7 +1586,7 @@ export function buildCompanyPayload(
     if (parsed === null) {
       throw new Error('ANNUAL_REVENUE_INVALID')
     }
-    payload.annualRevenue = String(parsed)
+    payload.annualRevenue = parsed
   }
 
   const customFields = collectCustomFieldValues(values, {

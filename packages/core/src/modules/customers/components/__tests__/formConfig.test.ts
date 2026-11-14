@@ -323,16 +323,62 @@ describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
 
 describe('company annual revenue locale decimal comma (issue #9430)', () => {
   it('parses a Polish decimal comma instead of stripping it as a thousands separator', () => {
-    expect(parseCompanyAnnualRevenue('1234,56', 'pl-PL')).toBe(1234.56)
-    expect(parseCompanyAnnualRevenue('15,99', 'pl-PL')).toBe(15.99)
-    expect(parseCompanyAnnualRevenue('150,5', 'pl-PL')).toBe(150.5)
-    expect(parseCompanyAnnualRevenue('2500000,13', 'pl-PL')).toBe(2500000.13)
+    expect(parseCompanyAnnualRevenue('1234,56', 'pl-PL')).toBe('1234.56')
+    expect(parseCompanyAnnualRevenue('15,99', 'pl-PL')).toBe('15.99')
+    expect(parseCompanyAnnualRevenue('150,5', 'pl-PL')).toBe('150.5')
+    expect(parseCompanyAnnualRevenue('2500000,13', 'pl-PL')).toBe('2500000.13')
   })
 
   it('still accepts a dot, so the workaround users learned keeps working', () => {
-    expect(parseCompanyAnnualRevenue('1234.56', 'pl-PL')).toBe(1234.56)
-    expect(parseCompanyAnnualRevenue('15.99', 'pl-PL')).toBe(15.99)
-    expect(parseCompanyAnnualRevenue('150.5', 'en-US')).toBe(150.5)
+    expect(parseCompanyAnnualRevenue('1234.56', 'pl-PL')).toBe('1234.56')
+    expect(parseCompanyAnnualRevenue('15.99', 'pl-PL')).toBe('15.99')
+    expect(parseCompanyAnnualRevenue('150.5', 'en-US')).toBe('150.5')
+  })
+
+  it('accepts large two-decimal amounts exactly, without floating-point residue (numeric(16,2))', () => {
+    // 10000000000.03 * 100 leaves a float residue of ~1.2e-4; precision must be
+    // judged on the decimal digits, not on a scaled float.
+    expect(parseCompanyAnnualRevenue('10000000000.03', 'pl-PL')).toBe('10000000000.03')
+    expect(parseCompanyAnnualRevenue('10000000000,03', 'pl-PL')).toBe('10000000000.03')
+    expect(parseCompanyAnnualRevenue('10 000 000 000,03', 'pl-PL')).toBe('10000000000.03')
+    expect(parseCompanyAnnualRevenue('10,000,000,000.03', 'en-US')).toBe('10000000000.03')
+    expect(parseCompanyAnnualRevenue('99999999999999.99', 'pl-PL')).toBe('99999999999999.99')
+    expect(parseCompanyAnnualRevenue('99999999999999,99', 'pl-PL')).toBe('99999999999999.99')
+    expect(parseCompanyAnnualRevenue('0,01', 'pl-PL')).toBe('0.01')
+    expect(parseCompanyAnnualRevenue('0', 'pl-PL')).toBe('0')
+  })
+
+  it('normalizes redundant zeros without changing the amount', () => {
+    expect(parseCompanyAnnualRevenue('1234,50', 'pl-PL')).toBe('1234.5')
+    expect(parseCompanyAnnualRevenue('1234,500', 'pl-PL')).toBe('1234.5')
+    expect(parseCompanyAnnualRevenue('007,10', 'pl-PL')).toBe('7.1')
+    expect(parseCompanyAnnualRevenue(',5', 'pl-PL')).toBe('0.5')
+  })
+
+  it('keeps the exact large amount in the create and edit payloads', () => {
+    const created = buildCompanyPayload({ displayName: 'Acme', annualRevenue: '10000000000,03' }, null, 'pl-PL')
+    expect(created.annualRevenue).toBe('10000000000.03')
+    const edited = buildCompanyEditPayload(
+      { id: COMPANY_ID, displayName: 'Acme', annualRevenue: '99999999999999.99' } as any,
+      null,
+      'pl-PL',
+    )
+    expect(edited.annualRevenue).toBe('99999999999999.99')
+  })
+
+  it('rejects genuinely over-precise amounts, including large ones', () => {
+    expect(parseCompanyAnnualRevenue('1234.567', 'pl-PL')).toBeNull()
+    expect(parseCompanyAnnualRevenue('1234,567', 'pl-PL')).toBeNull()
+    expect(parseCompanyAnnualRevenue('10000000000.031', 'pl-PL')).toBeNull()
+    expect(parseCompanyAnnualRevenue('0,001', 'pl-PL')).toBeNull()
+    expect(() => buildCompanyPayload({ displayName: 'Acme', annualRevenue: '1234.567' }, null, 'pl-PL')).toThrow(
+      'ANNUAL_REVENUE_INVALID',
+    )
+  })
+
+  it('rejects exponent notation instead of storing a scaled amount', () => {
+    expect(parseCompanyAnnualRevenue('1e3', 'pl-PL')).toBeNull()
+    expect(parseCompanyAnnualRevenue('1,5e2', 'pl-PL')).toBeNull()
   })
 
   it('saves the locale-parsed amount on create and edit payloads', () => {
