@@ -7,12 +7,14 @@ import { decodeCacheText, encodeCacheText, resolveCacheCodecConfig } from '../co
 import type { CacheCodecOptions } from '../codec'
 
 type RedisPipeline = {
+  getBuffer(key: string): RedisPipeline
+  smembers(key: string): RedisPipeline
   set(key: string, value: string | Buffer): RedisPipeline
   setex(key: string, ttlSeconds: number, value: string | Buffer): RedisPipeline
   sadd(key: string, value: string): RedisPipeline
-  srem(key: string, member: string): RedisPipeline
-  del(key: string): RedisPipeline
-  eval(script: string, numKeys: number, ...args: (string | number)[]): RedisPipeline
+  srem(key: string, ...members: string[]): RedisPipeline
+  del(...keys: string[]): RedisPipeline
+  eval(script: string, numKeys: number, ...args: (string | number | Buffer)[]): RedisPipeline
   exec(): Promise<unknown>
 }
 
@@ -22,11 +24,15 @@ type RedisClient = {
   getBuffer(key: string): Promise<Buffer | null>
   set(key: string, value: string | Buffer): Promise<unknown>
   setex(key: string, ttlSeconds: number, value: string | Buffer): Promise<unknown>
-  del(key: string): Promise<unknown>
+  del(...keys: string[]): Promise<number>
   exists(key: string): Promise<number>
-  keys(pattern: string): Promise<string[]>
+  scan(cursor: string, match: 'MATCH', pattern: string, count: 'COUNT', limit: number): Promise<[string, string[]]>
   smembers(key: string): Promise<string[]>
+  mgetBuffer(...keys: string[]): Promise<(Buffer | null)[]>
+  srem(key: string, ...members: string[]): Promise<number>
+  eval(script: string, numKeys: number, ...args: (string | number | Buffer)[]): Promise<unknown>
   pipeline(): RedisPipeline
+  multi(): RedisPipeline
   quit(): Promise<void>
   once?(event: 'end', listener: () => void): void
 }
@@ -64,7 +70,22 @@ end
 return removed
 `
 
-/** Bounds a single script's blocking time on the server, and the request size. */
+// The application decoded these observed buffers and found that their current
+// tags exclude this index. Compare bytes atomically before removing membership:
+// a concurrent retag may have made the index valid again. Compression stays opaque.
+// ARGV contains (member, observed buffer) pairs aligned with KEYS[2..].
+const REAP_STALE_TAG_MEMBERS = `
+local removed = 0
+for i = 2, #KEYS do
+  local current = redis.call('GET', KEYS[i])
+  if not current or current == ARGV[(i - 2) * 2 + 2] then
+    removed = removed + redis.call('SREM', KEYS[1], ARGV[(i - 2) * 2 + 1])
+  end
+end
+return removed
+`
+
+/** Bounds members per script; payload bytes and execution time remain workload dependent. */
 const REAP_CHUNK_SIZE = 256
 
 /**
@@ -223,6 +244,20 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     return `${tagPrefix}${tag}`
   }
 
+  // SCAN may return duplicate keys and empty pages before the cursor reaches 0.
+  // COUNT is a work hint, not a strict page-size or latency bound.
+  async function scanKeys(pattern: string): Promise<string[]> {
+    const client = await getRedisClient()
+    const keys = new Set<string>()
+    let cursor = '0'
+    do {
+      const [next, page] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 256)
+      cursor = next
+      for (const key of page) keys.add(key)
+    } while (cursor !== '0')
+    return [...keys]
+  }
+
   function isExpired(entry: CacheEntry): boolean {
     if (entry.expiresAt === null) return false
     return Date.now() > entry.expiresAt
@@ -259,22 +294,6 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     const client = await getRedisClient()
     const cacheKey = getCacheKey(key)
 
-    // Remove old entry from tag index if it exists
-    const oldData = await client.getBuffer(cacheKey)
-    if (oldData) {
-      try {
-        const oldEntry: CacheEntry = JSON.parse(decodeCacheText(oldData))
-        // Remove from old tags
-        const pipeline = client.pipeline()
-        for (const tag of oldEntry.tags) {
-          pipeline.srem(getTagKey(tag), key)
-        }
-        await pipeline.exec()
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
     const ttl = options?.ttl ?? defaultTtl
     const tags = options?.tags || []
     const expiresAt = ttl ? Date.now() + ttl : null
@@ -287,7 +306,9 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
       createdAt: Date.now(),
     }
 
-    const pipeline = client.pipeline()
+    // Old memberships are reconciled by deleteByTags using current entry tags.
+    // ioredis sends MULTI, the commands and EXEC together, without a pre-read.
+    const pipeline = client.multi()
 
     // Store the entry
     const serialized = encodeCacheText(JSON.stringify(entry), codec)
@@ -302,7 +323,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
       pipeline.sadd(getTagKey(tag), key)
     }
 
-    await pipeline.exec()
+    await executePipeline(pipeline)
   }
 
   const has = async (key: string): Promise<boolean> => {
@@ -357,64 +378,133 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     }
   }
 
+
+  // Experimental entry-count bound; reply bytes and tag fanout remain workload dependent.
+  const batchSize = 256
+
+  async function executePipeline(pipeline: RedisPipeline): Promise<[Error | null, unknown][]> {
+    const result = await pipeline.exec() as [Error | null, unknown][] | null
+    if (!result) throw new Error('[internal] Redis pipeline aborted')
+    for (const [error] of result) if (error) throw error
+    return result
+  }
+
+  async function readBuffers(client: RedisClient, keys: string[]): Promise<(Buffer | null)[]> {
+    const values = await client.mgetBuffer(...keys)
+    if (values.length !== keys.length || values.some((value) => value !== null && !Buffer.isBuffer(value))) {
+      throw new Error('[internal] Unexpected binary Redis batch reply')
+    }
+    const missingKeys = keys.filter((_, index) => values[index] === null)
+    if (missingKeys.length > 0) {
+      // Detect WRONGTYPE without consuming a value rebuilt after the original MISS.
+      const validation = client.pipeline()
+      for (const key of missingKeys) validation.getBuffer(key)
+      await executePipeline(validation)
+    }
+    return values as (Buffer | null)[]
+  }
+
+  async function removeEntries(
+    client: RedisClient,
+    members: string[],
+    data: (Buffer | null)[],
+    requestedTags: Set<string>,
+    tagsByMember: Map<string, string[]>,
+  ): Promise<number> {
+    const valueKeys: string[] = []
+    const groups = new Map<string, string[]>()
+    const orphans = new Map<string, string[]>()
+    const stale = new Map<string, { member: string; buffer: Buffer }[]>()
+    for (let index = 0; index < members.length; index++) {
+      const buffer = data[index]
+      const member = members[index]
+      const memberTags = tagsByMember.get(member) ?? []
+      if (!buffer) {
+        for (const tagKey of memberTags) {
+          const list = orphans.get(tagKey) ?? []
+          list.push(member)
+          orphans.set(tagKey, list)
+        }
+        continue
+      }
+
+      let entryTags: Set<string> | undefined
+      try {
+        const entry: CacheEntry = JSON.parse(decodeCacheText(buffer))
+        if (Array.isArray(entry.tags) && entry.tags.every((tag) => typeof tag === 'string')) {
+          entryTags = new Set(entry.tags)
+        }
+      } catch { /* Corrupt entries are deleted, as with deleteKey(). */ }
+      if (entryTags) {
+        for (const tagKey of memberTags) {
+          if (entryTags.has(tagKey.slice(tagPrefix.length))) continue
+          const list = stale.get(tagKey) ?? []
+          list.push({ member, buffer })
+          stale.set(tagKey, list)
+        }
+        if (![...entryTags].some((tag) => requestedTags.has(tag))) continue
+        for (const tag of entryTags) {
+          const tagKey = getTagKey(tag)
+          const list = groups.get(tagKey) ?? []
+          list.push(member)
+          groups.set(tagKey, list)
+        }
+      }
+      valueKeys.push(getCacheKey(member))
+    }
+    if (!valueKeys.length && !orphans.size && !stale.size) return 0
+    const pipeline = client.pipeline()
+    for (const [tagKey, list] of groups) pipeline.srem(tagKey, ...list)
+    if (valueKeys.length) pipeline.del(...valueKeys)
+    for (const [tagKey, list] of orphans) {
+      for (let offset = 0; offset < list.length; offset += REAP_CHUNK_SIZE) {
+        const chunk = list.slice(offset, offset + REAP_CHUNK_SIZE)
+        const keys = [tagKey, ...chunk.map(getCacheKey)]
+        pipeline.eval(REAP_ORPHANED_TAG_MEMBERS, keys.length, ...keys, ...chunk)
+      }
+    }
+    for (const [tagKey, list] of stale) {
+      for (let offset = 0; offset < list.length; offset += REAP_CHUNK_SIZE) {
+        const chunk = list.slice(offset, offset + REAP_CHUNK_SIZE)
+        const keys = [tagKey, ...chunk.map(({ member }) => getCacheKey(member))]
+        pipeline.eval(REAP_STALE_TAG_MEMBERS, keys.length, ...keys, ...chunk.flatMap(({ member, buffer }) => [member, buffer]))
+      }
+    }
+    await executePipeline(pipeline)
+    return valueKeys.length
+  }
+
   const deleteByTags = async (tags: string[]): Promise<number> => {
     const client = await getRedisClient()
+    const requestedTags = new Set(tags)
     const keysToDelete = new Set<string>()
-    // Keep which tag each key came from. Reaping needs it to stay linear in the
-    // memberships that actually exist rather than in tags x keys.
-    const membersByTagKey = new Map<string, string[]>()
+    // Keep only actual memberships. Each read batch reconciles its indexes so
+    // observed value buffers are released before reading the next batch.
+    const tagsByMember = new Map<string, string[]>()
 
     // Collect all keys that have any of the specified tags
-    for (const tag of tags) {
-      const tagKey = getTagKey(tag)
-      const keys = await client.smembers(tagKey)
-      membersByTagKey.set(tagKey, keys)
+    const tagPipeline = client.pipeline()
+    const uniqueTags = [...requestedTags]
+    for (const tag of uniqueTags) tagPipeline.smembers(getTagKey(tag))
+    const tagReplies = uniqueTags.length ? await executePipeline(tagPipeline) : []
+    for (let index = 0; index < uniqueTags.length; index++) {
+      const keys = tagReplies[index][1] as string[]
+      const tagKey = getTagKey(uniqueTags[index])
       for (const key of keys) {
         keysToDelete.add(key)
+        const memberTags = tagsByMember.get(key) ?? []
+        memberTags.push(tagKey)
+        tagsByMember.set(key, memberTags)
       }
     }
 
     // Delete all collected keys
     let deleted = 0
-    const orphans = new Set<string>()
-    for (const key of keysToDelete) {
-      const success = await deleteKey(key)
-      if (success) deleted++
-      else orphans.add(key)
-    }
-
-    // A key whose value has already expired leaves its name behind in every tag
-    // set it was added to: `set()` only prunes tags when it overwrites a live
-    // key, `deleteKey` only prunes when it finds one, and `cleanup()` scans
-    // value keys rather than tag sets. Nothing else reaps them, so the sets grow
-    // without bound whenever TTL'd entries also rotate their key names — and
-    // every later invalidation pays a GET per orphan. Reap what we just walked.
-    //
-    // `deleteKey` reported these missing some time ago — the walk above is one
-    // round trip per member — so a concurrent request may have rebuilt any of
-    // them since. Re-check each value key atomically with the removal rather
-    // than trusting that stale read: dropping a live key from the index would
-    // silently exempt it from every future invalidation of this tag.
-    //
-    // Reap per tag, over that tag's own members, so the work stays linear in the
-    // memberships `smembers` actually returned. Each script is capped at
-    // REAP_CHUNK_SIZE members, so no single atomic call can stall the server for
-    // longer than a fixed bound however many tags were requested. The calls are
-    // pipelined into one round trip, but stay separate scripts so Redis can
-    // serve other clients between them.
-    if (orphans.size > 0) {
-      const pipeline = client.pipeline()
-      let queued = 0
-      for (const [tagKey, members] of membersByTagKey) {
-        const tagOrphans = members.filter((member) => orphans.has(member))
-        for (let offset = 0; offset < tagOrphans.length; offset += REAP_CHUNK_SIZE) {
-          const chunk = tagOrphans.slice(offset, offset + REAP_CHUNK_SIZE)
-          const keys = [tagKey, ...chunk.map(getCacheKey)]
-          pipeline.eval(REAP_ORPHANED_TAG_MEMBERS, keys.length, ...keys, ...chunk)
-          queued++
-        }
-      }
-      if (queued > 0) await pipeline.exec()
+    const members = [...keysToDelete]
+    for (let offset = 0; offset < members.length; offset += batchSize) {
+      const chunk = members.slice(offset, offset + batchSize)
+      const data = await readBuffers(client, chunk.map(getCacheKey))
+      deleted += await removeEntries(client, chunk, data, requestedTags, tagsByMember)
     }
 
     return deleted
@@ -424,17 +514,18 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
     const client = await getRedisClient()
     
     // Get all cache keys
-    const cacheKeys = await client.keys(`${keyPrefix}*`)
-    const tagKeys = await client.keys(`${tagPrefix}*`)
+    const cacheKeys = await scanKeys(`${keyPrefix}*`)
+    const tagKeys = await scanKeys(`${tagPrefix}*`)
 
     if (cacheKeys.length === 0 && tagKeys.length === 0) return 0
 
-    const pipeline = client.pipeline()
-    for (const key of [...cacheKeys, ...tagKeys]) {
-      pipeline.del(key)
+    const physicalKeys = [...cacheKeys, ...tagKeys]
+    for (let offset = 0; offset < physicalKeys.length; offset += batchSize) {
+      const chunk = physicalKeys.slice(offset, offset + batchSize)
+      const pipeline = client.pipeline()
+      for (const key of chunk) pipeline.del(key)
+      await executePipeline(pipeline)
     }
-
-    await pipeline.exec()
     return cacheKeys.length
   }
 
@@ -444,7 +535,7 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
       ? `${keyPrefix}${pattern}` 
       : `${keyPrefix}*`
     
-    const cacheKeys = await client.keys(searchPattern)
+    const cacheKeys = await scanKeys(searchPattern)
     
     // Remove prefix from keys
     const result = cacheKeys.map((key: string) => key.substring(keyPrefix.length))
@@ -457,20 +548,15 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
 
   const stats = async (): Promise<{ size: number; expired: number }> => {
     const client = await getRedisClient()
-    const cacheKeys = await client.keys(`${keyPrefix}*`)
+    const cacheKeys = await scanKeys(`${keyPrefix}*`)
     
     let expired = 0
-    for (const cacheKey of cacheKeys) {
-      const data = await client.getBuffer(cacheKey)
-      if (data) {
-        try {
-          const entry: CacheEntry = JSON.parse(decodeCacheText(data))
-          if (isExpired(entry)) {
-            expired++
-          }
-        } catch {
-          // Ignore parse errors
-        }
+    for (let offset = 0; offset < cacheKeys.length; offset += batchSize) {
+      const data = await readBuffers(client, cacheKeys.slice(offset, offset + batchSize))
+      for (const buffer of data) {
+        if (!buffer) continue
+        try { if (isExpired(JSON.parse(decodeCacheText(buffer)))) expired++ }
+        catch { /* stats ignores corrupt entries, as before. */ }
       }
     }
 
@@ -479,22 +565,22 @@ export function createRedisStrategy(redisUrl?: string, options?: { defaultTtl?: 
 
   const cleanup = async (): Promise<number> => {
     const client = await getRedisClient()
-    const cacheKeys = await client.keys(`${keyPrefix}*`)
+    const cacheKeys = await scanKeys(`${keyPrefix}*`)
     
     let removed = 0
-    for (const cacheKey of cacheKeys) {
-      const data = await client.getBuffer(cacheKey)
-      if (data) {
+    for (let offset = 0; offset < cacheKeys.length; offset += batchSize) {
+      const chunk = cacheKeys.slice(offset, offset + batchSize)
+      const data = await readBuffers(client, chunk)
+      for (let index = 0; index < chunk.length; index++) {
+        const buffer = data[index]
+        if (!buffer) continue
         try {
-          const entry: CacheEntry = JSON.parse(decodeCacheText(data))
-          if (isExpired(entry)) {
-            const key = cacheKey.substring(keyPrefix.length)
-            await deleteKey(key)
+          if (isExpired(JSON.parse(decodeCacheText(buffer)))) {
+            await deleteKey(chunk[index].substring(keyPrefix.length))
             removed++
           }
         } catch {
-          // Remove invalid entries
-          await client.del(cacheKey)
+          await client.del(chunk[index])
           removed++
         }
       }
