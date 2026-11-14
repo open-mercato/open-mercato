@@ -51,6 +51,7 @@ import {
 } from '../lib/interactionStatus'
 import { canChangeEmailVisibility, isEmailHiddenFrom } from '../lib/visibilityFilter'
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../lib/conversationShares'
+import { mergeInteractionPhoneNumber } from '../lib/interactionPhoneNumber'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
@@ -570,6 +571,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
   id: 'customers.interactions.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionCreateSchema, rawInput)
+    const customValues = await mergeInteractionPhoneNumber(parsed.phoneNumber, custom)
 
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const defaultAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
@@ -653,7 +655,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         interaction.id,
         entity.organizationId,
         entity.tenantId,
-        custom,
+        customValues,
       )
 
       const projection = await recomputeNextInteraction(trx, entity.id)
@@ -869,7 +871,8 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   prepare: prepareUpdateInteractionSnapshot,
   prepareSnapshotInsideTransaction: true,
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
+    const { parsed, custom: rawCustom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
+    const custom = await mergeInteractionPhoneNumber(parsed.phoneNumber, rawCustom)
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, projections } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })

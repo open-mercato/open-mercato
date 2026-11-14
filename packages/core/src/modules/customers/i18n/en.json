@@ -30,6 +30,7 @@
   "customers.activities.errors.dateRequired": "Date is required",
   "customers.activities.errors.participantEmailInvalid": "Enter a valid email address for a guest participant (e.g. guest@example.org)",
   "customers.activities.errors.participantIdentityRequired": "A participant needs either a user record or an email address",
+  "customers.activities.errors.phoneConflict": "Provide the same phone number in phoneNumber and customValues.callPhoneNumber.",
   "customers.activities.errors.phoneInvalid": "Enter a valid phone number with country code (e.g. +1 212 555 1234)",
   "customers.activities.errors.phoneRequired": "Phone number is required for Call activities",
   "customers.activities.errors.timeRequired": "Time is required",

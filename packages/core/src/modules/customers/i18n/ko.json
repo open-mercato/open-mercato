@@ -30,6 +30,7 @@
   "customers.activities.errors.dateRequired": "날짜는 필수입니다",
   "customers.activities.errors.participantEmailInvalid": "게스트 참가자의 유효한 이메일 주소를 입력하세요(예: guest@example.org)",
   "customers.activities.errors.participantIdentityRequired": "참가자에게는 사용자 레코드 또는 이메일 주소가 필요합니다",
+  "customers.activities.errors.phoneConflict": "phoneNumber와 customValues.callPhoneNumber에 동일한 전화번호를 입력하세요.",
   "customers.activities.errors.phoneInvalid": "국가 코드를 포함한 유효한 전화번호를 입력하세요(예: +1 212 555 1234)",
   "customers.activities.errors.phoneRequired": "통화 활동에는 전화번호가 필요합니다",
   "customers.activities.errors.timeRequired": "시간은 필수입니다",
