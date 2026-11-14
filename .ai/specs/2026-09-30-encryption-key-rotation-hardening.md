@@ -26,5 +26,5 @@ Offline confirmation is operator attestation, not proof that every external proc
 
 ## Changelog
 
-- 2026-11-14: Apply the same previous-key gate to `auth rotate-encryption-key`: read `TENANT_DATA_ENCRYPTION_OLD_KEY`, refuse argv key material without `--allow-unsafe-old-key`, an empty `--old-key`, and an argv value that differs from the environment.
+- 2026-11-14: Apply the same previous-key gate to `auth rotate-encryption-key`: read `TENANT_DATA_ENCRYPTION_OLD_KEY`, refuse argv key material without `--allow-unsafe-old-key`, an empty `--old-key`, an empty or whitespace-only `TENANT_DATA_ENCRYPTION_OLD_KEY`, and an argv value that differs from the environment.
 - 2026-11-02: Carry the reviewed maintenance safety fixes forward to main while preserving custom-document rotation; add CAS updates, accurate policy scope discovery, offline confirmation, protected final sweep, and explicit unsafe argv bridge. Document the selected offline-only contract and unsupported online coordination; validate eight real PostgreSQL maintenance scenarios, including a non-null lookup hash selected before CAS and safely cleared, and residual ciphertext beyond the first bounded final-sweep page.

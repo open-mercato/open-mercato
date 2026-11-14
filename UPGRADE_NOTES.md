@@ -176,7 +176,7 @@ most of the patterns listed below in a user's codebase.
 
 ### Encryption maintenance safety confirmations (#6767)
 
-Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for key rotation with `entities rotate-encryption-key` and `auth rotate-encryption-key`. On both commands the deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.
+Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for key rotation with `entities rotate-encryption-key` and `auth rotate-encryption-key`. On both commands the deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled. `auth rotate-encryption-key` now also refuses an empty or whitespace-only `TENANT_DATA_ENCRYPTION_OLD_KEY` (and an empty `--old-key`) before touching the database.
 
 `entities decrypt-database --deactivate-maps` now requires `--confirm-offline-maintenance <tenantUuid>`. Operators must stop all application, worker and integration writers, run the operation, and restart every replica before resuming writes. The CLI cannot discover every external writer or invalidate another process's cached policy. An organization-only sweep preserves tenant-wide fallback policies; use a complete tenant sweep for their retirement. Concurrent edits, changed policies or remaining ciphertext fail closed and keep policies active.
 

@@ -194,7 +194,7 @@ Notes:
 - These commands are potentially destructive; run a backup first and prefer `--dry-run`.
 - Without a previous key, commands only encrypt plaintext values and skip already encrypted fields.
 - For both commands, provide the previous key through `TENANT_DATA_ENCRYPTION_OLD_KEY`; do not put key material in command arguments. The deprecated `--old-key` form requires the explicit `--allow-unsafe-old-key` compatibility bridge and warns because shell history and process listings can expose it. No removal is scheduled.
-- While `TENANT_DATA_ENCRYPTION_OLD_KEY` is set, both commands run in rotation mode and leave plaintext values alone; unset it to encrypt plaintext rows.
+- While `TENANT_DATA_ENCRYPTION_OLD_KEY` is set to a non-empty value, both commands run in rotation mode and leave plaintext values alone; unset it to encrypt plaintext rows.
 - Entity rotation only updates fields that can be decrypted with the previous key; mismatched rows are left untouched and make the command fail so automation cannot mistake a partial rotation for success.
 - Custom document rotation also runs when there are no ORM encryption maps. It stops on ciphertext that neither the old nor current tenant key can open, and on a concurrent change to the document; restore the correct key or retry the operation. `--dry-run` never writes documents or provisions keys.
 - Always pass `--tenant` (and `--org` when possible) during rotation to avoid accidental cross-tenant use.
