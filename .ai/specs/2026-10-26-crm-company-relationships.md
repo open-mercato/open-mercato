@@ -235,6 +235,22 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 - **States:** `LoadingMessage`, `ErrorMessage`, and an empty state with a short explanation plus an Add button (when permitted). An SSE event `customers.company_link.*` that involves this company triggers a refetch.
 - All strings come from the `customers` locale files. Only DS tokens are used, with no status colors (the label chip uses the neutral `Tag`/`Badge` variant).
 
+### Frontend architecture contract
+
+Both surfaces live inside **existing client roots**: the settings page at `/backend/config/customers` (inside `CustomersConfigurationSections`) and the company detail page at `/backend/customers/companies-v2/[id]` (inside `CompanyDetailTabs`). This feature adds no top-level `use client` page root, no global provider, no new context and no new runtime dependency; those roots keep their existing legacy client-root exception and gain only the leaf mount points plus, for the tab, an optional `relationshipsCount` prop.
+
+| Client unit | Kind | Responsibility and guardrail |
+|---|---|---|
+| `CompanyLinkTypeSettings` (`components/CompanyLinkTypeSettings.tsx`) | client leaf rendered in the existing settings root | type list and create/edit/delete dialogs; all reads/writes through `apiCall` + `useGuardedMutation`; aborts in-flight loads on unmount; under 300 LOC |
+| `CompanyLinksSection` (`components/detail/CompanyLinksSection.tsx`) | client leaf rendered in the existing company-detail tab | typed-link list, search, type filter, pagination, SSE refetch, and the read-only hierarchy group fetched from `/api/customers/companies/{id}/hierarchy`; takes `companyId` and `canManage` as props; under 300 LOC |
+| `CompanyLinkDialog` (`components/detail/CompanyLinkDialog.tsx`) | client leaf | edit dialog (type + direction), scoped optimistic-lock header, conflict bar, `Cmd/Ctrl+Enter` submit and `Escape` cancel; under 300 LOC |
+
+- **Server-side data owners:** the three API routes plus `makeCrudRoute` own tenant/org scoping, decryption, invariant checks, the keyset-batched complete-set read and the cardinality cap. No client file imports ORM (`@mikro-orm/*`) or encryption helpers, and neither leaf runs a recursive or unpaginated query.
+- **Provider and dependency scope:** no new React context or global provider; the existing app shell supplies auth/tenant scope, and the section receives `companyId`/`canManage` explicitly.
+- **Client-root growth:** no orchestration moves into either legacy root; the company-detail root gains only the tab's lazy section mount.
+- **Bundle budgets:** no new shared dependency chunk; added route code is capped at **5 KiB gzip** for the settings route and **10 KiB gzip** for the company-detail route (the same budget as the hierarchy spec for this page). Investigate any growth above budget before merge.
+- **Required evidence when implemented:** route hydration and keyboard tests for both routes, `yarn check:client-boundaries` (with `yarn check:client-boundaries:fail` in CI), and a before/after production bundle comparison for both routes recorded in the implementation PR.
+
 ## 📝 Edge Cases & Failure Scenarios
 
 | Scenario | Behavior |
@@ -288,7 +304,7 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 3. Add `commands/companyLinkTypes.ts` (create/update/delete with undo, all under the type-row lock; duplicate-name check now; the `dependencyTypeLocked` and `inUse` checks are written against a usage-count helper that returns 0 until Phase 2) and register the events. **Test:** command unit tests, including undo.
 4. Add `api/company-link-types/route.ts` (`makeCrudRoute` + `indexer`, OpenAPI; `usageCount` in `afterList`, always 0 until Phase 2). Run `yarn generate`. **Test:** route unit tests.
 5. Seed **"Partner" only** (no corporate `parent_child` default) in `seedDefaults`, skipping when a type with the same normalized name exists. **Test:** seeding is idempotent and creates no `parent_child` type.
-6. Add `CompanyLinkTypeSettings` to `CustomersConfigurationSections`, plus i18n keys for all locales. **Test:** component test; `yarn i18n:check-sync`.
+6. Add `CompanyLinkTypeSettings` to `CustomersConfigurationSections`, plus i18n keys for all locales. **Test:** component test; `yarn i18n:check-sync`; `yarn check:client-boundaries`.
 7. Integration tests TC-CRM-REL-001/002 (below).
 
 ### Phase 2 — Relationships backend
@@ -304,7 +320,7 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 2. Add `CompanyLinksSection` (read-only corporate-hierarchy group from the hierarchy route, typed list, search, type filter, empty/loading/error states, SSE refetch) and render it in `companies-v2/[id]/page.tsx` when `activeTab === 'relationships'`. **Test:** section component test, including a hierarchy failure that leaves the typed list usable.
 3. Add the add flow through `LinkEntityDialog` + `companyAdapter` with `renderLinkSettings`, per-company result reporting, and the single-parent selection limit. **Test:** component test.
 4. Add `CompanyLinkDialog` (edit: type and direction, optimistic lock, conflict bar) and remove with confirm, both through `useGuardedMutation`. **Test:** component test.
-5. Integration tests TC-CRM-REL-007..009 and TC-CRM-REL-012, then the full validation gate (`.ai/agentic.config.json`).
+5. Integration tests TC-CRM-REL-007..009 and TC-CRM-REL-012, route hydration and keyboard tests for both routes, `yarn check:client-boundaries:fail` plus the before/after production bundle comparison for both routes, then the full validation gate (`.ai/agentic.config.json`).
 
 ### Integration coverage (`customers/__integration__/`, self-contained fixtures created via the API, cleaned up in teardown)
 
@@ -333,10 +349,12 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 - i18n for all strings; DS tokens only; dialog keyboard shortcuts: ✅
 - Additive contract changes only (`BACKWARD_COMPATIBILITY.md`): ✅
 - Distinct entity/table/route identities from the classification spec; no second corporate-parent source of truth: ✅
+- Frontend architecture contract (client leaves, server-side data owners, provider/dependency scope, client-root growth, bundle budgets, hydration/keyboard/client-boundary evidence): ✅
 - Integration tests listed for every new API and UI path: ✅
 
 ## Changelog
 
+- 2026-11-14: Added the required frontend architecture contract for both UI routes (client leaves and their guardrails, server-side data owners, no new provider/dependency, client-root growth limits, 5/10 KiB gzip route budgets, hydration/keyboard tests, `yarn check:client-boundaries` and bundle evidence), and wired the checks into the Phase 1 and Phase 3 implementation steps.
 - 2026-11-14: Reconciled with the existing CRM specs (review findings on `:65–78` and `:28`): renamed the entities to `CustomerCompanyLinkType` / `customer_company_link_types` and `CustomerCompanyLink` / `customer_company_links` (with matching routes, commands, events, i18n and files), so nothing collides with the classification spec's `CustomerCompanyRelationshipType`; removed the "Corporate group" seed and made `CustomerCompanyProfile.parentCompanyId` the only corporate parent, which the tab now displays read-only from the hierarchy route, with descriptive `parent_child` link types kept separate. Added TC-CRM-REL-012 and the corresponding risk, edge-case and implementation-plan entries.
 - 2026-11-14: Complete-set per-company read (review finding on `:163`): the route now walks the whole candidate set in bounded keyset batches instead of silently capping the fetch at 1,000 rows, so `search`, the type filter, `total` and pagination cover every saved relationship; the read is bounded by a new explicit write-side cap of 2,000 active relationships per company (`409 cardinalityLimit`), and TC-CRM-REL-011 covers 1,001 links with a match beyond the first batch.
 
