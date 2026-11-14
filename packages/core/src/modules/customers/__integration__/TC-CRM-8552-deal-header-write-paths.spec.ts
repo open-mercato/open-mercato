@@ -182,6 +182,7 @@ test.describe('TC-CRM-8552: deal header write paths', () => {
   });
 
   test('on a phone, the Move stage menu persists the stage', async ({ page, request }) => {
+    test.slow();
     const created = { pipelineId: null as string | null, stageIds: [] as string[], dealId: null as string | null };
     let token: string | null = null;
     try {
@@ -189,10 +190,17 @@ test.describe('TC-CRM-8552: deal header write paths', () => {
       const fixtures = await createDealOnTwoStagePipeline(request, token, 'TC-CRM-8552 phone', created);
       const compact = await openDealOnPhone(page, fixtures);
 
-      await compact.getByRole('button', { name: 'Move stage' }).click();
+      // In CI this sequence has intermittently waited out the whole test budget on its
+      // first attempt and passed on retry. Unbounded clicks hide which step stalled, so each
+      // step is bounded and the block reopens the menu when it is not showing.
       const menu = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Second stage', exact: true }) });
-      await expect(menu.getByRole('button', { name: 'First stage', exact: true })).toBeDisabled();
-      await menu.getByRole('button', { name: 'Second stage', exact: true }).click();
+      await expect(async () => {
+        if (!(await menu.isVisible())) {
+          await compact.getByRole('button', { name: 'Move stage' }).click({ timeout: 3_000 });
+        }
+        await expect(menu.getByRole('button', { name: 'First stage', exact: true })).toBeDisabled({ timeout: 3_000 });
+        await menu.getByRole('button', { name: 'Second stage', exact: true }).click({ timeout: 3_000 });
+      }).toPass({ timeout: 30_000 });
 
       await expect(compact).toContainText('Second stage');
       await expect
