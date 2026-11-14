@@ -1,5 +1,23 @@
 # Upgrade Notes
 
+## EUDR update undo conflicts (#9128)
+
+Update undos for EUDR plots, risk assessments, product mappings, mitigation actions,
+evidence submissions and statements now return HTTP 409 with code
+`eudr.errors.undoConflict` when the record changed or was soft-deleted after the
+logged update, or the action log has no `after` snapshot. Previously these undos
+could return 200 and overwrite later edits. Clients must treat this refusal as
+final: reload the record and re-apply the wanted change by hand. Do not retry the
+same stale undo automatically. Edits lost to earlier undos are not recovered.
+
+Undoing an evidence-submission update also recomputes its completeness score.
+Own updates can still be undone newest first when their recorded content matches;
+create/delete undos and forward commands are unchanged. No database migration,
+configuration change, route, event or response-field migration is needed for this
+fix. Restart application and worker processes together when deploying.
+
+[Specification and coverage](.ai/specs/2026-07-06-eudr-compliance-module.md#migration--backward-compatibility).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app
