@@ -38,11 +38,32 @@ export type TaskCompletion = {
 }
 
 const SAFE_RELATIVE_HREF = /^\/(?![/\\])\S*$/
+const ENCODED_DOT = /%2e/gi
+const PATH_BOUNDARY = /[?#]/
+
+/**
+ * Whether the path part carries a `.` or `..` segment, plain or percent-encoded.
+ *
+ * A browser resolves dot segments (and their `%2e` spellings) before it
+ * requests the URL, so `/acme/portal/../../backend/x` lands on `/backend/x`. No
+ * legitimate host link needs one, so they are refused outright rather than
+ * normalized: every prefix check downstream then compares the path the browser
+ * will actually request. The query and fragment are not paths and stay free.
+ */
+export function hasDotSegment(href: string): boolean {
+  const path = href.split(PATH_BOUNDARY, 1)[0]
+  return path.split('/').some((segment) => {
+    const decoded = segment.replace(ENCODED_DOT, '.')
+    return decoded === '.' || decoded === '..'
+  })
+}
 
 /**
  * A same-origin relative path with every template token resolved.
  *
- * It must also pass the notification layer's own check: the stored href becomes
+ * It must carry no `.`/`..` segment (`hasDotSegment`), so the path a link
+ * names is the path the browser requests. It must also pass the notification
+ * layer's own check: the stored href becomes
  * a notification `linkHref` and action href, and `assertSafeNotificationHref`
  * throws on anything `isSafeNotificationHref` refuses (an inner backslash, a
  * control character), which would silently drop the whole notification instead
@@ -53,6 +74,7 @@ export function isSafeTaskCompletionHref(value: unknown): value is string {
     typeof value === 'string' &&
     SAFE_RELATIVE_HREF.test(value) &&
     !value.includes('{{') &&
+    !hasDotSegment(value) &&
     isSafeNotificationHref(value)
   )
 }
@@ -111,9 +133,24 @@ export function resolveTaskCompletionHref(completion: unknown): string | null {
  * backend path the customer cannot reach. The portal therefore links only to a
  * path under its own `/<orgSlug>/portal/` root; anything else is null and the
  * portal explains where the work happens instead of offering a dead link.
+ * The prefix is checked against the pathname the browser will resolve, not the
+ * raw string, so a traversal (`/acme/portal/../../backend/x`) cannot pass it;
+ * `isSafeTaskCompletionHref` already refuses dot segments, this is the second
+ * lock on the one check whose whole job is a path prefix.
  */
 export function resolvePortalTaskCompletionHref(completion: unknown, orgSlug: string): string | null {
   const href = resolveTaskCompletionHref(completion)
   if (!href || !orgSlug) return null
-  return href.startsWith(`/${orgSlug}/portal/`) ? href : null
+  const portalRoot = `/${orgSlug}/portal/`
+  return resolvedPathname(href)?.startsWith(portalRoot) && href.startsWith(portalRoot) ? href : null
+}
+
+const PATHNAME_BASE = 'https://portal.invalid'
+
+function resolvedPathname(href: string): string | null {
+  try {
+    return new URL(href, PATHNAME_BASE).pathname
+  } catch {
+    return null
+  }
 }

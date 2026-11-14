@@ -150,6 +150,10 @@ jest.mock('@open-mercato/ui/primitives/kbd', () => ({
 }))
 
 let mockIsMobile = false
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
+  InjectionSpot: ({ spotId }: { spotId: string }) => <div data-testid="injection-spot" data-spot-id={spotId} />,
+}))
+
 jest.mock('@open-mercato/ui/hooks/useIsMobile', () => ({
   useIsMobile: () => mockIsMobile,
 }))
@@ -826,6 +830,23 @@ describe('a host-owned task on mobile (issue #7179)', () => {
     expect(screen.queryByTestId('mobile-task-form')).toBeNull()
     expect(screen.queryByTestId('mobile-task-cannot-complete')).toBeNull()
     expect(screen.queryByText('workflows.tasks.detail.cannotComplete')).toBeNull()
+  })
+
+  test('a host task without an href renders the task-detail injection spot, where the host mounts its flow', async () => {
+    mockTask(
+      baseTask({
+        status: 'PENDING',
+        canComplete: true,
+        completion: { surface: 'host', href: null },
+      }),
+    )
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('task-host-completion')).toBeTruthy())
+    expect(screen.getByText('workflows.tasks.detail.hostCompletion.descriptionInline')).toBeTruthy()
+    expect(screen.queryByTestId('task-host-completion-link')).toBeNull()
+    expect(screen.getByTestId('injection-spot').getAttribute('data-spot-id')).toBe('workflows.task.detail:context')
+    expect(screen.queryByTestId('mobile-task-form')).toBeNull()
   })
 
   test('a completed host task still says it can no longer be modified', async () => {

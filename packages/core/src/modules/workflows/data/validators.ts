@@ -4,6 +4,7 @@ import { conditionExpressionSchema } from '@open-mercato/core/modules/business_r
 import { validateConditionExpressionForApi } from '@open-mercato/core/modules/business_rules/lib/payload-validation'
 import { parseDuration } from '../lib/duration'
 import { excludeNonNormalTransitions } from '../lib/route-kinds'
+import { hasDotSegment } from '../lib/task-completion'
 import { WORKFLOW_RUN_OUTCOMES } from '../lib/run-outcome'
 import {
   WORKFLOW_START_FIXTURES_MAX_CHARS,
@@ -252,6 +253,7 @@ export const taskCompletionSchema = z.object({
     .min(1)
     .regex(/^\/(?![/\\])\S*$/, 'Completion href must be a relative path starting with a single "/"')
     .refine(isSafeNotificationHref, 'Completion href must not contain backslashes or control characters')
+    .refine((href) => !hasDotSegment(href), 'Completion href must not contain "." or ".." path segments')
     .optional(),
 })
 export type TaskCompletionConfig = z.infer<typeof taskCompletionSchema>

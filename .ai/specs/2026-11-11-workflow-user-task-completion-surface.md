@@ -80,9 +80,9 @@ Tasks created before this change have `completion = null` and behave exactly as 
 | `workflows.task.assigned` notification | no `complete` quick action; `view` action and `linkHref` = `href` |
 | `workflows.task.reminder_due` / `deadline_breached` | `view` action and `linkHref` = `href` |
 | `/backend/tasks/[id]` | no generic form/decisions/Complete; an information notice links to `href` (or says the host UI renders below) |
-| `/backend/tasks/[id]` on mobile | same notice; `MobileTaskForm` gets `offerCompletion={false}`, which withholds the form without being read as "already completed or cancelled" (that copy stays for a finished task) |
+| `/backend/tasks/[id]` on mobile | same notice and the same `workflows.task.detail:context` injection spot as desktop (a host task without `href` completes there); `MobileTaskForm` gets `offerCompletion={false}`, which withholds the form without being read as "already completed or cancelled" (that copy stays for a finished task) |
 | Portal `GET /api/workflows/portal/tasks[/id]` | additive `completion` field (shared serializer) |
-| `/<orgSlug>/portal/tasks/[id]` | for the assignee, no `PortalTaskForm`; links to `href` only when it is a path under `/<orgSlug>/portal/` (`resolvePortalTaskCompletionHref`), otherwise a notice that the task is completed outside the portal. A company reader who may not act keeps the read-only copy |
+| `/<orgSlug>/portal/tasks/[id]` | for the assignee, no `PortalTaskForm`; links to `href` only when it is a path under `/<orgSlug>/portal/` (`resolvePortalTaskCompletionHref`, checked against the URL-resolved pathname), otherwise a notice that the task is completed outside the portal. A company reader who may not act keeps the read-only copy |
 
 Events gain an additive optional `completion` payload key (`workflows.task.assigned`,
 `workflows.task.reminder_due`, `workflows.task.deadline_breached`) so the notification subscribers
@@ -132,7 +132,7 @@ The declaration is about the **surface**, never about **who may act**:
 | A crafted `href` sends users off-origin (phishing via email buttons) | High | Schema regex + post-interpolation re-check; unresolved tokens dropped; fallback to task page | Low — a same-origin path built from context values may still point at a wrong backend page |
 | A host task is left with no way to complete when the host never renders anything | Medium | The task page states where completion happens; `canComplete`, reassign and the task API are unchanged, so an operator or the host can still complete via API | Medium — depends on the host module shipping its UI |
 | A host href the notification layer refuses (backslash, control char) silently drops notifications | Medium | `isSafeTaskCompletionHref` composes `isSafeNotificationHref`; such an href resolves to `null` | Low |
-| A customer is linked to a backend host page they cannot open | Medium | Portal links only to `/<orgSlug>/portal/…` hrefs; otherwise an informative notice | Low |
+| A customer is linked to a backend host page they cannot open | Medium | Portal links only to `/<orgSlug>/portal/…` hrefs, compared on the resolved pathname; any `.`/`..` segment (incl. `%2e` spellings) is refused at authoring time and after interpolation, so a traversal cannot escape the prefix; otherwise an informative notice | Low |
 | A Studio save strips the key | Medium | `graphToDefinition` preserves `userTaskConfig.completion`; round-trip test | Low |
 | Mismatch with #7189 (`deadlineAt` sibling key) | Low | Single adjacent line in `userTaskConfigSchema`; trivial merge | Low |
 
@@ -155,3 +155,8 @@ The declaration is about the **surface**, never about **who may act**:
   refuses (backslash, control chars); mobile task page no longer calls an active host task
   "already completed"; the portal task page honours the declaration (portal-path link or notice);
   Work Inbox row-action coverage moved to the page test.
+- 2026-11-14 — Review round 3: completion hrefs refuse `.`/`..` path segments, plain or
+  `%2e`-encoded (schema, post-interpolation and stored-value checks), and the portal prefix check
+  compares the URL-resolved pathname, so `/acme/portal/../../backend/x` resolves to no link; the
+  mobile task page mounts the `workflows.task.detail:context` injection spot like desktop, so a
+  host task without `href` keeps its completion path.

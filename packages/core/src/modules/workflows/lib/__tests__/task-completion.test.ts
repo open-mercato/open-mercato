@@ -55,6 +55,10 @@ describe('userTaskConfigSchema.completion', () => {
     '/backend/with space',
     '/backend/invoices\\view',
     '/backend/a\u0007b',
+    '/backend/../api/x',
+    '/backend/./x',
+    '/backend/%2e%2e/api/x',
+    '/backend/.%2E/api/x',
   ])('refuses an href that could leave the panel origin: %s', (href) => {
     expect(userTaskConfigSchema.safeParse({ completion: { surface: 'host', href } }).success).toBe(false)
   })
@@ -178,5 +182,44 @@ describe('resolvePortalTaskCompletionHref', () => {
     expect(resolvePortalTaskCompletionHref({ surface: 'host', href: null }, 'acme')).toBeNull()
     expect(resolvePortalTaskCompletionHref(null, 'acme')).toBeNull()
     expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portal/x' }, '')).toBeNull()
+  })
+
+  test.each([
+    '/acme/portal/../../backend/x',
+    '/acme/portal/..',
+    '/acme/portal/./../../backend/x',
+    '/acme/portal/%2e%2e/%2e%2e/backend/x',
+    '/acme/portal/%2E%2E/%2E%2E/backend/x',
+    '/acme/portal/.%2e/.%2E/backend/x',
+    '/acme/portal/%2e./%2e./backend/x',
+    '/acme/portal/../../backend/x?next=/acme/portal/',
+  ])('a dot-segment traversal out of the portal resolves to null: %s', (href) => {
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href }, 'acme')).toBeNull()
+  })
+
+  test('a dot segment anywhere is refused before it can reach a link', () => {
+    for (const href of ['/backend/../x', '/backend/./x', '/backend/%2E%2e/x', '/backend/x/.', '/backend/x/..']) {
+      expect(isSafeTaskCompletionHref(href)).toBe(false)
+      expect(readTaskCompletion({ surface: 'host', href })).toEqual({ surface: 'host', href: null })
+      expect(resolveTaskCompletion({ surface: 'host', href }, identity)).toEqual({ surface: 'host', href: null })
+    }
+  })
+
+  test('a dot segment smuggled in through interpolation is refused', () => {
+    expect(
+      resolveTaskCompletion(
+        { surface: 'host', href: '/acme/portal/returns/{{context.id}}' },
+        fromContext({ id: '../../../backend/x' }),
+      ),
+    ).toEqual({ surface: 'host', href: null })
+  })
+
+  test('dots that are not whole segments, and dots in the query or fragment, stay allowed', () => {
+    expect(isSafeTaskCompletionHref('/backend/files/report.v2..pdf')).toBe(true)
+    expect(isSafeTaskCompletionHref('/backend/a/.well-known')).toBe(true)
+    expect(isSafeTaskCompletionHref('/backend/a?path=../x#../y')).toBe(true)
+    expect(resolvePortalTaskCompletionHref({ surface: 'host', href: '/acme/portal/r-1?back=../x' }, 'acme')).toBe(
+      '/acme/portal/r-1?back=../x',
+    )
   })
 })

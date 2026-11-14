@@ -483,6 +483,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 onReassign={() => setReassignOpen(true)}
               />
             ) : null}
+            {/*
+              Same spot as the desktop column: a host task without an `href`
+              is completed in the UI a host mounts here, so a viewport without
+              the spot would leave it with no completion path at all.
+            */}
+            <InjectionSpot spotId={TASK_DETAIL_INJECTION_SPOT_ID} context={taskInjectionContext} />
             {showHostCompletion && hostCompletion ? (
               <HostCompletionNotice completion={hostCompletion} />
             ) : null}
