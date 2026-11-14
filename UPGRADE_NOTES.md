@@ -5419,6 +5419,22 @@ Operators using starter or generated-app full-app Compose deployments must set a
 
 This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
 
+## Private next-interaction subjects (#8888)
+
+Shared customer projections now return a NULL name for explicitly private email
+interactions. The owner and temporarily authorized shared-mail readers still see
+the subject in authorized interaction views. Historical undo/redo also redacts a
+private or unresolved linked name. Clients should retain their unnamed-interaction
+fallback; public/legacy/non-email subjects and manual names remain supported.
+
+Apply the accompanying forward-only data migration and complete its declared
+customer entity/profile query-index rebuilds before reopening affected reads.
+Rebuild any configured fulltext/vector provider that previously indexed these
+fields and verify synthetic old subjects are gone before reopening search. The
+migration clears opaque encrypted values without decrypting them; rollback does
+not restore private subjects. No schema, startup or configuration-format change.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` for validation limits.
+
 ## Setup verifies encryption before database reuse (#8913)
 
 Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard, including container initialization, migrations and role-ACL synchronization.
