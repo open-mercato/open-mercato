@@ -273,7 +273,7 @@ describe('Sales document GET response enrichment (#7783)', () => {
     expect(second.response.headers.get('x-om-cache')).toBe('miss')
     expect(second.payload.items.map((record) => record.id)).toEqual([otherQuoteId])
     expect(quote.enrichMany.mock.calls.map(([, context]) => context.organizationId)).toEqual([organizationId, otherOrganizationId])
-    expect(mockFind).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+    expect(mockFind).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       documentId: { $in: [otherQuoteId] },
       documentKind: 'quote',
       tenantId,

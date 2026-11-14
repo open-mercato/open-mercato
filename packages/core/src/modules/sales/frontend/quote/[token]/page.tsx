@@ -6,7 +6,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SearchX } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import type { SalesRecurrenceFrequency } from '../../../lib/recurrence'
+import { formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -25,6 +27,12 @@ type PublicQuoteResponse = {
     grandTotalNetAmount: string
     grandTotalGrossAmount: string
   }
+  recurrence: {
+    frequency: SalesRecurrenceFrequency
+    startsOn: string
+    periodCount: number | null
+    endsOn: string | null
+  } | null
   lines: Array<{
     lineNumber: number | null
     kind: string
@@ -48,6 +56,7 @@ type PublicQuoteResponse = {
 
 export default function QuotePublicPage({ params }: { params: { token: string } }) {
   const t = useT()
+  const locale = useLocale()
   const token = params?.token
   const [loading, setLoading] = React.useState(true)
   const [accepting, setAccepting] = React.useState(false)
@@ -141,6 +150,11 @@ export default function QuotePublicPage({ params }: { params: { token: string } 
         <p className="text-sm text-muted-foreground">
           {data.quote.validUntil ? t('sales.quotes.public.validUntil', { date: new Date(data.quote.validUntil).toLocaleDateString() }) : t('sales.quotes.public.noValidityDate')}
         </p>
+        {data.recurrence ? (
+          <p className="text-sm font-medium" data-testid="public-quote-recurrence">
+            {formatRecurrenceSchedule(data.recurrence, t, locale)}
+          </p>
+        ) : null}
       </header>
 
       {data.isExpired ? (

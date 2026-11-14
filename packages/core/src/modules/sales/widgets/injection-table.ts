@@ -17,6 +17,24 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 50,
     },
   ],
+  'sales.document.detail.order:details': [
+    {
+      widgetId: 'sales.injection.recurrence-section',
+      kind: 'group',
+      column: 2,
+      groupLabel: 'sales.recurring.section.title',
+      priority: 300,
+    },
+  ],
+  'sales.document.detail.quote:details': [
+    {
+      widgetId: 'sales.injection.recurrence-section',
+      kind: 'group',
+      column: 2,
+      groupLabel: 'sales.recurring.section.title',
+      priority: 300,
+    },
+  ],
   'data-table:sales.payments:columns': {
     widgetId: 'sales.injection.payment-gateway-status-column',
     priority: 50,

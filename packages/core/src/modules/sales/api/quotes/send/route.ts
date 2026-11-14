@@ -15,7 +15,11 @@ import { withScopedPayload } from '../../utils'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import { SalesQuote } from '../../../data/entities'
+import { SalesQuote, SalesQuoteLine } from '../../../data/entities'
+import { loadQuoteRecurrenceSnapshot } from '../../../lib/recurrenceStore'
+import { lockSalesDocumentRow } from '../../../commands/shared'
+import { assertRecurringQuoteConvertible } from '../../../lib/recurringOrderGuard'
+import { formatRecurrenceSchedule } from '../../../lib/recurrenceLabel'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
@@ -140,7 +144,20 @@ export async function POST(req: Request) {
     // Persist the send state (status/token/sentAt) atomically and commit it
     // BEFORE the email goes out, so a customer never receives a link whose
     // acceptance token was not durably stored.
-    await em.transactional(async (tx) => {
+    const recurrence = await em.transactional(async (tx) => {
+      const scope = { tenantId: quote.tenantId, organizationId: quote.organizationId }
+      if (!(await lockSalesDocumentRow(tx, 'sales_quotes', quote.id, scope))) {
+        throw notFound(translate('sales.documents.detail.error', 'Document not found or inaccessible.'))
+      }
+      await findOneWithDecryption(tx, SalesQuote, { id: quote.id, ...scope }, { refresh: true }, scope)
+      if ((quote.status ?? null) === 'canceled') {
+        throw new CrudHttpError(400, { error: translate('sales.quotes.send.canceled', 'Canceled quotes cannot be sent.') })
+      }
+      const recurrence = await loadQuoteRecurrenceSnapshot(tx, quote)
+      if (recurrence) {
+        const lineCount = await tx.count(SalesQuoteLine, { quote: quote.id, ...scope })
+        await assertRecurringQuoteConvertible(recurrence, lineCount)
+      }
       quote.validUntil = validUntil
       quote.acceptanceToken = hashAuthToken(rawAcceptanceToken)
       quote.sentAt = now
@@ -152,6 +169,7 @@ export async function POST(req: Request) {
       })
       quote.updatedAt = now
       tx.persist(quote)
+      return recurrence
     })
 
     const appUrl = process.env.APP_URL || ''
@@ -172,6 +190,11 @@ export async function POST(req: Request) {
         currency: quote.currencyCode,
       }),
       validUntil: translate('sales.quotes.email.validUntil', 'Valid until: {date}', { date: validUntilFormatted }),
+      schedule: recurrence
+        ? translate('sales.quotes.email.schedule', 'Billing: {schedule}', {
+            schedule: formatRecurrenceSchedule(recurrence, translate, locale),
+          })
+        : null,
       cta: translate('sales.quotes.email.cta', 'View quote'),
       footer: translate('sales.quotes.email.footer', 'Open Mercato'),
     }
