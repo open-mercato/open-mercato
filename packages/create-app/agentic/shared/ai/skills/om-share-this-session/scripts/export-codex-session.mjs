@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process'
+import { spawn as spawnProcess, spawnSync as spawnSyncProcess } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -55,11 +55,36 @@ function validateThread(thread, expectedThreadId) {
   return thread
 }
 
+function isCodexOnWindowsPath(spawnSync) {
+  return spawnSync('where.exe', ['codex'], { stdio: 'ignore', windowsHide: true }).status === 0
+}
+
+export function startAppServer({
+  platform = process.platform,
+  spawn = spawnProcess,
+  spawnSync = spawnSyncProcess,
+} = {}) {
+  const stdio = ['pipe', 'pipe', 'ignore']
+  if (platform === 'win32') {
+    if (!isCodexOnWindowsPath(spawnSync)) fail('Could not start the Codex app-server.')
+    return spawn('codex app-server --stdio', { stdio, shell: true, windowsHide: true })
+  }
+  return spawn('codex', ['app-server', '--stdio'], { stdio })
+}
+
+export function stopAppServer(server, { platform = process.platform, spawn = spawnProcess } = {}) {
+  if (server.exitCode !== null || server.killed) return
+  if (platform === 'win32' && server.pid) {
+    spawn('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+      .on('error', () => server.kill())
+    return
+  }
+  server.kill()
+}
+
 function readThreadFromAppServer(threadId, timeoutMilliseconds = 30_000) {
   return new Promise((resolveThread, rejectThread) => {
-    const server = spawn('codex', ['app-server', '--stdio'], {
-      stdio: ['pipe', 'pipe', 'ignore'],
-    })
+    const server = startAppServer()
     let settled = false
     let initialized = false
     let protocolBytes = 0
@@ -70,7 +95,7 @@ function readThreadFromAppServer(threadId, timeoutMilliseconds = 30_000) {
       settled = true
       clearTimeout(timeout)
       server.stdin.end()
-      if (server.exitCode === null && !server.killed) server.kill()
+      stopAppServer(server)
       if (error) rejectThread(error)
       else resolveThread(thread)
     }
