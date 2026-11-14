@@ -2,7 +2,7 @@
 
 ## TLDR
 
-Resolve terminal deal statuses from a tenant setting, then an environment default, then the shipped vocabulary. Status filters, summaries, company/person KPIs, closure commands and browser consumers use the same resolved vocabulary while dictionary labels stay localizable. This PR defines the design; implementation and runtime verification remain in PR #7625.
+Resolve terminal deal statuses from a tenant setting, then an environment default, then the shipped vocabulary. Status filters, summaries, company/person KPIs, closure commands and browser consumers use the same resolved vocabulary while dictionary labels stay localizable. The design originated in PR #7624; implementation and runtime verification are tracked in PR #7625.
 
 ## Overview
 
@@ -36,7 +36,7 @@ Paths are relative to `packages/core/src/modules/customers/` unless another modu
 | `commands/deals.ts` | Server | Resolve from command scope for canonical writes, closure/reopen detection and won/lost event selection; keep event IDs and outcome enums. |
 | `lib/closureStage.ts` | Server helper | Receive vocabulary from commands/AI preview for status classification and configured won/lost stage-label candidates, retaining English compatibility labels. |
 | `ai-tools/deals-pack.ts` | Server | Resolve from tool scope for previews, closure-stage lookup and canonical status; approved execution uses the same command path. |
-| `backend/customers/deals/page.tsx` | Browser | Own the scope-sensitive hook; use vocabulary for badges and preferred quick-filter values while accepting existing URLs. |
+| `backend/customers/deals/page.tsx` | Browser | Own the scope-sensitive hook; use vocabulary for badges and stable semantic quick-filter values while accepting existing URLs. |
 | `backend/customers/deals/pipeline/page.tsx` | Browser | Own the hook and pass data through Kanban props; status actions write preferred spellings with stable semantic outcomes. |
 | `backend/customers/deals/pipeline/components/StatusFilterPopover.tsx` | Browser | Receive host vocabulary for canonical selections, options and alias matching. |
 | `backend/customers/deals/pipeline/components/Lane.tsx` | Browser | Forward host vocabulary to filter/action children; no independent fallback aliases. |
@@ -46,7 +46,7 @@ Paths are relative to `packages/core/src/modules/customers/` unless another modu
 | `components/detail/ActiveDealCard.tsx` | Browser | Receive vocabulary from detail host for active-deal filtering. |
 | `components/detail/dashboard/helpers.ts` | Browser pure helpers | Accept optional vocabulary forwarded by company/person dashboard callers for sums, active lists and trends. |
 | `components/detail/pipelineStageUtils.ts`, `DealDetailHeader.tsx`, `PipelineStepper.tsx` | Browser | Host forwards vocabulary for configured stage-label recognition; preserve existing won/lost/stalled compatibility labels and stable outcome rendering. |
-| `components/linking/adapters/dealAdapter.tsx` | Browser | Linking host passes vocabulary into preferred won/lost filter values; server expansion still accepts legacy filter IDs. |
+| `components/linking/adapters/dealAdapter.tsx` | Browser | Keep stable won/lost filter IDs distinct from all/orphan controls; server expansion resolves configured aliases. |
 | `dashboards/widgets/dashboard/pipeline-summary/{widget.client.tsx,config.ts}` under `packages/core/src/modules/` | Browser / pure request builder | Widget obtains scoped vocabulary and passes terminal aliases into `buildPipelineDataRequest`; preserve `closureOutcome is_null`, `all` mode and the default-only `CLOSED_DEAL_STATUSES` export. No server resolver import. |
 | `backend/config/customers/deals/page.tsx` and editor | Browser | GET supplies vocabulary/source/version; guarded PUT handles save/reset, impact confirmation and lock conflicts. |
 
@@ -66,9 +66,15 @@ Add GET/PUT `/api/customers/settings/deal-status-vocabulary` with OpenAPI contra
 
 Before any save/reset, compare previous and candidate effective vocabulary, including retained historical aliases, against non-deleted persisted deals in the authorized tenant scope. Count distinct deals whose status classification changes among open, won, lost and closed-without-outcome. Cover alias removal/reassignment, additions that turn unknown statuses terminal, and reset. Do not return deal IDs or titles. Explicit stored outcomes remain unchanged, but the warning still counts status reclassification because status-only readers can change.
 
-When the count is nonzero and current confirmation is absent, write nothing and return `409` with code `deal_status_reclassification_confirmation_required` and `{impact: {affectedDeals: number, fingerprint: string}}`. The fingerprint binds authenticated scope, tenant config version, normalized candidate and impacted status/count groups. The editor displays the count and requires explicit confirmation before retrying the same candidate with the fingerprint and optimistic-lock header; a boolean alone is insufficient. Recompute impact immediately before writing: changed candidate/version/impact groups return refreshed confirmation. Standard optimistic-lock conflicts keep their existing 409 body and take precedence when the setting version is stale. Zero-impact changes need no additional confirmation. Undo uses the same guard so it cannot silently reclassify deals created since the original write. Fingerprints check freshness; they never grant authorization.
+When the count is nonzero and current confirmation is absent, write nothing and return `409` with code `deal_status_reclassification_confirmation_required` and `{impact: {affectedDeals: number, fingerprint: string}}`. The fingerprint binds authenticated scope, tenant config version, normalized candidate and impacted status/count groups. The editor displays the count and requires explicit confirmation before retrying the same candidate with the fingerprint and optimistic-lock header; a boolean alone is insufficient. Recompute impact immediately before writing: changed candidate/version/impact groups return refreshed confirmation. Standard optimistic-lock conflicts keep their existing 409 body and take precedence when the setting version is stale. Zero-impact changes need no additional confirmation. Undo uses the same guard so it cannot silently reclassify deals created since the original write. An API caller retries undo after explicit confirmation with the returned fingerprint in `x-om-customers-deal-status-reclassification-confirmation`; this additive header also supports replay without changing the shared audit endpoint body. All ordinary optimistic-lock and replay authorization checks still apply. Fingerprints check freshness; they never grant authorization.
 
 All existing routes, helpers, constants and call signatures remain available. Pure helpers accept an optional vocabulary argument; default calls keep the shipped behavior. Server consumers resolve once per operation and pass it explicitly. Browser consumers fetch the resolved configuration with a scope-sensitive React Query key. Configuration failures propagate; malformed stored/env values fall through to the next valid level. There is no environment access in browser modules.
+
+Plain `status` query parameters retain their existing comma-separated semantics, including repeated parameters. Owned semantic filters send stable historical outcome tokens (`win`, `lost`, `closed`) rather than configurable preferred values. This keeps a valid preferred alias such as `win,lost` distinct from the existing CSV union `status=win,lost`; advanced-filter values remain the lossless literal representation. Linking controls likewise retain separate `all`/`orphan` and outcome IDs. Status-selection cache signatures serialize arrays without delimiter collisions.
+
+Recognized terminal membership matches trim/case-normalized persisted values; arbitrary statuses and text/range operators retain their existing semantics. List/map and advanced filters resolve scoped historical raw terminal spellings before using existing equality/set operators; advanced conversion retains those raw spellings after its normal input trimming. Aggregate SQL combines normalized terminal predicates with exact arbitrary predicates. Customer-owned dashboard filter rewriting uses existing interceptors on `dashboards/widgets/data` and `dashboards/widgets/data/batch` before cache/aggregation and changes only recognized terminal literals, preserving scope, outcome-null, dates, comparison and currency behavior. Routes supply their already authenticated server scope through internal interceptor metadata, including headerless trusted-auth requests; request bodies cannot supply it. Batch authorization precedes each widget's hook and preserves per-widget failure isolation. No generic query operator or analytics contract is added.
+
+Summary outcome counts retain their existing independent status-or-recorded-outcome predicates. A persisted won outcome still contributes to wins when its custom status is reassigned to lost; that row also contributes to losses through its current status. Configuration never rewrites the stored outcome to reconcile those independent counts.
 
 ## UI/UX and Frontend Architecture Contract
 
@@ -115,13 +121,13 @@ Implementation PR #7625 must ship self-contained fixtures, including an override
 | --- | --- |
 | Settings GET/PUT/reset and undo | Explicit ACL denial, partial-organization denial, invalid input, tenant isolation, instance row ignored, env/default precedence, reset version, mutation guards and optimistic-lock conflict. |
 | Reclassification flow | Removing `signed` reports count and writes nothing; confirm applies the candidate; changed candidate/version/impact groups refresh confirmation. Cover reassignment, newly terminal unknowns, reset, undo, zero-impact changes, cancel, and no IDs/titles in errors. |
-| `/api/customers/deals` plain/advanced filters, `/aggregate`, `/map` | Custom/historical alias agreement, closed-all-terminal, map search/intersection and tenant/organization scope. |
+| `/api/customers/deals` plain/advanced filters, `/aggregate`, `/map` | Custom/historical alias agreement including persisted mixed casing/whitespace, positive/negative membership, unchanged arbitrary/text/range filters, comma aliases through stable outcome tokens, legacy CSV unions, closed-all-terminal, map search/intersection and tenant/organization scope. |
 | `/api/customers/deals/summary` | `signed`/`declined` contribute correctly to won values, quarter counts and monthly win rates; `archived` contributes to neither outcome. Test historical `won`, explicit outcomes, parameter binding, deleted/organization scope and unchanged explicit open/overdue/date rules. |
 | `/api/customers/companies/:id`, `/api/customers/people/:id/companies/enriched` | Same override fixtures produce correct active counts/values and won counts/values; preserve historical aliases and each reader's existing outcome contract. |
 | Deal commands and approved AI mutation | Preferred spellings, closure-stage lookup, won/lost events, reopen and stable enum; pending-action approval remains required. |
 | Company/person detail UI | Verify `CompanyKpiBar`, `ActiveDealCard` and dashboard helper totals/trends under overrides, including local fallback when API KPIs are absent. |
 | Settings, deal list/detail and Kanban UI | Hydration, save/reset confirmation/conflict, canonical selection/actions, badges, QuickDealDialog, stage recognition and tenant switching without stale vocabulary. |
-| Linking picker / dashboard pipeline-summary | Custom aliases give correct filters and open/all totals; preserve `closureOutcome is_null`, lazy loading and unknown-active behavior. |
+| Linking picker / dashboard pipeline-summary | Comma and `all`/`orphan` aliases retain distinct controls; historical mixed-case/space terminal rows give correct filters and open/all totals through both single and live batch APIs; preserve `closureOutcome is_null`, lazy loading, unknown-active behavior, trusted auth and per-widget authorization/isolation. |
 
 Unit tests cover unchanged helper defaults/export shapes, env/tenant precedence, ignored instance rows, invalid config, aliases, fingerprints, SQL predicates and simultaneous tenant resolution. Run the ordered implementation validation gate and focused tests, then independent review and live UI verification. Record unavailable validation/environment limitations. This documentation PR runs only documentation-applicable checks and manual diff review.
 
@@ -142,11 +148,13 @@ Unit tests cover unchanged helper defaults/export shapes, env/tenant precedence,
 | Mutation mechanisms | Guarded undoable command, lock header, confirmed reclassification, shared UI/API helpers and invalidation. |
 | UI, i18n and performance | Existing leaf boundaries, shared tokens/primitives, localized confirmation, budgets and evidence plan. |
 | Coverage and operator docs | Consumer-by-consumer integration table and env/create-app parity work required in #7625. |
-| Completion evidence | Review remediation changes design only. Runtime tests, full gates, screenshots and deployment remain pending in #7625; do not move this spec to `implemented/`. |
+| Completion evidence | The approved guard and consumer corrections are implemented in #7625. Focused tests, core typecheck, generation and package builds pass; live integration, exact-head CI, human QA and deployment evidence are tracked on that PR. Keep this spec outside `implemented/` until deployment is complete. |
 
 ## Changelog
 
 - 2026-10-18: Initial design for issue #5546.
+- 2026-10-25: Reconcile the upstream design with the approved implementation and address filter re-review: scoped historical terminal spellings, legacy-compatible CSV transport, distinct linking controls and customer-owned single/batch dashboard interceptors using authenticated server context. Preserve independent summary status/outcome counting.
+- 2026-10-25: User approved the revised guard architecture for #7625; implementation includes actor/tenant/version/candidate/impact-bound fingerprints, unrestricted per-feature tenant authorization, shared editor confirmation, and guarded undo confirmation header. Runtime/CI/QA evidence remains on #7625.
 - 2026-10-25: Address PR #7624 review with consumer inventory/coverage, required sections, persisted-deal confirmation, explicit ACL/source handling and env/template wiring. Implementation remains in #7625.
 
 ## Research
@@ -165,4 +173,4 @@ HubSpot likewise keeps configurable stage names separate from Won/Lost reporting
 
 4. Add editor/confirmation and supply scoped vocabulary to every browser consumer in the inventory, including company/person fallback KPIs, Kanban/detail writers, linking filters and dashboard widget.
 5. Ship the coverage table; document operator configuration, SQL consistency correction and compatibility; wire the env example and mirror it via `yarn template:sync:fix`.
-6. Run ordered implementation validation, independent review, client-boundary/performance evidence and UI verification; update implementation PR #7625. This design PR does not execute these implementation phases.
+6. Run ordered implementation validation, independent review, client-boundary/performance evidence and UI verification; update implementation PR #7625. Implementation PR #7625 records validation and completion evidence for these phases.

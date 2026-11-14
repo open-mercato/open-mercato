@@ -23,7 +23,9 @@ import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
-import { expandDealStatusAliases } from '../../../lib/dealStatus'
+import type { DealStatusVocabulary } from '../../../lib/dealStatus'
+import { buildDealStatusSqlFilter } from '../../../lib/dealStatusFilters'
+import { resolveDealStatusVocabulary } from '../../../lib/dealStatusVocabulary'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { E } from '#generated/entities.ids.generated'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -67,9 +69,11 @@ function buildDealsAggregateCacheKey(params: {
   currencyScopeOrganizationId: string | null
   organizationIds: string[]
   query: AggregateQuery
+  vocabulary: DealStatusVocabulary
 }): string {
   const signature = {
     tenantId: params.tenantId,
+    vocabulary: params.vocabulary,
     currencyScopeOrganizationId: params.currencyScopeOrganizationId,
     organizationIds: normalizeStringSet(params.organizationIds),
     pipelineId: params.query.pipelineId ?? null,
@@ -218,6 +222,7 @@ export async function GET(req: Request) {
   if (!effectiveTenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const { vocabulary } = await resolveDealStatusVocabulary(container, effectiveTenantId)
   const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
   const aggregateCache = isDealsAggregateCacheEligible(params) && isCrudCacheEnabled()
     ? resolveCrudCache(container)
@@ -228,6 +233,7 @@ export async function GET(req: Request) {
         currencyScopeOrganizationId: orgFilterIds[0] ?? null,
         organizationIds: orgFilterIds,
         query: parsed.data,
+        vocabulary,
       })
     : null
 
@@ -326,11 +332,9 @@ export async function GET(req: Request) {
     }
   }
   if (parsed.data.status && parsed.data.status.length) {
-    // Non-empty input always expands to a non-empty set, so this always narrows.
-    const expandedStatuses = expandDealStatusAliases(parsed.data.status)
-    const placeholders = expandedStatuses.map(() => '?').join(',')
-    where.push(`status IN (${placeholders})`)
-    values.push(...expandedStatuses)
+    const statusFilter = buildDealStatusSqlFilter(parsed.data.status, vocabulary)
+    where.push(statusFilter.clause)
+    values.push(...statusFilter.params)
   }
   if (parsed.data.ownerUserId && parsed.data.ownerUserId.length) {
     const placeholders = parsed.data.ownerUserId.map(() => '?').join(',')

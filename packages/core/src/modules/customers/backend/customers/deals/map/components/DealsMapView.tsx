@@ -324,7 +324,7 @@ export function DealsMapView({ search }: DealsMapViewProps): React.ReactElement 
       'deals',
       `scope:${scopeVersion}`,
       `search:${debouncedSearch}`,
-      `status:${statusFilters.slice().sort((a, b) => a.localeCompare(b)).join(',')}`,
+      `status:${JSON.stringify(statusFilters.slice().sort((a, b) => a.localeCompare(b)))}`,
       `pipeline:${selectedPipelineId ?? ''}`,
       `owners:${ownerFilters.slice().sort((a, b) => a.localeCompare(b)).join(',')}`,
       `people:${peopleFilters.slice().sort((a, b) => a.localeCompare(b)).join(',')}`,

@@ -1,9 +1,11 @@
+import { getDealStatusAliases, type DealStatusVocabulary } from '../../lib/dealStatus'
+
 export function normalizePipelineStageLabel(value: string | null | undefined): string {
   return typeof value === 'string'
     ? value
         .trim()
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
         .trim()
     : ''
 }
@@ -24,7 +26,8 @@ const TERMINAL_OUTCOME_LABELS = new Set([
   'closed stale',
 ])
 
-export function isTerminalPipelineOutcomeLabel(value: string | null | undefined): boolean {
+export function isTerminalPipelineOutcomeLabel(value: string | null | undefined, vocabulary?: DealStatusVocabulary): boolean {
   const normalized = normalizePipelineStageLabel(value)
-  return normalized.length > 0 && TERMINAL_OUTCOME_LABELS.has(normalized)
+  return normalized.length > 0 && (TERMINAL_OUTCOME_LABELS.has(normalized)
+    || getDealStatusAliases(vocabulary).terminal.some((alias) => normalizePipelineStageLabel(alias) === normalized))
 }
