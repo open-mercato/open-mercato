@@ -24,7 +24,7 @@ The CRM links people to companies (`customer_person_company_links`) and deals to
    - **one parent per company per `parent_child` type**;
    - **no cycles** within a `parent_child` type;
    - both companies are in the same tenant and organization as the relationship.
-4. **Relationships tab** (v2 company page only): a flat list of the company's direct relationships, each shown from the viewed company's point of view ("Parent company: Acme Holding", "Subsidiary: Acme Retail", "Partner: Foo Ltd"). Adding reuses `LinkEntityDialog` + `companyAdapter`; editing and deleting are row actions.
+4. **Relationships tab** (v2 company page only): a flat list of the company's direct relationships, each shown from the viewed company's point of view ("Parent company: Acme Holding", "Subsidiary: Acme Retail", "Partner: Foo Ltd"), with search, a type filter and pagination over the complete set (no truncated candidate window — see the read contract below). Adding reuses `LinkEntityDialog` + `companyAdapter`; editing and deleting are row actions.
 5. **Seeded defaults** per tenant/org in `setup.ts` → `seedDefaults`: "Corporate group" (`parent_child`, labels "Parent company" / "Subsidiary") and "Partner" (`equal`). Names and labels are resolved through `resolveTranslations()` at seed time (locale keys under `customers.companyRelationshipTypes.defaults.*`); after seeding they are ordinary user-editable data.
 
 ### Alternatives considered
@@ -144,10 +144,11 @@ All routes are tenant/org scoped through the standard `withScopedPayload` / orga
   | `…errors.cycle` | the new link would make the parent its own descendant |
   | `…errors.companyNotFound` | a company is missing, deleted, or in another scope; returned as `404` |
   | `…errors.typeNotFound` | the type is missing, deleted, or in another scope; returned as `404` |
+  | `…errors.cardinalityLimit` | adding the link would give one of the companies more than `MAX_COMPANY_RELATIONSHIPS` (2,000) active relationships; the response includes `{ limit }` |
 
 ### Relationships for one company — `GET /api/customers/companies/{id}/relationships`
 
-Feature `customers.companies.view`. This is a read-only route modelled on `api/companies/[id]/people/route.ts`. Query: `page`, `pageSize` (≤ 100, default 50), `search` (related company name), `relationshipTypeId`.
+Feature `customers.companies.view`. This is a read-only route modelled on `api/companies/[id]/people/route.ts`. Query: `page`, `pageSize` (≤ 100, default 50), `search` (related company name), `relationshipTypeId`, `sort` (`name-asc` default, `name-desc`).
 
 ```ts
 { items: Array<{
@@ -157,10 +158,17 @@ Feature `customers.companies.view`. This is a read-only route modelled on `api/c
     relationshipType: { id, name, dependencyType, parentLabel, childLabel },
     relatedCompany: { id, displayName, deletedAt: null },
   }>,
-  total, page, pageSize }
+  total, page, pageSize, totalPages }
 ```
 
-Related company names are loaded with `findWithDecryption`. `display_name` is encrypted (`encryption.ts`), so `search` and the name sort can't run in SQL: like `api/companies/[id]/people/route.ts`, the route loads the company's active relationships (bounded fetch, capped at 1000 rows), decrypts, then filters, sorts and paginates in memory. Rows whose related company isn't visible under the caller's organization scope are left out.
+Related company names are loaded with `findWithDecryption`. `display_name` is encrypted (`encryption.ts`), so `search` and the name sort can't run in SQL. Unlike the People tab's single unbounded read, this route reads the **complete** candidate set in bounded keyset batches, so no saved relationship is silently dropped from search, the type filter, `total` or pagination:
+
+- `relationshipTypeId` and the tenant/organization scope are applied in the SQL `WHERE` clause.
+- The route walks the rows where `{id}` is either side in `id`-ascending keyset batches of `RELATIONSHIP_READ_BATCH_SIZE` (250): `… WHERE id > :lastId ORDER BY id ASC LIMIT 250`, stopping only when a batch returns fewer rows than the batch size. Each batch hydrates and decrypts its related `customer_entities` rows with `findWithDecryption`.
+- The merged set is filtered by `search` (case-insensitive substring on the decrypted `displayName`, the same matcher as the People tab) and sorted by type name, then related company name (locale-compared, case-insensitive), then relationship `id` as a stable tie-break. `total` is the size of the post-filter set; `totalPages` and the clamped `page` are computed from it, as in `api/companies/[id]/people/route.ts`.
+- Rows whose related company isn't visible under the caller's organization scope are left out before filtering, so `total` never counts them.
+
+Completeness is bounded rather than assumed: writes cap each company at `MAX_COMPANY_RELATIONSHIPS` (2,000) active relationships, so the walk always terminates (at most eight batches) and one request decrypts at most 2,000 names — the same order of work as the People tab's full read, but with a hard bound and without a truncated candidate window.
 
 ### Invariant checks (`lib/companyRelationships.ts`)
 
@@ -171,6 +179,7 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 3. Check both companies (`kind = 'company'`, not deleted, same tenant and organization) and the type (not deleted).
 4. Check self-relation, duplicate and single parent (these mirror the DB indexes and produce friendly errors).
 5. **Cycle check** (`parent_child` only): use a recursive CTE to walk *up* from the proposed parent over active rows of the same type. If the proposed child appears among the ancestors, reject. The single-parent rule means the walk is a simple chain, bounded by the depth of the hierarchy. Add a guard limit (e.g. 1000 hops) that fails closed.
+6. **Cardinality cap** (`MAX_COMPANY_RELATIONSHIPS = 2000` in `lib/companyRelationships.ts`): count the active relationships where either company id is one of the new relationship's two companies, and reject with `409 …errors.cardinalityLimit` (response carries `{ limit }`) when the insert would take either company past the cap. Both company rows were locked `PESSIMISTIC_WRITE` in step 2, so two concurrent inserts that would together cross the cap serialize and the second sees the first. Undo-of-delete re-runs the same check, so an undo that would exceed the cap fails with the same 409 and leaves the row deleted. `PUT` never changes the company pair, so it never changes either company's count and skips the check.
 
 **Type-side serialization.** The type update, type delete, undo-of-type-update and undo-of-type-delete commands take the same `PESSIMISTIC_WRITE` lock on the type row before checking `dependencyTypeLocked` / `inUse`. A relationship write and a type change therefore can't interleave, which is what keeps the copied `dependency_type` on relationship rows correct.
 
@@ -232,7 +241,8 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 | Related company is outside the caller's organization scope | Writes return 404 `companyNotFound`; the read endpoint leaves the row out. |
 | Renaming a type or its labels | Every relationship of that type shows the new labels immediately, because labels are resolved at read time. |
 | Stale edit | `409` optimistic-lock conflict, shown through the unified conflict bar. |
-| A large group (hundreds of subsidiaries) | The tab paginates (`pageSize` ≤ 100), with search and a type filter. |
+| A large group (hundreds of subsidiaries) | The tab paginates (`pageSize` ≤ 100), with complete-set search and a type filter. |
+| A company reaches the 2,000-relationship cap | The next create or undo-of-delete is rejected with `409 cardinalityLimit`; existing links keep working and the per-company read stays complete and bounded. |
 
 ## 📝 Risks & Impact Review
 
@@ -242,7 +252,7 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 | Contention from the cycle-check lock | Low | write throughput for one type | The lock is per type, the transaction is short, and relationship writes are rare | Low |
 | `dependency_type` copy on relationship rows drifts from the type | Medium | data integrity | The type's `dependencyType` is immutable while `usageCount > 0`; type commands and relationship commands take the same type-row lock, and relationship updates recompute the copy | Low |
 | Deadlock between relationship writes | Low | write availability | Type rows and then company rows are always locked in ascending id order | Low |
-| In-memory filtering on the per-company read | Low | performance | Bounded fetch (1000 rows), the same approach as the company People tab | Low |
+| In-memory filtering on the per-company read | Low | performance | Complete-set keyset-batched read, hard-bounded by the 2,000-active-relationships-per-company write cap; search, the type filter and `total` cover the whole set | Low |
 | Cross-tenant leak through the related company | High | security | Writes require both companies to match the relationship scope, reads filter by scope, and integration tests cover a cross-org attempt | Low |
 | Contract surfaces (`BACKWARD_COMPATIBILITY.md`) | Low | API, events, DB, UI | Everything is additive: new tables, routes and events; a new built-in tab id (`CompanyTabId` already accepts `string`); a new optional `relationshipsCount` prop on `CompanyDetailTabs` for the badge; no change to `LinkEntityDialog`; no existing route, event or ACL id changes | None |
 
@@ -267,11 +277,11 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 
 ### Phase 2 — Relationships backend
 1. Add `CustomerCompanyRelationship` with the check constraint and partial unique indexes, migration and snapshot.
-2. Add `lib/companyRelationships.ts`: canonical ordering, orientation (`role`/`label`) and the invariant checks, including the recursive-CTE cycle check under the type-row lock. **Test:** unit tests for each invariant and for orientation.
-3. Add `commands/companyRelationships.ts` (create/update/delete with undo; update and both undos re-validate; type change recomputes `dependency_type` and the pair order; DB unique violations map to translated 409s) and events with `clientBroadcast` and both company ids in the payload. Wire the real usage count into the type commands and `afterList`. **Test:** command unit tests, including a type change from `equal` to `parent_child` and back.
-4. Add `api/company-relationships/route.ts` (writes plus generic GET) and `api/companies/[id]/relationships/route.ts` (oriented read). **Test:** route unit tests.
+2. Add `lib/companyRelationships.ts`: canonical ordering, orientation (`role`/`label`), the `MAX_COMPANY_RELATIONSHIPS` constant and the invariant checks, including the recursive-CTE cycle check and the cardinality cap, all under the type-row and company-row locks. **Test:** unit tests for each invariant, for the cap (including a concurrent-insert race) and for orientation.
+3. Add `commands/companyRelationships.ts` (create/update/delete with undo; update and both undos re-validate; type change recomputes `dependency_type` and the pair order; DB unique violations map to translated 409s) and events with `clientBroadcast` and both company ids in the payload. Wire the real usage count into the type commands and `afterList`. **Test:** command unit tests, including a type change from `equal` to `parent_child` and back, and a cap-rejecting create and undo.
+4. Add `api/company-relationships/route.ts` (writes plus generic GET) and `api/companies/[id]/relationships/route.ts` (oriented read with the keyset-batched complete-set fetch). **Test:** route unit tests, including a candidate set larger than one read batch.
 5. Extend `deleteCompanyCommand` with the relationships blocker and the cleanup of soft-deleted rows. **Test:** extend the existing company-delete tests.
-6. Integration tests TC-CRM-REL-003..006 and TC-CRM-REL-010.
+6. Integration tests TC-CRM-REL-003..006, TC-CRM-REL-010 and TC-CRM-REL-011.
 
 ### Phase 3 — Relationships tab (v2 company page)
 1. Add the `'relationships'` tab plus the optional `relationshipsCount` to `CompanyDetailTabs`. **Test:** update `CompanyDetailTabs.test.tsx`.
@@ -294,6 +304,7 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 | TC-CRM-REL-008 | same | edit (swap direction), remove with confirm, empty state |
 | TC-CRM-REL-009 | same | a user with `customers.companies.view` only sees the list without Add/Edit/Remove |
 | TC-CRM-REL-010 | `/api/customers/company-relationship-types` + `/backend/config/customers` (Phase 2) | type in use: `PUT` changing `dependencyType` → 409, `DELETE` → 409 `inUse`; settings UI disables the dependency type and shows the delete error |
+| TC-CRM-REL-011 | `/api/customers/companies/{id}/relationships` + `/api/customers/company-relationships` | complete-set read past one batch: with 1,001 relationships on one company, an exact-name match that sorts beyond the first batch is reachable through `search` and through its own page, and `total` is exact with and without `relationshipTypeId`; the 2,001st link → 409 `cardinalityLimit` |
 
 ## 📝 Final Compliance Report
 
@@ -307,6 +318,8 @@ These run inside `withAtomicFlush(em, …, { transaction: true })` in the create
 - Integration tests listed for every new API and UI path: ✅
 
 ## Changelog
+
+- 2026-11-14: Complete-set per-company read (review finding on `:163`): the route now walks the whole candidate set in bounded keyset batches instead of silently capping the fetch at 1,000 rows, so `search`, the type filter, `total` and pagination cover every saved relationship; the read is bounded by a new explicit write-side cap of 2,000 active relationships per company (`409 cardinalityLimit`), and TC-CRM-REL-011 covers 1,001 links with a match beyond the first batch.
 
 - 2026-10-26: Applied the architectural review: type-change semantics on `PUT` (`directionRequired`, recomputed `dependency_type` and pair order); lock ordering for types and company rows (company-delete race, #7613); type-side lock serialization; undo-of-update re-validation; `excludeIds` instead of `clientFilter`, and a single-parent check in the confirm handler; in-memory search because `display_name` is encrypted; consequences of the company hard delete for undo; DB `CHECK` for canonical order; `usageCount` via `afterList`; both company ids in the event payload; translated seeds; precise ACL wording; in-use integration case moved to Phase 2 (TC-CRM-REL-010).
 - 2026-10-26: Initial spec. Open Questions resolved: per-side labels for `parent_child`; dedicated types table; block cycles and allow one parent per type; reject duplicates; no extra relationship fields; block deleting a type in use; v2 company page only; seed default types; flat list (tree view deferred).
