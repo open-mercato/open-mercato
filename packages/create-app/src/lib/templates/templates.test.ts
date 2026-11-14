@@ -643,7 +643,7 @@ test('help documents --template and --keep-name with two examples, and no doc ke
   const { cwd, output } = await runMain(['--help'], noFetch)
   const help = output.join('\n')
   assert.match(help, /^ {2}--template <slug \| owner\/repo>\[#ref\]$/m)
-  assert.match(help, /https:\/\/modules\.openmercato\.com\/templates/)
+  assert.match(help, /https:\/\/www\.openmercato\.com\/run\/templates/)
   assert.match(help, /^ {2}--keep-name +With --template, keep the template's package\.json name$/m)
   assert.match(help, /^ {2}npx create-mercato-app my-crm --template crm$/m)
   assert.match(help, /^ {2}npx create-mercato-app my-portal --template some-agency\/b2b-portal#v1\.0\.0$/m)
