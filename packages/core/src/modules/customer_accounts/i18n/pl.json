@@ -372,6 +372,7 @@
   "customer_accounts.widgets.accountStatus": "Status konta",
   "customer_accounts.widgets.accountStatus.description": "Pokazuje status konta w portalu klienta na szczegółach osoby CRM",
   "customer_accounts.widgets.emailVerified": "E-mail zweryfikowany",
+  "customer_accounts.widgets.errorLoading": "Nie udało się wczytać stanu konta w portalu.",
   "customer_accounts.widgets.invitationExpires": "Zaproszenie wygasa",
   "customer_accounts.widgets.invitationPending": "Zaproszenie oczekuje",
   "customer_accounts.widgets.invite.button": "Zaproś do portalu",
@@ -393,7 +394,9 @@
   "customer_accounts.widgets.lastLogin": "Ostatnie logowanie",
   "customer_accounts.widgets.noAccount": "Brak powiązanego konta",
   "customer_accounts.widgets.noUsers": "Brak powiązanych użytkowników",
+  "customer_accounts.widgets.portalAccountTab": "Konto w portalu",
   "customer_accounts.widgets.portalUsers": "Użytkownicy portalu",
+  "customer_accounts.widgets.retryLoading": "Ponów",
   "customer_accounts.widgets.viewAccount": "Zobacz konto",
   "notifications.categories.customer_accounts": "Konta klientów"
 }
