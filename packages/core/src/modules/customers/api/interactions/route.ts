@@ -49,6 +49,7 @@ const interactionSortFieldSchema = z.enum([
   'priority',
   'interactionType',
   'title',
+  'activityDate',
 ])
 
 export const listSchema = z
@@ -226,6 +227,15 @@ const interactionSortConfig = {
   priority: { column: 'priority', type: 'number' as const, defaultDir: 'desc' as const },
   interactionType: { column: 'interaction_type', type: 'text' as const, defaultDir: 'asc' as const },
   title: { column: 'title', type: 'text' as const, defaultDir: 'asc' as const },
+  // The date a timeline shows for a row: when it happened, or when it is planned for.
+  // Sorting on `occurred_at` alone put every open activity (no `occurred_at` yet) after
+  // all completed ones, so a history list only met them on its last page.
+  activityDate: {
+    column: 'occurred_at',
+    expression: 'coalesce(occurred_at, scheduled_at)',
+    type: 'date' as const,
+    defaultDir: 'desc' as const,
+  },
 } as const
 
 function toIsoString(value: unknown): string | null {
@@ -291,7 +301,8 @@ function buildSortSql(
       sortDir === 'asc'
         ? "timestamp with time zone '9999-12-31T23:59:59.999Z'"
         : "timestamp with time zone '0001-01-01T00:00:00.000Z'"
-    return `coalesce(${config.column}, ${sentinel})`
+    const dateSql = 'expression' in config ? config.expression : config.column
+    return `coalesce(${dateSql}, ${sentinel})`
   }
   if (config.type === 'number') {
     const sentinel = sortDir === 'asc' ? '2147483647' : '-2147483648'

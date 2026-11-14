@@ -7,6 +7,7 @@ import type { ActivityKind } from './ActivitiesAddNewMenu'
 import { ActivitiesSection } from './ActivitiesSection'
 import { InlineActivityComposer } from './InlineActivityComposer'
 import { PlannedActivitiesSection } from './PlannedActivitiesSection'
+import { useCanManageInteractions } from './hooks/useCanManageInteractions'
 import type { InteractionSummary } from './types'
 
 type GuardedMutationRunner = <T,>(
@@ -49,7 +50,8 @@ type ActivityLogTabProps = {
 /**
  * Shared Activities tab for person and company detail pages. It mirrors the
  * deal detail layout: inline composer, planned activities, then the filterable
- * history timeline, all scoped to the owning record.
+ * history timeline, all scoped to the owning record. A user who cannot manage
+ * interactions gets the same lists without the composer and the write actions.
  */
 export function ActivityLogTab({
   entityType = 'company',
@@ -71,6 +73,7 @@ export function ActivityLogTab({
   onActionChange,
 }: ActivityLogTabProps) {
   const t = useT()
+  const canManage = useCanManageInteractions()
   const defaultAddActionLabel = entityType === 'person'
     ? t('customers.people.detail.activities.add', 'Log activity')
     : t('customers.companies.detail.activities.add', 'Log activity')
@@ -86,22 +89,24 @@ export function ActivityLogTab({
 
   return (
     <div className="space-y-4">
-      <InlineActivityComposer
-        entityType={entityType}
-        entityId={entityId}
-        onActivityCreated={onActivityCreated}
-        runGuardedMutation={runGuardedMutation}
-        onScheduleRequested={onScheduleRequested}
-        useCanonicalInteractions={useCanonicalInteractions}
-      />
+      {canManage ? (
+        <InlineActivityComposer
+          entityType={entityType}
+          entityId={entityId}
+          onActivityCreated={onActivityCreated}
+          runGuardedMutation={runGuardedMutation}
+          onScheduleRequested={onScheduleRequested}
+          useCanonicalInteractions={useCanonicalInteractions}
+        />
+      ) : null}
       <PlannedActivitiesSection
         activities={plannedActivities}
         loadFailed={plannedLoadFailed}
         onRetryLoad={onRetryPlannedLoad}
-        onComplete={onMarkDone ? (interactionId) => { void onMarkDone(interactionId) } : undefined}
-        onSchedule={onScheduleRequested}
-        onEdit={onEditActivity}
-        onCancel={onCancelActivity ? (interactionId) => { void onCancelActivity(interactionId) } : undefined}
+        onComplete={canManage && onMarkDone ? (interactionId) => { void onMarkDone(interactionId) } : undefined}
+        onSchedule={canManage ? onScheduleRequested : undefined}
+        onEdit={canManage ? onEditActivity : undefined}
+        onCancel={canManage && onCancelActivity ? (interactionId) => { void onCancelActivity(interactionId) } : undefined}
       />
       <ActivitiesSection
         entityId={entityId}
@@ -113,7 +118,8 @@ export function ActivityLogTab({
         addActionLabel={addActionLabel ?? defaultAddActionLabel}
         emptyState={emptyState ?? defaultEmptyState}
         onActionChange={onActionChange}
-        onEditActivity={onEditActivity}
+        onEditActivity={canManage ? onEditActivity : undefined}
+        readOnly={!canManage}
         serverHistoryControls
       />
     </div>

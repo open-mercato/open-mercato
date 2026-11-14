@@ -173,6 +173,32 @@ describe('PlannedActivitiesSection', () => {
     expect(screen.queryByText(/Tomorrow/)).toBeNull()
   })
 
+  describe('without write handlers', () => {
+    const rows = [
+      makeActivity({ id: 'int-overdue', title: 'Overdue call', scheduledAt: localInstantAtOffset(-2, 10, 0) }),
+      makeActivity({ id: 'int-upcoming', title: 'Upcoming call', scheduledAt: localInstantAtOffset(3, 10, 0) }),
+    ]
+
+    it('renders the rows as plain entries with no actions for a view-only user', () => {
+      renderWithProviders(<PlannedActivitiesSection activities={rows} />)
+
+      expect(screen.getByText('Overdue call')).toBeInTheDocument()
+      expect(screen.getByText('Upcoming call')).toBeInTheDocument()
+      expect(screen.queryAllByRole('button')).toHaveLength(0)
+    })
+
+    it('offers only the actions whose handler is provided', () => {
+      const onEdit = jest.fn()
+      renderWithProviders(<PlannedActivitiesSection activities={rows} onEdit={onEdit} />)
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'More' })[0]!)
+
+      expect(screen.getByRole('button', { name: 'Reschedule' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Mark done' })).toBeNull()
+    })
+  })
+
   describe('load failure', () => {
     it('shows the error and retry when nothing has loaded', () => {
       const onRetryLoad = jest.fn()

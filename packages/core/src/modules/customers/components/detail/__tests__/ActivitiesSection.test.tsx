@@ -7,10 +7,20 @@ import { ActivitiesSection as CustomerActivitiesSection } from '../ActivitiesSec
 
 const activityTimelineMock = jest.fn(() => null)
 const readApiResultOrThrowMock = jest.fn()
+const scopedHeadersMock = jest.fn()
+const surfaceRecordConflictMock = jest.fn<boolean, unknown[]>(() => false)
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: (headers: Record<string, string>, operation: () => unknown) => {
+    scopedHeadersMock(headers)
+    return operation()
+  },
+}))
+
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({
+  surfaceRecordConflict: (...args: unknown[]) => surfaceRecordConflictMock(...args),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
@@ -89,7 +99,7 @@ describe('Customer ActivitiesSection wrapper', () => {
 
     await waitFor(() => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        '/api/customers/interactions?entityId=company-123&limit=50&sortField=occurredAt&sortDir=desc&excludeInteractionType=task',
+        '/api/customers/interactions?entityId=company-123&limit=50&sortField=activityDate&sortDir=desc&excludeInteractionType=task',
       )
     })
     expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('/api/customers/activities?'))
@@ -385,7 +395,7 @@ describe('Customer ActivitiesSection wrapper', () => {
     })
 
     const latestOnMarkDone = () => {
-      const calls = activityTimelineMock.mock.calls as unknown as Array<[{ onMarkDone?: (id: string) => Promise<void> }]>
+      const calls = activityTimelineMock.mock.calls as unknown as Array<[{ onMarkDone?: (id: string, updatedAt?: string | null) => Promise<void> }]>
       const onMarkDone = calls[calls.length - 1]?.[0]?.onMarkDone
       if (!onMarkDone) throw new Error('[internal] ActivityTimeline rendered without onMarkDone')
       return onMarkDone
@@ -419,6 +429,45 @@ describe('Customer ActivitiesSection wrapper', () => {
       expect(runGuardedMutation).toHaveBeenCalledTimes(1)
       expect(onDataRefresh).toHaveBeenCalledTimes(1)
       expect(runGuardedMutation.mock.invocationCallOrder[0]).toBeLessThan(onDataRefresh.mock.invocationCallOrder[0])
+    })
+
+    it('sends the version the row was loaded with', async () => {
+      scopedHeadersMock.mockClear()
+      await renderSection({})
+
+      await act(async () => {
+        await latestOnMarkDone()('activity-1', '2026-04-01T08:00:00.000Z')
+      })
+
+      expect(scopedHeadersMock).toHaveBeenCalledWith(
+        expect.objectContaining({ 'x-om-ext-optimistic-lock-expected-updated-at': '2026-04-01T08:00:00.000Z' }),
+      )
+    })
+
+    it('shows the record conflict instead of a generic error and reloads the list and its siblings', async () => {
+      const conflict = new Error('[internal] conflict')
+      const runGuardedMutation = jest.fn(async () => {
+        throw conflict
+      })
+      const onDataRefresh = jest.fn(async () => undefined)
+      surfaceRecordConflictMock.mockReturnValueOnce(true)
+      await renderSection({ runGuardedMutation, onDataRefresh })
+      readApiResultOrThrowMock.mockClear()
+
+      await act(async () => {
+        await latestOnMarkDone()('activity-1', '2026-04-01T08:00:00.000Z')
+      })
+
+      expect(surfaceRecordConflictMock).toHaveBeenCalledWith(conflict, expect.any(Function))
+      expect(readApiResultOrThrowMock).toHaveBeenCalled()
+      expect(onDataRefresh).toHaveBeenCalledTimes(1)
+    })
+
+    it('offers no Mark done when the section is read-only', async () => {
+      await renderSection({ readOnly: true })
+
+      const calls = activityTimelineMock.mock.calls as unknown as Array<[{ onMarkDone?: unknown }]>
+      expect(calls[calls.length - 1]?.[0]?.onMarkDone).toBeUndefined()
     })
 
     it('does not notify the parent when marking done fails', async () => {
