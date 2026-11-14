@@ -219,7 +219,7 @@ A part that cannot be stored never loses the email. It is recorded with a status
 | `failed` | `quota_exceeded`, `partition_unavailable`, `fetch_failed`, `store_failed`, `processing_failed`, `ingest_timeout` |
 | `released` | The email was deleted and its files freed |
 
-XML and HTML files, including XML e-invoices, are refused by the attachments module as active content. A file the attachments module refuses in its security scan (rejected or quarantined) is recorded as `scan_rejected`. While the scan is unavailable, the part stays `pending` and is retried; after 6 hours it is marked `ingest_timeout`, which **Retry** re-fetches.
+XML and HTML files, including XML e-invoices, are refused by the attachments module as active content. When the attachments module scans uploads with a security scanner, a file the scan refuses (rejected or quarantined) is recorded as `scan_rejected`. While the scan is unavailable, the part stays `pending` and is retried; after 6 hours it is marked `ingest_timeout`, which **Retry** re-fetches.
 
 Deduplication of an email with attachments also compares Resend's attachment ids, so two attachment-only emails with the same sender and subject are kept apart. A webhook redelivery is still recognised as a duplicate; the same message forwarded twice gets new ids from Resend and is stored twice.
 

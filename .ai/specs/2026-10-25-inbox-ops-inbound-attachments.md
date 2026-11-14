@@ -212,7 +212,7 @@ A failed enqueue therefore changes nothing: the previous job stays current, so a
   - It marks the part (`nativeUpdate … set status = 'stored', attachment_id = :id, extracted_text = :text where id = :rowId and status <> 'stored'`). The text is truncated to `INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE` and encrypted with `tenantDataEncryptionService.encryptEntityPayload` before the update, because the encryption subscriber does not see `nativeUpdate`. On 0 rows it throws `CrudHttpError(409, { code: 'inbox_part_already_stored' })`.
 
   Either throw rolls the Attachment insert and its quota reservation back and propagates unchanged (`scoped-upload-service.ts` rethrows `CrudHttpError` from `persistLink`). The caller treats `inbox_part_already_stored` as stored and `inbox_claim_lost` as an abort.
-- Maps upload error codes: `quota_exceeded`, `dangerous_executable`, `active_content`, `max_upload_size` → `too_large`, `scan_rejected` (the attachment security scanner rejected or quarantined the file), `partition_unavailable`, `quota_target_exists`/`quota_recovery_unsupported` → `store_failed`; `quota_unavailable`, `storage_failed`, `persistence_failed`, `scan_unavailable` and errors without a code (for example the 500 when the upload service is unavailable) → transient.
+- Maps upload error codes: `quota_exceeded`, `dangerous_executable`, `active_content`, `max_upload_size` → `too_large`, `scan_rejected` (the attachment security scanner rejected or quarantined the file), `partition_unavailable`, `quota_target_exists`/`quota_recovery_unsupported` → `store_failed`; `quota_unavailable`, `storage_failed`, `persistence_failed`, `scan_unavailable` (`scan_rejected` and `scan_unavailable` are codes of the attachment scanning gate, #5557, never raised before it lands) and errors without a code (for example the 500 when the upload service is unavailable) → transient.
 
 **Release on deletion (`api/emails/[id]/route.ts` DELETE)**
 - The soft delete, `attachments_release_requested_at = now()` (on every deletion, whatever the attachment status, so rows planted under any email are covered) and the invalidation of the claim (`attachments_claim_token = null`, and `attachments_status = 'completed'` only when it was not `null`) are one update on the email row. That row lock serializes with `persistLink`'s claim renewal: a part committed before the delete is listed and released, and a part attempted after it fails `inbox_claim_lost` and rolls back.
@@ -725,7 +725,7 @@ Ready for implementation after #7989 (`2026-11-03-attachment-direct-reader-owner
 - The D19 test opt-out also requires a `re_stub_` `RESEND_API_KEY`.
 
 ### 2026-11-14
-- An upload refused by the attachment security scanner (`scan_rejected`) is recorded as `skipped` with reason `scan_rejected`; a scanner that is unavailable (`scan_unavailable`) is retried like other transient errors.
+- An upload refused by the attachment security scanner of #5557 (`scan_rejected`) is recorded as `skipped` with reason `scan_rejected`; a scanner that is unavailable (`scan_unavailable`) is retried like other transient errors.
 
 ## Implementation Status
 
