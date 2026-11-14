@@ -231,9 +231,11 @@ const rotateEncryptionKey: ModuleCli = {
     if (rawOldKeyArgument !== undefined && !oldKeyArgument) {
       throw new Error(`[internal] --old-key requires a value. Use ${OLD_ENCRYPTION_KEY_ENV} instead.`)
     }
-    const oldKeyEnvironment = process.env[OLD_ENCRYPTION_KEY_ENV]
-      ? normalizeKeyInput(process.env[OLD_ENCRYPTION_KEY_ENV]!)
-      : null
+    const rawOldKeyEnvironment = process.env[OLD_ENCRYPTION_KEY_ENV]
+    const oldKeyEnvironment = rawOldKeyEnvironment !== undefined ? normalizeKeyInput(rawOldKeyEnvironment) || null : null
+    if (rawOldKeyEnvironment !== undefined && !oldKeyEnvironment) {
+      throw new Error(`[internal] ${OLD_ENCRYPTION_KEY_ENV} is set but empty. Unset it or set it to the previous key.`)
+    }
     if (oldKeyArgument && oldKeyEnvironment && oldKeyArgument !== oldKeyEnvironment) {
       throw new Error(`[internal] --old-key and ${OLD_ENCRYPTION_KEY_ENV} contain different values. Remove --old-key and retry.`)
     }

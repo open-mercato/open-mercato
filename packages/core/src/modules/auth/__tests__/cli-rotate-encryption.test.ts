@@ -153,10 +153,12 @@ describe('auth rotate-encryption-key CLI', () => {
       message: 'contain different values',
       environmentKey: 'environment-secret',
     },
+    { name: 'an empty TENANT_DATA_ENCRYPTION_OLD_KEY', flags: [], message: 'TENANT_DATA_ENCRYPTION_OLD_KEY is set but empty', environmentKey: '' },
+    { name: 'a whitespace-only TENANT_DATA_ENCRYPTION_OLD_KEY', flags: [], message: 'TENANT_DATA_ENCRYPTION_OLD_KEY is set but empty', environmentKey: '   ' },
   ])('rejects $name before opening the database', async ({ flags, message, environmentKey }) => {
     const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    if (environmentKey) process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = environmentKey
+    if (environmentKey !== undefined) process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = environmentKey
 
     await expect(rotate.run([...flags, '--tenant', 'tenant-1', '--org', 'org-1'])).rejects.toThrow(message)
 
