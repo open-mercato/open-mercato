@@ -45,6 +45,7 @@
   "sso.admin.empty.cta": "SSO konfigurieren",
   "sso.admin.empty.description": "Konfigurieren Sie Single Sign-On, damit sich Ihre Benutzer mit Ihrem Identitätsanbieter authentifizieren können.",
   "sso.admin.empty.title": "Kein SSO konfiguriert",
+  "sso.admin.error.activationDiscoveryFailed": "Aktivierung nicht möglich — Erkennung fehlgeschlagen: {error}",
   "sso.admin.error.activationFailed": "Aktivierungsstatus konnte nicht aktualisiert werden",
   "sso.admin.error.alreadyExists": "Für diese Organisation existiert bereits eine SSO-Konfiguration",
   "sso.admin.error.createFailed": "SSO-Konfiguration konnte nicht erstellt werden",
