@@ -149,6 +149,10 @@ services:
       # Development fallback only; production init rejects placeholders and enforces password policy.
       # Set OM_INIT_SUPERADMIN_PASSWORD to a unique password before the first production boot.
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+      OM_INIT_ADMIN_EMAIL: ${OM_INIT_ADMIN_EMAIL:-}
+      OM_INIT_ADMIN_PASSWORD: ${OM_INIT_ADMIN_PASSWORD:-}
+      OM_INIT_EMPLOYEE_EMAIL: ${OM_INIT_EMPLOYEE_EMAIL:-}
+      OM_INIT_EMPLOYEE_PASSWORD: ${OM_INIT_EMPLOYEE_PASSWORD:-}
       OPEN_MERCATO_DOCKER_REGISTRY_HOST: ${OPEN_MERCATO_DOCKER_REGISTRY_HOST:-host.docker.internal}
     depends_on:
       encryption-preflight:
