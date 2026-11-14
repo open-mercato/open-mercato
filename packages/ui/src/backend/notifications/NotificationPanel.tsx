@@ -125,11 +125,11 @@ export function NotificationPanel({
         hideClose
         aria-label={t('notifications.title', 'Notifications')}
       >
-        <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
           <SheetTitle className="text-base font-medium leading-6 tracking-tight text-foreground">
             {t('notifications.title', 'Notifications')}
           </SheetTitle>
-          <div className="flex items-center gap-1">
+          <div className="ml-auto flex min-w-0 max-w-full items-center gap-1">
             {unreadCount > 0 ? (
               <Button
                 type="button"
@@ -137,7 +137,7 @@ export function NotificationPanel({
                 size="sm"
                 onClick={handleMarkAllRead}
                 disabled={markingAllRead}
-                className="gap-1 px-1 text-accent-indigo hover:text-accent-indigo/80 hover:no-underline"
+                className="h-auto min-h-8 min-w-0 shrink whitespace-normal gap-1 px-1 text-accent-indigo hover:text-accent-indigo/80 hover:no-underline"
               >
                 {markingAllRead ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 {t('notifications.markAllRead', 'Mark all read')}

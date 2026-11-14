@@ -5,6 +5,7 @@ import {
   PostgresIntrospector,
   DummyDriver,
   type CompiledQuery,
+  type RawBuilder,
 } from 'kysely'
 import { createNotificationService } from '../lib/notificationService'
 import { register as registerNotificationDi } from '../di'
@@ -859,6 +860,85 @@ describe('notification service', () => {
           notification: expect.objectContaining({ id: note.id, status: 'read' }),
         })
       )
+    }
+  })
+
+  type RecordedWhere = { query: 'select' | 'update'; args: unknown[] }
+  type RecordingChain = {
+    where: (...args: unknown[]) => RecordingChain
+    execute: () => Promise<Array<{ id: string }>>
+    executeTakeFirst: () => Promise<{ numUpdatedRows: bigint }>
+  }
+
+  const buildScopeRecordingKysely = (rowIds: string[]) => {
+    const recorded: RecordedWhere[] = []
+    const buildChain = (query: RecordedWhere['query']): RecordingChain => {
+      const chain: RecordingChain = {
+        where: (...args) => {
+          recorded.push({ query, args })
+          return chain
+        },
+        execute: async () => rowIds.map((id) => ({ id })),
+        executeTakeFirst: async () => ({ numUpdatedRows: BigInt(rowIds.length) }),
+      }
+      return chain
+    }
+    const kysely = {
+      selectFrom: () => ({ select: () => buildChain('select') }),
+      updateTable: () => ({ set: () => buildChain('update') }),
+    }
+    return { kysely, recorded }
+  }
+
+  const compileOrganizationPredicates = (recorded: RecordedWhere[], query: RecordedWhere['query']) =>
+    recorded
+      .filter((call) => call.query === query && call.args.length === 1)
+      .map((call) => (call.args[0] as RawBuilder<boolean>).compile(createCompileKysely()))
+      .filter((compiled) => compiled.sql.includes('organization_id'))
+
+  it.each([
+    {
+      label: 'an organization is selected (selected org plus its child organizations)',
+      organizationId: 'org-1',
+      organizationIds: ['org-1', 'org-1-child'],
+      expectedSql: '("organization_id" in ($1, $2) or "organization_id" is null)',
+      expectedParameters: ['org-1', 'org-1-child'],
+    },
+    {
+      label: 'no single organization is selected and the visible organizations are restricted',
+      organizationId: null,
+      organizationIds: ['org-2', 'org-3'],
+      expectedSql: '("organization_id" in ($1, $2) or "organization_id" is null)',
+      expectedParameters: ['org-2', 'org-3'],
+    },
+    {
+      label: 'the caller can see no organization at all',
+      organizationId: null,
+      organizationIds: [],
+      expectedSql: '"organization_id" is null',
+      expectedParameters: [],
+    },
+  ])('marks all as read in the same organization scope as the unread badge when $label', async ({
+    organizationId,
+    organizationIds,
+    expectedSql,
+    expectedParameters,
+  }) => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const { kysely, recorded } = buildScopeRecordingKysely(['note-21'])
+    em.getKysely.mockReturnValue(kysely)
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+    const service = createNotificationService({ em, eventBus })
+
+    await expect(service.markAllAsRead({ ...baseCtx, organizationId, organizationIds })).resolves.toBe(1)
+
+    expect(recorded.filter((call) => call.args[0] === 'organization_id')).toEqual([])
+    for (const query of ['select', 'update'] as const) {
+      const predicates = compileOrganizationPredicates(recorded, query)
+      expect(predicates).toHaveLength(1)
+      expect(predicates[0].sql).toBe(expectedSql)
+      expect(predicates[0].parameters).toEqual(expectedParameters)
     }
   })
 
