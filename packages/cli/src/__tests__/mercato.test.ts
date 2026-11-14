@@ -1112,7 +1112,7 @@ describe('init command failure output', () => {
     )
   }
 
-  it.each(['--reinstall', '--no-demo-users'])('rejects unsafe production init before side effects with %s', async (flag) => {
+  it('rejects unsafe production init before side effects with --reinstall', async () => {
     const previousEnv = { ...process.env }
     jest.spyOn(console, 'error').mockImplementation()
     jest.spyOn(console, 'log').mockImplementation()
@@ -1122,11 +1122,35 @@ describe('init command failure output', () => {
     process.env.OM_INIT_SUPERADMIN_PASSWORD = 'password'
     try {
       const mercato = await import('../mercato')
-      expect(await mercato.run(['node', 'mercato', 'init', flag, '--skip-password-policy'])).toBe(1)
+      expect(await mercato.run(['node', 'mercato', 'init', '--reinstall', '--skip-password-policy'])).toBe(1)
       const { Client } = await import('pg')
       const { generateEntityIds } = await import('../lib/generators')
       const { dbMigrate } = await import('../lib/db')
       expect(Client).not.toHaveBeenCalled()
+      expect(generateEntityIds).not.toHaveBeenCalled()
+      expect(dbMigrate).not.toHaveBeenCalled()
+      expect(authSetup).not.toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
+  it('rejects unsafe production init on a fresh database before generators or seeding with --no-demo-users', async () => {
+    // #8932: ordinary (non-reinstall) init now checks for existing users — a read-only
+    // query — before validating credentials, so Client IS touched here unlike --reinstall
+    // above. What still must not happen is any destructive/generation/seeding side effect.
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    process.env.NODE_ENV = 'production'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'password'
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init', '--no-demo-users', '--skip-password-policy'])).toBe(1)
+      const { generateEntityIds } = await import('../lib/generators')
+      const { dbMigrate } = await import('../lib/db')
       expect(generateEntityIds).not.toHaveBeenCalled()
       expect(dbMigrate).not.toHaveBeenCalled()
       expect(authSetup).not.toHaveBeenCalled()
@@ -1375,6 +1399,34 @@ describe('init on an already initialized database', () => {
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
+  })
+
+  it('recovers restart on an initialized production database without --skip-if-initialized and without bootstrap credentials', async () => {
+    // Regression for #8932: the Docker/Railway wrapper runs plain `init` (no
+    // --skip-if-initialized) and relies on the "existing user(s)" abort message to
+    // recognize an already-initialized database and fall through to migrations. If
+    // credential validation runs before that check, a missing/placeholder password in
+    // production throws first and the wrapper can never recognize the preserved data.
+    const previousEnv = { ...process.env }
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const { generateEntityIds } = mockSeededDatabase('3')
+    process.env.NODE_ENV = 'production'
+    delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    try {
+      const mercato = await import('../mercato')
+      const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+      expect(exitCode).toBe(1)
+      const errors = consoleErrorSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(errors).toContain('Initialization aborted: found 3 existing user(s)')
+      expect(errors).not.toContain('superadmin password')
+      expect(generateEntityIds).not.toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+      consoleErrorSpy.mockRestore()
+      consoleLogSpy.mockRestore()
+    }
   })
 
   it('skips an initialized production database without bootstrap credentials', async () => {
