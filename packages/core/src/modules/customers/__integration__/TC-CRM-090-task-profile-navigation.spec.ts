@@ -92,6 +92,65 @@ async function createTask(
 }
 
 test.describe('TC-CRM-090: Customer task navigation to the person Tasks tab', () => {
+  for (const status of ['canceled', 'in_progress', 'waiting']) {
+    test(`preserves a native ${status} task through a compatibility-mode title edit`, async ({ page }, testInfo) => {
+      await login(page, 'superadmin')
+      const request = page.request
+      const token = await getAuthToken(request, 'superadmin')
+      let personId: string | null = null
+      let taskId: string | null = null
+      let restoreMode: (() => Promise<void>) | null = null
+      try {
+        restoreMode = await useInteractionMode(request, token, false)
+        personId = await createPersonFixture(request, token, {
+          firstName: 'Native', lastName: `status ${status} ${Date.now()}`, displayName: `Native ${status} fixture`,
+        })
+        taskId = await createTask(request, token, personId, `Native ${status}`, null, status)
+        const listPath = `${INTERACTIONS}?entityId=${personId}&interactionType=task&limit=100`
+        const readTask = async () => {
+          const response = await apiRequest(request, 'GET', listPath, { token })
+          expect(response.ok()).toBeTruthy()
+          const body = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(response)
+          const record = body?.items?.find((item) => item.id === taskId)
+          expect(record).toBeTruthy()
+          return record as Record<string, unknown>
+        }
+        const before = await readTask()
+        const merged = await apiRequest(request, 'GET', `/api/customers/interactions/tasks?entityId=${personId}`, { token })
+        expect(merged.ok()).toBeTruthy()
+        const mergedBody = await readJsonSafe<{ items?: Array<{ todoId: string; todoStatus?: string }> }>(merged)
+        expect(mergedBody?.items?.find((item) => item.todoId === taskId)?.todoStatus).toBe(status)
+        await page.goto(`/backend/customers/people-v2/${personId}?tab=tasks`)
+        const article = page.getByRole('article').filter({ hasText: `Native ${status}` })
+        await expect(article).toBeVisible()
+        if (status === 'canceled') await expect(article.getByRole('checkbox')).toBeDisabled()
+        await article.getByRole('button', { name: 'Edit', exact: true }).click()
+        const dialog = page.getByRole('dialog')
+        await expect(dialog).toBeVisible()
+        await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill(`Renamed ${status}`)
+        const saved = page.waitForResponse((response) => response.url().split('?')[0].endsWith(INTERACTIONS)
+          && response.request().method() === 'PUT')
+        await dialog.press('Control+Enter')
+        expect((await saved).ok()).toBeTruthy()
+        await expect(dialog).toHaveCount(0)
+        const after = await readTask()
+        expect(after.title).toBe(`Renamed ${status}`)
+        expect(after.status).toBe(status)
+        expect({ ...after, title: before.title, updatedAt: before.updatedAt }).toEqual(before)
+        await page.reload()
+        const renamed = page.getByRole('article').filter({ hasText: `Renamed ${status}` })
+        await expect(renamed).toBeVisible()
+        if (status === 'canceled') await expect(renamed.getByRole('checkbox')).toBeDisabled()
+        await page.screenshot({ path: testInfo.outputPath(`compatibility-${status}-preserved.png`), fullPage: true })
+      } finally {
+        if (taskId) await deleteEntityIfExists(request, token, INTERACTIONS, taskId)
+        if (personId) await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+        await restoreMode?.()
+      }
+    })
+  }
+
+
   for (const unified of [false, true]) {
     const mode = unified ? 'unified' : 'compatibility'
 

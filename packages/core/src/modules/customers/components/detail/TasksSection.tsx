@@ -27,7 +27,7 @@ import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { useInteractions, type InteractionCreatePayload } from './hooks/useInteractions'
-import { mapInteractionRecordToTodoSummary } from '../../lib/interactionCompatibility'
+import { CUSTOMER_INTERACTION_TASK_SOURCE, mapInteractionRecordToTodoSummary } from '../../lib/interactionCompatibility'
 
 type GuardedMutationRunner = <T>(
   operation: () => Promise<T>,
@@ -657,7 +657,12 @@ export function TasksSection({
         onSubmit={handleDialogSubmit}
         isSubmitting={isMutating}
         contextMessage={dialogContextMessage}
-        useCanonicalInteractions={useCanonicalInteractions}
+        useCanonicalInteractions={useCanonicalInteractions || Boolean(
+          editingTask?.todoSource === CUSTOMER_INTERACTION_TASK_SOURCE
+          && editingTask.status
+          && editingTask.status !== 'planned'
+          && editingTask.status !== 'done'
+        )}
       />
 
       {ConfirmDialogElement}

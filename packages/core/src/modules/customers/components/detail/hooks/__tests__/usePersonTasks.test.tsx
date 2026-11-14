@@ -317,6 +317,43 @@ describe('usePersonTasks merged customer task reads', () => {
     expect(result.current.tasks).toEqual([])
   })
 
+  it.each(['canceled', 'in_progress', 'waiting'])('preserves native %s status during a title-only edit', async (status) => {
+    const updatedAt = '2026-10-16T10:00:00.000Z'
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: status, todoUpdatedAt: updatedAt }],
+      total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const { result } = await renderTasks()
+    expect(result.current.tasks[0]).toMatchObject({ status, isDone: false })
+    await act(async () => {
+      await result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Renamed', status, is_done: false }, custom: {},
+      })
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith('/api/customers/interactions', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ id: 'todo-1', title: 'Renamed', status }),
+    }), expect.any(Object))
+    expect(buildOptimisticLockHeaderMock).toHaveBeenCalledWith(updatedAt)
+    expect(result.current.tasks[0]).toMatchObject({ title: 'Renamed', status, isDone: false })
+  })
+
+  it.each([403, 409])('does not downgrade a refused native edit (%s) to the binary adapter', async (status) => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: 'waiting' }], total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const refusal = Object.assign(new Error('Refused'), { status })
+    apiCallOrThrowMock.mockRejectedValueOnce(refusal)
+    const { result } = await renderTasks()
+    await act(async () => {
+      await expect(result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Refused rename', status: 'waiting' }, custom: {},
+      })).rejects.toBe(refusal)
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    expect(apiCallOrThrowMock.mock.calls[0][0]).toBe('/api/customers/interactions')
+    expect(result.current.tasks[0]).toMatchObject({ title: 'Task 1', status: 'waiting' })
+  })
+
   it('preserves legacy reads for roles without the interactions-view permission', async () => {
     const legacyRow = { ...makeRows(1)[0], todoSource: 'example:todo' }
     readApiResultOrThrowMock

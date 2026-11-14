@@ -19,6 +19,7 @@ type CustomerTodoRow = {
   todoSource: string
   todoTitle: string | null
   todoIsDone: boolean | null
+  todoStatus?: string | null
   todoPriority: number | null
   todoSeverity: string | null
   todoDescription: string | null
@@ -85,7 +86,7 @@ function mapRowToSummary(row: CustomerTodoRow): TodoLinkSummary {
     createdAt: row.createdAt,
     title: row.todoTitle ?? null,
     isDone: row.todoIsDone ?? null,
-    status: row.todoIsDone ? 'done' : 'planned',
+    status: row.todoStatus ?? (row.todoIsDone ? 'done' : 'planned'),
     priority: row.todoPriority ?? null,
     severity: row.todoSeverity ?? null,
     description: row.todoDescription ?? null,
@@ -378,7 +379,11 @@ export function usePersonTasks({
   const updateTask = React.useCallback(
     async (task: TodoLinkSummary, { base, custom }: TaskFormPayload) => {
       if (!task.todoId) throw new Error('Task is missing todo id')
-      const apiPath = resolveTodoApiPath(task.todoSource || DEFAULT_TODO_SOURCE)
+      const hasRichStatus = task.todoSource === DEFAULT_TODO_SOURCE
+        && Boolean(task.status && task.status !== 'planned' && task.status !== 'done')
+      const apiPath = hasRichStatus
+        ? '/api/customers/interactions'
+        : resolveTodoApiPath(task.todoSource || DEFAULT_TODO_SOURCE)
       if (!apiPath) throw new Error('Unsupported task source')
       setIsMutating(true)
       try {
@@ -391,9 +396,21 @@ export function usePersonTasks({
           body.title = base.title.trim()
         }
         const normalizedDone = normalizeBoolean(base.is_done)
-        if (normalizedDone !== undefined) body.is_done = normalizedDone
-        if (Object.keys(customValues).length) {
-          body.customFields = customValues
+        const nextStatus = hasRichStatus && base.status !== undefined
+          ? base.status
+          : normalizedDone !== undefined
+            ? (normalizedDone ? 'done' : 'planned')
+            : task.status
+        if (hasRichStatus) {
+          delete body.linkId
+          if (nextStatus !== undefined && nextStatus !== null) body.status = nextStatus
+          if (base.priority !== undefined) body.priority = base.priority
+          if (base.description !== undefined) body.body = base.description
+          if (base.scheduledAt !== undefined) body.scheduledAt = base.scheduledAt
+          if (Object.keys(custom).length) body.customValues = custom
+        } else {
+          if (normalizedDone !== undefined) body.is_done = normalizedDone
+          if (Object.keys(customValues).length) body.customFields = customValues
         }
         // Send the optimistic-lock header (task's loaded updatedAt) so a stale
         // edit — or an edit after the task was deleted in another tab — surfaces
@@ -421,8 +438,12 @@ export function usePersonTasks({
             return {
               ...item,
               title: typeof base.title === 'string' && base.title.trim().length ? base.title.trim() : item.title,
-              isDone: normalizedDone !== undefined ? normalizedDone : item.isDone,
-              status: normalizedDone !== undefined ? (normalizedDone ? 'done' : 'planned') : item.status ?? null,
+              isDone: hasRichStatus && nextStatus !== undefined && nextStatus !== null
+                ? nextStatus === 'done'
+                : normalizedDone !== undefined ? normalizedDone : item.isDone,
+              status: hasRichStatus
+                ? nextStatus ?? item.status ?? null
+                : normalizedDone !== undefined ? (normalizedDone ? 'done' : 'planned') : item.status ?? null,
               priority:
                 normalizeNumber(base.priority ?? customValues.priority) ??
                 (base.priority === undefined && customValues.priority === undefined ? item.priority ?? null : null),

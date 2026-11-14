@@ -127,6 +127,20 @@ function TenantAwareOrganizationSelectInput({
   )
 }
 
+function aclDataEqual(baseline: AclData | null, candidate: AclData): boolean {
+  if (!baseline) return false
+  if (baseline.isSuperAdmin !== candidate.isSuperAdmin) return false
+  const sorted = (list: string[] | null | undefined) => [...(list ?? [])].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+  const baselineFeatures = sorted(baseline.features)
+  const candidateFeatures = sorted(candidate.features)
+  if (baselineFeatures.length !== candidateFeatures.length || baselineFeatures.some((feature, i) => feature !== candidateFeatures[i])) return false
+  if (baseline.organizations === null || candidate.organizations === null) return baseline.organizations === candidate.organizations
+  const baselineOrgs = sorted(baseline.organizations)
+  const candidateOrgs = sorted(candidate.organizations)
+  if (baselineOrgs.length !== candidateOrgs.length) return false
+  return baselineOrgs.every((org, i) => org === candidateOrgs[i])
+}
+
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
@@ -141,6 +155,22 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [canEditOrgs, setCanEditOrgs] = React.useState(false)
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [aclUpdatedAt, setAclUpdatedAt] = React.useState<string | null>(null)
+  // AclEditor reports a fresh load via onVersionChange immediately before the
+  // onChange carrying that loaded state; capture that onChange as the baseline
+  // so onSubmit can skip writing an ACL the operator never touched (#8714).
+  const aclBaselineRef = React.useRef<AclData | null>(null)
+  const aclBaselinePendingRef = React.useRef(false)
+  const handleAclVersionChange = React.useCallback((updatedAt: string | null) => {
+    aclBaselinePendingRef.current = true
+    setAclUpdatedAt(updatedAt)
+  }, [])
+  const handleAclChange = React.useCallback((data: AclData) => {
+    setAclData(data)
+    if (aclBaselinePendingRef.current) {
+      aclBaselineRef.current = data
+      aclBaselinePendingRef.current = false
+    }
+  }, [])
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const [actorResolved, setActorResolved] = React.useState(false)
@@ -434,8 +464,8 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             targetId={String(id)}
             canEditOrganizations={canEditOrgs}
             value={aclData}
-            onChange={setAclData}
-            onVersionChange={setAclUpdatedAt}
+            onChange={handleAclChange}
+            onVersionChange={handleAclVersionChange}
             userRoles={initialUser?.roles || []}
             currentUserIsSuperAdmin={actorIsSuperAdmin}
             tenantId={selectedTenantId ?? null}
@@ -574,23 +604,38 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               ...(typeof values.isConfirmed === 'boolean' ? { isConfirmed: values.isConfirmed } : {}),
               ...(Object.keys(customFields).length ? { customFields } : {}),
             }
+            // Only write the ACL panel when the operator actually touched it — an
+            // org-scoped editor saving an untouched, inherited ACL (`organizations:
+            // null`) would otherwise be refused by the scoped-grant check on every
+            // save, regardless of what else changed (#8714).
+            if (!aclDataEqual(aclBaselineRef.current, aclData)) {
+              // Attempt the ACL write *before* the primary user update so a scoped-
+              // grant refusal never leaves the user record already persisted.
+              // Optimistic lock the ACL save against the loaded UserAcl version so a
+              // concurrent permission edit cannot silently overwrite (#2055). CrudForm
+              // surfaces the 409 as the unified conflict bar.
+              const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
+              const submittedAclData = aclData
+              const saveUserAcl = () => updateCrud<{ ok: boolean; sanitized: boolean; updatedAt: string | null }>(
+                'auth/users/acl',
+                { userId: id, ...submittedAclData },
+                { errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control') },
+              )
+              const { result: aclSaveResult } = Object.keys(aclLockHeader).length > 0
+                ? await withScopedApiRequestHeaders(aclLockHeader, saveUserAcl)
+                : await saveUserAcl()
+              // Refresh the baseline and version against what was just persisted —
+              // otherwise a retry after a later user-update failure (e.g. a duplicate
+              // email) re-sends this already-saved ACL with its stale version and
+              // gets refused before the corrected user update can even run.
+              aclBaselineRef.current = submittedAclData
+              setAclUpdatedAt(aclSaveResult?.updatedAt ?? aclUpdatedAt)
+            }
             const userOptimisticLockHeader = buildOptimisticLockHeader(initialUser?.updatedAt)
             if (Object.keys(userOptimisticLockHeader).length > 0) {
               await withScopedApiRequestHeaders(userOptimisticLockHeader, () => updateCrud('auth/users', payload))
             } else {
               await updateCrud('auth/users', payload)
-            }
-            // Optimistic lock the ACL save against the loaded UserAcl version so a
-            // concurrent permission edit cannot silently overwrite (#2055). CrudForm
-            // surfaces the 409 as the unified conflict bar.
-            const aclLockHeader = buildOptimisticLockHeader(aclUpdatedAt)
-            const saveUserAcl = () => updateCrud('auth/users/acl', { userId: id, ...aclData }, {
-              errorMessage: t('auth.users.form.errors.aclUpdate', 'Failed to update user access control'),
-            })
-            if (Object.keys(aclLockHeader).length > 0) {
-              await withScopedApiRequestHeaders(aclLockHeader, saveUserAcl)
-            } else {
-              await saveUserAcl()
             }
             await widgetEditorRef.current?.save()
             try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}

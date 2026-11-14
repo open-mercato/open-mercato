@@ -321,6 +321,10 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'apps/mercato/src/components/__tests__/DemoFeedbackWidget.test.tsx',
+    reason: 'Reads onboarding locale dictionaries as fixture data for the app widget; it does not audit onboarding source. The app-owned Jest suite runs when this component changes, and onboarding owns dictionary validation.',
+  },
+  {
     path: 'packages/cli/src/lib/__tests__/module-search.test.ts',
     reason: 'Reads only package-local catalog fixtures and per-test mkdtemp app roots; packages/core and apps/mercato literals construct temporary resolver layouts, never audit repository sources.',
   },

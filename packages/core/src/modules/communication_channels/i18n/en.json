@@ -182,6 +182,7 @@
   "communication_channels.push.connect.title.fcm": "Connect Firebase Cloud Messaging",
   "communication_channels.push.flash.registerFailed": "Failed to register push",
   "communication_channels.push.status.active": "Push active",
+  "communication_channels.push.status.expired": "Push expired — re-register to resume delivery",
   "communication_channels.push.status.failed": "Push failed — using polling",
   "communication_channels.push.status.inactive": "Polling only",
   "communication_channels.push.status.notRegistered": "Push not registered",

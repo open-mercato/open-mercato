@@ -10,6 +10,7 @@ const usePersonTasksMock = jest.fn()
 const useInteractionsMock = jest.fn()
 const confirmMock = jest.fn()
 const readApiResultOrThrowMock = jest.fn()
+const taskDialogMock = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   ...jest.requireActual('@open-mercato/ui/backend/utils/apiCall'),
@@ -32,7 +33,7 @@ jest.mock('../hooks/useInteractions', () => ({
 }))
 
 jest.mock('../TaskDialog', () => ({
-  TaskDialog: () => null,
+  TaskDialog: (props: unknown) => { taskDialogMock(props); return null },
 }))
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
@@ -47,6 +48,7 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
 }))
 
 jest.mock('../../../lib/interactionCompatibility', () => ({
+  CUSTOMER_INTERACTION_TASK_SOURCE: 'customers:interaction',
   mapInteractionRecordToTodoSummary: jest.fn((interaction: unknown) => interaction),
 }))
 
@@ -250,6 +252,22 @@ describe('TasksSection', () => {
 
     expect(await screen.findByText('Native follow up')).toBeInTheDocument()
     expect(screen.getByText('Legacy follow up')).toBeInTheDocument()
+  })
+
+  it.each(['canceled', 'in_progress', 'waiting'])('uses the rich editor for native %s tasks in compatibility mode', (status) => {
+    usePersonTasksMock.mockReturnValue({
+      ...usePersonTasksMock(),
+      tasks: [{ ...sampleTask, todoSource: 'customers:interaction', status, isDone: false }],
+    })
+    renderWithProviders(
+      <TasksSection entityId="customer-1" initialTasks={[]} emptyLabel="No date"
+        addActionLabel="Create task" emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }} />,
+    )
+    if (status === 'canceled') expect(screen.getByRole('checkbox')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(taskDialogMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      open: true, useCanonicalInteractions: true, initialValues: expect.objectContaining({ status }),
+    }))
   })
 
   it('continues to render unified tasks from the canonical interactions loader', () => {
