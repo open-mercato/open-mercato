@@ -13,6 +13,7 @@ import {
   safeWebhookFetch,
   UnsafeWebhookUrlError,
 } from './url-safety'
+import { readWebhookResponseBody, WEBHOOK_RESPONSE_BODY_LIMIT_BYTES } from './response-body'
 import {
   invalidateWebhookSubscriptionCacheFor,
   type WebhookCacheDependencyResolver,
@@ -182,6 +183,9 @@ async function processClaimedWebhookDelivery(
   delivery.status = 'sending'
   delivery.lastAttemptAt = claimedAt
   delivery.errorMessage = null
+  delivery.responseStatus = null
+  delivery.responseHeaders = null
+  delivery.responseBody = null
   await em.flush()
 
   const body = JSON.stringify(bodyPayload)
@@ -201,6 +205,7 @@ async function processClaimedWebhookDelivery(
     const timeoutId = setTimeout(() => controller.abort(), webhook.timeoutMs)
 
     let response: Response
+    let responseBody: string
     try {
       response = await safeWebhookFetch(webhook.url, {
         method: webhook.httpMethod,
@@ -213,14 +218,18 @@ async function processClaimedWebhookDelivery(
         body,
         signal: controller.signal,
       })
+      delivery.responseStatus = response.status
+      delivery.responseHeaders = Object.fromEntries(response.headers.entries())
+      responseBody = await readWebhookResponseBody(response, {
+        maxBytes: WEBHOOK_RESPONSE_BODY_LIMIT_BYTES,
+        signal: controller.signal,
+      })
     } finally {
       clearTimeout(timeoutId)
     }
 
     delivery.attemptNumber += 1
-    delivery.responseStatus = response.status
-    delivery.responseBody = (await response.text()).slice(0, 4096)
-    delivery.responseHeaders = Object.fromEntries(response.headers.entries())
+    delivery.responseBody = responseBody
     delivery.durationMs = Date.now() - delivery.enqueuedAt.getTime()
     delivery.lastAttemptAt = new Date()
 
