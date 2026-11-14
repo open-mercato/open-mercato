@@ -1,3 +1,4 @@
+import { redactRestoredNextInteractionName } from '../lib/interactionProjection'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -653,6 +654,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       entity: reviveSnapshotDates(redoSnapshot.entity, ['nextInteractionAt']),
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, after.entity)
     let entity = await findOneWithDecryption(
       em,
       CustomerEntity,
@@ -887,6 +889,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, before.entity)
     let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
     if (!entity) {
       entity = em.create(CustomerEntity, {
@@ -1221,6 +1224,7 @@ const deleteCompanyCommand: CommandHandler<
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
+      await redactRestoredNextInteractionName(em, before.entity)
       let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
       if (!entity) {
         entity = em.create(CustomerEntity, {
