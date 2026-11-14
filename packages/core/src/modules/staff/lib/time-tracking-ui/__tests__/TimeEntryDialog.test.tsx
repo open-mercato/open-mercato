@@ -768,7 +768,15 @@ describe('TimeEntryDialog — saving', () => {
     expect(screen.queryByTestId('entry-dialog-description')).not.toBeInTheDocument()
   })
 
-  it('opens a locked entry read-only with a link to its report', async () => {
+  it.each([
+    [[], false],
+    [['staff.timesheets.manage_own'], false],
+    [['staff.timesheets.reports.view'], true],
+    [['staff.timesheets.*'], true],
+    [['staff.*'], true],
+    [['*'], true],
+  ] as const)('keeps locked entries read-only and gates report access for %j', async (features, canViewReports) => {
+    mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures: [...features] } } as never)
     entryRows = [
       {
         id: ENTRY_ID,
@@ -793,12 +801,17 @@ describe('TimeEntryDialog — saving', () => {
     expect(taskSelect()).toBeDisabled()
     expect(screen.getByTestId('entry-dialog-description')).toBeDisabled()
 
-    fireEvent.click(screen.getByTestId('entry-dialog-locked-report'))
-    expect(window.open).toHaveBeenCalledWith(
-      `/backend/staff/time-tracking/reports/${REPORT_ID}`,
-      '_blank',
-      'noopener',
-    )
+    if (canViewReports) {
+      fireEvent.click(screen.getByTestId('entry-dialog-locked-report'))
+      expect(window.open).toHaveBeenCalledWith(
+        `/backend/staff/time-tracking/reports/${REPORT_ID}`,
+        '_blank',
+        'noopener',
+      )
+    } else {
+      expect(screen.queryByTestId('entry-dialog-locked-report')).not.toBeInTheDocument()
+      expect(window.open).not.toHaveBeenCalled()
+    }
   })
 
   it('saves on ⌘↵', async () => {

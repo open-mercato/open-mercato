@@ -516,7 +516,7 @@ Each phase is one PR, independently shippable, with its integration tests in the
 1. `DurationInput.tsx` — parser-backed, keeps invalid text, lists accepted formats inline.
 2. `TimeEntryDialog.tsx` — task picker (project and customer derived from it), description, date, 2-of-3 start/end/duration with a `computed` badge, billable switch, rate override with live read-only cost showing the rounding applied, tags, immutable creator notice, ⌘↵ save / Esc cancel, **Save and add another** (start chains from the previous end).
 3. Overlap check on blur → non-blocking warning with **Show that entry** and **Snap start to …**. An end before its start renders the midnight-crossing hint rather than an error (D-8).
-4. Entries DataTable: inline duration cell edit (Enter/blur saves, Esc reverts), duplicate, delete with an Undo toast, rate-override badge, locked rows read-only with a link to the closing report, footer totals, empty Cost cell for non-billable rows.
+4. Entries DataTable: inline duration cell edit (Enter/blur saves, Esc reverts), duplicate, delete with an Undo toast, rate-override badge, locked rows read-only with a link to the closing report only for users with `staff.timesheets.reports.view`, footer totals, empty Cost cell for non-billable rows.
 5. `copy-day` and `duplicate` endpoints; extend the existing entry routes and the bulk endpoint's lock rejection.
 
 **Exit:** TC-TT-008/009/010 pass; a locked entry cannot be modified through the form, the inline cell, the bulk grid, or the duplicate endpoint.
@@ -561,6 +561,12 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 **Exit:** TC-TT-016 passes; `yarn lint`, `yarn test`, `yarn build:app` clean.
 
 ---
+
+### Locked-entry report navigation (#7019)
+
+The entries list and entry dialog offer **Show the report** only when backend chrome grants `staff.timesheets.reports.view`, using the shared wildcard-aware feature matcher. Missing grants fail closed. The locked badge, explanation, and write restrictions remain visible to every entry reader. No API permission, response, schema, or component contract changes.
+
+Coverage: the entries-page and TimeEntryDialog unit suites cover absent/denied grants, explicit report access, and `staff.timesheets.*`, `staff.*`, and `*` grants. `TC-TT-035-locked-report-navigation` creates its own roles, users, project, entry and closed report; it checks the list affordance against the real guarded report API and cleans up all fixtures.
 
 ## Testing Coverage
 
@@ -719,6 +725,7 @@ Every question the requirements left open — each one traced to the mockup note
 ## Changelog
 
 | Date | Change |
+| 2026-11-13 | #7019: gate locked-entry report navigation on `staff.timesheets.reports.view`; preserve the read-only lock notice. Unit permission matrix and TC-TT-035 cover denied/allowed navigation. |
 |---|---|
 | 2026-11-03 | #6990 / #8379: document additive whole-filter entry totals, rates redaction, structural project-access filter composition, footer/shared chip props, and self-contained live API boundary regressions in TC-STAFF-048. |
 | 2026-11-02 | #8448: bind access-request writes, authorization, deduplication and manager notification to validated request-selected scope; reject rejected/missing scope. Bootstrap integration waits for switcher completion, requiring a project reload only for fresh-cookie hydration, while preserving scope/confidentiality/acknowledgement assertions. |
