@@ -723,6 +723,33 @@ describe('ComboboxInput suggestion popup placement', () => {
 })
 
 describe('ComboboxInput labelling and validation attributes', () => {
+  it('updates the label association when the input id changes and supports omitting it', () => {
+    const { rerender } = render(
+      <>
+        <label htmlFor="original-color">Original color</label>
+        <Harness id="original-color" initialValue="red" />
+      </>,
+    )
+
+    const input = screen.getByRole('combobox', { name: 'Original color' })
+
+    rerender(
+      <>
+        <label htmlFor="updated-color">Updated color</label>
+        <Harness id="updated-color" initialValue="red" />
+      </>,
+    )
+
+    expect(screen.getByLabelText('Updated color')).toBe(input)
+    expect(input).toHaveAttribute('id', 'updated-color')
+    expect(input).toHaveValue('Red')
+
+    rerender(<Harness initialValue="red" />)
+
+    expect(screen.getByRole('combobox')).not.toHaveAttribute('id')
+    expect(screen.getByRole('combobox')).toHaveValue('Red')
+  })
+
   it('forwards id and ARIA validation attributes to the combobox input', () => {
     render(
       <div>
