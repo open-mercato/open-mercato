@@ -13,7 +13,7 @@ Supported rules:
 - integer: number is an integer
 - float: number is finite
 - lt/lte/gt/gte: numerical comparisons (requires `param` number)
-- eq/ne: strict equality/inequality compared to `param`
+- eq/ne: equality/inequality compared to `param`; on `integer`/`float` fields numeric strings are parsed with `Number()` like `lt`/`gt` (`'5'` equals `5`), other kinds compare strictly
 - regex: value matches provided regex pattern string
 
 Definition syntax (configJson.validation):

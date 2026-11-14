@@ -1562,6 +1562,22 @@ That memory now lives in a `staff`-owned store shared by both surfaces:
 
 **Action for downstream:** none required during the deprecation window. Module authors reading `TimeReportingSettings.lastProjectId` directly should move to `GET /api/staff/timesheets/my-preferences` (or the `useTimesheetPreference` hook in `packages/core/src/modules/staff/lib/timesheets-ui/`) before the field is removed. Authors who *write* it should note that the shared preference now takes precedence on read, so a write to the legacy field alone will not change what the widget preselects for a member who already has a shared row.
 
+### Staff orphan-segment backfill is not reversible (#6409)
+
+Soft-deleting a time entry used to leave its work segments live, some of them still open. #6409 cascades every soft-delete to the segments and ships a one-off data migration, `Migration20260826193000_staff_segment_orphan_backfill`, that repairs the rows written before the fix: each segment of a soft-deleted entry takes the entry's `deleted_at`, and a still-open segment is closed at that same instant.
+
+The migration's `down()` is intentionally a no-op. A rollback cannot tell the rows the backfill stamped from the ones the runtime cascade has stamped since, so rolling the migration back leaves the repaired segments as they are. That is safe: every row it touches belongs to an entry that is already soft-deleted, so no scoped read returns it.
+
+**Action for operators:** none required. To size the repair before deploying, count the affected segments:
+
+```sql
+select count(*) from staff_time_entry_segments s
+join staff_time_entries e on e.id = s.time_entry_id
+where e.deleted_at is not null and s.deleted_at is null;
+```
+
+Take a backup first if you may need the pre-repair rows back; rolling the migration back will not restore them.
+
 ### Staff time-entries totals cover the whole filtered set and render inside the table (#6990)
 
 The time-entries list (`/backend/staff/time-tracking/entries`) now asks
@@ -5411,6 +5427,22 @@ Operators using starter or generated-app full-app Compose deployments must set a
 
 This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
 
+## Private next-interaction subjects (#8888)
+
+Shared customer projections now return a NULL name for explicitly private email
+interactions. The owner and temporarily authorized shared-mail readers still see
+the subject in authorized interaction views. Historical undo/redo also redacts a
+private or unresolved linked name. Clients should retain their unnamed-interaction
+fallback; public/legacy/non-email subjects and manual names remain supported.
+
+Apply the accompanying forward-only data migration and complete its declared
+customer entity/profile query-index rebuilds before reopening affected reads.
+Rebuild any configured fulltext/vector provider that previously indexed these
+fields and verify synthetic old subjects are gone before reopening search. The
+migration clears opaque encrypted values without decrypting them; rollback does
+not restore private subjects. No schema, startup or configuration-format change.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` for validation limits.
+
 ## Setup verifies encryption before database reuse (#8913)
 
 Setup migrations, initialization, reinstall and development recovery migrations now inspect existing database ciphertext with the configured tenant KMS and Forms key adapter before writes. Correct PostgreSQL credentials alone no longer permit reuse. Both monorepo and refreshed standalone setup scripts include this guard, including container initialization, migrations and role-ACL synchronization.
@@ -5424,3 +5456,13 @@ Existing standalone applications must refresh `scripts/dev.mjs` and add `scripts
 Container compatibility refusals exit with status `78` and are fatal even before role-ACL synchronization. Custom `SYNC_ROLE_ACLS_COMMAND` implementations should reserve status `78` for fatal configuration failures; other nonzero ACL-sync statuses retain the existing warning behavior.
 
 The compatibility proof authenticates at most five candidate rows per store/key scope using server-side filtering; total plaintext table size is not a transfer limit. Known Documents CRDT binary columns are excluded. This is not a full historical ciphertext audit: unreadable values outside a sample may remain, and normal per-record runtime guards still apply. Optional dev auto-migrations warn and skip writes on a compatibility refusal; explicit setup/container initialization and migrations remain blocking.
+
+## Customer comment update attribution (#8759)
+
+Customer-comment body edits preserve the persisted author when `authorUserId` is omitted. Ordinary staff and API keys can no longer reassign or clear attribution through `customers.comments.update` / `PUT /api/customers/comments`; supplied author input is ignored while authorized body edits continue. API keys cannot override this even with superadmin privileges.
+
+**Client migration:** omit `authorUserId` for body edits. Intentional corrections require a non-API-key superadmin session and an explicit active user in the comment's tenant, or explicit null to clear attribution. Omitted authors and unchanged historical authors remain intact.
+
+**Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
+
+**Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
