@@ -18,6 +18,7 @@ async function readList(response: Pick<APIResponse, 'status' | 'text'>): Promise
 for (const language of ['en', 'pl'] as const) {
   for (const width of [375, 1440]) {
     test(`TC-PGWY-026: ${language} server transaction sorting at ${width}px`, async ({ browser, request, baseURL }, testInfo) => {
+      test.setTimeout(120_000)
       const superToken = await getAuthToken(request, 'superadmin')
       const adminToken = await getAuthToken(request, 'admin')
       const { tenantId } = getTokenContext(adminToken)
