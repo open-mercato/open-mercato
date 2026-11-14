@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn as spawnProcess, spawnSync as spawnSyncProcess } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -55,22 +55,26 @@ function validateThread(thread, expectedThreadId) {
   return thread
 }
 
-function isCodexOnWindowsPath() {
+function isCodexOnWindowsPath(spawnSync) {
   return spawnSync('where.exe', ['codex'], { stdio: 'ignore', windowsHide: true }).status === 0
 }
 
-function startAppServer() {
+export function startAppServer({
+  platform = process.platform,
+  spawn = spawnProcess,
+  spawnSync = spawnSyncProcess,
+} = {}) {
   const stdio = ['pipe', 'pipe', 'ignore']
-  if (process.platform === 'win32') {
-    if (!isCodexOnWindowsPath()) fail('Could not start the Codex app-server.')
+  if (platform === 'win32') {
+    if (!isCodexOnWindowsPath(spawnSync)) fail('Could not start the Codex app-server.')
     return spawn('codex app-server --stdio', { stdio, shell: true, windowsHide: true })
   }
   return spawn('codex', ['app-server', '--stdio'], { stdio })
 }
 
-function stopAppServer(server) {
+export function stopAppServer(server, { platform = process.platform, spawn = spawnProcess } = {}) {
   if (server.exitCode !== null || server.killed) return
-  if (process.platform === 'win32' && server.pid) {
+  if (platform === 'win32' && server.pid) {
     spawn('taskkill', ['/pid', String(server.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
       .on('error', () => server.kill())
     return
