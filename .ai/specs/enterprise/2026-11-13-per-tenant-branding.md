@@ -18,7 +18,7 @@ Open Questions raised while drafting were resolved with the most reversible, sma
 | # | Question | Applied default | Rationale |
 |---|---|---|---|
 | Q1 | Split the OSS provider contract and the Enterprise module into two specs? | **No — one spec, phased.** Phase 1 (OSS seam) ships as its own OSS PR and is inert; Phases 2–4 (Enterprise) depend on it. | The brief mandates a single enterprise spec with minimal OSS seams. The fresh-context scope review recommended a split (the seam also serves custom providers). If maintainers prefer, Phase 1 can be lifted verbatim into an OSS spec under `.ai/specs/` without design changes. |
-| Q2 | Who owns the OSS default provider — `directory` (as #7317 proposed) or `shared`? | **`shared` DI defaults register a no-op provider** (`noopTenantBrandingProvider`). The existing `Organization.logoUrl` behaviour of the backend nav stays where it is and is used whenever the provider returns no logo. | Smallest OSS surface; no new `directory` subscribers; nav output with nothing registered stays byte-identical. |
+| Q2 | Who owns the OSS default provider — `directory` (as #7317 proposed) or `shared`? | **`shared` DI defaults register a no-op provider** (`noopTenantBrandingProvider`). The existing `Organization.logoUrl` behaviour of the backend nav stays where it is and remains unchanged in the nav `brand` field. Tenant branding travels separately in optional `tenantBranding`; AppShell applies tenant → organization → platform precedence. | Smallest OSS surface; no new `directory` subscribers; nav output with nothing registered stays byte-identical. |
 | Q3 | Branding granularity: tenant, organization, or host? | **Tenant-level, one profile per tenant.** No `organization_id` column in v1; organization overrides and host mapping are deferred. Backend precedence: tenant profile logo → selected organization's `logoUrl` (today) → platform logo. | Tenant is the commercial unit of a multi-tenant deployment; org-level overrides can be added later as an additive column + resolver rule. |
 | Q4 | Logo storage: attachments module or the profile row? | **Write-once asset table** — validated base64 PNG/JPEG/WebP, ≤ 256 KB decoded per logo, served from a same-origin public route `GET /api/branding_profiles/logo/{tenantId}/{variant}?v={hash}`. | Works offline and on the unauthenticated login page; `attachmentService.createScoped` writes private partitions only, and a public partition would add a cross-module write path for two small images. |
 | Q5 | Accept SVG logos? | **No in v1** (PNG/JPEG/WebP only). | SVG served from the app origin is an XSS vector on direct navigation; raster-only matches the existing `BrandStyle.logo` rule. Revisit with a sanitiser. |
@@ -99,7 +99,7 @@ export type TenantBrandingLogo = { src: string; alt?: string; width?: number; he
 export type TenantBranding = {
   productName?: string
   logos?: { light: TenantBrandingLogo; dark?: TenantBrandingLogo }
-  style?: BrandStyle            // logo field ignored; logos travel in `logos`
+  style?: BrandStyle            // providers must set logo: null; logos travel in `logos`
 }
 
 export type TenantBrandingResolveInput = {
@@ -131,13 +131,13 @@ export function invalidateTenantBrandingCache(
    - `tenantId === null` → `null` without calling the provider.
    - Resolves `tenantBrandingProvider` from DI; missing key → no-op.
    - Cache via DI `cache`: key `tenant-branding:{providerId}:{tenantId}:{surface}[:{organizationId} when varyByOrganization][:{host} when varyByHost]`, tags `['tenant-branding:{tenantId}', 'tenant-branding']` (never the shared `tenant:{id}` tag, so invalidation does not flush other modules' caches), TTL 300 s; caches `null` too (negative cache) so un-branded tenants cost one lookup per 5 min.
-   - Provider call wrapped in a 2 s timeout; on throw/timeout: `reportError`, return `null`, and remember the failure in-process for 30 s (circuit) per tenant.
-   - Validates field-by-field: invalid `style` (strict schema: only allow-listed token names, values matching `^#[0-9a-f]{6}$`, contrast) drops only `style` — this is also the CSS-injection guard, because `brandStyleCss` only ever serialises schema-parsed values (it already calls `schema.parse`) and therefore cannot emit `<`, `}` or `;` from provider input; invalid logo `src` (must be a root-relative path, or a `data:image/(png|jpeg|webp);base64,` URL ≤ 350 000 chars) drops only that logo; `productName` trimmed, 1–60 chars, control chars stripped. `https://` URLs are **accepted for custom providers** but never produced by the enterprise module (offline).
+   - Provider call wrapped in a 2 s timeout; on throw/timeout: `getTelemetryRuntime()?.reportError(err, { module: 'branding' })` through shared's telemetry runtime bridge (never import `@open-mercato/telemetry` from shared), return `null`, and remember the failure in-process for 30 s (circuit) per tenant.
+   - Validates field-by-field: invalid `style` (strict schema: only allow-listed token names, values matching `^#[0-9a-f]{6}$`, contrast) drops only `style`; providers must include the required nullable `logo` key as `logo: null` — this is also the CSS-injection guard, because `brandStyleCss` only ever serialises schema-parsed values (it already calls `schema.parse`) and therefore cannot emit `<`, `}` or `;` from provider input; invalid logo `src` (must be a root-relative path beginning with exactly one slash (`^/(?!/)`, reject protocol-relative `//host/...`), or a `data:image/(png|jpeg|webp);base64,` URL ≤ 350 000 chars) drops only that logo; `productName` trimmed, 1–60 chars, control chars stripped. `https://` URLs are **accepted for custom providers** but never produced by the enterprise module (offline).
 4. **DI default**: `packages/shared/src/lib/di/container.ts` registers `tenantBrandingProvider: asValue(noopTenantBrandingProvider)` next to the existing platform defaults.
 5. **Server style component**: `@open-mercato/ui/theme/TenantBrandStyle` — a server component `({ branding, nonce })` rendering `<style id="om-tenant-brand" nonce={nonce}>` with `brandStyleCss(branding.style)`; renders nothing when `style` is absent.
 6. **Shell wiring** (all props optional; absent → today's output):
-   - `BackendChromeBrand` gains optional `darkLogo`. `AppShell` gains optional `initialBrand: BackendChromeBrand` used for the first render until the nav payload arrives. `ShellLogo` renders the light logo with `dark:hidden` and the dark logo with `hidden dark:block` (light used for both when no dark logo); provider logos render with `unoptimized` (no Next image optimiser round-trip).
-   - `GET /api/auth/admin/nav`: when the resolver returns `logos`/`productName` for surface `backend`, `brand` uses them; otherwise the existing organization-logo logic runs unchanged.
+   - `BackendChromeBrand` gains optional `darkLogo`. `AppShell` gains optional `initialBrand: BackendChromeBrand` for SSR tenant identity. Nav adds optional `tenantBranding?: TenantBranding | null`; after nav loads, its tenant identity replaces `initialBrand` (null or an absent field in a completed nav response clears stale tenant identity). The displayed logo precedence is tenant logo → existing organization `brand.logo` → platform logo; tenant `productName` applies independently of logos. Existing gallery preview precedence remains unchanged. `ShellLogo` renders the light logo with `dark:hidden` and the dark logo with `hidden dark:block` (light used for both when no dark logo); provider logos render with `unoptimized` (no Next image optimiser round-trip).
+   - `GET /api/auth/admin/nav`: resolve surface `backend` into the new optional `tenantBranding` field, omitting it for the no-op provider. Keep `brand` and its existing organization-logo logic untouched: it populates only when the selected organization has `logoUrl`, even when tenant branding is configured. Existing nav consumers continue to see the same `brand` values.
    - Backend layout (`apps/mercato/src/app/(backend)/backend/layout.tsx` + template mirror): `resolveTenantBranding(container, { tenantId: auth.tenantId, organizationId: auth.orgId, surface: 'backend' })`; passes `initialBrand` + `productName` to `AppShell`, renders `<TenantBrandStyle>`.
    - Portal layout (`(frontend)/layout.tsx` + mirror): after the org is resolved, resolve with surface `portal`; pass `branding` to `PortalLayoutShell` (`logo`, `darkLogo`, `productName`), render `<TenantBrandStyle>`.
    - Login (`apps/mercato/src/app/login/page.tsx` + mirror): becomes an async server component reading `searchParams.tenant` or the `om_login_tenant` cookie (must parse as UUID), resolves with surface `auth`, renders `<TenantBrandStyle>` and passes `branding` to `LoginPage` (`auth/frontend/login.tsx` uses it instead of `/open-mercato.svg` and `auth.login.brandName` when present).
@@ -146,25 +146,30 @@ export function invalidateTenantBrandingCache(
 
 | Surface | Server root and data owner | Client islands |
 |---|---|---|
-| Backend | Existing backend layout resolves branding using its existing request container and auth scope | Existing AppShell/ShellLogo receive serializable branding props |
+| Backend | Backend layout creates one request container and passes it to cookie auth resolution and branding; currently cookie auth owns an inaccessible container internally, so Phase 1 must add container injection first | Existing AppShell/ShellLogo receive serializable branding props |
 | Portal | Existing frontend layout resolves branding after its org lookup, reusing that container | Existing PortalLayoutShell/PortalShell receive serializable props |
-| Login | Async login page reads tenant query/cookie and resolves branding | Existing LoginPage handles credentials, tenant selection and form state |
+| Login | Async login page reads tenant query/cookie, creates one request container and passes it to branding; no cookie-auth lookup is needed | Existing LoginPage handles credentials, tenant selection and form state |
 | Settings → Branding | New server page owns feature gating and mounts the editor | Route-local BrandingEditor and BrandingPreview handle form state and preview |
 
 `TenantBrandStyle` remains server-only. Schema, palette and CSS serialization helpers are browser-safe; DI, ORM, provider resolution, timeout and cache code are server-only and must never enter client imports.
 
-| Client file | Browser-only reason | Scope and cleanup |
-|---|---|---|
-| Existing AppShell / ShellLogo | Navigation state and theme-dependent logo display | Existing backend subtree; no new fetch, provider or global subscription |
-| Existing PortalLayoutShell / PortalShell | Portal navigation/session context | Existing portal subtree; no backend-only editor imports |
-| Existing auth/frontend/login.tsx | Credential form state, tenant selection and browser storage | Login subtree; preserve existing effect cleanup |
-| New components/BrandingEditor.tsx | CrudForm state, file input/FileReader and local keyboard actions | Settings route only; release readers/listeners on unmount |
-| New components/BrandingPreview.tsx | Surface/mode controls and scoped CSS variables | Settings route only; no document-wide style writes |
-| Existing gallery preview runtime | localStorage subscription and preview CSS specificity | Existing opt-in scope; preserve unsubscribe cleanup |
+| Client file | Browser-only reason | Imported by | Heavy deps? | Scope and cleanup / hydration risk | Alternative rejected |
+|---|---|---|---|---|---|
+| Existing AppShell / ShellLogo | Navigation state and theme-dependent logo display | Backend layout / AppShell | No new dependencies | Backend subtree; no new fetch or global subscription; SSR props match hydration | Server-only shell cannot retain navigation state |
+| Existing PortalLayoutShell / PortalShell | Portal navigation/session context | Frontend layout / PortalLayoutShell | No new dependencies | Portal subtree; no editor imports; serialized branding matches SSR | Server-only shell cannot own session interaction |
+| Existing auth/frontend/login.tsx | Credential form state, tenant selection and browser storage | Login server page | No new dependencies | Login subtree; preserve effect cleanup and SSR identity | Client page root would pull resolution into browser |
+| New components/BrandingEditor.tsx | CrudForm state, FileReader and keyboard actions | Branding server page | Existing CrudForm only | Settings route; abort readers/remove listeners on unmount | Server form cannot provide local upload preview |
+| New components/BrandingPreview.tsx | Surface/mode controls and scoped CSS variables | BrandingEditor | None | Settings route; no document-wide style writes | Global preview would leak editor state across routes |
+| Existing gallery preview runtime | localStorage subscription and preview CSS specificity | Existing theme runtime | No new dependencies | Existing opt-in scope; preserve unsubscribe cleanup | Server cannot read browser-only preview preferences |
+
+| Provider/bootstrap | Global? | Scope | Why | Exit criteria to narrow |
+|---|---|---|---|---|
+| `tenantBrandingProvider` DI registration | Server only | Existing request container | No-op OSS default with Enterprise override | Keep server-only; never import editor/client islands |
+| Existing gallery preview runtime | Existing app scope | Browser opt-in preview | Preserve existing preview precedence | No scope expansion; no new provider |
 
 Budgets: zero new client page/layout roots; new client leaves stay at or below 300 LOC (split editor fields into local leaves when needed); zero heavy browser libraries or route-specific editor imports in shared shells/global providers. The new branding DI registration is server-scoped and adds no browser bootstrap provider. No additional request container is created inside the resolver or an already-container-owning layout.
 
-Verification before implementation merge: run `yarn check:client-boundaries`; capture a production build/bundle comparison for login/backend/portal, with no new editor dependencies in those route chunks. Extend TC-BRAND-006/009 to load each shell with JavaScript enabled and fail on hydration errors while checking light/dark logo behavior; TC-BRAND-010/011 must cover editor hydration, preview, save/reset and dialog keyboard behavior. Retain raw-HTML first-paint assertions separately. Record request latency on cache hit/miss and confirm the provider timeout remains bounded at 2 s.
+Verification before implementation merge: run `yarn check:client-boundaries`; capture a production build/bundle comparison for login/backend/portal, with no new editor dependencies in those route chunks. Extend TC-BRAND-006/009 to load each shell with JavaScript enabled and fail on hydration errors while checking light/dark logo behavior; TC-BRAND-010/011 must cover editor hydration, preview, save/reset and dialog keyboard behavior. Retain raw-HTML first-paint assertions separately. Assert exactly one request-container construction in each shell request path (including auth) and nav handler. Record request latency on cache hit/miss and confirm the provider timeout remains bounded at 2 s.
 
 ### Enterprise module `branding_profiles` (Phases 2–4)
 
@@ -399,7 +404,7 @@ Proposed clickable prototype (pending, not accepted): [`.ai/prototypes/per-tenan
 | CSS injection via `<style>` on the anonymous login page | High | login/backend/portal | Only strict-schema-parsed tokens (allow-listed names, `#RRGGBB` values) are serialised; unit test feeds `</style><script>` and `red;}body{` payloads and asserts they are dropped | Very low |
 | Base64 blobs inflating rows, cache misses and the undo log | Medium | DB, command log | Write-once `branding_logo_assets` table referenced by id; provider never reads blobs; snapshots hold ids | Low |
 | Unreadable brand colours | Medium | all users of a tenant | Server-side shared schema (4.5:1) + client contrast table; Save disabled on fail | Low |
-| SSR latency on every backend request | Medium | backend TTFB | 300 s cache incl. negative cache; single indexed query on miss; 2 s timeout | Low |
+| SSR latency on every backend request | Medium | backend TTFB | One request container shared by canonical auth and branding, verified by construction-count tests; no second module-registrar run (the request-path lesson measures roughly 25 ms CPU per extra container). 300 s cache incl. negative cache; single indexed query on miss; 2 s timeout; record hit/miss latency | Low |
 | Standalone apps with customised layouts don't get first-paint branding | Medium | standalone adopters | Template mirror + `UPGRADE_NOTES.md` entry; nav still brands the sidebar after load | Medium (documented) |
 | Login page becomes dynamic (reads cookies) | Low | login prerender | Login route already reads search params client-side; becoming `dynamic` costs one server render; acceptable | Low |
 | Moving `BrandStyle` to shared breaks imports | Low | ui consumers | Re-export from the old path; no rename | Very low |
@@ -410,7 +415,9 @@ Per `BACKWARD_COMPATIBILITY.md`:
 
 - **New (additive):** import paths `@open-mercato/shared/lib/branding/{brand-style,tenantBranding}`, `@open-mercato/ui/theme/TenantBrandStyle`; DI key `tenantBrandingProvider`; optional props `AppShell.initialBrand`, `BackendChromeBrand.darkLogo`, `PortalLayoutShell.branding`, `LoginPage.branding`; optional `brandStyleCss` second argument.
 - **Moved with re-export:** `BrandStyle` schema/type/`brandStyleCss` — `@open-mercato/ui/theme/brand-style` keeps exporting the same names.
-- **Unchanged:** nav API response shape (only an optional field added), event IDs, existing routes, DB schema of OSS modules.
+- **Nav additive field:** `BackendChromePayload.tenantBranding?: TenantBranding | null`; omit for no-op to retain the old payload snapshot. Existing `brand` shape, values and population rule are unchanged (organization must have `logoUrl`); tenant overrides are consumed only by updated shells through the separate field.
+- **Auth additive signature:** append an optional request-container argument to `getAuthFromCookies` and thread it through `resolveAuthFromCookiesDetailed` into canonical interactive auth resolution; existing zero-argument callers retain their behavior and internally created container. Preserve canonical validation, cookie overrides, MFA gating and failure handling.
+- **Unchanged:** event IDs, existing route URLs, DB schema of OSS modules.
 - **Enterprise-only:** new table, routes, ACL features, events, settings page.
 - Template mirror for the three app files (`yarn template:sync:fix`); `UPGRADE_NOTES.md` entry for standalone apps with customised layouts.
 - Rollback: disable the module (DI falls back), revert the OSS phase independently; the table drop is the only irreversible step and is not needed for rollback.
@@ -429,11 +436,11 @@ Per `BACKWARD_COMPATIBILITY.md`:
 ### Phase 1 — OSS seam (inert by default)
 
 1. Create `packages/shared/src/lib/branding/brand-style.ts` (schema, type, `contrastRatio`, `pickReadableForeground`, `brandStyleCss(style, { selectorPrefix })`); make `packages/ui/src/theme/brand-style.ts` re-export it; gallery preview passes `selectorPrefix: 'html'`. Unit tests: WCAG reference pairs, prefix output, re-export identity.
-2. Create `packages/shared/src/lib/branding/tenantBranding.ts` (types, `noopTenantBrandingProvider`, `resolveTenantBranding`, `invalidateTenantBrandingCache`). Unit tests: null tenant short-circuit, CSS-injection payloads dropped, `varyByOrganization` key separation, cache hit/miss/negative cache, timeout → null + `reportError`, 30 s circuit, field-level validation drops only invalid parts, tenant isolation of keys.
+2. Create `packages/shared/src/lib/branding/tenantBranding.ts` (types, `noopTenantBrandingProvider`, `resolveTenantBranding`, `invalidateTenantBrandingCache`). Unit tests: null tenant short-circuit, CSS-injection payloads dropped, `varyByOrganization` key separation, cache hit/miss/negative cache, timeout → null + shared telemetry runtime reporting, `logo: null` style acceptance, protocol-relative logo rejection, 30 s circuit, field-level validation drops only invalid parts, tenant isolation of keys.
 3. Register `tenantBrandingProvider` (no-op) in `packages/shared/src/lib/di/container.ts`.
 4. Add `packages/ui/src/theme/TenantBrandStyle.tsx`; add `darkLogo` to `BackendChromeBrand`, `initialBrand` to `AppShell`, dark/light switching + `unoptimized` in `ShellLogo`; `branding` prop on `PortalLayoutShell`/`PortalShell`. Unit tests (RTL): renders nothing without branding; light/dark classes.
-5. `GET /api/auth/admin/nav`: consult the resolver for surface `backend` before the org-logo fallback. Unit test: no-op provider → byte-identical payload snapshot.
-6. Wire `apps/mercato` backend layout, `(frontend)/layout.tsx`, `login/page.tsx` (+ `auth/frontend/login.tsx` `branding` prop); mirror into `packages/create-app/template` (`yarn template:sync:fix`). Run `yarn generate`, `yarn build:packages`, `yarn typecheck`, `yarn test`.
+5. `GET /api/auth/admin/nav`: reuse the handler container and add optional `tenantBranding` without changing `brand`. Unit tests: no-op provider → byte-identical payload snapshot; configured tenant with/without organization logo → unchanged legacy `brand`; tenant product-name-only profile; nav null clears prior tenant identity in AppShell.
+6. First append optional container injection to `getAuthFromCookies`, `resolveAuthFromCookiesDetailed` and the internal canonical-auth resolver, preserving all security checks and zero-argument behavior. Backend layout creates one container, calls cookie auth with it, then resolves branding with the same container. Portal reuses its existing frontend-layout container after org resolution. Login creates one container for branding after validating its tenant query/cookie; do not add a separate auth lookup. Nav reuses its handler container. Add construction-count tests and cookie-auth regression tests (canonical invalidation, MFA, selected-scope overrides and transient failures), and record cache-hit/miss latency. Wire `apps/mercato` backend layout, `(frontend)/layout.tsx`, `login/page.tsx` (+ `auth/frontend/login.tsx` `branding` prop); mirror into `packages/create-app/template` (`yarn template:sync:fix`). Run `yarn generate`, `yarn build:packages`, `yarn typecheck`, `yarn test`.
 
 ### Phase 2 — Enterprise data, provider, API
 
@@ -472,7 +479,7 @@ All tests live in `packages/enterprise/src/modules/branding_profiles/__integrati
 | TC-BRAND-009 | Login + portal SSR, toggles, reset | `/login?tenant=A` HTML branded; `applyToLogin=false` → default; `/{slug}/portal/login` branded; `applyToPortal=false` → default; DELETE → next render default (cache invalidated); unknown tenant → default |
 | TC-BRAND-010 | Settings UI live preview | change primary → preview frame CSS var updates before save; failing pair shows fail badge and Save disabled; dark toggle shows dark logo |
 | TC-BRAND-011 | Settings UI save/reset flow | upload logo via file chooser (in-memory buffer), save → flash; reset → confirm dialog → defaults; undo restores |
-| TC-BRAND-012 | OSS no-op path (core suite, module disabled) | `/login` and `/backend` HTML contain no `om-tenant-brand`; nav `brand` equals pre-change snapshot |
+| TC-BRAND-012 | OSS no-op path (core suite, module disabled) | `/login` and `/backend` HTML contain no `om-tenant-brand`; nav `brand` equals pre-change snapshot and `tenantBranding` is absent; with Enterprise enabled verify legacy `brand` remains unchanged both with and without an organization logo |
 | TC-BRAND-013 | Asset retention and replay | Replace a logo whose asset is > 30 days old, trigger cleanup, then undo and redo; both logo routes return the expected bytes. Repeat reset/undo and verify snapshot-protected assets survive; only expired, unreferenced assets are deleted. Exercise cleanup concurrent with replay. |
 
 Unit suites: `packages/shared/src/lib/branding/__tests__/*`, `packages/enterprise/src/modules/branding_profiles/__tests__/*` (palette, logo, provider, commands), `packages/core/src/modules/auth/__tests__/nav-brand.test.ts`.
@@ -507,3 +514,9 @@ Unit suites: `packages/shared/src/lib/branding/__tests__/*`, `packages/enterpris
 - Protected assets referenced by replayable undo/redo history; specified conservative retention, replay/cleanup serialization and TC-BRAND-013.
 - Added the frontend boundary map, client ledger, budgets, bootstrap scope and hydration/build evidence gate.
 - Aligned Q4 storage and the architecture cache-tag diagram with the authoritative contracts.
+
+### Requested review corrections — 2026-11-14
+- Preserved legacy nav `brand` semantics; tenant identity uses an additive `tenantBranding` field plus SSR `initialBrand`, with explicit clearing and fallback tests.
+- Specified one request container per surface, additive cookie-auth injection, security regression tests and construction-count/latency evidence.
+- Named the shared telemetry runtime bridge, rejected protocol-relative logo paths, required `style.logo: null`, and completed the client ledger and provider/bootstrap scope table.
+- Addresses all six findings from @haxiorz review [5901518259](https://github.com/open-mercato/open-mercato/pull/9436#pullrequestreview-5901518259); implementation remains a separate PR.
