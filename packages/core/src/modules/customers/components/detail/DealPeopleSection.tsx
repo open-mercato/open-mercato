@@ -220,10 +220,6 @@ export function DealPeopleSection({
         addActionLabel={addActionLabel}
         onAddPerson={() => setCreateDialogOpen(true)}
         sectionTitle={translate('customers.deals.detail.people.sectionTitle', 'People')}
-        sectionSubtitle={translate(
-          'customers.deals.detail.people.sectionSubtitle',
-          'Contacts involved in this deal',
-        )}
         searchPlaceholder={translate(
           'customers.deals.detail.people.searchPlaceholder',
           'Search by name, role, email...',
