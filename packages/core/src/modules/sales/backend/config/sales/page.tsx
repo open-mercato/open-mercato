@@ -1,3 +1,4 @@
+import { QuoteValiditySettings } from '../../../components/QuoteValiditySettings'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -36,6 +37,7 @@ export default async function SalesConfigurationPage({
         <PaymentMethodsSettings />
         <TaxRatesSettings />
         <OrderEditingSettings />
+        <QuoteValiditySettings />
         <DocumentNumberSettings />
       </PageBody>
     </Page>

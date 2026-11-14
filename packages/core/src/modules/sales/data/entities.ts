@@ -1,3 +1,4 @@
+import { DEFAULT_QUOTE_VALID_FOR_DAYS } from '../lib/quoteValidity'
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT, type SalesDocumentNumberKind } from '../lib/documentNumberTokens'
@@ -767,7 +768,7 @@ export class SalesOrderAdjustment {
 @Entity({ tableName: 'sales_settings' })
 @Unique({ name: 'sales_settings_scope_unique', properties: ['organizationId', 'tenantId'] })
 export class SalesSettings {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'defaultQuoteValidityDays'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -783,6 +784,9 @@ export class SalesSettings {
 
   @Property({ name: 'quote_number_format', type: 'text', default: DEFAULT_QUOTE_NUMBER_FORMAT })
   quoteNumberFormat: string = DEFAULT_QUOTE_NUMBER_FORMAT
+
+  @Property({ name: 'default_quote_validity_days', type: 'integer', default: DEFAULT_QUOTE_VALID_FOR_DAYS })
+  defaultQuoteValidityDays: number = DEFAULT_QUOTE_VALID_FOR_DAYS
 
   @Property({ name: 'order_customer_editable_statuses', type: 'jsonb', nullable: true })
   orderCustomerEditableStatuses?: string[] | null
