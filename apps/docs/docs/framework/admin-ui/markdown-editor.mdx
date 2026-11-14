@@ -1,0 +1,82 @@
+---
+title: Markdown editor
+---
+
+`MarkdownField` is the shared Markdown editor used by CrudForm Markdown fields, product descriptions, notes, and messages. Its code-block dropdown can be customized without replacing the editor.
+
+## Configure one editor
+
+Pass a `codeBlockLanguages` patch. Unmentioned choices keep their defaults. A string adds a language or changes its label; `null` hides a choice. Keys are the exact language tags stored in Markdown fences.
+
+```tsx
+import MarkdownField from '@open-mercato/ui/backend/inputs/MarkdownField'
+
+<MarkdownField
+  value={description}
+  onChange={setDescription}
+  codeBlockLanguages={{
+    rust: 'Rust',
+    php: 'PHP',
+    js: { label: 'ECMAScript', labelKey: 'my_module.languages.javascript' },
+    sql: null,
+  }}
+/>
+```
+
+Use `{ label, labelKey }` for translated labels; the editor resolves the key in the active locale and uses `label` as the fallback. Put your key in the module's locale files. Language names such as Rust can also be plain strings.
+
+## Configure existing editors from a module
+
+The stable component handle is **`section:ui.inputs.MarkdownField`**. It is a component override host, not an injection spot. Export a props transform from your module's `widgets/components.ts`:
+
+```ts
+import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import type { MarkdownFieldProps } from '@open-mercato/ui/backend/inputs/MarkdownField'
+
+export const componentOverrides: ComponentOverride<MarkdownFieldProps>[] = [{
+  target: { componentId: 'section:ui.inputs.MarkdownField' },
+  priority: 10,
+  propsTransform: (props) => ({
+    ...props,
+    codeBlockLanguages: {
+      ...props.codeBlockLanguages,
+      rust: 'Rust',
+      js: { label: 'ECMAScript', labelKey: 'my_module.languages.javascript' },
+      sql: null,
+    },
+  }),
+}]
+```
+
+Enable the module and run `yarn generate`. Existing MarkdownField consumers use this configuration through the application's component override provider. Spread the incoming patch so earlier contributions and caller options survive; later transforms win for keys they overwrite. Existing UMES priority and feature filtering apply.
+
+For an app-level override, use the same component target in an enabled entry of `modules.ts`:
+
+```ts
+overrides: {
+  widgets: {
+    components: {
+      'section:ui.inputs.MarkdownField': {
+        target: { componentId: 'section:ui.inputs.MarkdownField' },
+        priority: 10,
+        propsTransform: (props: MarkdownFieldProps) => ({
+          ...props,
+          codeBlockLanguages: { ...props.codeBlockLanguages, rust: 'Rust', sql: null },
+        }),
+      },
+    },
+  },
+}
+```
+
+Import `MarkdownFieldProps` as a type as in the module example. See [module overrides](../modules/overrides.mdx) for app configuration and replacement precedence.
+
+## Defaults and existing content
+
+With no patch the choices remain Plain text, JavaScript, JavaScript (React), TypeScript, TypeScript (React), JSON, HTML, CSS, SQL, Python, Bash, Shell, YAML, and Markdown. Added choices follow the defaults.
+
+The empty key (`''`) means plain text. Its label can be renamed, but setting it to `null` keeps it available because the editor needs a fallback for untagged blocks.
+
+Hiding a language does not rewrite stored Markdown. A block already using a hidden or unknown tag keeps that tag visible in its own dropdown and stays editable. Other blocks do not offer the hidden language. Changing a label also leaves the stored tag unchanged.
+
+Language selection does not install a syntax highlighter. MDXEditor retains its existing automatic language support and plain-code fallback. Use distinct display labels for distinct stored tags: MDXEditor treats identical labels as aliases. This configuration does not change Markdown normalization or save behavior.

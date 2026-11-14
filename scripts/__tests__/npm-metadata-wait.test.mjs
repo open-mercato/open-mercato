@@ -105,33 +105,38 @@ test('metadata waiting bounds a slow npm request by the global deadline', () => 
 
 test('metadata waiting shares one deadline across every package', () => {
   withStub((directory) => {
-    const stubPath = path.join(directory, 'npm')
+    const clockPath = path.join(directory, 'clock.bash')
+    const callsPath = path.join(directory, 'timeout-calls')
     fs.writeFileSync(
-      stubPath,
+      clockPath,
       [
-        '#!/usr/bin/env bash',
-        'case "$2" in',
-        '  @open-mercato/core@*) sleep 1; exit 0 ;;',
-        '  *) sleep 5; exit 1 ;;',
-        'esac',
+        'unset SECONDS',
+        'SECONDS=0',
+        'timeout() {',
+        `  printf '%s\\n' "$*" >> ${JSON.stringify(callsPath.replaceAll('\\', '/'))}`,
+        '  case "$5" in',
+        '    @open-mercato/core@*) SECONDS=$((SECONDS + 1)); return 0 ;;',
+        '    *) SECONDS=$((SECONDS + ${2%s})); return 124 ;;',
+        '  esac',
+        '}',
       ].join('\n'),
-      { mode: 0o755 },
     )
 
-    const startedAt = performance.now()
     const result = runWaitScript(
       directory,
       {
+        BASH_ENV: clockPath.replaceAll('\\', '/'),
         NPM_METADATA_MAX_ATTEMPTS: '5',
         NPM_METADATA_REQUEST_TIMEOUT: '5',
         NPM_METADATA_TIMEOUT_SECONDS: '2',
       },
       ['@open-mercato/core', '@open-mercato/shared'],
     )
-    const elapsedMs = performance.now() - startedAt
-
     assert.equal(result.status, 1)
-    assert.ok(elapsedMs < 3_000, `expected one shared two-second deadline, got ${elapsedMs}ms`)
+    assert.deepEqual(fs.readFileSync(callsPath, 'utf8').trim().split('\n'), [
+      '--signal=TERM 2s npm view @open-mercato/core@1.2.3-snapshot.1 version',
+      '--signal=TERM 1s npm view @open-mercato/shared@1.2.3-snapshot.1 version',
+    ])
     assert.match(result.stdout, /@open-mercato\/core available/)
     assert.match(result.stderr, /global 2-second deadline expired/)
   })

@@ -134,6 +134,19 @@ const FRAMEWORK_HOSTS: ModuleExtensionHostFact[] = [
   frameworkHost('framework.integration-detail-fallback', 'integrations.detail:tabs', 'integration', ['render-widget']),
   frameworkHost('framework.backend-mutation', 'backend-mutation:global', 'generic', ['headless-widget']),
   frameworkHost('framework.crud-form-wildcard', 'crud-form:*', 'crud-form', ['field-widget', 'lifecycle-handler']),
+  {
+    ...frameworkHost(
+      'framework.markdown-field',
+      'section:ui.inputs.MarkdownField',
+      'component-handle',
+      ['component-replacement'],
+    ),
+    source: {
+      kind: 'framework',
+      path: 'packages/ui/src/backend/inputs/MarkdownField.tsx',
+      symbol: 'MARKDOWN_FIELD_COMPONENT_HANDLE',
+    },
+  },
 ]
 
 function frameworkHost(
