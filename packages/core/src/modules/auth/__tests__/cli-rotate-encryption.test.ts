@@ -102,6 +102,18 @@ describe('auth rotate-encryption-key CLI', () => {
     expect(flush).toHaveBeenCalled()
   })
 
+  it('leaves plaintext emails alone while TENANT_DATA_ENCRYPTION_OLD_KEY is set', async () => {
+    const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+    find.mockResolvedValue([{ id: 'user-1', email: 'user@example.com', emailHash: null }])
+    execute.mockResolvedValue([{ id: 'user-1', email: 'user@example.com', email_hash: null }])
+
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(persist).not.toHaveBeenCalled()
+  })
+
   it('accepts an --old-key equal to TENANT_DATA_ENCRYPTION_OLD_KEY through the bridge', async () => {
     const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
