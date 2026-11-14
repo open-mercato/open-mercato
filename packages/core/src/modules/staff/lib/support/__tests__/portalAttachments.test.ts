@@ -1,5 +1,6 @@
 import type { Attachment as AttachmentEntity } from '@open-mercato/core/modules/attachments/data/entities'
-import { serializePortalAttachment, type PortalAttachmentsApi } from '../portalAttachments'
+import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { loadPortalAttachmentsApi, serializePortalAttachment, type PortalAttachmentsApi } from '../portalAttachments'
 import { CUSTOMER_VISIBLE_ATTACHMENT_TAG, customerUploadTag } from '../attachments'
 
 const CUSTOMER_USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -40,5 +41,33 @@ describe('serializePortalAttachment canDelete', () => {
     const serialized = serializePortalAttachment(api, ownUpload, TASK_ID, OTHER_CUSTOMER_USER_ID, true)
     expect(serialized.canDelete).toBe(false)
     expect(serialized.uploadedByCustomer).toBe(true)
+  })
+})
+
+describe('loadPortalAttachmentsApi', () => {
+  let previousEntityIds: EntityIds
+
+  beforeEach(() => {
+    previousEntityIds = getEntityIds(false)
+  })
+
+  afterEach(() => {
+    registerEntityIds(previousEntityIds)
+  })
+
+  it('reports attachments unavailable when the attachments module is disabled', async () => {
+    registerEntityIds({ staff: { staff_team_member: 'staff:staff_team_member' } })
+
+    await expect(loadPortalAttachmentsApi()).resolves.toBeNull()
+  })
+
+  it('loads the attachments helpers when the attachments module is enabled', async () => {
+    registerEntityIds({ attachments: { attachment: 'attachments:attachment' } })
+
+    const api = await loadPortalAttachmentsApi()
+
+    expect(api).not.toBeNull()
+    expect(api?.Attachment).toBeDefined()
+    expect(typeof api?.resolveAttachmentMaxBytes).toBe('function')
   })
 })
