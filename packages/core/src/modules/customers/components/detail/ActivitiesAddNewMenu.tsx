@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Check, Phone, Mail, Users, CheckSquare } from 'lucide-react'
+import { Phone, Mail, Plus, Users, CheckSquare } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
@@ -39,23 +39,25 @@ export function ActivitiesAddNewMenu({ onSelect, disabled }: ActivitiesAddNewMen
           type="button"
           disabled={disabled}
           aria-label={t('customers.activities.addNew', 'Add new')}
-          className="gap-1.5 overflow-hidden rounded-md bg-foreground pl-3 pr-3.5 py-2 text-xs font-semibold text-background hover:bg-foreground/90 disabled:opacity-60"
         >
-          <Check className="size-3.5" />
+          <Plus className="size-4" />
           {t('customers.activities.addNew', 'Add new')}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[180px] p-1">
+      {/* PopoverContent's base min-w-[280px] would win over a plain width class,
+          so reset it — the menu matches the w-44 RowActions dropdown width. */}
+      <PopoverContent align="end" className="min-w-0 w-44 p-1">
         <ul className="flex flex-col">
           {MENU_ITEMS.map(({ kind, icon: Icon, key, fallback }) => (
             <li key={kind}>
               <Button
                 type="button"
                 variant="ghost"
+                size="sm"
                 onClick={() => handleSelect(kind)}
-                className="h-auto w-full justify-start gap-2 rounded-md px-2 py-1.5 text-sm font-normal text-foreground hover:bg-accent/40"
+                className="w-full justify-start gap-2 font-normal text-foreground"
               >
-                <Icon className="size-4 text-muted-foreground" />
+                <Icon className="size-3.5 text-muted-foreground" />
                 {t(key, fallback)}
               </Button>
             </li>

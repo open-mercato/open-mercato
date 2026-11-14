@@ -61,10 +61,10 @@ describe('CrudForm required marker from injection widget metadata', () => {
     )
 
     const descriptionMarker = container.querySelector(
-      '[data-crud-field-id="description"] .text-status-error-text',
+      '[data-crud-field-id="description"] .text-accent-indigo',
     )
     const nameMarker = container.querySelector(
-      '[data-crud-field-id="name"] .text-status-error-text',
+      '[data-crud-field-id="name"] .text-accent-indigo',
     )
 
     expect(descriptionMarker).not.toBeNull()

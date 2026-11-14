@@ -20,10 +20,13 @@ describe('ActivitiesAddNewMenu', () => {
     })
 
     await waitFor(() => expect(screen.getByText('New meeting')).toBeInTheDocument())
+    // Plain buttons: pre-existing integration specs (TC-CRM-053/056) locate the
+    // options by role=button, and the popover honours no menu ARIA contract
+    // (no roving focus, no aria-haspopup) that would justify menuitem roles.
     const optionButtons = screen
       .getAllByRole('button')
       .filter((node) => node.getAttribute('data-slot') === 'button')
-    expect(optionButtons.length).toBeGreaterThanOrEqual(5)
+    expect(optionButtons.length).toBe(5)
   })
 
   it('invokes onSelect with the chosen activity kind and closes the menu', async () => {

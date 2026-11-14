@@ -735,7 +735,7 @@ export default function CheckoutDemoPage() {
         <div key={fieldName} className="space-y-1">
           <label htmlFor={fieldName} className={labelClasses}>
             {fieldTitle}
-            {required && <span className="text-status-error-text ml-1">*</span>}
+            {required && <span className="text-accent-indigo ml-1">*</span>}
           </label>
           {fieldDescription && (
             <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -767,7 +767,7 @@ export default function CheckoutDemoPage() {
             <div key={fieldName} className="space-y-1">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -786,7 +786,7 @@ export default function CheckoutDemoPage() {
             <div key={fieldName} className="space-y-1">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -806,7 +806,7 @@ export default function CheckoutDemoPage() {
             <div key={fieldName} className="space-y-1">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -825,7 +825,7 @@ export default function CheckoutDemoPage() {
           <div key={fieldName} className="space-y-1">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -846,7 +846,7 @@ export default function CheckoutDemoPage() {
           <div key={fieldName} className="space-y-1">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -873,7 +873,7 @@ export default function CheckoutDemoPage() {
               />
               <label htmlFor={fieldName} className="text-sm font-medium text-gray-700">
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </label>
             </div>
             {fieldDescription && (
@@ -887,7 +887,7 @@ export default function CheckoutDemoPage() {
           <div key={fieldName} className="space-y-1">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
@@ -930,7 +930,7 @@ export default function CheckoutDemoPage() {
                 <div className="mb-6 pb-6 border-b border-gray-200">
                   <label htmlFor="customer-select" className="block text-sm font-medium text-gray-700 mb-2">
                     {t('workflows.checkoutDemo.customer.selectLabel', 'Select Customer')}{' '}
-                    <span className="text-status-error-text">*</span>
+                    <span className="text-accent-indigo">*</span>
                   </label>
                   {customersLoading ? (
                     <div className="flex items-center justify-center py-3 text-sm text-gray-500">

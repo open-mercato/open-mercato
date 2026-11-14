@@ -215,9 +215,16 @@ test.describe('TC-CRM-053: Activity validation — date/time required, phone val
       // The DateTimeFields component renders required asterisks via a
       // DS-token span (`text-status-error-foreground`). On the Call tab both
       // Date and Start Time inputs render (so two markers appear).
-      const requiredMarkers = page.locator('span[aria-hidden="true"].text-status-error-foreground')
-      await expect(requiredMarkers.first()).toBeVisible({ timeout: 15_000 })
-      await expect(requiredMarkers).toHaveCount(2)
+      // Required markers are accent-indigo per the DS decision in #5629
+      // (matching the Figma label spec), no longer status-error red. Scope to
+      // the two fields #1806 is about — other fields (Title) also carry
+      // markers now, so a page-wide class count would overmatch.
+      const dialog = page.getByRole('dialog')
+      const markerFor = (label: RegExp) =>
+        dialog.locator('label', { hasText: label }).locator('span[aria-hidden="true"].text-accent-indigo')
+      await expect(markerFor(/Date/).first()).toBeVisible({ timeout: 15_000 })
+      await expect(markerFor(/Date/)).toHaveCount(1)
+      await expect(markerFor(/Start/)).toHaveCount(1)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
