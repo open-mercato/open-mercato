@@ -12,9 +12,9 @@ Every listed surface is a **public contract**. Changes MUST follow the deprecati
 
 ### Emergency Security Exception
 
-Only steps 1-3 are waived when accepting the removed contract surface **is** the exploit. A bridge would preserve the vulnerability throughout deprecation; merely enabling insecure usage does not qualify.
+Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
 
-All conditions below MUST hold; otherwise use the ordinary protocol. Authors and reviewers cannot waive them:
+This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
 
 1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
 2. **The removal is the narrowest one that closes the hole.** No unrelated tightening rides along, and **no partial bridge retains the vulnerable branch** behind a flag, a config toggle, or an opt-in — a retained branch is the bridge the exception exists to refuse.
@@ -22,9 +22,10 @@ All conditions below MUST hold; otherwise use the ordinary protocol. Authors and
 4. **A dated entry is added at the end of this document**, recording the surface, its classification, the qualifying argument, and the migration path.
 5. **A maintainer signs off on the exception by name.** The PR carries the `security` label and a human maintainer approval that acknowledges the waiver; an automated review cannot clear it.
 
-Without a bridge, `UPGRADE_NOTES.md` MUST disclose what stops working, for whom, the remedy, and any stored credentials or data made unusable or suspect.
+Downstream authors get no bridge in this case, so the compensating obligation is disclosure. The `UPGRADE_NOTES.md` entry MUST state plainly what stops working, for whom, and what to do about it — including any stored credential or data state that becomes unusable, or that becomes newly suspect, as a result.
 
 ---
+
 ## Contract Surface Categories
 
 ### 1. Auto-Discovery File Conventions (FROZEN)
@@ -280,6 +281,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - Generated `.ai/guides/framework-extension-points.md` is a sibling framework-owned catalog, not a synthetic module-facts key. Existing module Markdown headings, including `Host extension points`, MUST remain available; additive `UMES hosts`/`UMES contributions` sections may not redefine existing IDs.
 
 ---
+
 ## Allowed vs Breaking Changes — Quick Reference
 
 |Surface|Add new|Add optional field|Remove field|Rename|Change type|
@@ -301,6 +303,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 \* Feature ID removal requires a data migration.
 
 ---
+
 ## Per-User Integration Credentials (2026-05-26)
 
 `.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row. **All changes are additive** and pass the contract-surface checks above:
