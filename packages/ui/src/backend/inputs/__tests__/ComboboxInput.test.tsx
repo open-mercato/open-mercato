@@ -48,6 +48,28 @@ function blurAndFlush(input: HTMLElement) {
   })
 }
 
+it('associates the input with its label and accessibility description', () => {
+  render(
+    <>
+      <label htmlFor="color-input">Color</label>
+      <span id="color-help">Choose a color</span>
+      <Harness
+        id="color-input"
+        aria-describedby="color-help"
+        aria-invalid
+        aria-required
+      />
+    </>
+  )
+
+  const input = screen.getByRole('combobox', { name: 'Color' })
+  expect(screen.getByLabelText('Color')).toBe(input)
+  expect(input).toHaveAttribute('id', 'color-input')
+  expect(input).toHaveAccessibleDescription('Choose a color')
+  expect(input).toHaveAttribute('aria-invalid', 'true')
+  expect(input).toHaveAttribute('aria-required', 'true')
+})
+
 describe('ComboboxInput clearable behavior', () => {
   beforeEach(() => {
     jest.useFakeTimers()

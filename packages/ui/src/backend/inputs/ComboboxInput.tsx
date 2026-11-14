@@ -14,7 +14,6 @@ export type ComboboxOption = {
 }
 
 export type ComboboxInputProps = {
-  id?: string
   value: string
   onChange: (next: string) => void
   placeholder?: string
@@ -34,7 +33,6 @@ export type ComboboxInputProps = {
   allowCustomValues?: boolean
   clearable?: boolean
   clearLabel?: string
-  id?: string
   'aria-describedby'?: string
   'aria-invalid'?: boolean
   'aria-required'?: boolean
@@ -71,7 +69,6 @@ function areOptionsEqual(a: ComboboxOption[], b: ComboboxOption[]): boolean {
 }
 
 export function ComboboxInput({
-  id,
   value,
   onChange,
   placeholder,
@@ -85,7 +82,6 @@ export function ComboboxInput({
   allowCustomValues = true,
   clearable = false,
   clearLabel,
-  id,
   'aria-describedby': ariaDescribedBy,
   'aria-invalid': ariaInvalid,
   'aria-required': ariaRequired,
