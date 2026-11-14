@@ -6,6 +6,7 @@
   "translations.locales.contentOnly": "Solo contenido",
   "translations.locales.contentOnlyHint": "La aplicación no incluye interfaz en este idioma, por lo que solo está disponible para traducciones de contenido.",
   "translations.locales.description": "Idiomas a los que se puede traducir el contenido. Un idioma para el que la aplicación incluye interfaz también aparece en el selector de idioma del panel; el resto solo está disponible para contenido.",
+  "translations.locales.errors.storageUnavailable": "El almacenamiento de configuración no está disponible",
   "translations.locales.flash.error": "Error al actualizar los idiomas",
   "translations.locales.flash.saved": "Idiomas actualizados",
   "translations.locales.loading": "Cargando idiomas...",

@@ -392,26 +392,6 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
     const actorTenantScope = resolveActorTenantScope(ctx)
     assertRoleTenantInScope(actorTenantScope, current.tenantId)
-    if (parsed.name !== undefined) {
-      const nextName = parsed.name
-      if (nextName !== current.name) assertRoleNameAllowed(nextName)
-      if (nextName !== current.name) {
-        const assignments = await em.count(UserRole, { role: current, deletedAt: null })
-        if (assignments > 0) {
-          throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
-        }
-      }
-    }
-    const wantsTenantChange = parsed.tenantId !== undefined && parsed.tenantId !== current.tenantId
-    if (wantsTenantChange) {
-      if (!scope.isSuperAdmin) {
-        throw new CrudHttpError(403, { error: 'Not authorized to target this tenant.' })
-      }
-      const assignments = await em.count(UserRole, { role: current, deletedAt: null })
-      if (assignments > 0) {
-        throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
-      }
-    }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const redoLogEntry = (ctx as RoleReplayRuntimeContext)[ROLE_REDO_LOG]
     let role: Role | null = null
@@ -426,6 +406,26 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
           })
         }
         await lockRoleWriterAuthorizationState(em, [parsed.id])
+        if (parsed.name !== undefined) {
+          const nextName = parsed.name
+          if (nextName !== current.name) assertRoleNameAllowed(nextName)
+          if (nextName !== current.name) {
+            const assignments = await em.count(UserRole, { role: current, deletedAt: null })
+            if (assignments > 0) {
+              throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
+            }
+          }
+        }
+        const wantsTenantChange = parsed.tenantId !== undefined && parsed.tenantId !== current.tenantId
+        if (wantsTenantChange) {
+          if (!scope.isSuperAdmin) {
+            throw new CrudHttpError(403, { error: 'Not authorized to target this tenant.' })
+          }
+          const assignments = await em.count(UserRole, { role: current, deletedAt: null })
+          if (assignments > 0) {
+            throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
+          }
+        }
         if (wantsTenantChange) {
           await em.nativeDelete(RoleAcl, { role: parsed.id as unknown as Role })
         }
@@ -542,6 +542,28 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         ctx,
         logEntry,
       })
+      const liveRole = await findOneWithDecryption(
+        em,
+        Role,
+        { id: before.id, deletedAt: null } as FilterQuery<Role>,
+        {},
+        { tenantId: null, organizationId: null },
+      )
+      if (liveRole) {
+        const revertsName = 'name' in replayInput && liveRole.name !== before.name
+        const revertsTenant = 'tenantId' in replayInput && String(liveRole.tenantId) !== before.tenantId
+        if (revertsName || revertsTenant) {
+          const assignments = await em.count(UserRole, { role: liveRole, deletedAt: null })
+          if (assignments > 0) {
+            const { translate } = await resolveTranslations()
+            throw new CrudHttpError(409, {
+              error: revertsTenant
+                ? translate('auth.roles.errors.tenantMoveBlockedByAssignments', 'Role cannot be moved to another tenant while users are assigned')
+                : translate('auth.roles.errors.nameChangeBlockedByAssignments', 'Role name cannot be changed while users are assigned'),
+            })
+          }
+        }
+      }
       updated = await de.updateOrmEntity({
         entity: Role,
         where: { id: before.id, deletedAt: null } as FilterQuery<Role>,

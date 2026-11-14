@@ -39,7 +39,10 @@ const putSchema = z.object({
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },
+  // `honorsBodyTenantId`: the body's `tenantId` can target a tenant other than the actor's own
+  // (superadmin-gated below) — the dispatcher's tenant-selection gate must fail closed on this
+  // route when it cannot peek the body (issue #7877).
+  PUT: { requireAuth: true, requireFeatures: ['auth.acl.manage'], honorsBodyTenantId: true },
 }
 
 const userAclResponseSchema = z.object({
@@ -53,6 +56,10 @@ const userAclResponseSchema = z.object({
 const userAclUpdateResponseSchema = z.object({
   ok: z.literal(true),
   sanitized: z.boolean(),
+  // The persisted row's new version, so a caller tracking its own optimistic-lock
+  // baseline (e.g. the user edit page's composite save) can refresh it without a
+  // follow-up GET.
+  updatedAt: z.string().nullable(),
 })
 
 const userAclErrorSchema = z.object({ error: z.string() })
@@ -408,7 +415,7 @@ export async function PUT(req: Request) {
     organizationIds: actorOrgId ? [actorOrgId] : null,
     request: req,
   }
-  await commandBus.execute<UserAclUpdateInput, AclUpdateResult>(AUTH_USER_ACL_UPDATE_COMMAND_ID, {
+  const commandResult = await commandBus.execute<UserAclUpdateInput, AclUpdateResult>(AUTH_USER_ACL_UPDATE_COMMAND_ID, {
     input: {
       userId: parsed.data.userId,
       tenantId,
@@ -424,6 +431,7 @@ export async function PUT(req: Request) {
   return NextResponse.json({
     ok: true,
     sanitized: !actorIsSuperAdmin && (hasRestrictedChanges(requestedFeatures, effectiveFeatures, existingFeatures) || requestedIsSuperAdmin !== effectiveIsSuperAdmin),
+    updatedAt: commandResult.result?.updatedAt ?? null,
   })
 }
 
