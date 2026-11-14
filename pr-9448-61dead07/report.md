@@ -46,6 +46,8 @@ This continues original Claim-Run5af72462/comment6882729531 under the exact inhe
 
 ### Cleanup and claim
 
-Evidence published before teardown. Terminal cleanup/claim proof will be appended after only owned runtime/Postgres/Redis are removed and original comment is marked released with exact-SHA ref lease deletion. Existing screenshots is informational;pipeline/QA approval/failure labels remain unchanged.
+Owned teardown verified: CLI/app PIDs 523316,523319,523339,523346,523368,528731,528758,528786,528846,528852 are gone;app36629 is closed;own Postgres`bf0a05654fa0` (33283) was reaped by CLI;fixed-port Redis`om-qa9448-61dead07` removed. Inherited Redis`0a10fa321c2f` was removed only to repair dynamic-port fixture publication. Other containers/services were left alone. `git status --short` is empty;tracked runtime email output restored;no shared/rootqa.json edits. [Machine cleanup proof](https://github.com/open-mercato/open-mercato/blob/qa-evidence-pr-9448-61dead07/pr-9448-61dead07/cleanup.json).
+
+Current head rechecked: `75f71cceb0ae18b322743c39ef6b1b85cabd15e2`. Exact inherited claim/run/comment/SHA reverified,no human reset,no assignees. Parent explicitly authorizes final release:remove only ownedin-progress,mark [originalcomment6882729531](https://github.com/open-mercato/open-mercato/pull/9448#issuecomment-6882729531) released,then conditionally delete only `refs/om-locks/pr-9448` with explicit expected-SHA lease`c2c556a22a9a31f43a6504e5a7599d2df7b5fe48`. Terminal release proof is recorded in localreport/claim-release.log and task handback. Existing screenshots retained informationally through guard+rationale;no pipeline,QA approval/failure changes or CI monitoring promise.
 
 Nine selected genuine runtime PNGs accompany this report. They show closest promotional-code UI,not API results. Full machine report,scenario,logs,environment/ownership proof and screenshots are retained in this cockpit run’s Assets.
