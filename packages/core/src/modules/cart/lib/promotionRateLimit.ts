@@ -41,7 +41,8 @@ export async function reserveCartPromotionAttempt(
     const scopeKey = `${scope.tenantId}:${scope.organizationId}:${scope.storeId}`
     const clientIp = getClientIp(request, limiter.trustProxyDepth)
     const clientKey = clientIp ?? RATE_LIMIT_FALLBACK_KEY
-    const clientLimit = clientIp ? CLIENT_LIMIT : UNRESOLVED_CLIENT_LIMIT
+    const clientLimit = { ...(clientIp ? CLIENT_LIMIT : UNRESOLVED_CLIENT_LIMIT), requireShared: limiter.sharedEnabled }
+    const storeLimit = { ...STORE_LIMIT, requireShared: limiter.sharedEnabled }
     const options = { failClosed: true, unavailableMessage }
     const clientLimited = await checkRateLimit(limiter, clientLimit, `${scopeKey}:${clientKey}`, limitedMessage, options)
     if (clientLimited) {
@@ -51,7 +52,7 @@ export async function reserveCartPromotionAttempt(
 
     const windowId = Math.floor(Date.now() / (WINDOW_SECONDS * 1000))
     const storeKey = `${scopeKey}:${windowId}`
-    const storeLimited = await checkRateLimit(limiter, STORE_LIMIT, storeKey, limitedMessage, options)
+    const storeLimited = await checkRateLimit(limiter, storeLimit, storeKey, limitedMessage, options)
     if (storeLimited) {
       storeLimited.headers.set('Cache-Control', 'no-store')
       if (storeLimited.status === 429) logger.warn('Store promotion attempt budget exhausted', scope)
@@ -63,7 +64,7 @@ export async function reserveCartPromotionAttempt(
       succeeded: async () => {
         if (Math.floor(Date.now() / (WINDOW_SECONDS * 1000)) !== windowId) return
         try {
-          await limiter.reward(storeKey, 1, STORE_LIMIT)
+          await limiter.reward(storeKey, 1, storeLimit)
         } catch (error) {
           logger.warn('Promotion attempt refund failed; retaining consumed budget', { err: error })
           getTelemetryRuntime()?.reportError(error, { module: 'cart', code: 'cart.promotion_budget_refund_failed' })

@@ -80,6 +80,20 @@ it('fails closed before executing the command when the limiter is unavailable', 
   expect(executeCommand).not.toHaveBeenCalled()
 })
 
+it('fails closed before executing the command when configured Redis is unavailable', async () => {
+  await limiter?.destroy()
+  limiter = new RateLimiterService({
+    enabled: true,
+    strategy: 'redis',
+    keyPrefix: 'test',
+    trustProxyDepth: 1,
+    redisUrl: 'redis://127.0.0.1:6379',
+  })
+
+  expect((await POST(requestFor(0))).status).toBe(503)
+  expect(executeCommand).not.toHaveBeenCalled()
+})
+
 it('bounds unresolved guests by the store-sized fallback when cart tokens rotate', async () => {
   await limiter?.destroy()
   limiter = new RateLimiterService({ enabled: true, strategy: 'memory', keyPrefix: 'test', trustProxyDepth: 0 })
