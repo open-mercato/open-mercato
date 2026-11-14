@@ -2,20 +2,27 @@
  * @jest-environment jsdom
  */
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePersonTasks } from '../usePersonTasks'
 import type { TodoLinkSummary } from '../../types'
 
 const readApiResultOrThrowMock = jest.fn()
+const apiCallOrThrowMock = jest.fn()
+const withScopedApiRequestHeadersMock = jest.fn()
+const buildOptimisticLockHeaderMock = jest.fn()
+const reportErrorMock = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCallOrThrow: jest.fn(),
+  apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
-  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, operation: () => Promise<unknown>) => operation()),
+  withScopedApiRequestHeaders: (...args: unknown[]) => withScopedApiRequestHeadersMock(...args),
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
-  buildOptimisticLockHeader: jest.fn(() => ({})),
+  buildOptimisticLockHeader: (...args: unknown[]) => buildOptimisticLockHeaderMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
 }))
 
 const PAGE_SIZE = 3
@@ -198,7 +205,7 @@ describe('usePersonTasks load-more termination', () => {
 
     expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
       2,
-      `/api/customers/todos?page=2&pageSize=${PAGE_SIZE}&entityId=person-1`,
+      `/api/customers/interactions/tasks?page=2&pageSize=${PAGE_SIZE}&entityId=person-1`,
       undefined,
       { errorMessage: 'Failed to load tasks.' },
     )
@@ -224,6 +231,184 @@ describe('usePersonTasks load-more termination', () => {
   })
 })
 
+describe('usePersonTasks merged customer task reads', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    readApiResultOrThrowMock.mockReset()
+    apiCallOrThrowMock.mockResolvedValue({ result: {} })
+    buildOptimisticLockHeaderMock.mockImplementation((updatedAt: string) => ({
+      'x-om-ext-optimistic-lock-expected-updated-at': updatedAt,
+    }))
+    withScopedApiRequestHeadersMock.mockImplementation(
+      (_headers: Record<string, string>, operation: () => Promise<unknown>) => operation(),
+    )
+  })
+
+  it('loads the same native tasks as the global list, scoped to the person', async () => {
+    const updatedAt = '2026-10-16T10:00:00.000Z'
+    const nativeRow = {
+      ...makeRows(1)[0],
+      id: 'native-task',
+      todoId: 'native-task',
+      todoTitle: 'Native completed task',
+      todoIsDone: true,
+      todoUpdatedAt: updatedAt,
+    }
+    readApiResultOrThrowMock.mockImplementation(async (path: string) => ({
+      items: path.startsWith('/api/customers/interactions/tasks?') ? [nativeRow] : [],
+      total: 1,
+      page: 1,
+      pageSize: PAGE_SIZE,
+    }))
+
+    const { result } = await renderTasks()
+
+    expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+      `/api/customers/interactions/tasks?page=1&pageSize=${PAGE_SIZE}&entityId=person-1`,
+      undefined,
+      { errorMessage: 'Failed to load tasks.' },
+    )
+    expect(result.current.tasks).toEqual([expect.objectContaining({
+      id: 'native-task',
+      todoId: 'native-task',
+      todoSource: 'customers:interaction',
+      title: 'Native completed task',
+      isDone: true,
+      status: 'done',
+      updatedAt,
+    })])
+    expect(result.current.totalCount).toBe(1)
+  })
+
+  it.each([
+    ['customers:interaction', '/api/customers/todos'],
+    ['example:todo', '/api/example/todos'],
+  ])('preserves versioned mutations for %s rows', async (todoSource, apiPath) => {
+    const updatedAt = '2026-10-16T10:00:00.000Z'
+    const row = { ...makeRows(1)[0], todoSource, todoUpdatedAt: updatedAt }
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [row], total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const { result } = await renderTasks()
+    const task = result.current.tasks[0]
+
+    await act(async () => {
+      await result.current.toggleTask(task, true)
+    })
+
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(apiPath, expect.objectContaining({ method: 'PUT' }), expect.any(Object))
+    expect(JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body)).toMatchObject({
+      id: task.todoId, linkId: task.id, is_done: true,
+    })
+    expect(result.current.tasks[0]).toMatchObject({ isDone: true, status: 'done' })
+
+    await act(async () => {
+      await result.current.unlinkTask(task)
+    })
+
+    expect(apiCallOrThrowMock).toHaveBeenLastCalledWith('/api/customers/todos', expect.objectContaining({
+      method: 'DELETE', body: JSON.stringify({ id: task.id }),
+    }), expect.any(Object))
+    expect(buildOptimisticLockHeaderMock).toHaveBeenNthCalledWith(1, updatedAt)
+    expect(buildOptimisticLockHeaderMock).toHaveBeenNthCalledWith(2, updatedAt)
+    expect(withScopedApiRequestHeadersMock).toHaveBeenCalledWith({
+      'x-om-ext-optimistic-lock-expected-updated-at': updatedAt,
+    }, expect.any(Function))
+    expect(result.current.tasks).toEqual([])
+  })
+
+  it.each(['canceled', 'in_progress', 'waiting'])('preserves native %s status during a title-only edit', async (status) => {
+    const updatedAt = '2026-10-16T10:00:00.000Z'
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: status, todoUpdatedAt: updatedAt }],
+      total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const { result } = await renderTasks()
+    expect(result.current.tasks[0]).toMatchObject({ status, isDone: false })
+    await act(async () => {
+      await result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Renamed', status, is_done: false }, custom: {},
+      })
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith('/api/customers/interactions', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ id: 'todo-1', title: 'Renamed', status }),
+    }), expect.any(Object))
+    expect(buildOptimisticLockHeaderMock).toHaveBeenCalledWith(updatedAt)
+    expect(result.current.tasks[0]).toMatchObject({ title: 'Renamed', status, isDone: false })
+  })
+
+  it('does not persist untouched empty custom defaults while retaining explicit custom clears', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: 'waiting', todoCustomValues: { existing_flag: true } }],
+      total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const { result } = await renderTasks()
+    await act(async () => {
+      await result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Renamed', status: 'waiting' },
+        custom: { shared_with_leadership: false, empty_text: null, empty_list: [], existing_flag: false },
+      })
+    })
+    const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body)
+    expect(payload.customValues).toEqual({ existing_flag: false })
+    expect(result.current.tasks[0].customValues).toMatchObject({ existing_flag: false })
+  })
+
+  it.each([403, 409])('does not downgrade a refused native edit (%s) to the binary adapter', async (status) => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: 'waiting' }], total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const refusal = Object.assign(new Error('Refused'), { status })
+    apiCallOrThrowMock.mockRejectedValueOnce(refusal)
+    const { result } = await renderTasks()
+    await act(async () => {
+      await expect(result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Refused rename', status: 'waiting' }, custom: {},
+      })).rejects.toBe(refusal)
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    expect(apiCallOrThrowMock.mock.calls[0][0]).toBe('/api/customers/interactions')
+    expect(result.current.tasks[0]).toMatchObject({ title: 'Task 1', status: 'waiting' })
+  })
+
+  it('preserves legacy reads for roles without the interactions-view permission', async () => {
+    const legacyRow = { ...makeRows(1)[0], todoSource: 'example:todo' }
+    readApiResultOrThrowMock
+      .mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }))
+      .mockResolvedValueOnce({ items: [legacyRow], total: 1, page: 1, pageSize: PAGE_SIZE })
+
+    const { result } = await renderTasks()
+
+    expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
+      1,
+      `/api/customers/interactions/tasks?page=1&pageSize=${PAGE_SIZE}&entityId=person-1`,
+      undefined,
+      expect.any(Object),
+    )
+    expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
+      2,
+      `/api/customers/todos?page=1&pageSize=${PAGE_SIZE}&entityId=person-1`,
+      undefined,
+      expect.any(Object),
+    )
+    expect(reportErrorMock).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }), {
+      module: 'customers',
+      code: 'customers.person_tasks_legacy_fallback',
+    })
+    expect(result.current.tasks).toEqual([expect.objectContaining({ id: legacyRow.id, todoSource: 'example:todo' })])
+    expect(result.current.error).toBeNull()
+  })
+
+  it('surfaces other read failures without falling back to an incomplete task set', async () => {
+    readApiResultOrThrowMock.mockRejectedValue(Object.assign(new Error('Task service unavailable'), { status: 500 }))
+
+    const { result } = await renderTasks()
+
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
+    expect(result.current.error).toBe('Task service unavailable')
+  })
+})
+
 describe('usePersonTasks metadata updates', () => {
   const metadata = {
     priority: 3,
@@ -233,7 +418,12 @@ describe('usePersonTasks metadata updates', () => {
   }
 
   beforeEach(() => {
-    jest.mocked(apiCallOrThrow).mockClear()
+    jest.clearAllMocks()
+    apiCallOrThrowMock.mockResolvedValue({ result: {} })
+    buildOptimisticLockHeaderMock.mockImplementation(() => ({}))
+    withScopedApiRequestHeadersMock.mockImplementation(
+      (_headers: Record<string, string>, operation: () => Promise<unknown>) => operation(),
+    )
     readApiResultOrThrowMock.mockResolvedValue({
       items: [{
         ...makeRows(1)[0],
@@ -256,7 +446,7 @@ describe('usePersonTasks metadata updates', () => {
         await result.current.toggleTask(result.current.tasks[0], isDone)
       })
 
-      const request = jest.mocked(apiCallOrThrow).mock.calls.at(-1)?.[1]
+      const request = apiCallOrThrowMock.mock.calls.at(-1)?.[1]
       expect(JSON.parse(String(request?.body))).toEqual({
         id: 'todo-1',
         linkId: 'link-1',
@@ -284,7 +474,7 @@ describe('usePersonTasks metadata updates', () => {
       })
     })
 
-    const request = jest.mocked(apiCallOrThrow).mock.calls[0][1]
+    const request = apiCallOrThrowMock.mock.calls[0][1]
     expect(JSON.parse(String(request?.body))).toEqual({
       id: 'todo-1',
       linkId: 'link-1',
@@ -309,7 +499,7 @@ describe('usePersonTasks metadata updates', () => {
       })
     })
 
-    const request = jest.mocked(apiCallOrThrow).mock.calls[0][1]
+    const request = apiCallOrThrowMock.mock.calls[0][1]
     expect(JSON.parse(String(request?.body))).toMatchObject({
       customFields: { priority: null, description: null, due_at: null },
     })

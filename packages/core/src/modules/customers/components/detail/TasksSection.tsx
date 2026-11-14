@@ -15,7 +15,7 @@ import {
   extractRecordLockConflict,
 } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InteractionSummary, SectionAction, TabEmptyStateConfig, TodoLinkSummary, Translator } from './types'
@@ -27,7 +27,7 @@ import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { useInteractions, type InteractionCreatePayload } from './hooks/useInteractions'
-import { mapInteractionRecordToTodoSummary } from '../../lib/interactionCompatibility'
+import { CUSTOMER_INTERACTION_TASK_SOURCE, mapInteractionRecordToTodoSummary } from '../../lib/interactionCompatibility'
 
 type GuardedMutationRunner = <T>(
   operation: () => Promise<T>,
@@ -487,7 +487,9 @@ export function TasksSection({
           />
         ) : null}
 
-        {!isInitialLoading && !hasTasks ? (
+        {!isInitialLoading && error ? <ErrorMessage label={error} /> : null}
+
+        {!isInitialLoading && !error && !hasTasks ? (
           <TabEmptyState title={emptyState.title}>
             <Button asChild variant="outline" size="sm" className="mt-2">
               <Link href="/backend/customer-tasks">
@@ -499,11 +501,6 @@ export function TasksSection({
 
         {!isInitialLoading && hasTasks ? (
           <div className="space-y-4">
-            {error ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
-            ) : null}
             {sortedTasks.map((task) => {
               const todoHref = task.externalHref ?? resolveTodoHref(task.todoSource, task.todoId)
               const createdLabel = formatDateTime(task.createdAt) ?? emptyLabel
@@ -660,7 +657,12 @@ export function TasksSection({
         onSubmit={handleDialogSubmit}
         isSubmitting={isMutating}
         contextMessage={dialogContextMessage}
-        useCanonicalInteractions={useCanonicalInteractions}
+        useCanonicalInteractions={useCanonicalInteractions || Boolean(
+          editingTask?.todoSource === CUSTOMER_INTERACTION_TASK_SOURCE
+          && editingTask.status
+          && editingTask.status !== 'planned'
+          && editingTask.status !== 'done'
+        )}
       />
 
       {ConfirmDialogElement}

@@ -28,9 +28,9 @@ jest.mock('../../../../lib/interactionReadModel', () => ({
       id: interaction.id,
       interactionType: 'task',
       title: interaction.title,
-      status: 'planned',
+      status: interaction.status ?? 'planned',
       createdAt: interaction.createdAt.toISOString(),
-      updatedAt: interaction.createdAt.toISOString(),
+      updatedAt: (interaction.updatedAt ?? interaction.createdAt).toISOString(),
       tenantId: interaction.tenantId,
       organizationId: interaction.organizationId,
       entityId: interaction.entity,
@@ -45,8 +45,8 @@ const TENANT = '00000000-0000-0000-0000-000000000001'
 const ORG = '00000000-0000-0000-0000-000000000002'
 const OTHER_ORG = '00000000-0000-0000-0000-000000000003'
 const OTHER_TENANT = '00000000-0000-0000-0000-000000000004'
-const PERSON = '00000000-0000-0000-0000-000000000010'
-const COMPANY = '00000000-0000-0000-0000-000000000011'
+const PERSON = '00000000-0000-4000-8000-000000000010'
+const COMPANY = '00000000-0000-4000-8000-000000000011'
 
 type FakeInteraction = {
   id: string
@@ -58,6 +58,8 @@ type FakeInteraction = {
   organizationId: string
   createdAt: Date
   deletedAt: Date | null
+  status?: string
+  updatedAt?: Date
 }
 
 type FakeTodoLink = {
@@ -297,6 +299,55 @@ describe('GET /api/customers/interactions/tasks', () => {
     expect(
       body.items.filter((item) => item.todoId === bridgedTodoId),
     ).toHaveLength(1)
+  })
+
+  it.each([false, true])('preserves native task identity, completion and versions on person pages (unified=%s)', async (unified) => {
+    const updatedAt = new Date('2026-10-16T10:00:00.000Z')
+    const nativeId = 'aaaaaaaa-0000-0000-0000-000000000020'
+    const sourcedId = 'aaaaaaaa-0000-0000-0000-000000000021'
+    const store: FakeStore = {
+      interactions: [
+        makeInteraction({ id: nativeId, title: 'Native person task' }),
+        makeInteraction({
+          id: sourcedId,
+          source: 'manual',
+          title: 'Completed native task',
+          status: 'done',
+          updatedAt,
+          createdAt: new Date('2026-08-02T10:00:00.000Z'),
+        }),
+        makeInteraction({ id: 'aaaaaaaa-0000-0000-0000-000000000022', entity: COMPANY }),
+        makeInteraction({ id: 'aaaaaaaa-0000-0000-0000-000000000023', organizationId: OTHER_ORG }),
+        makeInteraction({ id: 'aaaaaaaa-0000-0000-0000-000000000024', tenantId: OTHER_TENANT }),
+      ],
+      links: [],
+    }
+    const { em } = primeRequestContext(store)
+    setUnified(unified)
+
+    const first = await callRoute(`?entityId=${PERSON}&page=1&pageSize=1`)
+    const second = await callRoute(`?entityId=${PERSON}&page=2&pageSize=1`)
+    const pastEnd = await callRoute(`?entityId=${PERSON}&page=3&pageSize=1`)
+
+    expect(first.status).toBe(200)
+    expect(first.body).toMatchObject({ total: 2, page: 1, pageSize: 1, totalPages: 2 })
+    expect(first.body.items).toEqual([expect.objectContaining({
+      id: sourcedId,
+      todoId: sourcedId,
+      todoSource: CUSTOMER_INTERACTION_TASK_SOURCE,
+      todoIsDone: true,
+      todoUpdatedAt: updatedAt.toISOString(),
+    })])
+    expect(second.body.items).toEqual([expect.objectContaining({
+      id: nativeId,
+      todoId: nativeId,
+      todoIsDone: false,
+    })])
+    expect(pastEnd.body.items).toEqual([])
+    for (const where of canonicalWhereClauses(em)) {
+      expect(where).toMatchObject({ entity: PERSON, tenantId: TENANT, organizationId: { $in: [ORG] } })
+      expect(where).not.toHaveProperty('source')
+    }
   })
 
   it('keeps an unbridged legacy todo link visible alongside canonical tasks', async () => {
