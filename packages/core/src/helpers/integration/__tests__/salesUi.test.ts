@@ -24,6 +24,7 @@ type TestLocator = {
   click: () => Promise<void>
   waitFor: (options: { state: string; timeout: number }) => Promise<void>
   getByRole: (role: string, options: { name: string | RegExp }) => TestLocator
+  getByLabel: (label: string, options?: { exact?: boolean }) => TestLocator
 }
 
 function delayedLinePage(saveDelay: number | null) {
@@ -61,6 +62,7 @@ function delayedLinePage(saveDelay: number | null) {
         if (role === 'textbox') return locator('input')
         return locator(options.name instanceof RegExp && options.name.test('Custom line') ? 'custom' : 'submit')
       },
+      getByLabel: () => locator('input'),
     }
     return target
   }
