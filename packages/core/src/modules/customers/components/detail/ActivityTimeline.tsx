@@ -99,7 +99,7 @@ function TimelineEntry({
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onMarkDone])
+  }, [activity.id, activity.updatedAt, markingDone, onMarkDone])
 
   return (
     <div
