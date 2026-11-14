@@ -1864,11 +1864,14 @@ customers will receive two emails per request.
 used to look up the account, mint the token and await email delivery inline, all only when the email
 matched an account — an unknown email returned immediately with no work done. That made the response
 time account-dependent: a slow or blocked email transport leaked whether an email was registered. Both
-routes now only validate the request and enqueue `{ email, tenantId }` on a new queue
+routes now only validate the request and enqueue `{ email, tenantId, locale }` on a new queue
 (`customer-accounts-password-reset-delivery` / `customer-accounts-magic-link-delivery`), then answer
-`200 { ok: true }` immediately — identically whether the account exists or not. The lookup, token mint
-and `sendEmail` call now run inside `workers/passwordResetDelivery.ts` / `workers/magicLinkDelivery.ts`;
-the raw token is minted only inside the worker and never serialized into the queue payload.
+`200 { ok: true }` immediately — identically whether the account exists or not. `locale` is resolved
+from the request's cookie/Accept-Language, identically for a known and an unknown account, so the
+worker renders the recovery email in the requester's language instead of always falling back to the
+default locale once delivery moves outside the HTTP request. The lookup, token mint and `sendEmail`
+call now run inside `workers/passwordResetDelivery.ts` / `workers/magicLinkDelivery.ts`; the raw token
+is minted only inside the worker and never serialized into the queue payload.
 
 **Action for operators:** these two queues process like any other `@open-mercato/queue` queue —
 automatically under the local (dev) strategy, or via a running worker process under `QUEUE_STRATEGY=async`
@@ -1877,8 +1880,8 @@ equivalent, or `worker --all`). If no worker processes these queues in productio
 magic-link emails are silently never sent even though the request still answers `200`.
 
 **Action for module authors:** none, unless your app enqueues directly on these queue names — the
-payload shape (`{ email: string; tenantId: string }`) is new and additive; it does not replace any
-existing contract.
+payload shape (`{ email: string; tenantId: string; locale: Locale }`) is new and additive; it does not
+replace any existing contract.
 
 ### Standalone apps must keep `pdfjs-dist` out of the server bundle (#6398)
 
