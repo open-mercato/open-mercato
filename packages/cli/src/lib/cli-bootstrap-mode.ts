@@ -8,6 +8,7 @@ const BOOTSTRAP_FREE_COMMANDS = new Set([
   'init',
   'agentic:init',
   'telemetry',
+  'theme',
   'eject',
   'test',
   'test:integration',
