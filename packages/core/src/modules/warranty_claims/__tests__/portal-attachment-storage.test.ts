@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { getEntityIds, registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { LocalStorageDriver, StorageDriverFactory, registerExternalStorageDriver, registerStorageDriverValidator } from '../../attachments/lib/drivers'
 import type { StorageDriver } from '../../attachments/lib/drivers'
 import { AttachmentStorageConfigurationError } from '../../attachments/lib/drivers/storageValidation'
@@ -63,12 +64,17 @@ function mockResolve(key: string): unknown {
   return null
 }
 const previousPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+const previousEntityIds = getEntityIds(false)
 let unregister: () => void
 beforeAll(() => {
+  registerEntityIds({ ...previousEntityIds, attachments: { ...previousEntityIds.attachments, attachment: 'attachments:attachment' } })
   registerExternalStorageDriver(driver.key, construct)
   unregister = registerStorageDriverValidator(driver.key, ({ config }) => config.bucket === 'valid')
 })
-afterAll(() => unregister())
+afterAll(() => {
+  unregister()
+  registerEntityIds(previousEntityIds)
+})
 beforeEach(() => {
   jest.clearAllMocks()
   mockAuth = { sub: 'customer-1', email: 'user@example.com', tenantId: 'tenant-1', orgId: 'org-1', customerEntityId: 'customer-1' }

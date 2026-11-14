@@ -317,12 +317,16 @@ export class OpenCodeAgentRunner {
             throw err
           }
           logger.warn('attachment staging failed', { agentId, runId, error: err instanceof Error ? err.message : String(err) })
-          getTelemetryRuntime()?.reportError(err, {
-            module: 'agent_orchestrator', code: 'agent_orchestrator.attachment_staging_failed',
-            attributes: { agentId, runId },
-          })
           const detail = 'attachment input unavailable'
           await failRun(this.commandBus, commandCtx, { runId, errorMessage: `attachment staging failed: ${detail}` })
+          try {
+            getTelemetryRuntime()?.reportError(err, {
+              module: 'agent_orchestrator', code: 'agent_orchestrator.attachment_staging_failed',
+              attributes: { agentId, runId },
+            })
+          } catch {
+            logger.warn('attachment staging error reporting failed', { agentId, runId })
+          }
           throw new OpenCodeRunFailedError(agentId, `attachment staging failed: ${detail}`)
         }
       }

@@ -211,10 +211,14 @@ describe('attachment staging owner policy through the real service and Documents
     expect(deleteSessionApiKey).toHaveBeenCalledWith(test.em, 'sess_attachment_access')
   })
 
-  it('redacts unexpected service error messages from persisted failure and thrown error', async () => {
+  it.each([false, true])('persists redacted staging failure and cleans up when the telemetry reporter throws: %s', async (reporterThrows) => {
     const test = harness()
     const stagingError = new Error('secret-policy-credentials')
-    const reportError = jest.fn()
+    let persistedBeforeReporting = false
+    const reportError = jest.fn(() => {
+      persistedBeforeReporting = test.calls.some((call) => call.id === 'agent_orchestrator.runs.fail')
+      if (reporterThrows) throw new Error('secret-reporter-credentials')
+    })
     const logRecord = jest.fn()
     const unregisterLogger = registerLoggerExtension({ emit: logRecord })
     const unregisterTelemetry = registerTelemetryRuntime({
@@ -230,7 +234,13 @@ describe('attachment staging owner policy through the real service and Documents
       const error = await test.runner.run(entry, { __files: files }, { ...scope, userId }).catch((caught: unknown) => caught)
       expect(error).toMatchObject({ message: expect.stringContaining('attachment staging failed: attachment input unavailable') })
       expect(JSON.stringify([error, test.calls])).not.toContain('secret-policy-credentials')
+      expect(JSON.stringify([error, test.calls])).not.toContain('secret-reporter-credentials')
       expect(reportError).toHaveBeenCalledTimes(1)
+      expect(persistedBeforeReporting).toBe(true)
+      expect(test.calls).toContainEqual({
+        id: 'agent_orchestrator.runs.fail',
+        input: { runId: 'run-access', errorMessage: 'attachment staging failed: attachment input unavailable' },
+      })
       expect(reportError).toHaveBeenCalledWith(stagingError, {
         module: 'agent_orchestrator', code: 'agent_orchestrator.attachment_staging_failed',
         attributes: { agentId: entry.id, runId: 'run-access' },
@@ -242,6 +252,15 @@ describe('attachment staging owner policy through the real service and Documents
       expect(test.resolveForPartition).not.toHaveBeenCalled()
       expect(writeFile).not.toHaveBeenCalled()
       expect(test.client.sendMessage).not.toHaveBeenCalled()
+      expect(test.release).toHaveBeenCalledTimes(1)
+      expect(test.dispose).toHaveBeenCalledWith('sess_attachment_access')
+      expect(deleteSessionApiKey).toHaveBeenCalledWith(test.em, 'sess_attachment_access')
+      if (reporterThrows) {
+        expect(logRecord).toHaveBeenCalledWith(expect.objectContaining({
+          namespace: 'agent_orchestrator', level: 'warn', message: 'attachment staging error reporting failed',
+          fields: expect.objectContaining({ agentId: entry.id, runId: 'run-access' }),
+        }))
+      }
     } finally {
       unregisterTelemetry()
       unregisterLogger()
