@@ -3,7 +3,9 @@
 import * as React from 'react'
 import { Clock, Search } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
@@ -367,14 +369,16 @@ export function ActivitiesSection({
     setLoadedPages(1)
   }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, useCanonicalInteractions])
 
-  const handleMarkDone = React.useCallback(async (activityId: string) => {
+  const handleMarkDone = React.useCallback(async (activityId: string, updatedAt?: string | null) => {
     try {
       const operation = () =>
-        apiCallOrThrow('/api/customers/interactions/complete', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: activityId, occurredAt: new Date().toISOString() }),
-        })
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(updatedAt ?? null), () =>
+          apiCallOrThrow('/api/customers/interactions/complete', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: activityId, occurredAt: new Date().toISOString() }),
+          }),
+        )
       if (runGuardedMutation) {
         await runGuardedMutation(operation, {
           id: activityId,
@@ -387,9 +391,12 @@ export function ActivitiesSection({
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       await loadActivities()
     } catch (err) {
-      logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
-      flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
-      return
+      if (!surfaceRecordConflict(err, t)) {
+        logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
+        flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
+        return
+      }
+      await loadActivities()
     }
     try {
       await Promise.resolve(onDataRefresh?.())
