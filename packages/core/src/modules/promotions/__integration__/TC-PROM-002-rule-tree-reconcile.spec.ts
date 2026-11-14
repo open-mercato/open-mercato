@@ -45,14 +45,14 @@ test.describe('TC-PROM-002: rule tree reconcile', () => {
             rules: [
               {
                 ruleType: 'order_value',
-                config: { value: '10.00', operator: 'gte', taxInclusive: false, limitToCategory: null },
+                config: { value: '10,50', operator: 'gte', taxInclusive: false, limitToCategory: null },
               },
             ],
             benefits: [
               {
                 benefitType: 'cart_discount',
                 appliesTo: 'order',
-                config: { discountType: 'percentage', value: '10', maxDiscount: null, labels: { en: '10% off' } },
+                config: { discountType: 'percentage', value: '10,5', maxDiscount: null, labels: { en: '10.5% off' } },
               },
             ],
             children: [],
@@ -66,10 +66,36 @@ test.describe('TC-PROM-002: rule tree reconcile', () => {
       expect(t1).not.toBe(t0);
       expect(afterFirst.ruleGroupTree?.rules).toHaveLength(1);
       expect(afterFirst.ruleGroupTree?.rules[0]).toMatchObject({ ruleType: 'order_value' });
-      expect(afterFirst.ruleGroupTree?.rules[0].config).toMatchObject({ value: '10.00', operator: 'gte' });
+      expect(afterFirst.ruleGroupTree?.rules[0].config).toMatchObject({ value: '10.50', operator: 'gte' });
       expect(afterFirst.ruleGroupTree?.benefits).toHaveLength(1);
       expect(afterFirst.ruleGroupTree?.benefits[0]).toMatchObject({ benefitType: 'cart_discount', appliesTo: 'order' });
+      expect(afterFirst.ruleGroupTree?.benefits[0].config).toMatchObject({ value: '10.5' });
       const existingRuleId = afterFirst.ruleGroupTree!.rules[0].id;
+
+      for (const invalidValue of ['1,000.50', '100,5']) {
+        const rejected = await apiRequest(request, 'PUT', promotionTreePath(promotionId), {
+          token,
+          data: {
+            updatedAt: t1,
+            root: {
+              id: rootGroupId,
+              operator: 'and',
+              sortOrder: 0,
+              rules: [],
+              benefits: [{
+                benefitType: 'cart_discount',
+                appliesTo: 'order',
+                config: { discountType: 'percentage', value: invalidValue, labels: { en: 'Rejected discount' } },
+              }],
+              children: [],
+            },
+          },
+        });
+        expect(rejected.status()).toBe(422);
+        const unchanged = await getPromotionDetail(request, token, promotionId);
+        expect(unchanged.updatedAt).toBe(t1);
+        expect(unchanged.ruleGroupTree).toEqual(afterFirst.ruleGroupTree);
+      }
 
       // Second reconcile: update the existing rule's value, replace the
       // cart_discount benefit with a free_product one (removal), and add a

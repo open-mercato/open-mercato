@@ -9,6 +9,10 @@
 # the app container's port and replicate the two routers + ForwardAuth
 # middleware in its own config. See docker/traefik/README.md.
 #
+# Requires Docker Compose 2.24.4+ for port-list reset support. Application
+# and collaboration traffic stays on the internal network; publish WSS
+# through a TLS proxy when enabling the documents-collab profile.
+#
 # This overlay defaults `TRAEFIK_CA_SERVER` to the LE **production** directory
 # so the prod invocation issues real certificates. Dev workflows layer the
 # dev-only `starters/docker/compose.fullapp.traefik.dev.yml` overlay on top to flip the
@@ -56,6 +60,7 @@ services:
       - mercato-network-fullapp
 
   app:
+    ports: !reset []
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}-v2"
@@ -93,6 +98,9 @@ services:
       # Service definition: route to the app on its container port.
       - "traefik.http.services.app-upstream.loadbalancer.server.port=${CONTAINER_PORT:-3000}"
       - "traefik.http.services.app-upstream.loadbalancer.passhostheader=true"
+
+  documents-collab:
+    ports: !reset []
 
 volumes:
   traefik_acme:

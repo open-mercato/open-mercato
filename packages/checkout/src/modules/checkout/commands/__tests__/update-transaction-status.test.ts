@@ -51,7 +51,21 @@ function makeTransaction(status: CheckoutTransaction['status']) {
   }
 }
 
-function makeLink() {
+type LinkRow = {
+  id: string
+  organizationId: string
+  tenantId: string
+  slug: string
+  templateId: string | null
+  gatewayProviderKey: string
+  activeReservationCount: number
+  completionCount: number
+  maxCompletions: number | null
+  isLocked: boolean
+  deletedAt: null
+}
+
+function makeLink(overrides: Partial<LinkRow> = {}): LinkRow {
   return {
     id: LINK_ID,
     organizationId: ORG_ID,
@@ -64,15 +78,20 @@ function makeLink() {
     maxCompletions: null,
     isLocked: false,
     deletedAt: null,
+    ...overrides,
   }
 }
+
+type ReleasedLinkRow = { completion_count: number; max_completions: number | null }
 
 type MockEm = {
   findOne: jest.Mock
   nativeUpdate: jest.Mock
+  execute: jest.Mock
   flush: jest.Mock
   refresh: jest.Mock
   transactional: (fn: (tx: MockEm) => Promise<unknown>) => Promise<unknown>
+  link: LinkRow
 }
 
 function makeMockEm(
@@ -81,9 +100,13 @@ function makeMockEm(
   // When nativeUpdate returns 0, the post-CAS findOne should return a
   // different status to simulate the winning writer's value.
   postCasStatus?: CheckoutTransaction['status'],
+  options: { link?: LinkRow; released?: ReleasedLinkRow[] } = {},
 ): MockEm {
   let findOneCallCount = 0
+  const link = options.link ?? makeLink()
+  const released = options.released ?? [{ completion_count: 1, max_completions: null }]
   const mockTx: MockEm = {
+    link,
     findOne: jest.fn(async (_entity: unknown, filter: Record<string, unknown>) => {
       findOneCallCount++
       if (filter.id === TX_ID) {
@@ -95,10 +118,11 @@ function makeMockEm(
         }
         return transaction
       }
-      if (filter.id === LINK_ID) return makeLink()
+      if (filter.id === LINK_ID) return link
       return null
     }),
     nativeUpdate: jest.fn(async () => nativeUpdateResult),
+    execute: jest.fn(async () => released),
     flush: jest.fn(async () => undefined),
     refresh: jest.fn(async () => undefined),
     transactional: (fn) => fn(mockTx),
@@ -130,6 +154,10 @@ function baseInput(status: string) {
     organizationId: ORG_ID,
     tenantId: TENANT_ID,
   }
+}
+
+function linkCounterUpdateCalls(em: MockEm) {
+  return em.execute.mock.calls.filter(([sql]) => typeof sql === 'string' && sql.includes('UPDATE checkout_links'))
 }
 
 async function runUpdateStatus(em: MockEm, status: string) {
@@ -361,3 +389,97 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
   })
 })
 
+describe('updateTransactionStatusCommand — pay-link usage counters', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('processing → completed releases the reservation and counts the completion with one relative UPDATE', async () => {
+    const em = makeMockEm(makeTransaction('processing'), 1)
+
+    await runUpdateStatus(em, 'completed')
+
+    const calls = linkCounterUpdateCalls(em)
+    expect(calls).toHaveLength(1)
+    const [sql, params] = calls[0] as [string, unknown[]]
+    expect(sql).toMatch(/active_reservation_count = GREATEST\(active_reservation_count - 1, 0\)/)
+    expect(sql).toMatch(/completion_count = completion_count \+ \?/)
+    expect(sql).toMatch(/is_locked = GREATEST\(active_reservation_count - 1, 0\) > 0/)
+    expect(sql).toMatch(/organization_id = \?/)
+    expect(sql).toMatch(/tenant_id = \?/)
+    expect(sql).toMatch(/deleted_at IS NULL/)
+    expect(params).toEqual([1, LINK_ID, ORG_ID, TENANT_ID])
+  })
+
+  it.each(['failed', 'cancelled', 'expired'] as const)(
+    'processing → %s releases the reservation without counting a completion',
+    async (status) => {
+      const em = makeMockEm(makeTransaction('processing'), 1, undefined, {
+        released: [{ completion_count: 0, max_completions: 1 }],
+      })
+
+      await runUpdateStatus(em, status)
+
+      const calls = linkCounterUpdateCalls(em)
+      expect(calls).toHaveLength(1)
+      expect((calls[0] as [string, unknown[]])[1]).toEqual([0, LINK_ID, ORG_ID, TENANT_ID])
+      expect(emitCheckoutEvent).not.toHaveBeenCalledWith('checkout.link.usageLimitReached', expect.any(Object))
+    },
+  )
+
+  it('never writes counters computed from the link row it read earlier', async () => {
+    const em = makeMockEm(makeTransaction('processing'), 1, undefined, {
+      link: makeLink({ activeReservationCount: 1, completionCount: 0, isLocked: true }),
+      released: [{ completion_count: 3, max_completions: null }],
+    })
+
+    await runUpdateStatus(em, 'completed')
+
+    expect(em.link).toMatchObject({ activeReservationCount: 1, completionCount: 0, isLocked: true })
+  })
+
+  it('reports the usage limit from the committed count, not the stale count it read', async () => {
+    const em = makeMockEm(makeTransaction('processing'), 1, undefined, {
+      link: makeLink({ completionCount: 0, maxCompletions: 2 }),
+      released: [{ completion_count: 2, max_completions: 2 }],
+    })
+
+    await runUpdateStatus(em, 'completed')
+
+    expect(emitCheckoutEvent).toHaveBeenCalledWith('checkout.link.usageLimitReached', {
+      id: LINK_ID,
+      slug: 'test-link',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    })
+  })
+
+  it('reports the usage limit only for the completion that reaches it', async () => {
+    const em = makeMockEm(makeTransaction('processing'), 1, undefined, {
+      link: makeLink({ completionCount: 2, maxCompletions: 2 }),
+      released: [{ completion_count: 3, max_completions: 2 }],
+    })
+
+    await runUpdateStatus(em, 'completed')
+
+    expect(emitCheckoutEvent).toHaveBeenCalledWith('checkout.transaction.completed', expect.any(Object))
+    expect(emitCheckoutEvent).not.toHaveBeenCalledWith('checkout.link.usageLimitReached', expect.any(Object))
+  })
+
+  it('fails with 404 and emits nothing when the link row is gone by the time the reservation is released', async () => {
+    const em = makeMockEm(makeTransaction('processing'), 1, undefined, { released: [] })
+
+    await expect(runUpdateStatus(em, 'completed')).rejects.toMatchObject({ status: 404 })
+    expect(emitCheckoutEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not touch the counters on a same-status redelivery or a non-terminal transition', async () => {
+    const redelivery = makeMockEm(makeTransaction('completed'), 1)
+    await runUpdateStatus(redelivery, 'completed')
+    expect(linkCounterUpdateCalls(redelivery)).toHaveLength(0)
+
+    const nonTerminal = makeMockEm(makeTransaction('pending'), 1)
+    await runUpdateStatus(nonTerminal, 'processing')
+    expect(linkCounterUpdateCalls(nonTerminal)).toHaveLength(0)
+  })
+})

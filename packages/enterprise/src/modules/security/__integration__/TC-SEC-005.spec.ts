@@ -14,6 +14,9 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
   let adminToken: string
   let tenantId = ''
   let organizationId = ''
+  let orgPolicyId = ''
+  let enrolledUser: Awaited<ReturnType<typeof createUserFixture>>
+  let overdueUser: Awaited<ReturnType<typeof createUserFixture>>
   const policyIds: string[] = []
   const userIds: string[] = []
 
@@ -22,23 +25,7 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
     const context = getTokenContext(adminToken)
     tenantId = context.tenantId
     organizationId = context.organizationId
-  })
 
-  test.afterAll(async ({ request }) => {
-    for (const policyId of policyIds.reverse()) {
-      await fetchJson<{ ok?: boolean }>(
-        request,
-        'DELETE',
-        `/api/security/enforcement/${policyId}`,
-        { token: adminToken },
-      ).catch(() => undefined)
-    }
-    for (const userId of userIds) {
-      await deleteUserFixture(request, adminToken ?? null, userId)
-    }
-  })
-
-  test('resolves org policy precedence, filters allowed methods, redirects unenrolled users, and marks overdue users in compliance', async ({ request, page }) => {
     const platformPolicy = await fetchJson<{ id: string }>(
       request,
       'POST',
@@ -92,7 +79,47 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
     )
     expect(orgPolicy.status).toBe(201)
     policyIds.push(orgPolicy.body.id)
+    orgPolicyId = orgPolicy.body.id
 
+    const overdueUpdate = await fetchJson<{ ok?: boolean }>(
+      request,
+      'PUT',
+      `/api/security/enforcement/${orgPolicyId}`,
+      {
+        token: adminToken,
+        data: {
+          enforcementDeadline: new Date(Date.now() - 60_000).toISOString(),
+          allowedMethods: ['otp_email'],
+          isEnforced: true,
+          tenantId,
+          organizationId,
+          scope: 'organisation',
+        },
+      },
+    )
+    expect(overdueUpdate.status).toBe(200)
+
+    enrolledUser = await createUserFixture(request, adminToken)
+    userIds.push(enrolledUser.id)
+    overdueUser = await createUserFixture(request, adminToken)
+    userIds.push(overdueUser.id)
+  })
+
+  test.afterAll(async ({ request }) => {
+    for (const policyId of policyIds.reverse()) {
+      await fetchJson<{ ok?: boolean }>(
+        request,
+        'DELETE',
+        `/api/security/enforcement/${policyId}`,
+        { token: adminToken },
+      ).catch(() => undefined)
+    }
+    for (const userId of userIds) {
+      await deleteUserFixture(request, adminToken ?? null, userId)
+    }
+  })
+
+  test('resolves org policy precedence, filters allowed methods, redirects unenrolled users, and marks overdue users in compliance', async ({ request, page }) => {
     const tenantsResponse = await fetchJson<{ items: Array<{ id: string; name: string }> }>(
       request,
       'GET',
@@ -128,15 +155,11 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
       { token: adminToken },
     )
     expect(enforcementListResponse.status).toBe(200)
-    const listedOrgPolicy = enforcementListResponse.body.items.find((item) => item.id === orgPolicy.body.id)
+    const listedOrgPolicy = enforcementListResponse.body.items.find((item) => item.id === orgPolicyId)
     expect(listedOrgPolicy?.tenantId).toBe(tenantId)
     expect(listedOrgPolicy?.tenantName).toBe(tenantName)
     expect(listedOrgPolicy?.organizationId).toBe(organizationId)
     expect(listedOrgPolicy?.organizationName).toBe(organizationName)
-
-    const enrolledUser = await createUserFixture(request, adminToken)
-    const overdueUser = await createUserFixture(request, adminToken)
-    userIds.push(enrolledUser.id, overdueUser.id)
 
     const enrolledLogin = await loginViaApi(request, enrolledUser.email, enrolledUser.password)
     await setAuthCookie(page, enrolledLogin.token)
@@ -156,24 +179,6 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
     await enrollOtpEmail(request, enrolledLogin.token)
     await page.goto('/backend')
     await expect(page).toHaveURL(/\/backend$/)
-
-    const overdueUpdate = await fetchJson<{ ok?: boolean }>(
-      request,
-      'PUT',
-      `/api/security/enforcement/${orgPolicy.body.id}`,
-      {
-        token: adminToken,
-        data: {
-          enforcementDeadline: new Date(Date.now() - 60_000).toISOString(),
-          allowedMethods: ['otp_email'],
-          isEnforced: true,
-          tenantId,
-          organizationId,
-          scope: 'organisation',
-        },
-      },
-    )
-    expect(overdueUpdate.status).toBe(200)
 
     const overdueLogin = await loginViaApi(request, overdueUser.email, overdueUser.password)
     await setAuthCookie(page, overdueLogin.token)

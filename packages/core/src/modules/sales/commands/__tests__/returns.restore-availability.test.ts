@@ -18,6 +18,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 import {
   SalesOrder,
   SalesOrderAdjustment,
@@ -117,6 +118,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 function makeEm() {
   const created: Array<{ entity: unknown; data: Record<string, unknown> }> = []
   const em: any = {
+    getKysely: () => createSalesDocumentLockKyselyFixture(ORDER_ID),
     fork: function () { return this },
     begin: jest.fn(async () => {}),
     commit: jest.fn(async () => {}),

@@ -15,7 +15,7 @@ services:
       - agents
     # No local build: OpenCode is pre-installed in the published base image and
     # the project files below are bind-mounted.
-    image: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3}
+    image: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3@sha256:1ccc9d47dd46234dd6a4ad914662a226c96a21413c0d286e61bcc248745917f7}
     entrypoint: ["/bin/sh", "/home/opencode/entrypoint.sh"]
     container_name: ${MERCATO_STACK:-mercato}-opencode
     restart: unless-stopped
@@ -38,7 +38,7 @@ services:
       OPENCODE_MCP_KEY_WAIT_SECONDS: ${OPENCODE_MCP_KEY_WAIT_SECONDS:-1800}
       OM_OPENCODE_FILES_ENABLED: ${OM_OPENCODE_FILES_ENABLED:-false}
     ports:
-      - "${OPENCODE_PORT:-4096}:4096"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${OPENCODE_PORT:-4096}:4096"
     volumes:
       # Host-provisioned MCP API key (see scripts/dev-mcp.mjs).
       - ${OM_MCP_SHARED_DIR:-./.mercato/mcp-shared}:/run/mcp-shared:ro
@@ -60,14 +60,14 @@ services:
       - mercato-network
 
   postgres:
-    image: pgvector/pgvector:pg17-trixie
+    image: pgvector/pgvector:pg17-trixie@sha256:7a7e9f22015b67edb4bef5c59daeebcd7e74bfa570df6ce60ae01237c8648a84
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -79,13 +79,21 @@ services:
       - mercato-network
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     volumes:
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
-    command: redis-server /usr/local/etc/redis/redis.conf --maxmemory ${REDIS_MAXMEMORY:-512mb}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-}
+    command:
+      - redis-server
+      - /usr/local/etc/redis/redis.conf
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-512mb}
+      - --requirepass
+      - ${REDIS_PASSWORD:-}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -95,14 +103,14 @@ services:
       - mercato-network
 
   meilisearch:
-    image: getmeili/meilisearch:v1.11
+    image: getmeili/meilisearch:v1.11@sha256:6f8f1fc29d1ff67b4d8d503bb4e0a69b55c8d42600decafde951344218193a27
     restart: unless-stopped
     environment:
       MEILI_ENV: development
       MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       MEILI_NO_ANALYTICS: "true"
     ports:
-      - "${MEILISEARCH_PORT:-7700}:7700"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${MEILISEARCH_PORT:-7700}:7700"
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
@@ -119,7 +127,7 @@ services:
     profiles:
       - storage-s3
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${LOCALSTACK_PORT:-4566}:4566"
     environment:
       SERVICES: s3
       AWS_DEFAULT_REGION: us-east-1

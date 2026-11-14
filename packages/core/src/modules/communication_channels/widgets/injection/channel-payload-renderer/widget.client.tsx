@@ -3,6 +3,8 @@
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 type ChannelPayloadEnrichment = {
   channelContentType: string | null
@@ -19,6 +21,47 @@ type MessageWithPayload = Record<string, unknown> & {
   _channelPayload?: ChannelPayloadEnrichment | null
 }
 
+function EmailPayload({ html }: { html: string }) {
+  const t = useT()
+  const bodyRef = React.useRef<HTMLDivElement>(null)
+  const [remoteImagesAllowed, setRemoteImagesAllowed] = React.useState(false)
+  const hasRemoteImages = html.includes('data-channel-remote-src=')
+
+  React.useEffect(() => {
+    if (!remoteImagesAllowed) return
+    for (const image of bodyRef.current?.querySelectorAll<HTMLImageElement>('img[data-channel-remote-src]') ?? []) {
+      const source = image.getAttribute('data-channel-remote-src')
+      if (source && /^https?:\/\//i.test(source)) {
+        image.referrerPolicy = 'no-referrer'
+        image.src = source.replace(/[<>"']/g, (character) => `%${character.charCodeAt(0).toString(16)}`)
+      }
+    }
+  }, [remoteImagesAllowed])
+
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4 text-sm"
+      aria-label={t('communication_channels.channelPayload.email.aria')}
+    >
+      {hasRemoteImages && !remoteImagesAllowed ? (
+        <Alert
+          status="information"
+          style="lighter"
+          className="mb-4"
+          action={(
+            <Button type="button" variant="outline" size="sm" onClick={() => setRemoteImagesAllowed(true)}>
+              {t('communication_channels.channelPayload.email.loadRemoteImages')}
+            </Button>
+          )}
+        >
+          {t('communication_channels.channelPayload.email.remoteImagesBlocked')}
+        </Alert>
+      ) : null}
+      <div ref={bodyRef} dangerouslySetInnerHTML={{ __html: html }} />
+    </section>
+  )
+}
+
 export default function ChannelPayloadRendererWidget({
   data,
 }: InjectionWidgetComponentProps<Record<string, unknown>, MessageWithPayload>) {
@@ -28,19 +71,8 @@ export default function ChannelPayloadRendererWidget({
 
   const { channelContentType, channelPayload, sanitizedHtml } = payload
 
-  // Email / HTML — render the HTML the server already sanitized.
   if (channelContentType.startsWith('email/') && typeof sanitizedHtml === 'string') {
-    return (
-      <section
-        className="rounded-md border bg-card p-4 text-sm"
-        aria-label={t(
-          'communication_channels.channelPayload.email.aria',
-          'Channel payload — email',
-        )}
-      >
-        <div dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
-      </section>
-    )
+    return <EmailPayload key={`${data?.id ?? ''}:${sanitizedHtml}`} html={sanitizedHtml} />
   }
 
   // Provider-specific payloads (Slack Block Kit, WhatsApp interactive) —

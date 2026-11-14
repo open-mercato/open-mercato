@@ -10,7 +10,7 @@
 
 ## TLDR
 
-Enterprise SSO module enabling federated authentication (OIDC + SAML 2.0) with any corporate identity provider, plus SCIM 2.0 directory synchronization for automated user lifecycle management. Per-organization IdP configuration, email-domain-based Home Realm Discovery, JIT provisioning, group-to-role mapping, and SSO enforcement policies. Zero modifications to the core auth module.
+Enterprise SSO module enabling federated authentication (OIDC + SAML 2.0) with any corporate identity provider, plus SCIM 2.0 directory synchronization for automated user lifecycle management. Per-organization IdP configuration, email-domain-based Home Realm Discovery, JIT provisioning, group-to-role mapping, and SSO enforcement policies. Enterprise policy lives in the SSO module; core auth provides a transaction-aware session writer and generic session-denial handling.
 
 ---
 
@@ -305,6 +305,18 @@ Use `idp_subject` (not email) as the stable cross-system identifier — emails c
 - **Rate limiting:** 25 req/s per token
 - **Entra ID quirks:** Lenient SCIM parser for non-standard PATCH paths and mixed-case filter operators
 
+### 7.3.1 Deactivation and fresh sign-in (#7824)
+
+An outstanding `SsoUserDeactivation` has `reactivatedAt = null`. Existing-link and verified-email linking paths reject it for the exact user, tenant, organization, and SSO configuration before updating login timestamps or synchronizing roles. The OIDC callback therefore cannot issue a fresh session for that identity. Removing a link and trying email linking does not bypass the marker.
+
+The SSO module registers `SsoAuthService` under the existing `authService` DI key. It preserves core password comparison, including the unknown-user timing equalizer, then rejects an otherwise valid password when the user's own tenant and home organization contain an outstanding deactivation. Password sign-in retains the existing generic invalid-credentials response. Deactivation in another tenant or organization does not disable password access to the user's home scope; SSO in another configuration remains governed by that configuration's marker. No global `User.isConfirmed` mutation is needed, and there is no SCIM-specific super-admin bypass.
+
+SCIM `active:true` explicitly sets `reactivatedAt`, restoring both sign-in paths without reviving previously revoked sessions. Deleting sessions during deactivation remains unchanged. The guards reject deactivation-state lookup failures rather than issuing credentials.
+
+Configurations created through the public admin API may omit `tenantId`. Their null-tenant deactivation markers also block the linked user's password sign-in when the home organization belongs to the user's tenant and the marker's configuration has that same organization and null tenant. This ownership proof does not require an active or undeleted configuration: disabling or deleting a configuration must not implicitly reactivate its users.
+
+Final session issuance, SCIM deactivation, and explicit reactivation serialize on the same User row lock. Issuance re-reads the user and deactivation state inside the transaction and inserts the session with that transaction's entity manager. If issuance commits first, deactivation deletes its session; if deactivation commits first, issuance fails without creating one. Every deactivation writer uses this seam, including SCIM POST `active:false` for an existing account. SSO role synchronization rechecks deactivation after acquiring its existing authorization locks, before changing grants. Password login converts a final eligibility denial to its existing generic 401; autologin redirects to `/login`; SSO retains `sso_failed`.
+
 ### 7.4 Break-Glass
 
 Super-admin accounts (`isSuperAdmin` flag) bypass SSO enforcement. Break-glass logins emit `sso.enforcement.bypassed` event.
@@ -370,7 +382,7 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 |---|---|---|---|---|
 | 1 | SAML signature bypass (XSW) | Critical | Low | Pin xml-crypto, validate stored cert, security audit |
 | 2 | IdP outage locks org users | High | Medium | Super-admin break-glass, clear error messaging |
-| 3 | SCIM deprovisioning race | Medium | Medium | Immediate session revocation, event-driven cache invalidation |
+| 3 | SCIM deprovisioning race | High | Medium | Shared User row lock around final eligibility/session insertion and all deactivation writers; both transaction orderings covered by database barriers |
 | 4 | Entra SCIM spec deviations | Medium | High | Lenient parser, Entra-specific test suite |
 | 5 | Domain squatting | High | Low | Admin-only config, future DNS TXT verification |
 | 6 | Large SCIM initial sync | Medium | Medium | Rate limiting, batch processing, async via worker queue |
@@ -379,7 +391,7 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 
 ## 12. Consequences
 
-**Positive:** Federated auth without separate passwords; automated lifecycle management; zero core auth changes; pluggable provider architecture; gradual enforcement migration.
+**Positive:** Federated auth without separate passwords; automated lifecycle management; enterprise policy isolated from core auth; pluggable provider architecture; gradual enforcement migration.
 
 **Negative:** HRD query on every login page load; SCIM maintenance burden (Entra quirks); SP certificate management complexity; two new npm dependencies.
 
@@ -387,9 +399,22 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 
 ---
 
+## Migration & Backward Compatibility
+
+The fix for #7824 preserves SCIM and SSO endpoint URLs, methods, response shapes, JWT claims, database schema, and existing two-argument `authService.createSession` calls. The core protected session writer and branded eligibility error are additive; the enterprise override accepts an optional trusted SSO scope while custom two-argument implementations remain structurally compatible. It enforces the existing deactivation policy on fresh sign-in, including configurations whose tenant was omitted at creation. Clients continue handling the existing generic password error or `sso_failed` callback redirect. Operators must send SCIM `active:true` for an intentionally restored identity; changing a password or relinking its email does not reactivate it. The enterprise DI override applies only when the SSO module is enabled. Custom auth service replacements must preserve both the scoped eligibility policy and atomic session issuance.
+
+## Integration Test Coverage for #7824
+
+- `TC-SSO-007-deactivation-login.spec.ts`: four cases cover explicit and omitted configuration tenants, each with SCIM PATCH deactivation and POST `active:false` linking an existing account. Isolated fixtures sign in through `POST /api/auth/login`, then real PostgreSQL lock barriers exercise each ordering of concurrent sign-in and deactivation. Old credentials and any session issued before deactivation are rejected by profile and refresh endpoints; fresh password sign-in is denied without cookies, another organization remains active, and explicit SCIM reactivation permits a fresh login. The test activates only its fixture configuration directly in the database, avoiding external OIDC discovery.
+- `accountLinkingService.deactivation.test.ts`: exercises the real callback and account-linking services with a controlled IdP adapter; denied identities never reach role reads, login updates, or session issuance, and reactivated identities can sign in. Existing-link and email-link paths, repeated deactivation, and user/tenant/organization/configuration isolation are covered.
+- `ssoAuthService.test.ts`: pins scoped password denial, unchanged bcrypt verification, generic unknown-user handling, and failure when deactivation state cannot be read.
+- `deactivation.test.ts` and `ssoAuthService.session.test.ts`: verify nullable-tenant ownership, configuration isolation, fresh eligibility reads after the shared lock, and transaction-managed session writes. SSO session tests also verify the core inactive-tenant guard uses the same transaction manager and denies issuance. Core login/autologin tests preserve their existing denial responses; account-linking tests prevent post-deactivation role grants.
+
 ## Changelog
 
 | Date | Changes |
 |---|---|
+| 2026-10-28 | #7824 review corrections: validate nullable-tenant marker ownership, serialize session issuance with every SCIM deactivation writer, and add both-order concurrency and POST regression coverage. |
+| 2026-10-27 | #7824: enforce outstanding SCIM deactivation during SSO linking and scoped password verification; preserve explicit reactivation and add login/session regression coverage. |
 | 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |
 | 2026-02-19 | Added V1 targeted IdPs: Microsoft Entra ID, Google Workspace, Keycloak |

@@ -57,17 +57,17 @@ export async function GET(req: Request) {
   if (search) {
     const pattern = buildIlikeTerm(search)
     qb.andWhere(`(
-      cast(gt.id as text) ilike ?
-      or cast(gt.payment_id as text) ilike ?
-      or coalesce(gt.provider_key, '') ilike ?
-      or coalesce(gt.provider_session_id, '') ilike ?
-      or coalesce(gt.gateway_payment_id, '') ilike ?
-      or coalesce(gt.gateway_refund_id, '') ilike ?
-    ) escape '\\'`, [pattern, pattern, pattern, pattern, pattern, pattern])
+      cast(gt.id as text) ilike ? escape '\\'
+      or cast(gt.payment_id as text) ilike ? escape '\\'
+      or coalesce(gt.provider_key, '') ilike ? escape '\\'
+      or coalesce(gt.provider_session_id, '') ilike ? escape '\\'
+      or coalesce(gt.gateway_payment_id, '') ilike ? escape '\\'
+      or coalesce(gt.gateway_refund_id, '') ilike ? escape '\\'
+    )`, [pattern, pattern, pattern, pattern, pattern, pattern])
   }
 
   const countQb = qb.clone()
-  qb.orderBy({ createdAt: 'desc' })
+  qb.orderBy({ createdAt: 'desc', id: 'desc' })
   qb.limit(pageSize).offset(offset)
 
   const [items, total] = await Promise.all([

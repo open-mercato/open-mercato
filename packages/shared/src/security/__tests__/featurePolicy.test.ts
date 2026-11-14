@@ -103,6 +103,18 @@ describe('featurePolicy', () => {
     })).toBe(false)
   })
 
+  it('authorizes nested wildcards without bypassing scope or feature removals', () => {
+    const subject = { grantedFeatures: ['auth.users.*'] }
+    expect(authorizeFeatures(['auth.users.manage'], subject)).toBe(true)
+    expect(resolveEffectiveFeatures(subject.grantedFeatures)).toEqual(['auth.users.view', 'auth.users.manage'])
+    expect(authorizeFeatures(['auth.users.manage'], { ...subject, scopeAllowed: false })).toBe(false)
+
+    applyAclFeatureOverrides({ 'auth.users.manage': null })
+    expect(authorizeFeatures(['auth.users.manage'], subject)).toBe(false)
+    expect(authorizeFeatures(['auth.users.view'], subject)).toBe(true)
+    expect(resolveEffectiveFeatures(subject.grantedFeatures)).toEqual(['auth.users.view'])
+  })
+
   it('denies requirements owned by disabled modules', () => {
     expect(authorizeFeatures(['search.global'], {
       grantedFeatures: ['*'],

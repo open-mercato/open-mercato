@@ -25,12 +25,15 @@ export type BoardFilters = {
   assigneeStaffMemberId: string | null
   taskStatusId: string | null
   tagIds: string[]
+  /** Only tasks with no assignee — the claimable work. Mutually exclusive with the assignee filter. */
+  unassigned: boolean
 }
 
 export const EMPTY_BOARD_FILTERS: BoardFilters = {
   assigneeStaffMemberId: null,
   taskStatusId: null,
   tagIds: [],
+  unassigned: false,
 }
 
 function readOptionalId(value: unknown): string | null {
@@ -50,16 +53,19 @@ export function normalizeBoardFilters(raw: unknown): BoardFilters {
         ),
       )
     : []
+  const assigneeStaffMemberId = readOptionalId(source.assigneeStaffMemberId)
   return {
-    assigneeStaffMemberId: readOptionalId(source.assigneeStaffMemberId),
+    assigneeStaffMemberId,
     taskStatusId: readOptionalId(source.taskStatusId),
     tagIds,
+    unassigned: assigneeStaffMemberId === null && source.unassigned === true,
   }
 }
 
 export function countActiveBoardFilters(filters: BoardFilters): number {
   let count = 0
   if (filters.assigneeStaffMemberId) count += 1
+  if (filters.unassigned) count += 1
   if (filters.taskStatusId) count += 1
   return count + filters.tagIds.length
 }
@@ -80,6 +86,7 @@ export type BoardFilterScope = {
  */
 export function boardServerFilterKey(filters: BoardFilters, scope: BoardFilterScope = {}): string {
   const parts = [`assignee:${filters.assigneeStaffMemberId ?? ''}`]
+  if (filters.unassigned) parts.push('unassigned')
   if (scope.includeStatus) parts.push(`status:${filters.taskStatusId ?? ''}`)
   parts.push(`tags:${[...filters.tagIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')}`)
   return parts.join('|')
@@ -90,6 +97,8 @@ export function boardServerFilterParams(filters: BoardFilters, scope: BoardFilte
   let params = ''
   if (filters.assigneeStaffMemberId) {
     params += `&assigneeStaffMemberId=${encodeURIComponent(filters.assigneeStaffMemberId)}`
+  } else if (filters.unassigned) {
+    params += '&unassigned=true'
   }
   if (scope.includeStatus && filters.taskStatusId) {
     params += `&taskStatusId=${encodeURIComponent(filters.taskStatusId)}`
@@ -110,7 +119,12 @@ export function visibleBoardStatusIds<T extends { id: string }>(
 }
 
 export function withAssigneeFilter(filters: BoardFilters, staffMemberId: string | null): BoardFilters {
-  return { ...filters, assigneeStaffMemberId: readOptionalId(staffMemberId) }
+  const assigneeStaffMemberId = readOptionalId(staffMemberId)
+  return { ...filters, assigneeStaffMemberId, unassigned: assigneeStaffMemberId ? false : filters.unassigned }
+}
+
+export function withUnassignedFilter(filters: BoardFilters, unassigned: boolean): BoardFilters {
+  return { ...filters, unassigned, assigneeStaffMemberId: unassigned ? null : filters.assigneeStaffMemberId }
 }
 
 export function withStatusFilter(filters: BoardFilters, taskStatusId: string | null): BoardFilters {

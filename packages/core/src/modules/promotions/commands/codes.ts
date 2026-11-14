@@ -11,6 +11,7 @@ import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -31,7 +32,7 @@ import {
   type PromotionCodeUpdateInput,
   type PromotionCodeDeleteInput,
 } from '../data/validators'
-import { PromotionCodeService, type PromotionsCodeScope } from '../lib/code-service'
+import { PromotionCodeService, hasRemainingGlobalUses, type PromotionsCodeScope } from '../lib/code-service'
 import type { PromotionCodeGenerationService } from '../services/code-generation'
 import type { CodeReservationResult, CodeUseResult } from '../lib/types'
 
@@ -203,6 +204,12 @@ async function loadCode(em: EntityManager, id: string): Promise<Code | null> {
   return em.findOne(Code, { id, deletedAt: null })
 }
 
+function resolveReplayActiveFlag(code: Code, before: CodeSnapshot): boolean {
+  if (!before.active || code.type !== 'static') return before.active
+  const redeemedSinceUpdate = code.used > before.used
+  return !redeemedSinceUpdate || hasRemainingGlobalUses(code)
+}
+
 // Mirrors `commands/promotions.ts`'s `resolveActorScope` — a new code's scope is always
 // the caller's own actor scope, never a client-supplied value.
 function resolveCodeActorScope(ctx: CommandRuntimeContext): PromotionsCodeScope {
@@ -314,6 +321,64 @@ const createCodeCommand: CommandHandler<PromotionCodeCreateInput, { codeId: stri
   },
 }
 
+async function executeCodeUpdate(
+  rawInput: PromotionCodeUpdateInput,
+  ctx: CommandRuntimeContext,
+  replayBefore?: CodeSnapshot | null,
+): Promise<{ codeId: string }> {
+  const parsed = promotionCodeUpdateSchema.parse(rawInput)
+  const em = replayBefore ? resolveCommandEm(ctx) : (ctx.container.resolve('em') as EntityManager).fork()
+  const existingCode = await loadCode(em, parsed.id)
+  if (!existingCode) throw notFound('Promotion code not found')
+  let code = existingCode
+  assertPromotionScopeOrNotFound(ctx, code)
+
+  await runCrudCommandWrite({
+    ctx,
+    em,
+    entityId: CODE_ENTITY_ID,
+    action: 'updated',
+    scope: { tenantId: code.tenantId, organizationId: code.organizationId },
+    events: codeCrudEvents,
+    indexer: codeCrudIndexer,
+    sideEffect: () => ({
+      entity: code,
+      identifiers: getCodeIdentifiers(code),
+    }),
+    phases: [
+      ...(replayBefore ? [async () => {
+        const lockedCode = await em.findOne(
+          Code,
+          { id: code.id, tenantId: code.tenantId, organizationId: code.organizationId, deletedAt: null },
+          { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        )
+        if (!lockedCode) throw notFound('Promotion code not found')
+        assertPromotionScopeOrNotFound(ctx, lockedCode)
+        code = lockedCode
+      }] : []),
+      () => {
+        if (parsed.name !== undefined) code.name = parsed.name
+        if (parsed.type !== undefined) code.type = parsed.type
+        if (parsed.code !== undefined) code.code = parsed.code ?? null
+        if (parsed.prefix !== undefined) code.prefix = parsed.prefix ?? null
+        if (parsed.suffix !== undefined) code.suffix = parsed.suffix ?? null
+        if (parsed.length !== undefined) code.length = parsed.length ?? null
+        if (parsed.amount !== undefined) code.amount = parsed.amount ?? null
+        if (parsed.usage !== undefined) code.usage = parsed.usage
+        if (parsed.usageAmount !== undefined) code.usageAmount = parsed.usageAmount ?? null
+        if (parsed.usagePerCustomer !== undefined) code.usagePerCustomer = parsed.usagePerCustomer ?? null
+        if (parsed.active !== undefined) {
+          code.active = replayBefore
+            ? resolveReplayActiveFlag(code, { ...replayBefore, active: parsed.active })
+            : parsed.active
+        }
+      },
+    ],
+  })
+
+  return { codeId: code.id }
+}
+
 const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: string }> = {
   id: 'promotions.code.update',
   outputSchema: codeCommandOutputSchema,
@@ -323,43 +388,10 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
     const code = await loadCode(em, parsed.id)
     return code ? { before: toCodeSnapshot(code) } : null
   },
-  async execute(rawInput, ctx) {
-    const parsed = promotionCodeUpdateSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const code = await loadCode(em, parsed.id)
-    if (!code) throw notFound('Promotion code not found')
-    assertPromotionScopeOrNotFound(ctx, code)
-
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: CODE_ENTITY_ID,
-      action: 'updated',
-      scope: { tenantId: code.tenantId, organizationId: code.organizationId },
-      events: codeCrudEvents,
-      indexer: codeCrudIndexer,
-      sideEffect: () => ({
-        entity: code,
-        identifiers: getCodeIdentifiers(code),
-      }),
-      phases: [
-        () => {
-          if (parsed.name !== undefined) code.name = parsed.name
-          if (parsed.type !== undefined) code.type = parsed.type
-          if (parsed.code !== undefined) code.code = parsed.code ?? null
-          if (parsed.prefix !== undefined) code.prefix = parsed.prefix ?? null
-          if (parsed.suffix !== undefined) code.suffix = parsed.suffix ?? null
-          if (parsed.length !== undefined) code.length = parsed.length ?? null
-          if (parsed.amount !== undefined) code.amount = parsed.amount ?? null
-          if (parsed.usage !== undefined) code.usage = parsed.usage
-          if (parsed.usageAmount !== undefined) code.usageAmount = parsed.usageAmount ?? null
-          if (parsed.usagePerCustomer !== undefined) code.usagePerCustomer = parsed.usagePerCustomer ?? null
-          if (parsed.active !== undefined) code.active = parsed.active
-        },
-      ],
-    })
-
-    return { codeId: code.id }
+  execute: executeCodeUpdate,
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<CodeUndoPayload>(logEntry)
+    return executeCodeUpdate(input, ctx, payload?.before)
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -391,13 +423,20 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const code = await em.findOne(Code, { id: before.id })
-    if (!code) return
+    let code = null as Code | null
 
     await withAtomicFlush(
       em,
       [
+        async () => {
+          code = await em.findOne(
+            Code,
+            { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+          )
+        },
         () => {
+          if (!code) return
           code.name = before.name
           code.type = before.type
           code.code = before.code
@@ -408,11 +447,12 @@ const updateCodeCommand: CommandHandler<PromotionCodeUpdateInput, { codeId: stri
           code.usage = before.usage
           code.usageAmount = before.usageAmount
           code.usagePerCustomer = before.usagePerCustomer
-          code.active = before.active
+          code.active = resolveReplayActiveFlag(code, before)
         },
       ],
       { transaction: true, label: 'promotions.code.update.undo' },
     )
+    if (!code) return
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudUndoSideEffects({

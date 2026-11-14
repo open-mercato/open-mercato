@@ -3,7 +3,12 @@
 // - from: '@open-mercato/core' | '@app' | custom alias/path in future
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
-export type ModuleEntry = { id: string; from?: '@open-mercato/core' | '@app' | string }
+export type ModuleEntry = {
+  id: string
+  from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
+}
 
 export const enabledModules: ModuleEntry[] = [
 {{MODULES}}
