@@ -248,9 +248,6 @@ export async function checkPushReceipts(
           tenantId: device.tenantId,
           userId: device.userId,
           organizationId: device.organizationId ?? null,
-          // The guard makes the check and the deactivation one atomic step in the devices command: a
-          // registration that rotates the token after this read but before the command's locked read
-          // makes the command a no-op instead of pruning the now-active device.
           expectedPushToken: {
             hash: createHash('sha256').update(device.pushToken ?? '').digest('hex'),
             updatedAt: device.pushTokenUpdatedAt ?? null,

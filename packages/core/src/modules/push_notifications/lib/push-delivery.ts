@@ -402,9 +402,6 @@ export async function processPushDeliveryJob(
   const scope = { tenantId: job.tenantId, organizationId: job.organizationId ?? job.tenantId }
   const payload = (delivery.payload ?? {}) as PushPayload
   const body = payload.body ?? payload.title ?? ''
-  // The token observed at send time is the only one this delivery can prove dead. Hand its hash and
-  // version to the deactivate command so a registration that lands while the provider call is in
-  // flight keeps the device (see the conditional guard in devices.user_devices.deactivate).
   const sentToken = device.pushToken
   const sentTokenUpdatedAt = device.pushTokenUpdatedAt ?? null
 

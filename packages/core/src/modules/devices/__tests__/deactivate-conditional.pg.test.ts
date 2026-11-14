@@ -131,6 +131,56 @@ describePostgres('conditional device deactivation', () => {
     }
   })
 
+  async function holdDeactivation(): Promise<EntityManager> {
+    const { em, row } = await lockDevice()
+    row.deletedAt = new Date()
+    await em.flush()
+    return em
+  }
+
+  it('revives the device with the fresh token when registration waits on a deactivation in flight', async () => {
+    const em = await holdDeactivation()
+    const result = command('register').execute(
+      {
+        tenantId: TENANT,
+        organizationId: ORG,
+        userId: USER,
+        deviceId: 'installation',
+        platform: 'ios',
+        pushToken: 'fresh-token',
+        pushProvider: 'expo',
+      },
+      ctx,
+    )
+    try {
+      await waitForBlockedWriter()
+      await em.commit()
+      expect(await result).toEqual({ id: device.id, deviceId: 'installation', revived: true })
+      const stored = await readDevice()
+      expect(stored.deletedAt).toBeNull()
+      expect(stored.pushToken).toBe('fresh-token')
+    } finally {
+      if (em.isInTransaction()) await em.rollback()
+      await result.catch(() => undefined)
+    }
+  })
+
+  it('rejects a token update that waited on a deactivation in flight', async () => {
+    const em = await holdDeactivation()
+    const result = command('update').execute({ ...scope, pushToken: 'fresh-token' }, ctx)
+    try {
+      await waitForBlockedWriter()
+      await em.commit()
+      await expect(result).rejects.toThrow('Device not found')
+      const stored = await readDevice()
+      expect(stored.deletedAt).toBeInstanceOf(Date)
+      expect(stored.pushToken).toBe(TOKEN)
+    } finally {
+      if (em.isInTransaction()) await em.rollback()
+      await result.catch(() => undefined)
+    }
+  })
+
   it('deactivates an unchanged token exactly once and keeps the deletion side effects', async () => {
     expect(await deactivate()).toEqual({ id: device.id, deactivated: true })
     expect(await deactivate()).toEqual({ id: device.id, deactivated: false })
