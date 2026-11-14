@@ -1,0 +1,28 @@
+{
+  "root": "/home/maintenance/cezar/projects/open-mercato/.ai/cezar/worktrees/61dead07-cf9d-4dc3-9f7d-2d0a3a61ca5e",
+  "removedContainers": [
+    "bf0a05654fa0 reaped by CLI",
+    "om-qa9448-61dead07"
+  ],
+  "recordedPids": [
+    523316,
+    523319,
+    523339,
+    523346,
+    523368,
+    528731,
+    528758,
+    528786,
+    528846,
+    528852
+  ],
+  "appPortClosed": 36629,
+  "databasePort": 33283,
+  "sourceStatus": "",
+  "ownedRuntimeGone": true,
+  "inheritedRedisRemovedBeforeTeardown": {
+    "id": "0a10fa321c2f",
+    "name": "om-qa9448-5af72462",
+    "reason": "Replaced dynamic host publication with fixed-port owned Redis for valid restart test"
+  }
+}
