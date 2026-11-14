@@ -1,4 +1,4 @@
-import { resolveTodoHref } from '../utils'
+import { formatCurrency, resolveTodoHref } from '../utils'
 import { WORKFLOW_TASK_TODO_SOURCE } from '../../../lib/workflowTaskLink'
 
 describe('resolveTodoHref', () => {
@@ -25,5 +25,21 @@ describe('resolveTodoHref', () => {
     expect(resolveTodoHref('projects:todo', '11111111-1111-1111-1111-111111111111')).toBe(
       '/backend/projects/todos/11111111-1111-1111-1111-111111111111/edit',
     )
+  })
+})
+
+// #8242: a missing currency used to default to PLN, so tenants in any other currency saw "PLN 0".
+describe('formatCurrency', () => {
+  it('formats in the given currency', () => {
+    expect(formatCurrency(1500, 'USD', 'en-US')).toBe('$1,500')
+  })
+
+  it('formats a plain number when no currency is known', () => {
+    expect(formatCurrency(1500, null, 'en-US')).toBe('1,500')
+    expect(formatCurrency(0, undefined, 'en-US')).toBe('0')
+  })
+
+  it('falls back to the raw code when Intl rejects the currency', () => {
+    expect(formatCurrency(1500, 'not-a-code', 'en-US')).toBe('1,500 not-a-code')
   })
 })

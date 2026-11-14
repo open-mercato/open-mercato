@@ -161,14 +161,15 @@ export function createDictionarySelectLabels(
  * assertable in tests.
  */
 export function formatCurrency(amount: number, currency?: string | null, locale?: string): string {
+  if (!currency) return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(amount)
   try {
     return new Intl.NumberFormat(locale, {
       style: 'currency',
-      currency: currency || 'PLN',
+      currency,
       maximumFractionDigits: 0,
     }).format(amount)
   } catch {
-    return `${amount.toLocaleString(locale)} ${currency || 'PLN'}`
+    return `${amount.toLocaleString(locale)} ${currency}`
   }
 }
 

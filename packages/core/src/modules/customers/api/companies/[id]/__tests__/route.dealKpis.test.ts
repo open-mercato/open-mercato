@@ -23,9 +23,19 @@ const mockEm = {
   })),
 }
 
+const mockBaseCurrencyService = {
+  resolveBaseCurrency: jest.fn(),
+}
+
+let mockBaseCurrencyRegistered = false
+
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
+    if (token === 'baseCurrencyService') {
+      if (!mockBaseCurrencyRegistered) throw new Error('[internal] baseCurrencyService is not registered')
+      return mockBaseCurrencyService
+    }
     return null
   }),
 }
@@ -157,6 +167,8 @@ describe('GET /api/customers/companies/[id] — deal KPI status vocabulary (#466
     mockEm.count.mockReset()
     mockEm.count.mockResolvedValue(0)
     mockContainer.resolve.mockClear()
+    mockBaseCurrencyRegistered = false
+    mockBaseCurrencyService.resolveBaseCurrency.mockReset()
 
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -235,5 +247,65 @@ describe('GET /api/customers/companies/[id] — deal KPI status vocabulary (#466
     expect(kpis.activeDealsCount).toBe(1)
     expect(kpis.completedDealsCount).toBe(0)
     expect(kpis.ltvValue).toBeNull()
+  })
+})
+
+// Regression for issue #8242: with no deal to read a currency from, the KPI bar fell back to a
+// hard-coded PLN. The route now reports the organization's base currency instead.
+describe('GET /api/customers/companies/[id] — deal KPI currency fallback (#8242)', () => {
+  beforeEach(() => {
+    jest.resetModules()
+    mockGetAuthFromRequest.mockReset()
+    mockFindWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockReset()
+    mockEm.count.mockReset()
+    mockEm.count.mockResolvedValue(0)
+    mockEm.find.mockReset()
+    mockEm.find.mockResolvedValue([])
+    mockBaseCurrencyRegistered = false
+    mockBaseCurrencyService.resolveBaseCurrency.mockReset()
+
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1', isApiKey: false })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({ filterIds: ['org-1'], selectedId: 'org-1', tenantId: 'tenant-1' })
+    mockResolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: false })
+    mockLoadCustomFieldValues.mockResolvedValue({})
+    mockResolveCompanyCustomFieldRouting.mockResolvedValue({})
+    mockMergeCompanyCustomFieldValues.mockReturnValue({})
+  })
+
+  it('falls back to the company organization base currency when the company has no deals', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.activeDealsCount).toBe(0)
+    expect(kpis.dealCurrency).toBe('USD')
+    expect(mockBaseCurrencyService.resolveBaseCurrency).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1'],
+    })
+  })
+
+  it('keeps the deal currency ahead of the base currency', async () => {
+    mockBaseCurrencyRegistered = true
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    mockCompany()
+    mockDealLinks([{ id: 'deal-open', status: 'open', valueAmount: '500', valueCurrency: 'EUR' }])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.dealCurrency).toBe('EUR')
+  })
+
+  it('reports no currency when the base currency cannot be resolved', async () => {
+    mockCompany()
+    mockDealLinks([])
+
+    const kpis = await fetchKpis()
+
+    expect(kpis.dealCurrency).toBeNull()
   })
 })
