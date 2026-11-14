@@ -24,6 +24,7 @@ import {
   detectAttachmentMimeType,
   hasDangerousExecutableExtension,
   isActiveContentAttachment,
+  sanitizeAttachmentDisplayName,
   sanitizeUploadedFileName,
 } from './security'
 import { resolveAttachmentMaxBytes } from './upload-limits'
@@ -241,7 +242,7 @@ export class ScopedAttachmentUploadService {
           recordId: input.recordId,
           organizationId: input.organizationId,
           tenantId: input.tenantId,
-          fileName: safeName,
+          fileName: sanitizeAttachmentDisplayName(input.fileName),
           mimeType,
           fileSize: input.buffer.length,
           partitionCode: partition.code,
