@@ -187,7 +187,19 @@ Deferred — the current `RolePerspective` model covers sharing via roles. A tru
 3. **Quick switcher placement** — Should it be part of the DataTable toolbar or a separate component above it?
 4. **Migration path** — Should old `ui.perspectives.*` i18n keys be removed immediately or deprecated gradually?
 
+## Migration & Backward Compatibility
+
+The 2026-11-04 correction maps an existing scoped `NOT_FOUND` lookup failure to translated HTTP404 instead of an unhandled500, with code `NOT_FOUND`. It does not change who may read or mutate a personal view; existing query scopes, optimistic locking and omitted-flag upsert remain unchanged.
+
+The original redesign changed no backend contract. The 2026-11-03 update adds one optional request field, `createOnly?: boolean`, to `POST /api/perspectives/{tableId}`; requests without it keep upsert-by-name. Visible changes: `saveCurrentView` without a target view resolves `{ ok: false, reason: 'failed' }` for a name already in use instead of overwriting, and the English `error` of `duplicate_name` 409s reads "View with this name already exists" (match on `code`, which is unchanged).
+
 ## Changelog
+### 2026-11-04 (update)
+- Rename excludes overlapping mouse/keyboard submissions synchronously, releases the guard after rejection for retry, and preserves genuine optimistic-lock conflicts. Unit and own-fixture browser coverage asserts one request, full settings preservation and no false post-success conflict after ten seconds.
+- Name-only rename passes the selected saved view's complete settings instead of substituting current table state, preserving page size, columns, sizing, filters, sorting and search. Active/nonactive and duplicate-refusal/corrected-keyboard paths are covered by `PerspectiveSidebar.renameSettings.test.tsx` and own-fixture UI cases in `TC-PERSP-UNIQUENESS-002`; no API/schema/authorization contract changes.
+- Save-as-new excludes overlapping mouse/keyboard submissions while preserving duplicate-error retry. Long view labels truncate inside mobile toolbar/chips with full-name titles and reachable options. Scoped missing/foreign/deleted personal ids return a translated404 `NOT_FOUND`, preserving all lookup/mutation guards. Focused unit and own-fixture API regressions cover the repaired paths; current-head browser/CI evidence remains required.
+### 2026-11-03 (update)
+- Creating a view never overwrites a same-named personal view: the New form, Clone and `saveCurrentView` without a target send `createOnly: true`, and the save endpoint answers 409 `duplicate_name` instead of updating the existing view. Requests without the flag keep upsert-by-name. Every `duplicate_name` 409, renames included, now carries a translated `error`, and the de/es values of `ui.perspectives.error.nameExists` are translated. Covered by `saveUserPerspective.createOnly.test.ts`, `duplicate-name.test.ts`, `PerspectiveSidebar.saveNewDuplicate.test.tsx`, `DataTable.saveViewApi.test.tsx` and `TC-PERSP-UNIQUENESS-002`. See Migration & Backward Compatibility.
 ### 2026-09-08 (update)
 - Active view state is now exposed semantically, not just visually: `data-active="true|false"` on the `ViewChip` root and `aria-current="true"` on its activate button, so tests, browser QA and assistive technology read it without depending on the chip styling. Covered by `ViewChip.activeState.test.tsx` and `TC-PERSP-NEWVIEW-LAYOUT-001` (issue #5846, PR #5932).
 ### 2026-04-04 (update)

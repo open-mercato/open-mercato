@@ -12,8 +12,11 @@ import {
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { CustomerEntity } from '../../../../data/entities'
+import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../../../lib/conversationShares'
+import { isMessageOnPersonEmailHistory } from '../../../../lib/personEmailThreads'
 import type { SendAsUserService } from '@open-mercato/core/modules/communication_channels/lib/send-as-user'
 
 export const metadata = {
@@ -39,6 +42,29 @@ const composeSchema = z
     parentMessageId: z.string().uuid().optional(),
   })
   .strict()
+
+type RbacService = {
+  userHasAllFeatures: (
+    userId: string,
+    required: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<boolean>
+}
+
+async function callerHasFeature(
+  container: { resolve: (name: string) => unknown },
+  userId: string,
+  feature: string,
+  scope: { tenantId: string; organizationId: string | null },
+): Promise<boolean> {
+  try {
+    const rbac = container.resolve('rbacService') as RbacService | undefined
+    if (typeof rbac?.userHasAllFeatures !== 'function') return false
+    return await rbac.userHasAllFeatures(userId, [feature], scope)
+  } catch {
+    return false
+  }
+}
 
 type RouteContext = {
   params: Promise<{ id: string }> | { id: string }
@@ -94,6 +120,46 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   const organizationId = (person as { organizationId?: string | null }).organizationId ?? null
   if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId })) {
     return NextResponse.json({ error: 'Person not found' }, { status: 404 })
+  }
+
+  // A reply parent decides which thread the sent email joins, so it must be an
+  // email this caller could see on this Person's Emails tab — the same feature,
+  // anchor and visibility rule as `GET .../email-threads`, including conversation
+  // shares and shared team mailboxes. Anything else answers like an unknown id.
+  if (body.parentMessageId) {
+    const viewerUserId = auth.isApiKey ? null : auth.sub ?? null
+    const shareScope = { tenantId: auth.tenantId as string, organizationId }
+    const canViewPeople = await callerHasFeature(container, userId, 'customers.people.view', shareScope)
+    const [sharedConversations, sharedChannelIds] = canViewPeople
+      ? await Promise.all([
+          listGrantsForViewerOnPerson(em, shareScope, viewerUserId, personId),
+          listSharedChannelIds(em, shareScope, viewerUserId),
+        ])
+      : [[], []]
+    const parentVisible =
+      canViewPeople &&
+      (await isMessageOnPersonEmailHistory(em, {
+        personId,
+        tenantId: auth.tenantId as string,
+        organizationId,
+        viewerUserId,
+        userFeatures: undefined,
+        sharedConversations,
+        sharedChannelIds,
+        messageId: body.parentMessageId,
+      }))
+    if (!parentVisible) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate(
+            'customers.email.errors.parentMessageNotFound',
+            'The email you are replying to was not found',
+          ),
+        },
+        { status: 404 },
+      )
+    }
   }
 
   const guardResult = await validateCrudMutationGuard(container, {
@@ -178,7 +244,7 @@ export const openApi = {
         { status: 400, description: 'Invalid person id' },
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Missing customers.email.compose feature or mutation guard rejection' },
-        { status: 404, description: 'Person or channel not found' },
+        { status: 404, description: 'Person or channel not found, or the reply parent is not an email the caller can see on this Person' },
         { status: 409, description: 'Channel not connected' },
         { status: 422, description: 'Invalid request body' },
         { status: 500, description: 'Send failed' },

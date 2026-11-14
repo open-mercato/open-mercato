@@ -3,11 +3,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { StorageDriverFactory } from './drivers'
+import { assertAttachmentStoragePartitionExists } from './drivers/storageValidation'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from './partitions'
 import { buildAttachmentFileUrl } from './imageUrls'
 import { mergeAttachmentMetadata, upsertAssignment } from './metadata'
 import { assertAttachmentScopeInvariant } from './access'
 import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
+import { ensureAttachmentPartitionProtection } from './access-protection'
 
 /** DataEngine handle whose exact type is derived from `emitCrudSideEffects` (no `any`). */
 type CrudDataEngine = Parameters<typeof emitCrudSideEffects>[0]['dataEngine']
@@ -53,10 +55,13 @@ export async function createAttachmentFromBuffer(input: CreateAttachmentFromBuff
 
   let partition = await em.findOne(AttachmentPartition, { code })
   if (!partition) {
+    assertAttachmentStoragePartitionExists(false)
     await ensureDefaultPartitions(em)
     partition = await em.findOne(AttachmentPartition, { code })
   }
   if (!partition) throw new Error(`[internal] attachment partition "${code}" is not available`)
+
+  await ensureAttachmentPartitionProtection(em, partition)
 
   const driver = await new StorageDriverFactory(em).resolveForPartition(partition.code, {
     tenantId: input.tenantId,

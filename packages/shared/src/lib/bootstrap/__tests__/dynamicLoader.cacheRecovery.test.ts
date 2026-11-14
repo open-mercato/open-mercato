@@ -77,7 +77,7 @@ function writeGeneratedModule(generatedDir: string, baseName: string, source: { 
 function writeCompiledSibling(generatedDir: string, baseName: string, compiled: string) {
   const source = fs.readFileSync(path.join(generatedDir, `${baseName}.ts`), 'utf8')
   const inputHash = hash(JSON.stringify({
-    version: 4,
+    version: 5,
     sourceHash: hash(source),
     tsconfigHashes: {
       'tsconfig.json': hash(APP_TSCONFIG),
@@ -90,7 +90,7 @@ function writeCompiledSibling(generatedDir: string, baseName: string, compiled: 
   const compiledPath = path.join(generatedDir, `${baseName}.mjs`)
   fs.writeFileSync(compiledPath, compiled)
   fs.writeFileSync(`${compiledPath}.cache.json`, JSON.stringify({
-    version: 4,
+    version: 5,
     inputHash,
     outputHash: hash(compiled),
     dependencies: {

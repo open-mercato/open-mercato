@@ -493,7 +493,6 @@ describe('thread-matcher', () => {
           references: [],
           fromAddress: 'Alice@Example.com',
           toAddresses: ['BOB@example.com'],
-          receivedAt: new Date('2026-05-27T10:00:00Z'),
         }),
         { em, now: () => new Date('2026-05-27T10:00:00Z') },
       )

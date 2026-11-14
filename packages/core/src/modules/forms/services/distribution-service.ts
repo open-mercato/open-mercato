@@ -92,7 +92,9 @@ const noopLogger: StructuredLogger = {
   error: () => {},
 }
 
-const INVITATION_TERMINAL_STATUSES: ReadonlySet<string> = new Set(['submitted', 'revoked', 'expired'])
+export const INVITATION_ACCESS_CLOSED_STATUSES: ReadonlySet<string> = new Set(['revoked', 'expired'])
+
+const INVITATION_TERMINAL_STATUSES: ReadonlySet<string> = new Set(['submitted', ...INVITATION_ACCESS_CLOSED_STATUSES])
 
 export type BeginAnonymousArgs = {
   distribution: FormDistribution
@@ -378,20 +380,40 @@ export class DistributionService {
     submissionId: string
   }): Promise<void> {
     const em = this.emFactory()
-    const invitation = await em.findOne(FormInvitation, {
-      id: args.invitationId,
-      organizationId: args.organizationId,
-      tenantId: args.tenantId,
-      deletedAt: null,
+    const marked = await em.transactional(async (trx) => {
+      const invitation = await trx.findOne(
+        FormInvitation,
+        {
+          id: args.invitationId,
+          organizationId: args.organizationId,
+          tenantId: args.tenantId,
+          deletedAt: null,
+        },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!invitation) {
+        throw new DistributionServiceError('NOT_FOUND', 'Invitation not found.', 404)
+      }
+      if (INVITATION_ACCESS_CLOSED_STATUSES.has(invitation.status)) {
+        this.logger.warn(
+          {
+            event: 'forms.distribution.invitation_submit_skipped',
+            invitationId: invitation.id,
+            submissionId: args.submissionId,
+            status: invitation.status,
+          },
+          'Invitation access closed before submit; status left unchanged.',
+        )
+        return false
+      }
+      invitation.status = 'submitted'
+      invitation.submittedAt = this.now()
+      await trx.flush()
+      return true
     })
-    if (!invitation) {
-      throw new DistributionServiceError('NOT_FOUND', 'Invitation not found.', 404)
-    }
-    invitation.status = 'submitted'
-    invitation.submittedAt = this.now()
-    await em.flush()
+    if (!marked) return
     await this.safeEmit('forms.invitation.submitted', {
-      invitationId: invitation.id,
+      invitationId: args.invitationId,
       submissionId: args.submissionId,
     })
   }

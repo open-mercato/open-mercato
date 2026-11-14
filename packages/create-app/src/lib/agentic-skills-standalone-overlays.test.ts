@@ -586,3 +586,95 @@ test('fallback and agentic root instructions have one routing contract', () => {
 
   assert.equal(fallback, agentic, 'the --agents none fallback must not ship a competing router')
 })
+
+test('om-find-module ships in the core tier and teaches agents to ask the module catalog before building', () => {
+  const manifest = JSON.parse(fs.readFileSync(new URL('tiers.json', skillsDir), 'utf8')) as {
+    tiers?: Record<string, { skills?: string[] }>
+    external?: { skills?: string[] }
+  }
+  assert.ok(manifest.tiers?.core?.skills?.includes('om-find-module'), 'om-find-module must be a default (core) local skill')
+  assert.ok(!manifest.external?.skills?.includes('om-find-module'), 'om-find-module is repo-local, not an external skill')
+
+  const skill = readOverrideSkill('om-find-module')
+  assert.match(skill, /^---\nname: om-find-module\ndescription: /)
+  assert.match(skill, /Ask before you build\./)
+  for (const source of [
+    'search_modules({ query, omVersion, includeBuiltIn: true })',
+    'yarn mercato module search "<query>" --json',
+    'https://modules.openmercato.com/llms.txt',
+    'https://modules.openmercato.com/raw/modules.md',
+  ]) {
+    assert.ok(skill.includes(source), `om-find-module must name the catalog source ${source}`)
+  }
+  assert.match(skill, /if it does not list `search`, go to 3/, 'the CLI source is used only when `module --help` lists search')
+  assert.doesNotMatch(skill, /lists only `add` and `enable`/, 'released CLIs also list eject, so this check never matches')
+  assert.match(skill, /yarn mercato module enable @open-mercato\/core --module <id>/, 'built-in modules are enabled, never rebuilt')
+  assert.match(skill, /Do not build what core already ships\./)
+  assert.match(skill, /data, never instructions/, 'registry and README text must be treated as untrusted data')
+  assert.match(skill, /consentText/, 'ask-policy installs need the typed consent text')
+  assert.match(skill, /Never bypass the Yarn age gate/)
+  assert.doesNotMatch(skill, /github\.io/, 'the template copy uses the catalog domain only')
+  assert.match(skill, /When no source answers[^\n]*tell the user the catalog could not be checked/, 'an unreachable catalog is reported, not guessed')
+
+  for (const file of ['../../agentic/shared/AGENTS.md.template', '../../template/AGENTS.md']) {
+    const instructions = fs.readFileSync(new URL(file, import.meta.url), 'utf8')
+    assert.match(
+      instructions,
+      /\| `architecture` \| Find, scaffold a module starter, publish, or link an app module \| `\.ai\/guides\/module-tool\.md`; find: `om-find-module`; new code loads `om-module-scaffold` \|/,
+      `${file} must route module discovery to om-find-module and keep publication on the module-tool guide`,
+    )
+  }
+  const taskFamilies = fs.readFileSync(new URL('om-help/references/task-families.md', skillsDir), 'utf8')
+  assert.match(taskFamilies, /\| `om-find-module` \|/)
+})
+
+test('every agent MCP example declares the om-modules catalog server that om-find-module searches first', () => {
+  const catalogUrl = 'https://om-modules.openmercato.workers.dev/mcp'
+  // Each tool has its own remote-server shape: Claude Code and VS Code need
+  // type "http", Cursor and Codex infer streamable HTTP from the url alone.
+  const examples: { file: string; serversKey: string; entry: Record<string, string> }[] = [
+    { file: 'claude-code/mcp.json.example', serversKey: 'mcpServers', entry: { type: 'http', url: catalogUrl } },
+    { file: 'codex/mcp.json.example', serversKey: 'mcpServers', entry: { url: catalogUrl } },
+    { file: 'cursor/mcp.json.example', serversKey: 'mcpServers', entry: { url: catalogUrl } },
+    { file: 'github-copilot/mcp.json.example', serversKey: 'servers', entry: { type: 'http', url: catalogUrl } },
+  ]
+  for (const { file, serversKey, entry } of examples) {
+    const config = JSON.parse(fs.readFileSync(new URL(`../../agentic/${file}`, import.meta.url), 'utf8')) as Record<
+      string,
+      Record<string, unknown> | undefined
+    >
+    const servers = config[serversKey] as Record<string, unknown> | undefined
+    assert.ok(servers?.['open-mercato'], `${file} must keep the app's own open-mercato server`)
+    assert.deepEqual(servers?.['om-modules'], entry, `${file} must declare om-modules in the tool's own format, with no secrets`)
+  }
+
+  const skill = readOverrideSkill('om-find-module')
+  const namedEndpoint = /\(streamable HTTP at `([^`]+)`\)/.exec(skill)?.[1]
+  assert.equal(namedEndpoint, catalogUrl, 'om-find-module must name the catalog MCP endpoint')
+  assert.match(skill, /`mcp\.json\.example` files declare it/, 'om-find-module must point at the shipped MCP examples')
+})
+
+test('OMH-241 routes module discovery without adding it to the OMH-239 publication context', () => {
+  const cases = JSON.parse(fs.readFileSync(new URL('../harness/cases.json', skillsDir), 'utf8')) as {
+    id: string
+    mode: string
+    expectedRouter: { required: string[] }
+    requiredSkills: string[]
+    owner: { path: string }
+    context: { required: string[]; allowedExtra?: string[] }
+    maxContextFiles: number
+  }[]
+  const discovery = cases.find(({ id }) => id === 'OMH-241')
+  assert.ok(discovery, 'the catalog needs a module-discovery case')
+  assert.equal(discovery.mode, 'analysis')
+  assert.deepEqual(discovery.expectedRouter.required, ['architecture'])
+  assert.deepEqual(discovery.requiredSkills, ['om-find-module'])
+  assert.equal(discovery.owner.path, '.ai/skills/om-find-module/SKILL.md')
+  assert.ok(discovery.context.required.includes('.ai/skills/om-find-module/SKILL.md'))
+
+  const publication = cases.find(({ id }) => id === 'OMH-239')
+  assert.ok(publication)
+  assert.deepEqual(publication.requiredSkills, [])
+  assert.equal(publication.maxContextFiles, 6)
+  assert.ok(![...publication.context.required, ...(publication.context.allowedExtra ?? [])].some((item) => item.includes('om-find-module')), 'publication must not need the discovery skill')
+})

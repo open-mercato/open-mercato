@@ -150,7 +150,8 @@ comm -23 /tmp/with_ui.txt /tmp/with_i18n.txt
    - JSX text nodes matching `>[A-Z][a-z]+(\s+[A-Za-z][a-z]+)+[.?!]?<`, excluding nodes inside `{t(...)}` or `{translate(...)}`.
    - JSX attribute literals on `label|title|placeholder|description|tooltip|aria-label|message|subtitle|helperText|emptyMessage` whose values look like English phrases.
    - `throw new Error('...')` / `createCrudFormError('...')` / `raiseCrudError('...')` / `toast.\w+('...')` whose first arg is a literal English-like string and is not prefixed with `[internal]`.
-   - Configurable per-module allowlist at `<module>/i18n/.hardcoded-allowlist.json` (`{ "version": 1, "entries": [{ "file"?, "line"?, "match"?, "kind"?, "reason" }] }`; `match` is a regex string, `kind` is one of `jsx-text|jsx-attr|throw-error|crud-form-error|raise-crud-error|toast-call`).
+   - `new CrudHttpError(status, { error: '...' })`, the `badRequest`/`forbidden`/`notFound`/`conflict('...')` and `assertFound(value, '...')` helpers (`crud-http-error`), and `NextResponse.json({ error: '...' })` / `Response.json({ error: '...' })` (`json-error-response`), same literal rules, same line.
+   - Configurable per-module allowlist at `<module>/i18n/.hardcoded-allowlist.json` (`{ "version": 1, "entries": [{ "file"?, "line"?, "match"?, "kind"?, "reason" }] }`; `match` is a regex string, `kind` is one of `jsx-text|jsx-attr|throw-error|crud-form-error|raise-crud-error|toast-call|crud-http-error|json-error-response`).
 2. `scripts/i18n-check-values.mjs` — scans every `i18n/<locale>.json` for entries identical to `en.json` and emits a per-locale percentage and a per-module breakdown. Configurable allowlist for legitimate carry-over (proper nouns, acronyms, single tokens like `OK`) at `scripts/i18n-values-allowlist.json` (`{ "keys": ["module.brand.name", ...] }`).
 3. New `yarn i18n:check-hardcoded` and `yarn i18n:check-values` scripts wired into `yarn i18n:check`.
 4. Conventions documented in `packages/shared/AGENTS.md` (i18n section) and root `AGENTS.md` "Critical Rules → UI & HTTP".
@@ -313,3 +314,4 @@ Each phase MUST include the integration test coverage listed in its section. UI-
 
 - 2026-05-26 — initial draft (audit findings, phased plan).
 - 2026-05-27 — Phase 1 implemented: `yarn i18n:check-hardcoded`, `yarn i18n:check-values`, per-module/per-key allowlists, scanner unit tests, `[internal]` prefix convention documented in root `AGENTS.md` and `packages/shared/AGENTS.md`. Both scripts run well under the 60s budget; raw value-coverage percentages reproduce the audit baseline exactly.
+- 2026-10-12 — Hardcoded checker extended to HTTP error bodies: new `crud-http-error` and `json-error-response` kinds; single-dot i18n keys (`uom.unit_not_found`) are no longer reported as English. Still advisory (exit 0).

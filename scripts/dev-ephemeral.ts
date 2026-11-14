@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { constants as fsConstants, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +13,9 @@ import {
   redactPostgresUrl,
 } from '../packages/cli/src/lib/testing/runtime-utils'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
+import { createEnvFileFromExample } from './dev-env-file.mjs'
 import { createEphemeralShutdownController } from './dev-ephemeral-shutdown.mjs'
+import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import {
   resolveDevBaseUrl,
@@ -149,6 +151,18 @@ const splashState = {
   activities: [] as string[],
 }
 
+let devSession: Awaited<ReturnType<typeof acquireDevSession>>
+try {
+  devSession = await acquireDevSession({
+    workspaceRoot: projectRootDirectory,
+    mode: `ephemeral:${classic ? 'classic' : verbose ? 'verbose' : 'compact'}`,
+    role: 'ephemeral-runner',
+  })
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
+}
+
 let splashServer: ReturnType<typeof createServer> | null = null
 let splashHtmlTemplate: string | null = null
 let splashLogoSvg: string | null = null
@@ -157,6 +171,7 @@ const codingFlow = createDevSplashCodingFlow({
   env: process.env,
   platform: process.platform,
   launchDir: projectRootDirectory,
+  projectDir: projectRootDirectory,
   agenticSetupDir: null,
 })
 
@@ -467,6 +482,10 @@ const shutdownController = createEphemeralShutdownController({
   onInterrupt: () => {
     announceShutdown()
   },
+  exit: (code: number) => {
+    devSession.release()
+    process.exit(code)
+  },
 })
 
 async function shutdown(exitCode: number): Promise<never> {
@@ -488,8 +507,8 @@ async function ensureEnvFile(): Promise<void> {
     return
   }
 
-  await copyFile(envExamplePath, envPath)
-  console.log('[dev:ephemeral] Created apps/mercato/.env from apps/mercato/.env.example.')
+  createEnvFileFromExample(envExamplePath, envPath)
+  console.log('[dev:ephemeral] Created apps/mercato/.env from apps/mercato/.env.example with a generated tenant encryption key.')
 }
 
 function runCommand(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<number> {
@@ -981,6 +1000,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   const backendUrl = `${baseUrl}/backend`
   const devEnvironment = {
     ...process.env,
+    ...devSession.childEnv,
     PORT: String(port),
     DATABASE_URL: postgres.databaseUrl,
     APP_URL: publicBaseUrl,
@@ -1008,6 +1028,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     throw new Error('Failed to start development runtime process.')
   }
 
+  devSession.registerChild(devCommand, 'ephemeral-app-runtime')
   shutdownController.setActiveChild(devCommand)
 
   let resolveExit: (code: number) => void = () => {}

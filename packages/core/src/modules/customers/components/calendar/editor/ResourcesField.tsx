@@ -25,11 +25,13 @@ export function ResourcesField({
   ariaLabel,
   value,
   onChange,
+  disabled,
 }: {
   placeholder: string
   ariaLabel: string
   value: EditorResource[]
   onChange(next: EditorResource[]): void
+  disabled?: boolean
 }) {
   const t = useT()
   const [query, setQuery] = React.useState('')
@@ -128,6 +130,7 @@ export function ResourcesField({
                 onChange(value.filter((entry) => entry.id !== resource.id))
               }}
               aria-label={t('customers.calendar.editor.removeResource', 'Remove {name}', { name: resource.label })}
+              disabled={disabled}
               className="size-5 shrink-0"
             >
               <Plus aria-hidden className="size-3.5 rotate-45 opacity-50" />
@@ -143,6 +146,7 @@ export function ResourcesField({
           aria-label={ariaLabel}
           role="combobox"
           aria-expanded={open}
+          disabled={disabled}
           className="min-w-36 flex-1 border-0 bg-transparent px-0 shadow-none hover:bg-transparent focus-within:border-transparent focus-within:shadow-none"
           inputClassName="text-sm text-foreground placeholder:text-muted-foreground"
         />

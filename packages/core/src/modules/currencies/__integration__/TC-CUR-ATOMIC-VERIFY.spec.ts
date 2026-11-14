@@ -83,11 +83,6 @@ async function undo(request: APIRequestContext, token: string, undoToken: string
 async function cleanupCurrency(request: APIRequestContext, token: string | null, id: string | null): Promise<void> {
   if (!token || !id) return;
   try {
-    await apiRequest(request, 'PUT', '/api/currencies/currencies', { token, data: { id, isBase: false } });
-  } catch {
-    /* ignore */
-  }
-  try {
     await apiRequest(request, 'DELETE', `/api/currencies/currencies?id=${encodeURIComponent(id)}`, { token });
   } catch {
     /* ignore */
@@ -211,9 +206,8 @@ test.describe('TC-CUR-ATOMIC-VERIFY: atomic refactor is backward-compatible and 
       const afterB = ((await (await apiRequest(request, 'GET', '/api/currencies/currencies?isBase=true', { token })).json()) as { items?: CurrencyRow[] }).items ?? [];
       expect(afterB.length, 'still exactly one base after creating B').toBe(1);
     } finally {
-      await cleanupCurrency(request, token, aId);
-      await cleanupCurrency(request, token, bId);
-      // Restore the original base so we leave shared state as we found it.
+      // Restore the original base first: a base currency cannot be un-flagged or
+      // deleted, so the fixtures are only removable once another base exists.
       if (token && priorBaseId) {
         try {
           await apiRequest(request, 'PUT', '/api/currencies/currencies', { token, data: { id: priorBaseId, isBase: true } });
@@ -221,6 +215,8 @@ test.describe('TC-CUR-ATOMIC-VERIFY: atomic refactor is backward-compatible and 
           /* ignore */
         }
       }
+      await cleanupCurrency(request, token, aId);
+      await cleanupCurrency(request, token, bId);
     }
   });
 

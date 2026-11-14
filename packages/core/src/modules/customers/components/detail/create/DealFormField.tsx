@@ -11,21 +11,26 @@ export type DealFormFieldProps = {
    * (see .ai/lessons.md). Falls back to a generated id for label/control association only.
    */
   fieldId?: string
+  /**
+   * Id of the control the label names, for a child that only lays the control out. The child
+   * is then rendered untouched and must put this id on the control itself.
+   */
+  controlId?: string
   required?: boolean
   hint?: string
   error?: string
   children: React.ReactNode
 }
 
-export function DealFormField({ label, fieldId, required, hint, error, children }: DealFormFieldProps) {
+export function DealFormField({ label, fieldId, controlId, required, hint, error, children }: DealFormFieldProps) {
   const generatedId = React.useId()
-  const controlId = fieldId ?? generatedId
-  const control = React.isValidElement(children)
-    ? React.cloneElement(children as React.ReactElement<{ id?: string }>, { id: controlId })
+  const labelTargetId = controlId ?? fieldId ?? generatedId
+  const control = !controlId && React.isValidElement(children)
+    ? React.cloneElement(children as React.ReactElement<{ id?: string }>, { id: labelTargetId })
     : children
   return (
     <div className="space-y-2" data-crud-field-id={fieldId}>
-      <Label htmlFor={controlId}>
+      <Label htmlFor={labelTargetId}>
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
       </Label>

@@ -1,0 +1,65 @@
+---
+title: Calendar event types
+description: Configure Customers calendar behavior and extend it from optional modules.
+---
+
+# Calendar event types
+
+Customers owns six baseline types: `meeting`, `call`, `email`, `note`, `event`, and `task`. Each interaction stores its exact `interactionType` key. The effective type catalog combines those definitions with enabled module contributions, programmatic contributions, and organization dictionary entries. Read it through the authenticated `GET /api/customers/activity-types` route. A missing or disabled type remains readable on an existing interaction through the meeting-shaped historical fallback; it is unavailable for new selection.
+
+The public types and registry interface live at `@open-mercato/core/modules/customers/calendar-event-types`. `resolveCalendarEventTypes()` returns the process-level composed definitions; use the authenticated catalog route for organization dictionary overlays. A definition has a stable `key`, label or translation key, optional appearance and `panelKey`, and a versioned `behavior`. Behavior fixes the base kind, selectability, order, applicability of `endTime`, `allDay`, `recurrence`, `location`, `people`, `priority`, and `resources`, plus a bounded list of custom fieldset IDs. Use the exported Zod schemas to validate contributions. Dictionary behavior may change these bounded fields for configurable types; it cannot execute code.
+
+## Add a type from an optional module
+
+Declare a `CalendarEventTypeWidget` with serializable declarations and a headless `Widget: () => null` under `widgets/injection/<name>/widget.ts` and map its widget ID to the exact spot `calendar:customers.event-types` in `widgets/injection-table.ts`. The generic widget loader loads only enabled contributions to that spot. This is a widget contribution, so no calendar-specific generator file is needed. Run `yarn generate` after changing module discovery files.
+
+The shipped `example` module shows a complete `visit` definition in `widgets/injection/calendar-visit/widget.ts`. Its `baseKind` is `event`; its behavior enables an end time, recipients, location, and resources while disabling all-day and recurrence. The module remains independently loadable when Customers is disabled. Customers never imports the example module.
+
+The shipped Example adds Visit and can modify Meeting through its payload while retaining all six baseline types:
+
+```ts
+const widget: CalendarEventTypeWidget = {
+  metadata: { id: 'example.injection.calendar-visit', title: 'Visit calendar type', requiredModules: ['customers'] },
+  Widget: () => null,
+  eventTypes: [visit],
+  eventTypePatches: [
+    { targetEventTypeKey: 'meeting', replaceLabelKey: 'example.calendar.customerMeeting' },
+  ],
+}
+```
+
+The example gates only its Meeting label patch behind `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`. It never removes or disables any built-in calendar type, even when the flag is enabled. Visit uses `adminConfigurable: false` because its availability rule requires fixed interval semantics. See `src/modules/example/widgets/injection/calendar-visit/widget.ts` and `src/modules/example/di.ts` in a generated app. The DI registrar softly resolves `calendarEventTypeRegistry` and registers the same declarations for API/worker execution, without importing the visual widget registry into API-only bootstrap.
+
+For removal in your own app module, declare `eventTypeOverrides: { note: null }` on your own Customers-typed widget. This customization is separate from the shipped Example. The `null` override hides Note from new selection; it does not remove existing Note interactions. Removing the override restores the lower-tier definition. Patches can change only the exported bounded fields and cannot change a key or revive an absent definition. Custom fieldset operations run replace, then delete, then append, with duplicate IDs removed.
+
+Composition starts with the six Customers definitions. Enabled widget definitions run in module, priority, and widget-ID order. Complete replacements from widgets and then the DI registry are applied next. Patches from those sources follow in the same tier order. Inherited and local dictionary behavior overlays apply last to types with `adminConfigurable !== false`. An unchanged shipped dictionary seed row is treated as a baseline value, so it does not mask a module patch; a changed row remains an organization override. A code tombstone keeps the type out of new selection even when an old dictionary row remains stored. Duplicate base definitions and invalid declarations are rejected per source; a contributor must use an explicit replacement or patch to alter another owner's type. The catalog reports source and property provenance.
+
+Bootstrap code can resolve the Customers-owned `calendarEventTypeRegistry` from Awilix and call `upsert(sourceId, definition)`, `replace(sourceId, key, definitionOrNull)`, `patch(sourceId, patch)`, `remove(sourceId, key)`, or `removeSource(sourceId)`. Use a stable source ID and remove it on teardown. Changes are local to the current process; register the same declarations in each worker. An optional module should use `tryResolve` so absent Customers leaves its other behavior available.
+
+## Form validation and custom panels
+
+The Customers calendar editor uses one unchanged shared `CrudForm`. The editor selects custom-field definitions, builds ordinary form fields with existing UI helpers, validates only applicable definitions, and projects the submitted custom values. An empty `customFieldsetIds` list preserves unrestricted legacy behavior; `__general__` selects fields without a fieldset when a nonempty filter is configured. Hidden draft values stay available if the user switches back.
+
+Type-specific validators own their applicability checks inside module code. The example's `onBeforeSave` returns immediately for other types, reads the Visit behavior from the scoped catalog, and reports inline availability errors. Staff, Resources, and Planner are optional: missing modules produce warnings and their checks are skipped; installed module failures and permission errors still block. Every write is also checked by server commands. A destructive type change needs explicit confirmation, and clearing happens atomically with the interaction update and undo snapshot. Picker-facing APIs enforce selectability; internal commands and adapters retain access to hidden configured types.
+
+React presentation uses the stable UMES handle `section:customers.calendar-event-editor.type-panel` and the `customers.calendar.event-type-panel.v1` props contract. The props expose the effective definition, mode, values, errors, disabled state, capabilities, and `setValue`. They provide no submit or delete callback. Modules may contribute a wrapper through `widgets/components.ts`; apps may set an inline `overrides.widgets.components` descriptor; bootstrap code may call `applyComponentOverrides()`. The existing file, inline, then programmatic precedence and `null` fallback rules apply. A disabled or broken panel falls back to the default presentation while the host retains the draft and its form lifecycle.
+
+The example Visit panel wraps the original Customers panel and keeps the standard datepicker, time selects, recipient/resource fields, and two-column layout. Its wrapper supplies the original panel as a child and adds availability feedback around it; it does not import private editor components or change shared forms. The same wrapper also covers every other event type that can book staff or resources, in an advisory mode: once someone or something is selected for a timed interval it previews their availability through the same authenticated example API and names each unavailable subject, but it never blocks saving — only the Visit type is enforced. When an optional module is missing and the check cannot run at all, the advisory preview says so rather than reporting availability.
+
+The example Visit type uses a selected-type widget and server rule to check its half-open schedule interval against scoped staff and resource availability. Unknown lookup results block save and invite retry. Its React panel previews the same rule through the authenticated example API; it cannot submit an interaction itself.
+
+## Event timezone and availability schedules
+
+The editor lets users choose an IANA `timezone` for each event. Its dates and times are interpreted in that zone before submission as the `scheduledAt` instant. `POST` and `PUT /api/customers/interactions` accept optional nullable `timezone`; invalid explicit names return 400, and list reads include the stored zone. Edits restore the same local fields and zone. Existing records with a null timezone retain browser-local handling. API callers already sending an instant should continue sending that instant; changing only `timezone` changes its displayed wall time rather than reinterpreting `scheduledAt`.
+
+Use `calendarWallTimeToInstant` and `calendarInstantToWallTime` from `@open-mercato/core/modules/customers/lib/calendar/timezone` for module-owned previews. A Warsaw event on September 29, 2026, from 09:15 to 12:00 spans 07:15–10:00 UTC even when the browser uses another zone. Invalid local times during daylight-saving gaps are rejected. When a local time occurs twice during a fall-back transition, conversion chooses the earlier instant. Zoned weekly event recurrence retains its local wall time across offset changes, while the calendar grid displays the corresponding instant in the viewer's zone.
+
+Availability is a separate planner schedule. Visit opts into `respectTimezone: true` and `weeklyScheduleTemplate: true` on `plannerAvailabilityService.getMergedAvailabilityWindows`. Unbounded weekly staff/resource rules use `DTSTART` as a weekday and local-time anchor: the availability editor stores the next matching weekday, so visits before that anchor must still match the template. This option does not expand dated one-off rules or count-bounded weekly rules backward. Calls that omit the options preserve prior behavior. Occurrence expansion skips directly to the requested range and reuses a bounded timezone formatter cache.
+
+Staff availability resolves each selected auth user to its active staff member ID before reading planner rules. The preview and save guard share the evaluator, and save checks use the interaction or parent customer's authorized organization. Unresolved or inactive subjects are unavailable; transient lookup failures remain retryable. Metadata-only edits preserve existing visits even if a schedule later changes, while changed intervals or assignments trigger fresh validation.
+
+See the [module overrides guide](./overrides.mdx) for the general dispatcher and the [concurrent editing guide](../data-integrity/concurrency-locking.mdx) for optimistic locking.
+
+## Named availability and existing bookings
+
+Visit reports each selected staff member or resource by display name and distinguishes missing schedules or intervals outside working hours from an existing booking (`example.calendar.visitAvailability.booked`). Booking checks include overlapping Customers interactions of every event type, including recurrence occurrences, in the authorized tenant and organization. Use half-open intervals: touching boundaries do not overlap. Canceled and deleted interactions do not reserve subjects. On edit, pass the validated current `excludeInteractionId` to preview; the command guard excludes that same existing interaction automatically, while retaining other collisions. Preview and rejected writes return the blocked subject names and reason keys without disclosing other event titles or IDs. Booking reads and recurrence expansion are bounded; failed, incomplete, or unsupported booking checks fail closed rather than reporting an available subject. These guards protect Visit scheduling against bookings from any type; they do not impose Visit rules on other event-type writes.

@@ -3,11 +3,9 @@
 # the project's agents, skills, and entrypoint, so app/dev builds need NO network
 # and cannot hit the OpenCode-installer TLS-proxy failures. Rebuilds are seconds.
 #
-# Set OPENCODE_BASE_IMAGE to your pushed base tag. The default is a placeholder
-# on purpose: it fails loudly if left unset rather than silently pulling the
-# wrong image. Override per build with `--build-arg OPENCODE_BASE_IMAGE=...` or
-# set the default below to your registry namespace.
-ARG OPENCODE_BASE_IMAGE=docker.io/openmercatocom/open-mercato-opencode:1.18.3
+# The default pins the published multi-platform base image. Override per build
+# with `--build-arg OPENCODE_BASE_IMAGE=...` for an operator-managed mirror.
+ARG OPENCODE_BASE_IMAGE=docker.io/openmercatocom/open-mercato-opencode:1.18.3@sha256:1ccc9d47dd46234dd6a4ad914662a226c96a21413c0d286e61bcc248745917f7
 FROM ${OPENCODE_BASE_IMAGE}
 
 # The base image already installed OpenCode, created the non-root `opencode`

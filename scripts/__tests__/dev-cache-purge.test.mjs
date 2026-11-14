@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   GREENFIELD_PURGE_TARGETS,
+  findActiveNextDevServer,
   purgeAppBuildCaches,
 } from '../dev-cache-purge.mjs'
 
@@ -115,7 +116,7 @@ test('purgeAppBuildCaches: removes configured manifests and legacy directory in 
   fs.rmSync(rootDir, { recursive: true, force: true })
 })
 
-test('runGreenfieldDev and runClassicGreenfieldDev: source invokes purgeAppBuildCaches before any build:packages stage', async () => {
+test('runGreenfieldDev and runClassicGreenfieldDev: source invokes the guarded greenfield purge before any build:packages stage', async () => {
   const here = path.dirname(new URL(import.meta.url).pathname)
   const devMjs = fs.readFileSync(path.resolve(here, '..', 'dev.mjs'), 'utf8')
 
@@ -123,9 +124,9 @@ test('runGreenfieldDev and runClassicGreenfieldDev: source invokes purgeAppBuild
     const fnMatch = devMjs.match(new RegExp(`async function ${fnName}\\([^)]*\\) \\{([\\s\\S]*?)\\n\\}`))
     assert.ok(fnMatch, `expected to find ${fnName}() in scripts/dev.mjs`)
     const body = fnMatch[1]
-    const purgeIdx = body.indexOf('purgeAppBuildCaches(')
+    const purgeIdx = body.indexOf('purgeGreenfieldCaches(')
     const buildIdx = body.indexOf("'build:packages'")
-    assert.notEqual(purgeIdx, -1, `${fnName} must call purgeAppBuildCaches()`)
+    assert.notEqual(purgeIdx, -1, `${fnName} must call purgeGreenfieldCaches()`)
     assert.notEqual(buildIdx, -1, `${fnName} must run build:packages`)
     assert.ok(purgeIdx < buildIdx, `${fnName} must purge caches before build:packages`)
   }
@@ -146,16 +147,17 @@ test('greenfield dev scripts never purge app build caches after launching runtim
     ['template dev.mjs', templateDevMjs],
   ]) {
     const purgeCalls = Array.from(source.matchAll(/purgeAppBuildCaches\(\)/g)).map((match) => match.index ?? -1)
-    assert.equal(purgeCalls.length, 2, `${label} should purge only for modern and classic greenfield startup`)
+    assert.equal(purgeCalls.length, 1, `${label} should purge only through the guarded greenfield helper`)
+    assert.match(source, /function purgeGreenfieldCaches\(\) \{\n  const \{ activeServer \} = purgeAppBuildCaches\(\)/)
 
     for (const fnName of ['runGreenfieldDev', 'runClassicGreenfieldDev']) {
       const fnMatch = source.match(new RegExp(`async function ${fnName}\\([^)]*\\) \\{([\\s\\S]*?)\\n\\}`))
       assert.ok(fnMatch, `expected to find ${fnName}() in ${label}`)
       const body = fnMatch[1]
-      const purgeIdx = body.indexOf('purgeAppBuildCaches(')
+      const purgeIdx = body.indexOf('purgeGreenfieldCaches(')
       const watchIdx = body.indexOf('startPackageWatch(')
       const appDevIdx = body.indexOf('launchMonorepoAppDev(')
-      assert.notEqual(purgeIdx, -1, `${fnName} in ${label} must call purgeAppBuildCaches()`)
+      assert.notEqual(purgeIdx, -1, `${fnName} in ${label} must call purgeGreenfieldCaches()`)
       assert.notEqual(watchIdx, -1, `${fnName} in ${label} must start package watch`)
       assert.notEqual(appDevIdx, -1, `${fnName} in ${label} must launch app runtime`)
       assert.ok(purgeIdx < watchIdx, `${fnName} in ${label} must purge before package watch`)
@@ -239,4 +241,58 @@ test('ephemeral dev owns warmup marker and shutdown notice', async () => {
     exitHandlerIdx < readinessIdx,
     'the dev child exit handler must be registered before waiting for readiness (#2745)',
   )
+})
+
+test('purgeAppBuildCaches: leaves caches alone while a live next dev server holds the lock', () => {
+  const rootDir = createTempRoot()
+  const devDir = path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev')
+  const routesManifest = path.join(devDir, 'routes-manifest.json')
+  fs.mkdirSync(devDir, { recursive: true })
+  fs.writeFileSync(path.join(devDir, 'lock'), JSON.stringify({ pid: 424242, appUrl: 'http://localhost:3000' }))
+  fs.writeFileSync(routesManifest, '{}')
+
+  const logger = makeLogger()
+  const result = purgeAppBuildCaches({ rootDir, logger, isProcessAlive: (pid) => pid === 424242 })
+
+  assert.deepEqual(result.removed, [])
+  assert.deepEqual(result.activeServer, {
+    pid: 424242,
+    appUrl: 'http://localhost:3000',
+    lockPath: 'apps/mercato/.mercato/next/dev/lock',
+  })
+  assert.equal(fs.existsSync(routesManifest), true)
+  assert.equal(fs.existsSync(path.join(devDir, 'lock')), true)
+  assert.ok(logger.messages.some((line) => line.includes('pid 424242')))
+
+  fs.rmSync(rootDir, { recursive: true, force: true })
+})
+
+test('purgeAppBuildCaches: purges a stale lock left by a dead next dev server', () => {
+  const rootDir = createTempRoot()
+  const devDir = path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev')
+  fs.mkdirSync(devDir, { recursive: true })
+  fs.writeFileSync(path.join(devDir, 'lock'), JSON.stringify({ pid: 424242, appUrl: 'http://localhost:3000' }))
+  fs.writeFileSync(path.join(devDir, 'routes-manifest.json'), '{}')
+
+  const result = purgeAppBuildCaches({ rootDir, logger: makeLogger(), isProcessAlive: () => false })
+
+  assert.equal(result.activeServer, null)
+  assert.deepEqual(result.removed, [
+    'apps/mercato/.mercato/next/dev/lock',
+    'apps/mercato/.mercato/next/dev/routes-manifest.json',
+  ])
+
+  fs.rmSync(rootDir, { recursive: true, force: true })
+})
+
+test('findActiveNextDevServer: ignores unreadable or pid-less locks', () => {
+  const rootDir = createTempRoot()
+  const devDir = path.join(rootDir, 'apps', 'mercato', '.mercato', 'next', 'dev')
+  fs.mkdirSync(devDir, { recursive: true })
+  assert.equal(findActiveNextDevServer({ rootDir, isProcessAlive: () => true }), null)
+  fs.writeFileSync(path.join(devDir, 'lock'), '')
+  assert.equal(findActiveNextDevServer({ rootDir, isProcessAlive: () => true }), null)
+  fs.writeFileSync(path.join(devDir, 'lock'), JSON.stringify({ appUrl: 'http://localhost:3000' }))
+  assert.equal(findActiveNextDevServer({ rootDir, isProcessAlive: () => true }), null)
+  fs.rmSync(rootDir, { recursive: true, force: true })
 })

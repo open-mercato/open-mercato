@@ -7,6 +7,7 @@ const CUSTOMER_LIST_SORT_FIELDS: Record<string, string> = {
   lifecycleStage: 'lifecycleStage',
   source: 'source',
   nextInteractionAt: 'nextInteractionAt',
+  createdAt: 'createdAt',
 }
 
 export function resolveCustomerListSortField(columnId: string): string | null {

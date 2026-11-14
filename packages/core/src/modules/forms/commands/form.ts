@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -123,9 +124,10 @@ const createFormCommand: CommandHandler<FormCreateCommandInput, { formId: string
     return form ? serializeFormSnapshot(form) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const after = snapshots.after as FormSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form.create',
+      actionLabel: translate('forms.audit.form.create', 'Create form'),
       resourceKind: FORM_RESOURCE_KIND,
       resourceId: result.formId,
       tenantId: after?.tenantId ?? null,
@@ -243,10 +245,11 @@ const renameFormCommand: CommandHandler<FormRenameCommandInput, { formId: string
     return form ? serializeFormSnapshot(form) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormSnapshot | undefined
     const after = snapshots.after as FormSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form.rename',
+      actionLabel: translate('forms.audit.form.rename', 'Rename form'),
       resourceKind: FORM_RESOURCE_KIND,
       resourceId: result.formId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -335,10 +338,11 @@ const archiveFormCommand: CommandHandler<FormArchiveCommandInput, { formId: stri
     return form ? serializeFormSnapshot(form) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormSnapshot | undefined
     const after = snapshots.after as FormSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form.archive',
+      actionLabel: translate('forms.audit.form.archive', 'Archive form'),
       resourceKind: FORM_RESOURCE_KIND,
       resourceId: result.formId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,
@@ -423,10 +427,11 @@ const restoreFormCommand: CommandHandler<FormRestoreCommandInput, { formId: stri
     return form ? serializeFormSnapshot(form) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
     const before = snapshots.before as FormSnapshot | undefined
     const after = snapshots.after as FormSnapshot | undefined
     return {
-      actionLabel: 'forms.audit.form.restore',
+      actionLabel: translate('forms.audit.form.restore', 'Restore form'),
       resourceKind: FORM_RESOURCE_KIND,
       resourceId: result.formId,
       tenantId: after?.tenantId ?? before?.tenantId ?? null,

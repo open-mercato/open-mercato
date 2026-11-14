@@ -718,6 +718,117 @@ describe('staff.timesheets.tags.assign_entry', () => {
   })
 })
 
+describe('staff.timesheets.tags entry assignment undo', () => {
+  const assignInput = {
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+    timeEntryId: ENTRY_ID,
+    tagIds: [BACKEND_TAG_ID],
+  }
+
+  function lockEntry(tables: Tables) {
+    const entry = tables.entries.find((row) => row.id === ENTRY_ID)
+    if (!entry) throw new Error('[internal] fixture entry missing')
+    entry.lockedReportId = REPORT_ID
+  }
+
+  async function recordAssign(em: unknown) {
+    const command = await loadCommand('staff.timesheets.tags.assign_entry')
+    const snapshots = (await command.prepare?.(assignInput, ctxFor(em))) as Record<string, unknown>
+    const result = await command.execute(assignInput, ctxFor(em))
+    const logEntry = await command.buildLog?.({ result, snapshots, ctx: ctxFor(em), input: assignInput })
+    return { command, logEntry }
+  }
+
+  async function recordUnassign(em: unknown) {
+    const command = await loadCommand('staff.timesheets.tags.unassign_entry')
+    const snapshots = (await command.prepare?.(assignInput, ctxFor(em))) as Record<string, unknown>
+    const result = await command.execute(assignInput, ctxFor(em))
+    const logEntry = await command.buildLog?.({ result, snapshots, ctx: ctxFor(em), input: assignInput })
+    return { command, logEntry }
+  }
+
+  function assignedRow() {
+    return {
+      id: 'j1',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      tagId: BACKEND_TAG_ID,
+      timeEntryId: ENTRY_ID,
+      createdAt: new Date(),
+    }
+  }
+
+  it('refuses to undo an assign once a report has locked the entry', async () => {
+    const { em, tables } = makeHarness({ tags: [tag({ id: BACKEND_TAG_ID, slug: 'backend' })] })
+    const { command, logEntry } = await recordAssign(em)
+    lockEntry(tables)
+
+    const { status, body } = await captureError(command.undo?.({ logEntry, ctx: ctxFor(em) }) as Promise<unknown>)
+
+    expect(status).toBe(409)
+    expect(body.code).toBe('time_entry_locked')
+    expect(body.lockedReportId).toBe(REPORT_ID)
+    expect(tables.entryTags.map((row) => row.tagId)).toEqual([BACKEND_TAG_ID])
+  })
+
+  it('refuses to undo an unassign once a report has locked the entry', async () => {
+    const { em, tables } = makeHarness({
+      tags: [tag({ id: BACKEND_TAG_ID, slug: 'backend' })],
+      entryTags: [assignedRow()],
+    })
+    const { command, logEntry } = await recordUnassign(em)
+    lockEntry(tables)
+
+    const { status, body } = await captureError(command.undo?.({ logEntry, ctx: ctxFor(em) }) as Promise<unknown>)
+
+    expect(status).toBe(409)
+    expect(body.code).toBe('time_entry_locked')
+    expect(body.lockedReportId).toBe(REPORT_ID)
+    expect(tables.entryTags).toHaveLength(0)
+  })
+
+  it('still undoes an assign and an unassign on an unlocked entry', async () => {
+    const assigned = makeHarness({ tags: [tag({ id: BACKEND_TAG_ID, slug: 'backend' })] })
+    const assign = await recordAssign(assigned.em)
+    await assign.command.undo?.({ logEntry: assign.logEntry, ctx: ctxFor(assigned.em) })
+    expect(assigned.tables.entryTags).toHaveLength(0)
+
+    const unassigned = makeHarness({
+      tags: [tag({ id: BACKEND_TAG_ID, slug: 'backend' })],
+      entryTags: [assignedRow()],
+    })
+    const unassign = await recordUnassign(unassigned.em)
+    await unassign.command.undo?.({ logEntry: unassign.logEntry, ctx: ctxFor(unassigned.em) })
+    expect(unassigned.tables.entryTags.map((row) => row.tagId)).toEqual([BACKEND_TAG_ID])
+  })
+
+  it('still undoes an assign once the unlocked entry has been soft-deleted', async () => {
+    const { em, tables } = makeHarness({ tags: [tag({ id: BACKEND_TAG_ID, slug: 'backend' })] })
+    const { command, logEntry } = await recordAssign(em)
+    const entry = tables.entries.find((row) => row.id === ENTRY_ID)
+    if (!entry) throw new Error('[internal] fixture entry missing')
+    entry.deletedAt = new Date()
+
+    await command.undo?.({ logEntry, ctx: ctxFor(em) })
+
+    expect(tables.entryTags).toHaveLength(0)
+  })
+
+  it('still undoes an assign when the entry row no longer exists', async () => {
+    const { em, tables } = makeHarness({ tags: [tag({ id: BACKEND_TAG_ID, slug: 'backend' })] })
+    const { command, logEntry } = await recordAssign(em)
+    tables.entries.splice(
+      tables.entries.findIndex((row) => row.id === ENTRY_ID),
+      1,
+    )
+
+    await command.undo?.({ logEntry, ctx: ctxFor(em) })
+
+    expect(tables.entryTags).toHaveLength(0)
+  })
+})
+
 describe('staff.timesheets.tags.unassign_entry', () => {
   it('is a no-op for a tag the entry never carried', async () => {
     const command = await loadCommand('staff.timesheets.tags.unassign_entry')

@@ -46,8 +46,43 @@ const TEST_ORG_ID = 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb'
 const TEST_ORDER_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const TEST_LINE_ID = 'dddddddd-dddd-4ddd-9ddd-dddddddddddd'
 
+type LockPredicate = { column: string; operator: string; value: unknown }
+type LockQuery = {
+  select: (column: string) => LockQuery
+  where: (column: string, operator: string, value: unknown) => LockQuery
+  forNoKeyUpdate: () => LockQuery
+  executeTakeFirst: jest.Mock
+}
+
+function buildOrderLockRecorder() {
+  const tables: string[] = []
+  const predicates: LockPredicate[] = []
+  const forNoKeyUpdate = jest.fn()
+  const executeTakeFirst = jest.fn().mockResolvedValue({ id: TEST_ORDER_ID })
+  const query: LockQuery = {
+    select: () => query,
+    where: (column, operator, value) => {
+      predicates.push({ column, operator, value })
+      return query
+    },
+    forNoKeyUpdate: () => {
+      forNoKeyUpdate()
+      return query
+    },
+    executeTakeFirst,
+  }
+  const getKysely = () => ({
+    selectFrom: (table: string) => {
+      tables.push(table)
+      return query
+    },
+  })
+  return { tables, predicates, forNoKeyUpdate, executeTakeFirst, getKysely }
+}
+
 function buildMockTx() {
   return {
+    getKysely: buildOrderLockRecorder().getKysely,
     findOne: jest.fn().mockResolvedValue(null),
     find: jest.fn().mockResolvedValue([]),
     create: jest.fn().mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({
@@ -93,7 +128,8 @@ describe('createShipmentCommand — order line locking for race condition preven
       fulfilledQuantity: '0',
     }
 
-    const tx = buildMockTx()
+    const orderLock = buildOrderLockRecorder()
+    const tx = { ...buildMockTx(), getKysely: orderLock.getKysely }
     // loadOrder now reads the order through findOneWithDecryption (issue #2112)
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(mockOrder)
     const em = {
@@ -136,13 +172,24 @@ describe('createShipmentCommand — order line locking for race condition preven
     )
 
     // Verify findWithDecryption was called with PESSIMISTIC_WRITE lock for order lines
-    const orderLinesCall = (findWithDecryption as jest.Mock).mock.calls.find(
+    const lineLockIndex = (findWithDecryption as jest.Mock).mock.calls.findIndex(
       (args: unknown[]) => {
         const opts = args[3] as Record<string, unknown> | undefined
         return opts?.lockMode === LockMode.PESSIMISTIC_WRITE
       }
     )
-    expect(orderLinesCall).toBeDefined()
+    expect(lineLockIndex).toBeGreaterThanOrEqual(0)
+
+    expect(orderLock.tables[0]).toBe('sales_orders')
+    expect(orderLock.forNoKeyUpdate).toHaveBeenCalled()
+    expect(orderLock.predicates).toEqual(expect.arrayContaining([
+      { column: 'id', operator: '=', value: TEST_ORDER_ID },
+      { column: 'tenant_id', operator: '=', value: TEST_TENANT_ID },
+      { column: 'organization_id', operator: '=', value: TEST_ORG_ID },
+    ]))
+    expect(orderLock.executeTakeFirst.mock.invocationCallOrder[0]).toBeLessThan(
+      (findWithDecryption as jest.Mock).mock.invocationCallOrder[lineLockIndex],
+    )
   })
 
   it('recomputeFulfilledQuantities uses findWithDecryption instead of raw em.find', async () => {

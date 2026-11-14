@@ -1,5 +1,5 @@
 "use client"
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,6 +13,11 @@ export default function ResetPage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState<string | null>(null)
+  const [clientReady, setClientReady] = useState(false)
+
+  useEffect(() => {
+    setClientReady(true)
+  }, [])
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -55,14 +60,14 @@ export default function ResetPage() {
               </Link>
             </div>
           ) : (
-            <form className="grid gap-3" onSubmit={onSubmit} noValidate>
+            <form className="grid gap-3" method="post" onSubmit={onSubmit} noValidate data-auth-ready={clientReady ? '1' : '0'}>
               {error && <div className="text-sm text-status-error-text">{error}</div>}
               <div className="grid gap-1">
                 <Label htmlFor="email">{t('auth.email')}</Label>
                 <EmailInput id="email" name="email" required aria-invalid={!!fieldError} aria-describedby={fieldError ? 'email-error' : undefined} />
                 {fieldError && <p id="email-error" className="text-sm text-status-error-text">{fieldError}</p>}
               </div>
-              <Button type="submit" className="mt-2 w-full" disabled={submitting}>
+              <Button type="submit" className="mt-2 w-full" disabled={submitting || !clientReady}>
                 {submitting ? '...' : t('auth.sendResetLink')}
               </Button>
               <div className="text-center">

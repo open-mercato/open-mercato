@@ -2,9 +2,8 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
-import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
+import { appendWidgetsToRoles, findRoleByName, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
 import { seedAnalyticsData } from './seed/analytics'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 
@@ -62,7 +61,7 @@ export async function seedDashboardDefaultsForTenant(
         log(`No widgets resolved for role "${roleName}".`)
         continue
       }
-      const role = await tem.findOne(Role, { name: roleName })
+      const role = await findRoleByName(tem, roleName, tenantId)
       if (!role) {
         log(`Skipping role "${roleName}" (not found)`)
         continue

@@ -1,5 +1,5 @@
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
-import { openFork, resumeBranchAfterActivities } from '../parallel-handler'
+import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
+import { applyParallelJoinOutputMapping, openFork, resumeBranchAfterActivities } from '../parallel-handler'
 import { WorkflowBranchInstance, WorkflowEvent, WorkflowInstance } from '../../data/entities'
 
 jest.mock('../step-handler', () => ({
@@ -36,6 +36,32 @@ function makeEmStub() {
 
 const tenantId = '00000000-0000-4000-8000-000000000001'
 const organizationId = '00000000-0000-4000-8000-000000000002'
+
+describe('applyParallelJoinOutputMapping', () => {
+  afterEach(() => {
+    delete (Object.prototype as Record<string, unknown>).workflowPolluted
+  })
+
+  test('keeps top-level mapping semantics, reads own special fields, and ignores unsafe targets', () => {
+    const context = JSON.parse(
+      '{"branches":{"branchA":{"result":"approved","constructor":{"value":"ctor"}}}}',
+    ) as Record<string, unknown>
+    const outputMapping = JSON.parse(
+      '{"decision":"branches.branchA.result","literal.path":"branches.branchA.result","constructorValue":"branches.branchA.constructor.value","__proto__":"branches.branchA"}',
+    ) as Record<string, string>
+
+    applyParallelJoinOutputMapping(context, outputMapping)
+
+    expect(context).toEqual({
+      branches: { branchA: { result: 'approved', constructor: { value: 'ctor' } } },
+      decision: 'approved',
+      'literal.path': 'approved',
+      constructorValue: 'ctor',
+    })
+    expect(Object.getPrototypeOf(context)).toBe(Object.prototype)
+    expect(Object.prototype).not.toHaveProperty('workflowPolluted')
+  })
+})
 
 function makeInstance() {
   return {
@@ -140,15 +166,17 @@ describe('resumeBranchAfterActivities', () => {
       branchKey: 'branch-a',
       currentStepId: 'async-step',
       pendingTransition: { transitionId: 'async-to-update', toStepId: 'update-order' },
-      contextNamespace: { _pendingAsyncActivities: ['job-1'], branchValue: 'A' },
+      contextNamespace: { _pendingAsyncActivities: [{ activityId: 'notify', jobId: 'job-1' }], branchValue: 'A' },
       tenantId,
       organizationId,
       updatedAt: new Date(),
     } as any
     const completedEvent = {
+      eventType: 'ACTIVITY_COMPLETED',
       eventData: {
         async: true,
         activityId: 'notify',
+        jobId: 'job-1',
         output: { ok: true },
       },
     } as any
@@ -191,5 +219,90 @@ describe('resumeBranchAfterActivities', () => {
       container,
       branch,
     )
+  })
+
+  test('ignores a failed async activity left in the branch by an earlier wait', async () => {
+    const instance = makeInstance()
+    const branch = {
+      id: '00000000-0000-4000-8000-000000000031',
+      workflowInstanceId: instance.id,
+      status: 'WAITING_FOR_ACTIVITIES',
+      branchKey: 'branch-a',
+      currentStepId: 'async-step',
+      pendingTransition: null,
+      contextNamespace: { _pendingAsyncActivities: [{ activityId: 'notify', jobId: 'job-retry' }] },
+      tenantId,
+      organizationId,
+      updatedAt: new Date(),
+    } as any
+    const events = [
+      { eventType: 'ACTIVITY_FAILED', eventData: { async: true, activityId: 'notify', jobId: 'job-first', error: 'old' } },
+      { eventType: 'ACTIVITY_COMPLETED', eventData: { async: true, activityId: 'notify', jobId: 'job-retry', output: { ok: true } } },
+    ]
+    const em: any = {
+      async findOne(entity: any) {
+        if (entity === WorkflowBranchInstance) return branch
+        if (entity === WorkflowInstance) return instance
+        return null
+      },
+      async find(entity: any, where: any) {
+        if (entity !== WorkflowEvent) return []
+        return typeof where?.eventType === 'string' ? events.filter((event) => event.eventType === where.eventType) : events
+      },
+      async count(entity: any, where: any) {
+        return entity === WorkflowEvent ? events.filter((event) => event.eventType === where.eventType).length : 0
+      },
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const result = await resumeBranchAfterActivities(em, { resolve: jest.fn() } as any, instance.id, branch.id)
+
+    expect(result).toEqual({ continueExecution: true })
+    expect(branch.status).toBe('ACTIVE')
+    expect(branch.contextNamespace).toEqual({ notify_result: { ok: true } })
+  })
+
+  test('keeps the branch waiting until every job of the current wait settles', async () => {
+    const instance = makeInstance()
+    const branch = {
+      id: '00000000-0000-4000-8000-000000000032',
+      workflowInstanceId: instance.id,
+      status: 'WAITING_FOR_ACTIVITIES',
+      branchKey: 'branch-a',
+      currentStepId: 'async-step',
+      pendingTransition: null,
+      contextNamespace: {
+        _pendingAsyncActivities: [
+          { activityId: 'quick', jobId: 'job-quick' },
+          { activityId: 'slow', jobId: 'job-slow' },
+        ],
+      },
+      tenantId,
+      organizationId,
+      updatedAt: new Date(),
+    } as any
+    const events = [
+      { eventType: 'ACTIVITY_COMPLETED', eventData: { async: true, activityId: 'earlier', jobId: 'job-earlier-wait' } },
+      { eventType: 'ACTIVITY_COMPLETED', eventData: { async: true, activityId: 'quick', jobId: 'job-quick' } },
+    ]
+    const em: any = {
+      async findOne(entity: any) {
+        return entity === WorkflowBranchInstance ? branch : null
+      },
+      async find(entity: any, where: any) {
+        if (entity !== WorkflowEvent) return []
+        return typeof where?.eventType === 'string' ? events.filter((event) => event.eventType === where.eventType) : events
+      },
+      async count(entity: any, where: any) {
+        return entity === WorkflowEvent ? events.filter((event) => event.eventType === where.eventType).length : 0
+      },
+      flush: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const result = await resumeBranchAfterActivities(em, { resolve: jest.fn() } as any, instance.id, branch.id)
+
+    expect(result).toEqual({ continueExecution: false })
+    expect(branch.status).toBe('WAITING_FOR_ACTIVITIES')
+    expect(em.flush).not.toHaveBeenCalled()
   })
 })

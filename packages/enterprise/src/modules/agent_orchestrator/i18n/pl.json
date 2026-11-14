@@ -1491,5 +1491,6 @@
   "agent_orchestrator.webSearch.activity.stage.merging": "Scalanie wyników",
   "agent_orchestrator.webSearch.activity.stage.reading": "Czytanie stron",
   "agent_orchestrator.webSearch.activity.title": "Wyszukiwanie w sieci",
-  "agent_orchestrator.workInbox.disposition.title": "Propozycja agenta do przejrzenia: {agent}"
+  "agent_orchestrator.workInbox.disposition.title": "Propozycja agenta do przejrzenia: {agent}",
+  "notifications.categories.agent_orchestrator": "Agenci AI"
 }

@@ -284,16 +284,21 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
       showOpacity = false,
       opacity = 100,
       onOpacityChange,
-      chooseLabel = 'Choose color',
-      savedLabel = 'Saved colors',
-      addLabel = 'Add new color',
-      editLabel = 'Edit',
-      removeAriaLabel = 'Remove color',
+      chooseLabel: chooseLabelProp,
+      savedLabel: savedLabelProp,
+      addLabel: addLabelProp,
+      editLabel: editLabelProp,
+      removeAriaLabel: removeAriaLabelProp,
       ...props
     },
     ref,
   ) => {
     const t = useT()
+    const chooseLabel = chooseLabelProp ?? t('ui.colorPicker.choose', 'Choose color')
+    const savedLabel = savedLabelProp ?? t('ui.colorPicker.saved', 'Saved colors')
+    const addLabel = addLabelProp ?? t('ui.colorPicker.add', 'Add new color')
+    const editLabel = editLabelProp ?? t('ui.colorPicker.edit', 'Edit')
+    const removeAriaLabel = removeAriaLabelProp ?? t('ui.colorPicker.remove', 'Remove color')
     const effectiveOpacity = Number.isFinite(opacity) ? Math.min(100, Math.max(0, opacity)) : 100
     const normalizedValue = React.useMemo(() => normalizeHex(value) ?? value, [value])
     const [hexInput, setHexInput] = React.useState(normalizedValue)
@@ -489,7 +494,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                 disabled={disabled}
                 onChange={(event) => handleHueChange(Number(event.target.value))}
                 data-slot="color-picker-hue-slider"
-                aria-label={`${chooseLabel} hue`}
+                aria-label={t('ui.colorPicker.hue', '{label} hue', { label: chooseLabel })}
                 className={cn(
                   'block h-3 w-full cursor-pointer appearance-none rounded-full outline-none',
                   // Native range styling. The track is the gradient itself.
@@ -684,7 +689,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                         className={swatchDotVariants({ selected })}
                         style={{ backgroundColor: normalized }}
                       />
-                      {selected ? <span className="sr-only">Selected</span> : null}
+                      {selected ? <span className="sr-only">{t('ui.colorPicker.selected', 'Selected')}</span> : null}
                     </button>
                   )
                 })}

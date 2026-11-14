@@ -131,10 +131,14 @@ function buildProductPresenter(
   ) ?? label
   const isActive = record.is_active ?? record.isActive
   const statusText = isActive === false ? translate('catalog.search.status.inactive', 'Inactive') : null
+  const productType = readRecordText(record, 'product_type', 'productType')
+  const productTypeLabel = productType
+    ? translate(`catalog.products.types.${productType}`, productType)
+    : null
   const subtitle = formatSubtitle(
     readRecordText(record, 'subtitle'),
     readRecordText(record, 'sku'),
-    readRecordText(record, 'product_type', 'productType'),
+    productTypeLabel,
     statusText,
   ) ?? snippet(readRecordText(record, 'description'))
   return { title, subtitle, icon: 'package', badge: label }

@@ -3,7 +3,7 @@
  * against; the loader refuses to instantiate a mismatched major rather than let a
  * stale adapter fail in an unpredictable place at request time.
  */
-export const CONTRACT_VERSION = 1
+export const CONTRACT_VERSION = 2
 
 /**
  * Oldest adapter contract this engine still accepts.
