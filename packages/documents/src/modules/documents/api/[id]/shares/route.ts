@@ -24,6 +24,7 @@ import {
   resolveDocumentsCommandBus,
 } from '../../_commands'
 import {
+  assertDocumentId,
   assertDocumentNotArchived,
   handleDocumentsRouteError,
   loadScopedShare,
@@ -142,6 +143,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   try {
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.share'])
+    assertDocumentId(documentId)
     await assertCanShare(ctx, documentId)
     const loadedShares = await findWithDecryption(
       ctx.em,
