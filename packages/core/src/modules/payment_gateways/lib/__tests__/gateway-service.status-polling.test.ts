@@ -103,7 +103,9 @@ function buildService(store: StoredTransaction[], statusFor: (sessionId: string)
     Object.assign(matched, update)
     return 1
   })
-  const em = { flush, nativeUpdate }
+  const em: Record<string, unknown> = { flush, nativeUpdate }
+  em.fork = jest.fn(() => em)
+  em.transactional = jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(em))
 
   findOneMock.mockImplementation(async (_em, _entity, where) => {
     const criteria = where as { id?: string; organizationId?: string; tenantId?: string }

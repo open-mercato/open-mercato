@@ -3,6 +3,7 @@ import { LockMode, QueryOrder } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   getGatewayAdapter,
   type CreateSessionInput,
@@ -52,6 +53,14 @@ const PAYMENT_SESSION_CLAIM_STALE_MS = 30_000
 const PAYMENT_SESSION_WAIT_INTERVAL_MS = 25
 const logger = createLogger('payment_gateways').child({ component: 'gateway-service' })
 
+function reportErrorSafely(error: unknown, code: string): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'payment_gateways', code })
+  } catch (reportFailure) {
+    logger.warn('Failed to report a payment gateway error', { code, err: reportFailure })
+  }
+}
+
 function assertManualActionAllowed(action: ManualGatewayAction, transaction: GatewayTransaction): void {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
   if (!canApplyManualAction(action, current)) {
@@ -59,21 +68,25 @@ function assertManualActionAllowed(action: ManualGatewayAction, transaction: Gat
   }
 }
 
+type AdapterResultStatusOutcome = 'applied' | 'unchanged' | 'incompatible'
+
 function applyAdapterResultStatus(
   action: ManualGatewayAction,
   transaction: GatewayTransaction,
   resultStatus: UnifiedPaymentStatus,
-): boolean {
+  options?: { tolerateIncompatible?: boolean },
+): AdapterResultStatusOutcome {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
-  if (resultStatus === current) return false
-  if (isValidTransition(resultStatus, current)) return false
+  if (resultStatus === current) return 'unchanged'
+  if (isValidTransition(resultStatus, current)) return 'unchanged'
   if (!isValidTransition(current, resultStatus)) {
+    if (options?.tolerateIncompatible) return 'incompatible'
     throw conflict(
       `Gateway returned status "${resultStatus}" which is not a valid transition from "${current}" for ${action}`,
     )
   }
   transaction.unifiedStatus = resultStatus
-  return true
+  return 'applied'
 }
 
 export interface PaymentGatewayServiceDeps {
@@ -124,7 +137,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     transactionId: string,
     scope: { organizationId: string; tenantId: string },
     targetEm: EntityManager = em,
-    options?: { lockMode: LockMode.PESSIMISTIC_WRITE },
+    options?: { lockMode?: LockMode; refresh?: boolean },
   ): Promise<GatewayTransaction> {
     const transaction = await findOneWithDecryption(
       targetEm,
@@ -250,7 +263,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       },
     })
     if (prepared.kind === 'completed') {
-      if (prepared.result.status !== transaction.unifiedStatus) {
+      const settledStatus = prepared.settledStatus ?? prepared.result.status
+      if (settledStatus !== transaction.unifiedStatus) {
         throw conflict(
           `Cannot replay ${input.action} because the payment status has changed since the operation completed`,
         )
@@ -267,6 +281,9 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     // moved the money" from "the provider moved it and only our bookkeeping failed" — the two
     // cases need opposite rollback decisions.
     let providerInvoked = false
+    const startedFrom = transaction.unifiedStatus as UnifiedPaymentStatus
+    const resumesEarlierAttempt = operation.attemptCount > 1
+    let incompatibleConcurrentStatus: UnifiedPaymentStatus | null = null
     try {
       await input.beforeInvoke?.({ transaction, operation })
       const { adapter, credentials } = await resolveAdapterAndCredentials(
@@ -285,13 +302,43 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         prepared.claim,
         result as unknown as Record<string, unknown>,
         async (tx) => {
-          const current = await findTransactionOrThrow(input.transactionId, input.scope, tx)
-          const changed = applyAdapterResultStatus(input.action, current, result.status)
+          const current = await findTransactionOrThrow(input.transactionId, input.scope, tx, {
+            lockMode: LockMode.PESSIMISTIC_WRITE,
+            refresh: true,
+          })
+          const outcome = applyAdapterResultStatus(input.action, current, result.status, {
+            tolerateIncompatible: current.unifiedStatus !== startedFrom || resumesEarlierAttempt,
+          })
+          incompatibleConcurrentStatus = outcome === 'incompatible'
+            ? current.unifiedStatus as UnifiedPaymentStatus
+            : null
           input.applyResult(current, result)
-          return changed
+          return { statusChanged: outcome === 'applied', settledStatus: current.unifiedStatus }
         },
       )
       settled = true
+      if (incompatibleConcurrentStatus) {
+        try {
+          await writeTransactionLog(
+            transaction.providerKey,
+            { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+            transaction.id,
+            'warn',
+            'Payment status changed concurrently; provider result not applied',
+            { action: input.action, currentStatus: incompatibleConcurrentStatus, resultStatus: result.status },
+          )
+        } catch (logError) {
+          logger.warn('Failed to log a provider result left unapplied', {
+            transactionId: transaction.id,
+            providerKey: transaction.providerKey,
+            err: logError,
+          })
+        }
+        reportErrorSafely(
+          new Error('[internal] Provider result not applied after a concurrent payment status change'),
+          'payment_gateways.manual_result_not_applied',
+        )
+      }
       if (statusChanged) {
         await emitStatusEvent(result.status, {
           transactionId: transaction.id,
@@ -719,38 +766,60 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       }
 
       const polledAt = new Date()
-      const shouldApplyStatus = status.status !== transaction.unifiedStatus
-        && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)
-      if (shouldApplyStatus) {
-        const previousStatus = transaction.unifiedStatus
-        transaction.unifiedStatus = status.status
-        alignCapturedAmountWithStatus(transaction, status.status)
-        transaction.gatewayStatus = status.status
-        transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), statusResult: status.providerData ?? null }
-        transaction.lastPolledAt = polledAt
-        await em.flush()
-        await emitStatusEvent(status.status, {
-          transactionId: transaction.id,
-          paymentId: transaction.paymentId,
-          providerKey: transaction.providerKey,
-          previousStatus,
-          organizationId: transaction.organizationId,
-          tenantId: transaction.tenantId,
-        })
-        await writeTransactionLog(
-          transaction.providerKey,
-          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-          transaction.id,
-          'info',
-          'Payment status updated by poller',
-          {
-            previousStatus,
-            nextStatus: status.status,
-          },
-        )
-      } else {
+      if (status.status === transaction.unifiedStatus) {
         await stampLastPolledAt(transaction, polledAt)
+        return status
       }
+
+      const outcome = await em.fork().transactional(async (tx) => {
+        const locked = await findTransactionOrThrow(transactionId, scope, tx, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        const lockedStatus = locked.unifiedStatus as UnifiedPaymentStatus
+        if (!isValidTransition(lockedStatus, status.status)) {
+          return { applied: false, previousStatus: lockedStatus }
+        }
+        locked.unifiedStatus = status.status
+        alignCapturedAmountWithStatus(locked, status.status)
+        locked.gatewayStatus = status.status
+        locked.gatewayMetadata = { ...readGatewayMetadata(locked.gatewayMetadata), statusResult: status.providerData ?? null }
+        locked.lastPolledAt = polledAt
+        await tx.flush()
+        return { applied: true, previousStatus: lockedStatus }
+      })
+
+      if (!outcome.applied) {
+        await stampLastPolledAt(transaction, polledAt)
+        return status
+      }
+
+      try {
+        await findTransactionOrThrow(transactionId, scope, em, { refresh: true })
+      } catch (refreshError) {
+        logger.warn('Failed to re-read transaction after a polled status update', {
+          transactionId,
+          providerKey: transaction.providerKey,
+          err: refreshError,
+        })
+        reportErrorSafely(refreshError, 'payment_gateways.poll_status_reread_failed')
+      }
+      await emitStatusEvent(status.status, {
+        transactionId: transaction.id,
+        paymentId: transaction.paymentId,
+        providerKey: transaction.providerKey,
+        previousStatus: outcome.previousStatus,
+        organizationId: transaction.organizationId,
+        tenantId: transaction.tenantId,
+      })
+      await writeTransactionLog(
+        transaction.providerKey,
+        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        transaction.id,
+        'info',
+        'Payment status updated by poller',
+        {
+          previousStatus: outcome.previousStatus,
+          nextStatus: status.status,
+        },
+      )
 
       return status
     },
