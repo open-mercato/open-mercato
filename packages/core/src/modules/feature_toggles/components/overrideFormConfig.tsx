@@ -2,6 +2,7 @@
 import { CrudFormGroup, CrudCustomFieldRenderProps, CrudField } from "@open-mercato/ui/backend/CrudForm";
 import { JsonBuilder } from "@open-mercato/ui/backend/JsonBuilder";
 import { Input } from "@open-mercato/ui/primitives/input";
+import { LocaleNumberInput } from "./LocaleNumberInput";
 import {
   Select,
   SelectContent,
@@ -73,10 +74,9 @@ export function OverrideValueField(props: CrudCustomFieldRenderProps) {
             return (
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.override.fields.value.number.label', 'Override Value (Number)')}</label>
-                    <Input
-                        type="number"
-                        value={props.value as number || 0}
-                        onChange={(e) => props.setValue(Number(e.target.value) || 0)}
+                    <LocaleNumberInput
+                        value={props.value}
+                        onValueChange={props.setValue}
                         disabled={props.disabled}
                         autoFocus={props.autoFocus}
                     />
