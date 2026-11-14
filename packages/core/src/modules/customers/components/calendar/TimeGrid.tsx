@@ -649,6 +649,7 @@ export function TimeGrid({
                       onOpenChange={(open) => setOpenOverflowKey(open ? overflow.key : null)}
                       onJoin={onJoin}
                       onEdit={onItemClick}
+                      peekSide={peekSide}
                     />
                   ))}
                 </div>
