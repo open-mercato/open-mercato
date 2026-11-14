@@ -680,6 +680,15 @@
           "keyName": "integration_states_pkey",
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "integration_states_scope_unique_idx",
+          "primary": false,
+          "unique": true,
+          "expression": "create unique index \"integration_states_scope_unique_idx\" on \"integration_states\" (\"integration_id\", \"organization_id\", \"tenant_id\") where \"deleted_at\" is null"
         }
       ],
       "checks": [],
