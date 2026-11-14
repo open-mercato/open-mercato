@@ -334,6 +334,23 @@ describe('Workflow Definitions API', () => {
       expect(mockEm.flush).toHaveBeenCalled()
     })
 
+    test.each(['sibling-org', testOrgId])('checks duplicates within the caller organization (existing=%s)', async (existingOrganizationId) => {
+      const existing = {
+        id: 'existing-definition', workflowId: validDefinition.workflowId,
+        tenantId: testTenantId, organizationId: existingOrganizationId,
+      }
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) =>
+        Object.entries(where).every(([key, value]) => Reflect.get(existing, key) === value) ? existing : null,
+      )
+      mockEm.create.mockReturnValue({ id: 'new-definition', ...validDefinition, tenantId: testTenantId, organizationId: testOrgId })
+      const response = await createDefinition(new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST', body: JSON.stringify(validDefinition),
+      }))
+
+      expect(response.status).toBe(existingOrganizationId === testOrgId ? 409 : 201)
+      expect(mockEm.create).toHaveBeenCalledTimes(existingOrganizationId === testOrgId ? 0 : 1)
+    })
+
     test('should default new definitions to strict interpolation', async () => {
       mockEm.findOne.mockResolvedValue(null)
       mockEm.create.mockReturnValue({ id: 'new-def-id' })

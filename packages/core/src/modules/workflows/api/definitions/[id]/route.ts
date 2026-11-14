@@ -248,6 +248,7 @@ export async function PUT(
       const existingOverride = await em.findOne(WorkflowDefinition, {
         workflowId: codeDef.workflowId,
         tenantId,
+        organizationId,
       }, { orderBy: { version: 'DESC' } })
 
       let savedOverride: WorkflowDefinition
