@@ -145,10 +145,7 @@ function formatFieldValue(
               key={`${field.id}-${entry}-${index}`}
               value={entry}
               map={dictionaryMap}
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1 text-xs"
-              iconWrapperClassName="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background"
-              iconClassName="h-3 w-3"
-              colorClassName="h-2.5 w-2.5 rounded-full"
+              appearance="pill"
             />
           ))}
         </div>
@@ -166,9 +163,6 @@ function formatFieldValue(
         map={dictionaryMap}
         className="inline-flex items-center gap-2 text-sm"
         fallback={<span className="text-muted-foreground">{emptyLabel}</span>}
-        iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
-        iconClassName="h-4 w-4"
-        colorClassName="h-3 w-3 rounded-full"
       />
     )
   }

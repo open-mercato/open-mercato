@@ -23,7 +23,7 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector, useAppearanceState } from './AppearanceSelector'
-import { DictionaryValue } from './dictionaryAppearance'
+import { renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 import {
   invalidateDictionaryEntries,
   useDictionaryEntries,
@@ -62,7 +62,6 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
   const scopeVersion = useOrganizationScopeVersion()
   const dictionaryQuery = useDictionaryEntries(dictionaryId, scopeVersion)
   const entries = React.useMemo<Entry[]>(() => dictionaryQuery.data?.fullEntries ?? [], [dictionaryQuery.data?.fullEntries])
-  const dictionaryMap = dictionaryQuery.data?.map ?? {}
   const isInitialLoading = dictionaryQuery.isLoading
   const loadError = dictionaryQuery.isError
     ? t('dictionaries.config.entries.error.load', 'Failed to load dictionary entries.')
@@ -327,11 +326,14 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           <TableCell className="font-medium">{entry.value}</TableCell>
           <TableCell>{entry.label}</TableCell>
           <TableCell>
-            <DictionaryValue
-              value={entry.value}
-              map={dictionaryMap}
-              fallback={<span className="text-sm text-muted-foreground">{t('dictionaries.config.entries.appearance.none', 'None')}</span>}
-            />
+            {entry.icon || entry.color ? (
+              <span className="inline-flex items-center gap-2">
+                {renderDictionaryIcon(entry.icon)}
+                {renderDictionaryColor(entry.color)}
+              </span>
+            ) : (
+              <span className="text-sm text-muted-foreground">{t('dictionaries.config.entries.appearance.none', 'None')}</span>
+            )}
           </TableCell>
           <TableCell className="flex items-center gap-2">
             {readOnly ? (
@@ -371,7 +373,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           </TableCell>
       </TableRow>
       ))
-  }, [dictionaryMap, entries, handleDelete, isDeleting, isInitialLoading, loadError, openDialog, readOnly, t])
+  }, [entries, handleDelete, isDeleting, isInitialLoading, loadError, openDialog, readOnly, t])
 
   return (
     <div className="space-y-4">
