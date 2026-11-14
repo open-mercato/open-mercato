@@ -836,7 +836,7 @@ function TimePickerCard({
       ) : null}
 
       <div
-        className="relative flex flex-col gap-0.5 overflow-y-auto p-2"
+        className="relative flex flex-col gap-0.5 overflow-y-auto overscroll-contain p-2"
         style={{ maxHeight }}
         ref={slotListRef}
         onKeyDown={handleSlotKeyDown}
@@ -1069,6 +1069,8 @@ export function TimePicker({
       <PopoverContent
         align={popoverAlign}
         side={popoverSide}
+        onWheel={(event) => event.stopPropagation()}
+        onTouchMove={(event) => event.stopPropagation()}
         className="w-auto border-none bg-transparent p-0 shadow-none"
       >
         {card}
