@@ -152,6 +152,8 @@ type ProductSnapshot = {
   orderQtyIncrement: number | null;
   requiresShipping: boolean;
   isQuoteOnly: boolean;
+  omnibusExempt: boolean;
+  firstListedAt: string | null;
   seoTitle: string | null;
   seoDescription: string | null;
   canonicalUrl: string | null;
@@ -1302,6 +1304,10 @@ async function loadProductSnapshot(
     orderQtyIncrement: record.orderQtyIncrement ?? null,
     requiresShipping: record.requiresShipping ?? true,
     isQuoteOnly: record.isQuoteOnly ?? false,
+    omnibusExempt: record.omnibusExempt ?? false,
+    firstListedAt: record.firstListedAt
+      ? record.firstListedAt.toISOString()
+      : null,
     seoTitle: record.seoTitle ?? null,
     seoDescription: record.seoDescription ?? null,
     canonicalUrl: record.canonicalUrl ?? null,
@@ -1376,6 +1382,10 @@ function productSeedFromSnapshot(
     orderQtyIncrement: snapshot.orderQtyIncrement ?? null,
     requiresShipping: snapshot.requiresShipping ?? true,
     isQuoteOnly: snapshot.isQuoteOnly ?? false,
+    omnibusExempt: snapshot.omnibusExempt ?? false,
+    firstListedAt: snapshot.firstListedAt
+      ? new Date(snapshot.firstListedAt)
+      : null,
     seoTitle: snapshot.seoTitle ?? null,
     seoDescription: snapshot.seoDescription ?? null,
     canonicalUrl: snapshot.canonicalUrl ?? null,
@@ -1449,6 +1459,10 @@ function applyProductSnapshot(
   record.orderQtyIncrement = snapshot.orderQtyIncrement ?? null;
   record.requiresShipping = snapshot.requiresShipping ?? true;
   record.isQuoteOnly = snapshot.isQuoteOnly ?? false;
+  record.omnibusExempt = snapshot.omnibusExempt ?? false;
+  record.firstListedAt = snapshot.firstListedAt
+    ? new Date(snapshot.firstListedAt)
+    : null;
   record.seoTitle = snapshot.seoTitle ?? null;
   record.seoDescription = snapshot.seoDescription ?? null;
   record.canonicalUrl = snapshot.canonicalUrl ?? null;
@@ -1581,6 +1595,8 @@ const createProductCommand: CommandHandler<
       orderQtyIncrement: parsed.orderQtyIncrement ?? null,
       requiresShipping: parsed.requiresShipping ?? true,
       isQuoteOnly: parsed.isQuoteOnly ?? false,
+      omnibusExempt: parsed.omnibusExempt ?? false,
+      firstListedAt: parsed.firstListedAt ?? now,
       seoTitle: parsed.seoTitle ?? null,
       seoDescription: parsed.seoDescription ?? null,
       canonicalUrl: parsed.canonicalUrl ?? null,
@@ -2086,6 +2102,10 @@ const updateProductCommand: CommandHandler<
       record.requiresShipping = parsed.requiresShipping;
     if (parsed.isQuoteOnly !== undefined)
       record.isQuoteOnly = parsed.isQuoteOnly;
+    if (parsed.omnibusExempt !== undefined)
+      record.omnibusExempt = parsed.omnibusExempt ?? false;
+    if (parsed.firstListedAt !== undefined)
+      record.firstListedAt = parsed.firstListedAt ?? null;
     if (parsed.seoTitle !== undefined)
       record.seoTitle = parsed.seoTitle ?? null;
     if (parsed.seoDescription !== undefined)
@@ -2190,6 +2210,8 @@ const updateProductCommand: CommandHandler<
         "orderQtyIncrement",
         "requiresShipping",
         "isQuoteOnly",
+        "omnibusExempt",
+        "firstListedAt",
         "seoTitle",
         "seoDescription",
         "canonicalUrl",
