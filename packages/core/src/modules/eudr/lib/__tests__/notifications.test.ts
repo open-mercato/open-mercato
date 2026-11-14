@@ -13,7 +13,15 @@ const resolveNotificationServiceMock = resolveNotificationService as jest.Mocked
 >
 
 const createForFeature = jest.fn().mockResolvedValue([])
+const registeredNotificationService = { createForFeature }
 const container = { resolve: jest.fn() }
+
+function registerNotificationsModule(): void {
+  container.resolve.mockImplementation((name: string) => {
+    if (name === 'notificationService') return registeredNotificationService
+    throw new Error(`Could not resolve '${name}'`)
+  })
+}
 
 function buildPayload(occurredAt = '2026-07-22T12:00:00.000Z') {
   return {
@@ -43,6 +51,38 @@ describe('deliverEudrNotification', () => {
     jest.clearAllMocks()
     createForFeature.mockResolvedValue([])
     resolveNotificationServiceMock.mockReturnValue({ createForFeature } as never)
+    registerNotificationsModule()
+  })
+
+  it('skips delivery when the notifications module is not registered in the container', async () => {
+    container.resolve.mockImplementation((name: string) => {
+      throw new Error(`Could not resolve '${name}'`)
+    })
+
+    await expect(deliver('eudr.statement.submitted')).resolves.toBeUndefined()
+    expect(container.resolve).toHaveBeenCalledWith('notificationService')
+    expect(resolveNotificationServiceMock).not.toHaveBeenCalled()
+    expect(createForFeature).not.toHaveBeenCalled()
+  })
+
+  it('delivers exactly once with the org-restricted fan-out when the notifications module is registered', async () => {
+    await deliver('eudr.statement.submitted')
+
+    expect(createForFeature).toHaveBeenCalledTimes(1)
+    expect(createForFeature).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requiredFeature: 'eudr.statements.manage',
+        sourceEntityType: 'eudr:eudr_due_diligence_statement',
+        sourceEntityId: '956a626c-009d-473e-aa81-3ee089298f8d',
+        linkHref: '/backend/eudr/statements/956a626c-009d-473e-aa81-3ee089298f8d',
+        bodyVariables: { statementTitle: 'DDS 2026-001' },
+        restrictRecipientsToOrganization: true,
+      }),
+      {
+        tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e',
+        organizationId: '09a2c9be-4a41-47a5-a67c-4ebf6d318024',
+      },
+    )
   })
 
   it('builds a deterministic group key per event occurrence', async () => {
