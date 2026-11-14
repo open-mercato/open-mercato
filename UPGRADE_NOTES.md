@@ -1,5 +1,26 @@
 # Upgrade Notes
 
+## Deals timeline view tab
+
+The Deals area gains a fourth view, **Timeline** (`/backend/customers/deals/timeline`),
+backed by the new read-only `GET /api/customers/deals/timeline` route. This is
+informational; no migration or configuration is required.
+
+- `KanbanView` and `DEALS_VIEWS` (exported from the deals `ViewTabsRow`) now include
+  `'timeline'`, appended after `'map'`. The union is additive-only, so code that keys a
+  `Record<KanbanView, …>` must add a `timeline` entry when it upgrades.
+- Deployments that override `section:customers.deals.viewTabs` with an explicit
+  `visibleViews` list keep showing exactly the views they list, so the Timeline tab stays
+  hidden until `'timeline'` is added. The page route stays published either way; disable
+  it through `entry.overrides.pages` if it is not wanted.
+- `GET /api/customers/deals` accepts an optional `hasExpectedCloseAt` boolean
+  (`false` = no close date). Combining `hasExpectedCloseAt=false` with a close-date range,
+  or with `isOverdue` while `needsAttention` is not `true`, returns `400`.
+- Perspectives keep saved `settings.filters` payloads that opt in with `__namespaced: true` and
+  whose every other entry is a versioned object (for example
+  `{ __namespaced: true, timeline: { v: 1, ... } }`) instead of dropping them as a legacy flat
+  filter record on read; every other legacy flat record is still dropped.
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

@@ -53,10 +53,11 @@ describe('ViewTabsRow visibleViews', () => {
   it('renders every view in canonical order when the host passes no subset', () => {
     render(<ViewTabsRow active="list" />)
 
-    expect(tabNames()).toEqual(['Kanban', 'List', 'Map'])
+    expect(tabNames()).toEqual(['Kanban', 'List', 'Map', 'Timeline'])
     expect(selectedTabName()).toBe('List')
     expect(screen.getByRole('tab', { name: 'Kanban' })).toHaveAttribute('href', '/backend/customers/deals/pipeline')
     expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('href', '/backend/customers/deals/map')
+    expect(screen.getByRole('tab', { name: 'Timeline' })).toHaveAttribute('href', '/backend/customers/deals/timeline')
   })
 
   it('hides a view the host left out of visibleViews', () => {
@@ -64,6 +65,7 @@ describe('ViewTabsRow visibleViews', () => {
 
     expect(tabNames()).toEqual(['Kanban', 'List'])
     expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Timeline' })).toBeNull()
   })
 
   it('keeps the active view visible even when the host excluded it', () => {
@@ -90,9 +92,15 @@ describe('resolveVisibleViews', () => {
   })
 
   it('drops values that are not deals views', () => {
-    const fromUntypedConfig = ['kanban', 'timeline'] as unknown as ViewTabsRowProps['visibleViews']
+    const fromUntypedConfig = ['kanban', 'gantt'] as unknown as ViewTabsRowProps['visibleViews']
 
     expect(resolveVisibleViews('kanban', fromUntypedConfig)).toEqual(['kanban'])
+  })
+
+  it('includes the timeline view in canonical order', () => {
+    expect(resolveVisibleViews('list')).toEqual(['kanban', 'list', 'map', 'timeline'])
+    expect(resolveVisibleViews('kanban', ['timeline', 'kanban'])).toEqual(['kanban', 'timeline'])
+    expect(resolveVisibleViews('timeline', ['kanban', 'list'])).toEqual(['kanban', 'list', 'timeline'])
   })
 })
 
@@ -120,13 +128,14 @@ describe('component-registry wiring', () => {
   it('renders the platform default when no override is registered', () => {
     render(<Host />)
 
-    expect(tabNames()).toEqual(['Kanban', 'List', 'Map'])
+    expect(tabNames()).toEqual(['Kanban', 'List', 'Map', 'Timeline'])
   })
 
   it.each([
     ['kanban', path.join(__dirname, '..', '..', 'page.tsx')],
     ['list', path.join(__dirname, '..', '..', '..', 'page.tsx')],
     ['map', path.join(__dirname, '..', '..', '..', 'map', 'page.tsx')],
+    ['timeline', path.join(__dirname, '..', '..', '..', 'timeline', 'page.tsx')],
   ])('resolves the row through the registry on the %s page', (_view, pagePath) => {
     const source = readFileSync(pagePath, 'utf8')
 

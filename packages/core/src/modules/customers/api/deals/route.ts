@@ -1,10 +1,12 @@
 import { z } from 'zod'
+import { NextResponse } from 'next/server'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '../../data/entities'
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
 import { E } from '#generated/entities.ids.generated'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import {
   applyEntityIdRestriction,
@@ -67,6 +69,7 @@ export const dealListQuerySchema = z
     isStuck: booleanQueryParam,
     isOverdue: booleanQueryParam,
     needsAttention: booleanQueryParam,
+    hasExpectedCloseAt: booleanQueryParam,
     valueCurrency: stringOrStringArray.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -407,6 +410,16 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     filters.expected_close_at = existingRange
   }
 
+  if (query.hasExpectedCloseAt === true && filters.expected_close_at === undefined) {
+    filters.expected_close_at = { $ne: null }
+  } else if (query.hasExpectedCloseAt === false) {
+    const existing = filters.expected_close_at
+    filters.expected_close_at =
+      existing && typeof existing === 'object' && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>), $eq: null }
+        : { $eq: null }
+  }
+
   if (query.isStuck && !query.needsAttention && ctx) {
     const tenantId = ctx.auth?.tenantId
     // CrudCtx.auth carries `orgId` (not `organizationId`). The previous code referenced
@@ -724,7 +737,43 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
 const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
-export const GET = crud.GET
+
+export type DealListQueryContradiction = 'undated_with_close_date_range' | 'undated_with_overdue'
+
+const DEAL_LIST_CONTRADICTION_MESSAGES: Record<DealListQueryContradiction, { key: string; fallback: string }> = {
+  undated_with_close_date_range: {
+    key: 'customers.errors.deal_list_undated_with_close_date_range',
+    fallback: 'Deals without a close date cannot be filtered by a close date range.',
+  },
+  undated_with_overdue: {
+    key: 'customers.errors.deal_list_undated_with_overdue',
+    fallback: 'Deals without a close date cannot be filtered as overdue.',
+  },
+}
+
+export function findDealListQueryContradiction(searchParams: URLSearchParams): DealListQueryContradiction | null {
+  const hasExpectedCloseAt = parseBooleanFromUnknown(searchParams.get('hasExpectedCloseAt'))
+  if (hasExpectedCloseAt !== false) return null
+  if (parseDateInput(searchParams.get('expectedCloseAtFrom')) || parseDateInput(searchParams.get('expectedCloseAtTo'))) {
+    return 'undated_with_close_date_range'
+  }
+  const isOverdue = parseBooleanFromUnknown(searchParams.get('isOverdue'))
+  const needsAttention = parseBooleanFromUnknown(searchParams.get('needsAttention'))
+  if (isOverdue === true && needsAttention !== true) {
+    return 'undated_with_overdue'
+  }
+  return null
+}
+
+export async function GET(request: Request) {
+  const contradiction = findDealListQueryContradiction(new URL(request.url).searchParams)
+  if (contradiction) {
+    const { t } = await resolveTranslations()
+    const message = DEAL_LIST_CONTRADICTION_MESSAGES[contradiction]
+    return NextResponse.json({ error: t(message.key, message.fallback), code: contradiction }, { status: 400 })
+  }
+  return crud.GET(request)
+}
 
 const dealAssociationSchema = z.object({
   id: z.string().uuid(),
@@ -763,7 +812,7 @@ const dealCreateResponseSchema = z.object({
   id: z.string().uuid().nullable(),
 })
 
-export const openApi = createCustomersCrudOpenApi({
+const dealsCrudOpenApi = createCustomersCrudOpenApi({
   resourceName: 'Deal',
   querySchema: dealListQuerySchema,
   listResponseSchema: createPagedListResponseSchema(dealListItemSchema),
@@ -783,3 +832,31 @@ export const openApi = createCustomersCrudOpenApi({
     description: 'Deletes a deal by `id`. The identifier may be provided in the body or query parameters.',
   },
 })
+
+const dealListContradictionErrorSchema = z.object({
+  error: z.string(),
+  code: z.enum(['undated_with_close_date_range', 'undated_with_overdue']),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  ...dealsCrudOpenApi,
+  methods: {
+    ...dealsCrudOpenApi.methods,
+    ...(dealsCrudOpenApi.methods?.GET
+      ? {
+          GET: {
+            ...dealsCrudOpenApi.methods.GET,
+            errors: [
+              ...(dealsCrudOpenApi.methods.GET.errors ?? []),
+              {
+                status: 400,
+                description:
+                  'Contradictory close-date filters: `hasExpectedCloseAt=false` combined with a close-date range, or with `isOverdue` while `needsAttention` is not `true`.',
+                schema: dealListContradictionErrorSchema,
+              },
+            ],
+          },
+        }
+      : {}),
+  },
+}
