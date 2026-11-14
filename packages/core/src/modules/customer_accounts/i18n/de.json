@@ -296,6 +296,7 @@
   "customer_accounts.errors.cancelInvitationPermission": "Unzureichende Berechtigungen",
   "customer_accounts.errors.crossSiteRequest": "Diese Anmeldeanfrage stammt nicht von dieser Anwendung. Öffne die Anmeldeseite und versuche es erneut.",
   "customer_accounts.errors.emailAlreadyExists": "Es existiert bereits ein Konto mit dieser E-Mail-Adresse",
+  "customer_accounts.errors.invitationConflict": "Diese Einladung kann nicht gesendet werden. Wenden Sie sich an Ihren Administrator.",
   "customer_accounts.invitation.email.body": "Use this secure invitation link to create your password and access the customer portal.",
   "customer_accounts.invitation.email.cta": "Accept invitation",
   "customer_accounts.invitation.email.hint": "This invitation link expires in 72 hours. If you did not expect this invitation, you can ignore this email.",

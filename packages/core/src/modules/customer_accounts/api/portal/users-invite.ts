@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { CustomerInvitationService, isCustomerInvitationOwnershipConflictError } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
@@ -19,6 +19,7 @@ import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/c
 import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
 import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('customer_accounts').child({ component: 'portal-users-invite' })
 
@@ -95,16 +96,27 @@ export async function POST(req: Request) {
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
-  const { invitation, rawToken, rollbackState } = await customerInvitationService.createInvitation(
-    parsed.data.email,
-    { tenantId: auth.tenantId, organizationId: auth.orgId },
-    {
-      customerEntityId: auth.customerEntityId,
-      roleIds: parsed.data.roleIds,
-      invitedByCustomerUserId: auth.sub,
-      displayName: parsed.data.displayName || null,
-    },
-  )
+  let result: Awaited<ReturnType<CustomerInvitationService['createInvitation']>>
+  try {
+    result = await customerInvitationService.createInvitation(
+      parsed.data.email,
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+      {
+        customerEntityId: auth.customerEntityId,
+        roleIds: parsed.data.roleIds,
+        invitedByCustomerUserId: auth.sub,
+        displayName: parsed.data.displayName || null,
+      },
+    )
+  } catch (error) {
+    if (!isCustomerInvitationOwnershipConflictError(error)) throw error
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      ok: false,
+      error: translate('customer_accounts.errors.invitationConflict'),
+    }, { status: 409 })
+  }
+  const { invitation, rawToken, rollbackState } = result
 
   try {
     await sendCustomerInvitationEmail({
@@ -165,6 +177,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: errorSchema },
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions or non-assignable role', schema: errorSchema },
+    { status: 409, description: 'Invitation cannot be replaced', schema: errorSchema },
     { status: 429, description: 'Too many invitation requests', schema: rateLimitErrorSchema },
     { status: 502, description: 'Invitation email could not be sent', schema: errorSchema },
   ],
