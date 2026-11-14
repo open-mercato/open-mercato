@@ -1,0 +1,24 @@
+{
+  "testedSha": "4ef1b46470bbead957d09e68a86b4289eb678cc3",
+  "sourceStatus": "",
+  "closedPorts": {
+    "38701": true,
+    "33278": true
+  },
+  "ownContainer": "8ec68b27f716",
+  "ownerPids": {
+    "484196": {
+      "alive": false
+    },
+    "484249": {
+      "alive": false
+    },
+    "489106": {
+      "alive": false
+    },
+    "489112": {
+      "alive": false
+    }
+  },
+  "containerAbsent": true
+}
