@@ -1,0 +1,107 @@
+---
+title: AI category suggestions
+description: Let a decision model suggest catalog categories for products, review or auto-apply them, and understand what data is sent, what it costs, and when it is unavailable.
+sidebar_label: AI category suggestions
+---
+
+AI category suggestions propose a category for a product by reading its data and walking your organization's category tree one level at a time. A person accepts or rejects each suggestion, unless you opt in to auto-apply.
+
+## Availability: two gates
+
+The feature is usable only when both gates are open.
+
+1. **Platform gate.** A decision model must be configured through environment variables: `OM_DECISION_PROVIDER`, a model in `OM_DECISION_MODEL` (or `OM_DECISION_CATALOG_MODEL` for catalog only), and, for the `openrouter` provider, `OPENROUTER_API_KEY`. Your administrator or deployment owner sets these. See [Decision models](/framework/ai-assistant/decision-models) for the full list. If the gate is closed, the settings card shows why (not configured, missing model, missing credentials, unknown provider, or the AI assistant module not installed).
+2. **Tenant gate.** Turn on **Enable AI category suggestions** under **Settings → Catalog**. It is off by default, and no product data leaves the system until you turn it on.
+
+Using the feature also needs the `catalog.ai_categorization.use` permission. Administrators receive it through `catalog.*`. The default employee role does not include it, so grant it explicitly to the roles that should run suggestions. Changing the settings requires `catalog.settings.manage`.
+
+## Suggest a category for one product
+
+When the feature is available, the product page shows an **AI category suggestion** card in the category section.
+
+1. Select **Suggest category**. The result arrives inline within about 15 seconds.
+2. The card shows the suggested category, its confidence, and up to three alternatives. If nothing fits, it says no matching category was found.
+3. Select **Accept** to assign the category, or **Reject** to dismiss the suggestion. **Use parent instead** accepts the parent of the suggested category.
+4. Accepting follows these rules. A product with no category gets the suggestion as its only category. A product that already has categories gets the suggestion **appended** after the existing ones. Tick **Make it the main category** to put it first instead.
+
+Save or discard unsaved category edits on the form before accepting.
+
+An accepted suggestion is recorded in the action log, so you can undo it from there. Undo restores the product's previous categories and returns the suggestion to pending.
+
+## Suggest categories in bulk
+
+On **Catalog → Products & services**, use the bulk actions to suggest categories for the selected products, or for all products matching the current filters.
+
+- A run handles at most **1000 products**. Narrow the selection or filters if you exceed it.
+- The run is a background job. Follow it in the progress indicator in the top bar, where you can also cancel it. Cancelling stops before the next product; suggestions already created are kept.
+- Products are processed one after another by default. Operators can raise the worker concurrency with `CATALOG_AI_CATEGORIZE_CONCURRENCY`.
+
+## Review page
+
+**Catalog → AI category suggestions** lists suggestions across the catalog. It appears only when the feature is available for your tenant and you hold the permission.
+
+- Filter by status (pending, accepted, rejected, auto-applied, superseded) and by minimum confidence.
+- Each row shows the product, suggested category, confidence, model, and what triggered it (manual, bulk run, or product create).
+- Select rows to **Accept selected** or **Reject selected**. A summary reports how many succeeded, failed, or were skipped.
+
+## Apply mode and threshold
+
+| Mode | Behavior |
+|------|----------|
+| **Suggest and review** (default) | Every suggestion waits for a person to accept or reject it. |
+| **Auto-apply confident suggestions** | A suggestion is applied without review when its confidence reaches the threshold. |
+
+Auto-apply is deliberately narrow:
+
+- It applies only to runs a person started: a single-product suggestion or a bulk run. It never applies suggestions created on product create.
+- It applies only to products that have **no category** at the time.
+- It applies only when confidence is at or above the threshold. The threshold is between 0.50 and 0.99, and the default is 0.85. This default is provisional and may change after calibration on real data.
+- Confidence is the joint probability along the whole category path, so it drops with depth. Deep categories rarely reach a high threshold.
+- Auto-applied changes are recorded in the action log and can be undone from there.
+
+Anything that fails or falls below the threshold stays as a pending suggestion.
+
+## Suggestions for new products
+
+Turn on **Suggest categories for new products** to get one suggestion for each new product that has no category. This costs one categorization run per product, including products created by bulk create or by an Akeneo import. These suggestions are **never** applied automatically, whatever the apply mode. They appear on the review page as pending. If the feature is switched off or the product gains a category before the job runs, it is skipped.
+
+## What data is sent
+
+To classify one product, the following is sent to the configured decision model provider:
+
+- Title, subtitle, description (trimmed to 4000 characters), SKU, and product type.
+- Tag labels.
+- Option names and option values.
+- Custom field values that are not encrypted (up to 50 fields, long text trimmed to 500 characters).
+- The names, paths, and ids of the categories in the product's own organization.
+
+These are never sent: custom fields marked encrypted, product columns covered by the tenant's encryption map, and categories from other organizations. Prices, stock, customer data, and attachments are not part of the request either.
+
+## Cost and limits
+
+Each category level is one question to the model.
+
+- A level with up to 63 child categories takes one request.
+- A level with 64 to 504 children takes two requests: the children are split into chunks, then the chunk winners compete.
+- A level with more than 504 children is not attempted and the product gets no suggestion.
+- The walk descends at most 6 levels and stops early when the model is not confident enough to go deeper, or picks "specific enough" for the current level.
+
+A typical product in a shallow tree costs two or three requests. The worst case is 12. Multiply by the number of products to estimate a bulk run. The bulk confirmation dialog states the minimum number of requests before you start.
+
+A single suggestion has a 15 second budget, with each model call limited to 5 seconds. A slow provider shows as a timeout.
+
+## Failures in bulk runs
+
+- A product whose request is too large is retried once without its description and custom fields.
+- A rate-limited request waits two seconds and is retried once.
+- If the provider reports insufficient credits or rejects the credentials, the whole run stops and is marked failed. Fix the provider account and start again.
+- Any other error is recorded for that product and the run continues. The job result lists up to 50 failed products with an error code.
+- If the feature is switched off mid-run, the run stops after the current product.
+
+## Akeneo and other external masters
+
+An Akeneo re-sync sends the full category list for each product and **replaces** its categories, including any you applied through an accepted or auto-applied suggestion. If Akeneo is the master for your categories, do not expect AI-accepted categories to survive a re-sync. Products imported from Akeneo are not excluded from bulk or on-create suggestions. See [Akeneo PIM](/user-guide/akeneo-pim).
+
+## Testing
+
+Integration tests must not call a real provider. Run them on a non-production runner with `OM_DECISION_PROVIDER=fixture` and `OM_DECISION_FIXTURE_ENABLED=1`. The fixture adapter is refused in production. See [Testing with the fixture adapter](/framework/ai-assistant/decision-models#testing-with-the-fixture-adapter).

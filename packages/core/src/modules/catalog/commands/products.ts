@@ -878,7 +878,10 @@ async function syncOffers(
   }
 }
 
-async function syncCategoryAssignments(
+// Exported for catalog.category_suggestions.accept (commands/categorySuggestions.ts),
+// which writes the category-only D5 merge through the same assignment-writing
+// core used by product create/update/undo. Pure extraction: no behavior change.
+export async function syncCategoryAssignments(
   em: EntityManager,
   product: CatalogProduct,
   categoryIds: string[] | undefined,
