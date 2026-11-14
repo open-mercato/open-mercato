@@ -39,6 +39,8 @@ export type WorkInboxEntityBinding = {
   entityType: string
   entityId: string
   label?: string | null
+  /** Same-origin record detail path, when the record type has one. */
+  href?: string | null
 }
 
 /**

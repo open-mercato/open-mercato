@@ -15,6 +15,7 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { UserTask } from '../../../data/entities'
 import { serializeUserTask } from '../serialize'
 import { loadTaskDecisionContext } from '../../../lib/task-decision-context'
+import { withEntityRecordHrefs } from '../../../lib/work-inbox/entity-links'
 import {
   workflowsTag,
   userTaskDetailResponseSchema,
@@ -108,9 +109,12 @@ export async function GET(
     // an administrator, and what lets it name the remedy (reassignment) instead.
     const affordances = resolveTaskAffordancesForRequest(visibility, task, decision)
 
+    const serialized = serializeUserTask(task)
+
     return NextResponse.json({
       data: {
-        ...serializeUserTask(task),
+        ...serialized,
+        entityBindings: withEntityRecordHrefs(serialized.entityBindings),
         stepId,
         decisions,
         formKey,
