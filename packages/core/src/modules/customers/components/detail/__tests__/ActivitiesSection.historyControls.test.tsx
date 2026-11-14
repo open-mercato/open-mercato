@@ -12,6 +12,10 @@ import { ActivityLogTab } from '../ActivityLogTab'
 import type { InteractionSummary } from '../types'
 
 const mockT = (key: string, fallback?: string) => fallback ?? key
+jest.mock('../hooks/useCanManageInteractions', () => ({
+  useCanManageInteractions: () => true,
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockT,
 }))
@@ -266,7 +270,7 @@ describe('history search', () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)) })
 
     expect(canonicalRequests().some((params) => params.has('search'))).toBe(false)
-    expect(canonicalRequests().every((params) => params.get('sortField') === 'occurredAt')).toBe(true)
+    expect(canonicalRequests().every((params) => params.get('sortField') === 'activityDate')).toBe(true)
     expect(screen.queryByRole('combobox', { name: 'Sort order' })).toBeNull()
   })
 })
@@ -341,7 +345,7 @@ describe('history sort', () => {
     serveTitlesOverTwoPages(pages)
     render(<ActivitiesSection {...sectionProps} serverHistoryControls />)
     await screen.findByText('Newest row')
-    expect(canonicalRequests()[0]?.get('sortField')).toBe('occurredAt')
+    expect(canonicalRequests()[0]?.get('sortField')).toBe('activityDate')
     expect(canonicalRequests()[0]?.get('sortDir')).toBe('desc')
 
     fireEvent.click(screen.getByRole('option', { name: option }))
@@ -375,7 +379,7 @@ describe('history sort', () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
     expect(canonicalRequests().length).toBeGreaterThan(0)
     expect(canonicalRequests().every((params) => (
-      params.get('sortField') === 'occurredAt' && params.get('sortDir') === 'desc' && !params.has('cursor')
+      params.get('sortField') === 'activityDate' && params.get('sortDir') === 'desc' && !params.has('cursor')
     ))).toBe(true)
   })
 })

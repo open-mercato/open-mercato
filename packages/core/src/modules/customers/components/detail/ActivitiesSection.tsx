@@ -3,7 +3,9 @@
 import * as React from 'react'
 import { Clock, Search } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
@@ -47,6 +49,8 @@ export type ActivitiesSectionProps = {
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
   onEditActivity?: (activity: InteractionSummary) => void
+  /** Hides the row write actions for a user who cannot manage interactions. */
+  readOnly?: boolean
   /** Interaction type hidden from the timeline by default ('task' unless overridden); pass null to show every type. */
   excludeInteractionType?: string | null
   /** Sends the search term and a sort choice to the interactions API, shows the sort control and surfaces failed interaction loads as an error with retry. Callers that omit it keep the local filter over loaded rows. */
@@ -168,6 +172,7 @@ export function ActivitiesSection({
   onDataRefresh,
   refreshKey = 0,
   onEditActivity,
+  readOnly = false,
   runGuardedMutation,
   excludeInteractionType = 'task',
   serverHistoryControls = false,
@@ -244,7 +249,7 @@ export function ActivitiesSection({
       const canonicalParams = new URLSearchParams({
         entityId,
         limit: '50',
-        sortField: sortMode === 'recent' ? 'occurredAt' : 'title',
+        sortField: sortMode === 'recent' ? 'activityDate' : 'title',
         sortDir: sortMode === 'title-asc' ? 'asc' : 'desc',
       })
       // Hide the configured type (tasks by default — they have their own tab)
@@ -368,14 +373,16 @@ export function ActivitiesSection({
     setLoadedPages(1)
   }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, useCanonicalInteractions])
 
-  const handleMarkDone = React.useCallback(async (activityId: string) => {
+  const handleMarkDone = React.useCallback(async (activityId: string, updatedAt?: string | null) => {
     try {
       const operation = () =>
-        apiCallOrThrow('/api/customers/interactions/complete', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: activityId, occurredAt: new Date().toISOString() }),
-        })
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(updatedAt ?? null), () =>
+          apiCallOrThrow('/api/customers/interactions/complete', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: activityId, occurredAt: new Date().toISOString() }),
+          }),
+        )
       if (runGuardedMutation) {
         await runGuardedMutation(operation, {
           id: activityId,
@@ -388,9 +395,12 @@ export function ActivitiesSection({
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       await loadActivities()
     } catch (err) {
-      logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
-      flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
-      return
+      if (!surfaceRecordConflict(err, t)) {
+        logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
+        flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
+        return
+      }
+      await loadActivities()
     }
     try {
       await Promise.resolve(onDataRefresh?.())
@@ -537,8 +547,8 @@ export function ActivitiesSection({
           <ActivityTimeline
             activities={visibleActivities}
             onEdit={onEditActivity}
-            onMarkDone={handleMarkDone}
-            onDelete={deleteActivity}
+            onMarkDone={readOnly ? undefined : handleMarkDone}
+            onDelete={readOnly ? undefined : deleteActivity}
           />
           {totalCount > 0 || hasMore ? (
             <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
