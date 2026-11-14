@@ -47,11 +47,11 @@ PR: #9530
 
 ### Phase 1: Establish evidence
 
-- [x] 1.1 Independently audit current main workflow results and full-suite selection; investigate any demonstrated failure.
-- [x] 1.2 Record findings and validate the focused stabilization branch changes.
+- [x] 1.1 Independently audit current main workflow results and full-suite selection; investigate any demonstrated failure. — 50d9fa21f9
+- [x] 1.2 Record findings and validate the focused stabilization branch changes. — 50d9fa21f9
 
 ### Phase 2: Verify and review
 
-- [ ] 2.1 Run this draft PR's full 15-shard suite and repair any demonstrated root cause, with regression coverage.
-- [ ] 2.2 Dispatch one final independent review task after implementation; address findings and obtain approval before merging any reviewed child changes.
+- [x] 2.1 Run this draft PR's full 15-shard suite and repair any demonstrated root cause, with regression coverage.
+- [x] 2.2 Dispatch one final independent review task after implementation; address findings and obtain approval before merging any reviewed child changes.
 - [ ] 2.3 Record final evidence, finish the PR, and apply `automerge` only when current-head checks and workflows are green.
