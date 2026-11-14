@@ -126,6 +126,7 @@ const personFirstNameSchema = z.string().trim().min(1).max(120)
 const personLastNameSchema = z.string().trim().min(1).max(120)
 
 export const COMPANY_TAX_ID_MAX_LENGTH = 64
+export const COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY = 'customers.companies.form.taxId.tooLong'
 
 const companyDetailsSchema = {
   // Nullable so blanked values on edit clear the columns instead of being dropped. See #3050.

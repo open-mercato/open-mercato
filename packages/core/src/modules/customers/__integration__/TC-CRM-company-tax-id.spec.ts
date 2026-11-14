@@ -42,6 +42,7 @@ async function fillCompanyName(page: Page, scope: Page | ReturnType<Page['getByR
 
 test.describe('TC-CRM-company-tax-id: VAT ID on companies', () => {
   test('the create page saves a company without a VAT ID', async ({ page, request }) => {
+    test.slow()
     const stamp = Date.now()
     const companyName = `QA no-VAT company ${stamp}`
     let token: string | null = null

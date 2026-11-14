@@ -62,6 +62,7 @@ import {
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import {
   COMPANY_TAX_ID_MAX_LENGTH,
+  COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY,
   CUSTOMER_EMAIL_INVALID_MESSAGE_KEY,
   CUSTOMER_PHONE_INVALID_MESSAGE_KEY,
   CUSTOMER_URL_INVALID_MESSAGE_KEY,
@@ -1327,6 +1328,7 @@ export const createCompanyFormSchema = () =>
       taxId: z
         .string()
         .trim()
+        .max(COMPANY_TAX_ID_MAX_LENGTH, COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY)
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -1401,7 +1403,6 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
       type: 'text',
       layout: 'half',
       required: options?.requireTaxId ?? false,
-      maxLength: COMPANY_TAX_ID_MAX_LENGTH,
       placeholder: t('customers.companies.detail.fields.taxIdPlaceholder', 'e.g. PL1234567890'),
     },
     {
@@ -1713,10 +1714,8 @@ const clearableDomainField = () =>
 // Plain optional string fields that map to nullable columns (legal name, brand name,
 // company size, annual revenue, description). On edit a blanked value must transmit null
 // so it actually clears — create-mode keeps the '' → undefined transform. See #3050.
-const clearableTextField = () =>
-  z
-    .string()
-    .trim()
+const clearableTextField = (limit?: { maxLength: number; tooLongMessage: string }) =>
+  (limit ? z.string().trim().max(limit.maxLength, limit.tooLongMessage) : z.string().trim())
     .optional()
     .or(z.literal(''))
     .transform((val) => (val === '' ? null : val))
@@ -1744,7 +1743,7 @@ export const createCompanyEditSchema = () =>
     brandName: clearableTextField(),
     sizeBucket: clearableTextField(),
     annualRevenue: clearableTextField(),
-    taxId: clearableTextField(),
+    taxId: clearableTextField({ maxLength: COMPANY_TAX_ID_MAX_LENGTH, tooLongMessage: COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY }),
     description: clearableTextField(),
   })
 

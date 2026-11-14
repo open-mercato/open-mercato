@@ -794,6 +794,7 @@
   "customers.companies.form.status.placeholder": "Selecciona un estado",
   "customers.companies.form.submit": "Crear empresa",
   "customers.companies.form.success": "Empresa creada",
+  "customers.companies.form.taxId.tooLong": "El NIF / IVA es demasiado largo (máx. 64 caracteres)",
   "customers.companies.form.updateSuccess": "Empresa actualizada.",
   "customers.companies.list.actions.bulkDelete": "Eliminar seleccionados",
   "customers.companies.list.actions.delete": "Eliminar",
