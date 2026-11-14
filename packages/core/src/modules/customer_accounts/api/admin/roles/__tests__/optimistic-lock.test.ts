@@ -75,6 +75,42 @@ describe('customer_accounts admin role optimistic locking', () => {
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })
 
+  it('GET exposes the creation timestamp as the version of a legacy unedited role', async () => {
+    mockEm.findOne.mockResolvedValueOnce({
+      id: ROLE_ID,
+      name: 'Legacy reviewer',
+      slug: 'legacy-reviewer',
+      createdAt: new Date(CURRENT_VERSION),
+      updatedAt: null,
+    }).mockResolvedValueOnce(null)
+
+    const response = await GET(request('GET', null), params)
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).updatedAt).toBe(CURRENT_VERSION)
+  })
+
+  it.each([
+    ['PUT', () => PUT(request('PUT', STALE_VERSION, { name: 'Stale rename' }), params)],
+    ['DELETE', () => DELETE(request('DELETE', STALE_VERSION), params)],
+  ])('%s rejects a stale creation-time version before the first edit', async (_method, invoke) => {
+    mockEm.findOne.mockResolvedValue({
+      id: ROLE_ID,
+      name: 'Legacy reviewer',
+      slug: 'legacy-reviewer',
+      isDefault: false,
+      isSystem: false,
+      createdAt: new Date(CURRENT_VERSION),
+      updatedAt: null,
+    })
+
+    const response = await invoke()
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).code).toBe('optimistic_lock_conflict')
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
   it('PUT succeeds and bumps updated_at when the expected version matches', async () => {
     const res = await PUT(request('PUT', CURRENT_VERSION, { name: 'Renamed' }), params)
     expect(res.status).toBe(200)
