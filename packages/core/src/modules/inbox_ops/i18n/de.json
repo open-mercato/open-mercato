@@ -44,6 +44,7 @@
   "inbox_ops.attachments.reason.partition_unavailable": "Der Anhangspeicher ist nicht verfügbar",
   "inbox_ops.attachments.reason.processing_failed": "Die Datei konnte nicht verarbeitet werden",
   "inbox_ops.attachments.reason.quota_exceeded": "Das Speicherkontingent für Anhänge ist ausgeschöpft",
+  "inbox_ops.attachments.reason.scan_rejected": "Der Sicherheitsscanner für Anhänge hat diese Datei abgelehnt",
   "inbox_ops.attachments.reason.store_failed": "Die Datei konnte nicht gespeichert werden",
   "inbox_ops.attachments.reason.too_large": "Die Datei ist zu groß",
   "inbox_ops.attachments.reason.too_many": "Diese E-Mail hat zu viele Anhänge",

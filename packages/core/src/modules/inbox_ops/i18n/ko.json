@@ -44,6 +44,7 @@
   "inbox_ops.attachments.reason.partition_unavailable": "첨부 파일 저장소를 사용할 수 없습니다",
   "inbox_ops.attachments.reason.processing_failed": "파일을 처리하지 못했습니다",
   "inbox_ops.attachments.reason.quota_exceeded": "첨부 파일 저장 용량을 모두 사용했습니다",
+  "inbox_ops.attachments.reason.scan_rejected": "첨부 파일 보안 스캐너가 이 파일을 거부했습니다",
   "inbox_ops.attachments.reason.store_failed": "파일을 저장하지 못했습니다",
   "inbox_ops.attachments.reason.too_large": "파일이 너무 큽니다",
   "inbox_ops.attachments.reason.too_many": "이 이메일의 첨부 파일이 너무 많습니다",

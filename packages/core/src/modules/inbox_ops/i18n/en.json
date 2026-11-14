@@ -44,6 +44,7 @@
   "inbox_ops.attachments.reason.partition_unavailable": "The attachment storage is unavailable",
   "inbox_ops.attachments.reason.processing_failed": "The file could not be processed",
   "inbox_ops.attachments.reason.quota_exceeded": "The attachment storage quota is exhausted",
+  "inbox_ops.attachments.reason.scan_rejected": "The attachment security scanner refused this file",
   "inbox_ops.attachments.reason.store_failed": "The file could not be stored",
   "inbox_ops.attachments.reason.too_large": "The file is too large",
   "inbox_ops.attachments.reason.too_many": "Too many attachments in this email",

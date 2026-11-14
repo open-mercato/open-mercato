@@ -140,7 +140,7 @@ Takeaway: the behavioral fork is "does this Resend email carry non-decorative at
 **Shared rules**
 - **Decoration rule** (applied by the webhook when it writes the ledger): a part with `content_disposition = inline`, a `content_id`, and `size` below `INBOX_OPS_INLINE_IMAGE_MIN_BYTES` (16 KiB) is decorative. A null `content_disposition` counts as `attachment`. A larger inline image, such as a pasted photo, is kept.
 - **Part key**: `resend:<attachment id>`.
-- **Status per reason**: `skipped` for policy outcomes (`inline_decoration`, `too_many`, `too_large`, `total_too_large`, `dangerous_executable`, `active_content`, `unguarded_reader`); `failed` for errors (`quota_exceeded`, `partition_unavailable`, `fetch_failed`, `store_failed`, `processing_failed`, `ingest_timeout`); `released` after email deletion.
+- **Status per reason**: `skipped` for policy outcomes (`inline_decoration`, `too_many`, `too_large`, `total_too_large`, `dangerous_executable`, `active_content`, `scan_rejected`, `unguarded_reader`); `failed` for errors (`quota_exceeded`, `partition_unavailable`, `fetch_failed`, `store_failed`, `processing_failed`, `ingest_timeout`); `released` after email deletion.
 - **File names**: a missing name becomes `attachment-<n>` with an extension from the content type. The ledger keeps the original (encrypted) name for display; the stored attachment and its download use the attachments module's ASCII-sanitized name (`sanitizeUploadedFileName`).
 - **Forwarded-as-attachment messages**: a nested `message/rfc822` part is stored as one `.eml` file and contributes a metadata-only line to extraction; unpacking it belongs to the raw MIME follow-up.
 
@@ -212,7 +212,7 @@ A failed enqueue therefore changes nothing: the previous job stays current, so a
   - It marks the part (`nativeUpdate … set status = 'stored', attachment_id = :id, extracted_text = :text where id = :rowId and status <> 'stored'`). The text is truncated to `INBOX_OPS_MAX_ATTACHMENT_TEXT_CHARS_PER_FILE` and encrypted with `tenantDataEncryptionService.encryptEntityPayload` before the update, because the encryption subscriber does not see `nativeUpdate`. On 0 rows it throws `CrudHttpError(409, { code: 'inbox_part_already_stored' })`.
 
   Either throw rolls the Attachment insert and its quota reservation back and propagates unchanged (`scoped-upload-service.ts` rethrows `CrudHttpError` from `persistLink`). The caller treats `inbox_part_already_stored` as stored and `inbox_claim_lost` as an abort.
-- Maps upload error codes: `quota_exceeded`, `dangerous_executable`, `active_content`, `max_upload_size` → `too_large`, `partition_unavailable`, `quota_target_exists`/`quota_recovery_unsupported` → `store_failed`; `quota_unavailable`, `storage_failed`, `persistence_failed` and errors without a code (for example the 500 when the upload service is unavailable) → transient.
+- Maps upload error codes: `quota_exceeded`, `dangerous_executable`, `active_content`, `max_upload_size` → `too_large`, `scan_rejected` (the attachment security scanner rejected or quarantined the file), `partition_unavailable`, `quota_target_exists`/`quota_recovery_unsupported` → `store_failed`; `quota_unavailable`, `storage_failed`, `persistence_failed`, `scan_unavailable` and errors without a code (for example the 500 when the upload service is unavailable) → transient.
 
 **Release on deletion (`api/emails/[id]/route.ts` DELETE)**
 - The soft delete, `attachments_release_requested_at = now()` (on every deletion, whatever the attachment status, so rows planted under any email are covered) and the invalidation of the claim (`attachments_claim_token = null`, and `attachments_status = 'completed'` only when it was not `null`) are one update on the email row. That row lock serializes with `persistLink`'s claim renewal: a part committed before the delete is listed and released, and a part attempted after it fails `inbox_claim_lost` and rolls back.
@@ -723,6 +723,9 @@ Ready for implementation after #7989 (`2026-11-03-attachment-direct-reader-owner
 - Metadata entries with a valid id are kept even when other fields are malformed; an email whose parts were all skipped at the webhook is completed and emitted at once without an ingest job.
 - Prompt budgets count the emitted form: attribute values are clipped after escaping, text after neutralizing, and the tag lines of text blocks count against the total budget. Source-ref file-name fallback compares against the name as the prompt rendered it.
 - The D19 test opt-out also requires a `re_stub_` `RESEND_API_KEY`.
+
+### 2026-11-14
+- An upload refused by the attachment security scanner (`scan_rejected`) is recorded as `skipped` with reason `scan_rejected`; a scanner that is unavailable (`scan_unavailable`) is retried like other transient errors.
 
 ## Implementation Status
 

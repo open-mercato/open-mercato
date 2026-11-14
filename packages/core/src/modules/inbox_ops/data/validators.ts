@@ -392,6 +392,7 @@ export const inboxEmailAttachmentReasonSchema = z.enum([
   'total_too_large',
   'dangerous_executable',
   'active_content',
+  'scan_rejected',
   'unguarded_reader',
   'quota_exceeded',
   'partition_unavailable',

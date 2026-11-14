@@ -352,6 +352,7 @@ describe('classifyInboundUploadError', () => {
     ['dangerous_executable', { kind: 'skipped', reason: 'dangerous_executable' }],
     ['active_content', { kind: 'skipped', reason: 'active_content' }],
     ['max_upload_size', { kind: 'skipped', reason: 'too_large' }],
+    ['scan_rejected', { kind: 'skipped', reason: 'scan_rejected' }],
     ['quota_exceeded', { kind: 'failed', reason: 'quota_exceeded' }],
     ['partition_unavailable', { kind: 'failed', reason: 'partition_unavailable' }],
     ['quota_target_exists', { kind: 'failed', reason: 'store_failed' }],
@@ -359,6 +360,7 @@ describe('classifyInboundUploadError', () => {
     ['quota_unavailable', { kind: 'transient', code: 'quota_unavailable' }],
     ['storage_failed', { kind: 'transient', code: 'storage_failed' }],
     ['persistence_failed', { kind: 'transient', code: 'persistence_failed' }],
+    ['scan_unavailable', { kind: 'transient', code: 'scan_unavailable' }],
     ['inbox_claim_lost', { kind: 'aborted', code: 'inbox_claim_lost' }],
     ['inbox_part_already_stored', { kind: 'already_stored' }],
   ])('maps %s', (code, expected) => {

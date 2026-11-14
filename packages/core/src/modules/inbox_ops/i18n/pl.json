@@ -44,6 +44,7 @@
   "inbox_ops.attachments.reason.partition_unavailable": "Magazyn załączników jest niedostępny",
   "inbox_ops.attachments.reason.processing_failed": "Nie udało się przetworzyć pliku",
   "inbox_ops.attachments.reason.quota_exceeded": "Limit miejsca na załączniki został wyczerpany",
+  "inbox_ops.attachments.reason.scan_rejected": "Skaner bezpieczeństwa załączników odrzucił ten plik",
   "inbox_ops.attachments.reason.store_failed": "Nie udało się zapisać pliku",
   "inbox_ops.attachments.reason.too_large": "Plik jest za duży",
   "inbox_ops.attachments.reason.too_many": "Ta wiadomość ma zbyt wiele załączników",

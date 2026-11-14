@@ -44,6 +44,7 @@
   "inbox_ops.attachments.reason.partition_unavailable": "El almacenamiento de archivos adjuntos no está disponible",
   "inbox_ops.attachments.reason.processing_failed": "No se pudo procesar el archivo",
   "inbox_ops.attachments.reason.quota_exceeded": "Se agotó la cuota de almacenamiento de archivos adjuntos",
+  "inbox_ops.attachments.reason.scan_rejected": "El escáner de seguridad de archivos adjuntos rechazó este archivo",
   "inbox_ops.attachments.reason.store_failed": "No se pudo guardar el archivo",
   "inbox_ops.attachments.reason.too_large": "El archivo es demasiado grande",
   "inbox_ops.attachments.reason.too_many": "Este correo tiene demasiados archivos adjuntos",

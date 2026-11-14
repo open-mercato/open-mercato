@@ -256,7 +256,7 @@ export function truncateInboundAttachmentText(text: string | null | undefined, m
   return truncated.length > 0 ? truncated : null
 }
 
-export type InboundUploadSkipReason = Extract<InboxEmailAttachmentReason, 'dangerous_executable' | 'active_content' | 'too_large'>
+export type InboundUploadSkipReason = Extract<InboxEmailAttachmentReason, 'dangerous_executable' | 'active_content' | 'scan_rejected' | 'too_large'>
 export type InboundUploadFailureReason = Extract<InboxEmailAttachmentReason, 'quota_exceeded' | 'partition_unavailable' | 'store_failed'>
 
 export type InboundUploadErrorClassification =
@@ -270,6 +270,7 @@ const CLASSIFIED_UPLOAD_ERRORS: Readonly<Record<string, Exclude<InboundUploadErr
   dangerous_executable: { kind: 'skipped', reason: 'dangerous_executable' },
   active_content: { kind: 'skipped', reason: 'active_content' },
   max_upload_size: { kind: 'skipped', reason: 'too_large' },
+  scan_rejected: { kind: 'skipped', reason: 'scan_rejected' },
   quota_exceeded: { kind: 'failed', reason: 'quota_exceeded' },
   partition_unavailable: { kind: 'failed', reason: 'partition_unavailable' },
   quota_target_exists: { kind: 'failed', reason: 'store_failed' },
@@ -292,8 +293,9 @@ function readErrorCode(error: unknown): string | null {
 }
 
 /**
- * Maps a `createScoped` failure: policy codes become `skipped`, operator-visible errors
- * `failed`, and `quota_unavailable`, `storage_failed`, `persistence_failed`, unknown codes and
+ * Maps a `createScoped` failure: policy codes (including a `scan_rejected` verdict of the
+ * attachment security scanner) become `skipped`, operator-visible errors `failed`, and
+ * `quota_unavailable`, `storage_failed`, `persistence_failed`, `scan_unavailable`, unknown codes and
  * errors without a code (for example the 500 when the upload service is unavailable) transient.
  * An invalid attachments access registry is transient with its own code
  * ({@link INBOUND_UPLOAD_ACCESS_REGISTRY_INVALID_CODE}), which {@link persistInboundPart} reports.
