@@ -1,0 +1,1066 @@
+<!doctype html>
+<html lang="en" data-prototype-id="per-tenant-branding">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Per-tenant branding — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+
+<style>
+/* Prototype-local layout. Brand colours come only from CSS variables set by the prototype script. */
+.brand-layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1100px) { .brand-layout { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } .preview-col { position: sticky; top: 1rem; } }
+.swatch { width: 2.25rem; height: 2.25rem; padding: 0; border: 1px solid var(--input); border-radius: var(--radius-md); background: var(--background); cursor: pointer; flex: none; }
+.logo-drop { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; border: 1px dashed var(--border); border-radius: var(--radius-lg); }
+.logo-drop.on-dark { background: var(--foreground); color: var(--background); }
+.logo-drop.on-dark .t-hint { color: var(--muted); }
+.logo-thumb, .pv-logo, .tb-mark { width: 2.5rem; height: 2.5rem; border-radius: var(--radius-md); background: var(--primary); color: var(--primary-foreground); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem; overflow: hidden; flex: none; }
+.logo-thumb img, .pv-logo img, .tb-mark img, .big-logo img { width: 100%; height: 100%; object-fit: contain; }
+.kbd { margin-left: 0.25rem; opacity: 0.8; }
+.segmented svg { width: 0.875rem; height: 0.875rem; flex: none; }
+.segmented > button { display: inline-flex; align-items: center; gap: 0.25rem; }
+.logo-drop.on-dark .btn { color: var(--foreground); }
+.pv { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--background); color: var(--foreground); min-height: 17rem; }
+.pv > div { display: none; }
+.pv[data-surface-current="login"] .pv-login, .pv[data-surface-current="backend"] .pv-backend, .pv[data-surface-current="portal"] .pv-portal { display: flex; }
+.pv-login { align-items: center; justify-content: center; padding: 1.5rem; min-height: 17rem; background: var(--muted); }
+.pv-card { width: 14rem; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+.pv-title { font-weight: 600; font-size: 0.9375rem; }
+.pv-input { width: 100%; height: 1.75rem; border: 1px solid var(--input); border-radius: var(--radius-md); background: var(--background); }
+.pv-btn { background: var(--primary); color: var(--primary-foreground); border-radius: var(--radius-md); font-size: 0.8125rem; font-weight: 500; padding: 0.375rem 0.75rem; width: 100%; text-align: center; }
+.pv-btn.sm { width: auto; }
+.pv-link { color: var(--primary); font-size: 0.75rem; text-decoration: underline; }
+.pv-backend { min-height: 17rem; }
+.pv-side { width: 8.5rem; border-right: 1px solid var(--border); padding: 0.75rem 0.5rem; display: flex; flex-direction: column; gap: 0.375rem; background: var(--sidebar); }
+.pv-logo.sm { width: 1.5rem; height: 1.5rem; font-size: 0.625rem; }
+.pv-name { font-size: 0.75rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-nav { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); color: var(--muted-foreground); }
+.pv-nav.active { background: var(--muted); color: var(--foreground); box-shadow: inset 2px 0 0 var(--primary); }
+.pv-main { flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.pv-tabs { display: flex; gap: 0.75rem; font-size: 0.75rem; border-bottom: 1px solid var(--border); }
+.pv-tabs span { padding-bottom: 0.25rem; color: var(--muted-foreground); }
+.pv-tabs .on { color: var(--foreground); box-shadow: inset 0 -2px 0 var(--primary); }
+.pv-row { height: 1.75rem; border-radius: var(--radius-sm); background: var(--muted); }
+.pv-accent { background: var(--brand-violet); color: var(--brand-violet-foreground); border-radius: 9999px; font-size: 0.6875rem; font-weight: 600; padding: 0.125rem 0.5rem; }
+.pv-portal { flex-direction: column; min-height: 17rem; }
+.pv-head { display: flex; align-items: center; justify-content: space-between; padding: 0.625rem 0.75rem; border-bottom: 1px solid var(--border); }
+.pv-hero { flex: 1; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0.75rem; padding: 1.25rem; background: color-mix(in srgb, var(--brand-violet) 12%, var(--background)); }
+.pv-h { font-size: 1.125rem; font-weight: 600; }
+/* Full-page shells */
+.login-page { min-height: 34rem; display: flex; align-items: center; justify-content: center; background: var(--muted); padding: 2rem; }
+.login-card { width: 24rem; max-width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 2rem; display: flex; flex-direction: column; gap: 1rem; box-shadow: var(--shadow-sm); }
+.big-logo { width: 9rem; height: 3rem; margin: 0 auto; border-radius: var(--radius-md); background: var(--primary); color: var(--primary-foreground); display: flex; align-items: center; justify-content: center; font-weight: 700; overflow: hidden; }
+.login-card h3 { text-align: center; margin: 0; font-size: 1.5rem; font-weight: 600; }
+.portal-shell { min-height: 32rem; display: flex; flex-direction: column; background: var(--background); color: var(--foreground); }
+.portal-head { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); }
+.portal-hero { padding: 2.5rem 1.5rem; background: color-mix(in srgb, var(--brand-violet) 12%, var(--background)); display: flex; flex-direction: column; gap: 1rem; align-items: flex-start; }
+.portal-body { padding: 1.5rem; display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+.link-primary { color: var(--primary); text-decoration: underline; }
+.code-block { font-family: var(--font-geist-mono); font-size: 0.75rem; background: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.75rem; white-space: pre-wrap; overflow-x: auto; }
+.mode-pair { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1024px) { .mode-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+
+<symbol id="ic-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></symbol>
+<symbol id="ic-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></symbol>
+<symbol id="ic-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+<symbol id="ic-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="ic-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+<symbol id="ic-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></symbol>
+<symbol id="ic-cart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Per-tenant branding — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens"><a href="#s1">1 First run</a><a href="#s2">2 Editor</a><a href="#s3">3 Contrast fail</a><a href="#s4">4 Reset</a><a href="#s5">5 Saved / 409</a><a href="#s6">6 Read-only</a><a href="#s7">7 Login</a><a href="#s8">8 Backend</a><a href="#s9">9 Portal</a><a href="#s10">10 Fallback</a></nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button"><svg><use href="#ic-sun"/></svg> Theme</button>
+</div>
+
+<div class="doc">
+<header class="doc-head">
+  <h1>Per-tenant branding — screen inventory</h1>
+  <p class="muted" style="max-width:70ch;margin:0">
+    Clickable low-fidelity prototype derived from <code class="t-mono">.ai/specs/enterprise/2026-11-13-per-tenant-branding.md</code>.
+    Screens 1–6 cover the Enterprise <b>Settings → Branding</b> page, and screens 7–10 show the branded login, backend and portal shells on first paint.
+    It is fully offline: no fonts, images or scripts load from the network. Sample data is fictional.
+  </p>
+  <table class="table" style="margin-top:1rem;max-width:60rem">
+    <thead><tr><th>Screen</th><th>Covers</th></tr></thead>
+    <tbody>
+      <tr><td>1 First run</td><td>US-B1, US-B6</td></tr>
+      <tr><td>2 Editor + live preview (interactive)</td><td>US-B2 – US-B7</td></tr>
+      <tr><td>3 Contrast failure</td><td>US-B4, 422 contract</td></tr>
+      <tr><td>4 Reset dialog</td><td>US-B8</td></tr>
+      <tr><td>5 Saved toast / 409 conflict</td><td>US-B7</td></tr>
+      <tr><td>6 Read-only viewer</td><td>US-B1 (permission)</td></tr>
+      <tr><td>7 Branded login</td><td>US-B10</td></tr>
+      <tr><td>8 Branded backend light/dark</td><td>US-B9</td></tr>
+      <tr><td>9 Branded portal</td><td>US-B11</td></tr>
+      <tr><td>10 Fallback</td><td>US-B10, US-B12</td></tr>
+    </tbody>
+  </table>
+</header>
+
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Branding — first run</h2>
+    <p>A tenant admin opens Settings → Branding before anything is customised; platform defaults are shown and the preview starts empty.</p>
+    <div class="screen-refs"><span class="ref">UI/UX</span><span class="ref">US-B1</span><span class="ref">US-B6</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/branding</span></div>
+    <div class="app app-narrow ">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>System</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-settings"/></svg> General</span>
+            <a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-palette"/></svg> Branding</a>
+            <span class="nav-item"><svg><use href="#ic-shield"/></svg> Single Sign-On</span>
+          </div>
+          <div class="nav-group"><span>Auth</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Users</span>
+            <span class="nav-item"><svg><use href="#ic-lock"/></svg> Roles</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span>Settings</span><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Branding</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Branding</h1><p>Product name, logos and colours shown on the login page, backend and customer portal of this tenant.</p></div>
+            <div class="page-actions"></div>
+          </div>
+          <div class="empty">
+            <div class="empty-icon"><svg><use href="#ic-palette"/></svg></div>
+            <div class="t-card-title">Not customised yet</div>
+            <p class="t-body muted" style="max-width:48ch;margin:0">The login page, backend and customer portal show the platform name, logo and colours. Add your product name, logos and brand colours to make them yours.</p>
+            <button class="btn btn-primary" type="button" data-goto="s2"><svg><use href="#ic-palette"/></svg> Customise branding</button>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v0.9.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Sidebar entry appears only with <code class="t-mono">branding_profiles.view</code>; without it the page renders the standard access-denied message.</span></div><div class="note"><b>2</b><span>Nothing is stored until the first Save; the empty state is derived from <code class="t-mono">GET /api/branding_profiles/profile → profile: null</code>.</span></div></div>
+</section>
+
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Branding — editor with live preview</h2>
+    <p>The admin edits the name, uploads light/dark logos, picks primary and accent colours and checks contrast and the preview for each surface and mode before saving. Try typing, picking colours, uploading a local PNG and switching the preview tabs.</p>
+    <div class="screen-refs"><span class="ref">Proposed Solution</span><span class="ref">UI/UX</span><span class="ref">US-B2</span><span class="ref">US-B3</span><span class="ref">US-B4</span><span class="ref">US-B5</span><span class="ref">US-B6</span><span class="ref">US-B7</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/branding</span></div>
+    <div class="app app-taller ">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>System</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-settings"/></svg> General</span>
+            <a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-palette"/></svg> Branding</a>
+            <span class="nav-item"><svg><use href="#ic-shield"/></svg> Single Sign-On</span>
+          </div>
+          <div class="nav-group"><span>Auth</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Users</span>
+            <span class="nav-item"><svg><use href="#ic-lock"/></svg> Roles</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span>Settings</span><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Branding</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Branding</h1><p>Product name, logos and colours shown on the login page, backend and customer portal of this tenant.</p></div>
+            <div class="page-actions"><span class="badge badge-neutral">Last saved 13 Nov 2026, 09:58 by Ola Nowak</span></div>
+          </div>
+          <div class="brand-layout" data-editor="ed">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Identity</div>
+                <div class="field"><label for="ed-name">Product name</label>
+                  <input class="input" id="ed-name" data-bind="name" value="Acme Commerce" maxlength="60" placeholder="Open Mercato" />
+                  <span class="t-hint">Shown in the sidebar, login card and portal header. Leave empty to use the platform name. Max 60 characters.</span></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Logos</div>
+                <div class="desc">PNG, JPEG or WebP, up to 256 KB. Files are read in your browser and saved with the profile — no external hosting.</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Light logo</label>
+                    <div class="logo-drop on-light"><div class="logo-thumb" data-logo-thumb="light">AC</div>
+                      <div class="col grow"><span class="t-body strong">acme-wordmark.png</span><span class="t-hint">18 KB · 480 × 120</span></div>
+                      <label class="btn btn-outline btn-sm"><svg><use href="#ic-upload"/></svg> Replace<input type="file" accept="image/png,image/jpeg,image/webp" data-logo-input="light" hidden /></label></div>
+                  </div>
+                  <div class="field"><label>Dark logo <span class="t-hint">(optional)</span></label>
+                    <div class="logo-drop on-dark"><div class="logo-thumb" data-logo-thumb="dark">AC</div>
+                      <div class="col grow"><span class="t-body strong">acme-wordmark-dark.png</span><span class="t-hint">17 KB · 480 × 120</span></div>
+                      <label class="btn btn-outline btn-sm"><svg><use href="#ic-upload"/></svg> Replace<input type="file" accept="image/png,image/jpeg,image/webp" data-logo-input="dark" hidden /></label></div>
+                    <span class="field-error" data-logo-error></span>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">Colours</div>
+                <div class="desc">Text colours and dark-mode variants are derived automatically. Status colours and selection controls are never changed.</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label for="ed-primary">Primary</label>
+                    <div class="input-group"><input type="color" class="swatch" data-bind="primary" value="#0C71C6" aria-label="Primary colour picker" />
+                    <input class="input t-mono" id="ed-primary" data-bind="primaryHex" value="#0C71C6" /></div>
+                    <div class="input-group"><label class="t-hint" for="ed-pfg">Text on primary</label><select class="select" id="ed-pfg" data-bind="primaryFg"><option value="auto">Auto (best contrast)</option><option value="#FFFFFF">White</option><option value="#0A0A0A">Near-black</option></select></div>
+                    <span class="t-hint">Buttons, links, active tabs.</span></div>
+                  <div class="field"><label for="ed-accent">Accent</label>
+                    <div class="input-group"><input type="color" class="swatch" data-bind="accent" value="#7C3AED" aria-label="Accent colour picker" />
+                    <input class="input t-mono" id="ed-accent" data-bind="accentHex" value="#7C3AED" /></div>
+                    <span class="t-hint">Highlights and brand moments (maps to the brand accent token).</span></div>
+                </div>
+                
+                <div class="t-label">Contrast (WCAG 2.1)</div>
+                <div class="scroll-x"><table class="table"><thead><tr><th>Pair</th><th>Mode</th><th>Ratio</th><th>Result</th></tr></thead><tbody data-contrast="ed"></tbody></table></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Apply to</div>
+                <div class="row"><span class="check" role="checkbox" aria-checked="true" aria-disabled="true"><svg><use href="#ic-check"/></svg></span><span class="t-body">Backend <span class="t-hint">— always</span></span></div>
+                <div class="row"><button class="switch" role="switch" aria-checked="true" data-bind="applyLogin" type="button" aria-label="Apply to login page"></button><span class="t-body">Login page <span class="t-hint">— when opened with this tenant (<code class="t-mono">/login?tenant=…</code>)</span></span></div>
+                <div class="row"><button class="switch" role="switch" aria-checked="true" data-bind="applyPortal" type="button" aria-label="Apply to customer portal"></button><span class="t-body">Customer portal</span></div>
+              </div>
+              <div class="form-foot">
+                <button class="btn btn-ghost" type="button" data-goto="s4"><svg><use href="#ic-undo"/></svg> Reset to defaults</button>
+                <div class="actions">
+                  <span class="t-hint" data-dirty="ed">Unsaved changes</span>
+                  <button class="btn btn-outline" type="button">Discard</button>
+                  <button class="btn btn-primary" type="button" data-goto="s5"><svg><use href="#ic-save"/></svg> Save <span class="kbd">⌘↵</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="form-col preview-col">
+              <div class="form-group">
+                <div class="between"><div class="title">Live preview</div><span class="t-hint">Not saved yet</span></div>
+                <div class="between wrap" style="gap:0.5rem">
+                  <div class="segmented" role="tablist" aria-label="Surface">
+                    <button type="button" aria-selected="true" data-surface="login">Login</button>
+                    <button type="button" aria-selected="false" data-surface="backend">Backend</button>
+                    <button type="button" aria-selected="false" data-surface="portal">Portal</button>
+                  </div>
+                  <div class="segmented" role="tablist" aria-label="Mode">
+                    <button type="button" aria-selected="true" data-mode="light"><svg><use href="#ic-sun"/></svg> Light</button>
+                    <button type="button" aria-selected="false" data-mode="dark"><svg><use href="#ic-moon"/></svg> Dark</button>
+                  </div>
+                </div>
+                <div class="pv brand-scope" data-preview data-surface-current="login">
+                  <div class="pv-login">
+                    <div class="pv-card"><div class="pv-logo" data-pv-logo>AC</div><div class="pv-title" data-brand-name>Acme Commerce</div>
+                      <div class="pv-input"></div><div class="pv-input"></div><div class="pv-btn">Sign in</div><div class="pv-link">Forgot password?</div></div>
+                  </div>
+                  <div class="pv-backend">
+                    <div class="pv-side"><div class="row"><div class="pv-logo sm" data-pv-logo>AC</div><span class="pv-name" data-brand-name>Acme Commerce</span></div>
+                      <div class="pv-nav active">Orders</div><div class="pv-nav">Customers</div><div class="pv-nav">Products</div></div>
+                    <div class="pv-main"><div class="pv-tabs"><span class="on">Details</span><span>Items</span></div><div class="pv-row"></div><div class="pv-row"></div>
+                      <div class="row"><div class="pv-btn sm">Save order</div><span class="pv-accent">New</span></div></div>
+                  </div>
+                  <div class="pv-portal">
+                    <div class="pv-head"><div class="row"><div class="pv-logo sm" data-pv-logo>AC</div><span class="pv-name" data-brand-name>Acme Commerce</span></div><span class="pv-link">My orders</span></div>
+                    <div class="pv-hero"><div class="pv-h">Welcome back, Jana</div><div class="pv-btn sm">Track order</div></div>
+                  </div>
+                </div>
+                <p class="t-hint">The preview applies your colours only inside this box. The rest of the page keeps the saved branding until you save.</p>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v0.9.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Everything on this screen runs in the browser: logos are read with FileReader and colours are computed locally. Nothing needs the network until Save (<code class="t-mono">PUT /api/branding_profiles/profile</code>).</span></div><div class="note"><b>2</b><span>Save is disabled while any text pair is below 4.5 : 1. A primary-vs-background pair below 3 : 1 is only a warning.</span></div><div class="note"><b>3</b><span>Dark-mode variants and foregrounds are derived automatically. In production the server re-derives and re-validates them; the client values are only a preview.</span></div><div class="note"><b>4</b><span>Production uses CrudForm. <code class="t-mono">initialValues.updatedAt</code> sends the optimistic-lock header, so a concurrent edit shows screen 5.</span></div></div>
+</section>
+
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Contrast failure</h2>
+    <p>The admin picks a light yellow primary with forced white text; the contrast table fails, a fix is suggested and Save is disabled.</p>
+    <div class="screen-refs"><span class="ref">API Contracts (422)</span><span class="ref">US-B4</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/branding</span></div>
+    <div class="app app-taller ">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>System</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-settings"/></svg> General</span>
+            <a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-palette"/></svg> Branding</a>
+            <span class="nav-item"><svg><use href="#ic-shield"/></svg> Single Sign-On</span>
+          </div>
+          <div class="nav-group"><span>Auth</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Users</span>
+            <span class="nav-item"><svg><use href="#ic-lock"/></svg> Roles</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span>Settings</span><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Branding</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Branding</h1><p>Product name, logos and colours shown on the login page, backend and customer portal of this tenant.</p></div>
+            <div class="page-actions"></div>
+          </div>
+          <div class="brand-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Identity</div>
+                <div class="field"><label for="fail-name">Product name</label>
+                  <input class="input" id="fail-name" data-bind="name" value="Acme Commerce" maxlength="60" placeholder="Open Mercato" />
+                  <span class="t-hint">Shown in the sidebar, login card and portal header. Leave empty to use the platform name. Max 60 characters.</span></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Logos</div>
+                <div class="desc">PNG, JPEG or WebP, up to 256 KB. Files are read in your browser and saved with the profile — no external hosting.</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Light logo</label>
+                    <div class="logo-drop on-light"><div class="logo-thumb" data-logo-thumb="light">AC</div>
+                      <div class="col grow"><span class="t-body strong">acme-wordmark.png</span><span class="t-hint">18 KB · 480 × 120</span></div>
+                      <label class="btn btn-outline btn-sm"><svg><use href="#ic-upload"/></svg> Replace<input type="file" accept="image/png,image/jpeg,image/webp" data-logo-input="light" hidden /></label></div>
+                  </div>
+                  <div class="field"><label>Dark logo <span class="t-hint">(optional)</span></label>
+                    <div class="logo-drop on-dark"><div class="logo-thumb" data-logo-thumb="dark">AC</div>
+                      <div class="col grow"><span class="t-body strong">acme-wordmark-dark.png</span><span class="t-hint">17 KB · 480 × 120</span></div>
+                      <label class="btn btn-outline btn-sm"><svg><use href="#ic-upload"/></svg> Replace<input type="file" accept="image/png,image/jpeg,image/webp" data-logo-input="dark" hidden /></label></div>
+                    <span class="field-error" data-logo-error></span>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">Colours</div>
+                <div class="desc">Text colours and dark-mode variants are derived automatically. Status colours and selection controls are never changed.</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label for="fail-primary">Primary</label>
+                    <div class="input-group"><input type="color" class="swatch" data-bind="primary" value="#FFE600" aria-label="Primary colour picker" />
+                    <input class="input t-mono" id="fail-primary" data-bind="primaryHex" value="#FFE600" /></div>
+                    <div class="input-group"><label class="t-hint" for="fail-pfg">Text on primary</label><select class="select" id="fail-pfg" data-bind="primaryFg"><option value="auto">Auto (best contrast)</option><option value="#FFFFFF" selected>White</option><option value="#0A0A0A">Near-black</option></select></div>
+                    <span class="t-hint">Buttons, links, active tabs.</span></div>
+                  <div class="field"><label for="fail-accent">Accent</label>
+                    <div class="input-group"><input type="color" class="swatch" data-bind="accent" value="#7C3AED" aria-label="Accent colour picker" />
+                    <input class="input t-mono" id="fail-accent" data-bind="accentHex" value="#7C3AED" /></div>
+                    <span class="t-hint">Highlights and brand moments (maps to the brand accent token).</span></div>
+                </div>
+                
+              <div class="alert alert-error" role="alert"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">Colours are not readable</div>
+              <div class="t-body">White text on #FFE600 is 1.27 : 1 — WCAG AA requires 4.5 : 1. Use <b>#0A0A0A</b> text (15.6 : 1) or pick a darker primary. Save is disabled until every text pair passes.</div>
+              <div class="row" style="margin-top:0.5rem"><button class="btn btn-outline btn-sm" type="button" data-goto="s2">Use #0A0A0A text</button></div></div></div>
+                <div class="t-label">Contrast (WCAG 2.1)</div>
+                <div class="scroll-x"><table class="table"><thead><tr><th>Pair</th><th>Mode</th><th>Ratio</th><th>Result</th></tr></thead><tbody><tr><td>Text on primary</td><td>Light</td><td class="num">1.27 : 1</td><td><span class="badge badge-error"><svg><use href="#ic-x"/></svg> Fail · needs 4.5</span></td></tr>
+           <tr><td>Text on primary hover</td><td>Light</td><td class="num">1.66 : 1</td><td><span class="badge badge-error"><svg><use href="#ic-x"/></svg> Fail · needs 4.5</span></td></tr>
+           <tr><td>Primary vs background</td><td>Light</td><td class="num">1.27 : 1</td><td><span class="badge badge-warning"><svg><use href="#ic-warn"/></svg> Warn · UI 3.0</span></td></tr>
+           <tr><td>Text on primary</td><td>Dark</td><td class="num">1.27 : 1</td><td><span class="badge badge-error"><svg><use href="#ic-x"/></svg> Fail · needs 4.5</span></td></tr></tbody></table></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Apply to</div>
+                <div class="row"><span class="check" role="checkbox" aria-checked="true" aria-disabled="true"><svg><use href="#ic-check"/></svg></span><span class="t-body">Backend <span class="t-hint">— always</span></span></div>
+                <div class="row"><button class="switch" role="switch" aria-checked="true" data-bind="applyLogin" type="button" aria-label="Apply to login page"></button><span class="t-body">Login page <span class="t-hint">— when opened with this tenant (<code class="t-mono">/login?tenant=…</code>)</span></span></div>
+                <div class="row"><button class="switch" role="switch" aria-checked="true" data-bind="applyPortal" type="button" aria-label="Apply to customer portal"></button><span class="t-body">Customer portal</span></div>
+              </div>
+              <div class="form-foot">
+                <button class="btn btn-ghost" type="button" data-goto="s4"><svg><use href="#ic-undo"/></svg> Reset to defaults</button>
+                <div class="actions">
+                  <span class="t-hint" data-dirty="fail">Unsaved changes</span>
+                  <button class="btn btn-outline" type="button">Discard</button>
+                  <button class="btn btn-primary" type="button" data-goto="s5" disabled><svg><use href="#ic-save"/></svg> Save <span class="kbd">⌘↵</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="form-col preview-col">
+              <div class="form-group">
+                <div class="between"><div class="title">Live preview</div><span class="t-hint">Not saved yet</span></div>
+                <div class="between wrap" style="gap:0.5rem">
+                  <div class="segmented" role="tablist" aria-label="Surface">
+                    <button type="button" aria-selected="true" data-surface="login">Login</button>
+                    <button type="button" aria-selected="false" data-surface="backend">Backend</button>
+                    <button type="button" aria-selected="false" data-surface="portal">Portal</button>
+                  </div>
+                  <div class="segmented" role="tablist" aria-label="Mode">
+                    <button type="button" aria-selected="true" data-mode="light"><svg><use href="#ic-sun"/></svg> Light</button>
+                    <button type="button" aria-selected="false" data-mode="dark"><svg><use href="#ic-moon"/></svg> Dark</button>
+                  </div>
+                </div>
+                <div class="pv" style="--primary:#FFE600;--primary-hover:#E0CA00;--primary-foreground:#FFFFFF" data-surface-current="login">
+                  <div class="pv-login">
+                    <div class="pv-card"><div class="pv-logo" data-pv-logo>AC</div><div class="pv-title" data-brand-name>Acme Commerce</div>
+                      <div class="pv-input"></div><div class="pv-input"></div><div class="pv-btn">Sign in</div><div class="pv-link">Forgot password?</div></div>
+                  </div>
+                  <div class="pv-backend">
+                    <div class="pv-side"><div class="row"><div class="pv-logo sm" data-pv-logo>AC</div><span class="pv-name" data-brand-name>Acme Commerce</span></div>
+                      <div class="pv-nav active">Orders</div><div class="pv-nav">Customers</div><div class="pv-nav">Products</div></div>
+                    <div class="pv-main"><div class="pv-tabs"><span class="on">Details</span><span>Items</span></div><div class="pv-row"></div><div class="pv-row"></div>
+                      <div class="row"><div class="pv-btn sm">Save order</div><span class="pv-accent">New</span></div></div>
+                  </div>
+                  <div class="pv-portal">
+                    <div class="pv-head"><div class="row"><div class="pv-logo sm" data-pv-logo>AC</div><span class="pv-name" data-brand-name>Acme Commerce</span></div><span class="pv-link">My orders</span></div>
+                    <div class="pv-hero"><div class="pv-h">Welcome back, Jana</div><div class="pv-btn sm">Track order</div></div>
+                  </div>
+                </div>
+                <p class="t-hint">The preview applies your colours only inside this box. The rest of the page keeps the saved branding until you save.</p>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v0.9.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>The same rule runs on the server: a PUT that bypasses the UI gets 422 with <code class="t-mono">fieldErrors.primaryColor</code> and a <code class="t-mono">contrast[]</code> array, mapped back onto the fields.</span></div><div class="note"><b>2</b><span>"Use #0A0A0A text" sets the explicit foreground override and re-runs the checks.</span></div></div>
+</section>
+
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Reset to defaults — confirmation</h2>
+    <p>The admin resets branding; a confirmation dialog explains the effect, and undo stays available afterwards.</p>
+    <div class="screen-refs"><span class="ref">Commands</span><span class="ref">US-B8</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/branding</span></div>
+    <div class="app app-narrow modal-scrim">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>System</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-settings"/></svg> General</span>
+            <a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-palette"/></svg> Branding</a>
+            <span class="nav-item"><svg><use href="#ic-shield"/></svg> Single Sign-On</span>
+          </div>
+          <div class="nav-group"><span>Auth</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Users</span>
+            <span class="nav-item"><svg><use href="#ic-lock"/></svg> Roles</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span>Settings</span><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Branding</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Branding</h1><p>Product name, logos and colours shown on the login page, backend and customer portal of this tenant.</p></div>
+            <div class="page-actions"></div>
+          </div>
+          <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+            <div class="modal-head"><h3 id="reset-title" class="t-section">Reset branding to platform defaults?</h3></div>
+            <div class="modal-body"><p class="t-body" style="margin:0">The login page, backend and portal of <b>Acme Commerce</b> will show the platform name, logo and colours again. You can undo this right after.</p></div>
+            <div class="modal-foot"><span class="t-hint">Esc to cancel · ⌘↵ to confirm</span><div class="row"><button class="btn btn-outline" type="button" data-goto="s2">Cancel</button><button class="btn btn-destructive" type="button" data-goto="s1">Reset</button></div></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v0.9.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Runs the <code class="t-mono">branding_profiles.profile.reset</code> command (soft delete plus snapshot). Undo restores the snapshot, including logo asset ids.</span></div><div class="note"><b>2</b><span>The cache tag <code class="t-mono">tenant-branding:{tenantId}</code> is invalidated after commit, so the next render of any shell is unbranded.</span></div></div>
+</section>
+
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Saved, and concurrent-edit conflict</h2>
+    <p>After Save the admin sees a confirmation; if another admin saved first, the standard conflict bar appears instead.</p>
+    <div class="screen-refs"><span class="ref">API Contracts (409)</span><span class="ref">US-B7</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/branding</span></div>
+    <div class="app app-taller ">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>System</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-settings"/></svg> General</span>
+            <a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-palette"/></svg> Branding</a>
+            <span class="nav-item"><svg><use href="#ic-shield"/></svg> Single Sign-On</span>
+          </div>
+          <div class="nav-group"><span>Auth</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Users</span>
+            <span class="nav-item"><svg><use href="#ic-lock"/></svg> Roles</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span>Settings</span><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Branding</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Branding</h1><p>Product name, logos and colours shown on the login page, backend and customer portal of this tenant.</p></div>
+            <div class="page-actions"></div>
+          </div>
+          <div class="alert alert-warning" role="alert"><svg><use href="#ic-warn"/></svg><div class="grow"><div class="alert-title">Someone else changed the branding</div>
+          <div class="t-body">Ola Nowak saved a new version at 10:42. Your changes were not saved.</div></div>
+          <div class="row"><button class="btn btn-outline btn-sm" type="button" data-goto="s2">Reload their version</button><button class="btn btn-primary btn-sm" type="button" data-goto="s2">Overwrite with mine</button></div></div>
+          <div class="brand-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Identity</div>
+                <div class="field"><label for="cf-name">Product name</label>
+                  <input class="input" id="cf-name" data-bind="name" value="Acme Commerce" maxlength="60" placeholder="Open Mercato" />
+                  <span class="t-hint">Shown in the sidebar, login card and portal header. Leave empty to use the platform name. Max 60 characters.</span></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Logos</div>
+                <div class="desc">PNG, JPEG or WebP, up to 256 KB. Files are read in your browser and saved with the profile — no external hosting.</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Light logo</label>
+                    <div class="logo-drop on-light"><div class="logo-thumb" data-logo-thumb="light">AC</div>
+                      <div class="col grow"><span class="t-body strong">acme-wordmark.png</span><span class="t-hint">18 KB · 480 × 120</span></div>
+                      <label class="btn btn-outline btn-sm"><svg><use href="#ic-upload"/></svg> Replace<input type="file" accept="image/png,image/jpeg,image/webp" data-logo-input="light" hidden /></label></div>
+                  </div>
+                  <div class="field"><label>Dark logo <span class="t-hint">(optional)</span></label>
+                    <div class="logo-drop on-dark"><div class="logo-thumb" data-logo-thumb="dark">AC</div>
+                      <div class="col grow"><span class="t-body strong">acme-wordmark-dark.png</span><span class="t-hint">17 KB · 480 × 120</span></div>
+                      <label class="btn btn-outline btn-sm"><svg><use href="#ic-upload"/></svg> Replace<input type="file" accept="image/png,image/jpeg,image/webp" data-logo-input="dark" hidden /></label></div>
+                    <span class="field-error" data-logo-error></span>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">Colours</div>
+                <div class="desc">Text colours and dark-mode variants are derived automatically. Status colours and selection controls are never changed.</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label for="cf-primary">Primary</label>
+                    <div class="input-group"><input type="color" class="swatch" data-bind="primary" value="#0C71C6" aria-label="Primary colour picker" />
+                    <input class="input t-mono" id="cf-primary" data-bind="primaryHex" value="#0C71C6" /></div>
+                    <div class="input-group"><label class="t-hint" for="cf-pfg">Text on primary</label><select class="select" id="cf-pfg" data-bind="primaryFg"><option value="auto">Auto (best contrast)</option><option value="#FFFFFF">White</option><option value="#0A0A0A">Near-black</option></select></div>
+                    <span class="t-hint">Buttons, links, active tabs.</span></div>
+                  <div class="field"><label for="cf-accent">Accent</label>
+                    <div class="input-group"><input type="color" class="swatch" data-bind="accent" value="#7C3AED" aria-label="Accent colour picker" />
+                    <input class="input t-mono" id="cf-accent" data-bind="accentHex" value="#7C3AED" /></div>
+                    <span class="t-hint">Highlights and brand moments (maps to the brand accent token).</span></div>
+                </div>
+                
+                <div class="t-label">Contrast (WCAG 2.1)</div>
+                <div class="scroll-x"><table class="table"><thead><tr><th>Pair</th><th>Mode</th><th>Ratio</th><th>Result</th></tr></thead><tbody data-contrast="cf"></tbody></table></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Apply to</div>
+                <div class="row"><span class="check" role="checkbox" aria-checked="true" aria-disabled="true"><svg><use href="#ic-check"/></svg></span><span class="t-body">Backend <span class="t-hint">— always</span></span></div>
+                <div class="row"><button class="switch" role="switch" aria-checked="true" data-bind="applyLogin" type="button" aria-label="Apply to login page"></button><span class="t-body">Login page <span class="t-hint">— when opened with this tenant (<code class="t-mono">/login?tenant=…</code>)</span></span></div>
+                <div class="row"><button class="switch" role="switch" aria-checked="true" data-bind="applyPortal" type="button" aria-label="Apply to customer portal"></button><span class="t-body">Customer portal</span></div>
+              </div>
+              <div class="form-foot">
+                <button class="btn btn-ghost" type="button" data-goto="s4"><svg><use href="#ic-undo"/></svg> Reset to defaults</button>
+                <div class="actions">
+                  <span class="t-hint" data-dirty="cf">Unsaved changes</span>
+                  <button class="btn btn-outline" type="button">Discard</button>
+                  <button class="btn btn-primary" type="button" data-goto="s5"><svg><use href="#ic-save"/></svg> Save <span class="kbd">⌘↵</span></button>
+                </div>
+              </div>
+            </div>
+            <div class="form-col preview-col">
+              <div class="form-group">
+                <div class="between"><div class="title">Live preview</div><span class="t-hint">Not saved yet</span></div>
+                <div class="between wrap" style="gap:0.5rem">
+                  <div class="segmented" role="tablist" aria-label="Surface">
+                    <button type="button" aria-selected="true" data-surface="login">Login</button>
+                    <button type="button" aria-selected="false" data-surface="backend">Backend</button>
+                    <button type="button" aria-selected="false" data-surface="portal">Portal</button>
+                  </div>
+                  <div class="segmented" role="tablist" aria-label="Mode">
+                    <button type="button" aria-selected="true" data-mode="light"><svg><use href="#ic-sun"/></svg> Light</button>
+                    <button type="button" aria-selected="false" data-mode="dark"><svg><use href="#ic-moon"/></svg> Dark</button>
+                  </div>
+                </div>
+                <div class="pv brand-scope" data-preview data-surface-current="login">
+                  <div class="pv-login">
+                    <div class="pv-card"><div class="pv-logo" data-pv-logo>AC</div><div class="pv-title" data-brand-name>Acme Commerce</div>
+                      <div class="pv-input"></div><div class="pv-input"></div><div class="pv-btn">Sign in</div><div class="pv-link">Forgot password?</div></div>
+                  </div>
+                  <div class="pv-backend">
+                    <div class="pv-side"><div class="row"><div class="pv-logo sm" data-pv-logo>AC</div><span class="pv-name" data-brand-name>Acme Commerce</span></div>
+                      <div class="pv-nav active">Orders</div><div class="pv-nav">Customers</div><div class="pv-nav">Products</div></div>
+                    <div class="pv-main"><div class="pv-tabs"><span class="on">Details</span><span>Items</span></div><div class="pv-row"></div><div class="pv-row"></div>
+                      <div class="row"><div class="pv-btn sm">Save order</div><span class="pv-accent">New</span></div></div>
+                  </div>
+                  <div class="pv-portal">
+                    <div class="pv-head"><div class="row"><div class="pv-logo sm" data-pv-logo>AC</div><span class="pv-name" data-brand-name>Acme Commerce</span></div><span class="pv-link">My orders</span></div>
+                    <div class="pv-hero"><div class="pv-h">Welcome back, Jana</div><div class="pv-btn sm">Track order</div></div>
+                  </div>
+                </div>
+                <p class="t-hint">The preview applies your colours only inside this box. The rest of the page keeps the saved branding until you save.</p>
+              </div>
+            </div>
+          </div>
+          <div class="toast" role="status"><svg><use href="#ic-check"/></svg><span>Branding saved. Other open tabs refresh on their next navigation.</span><button class="btn btn-ghost btn-sm" type="button" data-goto="s2"><svg><use href="#ic-undo"/></svg> Undo</button></div>
+        </main>
+        <footer class="app-foot"><span>v0.9.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>The toast and the conflict bar are alternative outcomes, shown together here only for review.</span></div><div class="note"><b>2</b><span>The conflict bar is the shared <code class="t-mono">surfaceRecordConflict</code> UI that every optimistic-lock 409 uses.</span></div><div class="note"><b>3</b><span>A <code class="t-mono">branding_profiles.profile.saved</code> event with <code class="t-mono">clientBroadcast</code> lets other tabs of this tenant refresh on a best-effort basis.</span></div></div>
+</section>
+
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Viewer — read-only</h2>
+    <p>A user with view but not manage permission sees the current branding and preview but cannot change it.</p>
+    <div class="screen-refs"><span class="ref">ACL</span><span class="ref">US-B1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/branding</span></div>
+    <div class="app app-taller ">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>System</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-settings"/></svg> General</span>
+            <a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-palette"/></svg> Branding</a>
+            <span class="nav-item"><svg><use href="#ic-shield"/></svg> Single Sign-On</span>
+          </div>
+          <div class="nav-group"><span>Auth</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Users</span>
+            <span class="nav-item"><svg><use href="#ic-lock"/></svg> Roles</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span>Settings</span><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Branding</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Branding</h1><p>Product name, logos and colours shown on the login page, backend and customer portal of this tenant.</p></div>
+            <div class="page-actions"></div>
+          </div>
+          <div class="alert alert-info" role="status"><svg><use href="#ic-lock"/></svg><div><div class="alert-title">Read-only</div><div class="t-body">You can view branding but need the <code class="t-mono">branding_profiles.manage</code> permission to change it.</div></div></div>
+          <div class="brand-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Identity</div>
+                <div class="field"><label for="ro-name">Product name</label>
+                  <input class="input" id="ro-name" data-bind="name" value="Acme Commerce" maxlength="60" placeholder="Open Mercato" disabled />
+                  <span class="t-hint">Shown in the sidebar, login card and portal header. Leave empty to use the platform name. Max 60 characters.</span></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Logos</div>
+                <div class="desc">PNG, JPEG or WebP, up to 256 KB. Files are read in your browser and saved with the profile — no external hosting.</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Light logo</label>
+                    <div class="logo-drop on-light"><div class="logo-thumb" data-logo-thumb="light">AC</div>
+                      <div class="col grow"><span class="t-body strong">acme-wordmark.png</span><span class="t-hint">18 KB · 480 × 120</span></div>
+                      </div>
+                  </div>
+                  <div class="field"><label>Dark logo <span class="t-hint">(optional)</span></label>
+                    <div class="logo-drop on-dark"><div class="logo-thumb" data-logo-thumb="dark">AC</div>
+                      <div class="col grow"><span class="t-body strong">acme-wordmark-dark.png</span><span class="t-hint">17 KB · 480 × 120</span></div>
+                      </div>
+                    <span class="field-error" data-logo-error></span>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">Colours</div>
+                <div class="desc">Text colours and dark-mode variants are derived automatically. Status colours and selection controls are never changed.</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label for="ro-primary">Primary</label>
+                    <div class="input-group"><input type="color" class="swatch" data-bind="primary" value="#0C71C6" disabled aria-label="Primary colour picker" />
+                    <input class="input t-mono" id="ro-primary" data-bind="primaryHex" value="#0C71C6" disabled /></div>
+                    <div class="input-group"><label class="t-hint" for="ro-pfg">Text on primary</label><select class="select" id="ro-pfg" data-bind="primaryFg" disabled><option value="auto">Auto (best contrast)</option><option value="#FFFFFF">White</option><option value="#0A0A0A">Near-black</option></select></div>
+                    <span class="t-hint">Buttons, links, active tabs.</span></div>
+                  <div class="field"><label for="ro-accent">Accent</label>
+                    <div class="input-group"><input type="color" class="swatch" data-bind="accent" value="#7C3AED" disabled aria-label="Accent colour picker" />
+                    <input class="input t-mono" id="ro-accent" data-bind="accentHex" value="#7C3AED" disabled /></div>
+                    <span class="t-hint">Highlights and brand moments (maps to the brand accent token).</span></div>
+                </div>
+                
+                <div class="t-label">Contrast (WCAG 2.1)</div>
+                <div class="scroll-x"><table class="table"><thead><tr><th>Pair</th><th>Mode</th><th>Ratio</th><th>Result</th></tr></thead><tbody data-contrast="ro"></tbody></table></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Apply to</div>
+                <div class="row"><span class="check" role="checkbox" aria-checked="true" aria-disabled="true"><svg><use href="#ic-check"/></svg></span><span class="t-body">Backend <span class="t-hint">— always</span></span></div>
+                <div class="row"><button class="switch" role="switch" aria-checked="true" data-bind="applyLogin" type="button" disabled aria-label="Apply to login page"></button><span class="t-body">Login page <span class="t-hint">— when opened with this tenant (<code class="t-mono">/login?tenant=…</code>)</span></span></div>
+                <div class="row"><button class="switch" role="switch" aria-checked="true" data-bind="applyPortal" type="button" disabled aria-label="Apply to customer portal"></button><span class="t-body">Customer portal</span></div>
+              </div>
+            </div>
+            <div class="form-col preview-col">
+              <div class="form-group">
+                <div class="between"><div class="title">Live preview</div><span class="t-hint">Not saved yet</span></div>
+                <div class="between wrap" style="gap:0.5rem">
+                  <div class="segmented" role="tablist" aria-label="Surface">
+                    <button type="button" aria-selected="true" data-surface="login">Login</button>
+                    <button type="button" aria-selected="false" data-surface="backend">Backend</button>
+                    <button type="button" aria-selected="false" data-surface="portal">Portal</button>
+                  </div>
+                  <div class="segmented" role="tablist" aria-label="Mode">
+                    <button type="button" aria-selected="true" data-mode="light"><svg><use href="#ic-sun"/></svg> Light</button>
+                    <button type="button" aria-selected="false" data-mode="dark"><svg><use href="#ic-moon"/></svg> Dark</button>
+                  </div>
+                </div>
+                <div class="pv brand-scope" data-preview data-surface-current="login">
+                  <div class="pv-login">
+                    <div class="pv-card"><div class="pv-logo" data-pv-logo>AC</div><div class="pv-title" data-brand-name>Acme Commerce</div>
+                      <div class="pv-input"></div><div class="pv-input"></div><div class="pv-btn">Sign in</div><div class="pv-link">Forgot password?</div></div>
+                  </div>
+                  <div class="pv-backend">
+                    <div class="pv-side"><div class="row"><div class="pv-logo sm" data-pv-logo>AC</div><span class="pv-name" data-brand-name>Acme Commerce</span></div>
+                      <div class="pv-nav active">Orders</div><div class="pv-nav">Customers</div><div class="pv-nav">Products</div></div>
+                    <div class="pv-main"><div class="pv-tabs"><span class="on">Details</span><span>Items</span></div><div class="pv-row"></div><div class="pv-row"></div>
+                      <div class="row"><div class="pv-btn sm">Save order</div><span class="pv-accent">New</span></div></div>
+                  </div>
+                  <div class="pv-portal">
+                    <div class="pv-head"><div class="row"><div class="pv-logo sm" data-pv-logo>AC</div><span class="pv-name" data-brand-name>Acme Commerce</span></div><span class="pv-link">My orders</span></div>
+                    <div class="pv-hero"><div class="pv-h">Welcome back, Jana</div><div class="pv-btn sm">Track order</div></div>
+                  </div>
+                </div>
+                <p class="t-hint">The preview applies your colours only inside this box. The rest of the page keeps the saved branding until you save.</p>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v0.9.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Without <code class="t-mono">branding_profiles.manage</code> the inputs are disabled and Save/Reset are hidden; PUT/DELETE return 403.</span></div></div>
+</section>
+
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Branded login — first paint</h2>
+    <p>An anonymous visitor opens /login?tenant=… and the very first HTML already contains the tenant logo, name and colours.</p>
+    <div class="screen-refs"><span class="ref">Proposed Solution §6</span><span class="ref">US-B10</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/login?tenant=4f6c…a91e</span></div>
+    <div class="login-page brand-scope">
+      <div class="login-card">
+        <div class="big-logo" data-pv-logo>AC</div>
+        <h3 data-brand-name>Acme Commerce</h3>
+        <div class="field"><label>Email</label><input class="input" value="jana@acme.example" readonly /></div>
+        <div class="field"><label>Password</label><input class="input" type="password" value="password" readonly /></div>
+        <button class="btn btn-primary" type="button" data-goto="s8">Sign in</button>
+        <a class="link-primary t-body" href="#s7">Forgot password?</a>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Server-rendered: <code class="t-mono">login/page.tsx</code> reads <code class="t-mono">?tenant</code> or the <code class="t-mono">om_login_tenant</code> cookie, resolves branding for the <code class="t-mono">auth</code> surface, and renders <code class="t-mono">&lt;style id="om-tenant-brand"&gt;</code> plus the logo URL.</span></div><div class="note"><b>2</b><span>The logo is served from <code class="t-mono">/api/branding_profiles/logo/{tenantId}/light?v=hash</code> on the same origin, with an immutable cache. No CDN is used.</span></div><div class="note"><b>3</b><span>When "Apply to login page" is off, or the tenant is unknown or inactive, the platform login renders unchanged (screen 10).</span></div></div>
+</section>
+
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Branded backend — light and dark</h2>
+    <p>A back-office user sees the tenant sidebar logo, name and primary colour on first paint, with the dark logo in dark mode.</p>
+    <div class="screen-refs"><span class="ref">Proposed Solution §6</span><span class="ref">US-B9</span></div>
+  </div><div class="mode-pair">
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/sales/orders — light</span></div>
+    <div class="app app-narrow brand-scope " data-force-mode="light" style="background:var(--background);color:var(--foreground)">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark tb-mark" data-pv-logo>AC</span> <span class="ellipsis" data-brand-name>Acme Commerce</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Sales</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-cart"/></svg> Orders</span>
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Customers</span>
+            <span class="nav-item"><svg><use href="#ic-box"/></svg> Products</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Orders</span></div></div>
+          <div class="topbar-right"><span class="avatar">JK</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Order SO-10421</h1><p>Placed 12 Nov 2026 · 3 items</p></div><div class="page-actions"><button class="btn btn-primary" type="button">Save</button></div></div>
+          <div class="tabs"><button aria-selected="true" type="button">Details</button><button aria-selected="false" type="button">Items</button></div>
+          <div class="row"><span class="badge badge-success">Paid</span><span class="pv-accent">VIP</span><a class="link-primary t-body" href="#s8">View customer</a></div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/sales/orders — dark</span></div>
+    <div class="app app-narrow brand-scope dark" data-force-mode="dark" style="background:var(--background);color:var(--foreground)">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark tb-mark" data-pv-logo>AC</span> <span class="ellipsis" data-brand-name>Acme Commerce</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Sales</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-cart"/></svg> Orders</span>
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Customers</span>
+            <span class="nav-item"><svg><use href="#ic-box"/></svg> Products</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Orders</span></div></div>
+          <div class="topbar-right"><span class="avatar">JK</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Order SO-10421</h1><p>Placed 12 Nov 2026 · 3 items</p></div><div class="page-actions"><button class="btn btn-primary" type="button">Save</button></div></div>
+          <div class="tabs"><button aria-selected="true" type="button">Details</button><button aria-selected="false" type="button">Items</button></div>
+          <div class="row"><span class="badge badge-success">Paid</span><span class="pv-accent">VIP</span><a class="link-primary t-body" href="#s8">View customer</a></div>
+        </main>
+      </div>
+    </div>
+  </div></div>
+  <div class="notes"><div class="note"><b>1</b><span><code class="t-mono">AppShell initialBrand</code> is server-resolved, so the sidebar logo needs no client fetch. The nav API returns the same brand for later client refreshes.</span></div><div class="note"><b>2</b><span>Status badges keep their semantic colours. Only <code class="t-mono">--primary*</code> and <code class="t-mono">--brand-violet*</code> change.</span></div><div class="note"><b>3</b><span>With no dark logo uploaded, the light logo is shown in both modes and the settings page warns about legibility.</span></div></div>
+</section>
+
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Branded customer portal</h2>
+    <p>A portal customer on /{orgSlug}/portal sees the owning tenant brand on first paint.</p>
+    <div class="screen-refs"><span class="ref">Proposed Solution §6</span><span class="ref">US-B11</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme-eu/portal</span></div>
+    <div class="portal-shell brand-scope">
+      <div class="portal-head"><div class="row"><div class="pv-logo" data-pv-logo>AC</div><span class="strong" data-brand-name>Acme Commerce</span></div><div class="row-4"><a class="link-primary t-body" href="#s9">My orders</a><span class="avatar">JK</span></div></div>
+      <div class="portal-hero"><h3 class="t-section">Welcome back, Jana</h3><p class="t-body muted" style="margin:0">Your last order SO-10421 is on its way.</p><button class="btn btn-primary" type="button">Track order</button></div>
+      <div class="portal-body"><div class="card card-pad"><div class="t-card-title">Open invoices</div><p class="t-body muted">2 · due 30 Nov</p></div><div class="card card-pad"><div class="t-card-title">Saved addresses</div><p class="t-body muted">3</p></div></div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>The portal layout resolves the tenant from the organization slug (existing lookup) and asks for the <code class="t-mono">portal</code> surface. The "Apply to customer portal" toggle turns it off.</span></div><div class="note"><b>2</b><span>v1 branding is tenant-wide: every organization portal of the tenant shows the same brand. Per-organization overrides are deferred.</span></div></div>
+</section>
+
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Fallback — unknown tenant or provider failure</h2>
+    <p>If the tenant is unknown or inactive, or the branding lookup fails, every shell renders the platform defaults and never errors.</p>
+    <div class="screen-refs"><span class="ref">Edge Cases</span><span class="ref">US-B10</span><span class="ref">US-B12</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/login?tenant=not-a-real-tenant</span></div>
+    <div class="login-page">
+      <div class="login-card">
+        <div class="big-logo">OM</div>
+        <h3>Open Mercato</h3>
+        <div class="field"><label>Email</label><input class="input" readonly /></div>
+        <div class="field"><label>Password</label><input class="input" type="password" readonly /></div>
+        <button class="btn btn-primary" type="button">Sign in</button>
+      </div>
+    </div>
+  </div>
+  <div class="code-block" style="margin-top:0.75rem">resolveTenantBranding(container, { tenantId, organizationId, surface: 'auth', host: null })
+  → tenantId not a UUID      → null (provider not called)
+  → provider timeout (2 s)   → reportError, null, 30 s circuit for this tenant
+  → invalid style in DB      → style dropped, logos + name kept
+  → module disabled          → noopTenantBrandingProvider → null</div>
+  <div class="notes"><div class="note"><b>1</b><span>An unknown tenant id gives no distinct error and reveals nothing beyond what the existing tenant lookup already exposes.</span></div><div class="note"><b>2</b><span>This is also exactly what every OSS app renders, because the no-op provider is the default.</span></div></div>
+</section>
+
+</div>
+
+<script>
+/* Prototype brand state: computes derived tokens + WCAG contrast locally (offline) and paints .brand-scope elements. */
+(function () {
+  var state = { name: 'Acme Commerce', primaryFg: 'auto', primary: '#0C71C6', accent: '#7C3AED', logo: { light: null, dark: null }, mode: 'light', surface: 'login' };
+  function hexToRgb(hex) { var v = parseInt(hex.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; }
+  function rgbToHex(rgb) { return '#' + rgb.map(function (c) { var h = Math.max(0, Math.min(255, Math.round(c))).toString(16); return h.length === 1 ? '0' + h : h; }).join('').toUpperCase(); }
+  function lum(hex) { return hexToRgb(hex).map(function (c) { c = c / 255; return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }).reduce(function (acc, c, i) { return acc + c * [0.2126, 0.7152, 0.0722][i]; }, 0); }
+  function ratio(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+  function mix(hex, target, amount) { var a = hexToRgb(hex), b = hexToRgb(target); return rgbToHex(a.map(function (c, i) { return c + (b[i] - c) * amount; })); }
+  function pickFg(bg) { return ratio('#FFFFFF', bg) >= ratio('#0A0A0A', bg) ? '#FFFFFF' : '#0A0A0A'; }
+  function derive() {
+    var lp = state.primary, lh = mix(lp, '#000000', 0.12);
+    var dp = lum(lp) < 0.25 ? mix(lp, '#FFFFFF', 0.45) : lp, dh = mix(dp, '#FFFFFF', 0.12);
+    var la = state.accent, da = lum(la) < 0.25 ? mix(la, '#FFFFFF', 0.4) : la;
+    return {
+      light: { '--primary': lp, '--primary-hover': lh, '--primary-foreground': state.primaryFg === 'auto' ? pickFg(lp) : state.primaryFg, '--brand-violet': la, '--brand-violet-foreground': pickFg(la) },
+      dark: { '--primary': dp, '--primary-hover': dh, '--primary-foreground': state.primaryFg === 'auto' ? pickFg(dp) : state.primaryFg, '--brand-violet': da, '--brand-violet-foreground': pickFg(da) }
+    };
+  }
+  function badge(value, min, warnOnly) {
+    if (value >= min) return '<span class="badge badge-success"><svg><use href="#ic-check"/></svg> Pass</span>';
+    if (warnOnly) return '<span class="badge badge-warning"><svg><use href="#ic-warn"/></svg> Warn · UI ' + min.toFixed(1) + '</span>';
+    return '<span class="badge badge-error"><svg><use href="#ic-x"/></svg> Fail · needs ' + min.toFixed(1) + '</span>';
+  }
+  function apply(el, tokens) { Object.keys(tokens).forEach(function (k) { el.style.setProperty(k, tokens[k]); }); }
+  function logoHtml(variant) {
+    var src = state.logo[variant] || state.logo.light;
+    if (src) return '<img alt="' + state.name.replace(/"/g, '') + ' logo" src="' + src + '">';
+    return state.name.split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase() || 'OM';
+  }
+  function render() {
+    var t = derive();
+    document.querySelectorAll('.brand-scope').forEach(function (el) {
+      var mode = el.getAttribute('data-force-mode') || (el.hasAttribute('data-preview') ? state.mode : (document.documentElement.classList.contains('dark') ? 'dark' : 'light'));
+      apply(el, t[mode]);
+      if (el.hasAttribute('data-preview')) { el.classList.toggle('dark', mode === 'dark'); el.setAttribute('data-surface-current', state.surface); }
+      el.querySelectorAll('[data-pv-logo]').forEach(function (n) { n.innerHTML = logoHtml(mode); });
+    });
+    document.querySelectorAll('[data-brand-name]').forEach(function (n) { n.textContent = state.name || 'Open Mercato'; });
+    document.querySelectorAll('[data-brand-mark]').forEach(function (n) { n.innerHTML = logoHtml('light'); });
+    document.querySelectorAll('[data-logo-thumb]').forEach(function (n) { n.innerHTML = logoHtml(n.getAttribute('data-logo-thumb')); });
+    document.querySelectorAll('[data-contrast]').forEach(function (body) {
+      var rows = [];
+      ['light', 'dark'].forEach(function (m) {
+        var bg = m === 'light' ? '#FFFFFF' : '#252525', k = t[m];
+        rows.push(['Text on primary', m, ratio(k['--primary-foreground'], k['--primary']), 4.5, false]);
+        rows.push(['Text on primary hover', m, ratio(k['--primary-foreground'], k['--primary-hover']), 4.5, false]);
+        rows.push(['Text on accent', m, ratio(k['--brand-violet-foreground'], k['--brand-violet']), 4.5, false]);
+        rows.push(['Primary vs background', m, ratio(k['--primary'], bg), 3, true]);
+      });
+      var failing = rows.some(function (r) { return !r[4] && r[2] < r[3]; });
+      body.innerHTML = rows.map(function (r) { return '<tr><td>' + r[0] + '</td><td>' + (r[1] === 'light' ? 'Light' : 'Dark') + '</td><td class="num">' + r[2].toFixed(2) + ' : 1</td><td>' + badge(r[2], r[3], r[4]) + '</td></tr>'; }).join('');
+      var editor = body.closest('[data-editor]');
+      if (editor) { var save = editor.querySelector('[data-goto="s5"]'); if (save) { if (failing) save.setAttribute('disabled', ''); else save.removeAttribute('disabled'); } }
+    });
+  }
+  function validHex(v) { return /^#[0-9a-fA-F]{6}$/.test(v); }
+  document.querySelectorAll('[data-editor]').forEach(function (editor) {
+    editor.addEventListener('input', function (e) {
+      var b = e.target.getAttribute('data-bind');
+      if (b === 'name') state.name = e.target.value.slice(0, 60);
+      if (b === 'primaryFg') state.primaryFg = e.target.value;
+      if (b === 'primary' || b === 'accent') { state[b] = e.target.value.toUpperCase(); editor.querySelector('[data-bind="' + b + 'Hex"]').value = state[b]; }
+      if (b === 'primaryHex' || b === 'accentHex') { var key = b.replace('Hex', ''); e.target.classList.toggle('input-invalid', !validHex(e.target.value)); if (validHex(e.target.value)) { state[key] = e.target.value.toUpperCase(); editor.querySelector('[data-bind="' + key + '"]').value = state[key]; } }
+      editor.querySelectorAll('[data-dirty]').forEach(function (d) { d.style.visibility = 'visible'; });
+      render();
+    });
+    editor.addEventListener('change', function (e) {
+      var variant = e.target.getAttribute('data-logo-input'); if (!variant) return;
+      var file = e.target.files && e.target.files[0]; var err = editor.querySelector('[data-logo-error]'); err.textContent = '';
+      if (!file) return;
+      if (['image/png', 'image/jpeg', 'image/webp'].indexOf(file.type) === -1) { err.textContent = 'Use a PNG, JPEG or WebP image.'; return; }
+      if (file.size > 256 * 1024) { err.textContent = 'The file is larger than 256 KB.'; return; }
+      var reader = new FileReader(); reader.onload = function () { state.logo[variant] = reader.result; render(); }; reader.readAsDataURL(file);
+    });
+    editor.addEventListener('click', function (e) {
+      var sw = e.target.closest('.switch'); if (sw && !sw.disabled) sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
+      var s = e.target.closest('[data-surface]'); if (s) { state.surface = s.getAttribute('data-surface'); s.parentNode.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-selected', String(x === s)); }); render(); }
+      var m = e.target.closest('[data-mode]'); if (m) { state.mode = m.getAttribute('data-mode'); m.parentNode.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-selected', String(x === m)); }); render(); }
+    });
+    editor.addEventListener('keydown', function (e) { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { var save = editor.querySelector('[data-goto="s5"]'); if (save && !save.disabled) save.click(); } });
+  });
+  document.querySelectorAll('[data-dirty]').forEach(function (d) { d.style.visibility = 'hidden'; });
+  var toggle = document.getElementById('theme-toggle'); if (toggle) toggle.addEventListener('click', function () { setTimeout(render, 0); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && location.hash === '#s4') { location.hash = '#s2'; } });
+  render();
+})();
+</script>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () { document.documentElement.classList.toggle('dark'); });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
