@@ -21,4 +21,14 @@ describe('AiActionChips', () => {
       .filter((node) => node.getAttribute('data-slot') === 'button')
     expect(chipButtons.length).toBe(expectedActions.length)
   })
+
+  it('wraps the chip row so narrow timelines do not overflow the viewport (#9013)', async () => {
+    await act(async () => {
+      renderWithProviders(<AiActionChips activityType="call" />)
+    })
+
+    const row = screen.getByText('AI:').parentElement
+    expect(row).not.toBeNull()
+    expect(row!.className.split(/\s+/)).toEqual(expect.arrayContaining(['flex', 'flex-wrap']))
+  })
 })
