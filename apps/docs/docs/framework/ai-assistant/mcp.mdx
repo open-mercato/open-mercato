@@ -65,7 +65,7 @@ The dev server filters the available tools by the API key's ACL **at startup**. 
      --roles admin
    ```
 
-   This prints a secret like `omk_<prefix>.<secret>` **once** — store it immediately. You can also create or edit keys in the app UI under **Settings → API Keys**.
+   This prints a secret like `omk_<prefix>.<secret>` **once** — store it immediately. You can also create or edit keys in the app UI under **Settings → Auth → API Keys**.
 
 2. **Write `.mcp.json`.** Place it at your project root, where Claude Code auto-discovers it. The same file serves two purposes: it tells Claude Code how to connect, and the dev server reads its own API key from it.
 
@@ -294,7 +294,7 @@ Fix it by adding the route's feature(s) to the tool — **never** by weakening t
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Only `context_whoami` is listed (just 1 tool) | The API key has no roles/features, so RBAC strips every tool that requires features | Bind the key to a role like `admin` (CLI `--roles admin` or via Settings → API Keys) and reconnect |
+| Only `context_whoami` is listed (just 1 tool) | The API key has no roles/features, so RBAC strips every tool that requires features | Bind the key to a role like `admin` (CLI `--roles admin` or via Settings → Auth → API Keys) and reconnect |
 | `Tool error: AI tool "<name>" requiredFeatures do not cover route GET <path> requiredFeatures` | An API-backed tool declares fewer features than the route it calls | Add the route's required feature(s) to the tool's `requiredFeatures` |
 | `Operation runner manifest unavailable: No API route manifest registered` | The standalone server didn't register the API route manifest | Ensure you are on a build where the MCP boot registers it; update or rebuild if missing |
 | `ERR_MODULE_NOT_FOUND: Cannot find package '@/.mercato' …` then `Registered 0 module-contributed AI tools` (historical) | The generated registry was imported through the Next.js-only `@/` path alias, which a standalone Node process can't resolve | Update to a build where the loader resolves the generated registry from disk for standalone servers |
