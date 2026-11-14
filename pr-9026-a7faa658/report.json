@@ -1,0 +1,1064 @@
+{
+  "runId": "a7faa658-d361-4cfa-a2d6-36b0aa71875a",
+  "mode": "pr",
+  "depth": "complex",
+  "evidenceOnly": true,
+  "target": {
+    "prNumber": 9026,
+    "title": "fix(checkout): keep translated required labels within responsive controls",
+    "branch": "carry/pr-7755-ready-2f1353c4",
+    "headSha": "e1107b7eb544310b5cf5a8a4e1b39cb8148b6a10"
+  },
+  "verdict": "FAIL",
+  "checkoutVerdict": "PASS",
+  "reviewVerdict": "changes",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:45555",
+    "role": "admin +2 own tenant-bound actors",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "browserVersion": "1.61.1",
+    "mode": "production",
+    "hostBuildLock": "/tmp/om-qa-build-host.lock"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "en pay-links cold load",
+      "expected": "Production route200, useful form and seven required controls",
+      "observed": "HTTP200, useful controls after583ms",
+      "result": "PASS"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "en pay-links at1440px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1440,\"document\":1440,\"body\":1440},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-pay-links-1440.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "en pay-links at1280px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1280,\"document\":1280,\"body\":1280},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-pay-links-1280.png"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "en pay-links at1024px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1024,\"document\":1024,\"body\":1024},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-pay-links-1024.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "en pay-links at768px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":768,\"document\":768,\"body\":768},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-pay-links-768.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "en pay-links at390px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":390,\"document\":390,\"body\":390},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-pay-links-390.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "en pay-links checkbox, label and keyboard Space",
+      "expected": "Only selected field changes on each activation",
+      "observed": "{\"before\":[\"true\",\"true\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"clicked\":[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"labelled\":[\"true\",\"true\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"keyboard\":[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"]}",
+      "result": "PASS",
+      "screenshot": "toggle-en-pay-links.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "en templates cold load",
+      "expected": "Production route200, useful form and seven required controls",
+      "observed": "HTTP200, useful controls after520ms",
+      "result": "PASS"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "en templates at1440px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1440,\"document\":1440,\"body\":1440},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-templates-1440.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "en templates at1280px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1280,\"document\":1280,\"body\":1280},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-templates-1280.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "en templates at1024px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1024,\"document\":1024,\"body\":1024},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-templates-1024.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "en templates at768px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":768,\"document\":768,\"body\":768},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-templates-768.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "en templates at390px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":390,\"document\":390,\"body\":390},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-en-templates-390.png"
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "en templates checkbox, label and keyboard Space",
+      "expected": "Only selected field changes on each activation",
+      "observed": "{\"before\":[\"true\",\"true\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"clicked\":[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"labelled\":[\"true\",\"true\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"keyboard\":[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"]}",
+      "result": "PASS",
+      "screenshot": "toggle-en-templates.png"
+    },
+    {
+      "step": 15,
+      "priority": "P1",
+      "action": "pl pay-links cold load",
+      "expected": "Production route200, useful form and seven required controls",
+      "observed": "HTTP200, useful controls after491ms",
+      "result": "PASS"
+    },
+    {
+      "step": 16,
+      "priority": "P1",
+      "action": "pl pay-links at1440px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1440,\"document\":1440,\"body\":1440},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-pay-links-1440.png"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "pl pay-links at1280px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1280,\"document\":1280,\"body\":1280},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-pay-links-1280.png"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "pl pay-links at1024px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1024,\"document\":1024,\"body\":1024},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-pay-links-1024.png"
+    },
+    {
+      "step": 19,
+      "priority": "P1",
+      "action": "pl pay-links at768px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":768,\"document\":768,\"body\":768},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-pay-links-768.png"
+    },
+    {
+      "step": 20,
+      "priority": "P1",
+      "action": "pl pay-links at390px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":390,\"document\":390,\"body\":390},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-pay-links-390.png"
+    },
+    {
+      "step": 21,
+      "priority": "P1",
+      "action": "pl pay-links checkbox, label and keyboard Space",
+      "expected": "Only selected field changes on each activation",
+      "observed": "{\"before\":[\"true\",\"true\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"clicked\":[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"labelled\":[\"true\",\"true\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"keyboard\":[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"]}",
+      "result": "PASS",
+      "screenshot": "toggle-pl-pay-links.png"
+    },
+    {
+      "step": 22,
+      "priority": "P1",
+      "action": "pl templates cold load",
+      "expected": "Production route200, useful form and seven required controls",
+      "observed": "HTTP200, useful controls after474ms",
+      "result": "PASS"
+    },
+    {
+      "step": 23,
+      "priority": "P1",
+      "action": "pl templates at1440px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1440,\"document\":1440,\"body\":1440},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-templates-1440.png"
+    },
+    {
+      "step": 24,
+      "priority": "P1",
+      "action": "pl templates at1280px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1280,\"document\":1280,\"body\":1280},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-templates-1280.png"
+    },
+    {
+      "step": 25,
+      "priority": "P1",
+      "action": "pl templates at1024px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":1024,\"document\":1024,\"body\":1024},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-templates-1024.png"
+    },
+    {
+      "step": 26,
+      "priority": "P1",
+      "action": "pl templates at768px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":768,\"document\":768,\"body\":768},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-templates-768.png"
+    },
+    {
+      "step": 27,
+      "priority": "P1",
+      "action": "pl templates at390px",
+      "expected": "Whole page and all seven20px checkbox/text controls contained",
+      "observed": "{\"pageBounds\":{\"viewport\":390,\"document\":390,\"body\":390},\"bounds\":[{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"true\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true},{\"checked\":\"false\",\"checkbox\":{\"width\":20,\"height\":20},\"inside\":true,\"textFits\":true}]}",
+      "result": "PASS",
+      "screenshot": "matrix-pl-templates-390.png"
+    },
+    {
+      "step": 28,
+      "priority": "P1",
+      "action": "pl templates checkbox, label and keyboard Space",
+      "expected": "Only selected field changes on each activation",
+      "observed": "{\"before\":[\"true\",\"true\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"clicked\":[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"labelled\":[\"true\",\"true\",\"true\",\"false\",\"false\",\"false\",\"false\"],\"keyboard\":[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"]}",
+      "result": "PASS",
+      "screenshot": "toggle-pl-templates.png"
+    },
+    {
+      "step": 29,
+      "priority": "P1",
+      "action": "Reopen UI-created template",
+      "expected": "Selected last-name required=false and amount123.45 persist",
+      "observed": "{\"flags\":[{\"key\":\"firstName\",\"required\":true},{\"key\":\"lastName\",\"required\":false},{\"key\":\"email\",\"required\":false},{\"key\":\"phone\",\"required\":false},{\"key\":\"companyName\",\"required\":false},{\"key\":\"companyId\",\"required\":false},{\"key\":\"address\",\"required\":false}],\"amount\":123.45}",
+      "result": "PASS"
+    },
+    {
+      "step": 30,
+      "priority": "P1",
+      "action": "Update title and one required flag; compare every persisted field",
+      "expected": "Only title, selected required flag and version change",
+      "observed": "{\"http\":200,\"changes\":[\"title\",\"customerFieldsSchema\",\"updatedAt\"],\"selectedOnly\":true}",
+      "result": "PASS"
+    },
+    {
+      "step": 31,
+      "priority": "P1",
+      "action": "Polish reload saved template amount",
+      "expected": "Persisted123.45 displays decimal comma",
+      "observed": "123,45",
+      "result": "PASS"
+    },
+    {
+      "step": 32,
+      "priority": "P1",
+      "action": "Polish decimal-comma save and reload,10s stability",
+      "expected": "234,56 redisplays, numeric234.56 persists, flags remain intact",
+      "observed": "{\"http\":200,\"display\":\"234,56\",\"stored\":234.56,\"flags\":[true,false,true,false,false,false,false]}",
+      "result": "PASS",
+      "screenshot": "persist-template-pl-reloaded.png"
+    },
+    {
+      "step": 33,
+      "priority": "P1",
+      "action": "Reopen own UI-created pay-link",
+      "expected": "Only selected last-name required flag changed and persisted",
+      "observed": "[\"true\",\"false\",\"true\",\"false\",\"false\",\"false\",\"false\"]",
+      "result": "PASS",
+      "screenshot": "persist-link-reloaded.png"
+    },
+    {
+      "step": 34,
+      "priority": "P1",
+      "action": "Double-submit empty template",
+      "expected": "Clear validation refusal, create form remains usable",
+      "observed": "- main:\n  - link \"\u2190 Back\":\n    - /url: /backend/checkout/templates\n  - heading \"Create Template\" [level=1]\n  - link \"Cancel\":\n    - /url: /backend/checkout/templates\n  - button \"Save\"\n  - text: General Name *\n  - paragraph: Name is required.\n  - textbox \"January consulting session\" [invalid]\n  - text: Title\n  - textbox \"Consulting session payment\"\n  - text: Subtitle\n  - textbox \"One-hour strategy consultation\"\n  - text: Description\n  - paragraph: Markdown is supported on the public page preview.\n  - toolbar:\n    - group:\n      - radio \"Undo Ctrl+Z\" [disabled]:\n        - img\n    - group:\n      - radio \"Redo Ctrl+Y\" [disabled]:\n        - img\n    - separator\n    - group:\n      - radio \"Bold\":\n        - img\n    - group:\n      - radio \"Italic\":\n        - img\n    - group:\n      - radio \"Underline\":\n        - img\n    - group:\n      - radio \"Inline code format\":\n        - img\n    - group:\n      - radio \"Strikethrough\":\n        - img\n    - group:\n      - radio \"Superscript\":\n        - img\n    - group:\n      - radio \"Subscript\":\n        - img\n    - separator\n    - group \"toggle group\":\n      - radio \"Bulleted list\":\n        - img\n      - radio \"Numbered list\":\n        - img\n      - radio \"Check list\":\n        - img\n    - separator\n    - combobox \"Block type\"\n    - separator\n    - button \"Create link\":\n      - img\n    - button \"Insert image\":\n      - img\n    - separator\n    - button \"Insert Table\":\n      - img\n    - button \"Insert thematic break\":\n      - img\n    - group \"toggle group\":\n      - radio \"Rich text\" [checked]:\n        - img\n      - radio \"Diff mode\":\n        - img\n      - radio \"Source mode\":\n        - img\n  - textbox \"editable markdown\":\n    - paragraph\n  - paragraph\n  - text: Pricing\n  - button \"Fixed price\"\n  - button \"Customer enters amount\"\n  - button \"Price list\"\n  - text: Amount *\n  - paragraph: Amount is required for fixed pricing.\n  - textbox \"150\" [invalid]\n  - text: Currency *\n  - combobox \"Select currency\": USD \u00b7 USD \u2013 US Dollar\n  - text: Compare-at price\n  - paragraph: Optional crossed-out amount shown above the current price.\n  - textbox \"200\"\n  - checkbox \"Price already includes tax\" [checked]\n  - text: Price already includes tax Customer fields\n  - 'checkbox \"Collect customer details Recommended: collect at least the customer email for receipts, fraud review, and payment dispute safety. It is not required.\" [checked]'\n  - text: \"Collect customer details Recommended: collect at least the customer email for receipts, fraud review, and payment dispute safety. It is not required.\"\n  - alert: Turn this off to make the page a simple pay link with no customer form.\n  - alert: Default customer fields are only starting suggestions. You can rename, reorder, or remove them to keep the form compact.\n  - text: Field key Label Placeholder Type Required Actions Field key\n  - textbox \"referenceCode\": firstName\n  - text: Label\n  - textbox \"Reference code\": First name\n  - text: Placeholder\n  - textbox \"Shown inside the input\": Jane\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\" [checked]\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": lastName\n  - text: Label\n  - textbox \"Reference code\": Last name\n  - text: Placeholder\n  - textbox \"Shown inside the input\": Doe\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\" [checked]\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": email\n  - text: Label\n  - textbox \"Reference code\": Email\n  - text: Placeholder\n  - textbox \"Shown inside the input\": jane@company.com\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\" [checked]\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": phone\n  - text: Label\n  - textbox \"Reference code\": Phone\n  - text: Placeholder\n  - textbox \"Shown inside the input\": +1 555 123 4567\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\"\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": companyName\n  - text: Label\n  - textbox \"Reference code\": Company name\n  - text: Placeholder\n  - textbox \"Shown inside the input\": Acme Inc.\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\"\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": companyId\n  - text: Label\n  - textbox \"Reference code\": Company ID\n  - text: Placeholder\n  - textbox \"Shown inside the input\": VAT / registration number\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\"\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": address\n  - text: Label\n  - textbox \"Reference code\": Address\n  - text: Placeholder\n  - textbox \"Shown inside the input\": Street, city, postal code\n  - text: Type\n  - combobox:\n    - option \"Text\"\n    - option \"Textarea\" [selected]\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\"\n  - text: Required\n  - button \"Remove\"\n  - button \"Add customer field\"\n  - text: Legal\n  - alert: These tabs are shown around the legal consent step on the pay page. Use markdown for headings, lists, and links.\n  - tablist:\n    - tab \"Terms\" [selected]\n    - tab \"Privacy\"\n  - tabpanel \"Terms\":\n    - text: Terms title\n    - textbox \"Terms and conditions\"\n    - text: Terms body\n    - toolbar:\n      - group:\n        - radio \"Undo Ctrl+Z\" [disabled]:\n          - img\n      - group:\n        - radio \"Redo Ctrl+Y\" [disabled]:\n          - img\n      - separator\n      - group:\n        - radio \"Bold\":\n          - img\n      - group:\n        - radio \"Italic\":\n          - img\n      - group:\n        - radio \"Underline\":\n          - img\n      - group:\n        - radio \"Inline code format\":\n          - img\n      - group:\n        - radio \"Strikethrough\":\n          - img\n      - group:\n        - radio \"Superscript\":\n          - img\n      - group:\n        - radio \"Subscript\":\n          - img\n      - separator\n      - group \"toggle group\":\n        - radio \"Bulleted list\":\n          - img\n        - radio \"Numbered list\":\n          - img\n        - radio \"Check list\":\n          - img\n      - separator\n      - combobox \"Block type\"\n      - separator\n      - button \"Create link\":\n        - img\n      - button \"Insert image\":\n        - img\n      - separator\n      - button \"Insert Table\":\n        - img\n      - button \"Insert thematic break\":\n        - img\n      - group \"toggle group\":\n        - radio \"Rich text\" [checked]:\n          - img\n        - radio \"Diff mode\":\n          - img\n        - radio \"Source mode\":\n          - img\n    - textbox \"editable markdown\":\n      - paragraph\n    - paragraph\n    - checkbox \"Acceptance required\"\n    - text: Acceptance required\n  - text: Messages\n  - alert: These messages are shown on the public success, cancel, and error states. Markdown is supported in the body.\n  - tablist:\n    - tab \"Success\" [selected]\n    - tab \"Cancel\"\n    - tab \"Error\"\n  - tabpanel \"Success\":\n    - text: Success title\n    - textbox \"Payment completed\"\n    - text: Success message\n    - toolbar:\n      - group:\n        - radio \"Undo Ctrl+Z\" [disabled]:\n          - img\n      - group:\n        - radio \"Redo Ctrl+Y\" [disabled]:\n          - img\n      - separator\n      - group:\n        - radio \"Bold\":\n          - img\n      - group:\n        - radio \"Italic\":\n          - img\n      - group:\n        - radio \"Underline\":\n          - img\n      - group:\n        - radio \"Inline code format\":\n          - img\n      - group:\n        - radio \"Strikethrough\":\n          - img\n      - group:\n        - radio \"Superscript\":\n          - img\n      - group:\n        - radio \"Subscript\":\n          - img\n      - separator\n      - group \"toggle group\":\n        - radio \"Bulleted list\":\n          - img\n        - radio \"Numbered list\":\n          - img\n        - radio \"Check list\":\n          - img\n      - separator\n      - combobox \"Block type\"\n      - separator\n      - button \"Create link\":\n        - img\n      - button \"Insert image\":\n        - img\n      - separator\n      - button \"Insert Table\":\n        - img\n      - button \"Insert thematic break\":\n        - img\n      - group \"toggle group\":\n        - radio \"Rich text\" [checked]:\n          - img\n        - radio \"Diff mode\":\n          - img\n        - radio \"Source mode\":\n          - img\n    - textbox \"editable markdown\":\n      - paragraph\n    - paragraph\n  - text: Emails\n  - alert: Email bodies support markdown and the variables below.\n  - paragraph: \"Available variables:\"\n  - text: \"{{firstName}} {{amount}} {{currencyCode}} {{linkTitle}} {{transactionId}} {{errorMessage}}\"\n  - tablist:\n    - tab \"Started\" [selected]\n    - tab \"Success\"\n    - tab \"Error\"\n  - tabpanel \"Started\":\n    - checkbox \"Send this email to the customer\" [checked]\n    - text: Send this email to the customer Started email subject\n    - 'textbox \"Payment started - {{linkTitle}}\"'\n    - text: Started email body\n    - toolbar:\n      - group:\n        - radio \"Undo Ctrl+Z\" [disabled]:\n          - img\n      - group:\n        - radio \"Redo Ctrl+Y\" [disabled]:\n          - img\n      - separator\n      - group:\n        - radio \"Bold\":\n          - img\n      - group:\n        - radio \"Italic\":\n          - img\n      - group:\n        - radio \"Underline\":\n          - img\n      - group:\n        - radio \"Inline code format\":\n          - img\n      - group:\n        - radio \"Strikethrough\":\n          - img\n      - group:\n        - radio \"Superscript\":\n          - img\n      - group:\n        - radio \"Subscript\":\n          - img\n      - separator\n      - group \"toggle group\":\n        - radio \"Bulleted list\":\n          - img\n        - radio \"Numbered list\":\n          - img\n        - radio \"Check list\":\n          - img\n      - separator\n      - combobox \"Block type\"\n      - separator\n      - button \"Create link\":\n        - img\n      - button \"Insert image\":\n        - img\n      - separator\n      - button \"Insert Table\":\n        - img\n      - button \"Insert thematic break\":\n        - img\n      - group \"toggle group\":\n        - radio \"Rich text\" [checked]:\n          - img\n        - radio \"Diff mode\":\n          - img\n        - radio \"Source mode\":\n          - img\n    - textbox \"editable markdown\":\n      - paragraph\n    - paragraph\n  - text: Payment Gateway provider *\n  - paragraph: Gateway provider is required.\n  - combobox [invalid]:\n    - option \"Select a provider\u2026\" [selected]\n    - option \"Autopay (configure in Integrations first)\" [disabled]\n    - option \"Mock Gateway\"\n    - option \"Mock Gateway (payer email and name required)\"\n    - option \"Mock Gateway (pending state)\"\n    - option \"Mock Gateway (USD only)\"\n    - option \"Stripe (configure in Integrations first)\" [disabled]\n    - option \"Tpay (configure in Integrations first)\" [disabled]\n  - alert: Choose a gateway provider to configure checkout session settings.\n  - text: Appearance Logo\n  - paragraph: Upload a logo to attachments or keep using an external URL.\n  - button \"Attach logo\"\n  - text: No logo selected yet. External logo URL\n  - textbox \"https://example.com/logo.png\"\n  - text: Primary color\n  - button \"Primary color\": \"#1E3A8A\"\n  - textbox \"#1E3A8A\"\n  - text: Secondary color\n  - button \"Secondary color\": \"#F59E0B\"\n  - textbox \"#1E3A8A\": \"#F59E0B\"\n  - text: Background color\n  - button \"Background color\": \"#F8F4EE\"\n  - textbox \"#1E3A8A\": \"#F8F4EE\"\n  - text: Theme mode\n  - combobox:\n    - option \"Auto\" [selected]\n    - option \"Light\"\n    - option \"Dark\"\n  - checkbox \"Show custom fields on the public page\"\n  - text: Show custom fields on the public page Settings Status\n  - button \"Draft\"\n  - button \"Active\"\n  - button \"Inactive\"\n  - text: Max completions\n  - paragraph: Leave empty if the link should stay reusable forever.\n  - spinbutton\n  - text: Password\n  - paragraph: Optional password required before the pay page can be opened.\n  - textbox \"Leave blank to keep the page public\"\n  - button \"Show password\"\n  - text: Fieldset\n  - combobox: Service package\n  - button \"Manage fields\"\n  - text: Service package Customer-facing details for consulting, services, and appointment-style links.\n  - button \"Manage fields\"\n  - text: What is included What is included\n  - toolbar \"Rich text formatting\":\n    - button \"Heading\"\n    - separator\n    - button \"Font size\": 14px\n    - separator\n    - button \"Text color\"\n    - separator\n    - button \"Bold\"\n    - button \"Italic\"\n    - button \"More\"\n  - textbox: Write here...\n  - text: Short bullet list or summary of what the customer receives after payment. Before you pay Delivery timeline\n  - textbox\n  - text: When the customer should expect the next step, call, or deliverable. Session format\n  - textbox\n  - text: Customer-facing note describing how the service is delivered. Support contact\n  - textbox\n  - text: Public contact detail for customer questions about this pay link.\n  - link \"Cancel\":\n    - /url: /backend/checkout/templates\n  - button \"Save\"\n- contentinfo:\n  - text: Version 0.10.0\n  - navigation:\n    - link \"Terms\":\n      - /url: /terms\n    - link \"Privacy\":\n      - /url: /privacy\n- alert",
+      "result": "PASS",
+      "screenshot": "validation-empty-refusal.png"
+    },
+    {
+      "step": 35,
+      "priority": "P1",
+      "action": "Retry after refusal with invalid amount",
+      "expected": "Invalid text refused without coercion to0",
+      "observed": "- main:\n  - link \"\u2190 Back\":\n    - /url: /backend/checkout/templates\n  - heading \"Create Template\" [level=1]\n  - link \"Cancel\":\n    - /url: /backend/checkout/templates\n  - button \"Save\"\n  - text: General Name *\n  - textbox \"January consulting session\": QA9026 refusal retry\n  - text: Title\n  - textbox \"Consulting session payment\"\n  - text: Subtitle\n  - textbox \"One-hour strategy consultation\"\n  - text: Description\n  - paragraph: Markdown is supported on the public page preview.\n  - toolbar:\n    - group:\n      - radio \"Undo Ctrl+Z\" [disabled]:\n        - img\n    - group:\n      - radio \"Redo Ctrl+Y\" [disabled]:\n        - img\n    - separator\n    - group:\n      - radio \"Bold\":\n        - img\n    - group:\n      - radio \"Italic\":\n        - img\n    - group:\n      - radio \"Underline\":\n        - img\n    - group:\n      - radio \"Inline code format\":\n        - img\n    - group:\n      - radio \"Strikethrough\":\n        - img\n    - group:\n      - radio \"Superscript\":\n        - img\n    - group:\n      - radio \"Subscript\":\n        - img\n    - separator\n    - group \"toggle group\":\n      - radio \"Bulleted list\":\n        - img\n      - radio \"Numbered list\":\n        - img\n      - radio \"Check list\":\n        - img\n    - separator\n    - combobox \"Block type\"\n    - separator\n    - button \"Create link\":\n      - img\n    - button \"Insert image\":\n      - img\n    - separator\n    - button \"Insert Table\":\n      - img\n    - button \"Insert thematic break\":\n      - img\n    - group \"toggle group\":\n      - radio \"Rich text\" [checked]:\n        - img\n      - radio \"Diff mode\":\n        - img\n      - radio \"Source mode\":\n        - img\n  - textbox \"editable markdown\":\n    - paragraph\n  - paragraph\n  - text: Pricing\n  - button \"Fixed price\"\n  - button \"Customer enters amount\"\n  - button \"Price list\"\n  - text: Amount *\n  - paragraph: Enter a valid number.\n  - textbox \"150\" [invalid]: not-a-number\n  - text: Currency *\n  - combobox \"Select currency\": USD \u00b7 USD \u2013 US Dollar\n  - text: Compare-at price\n  - paragraph: Optional crossed-out amount shown above the current price.\n  - textbox \"200\"\n  - checkbox \"Price already includes tax\" [checked]\n  - text: Price already includes tax Customer fields\n  - 'checkbox \"Collect customer details Recommended: collect at least the customer email for receipts, fraud review, and payment dispute safety. It is not required.\" [checked]'\n  - text: \"Collect customer details Recommended: collect at least the customer email for receipts, fraud review, and payment dispute safety. It is not required.\"\n  - alert: Turn this off to make the page a simple pay link with no customer form.\n  - alert: Default customer fields are only starting suggestions. You can rename, reorder, or remove them to keep the form compact.\n  - text: Field key Label Placeholder Type Required Actions Field key\n  - textbox \"referenceCode\": firstName\n  - text: Label\n  - textbox \"Reference code\": First name\n  - text: Placeholder\n  - textbox \"Shown inside the input\": Jane\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\" [checked]\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": lastName\n  - text: Label\n  - textbox \"Reference code\": Last name\n  - text: Placeholder\n  - textbox \"Shown inside the input\": Doe\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\" [checked]\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": email\n  - text: Label\n  - textbox \"Reference code\": Email\n  - text: Placeholder\n  - textbox \"Shown inside the input\": jane@company.com\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\" [checked]\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": phone\n  - text: Label\n  - textbox \"Reference code\": Phone\n  - text: Placeholder\n  - textbox \"Shown inside the input\": +1 555 123 4567\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\"\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": companyName\n  - text: Label\n  - textbox \"Reference code\": Company name\n  - text: Placeholder\n  - textbox \"Shown inside the input\": Acme Inc.\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\"\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": companyId\n  - text: Label\n  - textbox \"Reference code\": Company ID\n  - text: Placeholder\n  - textbox \"Shown inside the input\": VAT / registration number\n  - text: Type\n  - combobox:\n    - option \"Text\" [selected]\n    - option \"Textarea\"\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\"\n  - text: Required\n  - button \"Remove\"\n  - text: Field key\n  - textbox \"referenceCode\": address\n  - text: Label\n  - textbox \"Reference code\": Address\n  - text: Placeholder\n  - textbox \"Shown inside the input\": Street, city, postal code\n  - text: Type\n  - combobox:\n    - option \"Text\"\n    - option \"Textarea\" [selected]\n    - option \"Checkbox\"\n    - option \"Select\"\n    - option \"Radio\"\n  - checkbox \"Required\"\n  - text: Required\n  - button \"Remove\"\n  - button \"Add customer field\"\n  - text: Legal\n  - alert: These tabs are shown around the legal consent step on the pay page. Use markdown for headings, lists, and links.\n  - tablist:\n    - tab \"Terms\" [selected]\n    - tab \"Privacy\"\n  - tabpanel \"Terms\":\n    - text: Terms title\n    - textbox \"Terms and conditions\"\n    - text: Terms body\n    - toolbar:\n      - group:\n        - radio \"Undo Ctrl+Z\" [disabled]:\n          - img\n      - group:\n        - radio \"Redo Ctrl+Y\" [disabled]:\n          - img\n      - separator\n      - group:\n        - radio \"Bold\":\n          - img\n      - group:\n        - radio \"Italic\":\n          - img\n      - group:\n        - radio \"Underline\":\n          - img\n      - group:\n        - radio \"Inline code format\":\n          - img\n      - group:\n        - radio \"Strikethrough\":\n          - img\n      - group:\n        - radio \"Superscript\":\n          - img\n      - group:\n        - radio \"Subscript\":\n          - img\n      - separator\n      - group \"toggle group\":\n        - radio \"Bulleted list\":\n          - img\n        - radio \"Numbered list\":\n          - img\n        - radio \"Check list\":\n          - img\n      - separator\n      - combobox \"Block type\"\n      - separator\n      - button \"Create link\":\n        - img\n      - button \"Insert image\":\n        - img\n      - separator\n      - button \"Insert Table\":\n        - img\n      - button \"Insert thematic break\":\n        - img\n      - group \"toggle group\":\n        - radio \"Rich text\" [checked]:\n          - img\n        - radio \"Diff mode\":\n          - img\n        - radio \"Source mode\":\n          - img\n    - textbox \"editable markdown\":\n      - paragraph\n    - paragraph\n    - checkbox \"Acceptance required\"\n    - text: Acceptance required\n  - text: Messages\n  - alert: These messages are shown on the public success, cancel, and error states. Markdown is supported in the body.\n  - tablist:\n    - tab \"Success\" [selected]\n    - tab \"Cancel\"\n    - tab \"Error\"\n  - tabpanel \"Success\":\n    - text: Success title\n    - textbox \"Payment completed\"\n    - text: Success message\n    - toolbar:\n      - group:\n        - radio \"Undo Ctrl+Z\" [disabled]:\n          - img\n      - group:\n        - radio \"Redo Ctrl+Y\" [disabled]:\n          - img\n      - separator\n      - group:\n        - radio \"Bold\":\n          - img\n      - group:\n        - radio \"Italic\":\n          - img\n      - group:\n        - radio \"Underline\":\n          - img\n      - group:\n        - radio \"Inline code format\":\n          - img\n      - group:\n        - radio \"Strikethrough\":\n          - img\n      - group:\n        - radio \"Superscript\":\n          - img\n      - group:\n        - radio \"Subscript\":\n          - img\n      - separator\n      - group \"toggle group\":\n        - radio \"Bulleted list\":\n          - img\n        - radio \"Numbered list\":\n          - img\n        - radio \"Check list\":\n          - img\n      - separator\n      - combobox \"Block type\"\n      - separator\n      - button \"Create link\":\n        - img\n      - button \"Insert image\":\n        - img\n      - separator\n      - button \"Insert Table\":\n        - img\n      - button \"Insert thematic break\":\n        - img\n      - group \"toggle group\":\n        - radio \"Rich text\" [checked]:\n          - img\n        - radio \"Diff mode\":\n          - img\n        - radio \"Source mode\":\n          - img\n    - textbox \"editable markdown\":\n      - paragraph\n    - paragraph\n  - text: Emails\n  - alert: Email bodies support markdown and the variables below.\n  - paragraph: \"Available variables:\"\n  - text: \"{{firstName}} {{amount}} {{currencyCode}} {{linkTitle}} {{transactionId}} {{errorMessage}}\"\n  - tablist:\n    - tab \"Started\" [selected]\n    - tab \"Success\"\n    - tab \"Error\"\n  - tabpanel \"Started\":\n    - checkbox \"Send this email to the customer\" [checked]\n    - text: Send this email to the customer Started email subject\n    - 'textbox \"Payment started - {{linkTitle}}\"'\n    - text: Started email body\n    - toolbar:\n      - group:\n        - radio \"Undo Ctrl+Z\" [disabled]:\n          - img\n      - group:\n        - radio \"Redo Ctrl+Y\" [disabled]:\n          - img\n      - separator\n      - group:\n        - radio \"Bold\":\n          - img\n      - group:\n        - radio \"Italic\":\n          - img\n      - group:\n        - radio \"Underline\":\n          - img\n      - group:\n        - radio \"Inline code format\":\n          - img\n      - group:\n        - radio \"Strikethrough\":\n          - img\n      - group:\n        - radio \"Superscript\":\n          - img\n      - group:\n        - radio \"Subscript\":\n          - img\n      - separator\n      - group \"toggle group\":\n        - radio \"Bulleted list\":\n          - img\n        - radio \"Numbered list\":\n          - img\n        - radio \"Check list\":\n          - img\n      - separator\n      - combobox \"Block type\"\n      - separator\n      - button \"Create link\":\n        - img\n      - button \"Insert image\":\n        - img\n      - separator\n      - button \"Insert Table\":\n        - img\n      - button \"Insert thematic break\":\n        - img\n      - group \"toggle group\":\n        - radio \"Rich text\" [checked]:\n          - img\n        - radio \"Diff mode\":\n          - img\n        - radio \"Source mode\":\n          - img\n    - textbox \"editable markdown\":\n      - paragraph\n    - paragraph\n  - text: Payment Gateway provider *\n  - combobox:\n    - option \"Select a provider\u2026\" [selected]\n    - option \"Autopay (configure in Integrations first)\" [disabled]\n    - option \"Mock Gateway\"\n    - option \"Mock Gateway (payer email and name required)\"\n    - option \"Mock Gateway (pending state)\"\n    - option \"Mock Gateway (USD only)\"\n    - option \"Stripe (configure in Integrations first)\" [disabled]\n    - option \"Tpay (configure in Integrations first)\" [disabled]\n  - alert: Choose a gateway provider to configure checkout session settings.\n  - text: Appearance Logo\n  - paragraph: Upload a logo to attachments or keep using an external URL.\n  - button \"Attach logo\"\n  - text: No logo selected yet. External logo URL\n  - textbox \"https://example.com/logo.png\"\n  - text: Primary color\n  - button \"Primary color\": \"#1E3A8A\"\n  - textbox \"#1E3A8A\"\n  - text: Secondary color\n  - button \"Secondary color\": \"#F59E0B\"\n  - textbox \"#1E3A8A\": \"#F59E0B\"\n  - text: Background color\n  - button \"Background color\": \"#F8F4EE\"\n  - textbox \"#1E3A8A\": \"#F8F4EE\"\n  - text: Theme mode\n  - combobox:\n    - option \"Auto\" [selected]\n    - option \"Light\"\n    - option \"Dark\"\n  - checkbox \"Show custom fields on the public page\"\n  - text: Show custom fields on the public page Settings Status\n  - button \"Draft\"\n  - button \"Active\"\n  - button \"Inactive\"\n  - text: Max completions\n  - paragraph: Leave empty if the link should stay reusable forever.\n  - spinbutton\n  - text: Password\n  - paragraph: Optional password required before the pay page can be opened.\n  - textbox \"Leave blank to keep the page public\"\n  - button \"Show password\"\n  - text: Fieldset\n  - combobox: Service package\n  - button \"Manage fields\"\n  - text: Service package Customer-facing details for consulting, services, and appointment-style links.\n  - button \"Manage fields\"\n  - text: What is included What is included\n  - toolbar \"Rich text formatting\":\n    - button \"Heading\"\n    - separator\n    - button \"Font size\": 14px\n    - separator\n    - button \"Text color\"\n    - separator\n    - button \"Bold\"\n    - button \"Italic\"\n    - button \"More\"\n  - textbox: Write here...\n  - text: Short bullet list or summary of what the customer receives after payment. Before you pay Delivery timeline\n  - textbox\n  - text: When the customer should expect the next step, call, or deliverable. Session format\n  - textbox\n  - text: Customer-facing note describing how the service is delivered. Support contact\n  - textbox\n  - text: Public contact detail for customer questions about this pay link.\n  - link \"Cancel\":\n    - /url: /backend/checkout/templates\n  - button \"Save\"\n- contentinfo:\n  - text: Version 0.10.0\n  - navigation:\n    - link \"Terms\":\n      - /url: /terms\n    - link \"Privacy\":\n      - /url: /privacy\n- alert",
+      "result": "PASS"
+    },
+    {
+      "step": 36,
+      "priority": "P1",
+      "action": "Create own narrow role and two tenant-bound actors through UI",
+      "expected": "Own actors available for permissions and stale-write checks",
+      "observed": "Narrow role and two users created in Acme tenant; no seeded actor used as negative control",
+      "result": "PASS"
+    },
+    {
+      "step": 37,
+      "priority": "P1",
+      "action": "Own narrow-role actor: direct create URL and direct API submission",
+      "expected": "UI refuses create and API403; no server error",
+      "observed": "{\"apiStatus\":403,\"ui\":\"- link \\\"Skip to main content\\\":\\n  - /url: \\\"#main-content\\\"\\n- button \\\"Toggle sidebar\\\"\\n- complementary:\\n  - link \\\"Go to dashboard\\\":\\n    - /url: /backend\\n    - img \\\"Open Mercato\\\"\\n    - text: Open Mercato\\n  - searchbox \\\"Search navigation\\\"\\n  - navigation\\n  - button \\\"Scroll to bottom\\\"\\n- banner:\\n  - navigation \\\"Breadcrumb\\\":\\n    - list:\\n      - listitem\\n  - link \\\"Settings\\\":\\n    - /url: /backend/settings\\n  - button \\\"qa9026-narrow-a7faa658@example.test\\\"\\n- main:\\n  - alert:\\n    - paragraph: Access Denied\\n    - paragraph: You do not have permission to view this page. Please contact your administrator.\\n    - link \\\"Go to Dashboard\\\":\\n      - /url: /backend\\n- contentinfo:\\n  - text: Version 0.10.0\\n  - navigation:\\n    - link \\\"Terms\\\":\\n      - /url: /terms\\n    - link \\\"Privacy\\\":\\n      - /url: /privacy\\n- alert\"}",
+      "result": "PASS",
+      "screenshot": "permission-narrow-refusal.png"
+    },
+    {
+      "step": 38,
+      "priority": "P1",
+      "action": "Two actual users edit different template fields; B saves then stale A saves",
+      "expected": "B200; A409 with conflict UI; B subtitle retained and A title not overwritten",
+      "observed": "{\"bStatus\":200,\"aStatus\":409,\"beforeTitle\":\"QA9026 verified title\",\"afterTitle\":\"QA9026 verified title\",\"subtitle\":\"QA9026 second actor B subtitle\",\"changedFields\":[\"subtitle\",\"updatedAt\"]}",
+      "result": "PASS",
+      "screenshot": "stale-second-actor-conflict.png"
+    },
+    {
+      "step": 39,
+      "priority": "P1",
+      "action": "pay-links long content on mobile",
+      "expected": "Long field label remains editable and whole page contained",
+      "observed": "{\"viewport\":390,\"document\":390}",
+      "result": "PASS",
+      "screenshot": "long-label-pay-links-390.png"
+    },
+    {
+      "step": 40,
+      "priority": "P1",
+      "action": "pay-links customer collection off/on",
+      "expected": "Empty collection state hides editor and restores fields without loss",
+      "observed": "{\"offCount\":0,\"labelRetained\":true}",
+      "result": "PASS"
+    },
+    {
+      "step": 41,
+      "priority": "P1",
+      "action": "templates long content on mobile",
+      "expected": "Long field label remains editable and whole page contained",
+      "observed": "{\"viewport\":390,\"document\":390}",
+      "result": "PASS",
+      "screenshot": "long-label-templates-390.png"
+    },
+    {
+      "step": 42,
+      "priority": "P1",
+      "action": "templates customer collection off/on",
+      "expected": "Empty collection state hides editor and restores fields without loss",
+      "observed": "{\"offCount\":0,\"labelRetained\":true}",
+      "result": "PASS"
+    },
+    {
+      "step": 43,
+      "priority": "P1",
+      "action": "webhooks representative /backend/webhooks/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/webhooks/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create Webhook\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-webhooks-1440.png"
+    },
+    {
+      "step": 44,
+      "priority": "P1",
+      "action": "webhooks representative /backend/webhooks/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/webhooks/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create Webhook\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-webhooks-390.png"
+    },
+    {
+      "step": 45,
+      "priority": "P1",
+      "action": "scheduler representative /backend/config/scheduled-jobs/new at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/config/scheduled-jobs/new\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create Schedule\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-scheduler-1440.png"
+    },
+    {
+      "step": 46,
+      "priority": "P1",
+      "action": "scheduler representative /backend/config/scheduled-jobs/new at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/config/scheduled-jobs/new\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create Schedule\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-scheduler-390.png"
+    },
+    {
+      "step": 47,
+      "priority": "P1",
+      "action": "planner representative /backend/planner/availability-rulesets/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/planner/availability-rulesets/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create schedule\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-planner-1440.png"
+    },
+    {
+      "step": 48,
+      "priority": "P1",
+      "action": "planner representative /backend/planner/availability-rulesets/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/planner/availability-rulesets/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create schedule\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-planner-390.png"
+    },
+    {
+      "step": 49,
+      "priority": "P1",
+      "action": "resources representative /backend/resources/resources/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/resources/resources/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create resource\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-resources-1440.png"
+    },
+    {
+      "step": 50,
+      "priority": "P1",
+      "action": "resources representative /backend/resources/resources/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/resources/resources/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create resource\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-resources-390.png"
+    },
+    {
+      "step": 51,
+      "priority": "P1",
+      "action": "sales representative /backend/sales/channels/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/sales/channels/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create sales channel\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-sales-1440.png"
+    },
+    {
+      "step": 52,
+      "priority": "P1",
+      "action": "sales representative /backend/sales/channels/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/sales/channels/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create sales channel\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-sales-390.png"
+    },
+    {
+      "step": 53,
+      "priority": "P1",
+      "action": "entities representative /backend/entities/user at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/entities/user\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":0,\"heading\":\"User Entities\"},\"permission\":false}; route rendered but the shared CrudForm consumer was not mounted; cannot count as form coverage.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-entities-1440.png"
+    },
+    {
+      "step": 54,
+      "priority": "P1",
+      "action": "entities representative /backend/entities/user at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/entities/user\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":0,\"heading\":\"User Entities\"},\"permission\":false}; route rendered but the shared CrudForm consumer was not mounted; cannot count as form coverage.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-entities-390.png"
+    },
+    {
+      "step": 55,
+      "priority": "P1",
+      "action": "currencies representative /backend/currencies/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/currencies/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create Currency\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-currencies-1440.png"
+    },
+    {
+      "step": 56,
+      "priority": "P1",
+      "action": "currencies representative /backend/currencies/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/currencies/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create Currency\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-currencies-390.png"
+    },
+    {
+      "step": 57,
+      "priority": "P1",
+      "action": "catalog representative /backend/catalog/prices/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/catalog/prices/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create price rule\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-catalog-1440.png"
+    },
+    {
+      "step": 58,
+      "priority": "P1",
+      "action": "catalog representative /backend/catalog/prices/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/catalog/prices/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create price rule\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-catalog-390.png"
+    },
+    {
+      "step": 59,
+      "priority": "P1",
+      "action": "staff representative /backend/staff/time-tracking/projects/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/staff/time-tracking/projects/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"New project\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-staff-1440.png"
+    },
+    {
+      "step": 60,
+      "priority": "P1",
+      "action": "staff representative /backend/staff/time-tracking/projects/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/staff/time-tracking/projects/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"New project\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-staff-390.png"
+    },
+    {
+      "step": 61,
+      "priority": "P1",
+      "action": "security representative /backend/security/sudo/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":404,\"url\":\"/backend/security/sudo/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":0},\"permission\":false}",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-security-1440.png"
+    },
+    {
+      "step": 62,
+      "priority": "P1",
+      "action": "security representative /backend/security/sudo/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":404,\"url\":\"/backend/security/sudo/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":0},\"permission\":false}",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-security-390.png"
+    },
+    {
+      "step": 63,
+      "priority": "P1",
+      "action": "api_keys representative /backend/api-keys/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/api-keys/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create API Key\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-api_keys-1440.png"
+    },
+    {
+      "step": 64,
+      "priority": "P1",
+      "action": "api_keys representative /backend/api-keys/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/api-keys/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create API Key\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-api_keys-390.png"
+    },
+    {
+      "step": 65,
+      "priority": "P1",
+      "action": "customers representative /backend/customers/people/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/customers/people/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create Person\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-customers-1440.png"
+    },
+    {
+      "step": 66,
+      "priority": "P1",
+      "action": "customers representative /backend/customers/people/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/customers/people/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create Person\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-customers-390.png"
+    },
+    {
+      "step": 67,
+      "priority": "P1",
+      "action": "promotions representative /backend/codes/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/codes/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create promotional code\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-promotions-1440.png"
+    },
+    {
+      "step": 68,
+      "priority": "P1",
+      "action": "promotions representative /backend/codes/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/codes/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create promotional code\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-promotions-390.png"
+    },
+    {
+      "step": 69,
+      "priority": "P1",
+      "action": "customer_accounts representative /backend/customer_accounts/roles/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/customer_accounts/roles/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create Customer Role\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-customer_accounts-1440.png"
+    },
+    {
+      "step": 70,
+      "priority": "P1",
+      "action": "customer_accounts representative /backend/customer_accounts/roles/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/customer_accounts/roles/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create Customer Role\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-customer_accounts-390.png"
+    },
+    {
+      "step": 71,
+      "priority": "P1",
+      "action": "feature_toggles representative /backend/feature-toggles/global/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/feature-toggles/global/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create Feature Toggle\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-feature_toggles-1440.png"
+    },
+    {
+      "step": 72,
+      "priority": "P1",
+      "action": "feature_toggles representative /backend/feature-toggles/global/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/feature-toggles/global/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create Feature Toggle\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-feature_toggles-390.png"
+    },
+    {
+      "step": 73,
+      "priority": "P1",
+      "action": "customer_groups representative /backend/customer-groups/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/customer-groups/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create customer group\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-customer_groups-1440.png"
+    },
+    {
+      "step": 74,
+      "priority": "P1",
+      "action": "customer_groups representative /backend/customer-groups/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/customer-groups/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create customer group\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-customer_groups-390.png"
+    },
+    {
+      "step": 75,
+      "priority": "P1",
+      "action": "business_rules representative /backend/sets/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/sets/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create Rule Set\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-business_rules-1440.png"
+    },
+    {
+      "step": 76,
+      "priority": "P1",
+      "action": "business_rules representative /backend/sets/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/sets/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create Rule Set\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-business_rules-390.png"
+    },
+    {
+      "step": 77,
+      "priority": "P1",
+      "action": "warranty_claims representative /backend/warranty_claims/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/warranty_claims/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"New claim\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-warranty_claims-1440.png"
+    },
+    {
+      "step": 78,
+      "priority": "P1",
+      "action": "warranty_claims representative /backend/warranty_claims/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/warranty_claims/create\",\"bounds\":{\"viewport\":390,\"document\":694,\"formCount\":1,\"heading\":\"New claim\"},\"permission\":false}",
+      "result": "FAIL",
+      "screenshot": "consumer-warranty_claims-390.png"
+    },
+    {
+      "step": 79,
+      "priority": "P1",
+      "action": "auth representative /backend/users/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/users/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create User\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-auth-1440.png"
+    },
+    {
+      "step": 80,
+      "priority": "P1",
+      "action": "auth representative /backend/users/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/users/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create User\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-auth-390.png"
+    },
+    {
+      "step": 81,
+      "priority": "P1",
+      "action": "eudr representative /backend/eudr/plots/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/eudr/plots/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create plot\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-eudr-1440.png"
+    },
+    {
+      "step": 82,
+      "priority": "P1",
+      "action": "eudr representative /backend/eudr/plots/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/eudr/plots/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create plot\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-eudr-390.png"
+    },
+    {
+      "step": 83,
+      "priority": "P1",
+      "action": "workflows representative /backend/definitions/visual-editor at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/definitions/visual-editor\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":0,\"heading\":\"Automation Editor\"},\"permission\":false}; route rendered but the shared CrudForm consumer was not mounted; cannot count as form coverage.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-workflows-1440.png"
+    },
+    {
+      "step": 84,
+      "priority": "P1",
+      "action": "workflows representative /backend/definitions/visual-editor at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/definitions/visual-editor\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":0,\"heading\":\"Automation Editor\"},\"permission\":false}; route rendered but the shared CrudForm consumer was not mounted; cannot count as form coverage.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-workflows-390.png"
+    },
+    {
+      "step": 85,
+      "priority": "P1",
+      "action": "directory representative /backend/directory/tenants/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/directory/tenants/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":0},\"permission\":true}",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-directory-1440.png"
+    },
+    {
+      "step": 86,
+      "priority": "P1",
+      "action": "directory representative /backend/directory/tenants/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/directory/tenants/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":0},\"permission\":true}",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-directory-390.png"
+    },
+    {
+      "step": 87,
+      "priority": "P1",
+      "action": "availability representative /backend/availability/policies/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/availability/policies/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Create Availability Policy\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-availability-1440.png"
+    },
+    {
+      "step": 88,
+      "priority": "P1",
+      "action": "availability representative /backend/availability/policies/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/availability/policies/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Create Availability Policy\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-availability-390.png"
+    },
+    {
+      "step": 89,
+      "priority": "P1",
+      "action": "devices representative /backend/devices/create at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/devices/create\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"Register device\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-devices-1440.png"
+    },
+    {
+      "step": 90,
+      "priority": "P1",
+      "action": "devices representative /backend/devices/create at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/devices/create\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":1,\"heading\":\"Register device\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-devices-390.png"
+    },
+    {
+      "step": 91,
+      "priority": "P1",
+      "action": "example representative /backend/umes-handlers at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/umes-handlers\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":1,\"heading\":\"UMES Phase A-D Features Demo\"},\"permission\":false}",
+      "result": "PASS",
+      "screenshot": "consumer-example-1440.png"
+    },
+    {
+      "step": 92,
+      "priority": "P1",
+      "action": "example representative /backend/umes-handlers at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/umes-handlers\",\"bounds\":{\"viewport\":390,\"document\":760,\"formCount\":1,\"heading\":\"UMES Phase A-D Features Demo\"},\"permission\":false}",
+      "result": "FAIL",
+      "screenshot": "consumer-example-390.png"
+    },
+    {
+      "step": 93,
+      "priority": "P1",
+      "action": "attachments representative /backend/storage/attachments at1440px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/storage/attachments\",\"bounds\":{\"viewport\":1440,\"document\":1440,\"formCount\":0,\"heading\":\"Attachments\"},\"permission\":false}; route rendered but the shared CrudForm consumer was not mounted; cannot count as form coverage.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-attachments-1440.png"
+    },
+    {
+      "step": 94,
+      "priority": "P1",
+      "action": "attachments representative /backend/storage/attachments at390px",
+      "expected": "Grouped form renders with whole-page containment",
+      "observed": "{\"http\":200,\"url\":\"/backend/storage/attachments\",\"bounds\":{\"viewport\":390,\"document\":390,\"formCount\":0,\"heading\":\"Attachments\"},\"permission\":false}; route rendered but the shared CrudForm consumer was not mounted; cannot count as form coverage.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "consumer-attachments-390.png"
+    }
+  ],
+  "counts": {
+    "PASS": 82,
+    "NOT_EXERCISED": 10,
+    "FAIL": 2
+  },
+  "hasUiTest": true,
+  "findings": [
+    {
+      "severity": "medium",
+      "surface": "/backend/warranty_claims/create",
+      "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
+      "line": 865,
+      "observed": "Document694px in390px viewport; line-table actions extend off screen; repeated after reload",
+      "screenshot": "confirmed-warranty-390.png",
+      "introducedByPr": "unproven"
+    },
+    {
+      "severity": "medium",
+      "surface": "/backend/umes-handlers",
+      "file": "apps/mercato/src/modules/example/backend/umes-handlers/page.tsx",
+      "line": 466,
+      "observed": "Document760px in390px viewport; unwrapped diagnostic/menu JSON expands page; repeated after reload",
+      "screenshot": "confirmed-umes-390.png",
+      "introducedByPr": "unproven"
+    }
+  ],
+  "notExercised": [
+    "Consumer routes with no mounted CrudForm: entities list, global feature-toggle route, visual workflow editor, attachments list; their shell containment is not counted as shared-form coverage.",
+    "Enterprise security route404 (enterprise modules disabled); global tenant-create page access denied to tenant admin. Ecommerce consumer unresolved; shared modal/sortable variants not exhaustively opened.",
+    "Controlled loading/network-failure state and10-attempt intermittent-race campaign were not executed. No intermittent layout symptom was observed; cold-route timings were recorded.",
+    "Permission-isolation across a second tenant and the full undo/delete lifecycle were not exercised. No new route/schema/permission/payment state path is introduced by this layout diff. No external payment submitted.",
+    "Post-refusal Escape/Ctrl+Enter retry, every amount-mode input, pay-link full-record diff and repeated stale-write retries were not fully exercised. Template full-record diff and one stale save from a different actual user passed.",
+    "No before-head production environment was built: the two shared-consumer overflows are observed defects on the tested head, with regression attribution unproven.",
+    "Current-main merged result is not tested: GitHub reports CONFLICTING/DIRTY; source remains exact pushed head."
+  ],
+  "fixtures": [
+    {
+      "kind": "template",
+      "id": "527abc7b-0219-46aa-b8f9-e0da18d0f779",
+      "name": "QA9026 a7faa658 template",
+      "createdVia": "UI",
+      "cleanup": "disposable database teardown"
+    },
+    {
+      "kind": "link",
+      "id": "85a6653f-2f92-4990-afad-bca28d8b1d39",
+      "name": "QA9026 a7faa658 link",
+      "createdVia": "UI",
+      "cleanup": "disposable database teardown"
+    },
+    {
+      "kind": "role",
+      "name": "QA9026 a7faa658 narrow",
+      "createdVia": "UI",
+      "cleanup": "disposable database teardown"
+    },
+    {
+      "kind": "user",
+      "email": "qa9026-narrow-a7faa658@example.test",
+      "role": "QA9026 a7faa658 narrow",
+      "createdVia": "UI",
+      "cleanup": "disposable database teardown"
+    },
+    {
+      "kind": "user",
+      "email": "qa9026-actor-a7faa658@example.test",
+      "role": "admin",
+      "createdVia": "UI",
+      "cleanup": "disposable database teardown"
+    }
+  ],
+  "commands": [
+    {
+      "command": "timeout 900 yarn install --immutable",
+      "runner": "local",
+      "exitCode": 0,
+      "outcome": "PASS; peer dependency warnings, immutable install completed",
+      "log": "install.log"
+    },
+    {
+      "command": "timeout 900 yarn build:packages; timeout 900 yarn generate; timeout 900 yarn build:packages",
+      "runner": "local",
+      "exitCode": 0,
+      "outcome": "PASS; ordered preparation through generated ignored entrypoint",
+      "log": "prepare.log"
+    },
+    {
+      "command": "timeout 180 yarn workspace @open-mercato/checkout test --runTestsByPath src/__tests__/CustomerFieldsEditor.test.tsx --runInBand",
+      "runner": "local",
+      "exitCode": 0,
+      "outcome": "PASS; 1 suite, 2 tests",
+      "log": "checkout-unit.log"
+    },
+    {
+      "command": "timeout 240 yarn workspace @open-mercato/ui test --runInBand CrudForm",
+      "runner": "local",
+      "exitCode": 0,
+      "outcome": "PASS; 31 suites, 204 tests",
+      "log": "crudform-unit.log"
+    },
+    {
+      "command": "timeout 180 yarn workspace @open-mercato/checkout typecheck",
+      "runner": "local",
+      "exitCode": 0,
+      "outcome": "PASS",
+      "log": "checkout-typecheck.log"
+    },
+    {
+      "command": "timeout 180 yarn workspace @open-mercato/ui typecheck",
+      "runner": "local",
+      "exitCode": 0,
+      "outcome": "PASS",
+      "log": "ui-typecheck.log"
+    },
+    {
+      "command": "timeout 30 node (Playwright Chromium data-URL doctor)",
+      "runner": "local",
+      "exitCode": 0,
+      "outcome": "PASS; Chromium launch and page title verified"
+    },
+    {
+      "command": "yarn test:integration:ephemeral:start --no-reuse-env (via generated om-prepare-test-env entrypoint, bounded readiness)",
+      "runner": "local",
+      "exitCode": null,
+      "outcome": "Attempt1 production initialization and app build PASS (163s); stopped own environment after identifying launcher override mismatch with CLI fixed credential probe. Ignored script repaired; no PR defect inferred.",
+      "log": "runtime-attempt1.log"
+    },
+    {
+      "command": "timeout 2800 sh .ai/scripts/test-env-up.sh (generated om-prepare-test-env entrypoint)",
+      "exitCode": 0,
+      "outcome": "PASS; production initialization, package/generate/package/app build and authenticated readiness at45555; ignored launcher repairs only",
+      "log": "runtime.log"
+    },
+    {
+      "command": "timeout 30 sh .ai/scripts/test-env-up.sh",
+      "exitCode": 0,
+      "outcome": "PASS; exact-head authenticated warm reuse, same environment; host build lock retained",
+      "log": "warm.log"
+    },
+    {
+      "command": "timeout 300 env OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=86400 yarn mercato test:integration TC-CHKT-7750 --workers 1 --retries 0",
+      "exitCode": 1,
+      "outcome": "Harness invocation rejected: unknown --workers; corrected invocation below; no product verdict from this attempt"
+    },
+    {
+      "command": "timeout 300 env OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS=86400 yarn mercato test:integration TC-CHKT-7750",
+      "exitCode": 0,
+      "outcome": "PASS;2 tests, production instance reused;210714ms including browser ensure",
+      "log": "native-integration.log"
+    },
+    {
+      "command": "timeout 300 node \"$CEZ_ARTIFACTS_DIR/matrix.cjs\"",
+      "exitCode": 0,
+      "outcome": "28/28PASS"
+    },
+    {
+      "command": "timeout 180 node \"$CEZ_ARTIFACTS_DIR/persist-explore.cjs\"",
+      "exitCode": 0,
+      "outcome": "UI template createPASS"
+    },
+    {
+      "command": "timeout 300 node \"$CEZ_ARTIFACTS_DIR/persistence.cjs\"",
+      "exitCode": 1,
+      "outcome": "4 template persistence checksPASS; response-body race during link-create evidence, completed through followup.cjs"
+    },
+    {
+      "command": "timeout 150 node \"$CEZ_ARTIFACTS_DIR/followup.cjs\"",
+      "exitCode": 0,
+      "outcome": "3/3PASS including own pay-link reload and validation refusal/retry"
+    },
+    {
+      "command": "timeout 180 node \"$CEZ_ARTIFACTS_DIR/actors.cjs\"",
+      "exitCode": 0,
+      "outcome": "own role and2 users created through UI"
+    },
+    {
+      "command": "timeout 180 node \"$CEZ_ARTIFACTS_DIR/security-stale.cjs\"",
+      "exitCode": 0,
+      "outcome": "2/2PASS: UI deny/API403 and B200/A409 preserving whole record"
+    },
+    {
+      "command": "timeout 120 node \"$CEZ_ARTIFACTS_DIR/states.cjs\"",
+      "exitCode": 0,
+      "outcome": "4/4PASS long labels and collection off/on"
+    },
+    {
+      "command": "timeout 360 node \"$CEZ_ARTIFACTS_DIR/consumers.cjs\"",
+      "exitCode": 0,
+      "outcome": "40PASS,2FAIL,10not exercised after mounted-form verification"
+    },
+    {
+      "command": "timeout 90 node \"$CEZ_ARTIFACTS_DIR/overflow.cjs\"",
+      "exitCode": 0,
+      "outcome": "two static overflow defects reproduced after cold navigation and reload"
+    }
+  ],
+  "notes": [
+    "Existing human changes-requested merge-conflict review and automerge-blocked preserved. No QA approval/pipeline/failure labels applied.",
+    "All source unchanged; generated runtime email-capture output will be restored after own environment stops.",
+    "Harness false findings corrected before product verdict: global Required text matched table header; scoped to associated checkbox label. API request.headers() omitted security headers; allHeaders() confirmed actualUI200 response and enabled full-record verification.",
+    "Ignored launcher repaired for missing launcher step and repository fixed demo-credential probe defaults. No PR/config repair."
+  ],
+  "createdAt": "2026-11-14T00:27:43.802049+00:00"
+}
