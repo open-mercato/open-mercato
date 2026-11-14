@@ -5,6 +5,7 @@ import { createCrud } from "@open-mercato/ui/backend/utils/crud";
 import { useRouter } from "next/navigation";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { createFormGroups, createFieldDefinitions } from "../../../../components/formConfig";
+import { normalizeDefaultValueForType } from "@open-mercato/core/modules/feature_toggles/lib/defaultValue";
 
 export default function CreateFeatureTogglePage() {
   const router = useRouter();
@@ -39,7 +40,7 @@ export default function CreateFeatureTogglePage() {
               description: values.description,
               category: values.category,
               type: values.type,
-              defaultValue: values.defaultValue,
+              defaultValue: normalizeDefaultValueForType(values.type, values.defaultValue),
             }
 
             await createCrud<{ id?: string }>('feature_toggles/global', payload)
