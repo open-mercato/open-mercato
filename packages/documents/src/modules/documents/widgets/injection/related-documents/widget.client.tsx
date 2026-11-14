@@ -51,12 +51,15 @@ export default function RelatedDocumentsWidget({ context, data, disabled }: Inje
   return (
     <section className="rounded-lg border border-border bg-card p-4">
       <SectionHeader
+        className="flex-wrap gap-2"
         title={t('documents.relatedDocuments.title')}
         count={related.items.length}
-        action={actions.canLink || actions.canCreate ? <>
-          {actions.canLink ? <Button type="button" size="sm" variant="outline" onClick={() => setLinkOpen(true)}><Link2 />{t('documents.relatedDocuments.actions.link')}</Button> : null}
-          {actions.canCreate ? <Button type="button" size="sm" onClick={() => setCreateOpen(true)}><FilePlus2 />{t('documents.relatedDocuments.actions.create')}</Button> : null}
-        </> : undefined}
+        action={actions.canLink || actions.canCreate ? (
+          <div className="flex flex-wrap items-center justify-end gap-1" data-testid="related-documents-actions">
+            {actions.canLink ? <Button type="button" size="sm" variant="outline" onClick={() => setLinkOpen(true)}><Link2 />{t('documents.relatedDocuments.actions.link')}</Button> : null}
+            {actions.canCreate ? <Button type="button" size="sm" onClick={() => setCreateOpen(true)}><FilePlus2 />{t('documents.relatedDocuments.actions.create')}</Button> : null}
+          </div>
+        ) : undefined}
       />
       <div className="mt-4">
         {related.status === 'loading' ? <LoadingMessage label={t('documents.relatedDocuments.loading')} /> : null}
