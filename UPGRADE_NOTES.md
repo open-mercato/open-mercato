@@ -618,6 +618,12 @@ A regenerated MCP key becomes invalid if its owner's home organization changes,
 including a change from no home organization to a concrete one. Generate a new
 key and update the MCP client secret after such a change.
 
+### Cart line contention returns retryable 503 (#8072)
+
+`POST /api/cart/current/lines` and `POST /api/cart/current/lines/bulk` release pooled connections while waiting for the existing cart transaction lock. If contention lasts for the 15-second wait budget, they now return `503` with `code: "cart_busy"`, a localized `error`, `Retry-After: 1` and `Cache-Control: no-store`. This response is issued only after an unsuccessful pre-mutation lock attempt has rolled back; the requested line add/bulk-add mutation phases did not run and no successful idempotency response was recorded. Existing preflight cart activity/reactivation or context-triggered repricing may already have persisted; normal optimistic-lock checks still apply to a retry.
+
+**Client action:** wait at least one second and retry the same body and `Idempotency-Key`. Do not apply this safe-retry rule to unrelated `500` responses or uncertain commit outcomes. Successful responses, request schemas and database structure are unchanged; no operator migration is required. See [Cart API](apps/docs/docs/api/cart.mdx) and the [cart specification](.ai/specs/2026-08-14-cart-module.md).
+
 ### Custom-record POST rejects existing UUIDs (#7815)
 
 `POST /api/entities/records` now returns HTTP 409 (`custom_entity_record_exists`)
@@ -5372,6 +5378,10 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
+
+### Access-log overload admission
+
+The new access-log backlog cap reserves capacity across tenants: one tenant can occupy at most half of `AUDIT_LOGS_MAX_PENDING` (rounded down), shared across its organizations. Values below 2 fall back to 256. Global saturation can still drop best-effort audit writes. Existing retention sweeps no longer hold unrelated writers open; `flushAccessLog()` still drains rotation during shutdown.
 
 
 ## Setup service isolation and remote database acknowledgement

@@ -43,3 +43,23 @@ Access log retention is automatic and environment-configurable:
 - **Rotation frequency** is throttled to at most one sweep per **60 seconds** per process. Override with `AUDIT_LOGS_ROTATE_INTERVAL_MS`; setting it to `0` runs the sweep after every write.
 
 Configure these in your `.env` file to keep the volume of access logs under control while preserving critical trails for longer investigations.
+
+## Overload protection
+
+Access-log writes use two asynchronous stages: CRUD response dispatch and the audit-log service write. Each stage accepts up to **256 pending tasks per process** by default. Set `AUDIT_LOGS_MAX_PENDING` to an integer of at least 2 to change that per-stage limit; invalid values, including 1, zero, and negative values use the default.
+
+When a stage is full, the newest access-log task is skipped before parsing, encryption, or database work begins. The application request continues normally. Blocking mode does not wait for capacity: it returns the same deterministic skipped result. Warnings include the fixed stage, configured capacity, `dropped` tasks since the previous warning, `totalDropped` tasks over the tracker lifetime, and `backlogDrained`, even when telemetry is disabled. Capacity-rejection warnings are limited to once per minute per stage. Drops suppressed by that limit are reported by the next eligible warning or, at the latest, by one final warning with `backlogDrained: true` when the stage's backlog empties, so a burst that ends within the minute is still counted. Counts describe rejected tasks, so a rejected batch can contain multiple access-log records.
+
+Retention sweeps are single-flight. Concurrent writes complete without waiting for an already-active sweep; shutdown flush still drains it. With `AUDIT_LOGS_ROTATE_INTERVAL_MS=0`, concurrent callers still avoid duplicate sweeps, while the next sequential write after rotation completes starts a new one.
+
+When telemetry is enabled, the following low-cardinality metrics expose pressure without including tenant, organization, user, resource, or request values:
+
+| Metric | Meaning |
+| --- | --- |
+| `om.audit_logs.pending_writes` | Current accepted tasks, labelled by `stage` (`crud_dispatch` or `service_write`) |
+| `om.audit_logs.oldest_pending_age` | Age in seconds of the oldest accepted task at that stage; zero when empty |
+| `om.audit_logs.dropped` | Capacity rejections, labelled by stage and fixed `reason=capacity` |
+
+### Tenant admission during overload
+
+`AUDIT_LOGS_MAX_PENDING` accepts integers of at least 2 (default 256; invalid values, including 1, use the default). Each tenant shares a quota across all its organizations: at most half the global cap, rounded down. This leaves room for another tenant when one is saturated. Mixed-tenant batches charge each distinct tenant. Counters are removed when work settles; tenant identities never become metric labels. The global cap still applies when several tenants are saturated, so logging remains best-effort rather than lossless. A write does not wait for an unrelated running retention sweep; shutdown flush still drains that sweep.

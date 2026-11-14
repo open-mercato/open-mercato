@@ -356,6 +356,9 @@ Built-in metrics — prefer **OpenTelemetry semantic-convention** instruments wh
 | `nodejs.eventloop.delay.p50/p90/p99` | gauge (`s`) | none | event-loop delay percentiles over the sampling interval; include the 20 ms monitor resolution (idle ≈ 0.020 s) |
 | `process.memory.usage` | gauge (`By`) | none | process RSS |
 | `v8js.memory.heap.used` | gauge (`By`) | `v8js.heap.space.name` | used bytes per bounded V8 heap space |
+| `om.audit_logs.pending_writes` | gauge (`{task}`) | `stage=crud_dispatch` or `stage=service_write` | sampled accepted access-log tasks at each independently bounded stage |
+| `om.audit_logs.oldest_pending_age` | gauge (`s`) | `stage=crud_dispatch` or `stage=service_write` | monotonic age of the oldest accepted task; zero when empty |
+| `om.audit_logs.dropped` | counter (`{task}`) | `stage=crud_dispatch` or `stage=service_write`, `reason=capacity` | immediate capacity rejections before async work starts |
 | `om.queue.jobs` / `om.queue.duration` | counter / histogram | queue, status | partial — RED is also derivable by the backend from queue spans |
 | `om.queue.depth` | gauge | queue | needs a core queue hook |
 | `om.event.subscribers.duration` | histogram | event_id | |
@@ -649,6 +652,11 @@ Touched areas (cross-package wiring, for reviewer awareness):
 
 ## Changelog
 
+- **2026-08-31 (access-log overload metrics)** — Added independently bounded
+  CRUD-dispatch and service-write backlog tracking, sampled pending-depth and
+  oldest-age gauges, and an immediate capacity-drop counter. Labels are limited
+  to two fixed stages and one fixed reason; collectors register only while work
+  is pending and emit zero before cleanup.
 - **2026-10-31 (review follow-up: pool metric catalog)** — Removed the obsolete planned `om.db.pool.in_use` / `om.db.pool.idle` row; the implemented ORM hook reports both states through `om.db.pool.connections`.
 
 - **2026-10-08 (runtime saturation metrics, review follow-up)** — Renamed the

@@ -1455,17 +1455,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       : []
     const variantsById = new Map((variants as CatalogProductVariant[]).map((variant) => [variant.id, variant]))
 
-    const existingLines = await findWithDecryption(
-      em,
-      CartLine,
-      { cartId: cart.id, productId: { $in: productIds }, promotionId: null, deletedAt: null, tenantId, organizationId },
-      {},
-      scope,
-    )
     const lineByKey = new Map<string, CartLine>()
-    for (const existingLine of existingLines as CartLine[]) {
-      lineByKey.set(buildMergeKey(existingLine.productId, existingLine.variantId ?? null, existingLine.configuration ?? null), existingLine)
-    }
 
     const pricingContext = buildCartPricingRowFilterContext(cart)
     const priceRows = await fetchPriceRowsBatch(em, scope, pricingContext, productIds, variantIds)
@@ -1483,7 +1473,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         )
       : input.lines.map(() => null)
 
-    let nextLineNumber = await computeStartingLineNumber(em, scope, cart.id)
+    let nextLineNumber = 1
 
     const outcomes: CartLinesBulkAddEntryOutcome[] = new Array(input.lines.length)
     const changedLines: CartLine[] = []
@@ -1638,6 +1628,19 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     // `bulkAdd`/`add` calls on this cart must serialize, not just this call's own entries
     // against each other.
     await withCartLineMutationLock(em, cart.id, [
+      async () => {
+        const existingLines = await findWithDecryption(
+          em,
+          CartLine,
+          { cartId: cart.id, productId: { $in: productIds }, promotionId: null, deletedAt: null, tenantId, organizationId },
+          {},
+          scope,
+        )
+        for (const existingLine of existingLines as CartLine[]) {
+          lineByKey.set(buildMergeKey(existingLine.productId, existingLine.variantId ?? null, existingLine.configuration ?? null), existingLine)
+        }
+        nextLineNumber = await computeStartingLineNumber(em, scope, cart.id)
+      },
       ...phases,
       ...buildCartPromotionsAndTotalsPhases({
         em,
