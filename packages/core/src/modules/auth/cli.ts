@@ -229,16 +229,16 @@ const rotateEncryptionKey: ModuleCli = {
     const rawOldKeyArgument = args['old-key'] ?? args.oldKey
     const oldKeyArgument = typeof rawOldKeyArgument === 'string' ? normalizeKeyInput(rawOldKeyArgument) || null : null
     if (rawOldKeyArgument !== undefined && !oldKeyArgument) {
-      throw new Error(`--old-key requires a value. Use ${OLD_ENCRYPTION_KEY_ENV} instead.`)
+      throw new Error(`[internal] --old-key requires a value. Use ${OLD_ENCRYPTION_KEY_ENV} instead.`)
     }
     const oldKeyEnvironment = process.env[OLD_ENCRYPTION_KEY_ENV]
       ? normalizeKeyInput(process.env[OLD_ENCRYPTION_KEY_ENV]!)
       : null
     if (oldKeyArgument && oldKeyEnvironment && oldKeyArgument !== oldKeyEnvironment) {
-      throw new Error(`--old-key and ${OLD_ENCRYPTION_KEY_ENV} contain different values. Remove --old-key and retry.`)
+      throw new Error(`[internal] --old-key and ${OLD_ENCRYPTION_KEY_ENV} contain different values. Remove --old-key and retry.`)
     }
     if (oldKeyArgument && parseBooleanToken(String(args['allow-unsafe-old-key'])) !== true) {
-      throw new Error(`--old-key is deprecated because process listings expose it. Use ${OLD_ENCRYPTION_KEY_ENV}; the compatibility bridge requires --allow-unsafe-old-key.`)
+      throw new Error(`[internal] --old-key is deprecated because process listings expose it. Use ${OLD_ENCRYPTION_KEY_ENV}; the compatibility bridge requires --allow-unsafe-old-key.`)
     }
     if (oldKeyArgument) {
       console.warn(
