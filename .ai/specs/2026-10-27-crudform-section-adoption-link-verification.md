@@ -1,0 +1,265 @@
+# CrudForm section adoption link verification
+
+**Status:** Proposed
+**Implementation ownership:** Open Mercato core team members only
+**Depends on:** `.ai/specs/2026-10-22-crudform-section-adoption-inventory.md`
+**Related:** `.ai/specs/2026-10-09-crudform-section-adoption-rollout.md`, `.ai/specs/enterprise/2026-10-22-crudform-section-adoption.md`, issue #6686
+
+## Design decision — readiness promotion after merge (F5, 2026-10-29)
+
+Committed `ready` evidence references only an already-merged implementation PR. A separate subsequent promotion PR records that source head's independent approval and checks; it does not change the approved implementation head. Current implementation/design PRs never commit exact-head approval evidence about themselves. Ephemeral previews are supplemental and cannot claim completion or add a self-dependent required readiness gate. The inventory and rollout specs use this same promotion rule. This is design-only tooling; no CI governance file is changed here.
+
+## TLDR
+
+Resolve and verify the static adoption inventory's review, PR, issue, and external-owner references through the configured tracker provider. A dedicated fail-closed command and required CI job prove exact-head design approval, causal implementation evidence, valid planned/deferred state, and external coordination without placing run-variant status in committed artifacts. This capability is independently deployable after the offline inventory/static gate.
+
+## Overview
+
+The inventory capability deliberately remains deterministic and offline. It can validate local specs, ids, state shape, canonical URLs, and committed artifacts, but it cannot prove whether a review is approving/current, a PR is open or merged to the configured base, an issue is open/assigned, or an external reference resolves. Those checks require credentials, provider runtime context, rate-limit handling, and a required network CI job with distinct failure and rollback behavior.
+
+## Problem Statement
+
+Treating syntactically valid URLs as delivery evidence would let stale reviews, closed PRs, expired deferrals, or missing external owners claim readiness. Conversely, putting provider responses, current SHAs, timestamps, or check URLs into the committed manifest would make generation nondeterministic and self-referential. Network verification must consume the static artifact without becoming part of its generator or committed bytes.
+
+## Goals and Non-goals
+
+### Goals
+
+- Verify every evidence reference against the tracker/provider configured for the owning repository.
+- Pin approving design evidence to the exact reviewed head and reject self-declared or stale approval.
+- Prove merged-ancestor implementation causality per exact work unit; report current implementation PRs only as non-completion previews.
+- Validate planned PRs, deferred issues, and external owner references fail-closed.
+- Publish sanitized ephemeral evidence and provide one required CI check.
+
+### Non-goals
+
+- Scanning source, assigning inventory keys, deriving alternatives, or writing committed manifests.
+- Defining domain readiness or changing any adopter state.
+- Requiring network access for `yarn generate` or the static inventory check.
+- Copying enterprise or official-module topology into OSS artifacts.
+- Supporting tracker/provider configuration outside `.ai/agentic.config.json` and its installed descriptor.
+
+## Proposed Solution
+
+Add a verifier command that reads the committed owner-scoped inventory artifacts and the provider-reported validation context, deduplicates canonical URLs, performs bounded tracker reads, evaluates each state-specific evidence contract, and emits an ephemeral JSON/Markdown report. Wire it to required job `crud-form-section-adoption-links` only after the static baseline manifest is committed and one complete verification succeeds. The verifier never rewrites the inventory.
+
+## Evidence Resolution Contract
+
+### Approved design review
+
+`designReview.url` must resolve to a provider-native approving review submitted by an eligible non-author. Its reviewed head must equal `designReview.reviewedHeadSha`, and that SHA must equal the owning spec PR's current head or merged reviewed head as applicable. The verifier derives the reviewer login and author login from provider data and rejects equality. Automation comments and external run/report ids may be retained as supplemental diagnostics, but they cannot satisfy `designReview`, even when an independent agent produced them, because the configured tracker cannot authenticate that external report's identity, reviewed head, or verdict. A manifest-authored declaration, ordinary prose comment, dismissed/request-changes verdict, or approval against an older head is invalid.
+
+For owner lanes whose specs require Open Mercato core-team implementation and review, the configured tracker descriptor supplies a provider-neutral `coreTeamEligibility` resolver backed by an immutable team id or explicit login allowlist. The verifier checks the author of the state-bearing evidence PR (implementation PR for `ready`, spec PR for `planned`) and the approving reviewer, records only boolean eligibility plus sanitized failure codes, and rejects a missing/unavailable eligibility resolver. Team membership is never inferred from repository write access, labels, comment text, or manifest declarations.
+
+### Ready implementation PR
+
+A committed `ready.implementationPr` is valid only when the implementation PR is already merged to the tracker-configured base, its merge SHA is an ancestor of the provider-reported validation head, its body contains `CrudForm-Adoption-Work-Units: <comma-separated invocationId#alternative.id values>` including the exact work unit, and `ready.implementationReview` resolves to an eligible non-author provider-native approving review at that implementation PR's final source head. Use the provider/event source head, never GitHub's synthetic merge SHA. The readiness-promotion commit belongs to a later separate PR; it does not modify the implementation PR's reviewed head.
+
+The implementation PR itself retains the prior `planned` record referencing already approved independent design evidence, or an honestly `deferred` issue when the design has not landed. It never commits ready evidence about itself. A current-PR preview may resolve live reviews/checks into an ephemeral report, but is not a committed ready record, cannot satisfy completion, and is not an additional required completion/approval gate on that same PR. The implementation and promotion PRs must each satisfy their ordinary code/QA review gates; no approval is fabricated or bypassed.
+
+The referenced adopter spec must exist in the static manifest and the PR must change or explicitly name it. A sibling alternative cannot inherit readiness.
+
+Readiness additionally requires provider-backed green implementation checks at the exact reviewed implementation source-head SHA, for merged implementation PRs. Synthetic merge refs and another SHA's green checks cannot substitute. Use the descriptor's `get-pr-checks` and `get-required-checks`, plus exact-ref check/status reads when needed, and deduplicate reads per repository/SHA. Inspect the latest applicable attempt of every required context; if required-context discovery is unavailable, retain every reported applicable check/status instead of silently treating the required set as empty. Missing expected contexts, no check/status signal, queued/pending/in-progress, failed/cancelled/timed-out/action-required results, and unreadable provider evidence fail closed. `success` is accepted; `skipped`/`neutral` are accepted only when a provider-backed applicable path condition explicitly makes that context non-required for this implementation, and are recorded as skipped rather than passed. A merged PR accepted by an administrative override does not waive these checks.
+
+Do not exclude an implementation check merely because it has the verifier's name: all referenced implementation PRs are already merged and their exact-source-head required outcomes must have settled. Derive live statuses, selected validation SHA and check URLs only into the ephemeral report; no current validation SHA/status is written into committed declarations. The approved implementation source head and review URL are immutable historical evidence in the later promotion commit. This removes the evidence-commit/approval cycle without weakening exact-head review.
+
+Design approval and implementation approval are distinct evidence. `designReview` remains pinned to the spec/design PR head; `implementationReview` is pinned to the implementation PR head and cannot reuse the design review URL or reviewer record unless the provider independently reports a second approval on the implementation PR. For core-team owner lanes, the verifier checks eligibility of the spec PR author/design reviewer while `planned`, and additionally the implementation PR author/implementation reviewer before `ready`.
+
+### Planned spec PR
+
+`planned.specPr` must resolve to an independently approved-design PR or a PR already merged to the configured base; it must not be the current validation PR or be changed by this inventory declaration commit. A spec/design PR carries only its stable work-unit marker and existing deferred/planned historical records, then a later declaration PR records its final approved head/review. Open external spec PR references fail closed if that external head later changes. It must change or explicitly name the referenced adopter spec and contain the exact work-unit marker. Closed-unmerged, draft-without-approval, stale-head, or unrelated PRs are invalid.
+
+### Deferred issue
+
+`deferred.issue` must be open, assigned to exactly the canonical `owner`, and contain the exact invocation, alternative, and host ids plus the blocking reason. `revisitBy` is valid `YYYY-MM-DD` UTC and must not be earlier than the verifier's UTC check date. Missing access, missing assignee, closed issue, mismatched owner/ids, or expired date fails.
+
+### External coordination
+
+Each link-only enterprise/official entry must resolve to the declared repository and owner plus an accessible owning spec or open issue. Verification confirms ownership/reference validity only; it does not inspect external invocation topology or claim external delivery complete. External delivery status does not block OSS technical completion unless the program index explicitly asks for portfolio completion.
+
+## Architecture
+
+| Area | Responsibility |
+|---|---|
+| static inventory | Versioned deterministic records and canonical evidence references; no network |
+| verifier | State-specific provider reads, exact-head/ancestor/marker/owner/date checks |
+| tracker descriptor | Provider endpoints, identity, repository, configured base, auth, pagination/rate-limit semantics |
+| required CI job | Supply provider event context, run fail-closed command, upload ephemeral report |
+| program indexes | Consume verified result for completion; never mutate evidence |
+
+The verifier uses the tracker abstraction and does not embed GitHub-specific HTTP calls outside the installed provider descriptor.
+
+## Data Models
+
+No runtime database model and no committed generated schema. The verifier consumes `CrudFormSectionAdoptionRecord` and static completion references from the inventory spec.
+
+```ts
+type AdoptionLinkVerification = {
+  schemaVersion: 1
+  sourceTreeHash: string
+  validationContext:
+    | {
+        kind: 'pull-request'
+        repository: string
+        baseRef: string
+        baseHeadSha: string
+        headSha: string
+        checkRunUrl: string
+      }
+    | {
+        kind: 'branch'
+        repository: string
+        branchRef: string
+        headSha: string
+        checkRunUrl: string
+      }
+  checkedAt: string
+  results: readonly {
+    workUnitId: string
+    evidenceUrl: string
+    status: 'valid' | 'invalid' | 'unavailable'
+    code: string
+  }[]
+}
+```
+
+This object is an ephemeral CI artifact only. Its provider-reported refs and SHAs, check-run URL, manifest source hash, and validation time are the sole run-provenance contract. It is never imported by runtime code, committed, or used as `yarn generate` input.
+
+## API Contracts
+
+No product HTTP, command, event, or import API. The stable tooling contracts are:
+
+- `yarn crud-form-sections:inventory:check-links`;
+- required check name `crud-form-section-adoption-links`;
+- verifier input: committed static artifact paths plus provider-reported repository/base/head/event context;
+- exit 0 only when every required reference is `valid`; invalid or unavailable exits nonzero;
+- sanitized diagnostic codes and ephemeral report schema version 1.
+
+Credentials, repository, configured base, and identity come only from `.ai/agentic.config.json`, its installed tracker descriptor, and trusted CI event context. CLI flags cannot redirect verification to another repository or print tokens.
+
+## Provider and Retry Contract
+
+The verifier performs at most three reads per unique canonical URL, caches duplicate evidence within the run, honors provider rate-limit/reset headers, and retries only 429/5xx with bounded 1-second then 2-second backoff. Permission/404, malformed provider responses, invalid state, rate-limit exhaustion, and network unavailability produce distinct sanitized codes and fail closed. Logs include work-unit id, provider/repository, evidence kind, and code, never response bodies, credentials, raw tokens, or private external topology.
+
+## UI/UX
+
+No product UI. CI annotations and the Markdown artifact group failures by invalid, unavailable, stale head, wrong base/ancestry, missing marker, owner/assignment mismatch, expired deferral, and external reference. Each item includes one remediation command or owner action.
+
+## Frontend Architecture Contract
+
+No frontend files, route roots, providers, client boundaries, render-time requests, or bundle output change. This section is testable by an exact source-scope assertion that the implementation touches only CLI/tracker/CI/docs/tests and generated ephemeral-report fixtures, never `.tsx` production files.
+
+## Edge Cases & Failure Scenarios
+
+| Case | Required behavior |
+|---|---|
+| GitHub CI provides synthetic merge `GITHUB_SHA` | Ignore it for reviewed-head equality; use provider/event head |
+| Review approves an older PR head | Invalid stale-head result |
+| Current PR names sibling but not exact work unit | Invalid missing-marker result |
+| Merged PR targets non-configured base | Invalid even if commit is reachable elsewhere |
+| Merge SHA is not ancestor of validation head | Invalid causal-evidence result |
+| Issue is open but unassigned/wrong owner | Invalid deferred-owner result |
+| Deferral expires at UTC date boundary | Invalid beginning on the next UTC date |
+| Same URL supports many work units | One bounded provider fetch; evaluate each marker independently |
+| Optional repository is inaccessible | Unavailable external-reference result; no topology is inferred |
+| Provider is down after retries | Unavailable, nonzero required check; static generation remains usable |
+
+## Risks & Impact Review
+
+| Risk | Severity | Mitigation | Residual risk |
+|---|---|---|---|
+| Stale or self-approved evidence claims readiness | High | Exact-head provider verdict and author checks | Provider review models may require adapter updates |
+| Network outage blocks merges | Medium | Bounded retries, distinct unavailable status, static gate remains independent | Required network job intentionally fails closed |
+| Synthetic merge SHA invalidates correct evidence | High | Provider/event head is authoritative and covered by fixtures | CI event differences require descriptor maintenance |
+| Cross-repository verification leaks commercial facts | Critical | Link-only reads and sanitized output; never fetch/store source topology | Access logs remain provider-controlled |
+| Rate limits amplify with many work units | Medium | Per-URL deduplication, cache, bounded reads, rate-limit handling | Very large portfolios may need batched provider support |
+
+Rollback removes the required-check setting and job invocation while retaining the command/report reader for compatibility and diagnostics. It does not disable the independent static inventory gate or rewrite work-unit states. Re-enabling requires a successful preview/baseline verification. Published command/check/report names follow deprecation if later replaced.
+
+## Migration & Backward Compatibility
+
+This is additive tooling. It consumes schema-versioned static artifacts without changing them. Before making the job required, the implementation records one successful full baseline result for the current manifest and confirms branch protection references the exact check name. No committed artifact gains validation time, current SHA, check URL, or remote status. Provider descriptor evolution preserves the command and diagnostic schema or follows the normal deprecation protocol.
+
+## Phasing and Implementation Plan
+
+1. Implement provider-neutral evidence collection and state-specific evaluators over inventory fixtures; keep the command non-required.
+2. Add exact-head design review, current/merged implementation PR, planned spec PR, deferred issue, and external coordination resolvers with sanitized codes and per-URL caching.
+3. Add rate-limit/backoff, permission/unavailable handling, ephemeral JSON/Markdown output, and tests proving no secrets or external topology are serialized.
+4. Run a complete baseline verification against the committed static manifest, reconcile every result with its work unit, and record the successful artifact/check URL outside committed generated files.
+5. Add root script `yarn crud-form-sections:inventory:check-links`, CI job `crud-form-section-adoption-links`, and only then make that exact check required.
+6. Run focused CLI/tracker tests, offline-with-network-denied static inventory tests, provider fixtures, `yarn generate` byte comparison, `git diff --check`, and the configured validation gate.
+
+## Integration Coverage
+
+- Design review: eligible non-author approved/requested/dismissed review, invalid self-review/comment/external-run attestation, exact/stale/missing head, and unavailable provider.
+- Core-team ownership: eligible/ineligible implementation author and reviewer, immutable team-id and explicit-allowlist adapters, missing eligibility resolver, provider outage, and proof that repository permission or comment text cannot substitute for membership.
+- Implementation PR: provider-native eligible non-author implementation approval at exact head; current-PR ready self-reference rejection, ephemeral-only preview, synthetic merge SHA rejection, configured/wrong base, merged ancestor/non-ancestor, exact/missing/sibling work-unit marker; design-review reuse rejection. Verify exact-ref success, documented non-applicable skipped/neutral, failed, cancelled, timed-out, pending, missing-context/no-signal and unavailable-provider fixtures; wrong-SHA green and administratively merged red PRs fail. Every pending referenced implementation check remains blocking. Execute design A→approval→independent declaration and implementation A→approval→merge→separate promotion B without mutating the approved A head; A never requires self-ready evidence.
+- Planned PR: open approved design, merged, draft/unapproved, closed unmerged, wrong spec or marker.
+- Deferred issue: open/closed, assigned/unassigned/wrong owner, exact/missing ids, valid/expired date at UTC boundary.
+- External reference: correct/wrong repository and owner, accessible/missing spec or issue, no source/topology capture.
+- Operations: URL deduplication, three-read cap, 429/5xx backoff, permission/404, rate-limit exhaustion, sanitized logs/artifacts, required-job exit codes.
+- Independence: `yarn generate` and static inventory checks pass with network denied and produce byte-identical committed artifacts.
+
+## Acceptance Criteria
+
+1. Every non-compatibility work unit and external coordination reference receives one fail-closed provider-backed result.
+2. Exact-head design approval is a provider-native approving review from an eligible non-author; self-review, comments, external run ids, stale reviews, dismissed reviews, and spec prose never satisfy it.
+3. Ready implementation evidence proves an independent provider-native non-author implementation approval, exact work-unit marker, merged-to-base ancestry and separate readiness-promotion contract, and provider-backed applicable green checks/statuses at the exact reviewed implementation source head; administrative merge overrides do not waive validation.
+4. Planned and deferred evidence enforce exact spec/work-unit/owner/state/date semantics.
+5. Provider unavailability is distinct from invalid evidence but both fail the required job after bounded retries.
+6. No credential, response body, optional source topology, current SHA, validation time, or check URL enters committed artifacts.
+7. Static generation remains fully offline, deterministic, and independently deployable.
+8. The required job is enabled only after a clean full baseline verification.
+9. Focused and configured validation pass with recorded evidence.
+10. Implementation and review are performed by Open Mercato core team members.
+
+## Final Compliance Report — 2026-10-27
+
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md`
+- `.ai/specs/AGENTS.md`
+- `packages/cli/AGENTS.md`
+- `.ai/docs/official-modules.md`
+- `.ai/trackers/github.md`
+- `BACKWARD_COMPATIBILITY.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|---|---|---|---|
+| tracker descriptor | Use configured provider/repository/base/identity and sanitized operations | Compliant | All reads and event-head semantics route through the descriptor |
+| root security rules | Never expose credentials, tokens, or commercial topology | Compliant | Link-only reads, sanitized codes, and ephemeral artifacts are mandatory |
+| `.ai/specs/AGENTS.md` | One independently deployable capability with integration coverage | Compliant | This spec owns only remote evidence verification and required network job activation |
+| official-modules guide | External work remains owner-repository scoped | Compliant | Verifier checks links/ownership only and never reads source topology |
+| `BACKWARD_COMPATIBILITY.md` | Preserve published CLI/check/report contracts | Compliant | Names/schema are versioned and rollback retains the reader/command |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|---|---|---|
+| Data models match API contracts | Pass | Ephemeral schema exactly represents verifier outcomes and never enters runtime/committed data |
+| API contracts match UI/UX | Pass | CLI exit codes, annotations, and artifact groups share the same status/code model |
+| Risks cover all external interactions | Pass | Stale evidence, outage, SHAs, leakage, and rate limits are covered |
+| Commands defined for all mutations | N/A | Read-only provider verification; no tracker or repository mutation |
+| Dependency boundary is acyclic | Pass | Verifier depends on static inventory; inventory only relates back for discoverability |
+
+### Non-Compliant Items
+
+None.
+
+### Verdict
+
+- **Fully compliant**: Approved — independently deployable after the static inventory capability.
+
+## Changelog
+
+- **2026-10-29:** Require post-merge readiness promotion in a separate PR and disallow self-referential committed approval evidence; align independent design declarations.
+
+### 2026-10-27 — Mechanical re-review corrections
+
+- Require exact reviewed-head applicable implementation check/status success with fail-closed missing/pending/error cases, documented skip semantics and an own-verifier-only exclusion. The initially unresolved current-head evidence cycle is superseded by the 2026-10-29 separate-promotion contract.
+
+- **2026-10-27:** Split planned design approval from ready implementation-PR approval and made core-team author/reviewer eligibility state-specific.
+- **2026-10-27:** Removed unverifiable same-identity comment attestation; required provider-native non-author approval and provider-backed core-team eligibility for owner lanes that declare that governance rule.
+- **2026-10-27:** Split tracker-backed evidence resolution and required network CI activation from the offline static inventory capability.
