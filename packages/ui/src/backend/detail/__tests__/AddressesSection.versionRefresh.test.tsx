@@ -11,6 +11,11 @@ type TileCallbacks = {
 }
 
 let mockCallbacks: TileCallbacks | null = null
+const mockSurfaceRecordConflict = jest.fn((_error: unknown, _translator: unknown) => false)
+
+jest.mock('../../conflicts', () => ({
+  surfaceRecordConflict: (error: unknown, translator: unknown) => mockSurfaceRecordConflict(error, translator),
+}))
 
 jest.mock('../AddressTiles', () => ({
   __esModule: true,
@@ -46,9 +51,14 @@ async function renderSection(adapter: AddressDataAdapter) {
       emptyState={{ title: 'No addresses', actionLabel: 'Add address' }}
       dataAdapter={adapter}
     />,
+    { dict: { 'ui.forms.flash.recordModified': 'Refresh the record.' } },
   )
   await waitFor(() => expect(mockCallbacks).not.toBeNull())
 }
+
+beforeEach(() => {
+  mockSurfaceRecordConflict.mockReset().mockReturnValue(false)
+})
 
 describe('AddressesSection saved versions', () => {
   it('loads a newly created child version before its first update and the next delete', async () => {
@@ -64,6 +74,21 @@ describe('AddressesSection saved versions', () => {
     expect(adapter.update).toHaveBeenCalledWith(expect.objectContaining({ id: address.id, updatedAt: firstVersion }))
     await act(async () => callbacks().onDelete(address.id))
     expect(adapter.delete).toHaveBeenCalledWith(expect.objectContaining({ id: address.id, updatedAt: secondVersion }))
+  })
+
+  it.each(['update', 'delete'] as const)('localizes a detected %s conflict instead of exposing its code', async (operation) => {
+    const adapter = {
+      list: jest.fn().mockResolvedValue([address]),
+      create: jest.fn(async () => ({ id: address.id })),
+      update: jest.fn(async () => { throw new Error('record_modified') }),
+      delete: jest.fn(async () => { throw new Error('record_modified') }),
+    } satisfies AddressDataAdapter
+    await renderSection(adapter)
+    mockSurfaceRecordConflict.mockReturnValue(true)
+    const mutation = operation === 'update'
+      ? callbacks().onUpdate(address.id, payload)
+      : callbacks().onDelete(address.id)
+    await expect(mutation).rejects.toThrow('Refresh the record.')
   })
 
   it('uses the refreshed version on a second edit without a page reload', async () => {
