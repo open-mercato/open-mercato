@@ -105,7 +105,7 @@ function TimelineEntry({
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onMarkDone])
+  }, [activity.id, activity.updatedAt, markingDone, onMarkDone])
 
   const handleDelete = React.useCallback(async () => {
     if (!onDelete || deletingRef.current) return
