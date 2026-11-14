@@ -31,6 +31,7 @@ import {
   type ProductMappingCreateInput,
   type ProductMappingUpdateInput,
 } from '../data/validators'
+import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
 
 const PRODUCT_MAPPING_ENTITY_ID = 'eudr:eudr_product_mapping'
 
@@ -126,6 +127,10 @@ function productMappingSeedFromSnapshot(snapshot: ProductMappingSnapshot): Requi
 async function loadProductMappingSnapshot(em: EntityManager, entityId: string): Promise<ProductMappingSnapshot | null> {
   const record = await em.findOne(EudrProductMapping, { id: entityId })
   if (!record) return null
+  return buildProductMappingSnapshot(em, record)
+}
+
+async function buildProductMappingSnapshot(em: EntityManager, record: EudrProductMapping): Promise<ProductMappingSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: PRODUCT_MAPPING_ENTITY_ID,
     recordId: record.id,
@@ -427,20 +432,27 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
     const payload = extractUndoPayload<ProductMappingUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await entityManager.findOne(EudrProductMapping, { id: before.id })
-    if (!record) {
-      record = entityManager.create(EudrProductMapping, productMappingSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      restoreProductMapping(record, before)
-    }
-    await entityManager.flush()
+    const record = await entityManager.transactional(async (tx) => {
+      const current = await lockForUndo(tx, EudrProductMapping, before)
+      if (!current) {
+        const recreated = tx.create(EudrProductMapping, productMappingSeedFromSnapshot(before))
+        tx.persist(recreated)
+        await tx.flush()
+        return recreated
+      }
+      if (!isUnchangedSince(await buildProductMappingSnapshot(tx, current), after)) await throwUndoConflict()
+      restoreProductMapping(current, before)
+      await tx.flush()
+      return current
+    })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
     await setProductMappingCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
     await emitCrudUndoSideEffects({
       dataEngine,

@@ -33,6 +33,7 @@ import {
   type PlotCreateInput,
   type PlotUpdateInput,
 } from '../data/validators'
+import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
 import { POINT_MAX_AREA_HA, validatePlotGeometry } from '../lib/geometry'
 
 const PLOT_ENTITY_ID = 'eudr:eudr_plot'
@@ -217,6 +218,10 @@ async function findPlot(
 async function loadPlotSnapshot(em: EntityManager, entityId: string): Promise<PlotSnapshot | null> {
   const record = await findPlot(em, entityId)
   if (!record) return null
+  return buildPlotSnapshot(em, record)
+}
+
+async function buildPlotSnapshot(em: EntityManager, record: EudrPlot): Promise<PlotSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: PLOT_ENTITY_ID,
     recordId: record.id,
@@ -498,20 +503,27 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
     const payload = extractUndoPayload<PlotUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await findPlot(entityManager, before.id)
-    if (!record) {
-      record = entityManager.create(EudrPlot, plotSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      restorePlot(record, before)
-    }
-    await entityManager.flush()
+    const record = await entityManager.transactional(async (tx) => {
+      const current = await lockForUndo(tx, EudrPlot, before)
+      if (!current) {
+        const recreated = tx.create(EudrPlot, plotSeedFromSnapshot(before))
+        tx.persist(recreated)
+        await tx.flush()
+        return recreated
+      }
+      if (!isUnchangedSince(await buildPlotSnapshot(tx, current), after)) await throwUndoConflict()
+      restorePlot(current, before)
+      await tx.flush()
+      return current
+    })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
     await setPlotCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
     await emitCrudUndoSideEffects({
       dataEngine,

@@ -39,6 +39,7 @@ import {
   type RiskAssessmentCreateInput,
   type RiskAssessmentUpdateInput,
 } from '../data/validators'
+import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
 import { getCountryRiskTier } from '../lib/reference-data'
 
 const RISK_ASSESSMENT_ENTITY_ID = 'eudr:eudr_risk_assessment'
@@ -288,6 +289,10 @@ async function findRiskAssessment(
 async function loadRiskAssessmentSnapshot(em: EntityManager, entityId: string): Promise<RiskAssessmentSnapshot | null> {
   const record = await findRiskAssessment(em, entityId)
   if (!record) return null
+  return buildRiskAssessmentSnapshot(em, record)
+}
+
+async function buildRiskAssessmentSnapshot(em: EntityManager, record: EudrRiskAssessment): Promise<RiskAssessmentSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: RISK_ASSESSMENT_ENTITY_ID,
     recordId: record.id,
@@ -599,20 +604,27 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
     const payload = extractUndoPayload<RiskAssessmentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await findRiskAssessment(entityManager, before.id)
-    if (!record) {
-      record = entityManager.create(EudrRiskAssessment, riskAssessmentSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      restoreRiskAssessment(record, before)
-    }
-    await entityManager.flush()
+    const record = await entityManager.transactional(async (tx) => {
+      const current = await lockForUndo(tx, EudrRiskAssessment, before)
+      if (!current) {
+        const recreated = tx.create(EudrRiskAssessment, riskAssessmentSeedFromSnapshot(before))
+        tx.persist(recreated)
+        await tx.flush()
+        return recreated
+      }
+      if (!isUnchangedSince(await buildRiskAssessmentSnapshot(tx, current), after)) await throwUndoConflict()
+      restoreRiskAssessment(current, before)
+      await tx.flush()
+      return current
+    })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
     await setRiskAssessmentCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
     await emitCrudUndoSideEffects({
       dataEngine,

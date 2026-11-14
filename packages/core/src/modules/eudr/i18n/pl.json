@@ -136,6 +136,7 @@
   "eudr.errors.statement_required": "Identyfikator oświadczenia należytej staranności jest wymagany",
   "eudr.errors.submission_required": "Identyfikator zgłoszenia dowodów jest wymagany.",
   "eudr.errors.unauthorized": "Brak autoryzacji",
+  "eudr.errors.undoConflict": "Ten rekord zmienił się po akcji, którą próbujesz cofnąć. Cofnięcie zostało odrzucone.",
   "eudr.evidence.attachAfterCreateHint": "Utworzono zgłoszenie dowodów. Możesz teraz dołączyć pliki dowodów.",
   "eudr.evidenceSubmissions.create.title": "Utwórz zgłoszenie dowodów",
   "eudr.evidenceSubmissions.edit.title": "Edytuj zgłoszenie dowodów",

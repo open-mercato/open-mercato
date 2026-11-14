@@ -136,6 +136,7 @@
   "eudr.errors.statement_required": "Die ID der Sorgfaltserklärung ist erforderlich",
   "eudr.errors.submission_required": "Die ID der Nachweiseinreichung ist erforderlich.",
   "eudr.errors.unauthorized": "Nicht autorisiert",
+  "eudr.errors.undoConflict": "Dieser Datensatz wurde nach der Aktion, die Sie rückgängig machen möchten, geändert. Das Rückgängigmachen wurde abgelehnt.",
   "eudr.evidence.attachAfterCreateHint": "Nachweiseinreichung erstellt. Sie können jetzt Nachweisdateien anhängen.",
   "eudr.evidenceSubmissions.create.title": "Nachweiseinreichung erstellen",
   "eudr.evidenceSubmissions.edit.title": "Nachweiseinreichung bearbeiten",

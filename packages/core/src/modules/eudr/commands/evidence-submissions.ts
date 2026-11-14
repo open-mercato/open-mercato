@@ -34,7 +34,8 @@ import {
   type EvidenceSubmissionCreateInput,
   type EvidenceSubmissionUpdateInput,
 } from '../data/validators'
-import { computeSubmissionCompleteness, type CompletenessContext } from '../lib/completeness'
+import { computeSubmissionCompleteness, countActivePlots, type CompletenessContext } from '../lib/completeness'
+import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
 
 const EVIDENCE_SUBMISSION_ENTITY_ID = 'eudr:eudr_evidence_submission'
 
@@ -172,6 +173,10 @@ async function findEvidenceSubmission(
 async function loadEvidenceSubmissionSnapshot(em: EntityManager, entityId: string): Promise<EvidenceSubmissionSnapshot | null> {
   const record = await findEvidenceSubmission(em, entityId)
   if (!record) return null
+  return buildEvidenceSubmissionSnapshot(em, record)
+}
+
+async function buildEvidenceSubmissionSnapshot(em: EntityManager, record: EudrEvidenceSubmission): Promise<EvidenceSubmissionSnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: EVIDENCE_SUBMISSION_ENTITY_ID,
     recordId: record.id,
@@ -282,6 +287,10 @@ async function validateSubmissionPlots(input: {
     }
   }
   return uniquePlotIds.length
+}
+
+function withoutCompleteness(snapshot: EvidenceSubmissionSnapshot): EvidenceSubmissionSnapshot {
+  return { ...snapshot, completenessScore: 0, missingFields: [] }
 }
 
 function applySubmissionUpdate(record: EudrEvidenceSubmission, parsed: EvidenceSubmissionUpdateInput): void {
@@ -570,20 +579,33 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
     const payload = extractUndoPayload<EvidenceSubmissionUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const after = payload?.after
+    if (!after) return throwUndoConflict()
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await findEvidenceSubmission(entityManager, before.id)
-    if (!record) {
-      record = entityManager.create(EudrEvidenceSubmission, evidenceSubmissionSeedFromSnapshot(before))
-      entityManager.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      restoreEvidenceSubmission(record, before)
-    }
-    await entityManager.flush()
+    const record = await entityManager.transactional(async (tx) => {
+      const current = await lockForUndo(tx, EudrEvidenceSubmission, before)
+      if (!current) {
+        const recreated = tx.create(EudrEvidenceSubmission, evidenceSubmissionSeedFromSnapshot(before))
+        tx.persist(recreated)
+        await tx.flush()
+        return recreated
+      }
+      const currentSnapshot = await buildEvidenceSubmissionSnapshot(tx, current)
+      if (!isUnchangedSince(withoutCompleteness(currentSnapshot), withoutCompleteness(after))) await throwUndoConflict()
+      const completenessContext = {
+        activePlotCount: await countActivePlots(tx, before),
+        linkedAttachmentCount: await countLinkedAttachments(tx, before, current.id),
+      }
+      restoreEvidenceSubmission(current, before)
+      refreshSubmissionCompleteness(current, completenessContext)
+      await tx.flush()
+      return current
+    })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
     await setEvidenceSubmissionCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
     await emitCrudUndoSideEffects({
       dataEngine,

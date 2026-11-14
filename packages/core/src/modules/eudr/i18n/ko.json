@@ -136,6 +136,7 @@
   "eudr.errors.statement_required": "실사 진술서 ID가 필요합니다",
   "eudr.errors.submission_required": "증거 제출물 ID가 필요합니다.",
   "eudr.errors.unauthorized": "권한 없음",
+  "eudr.errors.undoConflict": "실행 취소하려는 작업 이후에 이 레코드가 변경되었습니다. 실행 취소가 거부되었습니다.",
   "eudr.evidence.attachAfterCreateHint": "증거 제출물이 생성되었습니다. 이제 증거 파일을 첨부할 수 있습니다.",
   "eudr.evidenceSubmissions.create.title": "증거 제출물 생성",
   "eudr.evidenceSubmissions.edit.title": "증거 제출물 편집",

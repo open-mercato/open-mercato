@@ -254,13 +254,21 @@ Backend pages under `/backend/eudr/*` in the "Compliance" sidebar group, all gat
 
 ## Migration & Backward Compatibility
 
-Purely **additive**. Contract surfaces touched, each ADDITIVE-ONLY per `BACKWARD_COMPATIBILITY.md`:
+**Additive**, apart from the update-undo refusal described below. Contract surfaces touched, each ADDITIVE-ONLY per `BACKWARD_COMPATIBILITY.md`:
 
 - **DB schema** — six new tables plus additive nullable/defaulted columns and a supporting partial index, in module-scoped migrations with the module snapshot updated in the same change. No renames, removals, or type changes; `down()` provided. Zero-downtime; no backfill (null species renders as an em-dash).
 - **API routes** — all new routes are eudr-local; additions to existing eudr routes are optional params and response fields. Semantics tightened on eudr routes (transition guards, per-block gating) apply to an unreleased surface on the same unmerged branch with zero external consumers; tests were updated in-change to assert the guard rather than weakened.
 - **Types/signatures** — `createForFeature` input gains one optional boolean, defaulted off; existing callers are byte-identical.
 - **Event IDs / notification type IDs / widget registrations** — all new; existing ids untouched; widgets register on existing, verified spot ids.
 - **ACL / DI / CLI / import paths / generated-file contracts** — untouched. No FROZEN surface is modified, so no deprecation path is required.
+
+**Update-undo refusal (#9128, PR #9129).** The six update undos (`eudr.plots.update`, `eudr.risk_assessments.update`, `eudr.product_mappings.update`, `eudr.mitigation_actions.update`, `eudr.evidence_submissions.update`, `eudr.statements.update`, through `POST /api/audit_logs/audit-logs/actions/undo`) no longer write the logged `before` snapshot back unconditionally:
+
+- `lockForUndo` (`lib/undo-guard.ts`) re-reads the row `SELECT … FOR UPDATE` inside the undo's transaction, scoped by id, tenant and organization. Tenant and organization scope are checked before the lock, so the re-create path for a row that no longer exists is scoped too. A concurrent update waits for the undo to commit and then applies on top.
+- `isUnchangedSince` compares the locked row, including custom fields (empty values and multi-value order normalized), with the log's `after` snapshot and ignores `createdAt`/`updatedAt`, so undoing your own updates newest first still chains. A soft-deleted record counts as changed. Evidence submissions leave the attachment-driven completeness projection out of the compare and recompute completeness after restoring.
+- Any mismatch, and any legacy log entry without an `after` snapshot, is refused with `409` and code `eudr.errors.undoConflict` (translated in all five locales); nothing is written. Statement status refusals still answer first. Previously the undo returned 200 and silently overwrote later edits.
+
+This is a behavior change on an existing route, not a contract removal: no schema, event id, route, response field or signature changes. Clients must treat the 409 as final, reload the record and re-apply the change by hand if it is still wanted; edits lost to earlier undos are not recovered. Delete and create undos and the forward commands are unchanged. Tests: `commands/__tests__/undo-concurrent-edit.test.ts` (refusal and own-undo chains for all six handlers, custom-field-only changes, soft delete, logs without `after`, completeness recompute, statement status refusal precedence), the real-Postgres `commands/__tests__/plots-undo.concurrency.integration.test.ts` run by `test:pg-integration` (lock contention, rollback and retry), and TC-EUDR-020.
 
 Deploy: run the migrations and `yarn generate`. New ACL features reach existing tenants via `defaultRoleFeatures` plus `yarn mercato auth sync-role-acls`, followed by `yarn mercato configs cache structural --all-tenants`. Rollback = disable the module entry in `modules.ts`; tables remain for data retention.
 
@@ -287,6 +295,7 @@ Module-local Playwright specs under `__integration__/`, self-contained: API-crea
 | TC-EUDR-015 | species round-trip, export packet inclusion, readiness warning variants, server-side clearing on commodity flip, supplier aggregate rollups and block omission, panel on companies-v2 |
 | TC-EUDR-016 | every notification lifecycle emission path under bounded polling, plus the org-restricted negative case |
 | TC-EUDR-017 | submit-gate readiness endpoint: unmet reasons for a fresh draft without a submit attempt, machine-key format, unknown id → 404, tokenless → 401 |
+| TC-EUDR-020 | update undos refused with 409 after another user edits the record while own undos still chain; the audit log UI shows the translated refusal |
 
 Unit tests cover completeness (including plot and attachment-count paths), geometry, country tiers, transitions and the gate matrix, suggestions matching, seeding helpers, species warnings, the annual-report builder (bucketing, thousandths accumulation, CSV shape), cockpit gating, the notification helper, and the notifications-service org filter.
 
@@ -330,6 +339,9 @@ FK-ids plus snapshots only, no cross-module ORM relations · tenant and organiza
 Implemented on `feat/eudr-compliance-module` across five delivery batches (see Changelog). Full validation gate green (`build:packages`, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `test`, `build:app`). Unit suites green across eudr and the touched notifications module. Integration specs TC-EUDR-001…017 pass against fresh ephemeral environments (017 added in Batch 5; run against a live environment before merge).
 
 ## Changelog
+
+### 2026-11-10 — Fix: update undos refuse to overwrite later edits (#9128, PR #9129)
+The six update undos lock the row, compare it with the logged `after` snapshot and return `409 eudr.errors.undoConflict` when it changed, was soft-deleted, or the log has no `after` snapshot. See Migration & Backward Compatibility for the comparison rules, upgrade guidance and tests.
 
 ### 2026-08-23 — Fix: accept a no-op server-managed field echo on statement create (#5508, PR #5516)
 `POST /api/eudr/statements` now accepts a whole-object payload (the "serialize a whole object" client pattern). Revises the Batch-2 "`referenceIssuedAt` set-once and immutable" rule on the *create* path only: `referenceIssuedAt` is dropped from `statementCreateSchema` (server-managed — only set at the `submitted→available` transition, always null on a new draft), so the published OpenAPI create schema no longer advertises it and any echoed value is stripped instead of returning `400 eudr.errors.referenceIssuedAtImmutable`. `rejectServerComputedFields` now tolerates a null/undefined no-op echo, so a round-tripped draft's `submittedAt: null` is accepted while a non-null value stays rejected. The update path is unchanged (`referenceIssuedAt` remains a valid input and immutable after issue). **Backward-compatibility waiver (per `BACKWARD_COMPATIBILITY.md`):** the create *request* schema and `StatementCreateInput` narrow (the optional `referenceIssuedAt` is removed), but this is a request-side relaxation — no response field is removed (`statementListItemSchema`/export still emit `referenceIssuedAt`), request-field removal is not classified as breaking (`BACKWARD_COMPATIBILITY.md:270`, `.ai/review-checklist.md:290`), every previously-rejected payload now succeeds, and `StatementCreateInput` is not a protected public type; no bridge or deprecation window is required.
