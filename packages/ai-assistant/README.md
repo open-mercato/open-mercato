@@ -177,6 +177,9 @@ OpenAI-compatible presets (all share one protocol adapter with different
 | `azure` | `$AZURE_OPENAI_BASE_URL` | `gpt-5-mini` | 128K |
 | `litellm` | `$LITELLM_BASE_URL` | `gpt-4o-mini` | 128K |
 | `ollama` | `$OLLAMA_BASE_URL` | `llama3.3` | 131K |
+| `openrouter` | `openrouter.ai/api/v1` | `meta-llama/llama-3.3-70b-instruct` | 131K |
+| `requesty` | `router.requesty.ai/v1` | `openai/gpt-4o-mini` | 128K |
+| `lm-studio` | `$LM_STUDIO_BASE_URL` | (auto-detected) | - |
 
 DeepInfra preset ships a curated model catalog including `GLM-5.1`,
 `GLM-4.7-Flash`, `Qwen3-235B-A22B-Instruct-2507`,
