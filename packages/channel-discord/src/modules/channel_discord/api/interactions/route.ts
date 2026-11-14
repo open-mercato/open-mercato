@@ -102,6 +102,10 @@ export async function POST(req: Request): Promise<Response> {
     },
   })
 
+  if (result.body.error === 'ambiguous_signature') {
+    logger.warn('rejected discord interaction with multiple verifying channels')
+  }
+
   // A deferred acknowledgement is a promise of a follow-up. Enqueue it BEFORE
   // answering: if the hand-off fails the user gets a visible error instead of a
   // "thinking…" state nothing will ever replace.
@@ -245,7 +249,7 @@ export const openApi = {
             'Verified interaction — PONG for the handshake, a deferred ack for a dispatched slash command / component / modal submission, an empty autocomplete result, or an ephemeral message when the interaction cannot be dispatched',
         },
         { status: 400, description: 'Verified but malformed interaction body' },
-        { status: 401, description: 'Signature verification failed against every candidate channel, or the signed timestamp is outside the replay window' },
+        { status: 401, description: 'Signature verification did not identify exactly one candidate channel, or the signed timestamp is outside the replay window' },
         { status: 413, description: 'Request body exceeds the configured byte limit (1 MiB by default; OM_WEBHOOK_MAX_BODY_BYTES override)' },
       ],
     },

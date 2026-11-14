@@ -174,6 +174,14 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Discord credential ownership and ambiguous routing (#9018)
+
+Discord connections now require the bot token, application ID and public verification key to belong to the same application. Clients receive field validation errors for mismatched credentials. Existing custom `DiscordRestClient` overrides must implement the new optional `getCurrentApplication` lookup using authenticated application metadata; omitting it fails credential validation closed.
+
+Operators must audit existing Discord connections for mismatched credentials and duplicate active channels for one application. Signed interactions matching multiple channels now return HTTP 401 without acknowledgement or queued work. Remove or deactivate duplicate connections and reconnect mismatched ones using credentials from the same application. Existing unique valid connections continue working; this update does not repair stored connections or rotate credentials. Review prior misrouted messages separately. Startup, environment variables, configuration format and database schema are unchanged.
+
+See the [migration and compatibility record](.ai/specs/2026-06-19-discord-communication-channel-integration.md#migration--backward-compatibility--credential-ownership-and-routing-9018). A named human maintainer must approve the emergency security exception before merge; no waiver is recorded by this automated change.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

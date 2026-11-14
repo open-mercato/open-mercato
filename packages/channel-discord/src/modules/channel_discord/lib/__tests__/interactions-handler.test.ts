@@ -22,6 +22,32 @@ const timestamp = '1700000000'
 const freshness = { nowEpochSeconds: Number(timestamp) }
 
 describe('handleDiscordInteraction', () => {
+  it.each(['different-tenant', 'different-user'])('rejects multiple verifying channels in %s scope in either order', (scope) => {
+    const signer = makeSigner()
+    const rawBody = JSON.stringify({
+      type: DiscordInteractionType.APPLICATION_COMMAND, id: 'interaction-1', token: 'test-token',
+      application_id: 'app-1', channel_id: 'discord-channel-1', user: { id: 'user-1' }, data: { name: 'mercato' },
+    })
+    const first: InteractionCandidate = {
+      channelId: 'ch-1', channelType: 'discord', tenantId: 't-1', organizationId: 'o-1',
+      publicKey: signer.publicKeyHex, applicationId: 'app-1',
+      credentialScope: { tenantId: 't-1', organizationId: 'o-1', userId: 'user-1' },
+    }
+    const second: InteractionCandidate = {
+      ...first, channelId: 'ch-2', tenantId: scope === 'different-tenant' ? 't-2' : 't-1',
+      credentialScope: {
+        ...first.credentialScope, tenantId: scope === 'different-tenant' ? 't-2' : 't-1', userId: 'user-2',
+      },
+    }
+    for (const candidates of [[first, second], [second, first]]) {
+      const result = handleDiscordInteraction({
+        rawBody, signatureHex: signer.sign(timestamp + rawBody), timestamp, freshness, candidates,
+      })
+      expect(result).toEqual({ status: 401, body: { error: 'ambiguous_signature' }, matchedChannel: null })
+      expect(result.dispatch).toBeUndefined()
+    }
+  })
+
   it('answers PING with a synchronous PONG for a verified request', () => {
     const signer = makeSigner()
     const rawBody = JSON.stringify({ type: DiscordInteractionType.PING })

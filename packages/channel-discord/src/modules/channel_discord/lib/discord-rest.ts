@@ -18,6 +18,14 @@
  *   - createInteractionFollowUp       → POST  /webhooks/{app}/{token}
  */
 import { fetchWithTimeout, FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { z } from 'zod'
+
+const discordApplicationSchema = z.object({
+  id: z.string().min(1),
+  verify_key: z.string().regex(/^[0-9a-fA-F]{64}$/),
+})
+
+export type DiscordApplication = z.infer<typeof discordApplicationSchema>
 
 export const DISCORD_API_BASE = 'https://discord.com/api/v10'
 
@@ -103,6 +111,7 @@ export interface DiscordRestClient {
     input: { before?: string; limit?: number },
   ): Promise<DiscordMessageObject[]>
   getCurrentUser(auth: DiscordAuth): Promise<DiscordUser>
+  getCurrentApplication?(auth: DiscordAuth): Promise<DiscordApplication>
   getGatewayBot(auth: DiscordAuth): Promise<GatewayBotResponse>
   registerGuildCommands(
     auth: DiscordAuth,
@@ -247,6 +256,10 @@ class FetchDiscordRestClient implements DiscordRestClient {
 
   async getCurrentUser(auth: DiscordAuth): Promise<DiscordUser> {
     return this.request<DiscordUser>(auth, 'GET', '/users/@me')
+  }
+
+  async getCurrentApplication(auth: DiscordAuth): Promise<DiscordApplication> {
+    return discordApplicationSchema.parse(await this.request<unknown>(auth, 'GET', '/oauth2/applications/@me'))
   }
 
   async getGatewayBot(auth: DiscordAuth): Promise<GatewayBotResponse> {
