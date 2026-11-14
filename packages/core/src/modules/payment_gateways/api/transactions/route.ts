@@ -36,7 +36,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Invalid query', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { page, pageSize, search, providerKey, status } = parsed.data
+  const { page, pageSize, search, providerKey, status, sortField = 'createdAt', sortDir = 'desc' } = parsed.data
   const offset = (page - 1) * pageSize
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
@@ -67,7 +67,7 @@ export async function GET(req: Request) {
   }
 
   const countQb = qb.clone()
-  qb.orderBy({ createdAt: 'desc', id: 'desc' })
+  qb.orderBy({ [sortField]: sortDir, id: sortDir })
   qb.limit(pageSize).offset(offset)
 
   const [items, total] = await Promise.all([
@@ -107,6 +107,7 @@ export const openApi = {
     GET: {
       summary: 'List payment transactions',
       tags: [paymentGatewaysTag],
+      query: listTransactionsQuerySchema,
       responses: [
         { status: 200, description: 'Payment transaction list' },
       ],

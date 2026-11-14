@@ -70,6 +70,8 @@ export const listTransactionsQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
   providerKey: z.string().trim().min(1).max(100).optional(),
   status: unifiedPaymentStatusSchema.optional(),
+  sortField: z.enum(['createdAt', 'updatedAt', 'unifiedStatus', 'amount', 'providerKey']).optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 })
 
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>
