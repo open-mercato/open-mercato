@@ -158,8 +158,12 @@ or grant `api_docs.view` to intended custom roles. No database migration, enviro
 variable, startup command, or public document schema changes. Access without the
 new grant stops working intentionally; operators should grant only intended staff.
 Regression coverage exercises explicit/module/global wildcard grants, denied
-staff, default roles, superadmin policy, and navigation filtering. Browser QA must
-also verify direct navigation with and without the grant.
+staff, default roles, superadmin policy, and navigation filtering. The self-contained `api_docs/__integration__/TC-API-DOCS-001.spec.ts`
+regression requests the real backend route at desktop and mobile widths, checks
+live navigation, superadmin access and a disallowed home organization, runs
+`auth sync-role-acls` against its own tenant, and preserves anonymous public docs.
+Fixture users, roles, organizations and the tenant are retired during teardown.
+Human permission/default-role QA remains a separate merge gate.
 
 
 The original anonymous-export redaction remains additive and default-preserving;
@@ -233,6 +237,10 @@ None.
 Fully compliant: approved for implementation.
 
 ## Changelog
+
+### 2026-11-14
+
+- Added persistent backend permission-boundary coverage with isolated tenant fixtures, desktop/mobile checks, and default-admin ACL provisioning and synchronization.
 
 ### 2026-11-04
 
