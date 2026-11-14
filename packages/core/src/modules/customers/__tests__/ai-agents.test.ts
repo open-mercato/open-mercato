@@ -175,6 +175,7 @@ describe('customers.account_assistant agent definition', () => {
       container: {} as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
   })
@@ -192,6 +193,9 @@ function buildContainer(ctxOverrides: Record<string, unknown> = {}) {
   return {
     resolve: (name: string) => {
       if (name === 'em') return { count: jest.fn() }
+      if (name === 'rbacService' && !('rbacService' in ctxOverrides)) {
+        return { loadAcl: jest.fn(async () => ({ isSuperAdmin: false, features: [], organizations: null })) }
+      }
       return (ctxOverrides as Record<string, unknown>)[name] ?? null
     },
   }
@@ -237,6 +241,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       container: buildContainer() as any,
       tenantId: null,
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()
@@ -268,6 +273,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(handler.mock.calls[0][0]).toEqual({ personId: VALID_UUID_A, includeRelated: true })
@@ -289,6 +295,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledWith(
       { companyId: VALID_UUID_A, includeRelated: true },
@@ -310,6 +317,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledWith(
       { dealId: VALID_UUID_A, includeRelated: true },
@@ -328,6 +336,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(handler).toHaveBeenCalledTimes(1)
     expect(result).toBeNull()
@@ -344,6 +353,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(mockLoggerInstance.warn).toHaveBeenCalled()
@@ -358,6 +368,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()
@@ -374,6 +385,7 @@ describe('customers.account_assistant resolvePageContext hydration (Step 5.2)', 
       container: buildContainer() as any,
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+      userId: 'user-1',
     })
     expect(result).toBeNull()
   })
