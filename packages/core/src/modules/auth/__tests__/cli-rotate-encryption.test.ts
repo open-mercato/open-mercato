@@ -48,6 +48,8 @@ describe('auth rotate-encryption-key CLI', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    find.mockReset()
+    execute.mockReset()
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     delete process.env.TENANT_DATA_ENCRYPTION_OLD_KEY
   })
@@ -107,11 +109,16 @@ describe('auth rotate-encryption-key CLI', () => {
     process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
     find.mockResolvedValue([{ id: 'user-1', email: 'user@example.com', emailHash: null }])
     execute.mockResolvedValue([{ id: 'user-1', email: 'user@example.com', email_hash: null }])
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
 
     await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
 
+    expect(execute).toHaveBeenCalled()
+    expect(find).toHaveBeenCalledWith(User, expect.anything())
     expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(decryptWithAesGcm).not.toHaveBeenCalled()
     expect(persist).not.toHaveBeenCalled()
+    expect(flush).not.toHaveBeenCalled()
   })
 
   it('accepts an --old-key equal to TENANT_DATA_ENCRYPTION_OLD_KEY through the bridge', async () => {
@@ -130,6 +137,12 @@ describe('auth rotate-encryption-key CLI', () => {
     { name: 'argv key material without the unsafe bridge', flags: ['--old-key', 'old-secret'], message: '--allow-unsafe-old-key' },
     { name: 'the --old-key=<value> form without the unsafe bridge', flags: ['--old-key=old-secret'], message: '--allow-unsafe-old-key' },
     { name: 'the --oldKey alias without the unsafe bridge', flags: ['--oldKey', 'old-secret'], message: '--allow-unsafe-old-key' },
+    {
+      name: 'an --old-key equal to TENANT_DATA_ENCRYPTION_OLD_KEY without the unsafe bridge',
+      flags: ['--old-key', 'old-secret'],
+      message: '--allow-unsafe-old-key',
+      environmentKey: 'old-secret',
+    },
     { name: 'an unsafe bridge set to false', flags: ['--allow-unsafe-old-key=false', '--old-key', 'old-secret'], message: '--allow-unsafe-old-key' },
     { name: 'a bare --old-key flag', flags: ['--allow-unsafe-old-key', '--old-key'], message: '--old-key requires a value' },
     { name: 'an empty --old-key value', flags: ['--allow-unsafe-old-key', '--old-key='], message: '--old-key requires a value' },
