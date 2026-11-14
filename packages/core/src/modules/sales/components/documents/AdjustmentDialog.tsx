@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -187,6 +188,9 @@ export function AdjustmentDialog({
   const initialMode: 'rate' | 'amount' = resolveModeFromAdjustment(initialAdjustment)
   const [mode, setMode] = React.useState<'rate' | 'amount'>(initialMode)
   const [formResetKey, setFormResetKey] = React.useState(0)
+  const [isPreparing, setIsPreparing] = React.useState(true)
+  const preparedSourceRef = React.useRef<string | null>(null)
+  const adjustmentSourceKey = `${kind}:${initialAdjustment?.id ?? 'new'}`
   const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([])
   const taxRatesRef = React.useRef<TaxRateOption[]>([])
   const taxRatesLoadedRef = React.useRef(false)
@@ -317,7 +321,13 @@ export function AdjustmentDialog({
   )
 
   React.useEffect(() => {
-    if (!open) return
+    if (!open) {
+      preparedSourceRef.current = null
+      setIsPreparing(true)
+      return
+    }
+    if (preparedSourceRef.current === adjustmentSourceKey) return
+    setIsPreparing(true)
     let mounted = true
     if (!kindOptions.length) {
       void loadKindOptions()
@@ -360,12 +370,14 @@ export function AdjustmentDialog({
       setInitialValues({ ...next, ...customValues })
       setMode(resolvedMode)
       setFormResetKey((prev) => prev + 1)
+      preparedSourceRef.current = adjustmentSourceKey
+      setIsPreparing(false)
     }
     prepare().catch(() => {})
     return () => {
       mounted = false
     }
-  }, [initialAdjustment, kindOptions, loadKindOptions, loadTaxRates, open])
+  }, [adjustmentSourceKey, initialAdjustment, kindOptions, loadKindOptions, loadTaxRates, open])
 
   const fields = React.useMemo<CrudField<AdjustmentFormState>[]>(() => {
     const percentSuffix = (
@@ -798,18 +810,22 @@ export function AdjustmentDialog({
         <DialogHeader>
           <DialogTitle>{initialAdjustment ? labels.editTitle : labels.addTitle}</DialogTitle>
         </DialogHeader>
-        <CrudForm<AdjustmentFormState>
-          key={formResetKey}
-          embedded
-          fields={fields}
-          groups={groups}
-          entityId={entityId}
-          initialValues={initialValues}
-          submitLabel={initialAdjustment ? labels.submitUpdate : labels.submitCreate}
-          onSubmit={handleSubmit}
-          loadingMessage={t('sales.documents.adjustments.loading', 'Loading adjustments…')}
-          customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}
-        />
+        {isPreparing || preparedSourceRef.current !== adjustmentSourceKey ? (
+          <LoadingMessage label={t('sales.documents.adjustments.loading', 'Loading adjustments…')} />
+        ) : (
+          <CrudForm<AdjustmentFormState>
+            key={formResetKey}
+            embedded
+            fields={fields}
+            groups={groups}
+            entityId={entityId}
+            initialValues={initialValues}
+            submitLabel={initialAdjustment ? labels.submitUpdate : labels.submitCreate}
+            onSubmit={handleSubmit}
+            loadingMessage={t('sales.documents.adjustments.loading', 'Loading adjustments…')}
+            customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )
