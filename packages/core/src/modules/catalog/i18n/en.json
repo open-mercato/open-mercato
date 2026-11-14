@@ -35,6 +35,8 @@
   "catalog.bulkDelete.selected.confirmText": "Delete {count} selected products? This cannot be undone.",
   "catalog.bulkDelete.selected.confirmTitle": "Delete selected products?",
   "catalog.bulkDelete.selected.label": "Delete selected",
+  "catalog.categories.errors.parentCycle": "A category can't be moved under itself or one of its subcategories.",
+  "catalog.categories.errors.replayCycle": "The category hierarchy changed since this action, so it can't be reverted without making a category its own ancestor.",
   "catalog.categories.flash.created": "Category created",
   "catalog.categories.flash.deleted": "Category archived",
   "catalog.categories.flash.updated": "Category updated",

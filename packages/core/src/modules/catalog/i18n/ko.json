@@ -35,6 +35,8 @@
   "catalog.bulkDelete.selected.confirmText": "선택한 상품 {count}개를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
   "catalog.bulkDelete.selected.confirmTitle": "선택한 상품을 삭제하시겠습니까?",
   "catalog.bulkDelete.selected.label": "선택 항목 삭제",
+  "catalog.categories.errors.parentCycle": "카테고리를 자기 자신이나 하위 카테고리 아래로 이동할 수 없습니다.",
+  "catalog.categories.errors.replayCycle": "이 작업 이후 카테고리 계층 구조가 변경되어, 카테고리가 자기 자신의 상위 카테고리가 되지 않고는 되돌릴 수 없습니다.",
   "catalog.categories.flash.created": "카테고리가 생성되었습니다",
   "catalog.categories.flash.deleted": "카테고리가 보관 처리되었습니다",
   "catalog.categories.flash.updated": "카테고리가 수정되었습니다",

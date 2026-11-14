@@ -35,6 +35,8 @@
   "catalog.bulkDelete.selected.confirmText": "¿Eliminar {count} productos seleccionados? Esta acción no se puede deshacer.",
   "catalog.bulkDelete.selected.confirmTitle": "¿Eliminar productos seleccionados?",
   "catalog.bulkDelete.selected.label": "Eliminar seleccionados",
+  "catalog.categories.errors.parentCycle": "Una categoría no se puede mover bajo sí misma ni bajo una de sus subcategorías.",
+  "catalog.categories.errors.replayCycle": "La jerarquía de categorías ha cambiado desde esta acción, por lo que no se puede revertir sin que una categoría pase a ser su propio ancestro.",
   "catalog.categories.flash.created": "Categoría creada",
   "catalog.categories.flash.deleted": "Categoría archivada",
   "catalog.categories.flash.updated": "Categoría actualizada",

@@ -35,6 +35,8 @@
   "catalog.bulkDelete.selected.confirmText": "{count} ausgewählte Produkte löschen? Dies kann nicht rückgängig gemacht werden.",
   "catalog.bulkDelete.selected.confirmTitle": "Ausgewählte Produkte löschen?",
   "catalog.bulkDelete.selected.label": "Ausgewählte löschen",
+  "catalog.categories.errors.parentCycle": "Eine Kategorie kann nicht sich selbst oder einer ihrer Unterkategorien untergeordnet werden.",
+  "catalog.categories.errors.replayCycle": "Die Kategoriehierarchie hat sich seit dieser Aktion geändert, daher kann die Aktion nicht rückgängig gemacht werden, ohne dass eine Kategorie sich selbst übergeordnet wird.",
   "catalog.categories.flash.created": "Kategorie erstellt",
   "catalog.categories.flash.deleted": "Kategorie archiviert",
   "catalog.categories.flash.updated": "Kategorie aktualisiert",
