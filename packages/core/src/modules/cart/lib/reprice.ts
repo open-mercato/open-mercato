@@ -11,6 +11,8 @@ import type {
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot } from '@open-mercato/core/modules/sales/lib/types'
 import { Cart, CartLine } from '../data/entities'
+import { absDecimal, decimalToString, resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
+import { resolvedPriceString, samePrice } from './exactPricing'
 
 // Step 5.1 — the whole-cart re-pricing engine behind the `cart.reprice` command (triggers
 // 2-4, §5.2) and the real `Cart.totals` aggregate (§3.2). Closes the gap NOTIFY.md has
@@ -91,8 +93,14 @@ function buildPricingContext(cart: Cart): PricingContext {
   }
 }
 
-function buildBuyerContext(cart: Cart, quantity: number, date: Date): BuyerPricingContext {
+function buildBuyerContext(
+  cart: Cart,
+  quantity: number,
+  date: Date,
+  currencyDecimalPlaces: number | null,
+): BuyerPricingContext {
   return {
+    currencyDecimalPlaces,
     channelId: cart.salesChannelId ?? null,
     customerId: cart.customerId ?? null,
     customerIds: cart.customerIds ?? [],
@@ -131,8 +139,8 @@ async function fetchLinePriceRows(
 }
 
 function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedAt: Date): void {
-  line.unitPriceNet = resolved.amountNet !== null ? String(resolved.amountNet) : null
-  line.unitPriceGross = resolved.amountGross !== null ? String(resolved.amountGross) : null
+  line.unitPriceNet = resolvedPriceString(resolved.amountNetExact, resolved.amountNet)
+  line.unitPriceGross = resolvedPriceString(resolved.amountGrossExact, resolved.amountGross)
   line.taxRate = resolved.taxRatePercent !== null ? String(resolved.taxRatePercent) : null
   line.priceKindId = resolved.priceRow ? resolvePriceKindId(resolved.priceRow) : null
   line.priceRowId = resolved.priceRow?.id ?? null
@@ -144,6 +152,7 @@ async function computeLineTotals(
   salesCalculationService: SalesCalculationService,
   cart: Cart,
   line: CartLine,
+  amountDecimalPlaces: number,
 ): Promise<Record<string, unknown>> {
   const result = await salesCalculationService.calculateLine({
     documentKind: 'quote',
@@ -156,10 +165,12 @@ async function computeLineTotals(
       currencyCode: cart.currencyCode,
       unitPriceNet: line.unitPriceNet !== null ? Number(line.unitPriceNet) : null,
       unitPriceGross: line.unitPriceGross !== null ? Number(line.unitPriceGross) : null,
+      unitPriceNetExact: line.unitPriceNet ?? null,
+      unitPriceGrossExact: line.unitPriceGross ?? null,
       taxRate: line.taxRate !== null ? Number(line.taxRate) : null,
       configuration: line.configuration ?? null,
     },
-    context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode },
+    context: { tenantId: cart.tenantId, organizationId: cart.organizationId, currencyCode: cart.currencyCode, amountDecimalPlaces },
   })
   return result as unknown as Record<string, unknown>
 }
@@ -189,11 +200,13 @@ export function buildCartLineRepricePhases(
   now: Date,
   changes: CartPriceChange[],
   touched: CartLine[],
+  currencyDecimalPlaces: number | null = null,
 ): Array<() => Promise<void>> {
   const scope: CartRepriceScope = { tenantId: cart.tenantId, organizationId: cart.organizationId }
   const buyerPricingService = container.resolve<CatalogBuyerPricingService>('catalogBuyerPricingService')
   const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
   const pricingContext = buildPricingContext(cart)
+  const amountDecimalPlaces = resolveAmountDecimalPlaces(currencyDecimalPlaces)
 
   // Step 7.1 — §4.2/§6a.2: a flagged line is excluded from re-pricing (same reasoning as the
   // totals/evaluate exclusion below — it is not for sale right now). A `promotion`-origin
@@ -218,18 +231,23 @@ export function buildCartLineRepricePhases(
     if (line.flagState != null) return
     const rows = await fetchLinePriceRows(em, scope, pricingContext, line.productId, line.variantId ?? null)
     const quantity = Number(line.quantity)
-    const resolved = await buyerPricingService.resolveLinePrice(em, rows, buildBuyerContext(cart, quantity, now), scope)
+    const resolved = await buyerPricingService.resolveLinePrice(
+      em,
+      rows,
+      buildBuyerContext(cart, quantity, now, currencyDecimalPlaces),
+      scope,
+    )
     if (!resolved.priceRow) return
 
     const oldNet = line.unitPriceNet ?? null
     const oldGross = line.unitPriceGross ?? null
     applyPriceSnapshot(line, resolved, now)
-    line.lineTotals = await computeLineTotals(salesCalculationService, cart, line)
+    line.lineTotals = await computeLineTotals(salesCalculationService, cart, line, amountDecimalPlaces)
     touched.push(line)
 
     const newNet = line.unitPriceNet ?? null
     const newGross = line.unitPriceGross ?? null
-    if (oldNet !== newNet || oldGross !== newGross) {
+    if (!samePrice(oldNet, newNet) || !samePrice(oldGross, newGross)) {
       changes.push({
         lineId: line.id,
         productId: line.productId,
@@ -251,7 +269,8 @@ export function buildCartLineRepricePhases(
  * always `null` today, but the mapping already follows the rule rather than deferring it.
  */
 export function toCartTotalsLineSnapshot(line: CartLine, currencyCode: string): SalesLineSnapshot {
-  const discountAmount = line.discountTotalNet !== null ? Math.abs(Number(line.discountTotalNet)) : null
+  const discountAmountExact = line.discountTotalNet != null ? decimalToString(absDecimal(line.discountTotalNet)) : null
+  const discountAmount = discountAmountExact !== null ? Number(discountAmountExact) : null
   return {
     kind: 'product',
     productId: line.productId,
@@ -262,7 +281,10 @@ export function toCartTotalsLineSnapshot(line: CartLine, currencyCode: string): 
     currencyCode,
     unitPriceNet: line.unitPriceNet !== null ? Number(line.unitPriceNet) : null,
     unitPriceGross: line.unitPriceGross !== null ? Number(line.unitPriceGross) : null,
+    unitPriceNetExact: line.unitPriceNet ?? null,
+    unitPriceGrossExact: line.unitPriceGross ?? null,
     discountAmount,
+    discountAmountExact,
     discountAmountBasis: discountAmount !== null ? 'line' : null,
     taxRate: line.taxRate !== null ? Number(line.taxRate) : null,
     configuration: line.configuration ?? null,
@@ -290,6 +312,7 @@ export function buildRecomputeCartTotalsPhase(
   now: Date,
   changes: CartPriceChange[],
   adjustments: SalesAdjustmentDraft[] = [],
+  currencyDecimalPlaces: number | null = null,
 ): () => Promise<void> {
   return async () => {
     const salesCalculationService = container.resolve<SalesCalculationService>('salesCalculationService')
@@ -302,6 +325,7 @@ export function buildRecomputeCartTotalsPhase(
         tenantId: cart.tenantId,
         organizationId: cart.organizationId,
         currencyCode: cart.currencyCode,
+        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
         metadata: { source: 'cart', cartId: cart.id },
       },
     })

@@ -22,6 +22,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { orderLineBulkUpsertSchema } from '../../../data/validators'
 import { withScopedPayload } from '../../utils'
+import { withExactLineBatchInput } from '../../../lib/exactAmountFields'
 
 const logger = createLogger('sales')
 
@@ -190,7 +191,7 @@ export async function POST(req: Request) {
     const { translate } = await resolveTranslations()
     const payload = await readJsonSafe(req, {})
     const scoped = withScopedPayload(payload ?? {}, ctx, translate)
-    let input = orderLineBulkUpsertSchema.parse(scoped)
+    let input = withExactLineBatchInput(orderLineBulkUpsertSchema.parse(scoped), scoped)
 
     const guardScope = {
       tenantId: ctx.auth?.tenantId ?? '',
@@ -213,7 +214,8 @@ export async function POST(req: Request) {
       )
     }
     if (guardResult.modifiedPayload) {
-      input = orderLineBulkUpsertSchema.parse({ ...input, ...guardResult.modifiedPayload })
+      const guarded = { ...scoped, ...guardResult.modifiedPayload }
+      input = withExactLineBatchInput(orderLineBulkUpsertSchema.parse({ ...input, ...guardResult.modifiedPayload }), guarded)
     }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus

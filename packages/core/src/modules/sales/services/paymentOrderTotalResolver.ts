@@ -5,13 +5,13 @@ import type {
   PaymentOrderTotal,
   PaymentOrderTotalResolver,
 } from '@open-mercato/shared/modules/payment_gateways/types'
+import { decimalToNumber, decimalToString, parseDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { SalesOrder } from '../data/entities'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-function toAmount(value: string | number | null | undefined): number {
-  const parsed = typeof value === 'number' ? value : Number(value ?? 0)
-  return Number.isFinite(parsed) ? parsed : 0
+function toAmount(value: string | number | null | undefined) {
+  return parseDecimal(value) ?? toDecimal(0)
 }
 
 /**
@@ -25,11 +25,19 @@ export function resolveOrderAmountDue(order: Pick<
   SalesOrder,
   'outstandingAmount' | 'paidTotalAmount' | 'refundedTotalAmount' | 'grandTotalGrossAmount'
 >): number {
+  return decimalToNumber(resolveOrderAmountDueExact(order))
+}
+
+/** Exact-decimal variant of {@link resolveOrderAmountDue}. */
+export function resolveOrderAmountDueExact(order: Pick<
+  SalesOrder,
+  'outstandingAmount' | 'paidTotalAmount' | 'refundedTotalAmount' | 'grandTotalGrossAmount'
+>): string {
   const outstanding = toAmount(order.outstandingAmount)
   const paid = toAmount(order.paidTotalAmount)
   const refunded = toAmount(order.refundedTotalAmount)
-  if (outstanding > 0 || paid > 0 || refunded > 0) return outstanding
-  return toAmount(order.grandTotalGrossAmount)
+  if (outstanding.gt(0) || paid.gt(0) || refunded.gt(0)) return decimalToString(outstanding)
+  return decimalToString(toAmount(order.grandTotalGrossAmount))
 }
 
 export function createSalesPaymentOrderTotalResolver(deps: { em: EntityManager }): PaymentOrderTotalResolver {
@@ -61,6 +69,7 @@ export function createSalesPaymentOrderTotalResolver(deps: { em: EntityManager }
         orderId,
         currencyCode: order.currencyCode,
         amountDue: resolveOrderAmountDue(order),
+        amountDueExact: resolveOrderAmountDueExact(order),
       }
     },
   }

@@ -1,5 +1,6 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 
 export type PromotionRuleGroupOperator = 'and' | 'or'
 export type PromotionBenefitAppliesTo = 'order' | 'line' | 'unit'
@@ -72,7 +73,7 @@ export class Promotion {
   @Property({ name: 'eligible_currencies', type: 'text[]' })
   eligibleCurrencies: string[] = []
 
-  @Property({ name: 'max_budget', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  @Property({ name: 'max_budget', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   maxBudget?: string | null
 
   @Property({ name: 'budget_currency', type: 'text', nullable: true })
@@ -458,7 +459,7 @@ export class PromotionUsage {
   @Property({ type: 'text' })
   currency!: string
 
-  @Property({ name: 'total_discount_amount', type: 'numeric', precision: 16, scale: 2 })
+  @Property({ name: 'total_discount_amount', type: ExactDecimalType, columnType: 'numeric' })
   totalDiscountAmount!: string
 
   @Property({ name: 'effects_snapshot', type: 'jsonb' })

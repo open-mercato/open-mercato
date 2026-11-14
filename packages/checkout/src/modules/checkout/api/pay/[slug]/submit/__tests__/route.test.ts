@@ -13,6 +13,7 @@ const TENANT_ID = '55555555-5555-4555-8555-555555555555'
 const mockCreatePaymentSession = jest.fn()
 const mockCommandExecute = jest.fn()
 const mockEmFindOne = jest.fn()
+const mockCurrencyDecimalPlaces = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -83,6 +84,7 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockCurrencyDecimalPlaces.mockResolvedValue(null)
     process.env.APP_URL = 'https://merchant.example'
     delete process.env.NEXT_PUBLIC_APP_URL
 
@@ -93,6 +95,7 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
         if (name === 'rateLimiterService') return { trustProxyDepth: 0 }
         if (name === 'em') return { findOne: mockEmFindOne }
         if (name === 'commandBus') return { execute: mockCommandExecute }
+        if (name === 'currencyPrecisionService') return { getDecimalPlaces: mockCurrencyDecimalPlaces }
         if (name === 'paymentGatewayService') {
           return { createPaymentSession: mockCreatePaymentSession }
         }
@@ -116,6 +119,67 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
           redirectUrl: 'https://payments.example/session',
         },
       },
+    })
+  })
+
+  describe('provider amount precision', () => {
+    async function submitAmount(amount: string) {
+      return POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'precision-check-key-1234',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount }),
+      }), { params: { slug: 'donate' } })
+    }
+
+    it('rejects configured USD precision above the provider unit before reserving a transaction', async () => {
+      mockCurrencyDecimalPlaces.mockResolvedValue(4)
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce({ ...createLink(), pricingMode: 'fixed', fixedPriceAmount: '10.0051', fixedPriceCurrencyCode: 'USD' })
+        .mockResolvedValueOnce(null)
+
+      const response = await submitAmount('10.0051')
+
+      expect(response.status).toBe(400)
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+    })
+
+    it('rejects a replayed stored amount even when the newly submitted amount is valid', async () => {
+      mockCurrencyDecimalPlaces.mockResolvedValue(4)
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce(createLink())
+        .mockResolvedValueOnce(createTransaction({ amount: '10.0051' }))
+
+      const response = await submitAmount('10.01')
+
+      expect(response.status).toBe(400)
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { currencyCode: 'USD', decimalPlaces: 4, amount: '10.01', storedAmount: '10.01' },
+      { currencyCode: 'USD', decimalPlaces: 2, amount: '10.0051', storedAmount: '10.01' },
+      { currencyCode: 'ETH', decimalPlaces: 18, amount: '1.123456789012345678', storedAmount: '1.123456789012345678' },
+    ])('accepts $currencyCode amount $amount after normal checkout rounding', async ({ currencyCode, decimalPlaces, amount, storedAmount }) => {
+      mockCurrencyDecimalPlaces.mockResolvedValue(decimalPlaces)
+      const transaction = createTransaction({ currencyCode, amount: storedAmount })
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce({ ...createLink(), customAmountCurrencyCode: currencyCode })
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(transaction)
+        .mockResolvedValueOnce({ ...transaction, gatewayTransactionId: GATEWAY_TRANSACTION_ID })
+      mockCommandExecute.mockResolvedValue({ result: { id: TRANSACTION_ID } })
+
+      const response = await submitAmount(amount)
+
+      expect(response.status).toBe(201)
+      expect(mockCommandExecute).toHaveBeenCalledWith('checkout.transaction.create', expect.anything())
+      expect(mockCreatePaymentSession).toHaveBeenCalledWith(expect.objectContaining({ currencyCode, amountExact: storedAmount }))
     })
   })
 
@@ -444,6 +508,87 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     expect(response.status).toBe(201)
     const payload = await response.json()
     expect(payload.transactionId).toBe(TRANSACTION_ID)
+  })
+
+  describe('payment amount precision', () => {
+    function useCurrencyDecimalPlaces(decimalPlaces: number) {
+      ;(createRequestContainer as jest.Mock).mockResolvedValue({
+        resolve: (name: string) => {
+          if (name === 'rateLimiterService') return { trustProxyDepth: 0 }
+          if (name === 'em') return { findOne: mockEmFindOne }
+          if (name === 'commandBus') return { execute: mockCommandExecute }
+          if (name === 'paymentGatewayService') return { createPaymentSession: mockCreatePaymentSession }
+          if (name === 'currencyPrecisionService') return { getDecimalPlaces: async () => decimalPlaces }
+          throw new Error(`Unknown dependency: ${name}`)
+        },
+      })
+    }
+
+    function submitPrecisionRequest(idempotencyKey: string, body: Record<string, unknown>) {
+      return POST(
+        new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+            origin: 'https://merchant.example',
+          },
+          body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, ...body }),
+        }),
+        { params: { slug: 'donate' } },
+      )
+    }
+
+    it('rejects a fixed price the provider cannot charge exactly before reserving the link or calling the provider', async () => {
+      useCurrencyDecimalPlaces(4)
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce({
+          ...createLink(),
+          pricingMode: 'fixed',
+          fixedPriceAmount: '10.0051',
+          fixedPriceCurrencyCode: 'USD',
+        })
+        .mockResolvedValueOnce(null)
+
+      const response = await submitPrecisionRequest('precision-fixed-key-1', {})
+
+      expect(response.status).toBe(400)
+      const payload = await response.json()
+      expect(typeof payload.error).toBe('string')
+      expect(payload.error).toContain('10.0051')
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+    })
+
+    it('rejects a replayed transaction whose stored amount the provider cannot charge exactly', async () => {
+      useCurrencyDecimalPlaces(4)
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce(createLink())
+        .mockResolvedValueOnce(createTransaction({ amount: '10.0051' }))
+
+      const response = await submitPrecisionRequest('precision-replay-key-1', { amount: 10 })
+
+      expect(response.status).toBe(400)
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+    })
+
+    it('checks the amount after rounding it to the currency decimals checkout stores', async () => {
+      useCurrencyDecimalPlaces(2)
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce(createLink())
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(createTransaction({ amount: '10.00' }))
+        .mockResolvedValueOnce(createTransaction({ amount: '10.00', gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+      mockCommandExecute.mockResolvedValueOnce({ result: { id: TRANSACTION_ID } })
+
+      const response = await submitPrecisionRequest('precision-rounded-key-1', { amount: 10.00001 })
+
+      expect(response.status).toBe(201)
+      expect(mockCreatePaymentSession).toHaveBeenCalledWith(
+        expect.objectContaining({ amount: 10, currencyCode: 'USD' }),
+      )
+    })
   })
 
   describe('rate limiting is fail-closed', () => {

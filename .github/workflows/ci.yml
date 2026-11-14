@@ -965,6 +965,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: yarn workspace @open-mercato/core test:pg-integration
 
+      - name: Run checkout migration suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/checkout test:pg-integration
+
       - name: Run webhook delivery claim suite against real Postgres
         if: ${{ !cancelled() }}
         run: yarn workspace @open-mercato/webhooks test:pg-integration

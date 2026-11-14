@@ -316,7 +316,14 @@ export type CartProductFixture = {
 export async function createCartProductFixture(
   request: APIRequestContext,
   token: string,
-  input: { stamp: string; label: string; salesChannelId: string; categoryId?: string | null },
+  input: {
+    stamp: string
+    label: string
+    salesChannelId: string
+    categoryId?: string | null
+    unitPriceNet?: number | string
+    unitPriceGross?: number | string
+  },
 ): Promise<CartProductFixture> {
   const categoryId =
     input.categoryId ??
@@ -354,7 +361,14 @@ export async function createCartProductFixture(
     request,
     token,
     PRICES_PATH,
-    { productId, channelId: input.salesChannelId, priceKindId, currencyCode: 'EUR', unitPriceNet: 10, unitPriceGross: 12 },
+    {
+      productId,
+      channelId: input.salesChannelId,
+      priceKindId,
+      currencyCode: 'EUR',
+      unitPriceNet: input.unitPriceNet ?? 10,
+      unitPriceGross: input.unitPriceGross ?? 12,
+    },
     'price fixture',
   );
 
@@ -705,6 +719,16 @@ export async function backdateCartExpiresAt(cartId: string, isoTimestamp: string
  * specifically to prove that `updated_at` stays unchanged across repeated in-budget GETs
  * (TC-CART-PRICE-01), so stamping it here would defeat that assertion's own premise.
  */
+/** Changes a catalog price row's amounts in place, so the next re-price discloses a real change. */
+export async function setCatalogPriceAmounts(priceId: string, unitPriceNet: string, unitPriceGross: string): Promise<void> {
+  await withClient(async (client) => {
+    await client.query(
+      `update catalog_product_variant_prices set unit_price_net = $2, unit_price_gross = $3, updated_at = now() where id = $1`,
+      [priceId, unitPriceNet, unitPriceGross],
+    );
+  });
+}
+
 export async function backdateCartTotalsComputedAt(cartId: string, isoTimestamp: string): Promise<void> {
   await withClient(async (client) => {
     await client.query(`update carts set totals_computed_at = $2 where id = $1`, [cartId, isoTimestamp]);

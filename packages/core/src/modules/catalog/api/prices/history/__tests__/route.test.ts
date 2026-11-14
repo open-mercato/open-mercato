@@ -224,7 +224,7 @@ describe('GET /api/catalog/prices/history', () => {
     expect((body.items as Row[]).map((item) => item.id)).toEqual([uuidFor(1)])
   })
 
-  it('serializes money as fixed 4-decimal strings and omits total by default', async () => {
+  it('keeps the legacy 4-decimal money formatting and omits total by default', async () => {
     dataset = [makeRow(1, { isAnnounced: true, startsAt: new Date('2026-06-01T00:00:00.000Z') })]
     const response = await GET(scopedRequest(''))
     const body = await readJson(response)
@@ -242,6 +242,16 @@ describe('GET /api/catalog/prices/history', () => {
     })
     expect(item).not.toHaveProperty('tenantId')
     expect(item).not.toHaveProperty('idempotencyKey')
+  })
+
+  it('returns history amounts beyond float and 4-decimal precision unchanged', async () => {
+    const amount = '12345678901234.123456789012345678'
+    const taxAmount = '0.000000000000000001'
+    dataset = [makeRow(1, { unitPriceNet: amount, unitPriceGross: amount, taxAmount })]
+    const response = await GET(scopedRequest(''))
+    expect(response.status).toBe(200)
+    const body = await readJson(response)
+    expect((body.items as Row[])[0]).toMatchObject({ unitPriceNet: amount, unitPriceGross: amount, taxAmount })
   })
 
   it('pages through every row exactly once with the keyset cursor, including recordedAt ties', async () => {

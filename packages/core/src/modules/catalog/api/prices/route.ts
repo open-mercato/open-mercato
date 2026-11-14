@@ -15,6 +15,7 @@ import {
 } from "../../data/entities";
 import { priceCreateSchema, priceUpdateSchema } from "../../data/validators";
 import { parseScopedCommandInput, resolveCrudRecordId } from "../utils";
+import { withExactAmounts } from "@open-mercato/shared/lib/decimal";
 import { E } from "#generated/entities.ids.generated";
 import * as FP from "#generated/entities/catalog_product_price";
 import {
@@ -174,6 +175,8 @@ export async function buildPriceFilters(
   return filters;
 }
 
+const PRICE_AMOUNT_FIELDS = ["unitPriceNet", "unitPriceGross"] as const;
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
@@ -325,12 +328,13 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations();
-        return parseScopedCommandInput(
+        const parsed = parseScopedCommandInput(
           priceCreateSchema,
           raw ?? {},
           ctx,
           translate,
         );
+        return withExactAmounts(parsed, raw, PRICE_AMOUNT_FIELDS);
       },
       response: ({ result }) => ({ id: result?.priceId ?? result?.id ?? null }),
       status: 201,
@@ -340,12 +344,13 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations();
-        return parseScopedCommandInput(
+        const parsed = parseScopedCommandInput(
           priceUpdateSchema,
           raw ?? {},
           ctx,
           translate,
         );
+        return withExactAmounts(parsed, raw, PRICE_AMOUNT_FIELDS);
       },
       response: () => ({ ok: true }),
     },
@@ -384,10 +389,10 @@ const priceListItemSchema = z.object({
   kind: z.string().nullable().optional(),
   min_quantity: z.number().nullable().optional(),
   max_quantity: z.number().nullable().optional(),
-  unit_price_net: z.number().nullable().optional(),
-  unit_price_gross: z.number().nullable().optional(),
+  unit_price_net: z.string().nullable().optional(),
+  unit_price_gross: z.string().nullable().optional(),
   tax_rate: z.number().nullable().optional(),
-  tax_amount: z.number().nullable().optional(),
+  tax_amount: z.string().nullable().optional(),
   channel_id: z.string().uuid().nullable().optional(),
   user_id: z.string().uuid().nullable().optional(),
   user_group_id: z.string().uuid().nullable().optional(),

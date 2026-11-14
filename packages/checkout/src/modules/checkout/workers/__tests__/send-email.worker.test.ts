@@ -111,4 +111,47 @@ describe('checkout send-email worker', () => {
       }),
     )
   })
+
+  it('shows the amount with the currency decimals', async () => {
+    findOneWithDecryption
+      .mockResolvedValueOnce({
+        id: 'txn-2',
+        linkId: 'link-2',
+        email: 'buyer@example.com',
+        firstName: 'Piotr',
+        amount: '12.5',
+        currencyCode: 'USD',
+      })
+      .mockResolvedValueOnce({
+        id: 'link-2',
+        title: 'Spring Gala 2026',
+        name: 'Spring Gala 2026',
+        successEmailSubject: null,
+        successEmailBody: null,
+        sendSuccessEmail: true,
+      })
+
+    const { default: handle } = await import('../send-email.worker')
+
+    await handle(
+      {
+        payload: {
+          type: 'success',
+          transactionId: 'txn-2',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        },
+      } as never,
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return { fork: () => ({}) }
+          throw new Error(`Missing dependency: ${name}`)
+        },
+      } as never,
+    )
+
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ react: expect.objectContaining({ amount: '12.50', currencyCode: 'USD' }) }),
+    )
+  })
 })

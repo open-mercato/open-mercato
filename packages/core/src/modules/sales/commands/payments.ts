@@ -29,12 +29,22 @@ import {
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
+  exactAmountString,
   extractUndoPayload,
   toNumericString,
   enforceSalesDocumentOptimisticLock,
   SALES_RESOURCE_KIND_ORDER,
 } from './shared'
+import {
+  decimalToNumber,
+  decimalToString,
+  parseDecimal,
+  toDecimal,
+  withExactAmounts,
+  type DecimalValue,
+} from '@open-mercato/shared/lib/decimal'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { PAYMENT_EXACT_AMOUNT_FIELDS } from '../lib/exactAmountFields'
 import { assertOrderCanBeCancelled, isCancelledOrderStatus } from '../lib/orderCancellationGuard'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
@@ -54,6 +64,7 @@ export type PaymentAllocationSnapshot = {
   orderId: string | null
   invoiceId: string | null
   amount: number
+  amountExact?: string
   currencyCode: string
   metadata: Record<string, unknown> | null
 }
@@ -68,9 +79,12 @@ export type PaymentSnapshot = {
   statusEntryId: string | null
   status: string | null
   amount: number
+  amountExact?: string
   currencyCode: string
   capturedAmount: number
+  capturedAmountExact?: string
   refundedAmount: number
+  refundedAmountExact?: string
   receivedAt: string | null
   capturedAt: string | null
   metadata: Record<string, unknown> | null
@@ -84,6 +98,19 @@ type PaymentUndoPayload = {
   after?: PaymentSnapshot | null
   orderPaymentMethodIdBefore?: string | null
   orderPaymentMethodCodeBefore?: string | null
+}
+
+function toExactDecimal(value: unknown): DecimalValue {
+  return parseDecimal(value) ?? toDecimal(0)
+}
+
+function resolveAllocationInputs<T extends object>(allocations: T[] | null | undefined, rawInput: unknown) {
+  if (!Array.isArray(allocations)) return []
+  const rawAllocations =
+    rawInput && typeof rawInput === 'object' ? (rawInput as Record<string, unknown>).allocations : undefined
+  return allocations.map((allocation, index) =>
+    withExactAmounts(allocation, Array.isArray(rawAllocations) ? rawAllocations[index] : undefined, ['amount'] as const),
+  )
 }
 
 const toNumber = (value: unknown): number => {
@@ -142,6 +169,7 @@ export async function loadPaymentSnapshot(em: EntityManager, id: string, scope?:
         ? allocation.invoice
         : allocation.invoice?.id ?? (allocation as any).invoice_id ?? null,
     amount: toNumber(allocation.amount),
+    amountExact: toNumericString(allocation.amount) ?? '0',
     currencyCode: allocation.currencyCode,
     metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
   }))
@@ -168,9 +196,12 @@ export async function loadPaymentSnapshot(em: EntityManager, id: string, scope?:
     statusEntryId: payment.statusEntryId ?? null,
     status: payment.status ?? null,
     amount: toNumber(payment.amount),
+    amountExact: toNumericString(payment.amount) ?? '0',
     currencyCode: payment.currencyCode,
     capturedAmount: toNumber(payment.capturedAmount),
+    capturedAmountExact: toNumericString(payment.capturedAmount) ?? '0',
     refundedAmount: toNumber(payment.refundedAmount),
+    refundedAmountExact: toNumericString(payment.refundedAmount) ?? '0',
     receivedAt: payment.receivedAt ? payment.receivedAt.toISOString() : null,
     capturedAt: payment.capturedAt ? payment.capturedAt.toISOString() : null,
     metadata: payment.metadata ? cloneJson(payment.metadata) : null,
@@ -200,10 +231,10 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
   entity.paymentReference = snapshot.paymentReference
   entity.statusEntryId = snapshot.statusEntryId
   entity.status = snapshot.status
-  entity.amount = toNumericString(snapshot.amount) ?? '0'
+  entity.amount = exactAmountString(snapshot.amountExact, snapshot.amount) ?? '0'
   entity.currencyCode = snapshot.currencyCode
-  entity.capturedAmount = toNumericString(snapshot.capturedAmount) ?? '0'
-  entity.refundedAmount = toNumericString(snapshot.refundedAmount) ?? '0'
+  entity.capturedAmount = exactAmountString(snapshot.capturedAmountExact, snapshot.capturedAmount) ?? '0'
+  entity.refundedAmount = exactAmountString(snapshot.refundedAmountExact, snapshot.refundedAmount) ?? '0'
   entity.receivedAt = snapshot.receivedAt ? new Date(snapshot.receivedAt) : null
   entity.capturedAt = snapshot.capturedAt ? new Date(snapshot.capturedAt) : null
   entity.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
@@ -242,7 +273,7 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
       invoice,
       organizationId: snapshot.organizationId,
       tenantId: snapshot.tenantId,
-      amount: toNumericString(allocation.amount) ?? '0',
+      amount: exactAmountString(allocation.amountExact, allocation.amount) ?? '0',
       currencyCode: allocation.currencyCode,
       metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
     })
@@ -296,12 +327,13 @@ export async function recomputeOrderPaymentTotals(
       : await findWithDecryption(em, SalesPayment, { order: orderId, deletedAt: null, ...scope }, {}, scope)
   const payments = loadedPayments.filter(paymentCountsTowardOrderBalance)
 
-  const resolvePaidAmount = (payment: SalesPayment) => {
-    const captured = toNumber(payment.capturedAmount)
-    return captured > 0 ? captured : toNumber(payment.amount)
+  const resolvePaidAmount = (payment: SalesPayment): DecimalValue => {
+    const captured = toExactDecimal(payment.capturedAmount)
+    return captured.gt(0) ? captured : toExactDecimal(payment.amount)
   }
 
   const activePaymentIds = new Set(payments.map((payment) => payment.id))
+  const zero = toDecimal(0)
   const paidTotal =
     allocations.length > 0
       ? allocations.reduce((sum, allocation) => {
@@ -313,24 +345,28 @@ export async function recomputeOrderPaymentTotals(
                 ? paymentRef
                 : null
           if (paymentId && !activePaymentIds.has(paymentId)) return sum
-          return sum + toNumber(allocation.amount)
-        }, 0)
-      : payments.reduce((sum, payment) => sum + resolvePaidAmount(payment), 0)
+          return sum.plus(toExactDecimal(allocation.amount))
+        }, zero)
+      : payments.reduce((sum, payment) => sum.plus(resolvePaidAmount(payment)), zero)
 
   const refundedTotal = payments.reduce(
-    (sum, payment) => sum + toNumber(payment.refundedAmount),
-    0
+    (sum, payment) => sum.plus(toExactDecimal(payment.refundedAmount)),
+    zero
   )
 
-  const grandTotal = toNumber(order.grandTotalGrossAmount)
-  const outstanding = Math.max(grandTotal - paidTotal + refundedTotal, 0)
-  order.paidTotalAmount = toNumericString(paidTotal) ?? '0'
-  order.refundedTotalAmount = toNumericString(refundedTotal) ?? '0'
-  order.outstandingAmount = toNumericString(outstanding) ?? '0'
+  const grandTotal = toExactDecimal(order.grandTotalGrossAmount)
+  const outstandingRaw = grandTotal.minus(paidTotal).plus(refundedTotal)
+  const outstanding = outstandingRaw.gt(0) ? outstandingRaw : zero
+  order.paidTotalAmount = decimalToString(paidTotal)
+  order.refundedTotalAmount = decimalToString(refundedTotal)
+  order.outstandingAmount = decimalToString(outstanding)
   return {
-    paidTotalAmount: paidTotal,
-    refundedTotalAmount: refundedTotal,
-    outstandingAmount: outstanding,
+    paidTotalAmount: decimalToNumber(paidTotal),
+    paidTotalAmountExact: decimalToString(paidTotal),
+    refundedTotalAmount: decimalToNumber(refundedTotal),
+    refundedTotalAmountExact: decimalToString(refundedTotal),
+    outstandingAmount: decimalToNumber(outstanding),
+    outstandingAmountExact: decimalToString(outstanding),
   }
 }
 
@@ -459,7 +495,7 @@ const createPaymentCommand: CommandHandler<
 > = {
   id: 'sales.payments.create',
   async execute(rawInput, ctx) {
-    const input = paymentCreateSchema.parse(rawInput ?? {})
+    const input = withExactAmounts(paymentCreateSchema.parse(rawInput ?? {}), rawInput, PAYMENT_EXACT_AMOUNT_FIELDS)
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -469,7 +505,7 @@ const createPaymentCommand: CommandHandler<
     }
 
     const scope: PaymentScope = { tenantId: input.tenantId, organizationId: input.organizationId }
-    const allocationInputs = Array.isArray(input.allocations) ? input.allocations : []
+    const allocationInputs = resolveAllocationInputs(input.allocations, rawInput)
     const { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore } = await em.transactional(async (tx) => {
       const order = assertFound(
         await findOneWithDecryption(tx, SalesOrder, { id: input.orderId }, {}, scope),
@@ -563,10 +599,10 @@ const createPaymentCommand: CommandHandler<
         paymentReference: input.paymentReference ?? null,
         statusEntryId: input.statusEntryId ?? null,
         status,
-        amount: toNumericString(input.amount) ?? '0',
+        amount: exactAmountString(input.amountExact, input.amount) ?? '0',
         currencyCode: input.currencyCode,
-        capturedAmount: toNumericString(input.capturedAmount) ?? '0',
-        refundedAmount: toNumericString(input.refundedAmount) ?? '0',
+        capturedAmount: exactAmountString(input.capturedAmountExact, input.capturedAmount) ?? '0',
+        refundedAmount: exactAmountString(input.refundedAmountExact, input.refundedAmount) ?? '0',
         receivedAt: input.receivedAt ?? null,
         capturedAt: input.capturedAt ?? null,
         metadata: input.metadata ? cloneJson(input.metadata) : null,
@@ -579,6 +615,7 @@ const createPaymentCommand: CommandHandler<
               orderId: input.orderId,
               invoiceId: null,
               amount: input.amount,
+              amountExact: input.amountExact,
               currencyCode: input.currencyCode,
               metadata: null,
             },
@@ -628,7 +665,7 @@ const createPaymentCommand: CommandHandler<
           invoice: allocationInvoice,
           organizationId: input.organizationId,
           tenantId: input.tenantId,
-          amount: toNumericString(allocation.amount) ?? '0',
+          amount: exactAmountString(allocation.amountExact, allocation.amount) ?? '0',
           currencyCode: allocation.currencyCode,
           metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
         })
@@ -815,7 +852,7 @@ const updatePaymentCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const input = paymentUpdateSchema.parse(rawInput ?? {})
+    const input = withExactAmounts(paymentUpdateSchema.parse(rawInput ?? {}), rawInput, PAYMENT_EXACT_AMOUNT_FIELDS)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     const scopeSeed = assertFound(
@@ -945,13 +982,13 @@ const updatePaymentCommand: CommandHandler<
         payment.statusEntryId = input.statusEntryId ?? null
         payment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: resolvedTenantId })
       }
-      if (input.amount !== undefined) payment.amount = toNumericString(input.amount) ?? '0'
+      if (input.amount !== undefined) payment.amount = exactAmountString(input.amountExact, input.amount) ?? '0'
       if (input.currencyCode !== undefined) payment.currencyCode = input.currencyCode
       if (input.capturedAmount !== undefined) {
-        payment.capturedAmount = toNumericString(input.capturedAmount) ?? '0'
+        payment.capturedAmount = exactAmountString(input.capturedAmountExact, input.capturedAmount) ?? '0'
       }
       if (input.refundedAmount !== undefined) {
-        payment.refundedAmount = toNumericString(input.refundedAmount) ?? '0'
+        payment.refundedAmount = exactAmountString(input.refundedAmountExact, input.refundedAmount) ?? '0'
       }
       if (input.receivedAt !== undefined) payment.receivedAt = input.receivedAt ?? null
       if (input.capturedAt !== undefined) payment.capturedAt = input.capturedAt ?? null
@@ -984,7 +1021,7 @@ const updatePaymentCommand: CommandHandler<
       if (input.allocations !== undefined) {
         const existingAllocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
         existingAllocations.forEach((allocation) => tx.remove(allocation))
-        const allocationInputs = Array.isArray(input.allocations) ? input.allocations : []
+        const allocationInputs = resolveAllocationInputs(input.allocations, rawInput)
         const paymentOrderId =
           (typeof payment.order === 'string' ? payment.order : payment.order?.id) ?? null
         const orderCache = new Map<string, SalesOrder>()
@@ -1034,7 +1071,7 @@ const updatePaymentCommand: CommandHandler<
             invoice,
             organizationId: payment.organizationId,
             tenantId: payment.tenantId,
-            amount: toNumericString(allocation.amount) ?? '0',
+            amount: exactAmountString(allocation.amountExact, allocation.amount) ?? '0',
             currencyCode: allocation.currencyCode,
             metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
           })
@@ -1059,7 +1096,7 @@ const updatePaymentCommand: CommandHandler<
         }
         if (existingAllocations.length === 1 && isDefaultAllocation(existingAllocations[0])) {
           const [allocation] = existingAllocations
-          allocation.amount = toNumericString(toNumber(payment.amount)) ?? '0'
+          allocation.amount = toNumericString(payment.amount) ?? '0'
           allocation.currencyCode = payment.currencyCode
           tx.persist(allocation)
         }
@@ -1140,7 +1177,7 @@ const deletePaymentCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const input = paymentUpdateSchema.parse(rawInput ?? {})
+    const input = withExactAmounts(paymentUpdateSchema.parse(rawInput ?? {}), rawInput, PAYMENT_EXACT_AMOUNT_FIELDS)
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()

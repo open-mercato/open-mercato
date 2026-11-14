@@ -11,22 +11,24 @@
  * route then omits `totals` rather than answering a different question than the
  * list did.
  *
- * Money is produced by `entryAmount` — the single place an amount is produced
- * (D-7) — and summed in cents like `sumAmounts`, so the total always equals the
- * sum of the row `cost` values and the report totals. PostgreSQL only groups the
- * billable, priced entries by currency, rounded minutes and both rates, and
- * counts them; pricing each group in SQL would round exact decimals
- * (0.75 h × 0.30 = 0.225 → 0.23) where `entryAmount` rounds a float
- * (0.22499… → 0.22). The currency is the entry's snapshot currency or else the
- * project's; currencies are never added together.
+ * Money is produced by `entryAmountExact` at the currency's configured decimals,
+ * as the row `cost` values are, and summed exactly, so the total always equals
+ * the sum of the row costs. PostgreSQL only groups the billable, priced entries
+ * by currency, rounded minutes and both rates, and counts them; the amounts are
+ * priced here so SQL rounding cannot differ from the rows. The currency is the
+ * entry's snapshot currency or else the project's; currencies are never added
+ * together.
  */
 
 import { sql, type Expression, type ExpressionBuilder, type Kysely, type SqlBool } from 'kysely'
-import { entryAmount, round2 } from '../time-tracking/cost'
+import { addDecimals, decimalToNumber, decimalToString, multiplyDecimals, parseDecimal } from '@open-mercato/shared/lib/decimal'
+import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES, entryAmountExact } from '../time-tracking/cost'
 
 export type TimeEntryMoneyTotal = {
   currencyCode: string | null
+  /** Float copy of `amountExact`; prefer the exact field. */
   amount: number
+  amountExact?: string
 }
 
 export type TimeEntryTotals = {
@@ -158,6 +160,8 @@ export type TimeEntryTotalsScope = {
   canSeeRates: boolean
   /** Mirrors the list's `withDeleted=true`: soft-deleted entries are counted too. */
   includeDeleted?: boolean
+  /** Configured decimals of a currency, as the row costs use; 2 when omitted. */
+  resolveDecimalPlaces?: (currencyCode: string) => Promise<number>
 }
 
 function toNumber(value: unknown): number {
@@ -165,10 +169,13 @@ function toNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function toNullableNumber(value: unknown): number | null {
-  if (value === null || value === undefined) return null
-  const parsed = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(parsed) ? parsed : null
+function toNullableAmount(value: unknown): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
+}
+
+function readCurrencyCode(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 function baseQuery(db: Kysely<TotalsDb>, filters: Record<string, unknown>, scope: TimeEntryTotalsScope) {
@@ -231,23 +238,44 @@ type MoneyGroupRow = {
   entry_count: unknown
 }
 
-export function sumTimeEntryMoneyGroups(groups: readonly MoneyGroupRow[]): TimeEntryMoneyTotal[] {
-  const centsByCurrency = new Map<string | null, number>()
+export function sumTimeEntryMoneyGroups(
+  groups: readonly MoneyGroupRow[],
+  decimalPlacesByCurrency: Readonly<Record<string, number>> = {},
+): TimeEntryMoneyTotal[] {
+  const totalByCurrency = new Map<string | null, string>()
   for (const group of groups) {
-    const amount = entryAmount(
+    const currencyCode = readCurrencyCode(group.currency_code)
+    const amount = entryAmountExact(
       {
         isBillable: true,
         roundedMinutes: toNumber(group.rounded_minutes),
-        rateOverrideAmount: toNullableNumber(group.rate_override_amount),
+        rateOverrideAmount: toNullableAmount(group.rate_override_amount),
       },
-      { hourlyRate: toNullableNumber(group.hourly_rate) },
+      { hourlyRate: toNullableAmount(group.hourly_rate) },
+      null,
+      (currencyCode ? decimalPlacesByCurrency[currencyCode] : undefined) ?? DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES,
     )
     if (amount === null) continue
-    const currencyCode = typeof group.currency_code === 'string' && group.currency_code.length > 0 ? group.currency_code : null
-    const cents = Math.round(round2(amount) * 100) * toNumber(group.entry_count)
-    centsByCurrency.set(currencyCode, (centsByCurrency.get(currencyCode) ?? 0) + cents)
+    const groupTotal = multiplyDecimals(amount, toNumber(group.entry_count))
+    totalByCurrency.set(currencyCode, decimalToString(addDecimals(totalByCurrency.get(currencyCode) ?? '0', groupTotal)))
   }
-  return Array.from(centsByCurrency, ([currencyCode, cents]) => ({ currencyCode, amount: round2(cents / 100) }))
+  return Array.from(totalByCurrency, ([currencyCode, amountExact]) => ({
+    currencyCode,
+    amount: decimalToNumber(amountExact),
+    amountExact,
+  }))
+}
+
+async function resolveGroupDecimalPlaces(
+  groups: readonly MoneyGroupRow[],
+  resolveDecimalPlaces: TimeEntryTotalsScope['resolveDecimalPlaces'],
+): Promise<Record<string, number>> {
+  if (!resolveDecimalPlaces) return {}
+  const codes = Array.from(new Set(groups.flatMap((group) => {
+    const code = readCurrencyCode(group.currency_code)
+    return code ? [code] : []
+  })))
+  return Object.fromEntries(await Promise.all(codes.map(async (code) => [code, await resolveDecimalPlaces(code)] as const)))
 }
 
 export async function computeTimeEntryTotals(
@@ -266,6 +294,7 @@ export async function computeTimeEntryTotals(
     roundedMinutes: toNumber(row?.rounded_minutes),
   }
   if (!scope.canSeeRates) return totals
-  totals.money = sumTimeEntryMoneyGroups(await buildTimeEntryMoneyTotalsQuery(typedDb, filters, scope).execute())
+  const groups = await buildTimeEntryMoneyTotalsQuery(typedDb, filters, scope).execute()
+  totals.money = sumTimeEntryMoneyGroups(groups, await resolveGroupDecimalPlaces(groups, scope.resolveDecimalPlaces))
   return totals
 }

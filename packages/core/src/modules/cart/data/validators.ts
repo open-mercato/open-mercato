@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isDecimalInput } from '@open-mercato/shared/lib/decimal'
 
 // Mirrors promotions/data/validators.ts's helper set — kept minimal to what this step's
 // entities actually need validated at the data layer. A full command-input surface
@@ -35,10 +36,10 @@ const clearableStringSchema = (max: number) =>
 
 const clearableUuidSchema = z.preprocess(emptyStringToNull, uuid().nullable().optional())
 
-// Decimal amounts travel as strings end-to-end (§Data Models: quantity/price columns are
-// numeric(16,4)/numeric(7,4)) so a caller never loses precision to IEEE-754 float
-// rounding — same convention as promotions/data/validators.ts's decimalStringSchema.
-const decimalStringSchema = z.string().regex(/^-?\d+(\.\d+)?$/, 'Must be a decimal string')
+// Decimal amounts travel as strings end-to-end (§Data Models: price columns are
+// unconstrained numeric, quantity numeric(16,4)) so a caller never loses precision to
+// IEEE-754 float rounding — same convention as promotions/data/validators.ts's decimalStringSchema.
+const decimalStringSchema = z.string().regex(/^-?\d+(\.\d+)?$/, 'Must be a decimal string').refine(isDecimalInput, 'Must be a decimal string')
 
 const currencyCodeSchema = z
   .string()

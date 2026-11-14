@@ -352,6 +352,28 @@ describe('akeneo catalog importer offer and price reconciliation', () => {
     mockFindWithDecryption.mockReset()
   })
 
+  it('passes every decimal digit to catalog price create and update commands', async () => {
+    const world = createCatalogWorld()
+    const importer = await createAkeneoImporter(world.client as never, scope)
+    const mapping = buildMapping([WEB_REGULAR])
+    const originalAmount = '1.123456789012345678'
+    const updatedAmount = '1.123456789012345679'
+
+    await importer.upsertProduct(buildVariant('uuid-exact', 'TEE-EXACT', {
+      price: [{ scope: 'ecommerce', amount: originalAmount }],
+    }), mapping)
+    expect(world.commandBus.execute).toHaveBeenCalledWith('catalog.prices.create', expect.objectContaining({
+      input: expect.objectContaining({ unitPriceNet: originalAmount, unitPriceGross: originalAmount }),
+    }))
+
+    await importer.upsertProduct(buildVariant('uuid-exact', 'TEE-EXACT', {
+      price: [{ scope: 'ecommerce', amount: updatedAmount }],
+    }), mapping)
+    expect(world.commandBus.execute).toHaveBeenCalledWith('catalog.prices.update', expect.objectContaining({
+      input: expect.objectContaining({ unitPriceNet: updatedAmount, unitPriceGross: updatedAmount }),
+    }))
+  })
+
   it('keeps the prices of sibling variants that share a product-level offer', async () => {
     const world = createCatalogWorld()
     const importer = await createAkeneoImporter(world.client as never, scope)
@@ -482,6 +504,31 @@ describe('akeneo catalog importer offer and price reconciliation', () => {
     expect(world.offers[0]?.channelId).toBe('channel-web')
     expect(world.pricesOf('TEE-S')).toEqual(['regular:channel-web:USD:10'])
     expect(world.pricesOf('TEE-M')).toEqual(['regular:channel-web:USD:10'])
+  })
+
+  it('passes the exact Akeneo price strings to the create and update commands', async () => {
+    const world = createCatalogWorld()
+    const importer = await createAkeneoImporter(world.client as never, scope)
+    const mapping = buildMapping([WEB_REGULAR])
+
+    await importer.upsertProduct(buildSimpleProduct('uuid-gem', 'GEM', {
+      price: [{ scope: 'ecommerce', amount: '1.123456789012345678' }],
+    }), mapping)
+    await importer.upsertProduct(buildSimpleProduct('uuid-gem', 'GEM', {
+      price: [{ scope: 'ecommerce', amount: '1.123456789012345679' }],
+    }), mapping)
+
+    const priceCommands = world.commandBus.execute.mock.calls
+      .filter(([commandId]) => commandId === 'catalog.prices.create' || commandId === 'catalog.prices.update')
+      .map(([commandId, { input }]) => ({
+        commandId,
+        unitPriceNet: input.unitPriceNet,
+        unitPriceGross: input.unitPriceGross,
+      }))
+    expect(priceCommands).toEqual([
+      { commandId: 'catalog.prices.create', unitPriceNet: '1.123456789012345678', unitPriceGross: '1.123456789012345678' },
+      { commandId: 'catalog.prices.update', unitPriceNet: '1.123456789012345679', unitPriceGross: '1.123456789012345679' },
+    ])
   })
 
   it('deletes the offer of a simple product whose channel price was removed', async () => {

@@ -17,6 +17,7 @@ jest.mock('../../lib/timesheets-projects/computeProjectHoursTrend', () => ({
 
 jest.mock('../../lib/timesheets-projects/computeProjectFinancials', () => ({
   computeProjectFinancials: jest.fn(async () => new Map()),
+  resolveProjectAmountDecimalPlaces: jest.fn(async () => ({})),
 }))
 
 jest.mock('../../lib/timesheets-projects/listProjectMembersPreview', () => ({

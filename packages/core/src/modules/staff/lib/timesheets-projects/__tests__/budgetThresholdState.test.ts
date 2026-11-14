@@ -73,6 +73,7 @@ describe('loadTimeProjectBudgetStateForEntry', () => {
       budgetWarnAtPercent: 75,
       budgetAlertedAtPercent: null,
       hourlyRate: 200,
+      hourlyRateExact: '200',
       currencyCode: 'PLN',
     })
   })

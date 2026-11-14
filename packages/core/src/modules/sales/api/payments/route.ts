@@ -8,6 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesPayment, SalesPaymentMethod } from '../../data/entities'
 import { paymentCreateSchema, paymentUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
+import { withExactPaymentInput } from '../../lib/exactAmountFields'
 import {
   createPagedListResponseSchema,
   createSalesCrudOpenApi,
@@ -97,10 +98,11 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base, custom } = splitCustomFieldPayload(scoped)
-        return paymentCreateSchema.parse({
+        const payload = {
           ...base,
           ...(Object.keys(custom).length ? { customFields: custom } : {}),
-        })
+        }
+        return withExactPaymentInput(paymentCreateSchema.parse(payload), payload)
       },
       response: ({ result }) => ({
         id: result?.paymentId ?? null,
@@ -115,10 +117,11 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base, custom } = splitCustomFieldPayload(scoped)
-        return paymentUpdateSchema.parse({
+        const payload = {
           ...base,
           ...(Object.keys(custom).length ? { customFields: custom } : {}),
-        })
+        }
+        return withExactPaymentInput(paymentUpdateSchema.parse(payload), payload)
       },
       response: ({ result }) => ({
         id: result?.paymentId ?? null,
@@ -227,10 +230,10 @@ const paymentSchema = z.object({
   status_entry_id: z.string().uuid().nullable().optional(),
   status: z.string().nullable().optional(),
   status_label: z.string().nullable().optional(),
-  amount: z.number(),
+  amount: z.string(),
   currency_code: z.string(),
-  captured_amount: z.number().nullable().optional(),
-  refunded_amount: z.number().nullable().optional(),
+  captured_amount: z.string().nullable().optional(),
+  refunded_amount: z.string().nullable().optional(),
   received_at: z.string().nullable().optional(),
   captured_at: z.string().nullable().optional(),
   custom_field_set_id: z.string().uuid().nullable().optional(),
@@ -246,8 +249,11 @@ const paymentSchema = z.object({
 
 const orderTotalsSchema = z.object({
   paidTotalAmount: z.number().nullable().optional(),
+  paidTotalAmountExact: z.string().nullable().optional(),
   refundedTotalAmount: z.number().nullable().optional(),
+  refundedTotalAmountExact: z.string().nullable().optional(),
   outstandingAmount: z.number().nullable().optional(),
+  outstandingAmountExact: z.string().nullable().optional(),
 })
 
 const paymentActionResponseSchema = z.object({

@@ -82,13 +82,32 @@ describe('customer group column bounds', () => {
   })
 
   it.each(['approvalRequiredAbove', 'minOrderValue', 'defaultCreditLimit'])(
-    'bounds %s to numeric(16,2)',
+    'accepts %s beyond the former numeric(16,2) bound',
     (field) => {
       expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, [field]: NUMERIC_16_2_MAX }).success).toBe(true)
-      expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, [field]: '100000000000000' }).success).toBe(false)
-      expect(customerGroupTermsCreateSchema.safeParse({ tenantId: TENANT_ID, groupId: GROUP_ID, [field]: 1e15 }).success).toBe(false)
+      expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, [field]: '100000000000000' }).success).toBe(true)
+      expect(customerGroupTermsCreateSchema.safeParse({ tenantId: TENANT_ID, groupId: GROUP_ID, [field]: 1e15 }).success).toBe(true)
     },
   )
+
+  it.each(['approvalRequiredAbove', 'minOrderValue', 'defaultCreditLimit'])(
+    'rejects %s beyond the decimal size caps instead of clearing it',
+    (field) => {
+      expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, [field]: 1e305 }).success).toBe(false)
+      expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, [field]: '1e305' }).success).toBe(false)
+      expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, [field]: `0.${'1'.repeat(1001)}` }).success).toBe(false)
+      expect(
+        customerGroupTermsCreateSchema.safeParse({ tenantId: TENANT_ID, groupId: GROUP_ID, [field]: 1e305 }).success,
+      ).toBe(false)
+    },
+  )
+
+  it('keeps blank and null terms amounts clearing the value', () => {
+    const parsed = customerGroupTermsUpdateSchema.parse({ id: GROUP_ID, defaultCreditLimit: '', minOrderValue: null })
+
+    expect(parsed.defaultCreditLimit).toBeNull()
+    expect(parsed.minOrderValue).toBeNull()
+  })
 
   it('still rejects negative terms values', () => {
     expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, minOrderValue: -1 }).success).toBe(false)

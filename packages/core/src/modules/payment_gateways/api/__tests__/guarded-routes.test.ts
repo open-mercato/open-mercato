@@ -20,6 +20,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
 }))
 
+const mockFindOneWithDecryption = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+  findWithDecryption: jest.fn(),
+}))
+
 jest.mock('../guards', () => ({
   resolveUserFeatures: jest.fn(() => []),
   runPaymentGatewayMutationGuards: jest.fn(),
@@ -227,5 +234,69 @@ describe('payment gateway write routes wire the mutation guard lifecycle', () =>
       expect(service.cancelPayment).toHaveBeenCalledWith(TXN_ID, undefined, { organizationId: 'o1', tenantId: 't1' }, OPERATION_ID)
       expect(runPaymentGatewayMutationGuardAfterSuccess).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+describe('payment gateway write routes reject sub-minor amounts', () => {
+  beforeEach(() => {
+    ;(createRequestContainer as jest.Mock).mockResolvedValue({
+      resolve: (key: string) => {
+        if (key === 'paymentGatewayService') return service
+        if (key === 'em') return {}
+        throw new Error(`unexpected resolve(${key})`)
+      },
+    })
+    mockFindOneWithDecryption.mockResolvedValue({ id: TXN_ID, currencyCode: 'USD' })
+  })
+
+  it('rejects a session amount with more decimals than the currency has', async () => {
+    const response = await createSession(buildRequest({ providerKey: 'stripe', amount: '10.005', currencyCode: 'USD' }))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'Amount 10.005 has more decimal places than USD supports (2)' })
+    expect(service.createPaymentSession).not.toHaveBeenCalled()
+  })
+
+  it('rejects a positive session amount whose numeric copy underflows to zero', async () => {
+    const response = await createSession(buildRequest({ providerKey: 'stripe', amount: '1e-400', currencyCode: 'USD' }))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      error: 'Invalid payload',
+      details: { fieldErrors: { amount: [expect.any(String)] } },
+    })
+    expect(service.createPaymentSession).not.toHaveBeenCalled()
+    expect(runPaymentGatewayMutationGuards).not.toHaveBeenCalled()
+  })
+
+  it('passes a session amount within the currency decimals through exactly', async () => {
+    const response = await createSession(buildRequest({ providerKey: 'stripe', amount: '10.05', currencyCode: 'USD' }))
+    expect(response.status).toBe(201)
+    expect(service.createPaymentSession).toHaveBeenCalledWith(expect.objectContaining({ amountExact: '10.05' }))
+  })
+
+  it('rejects a capture amount with more decimals than the transaction currency has', async () => {
+    const response = await capturePayment(buildRequest({ transactionId: TXN_ID, amount: '10.005' }))
+    expect(response.status).toBe(400)
+    expect(service.capturePayment).not.toHaveBeenCalled()
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ id: TXN_ID, organizationId: 'o1', tenantId: 't1' }),
+      undefined,
+      { organizationId: 'o1', tenantId: 't1' },
+    )
+  })
+
+  it('rejects a refund amount with more decimals than the transaction currency has', async () => {
+    const response = await refundPayment(buildRequest({ transactionId: TXN_ID, amount: '1.001' }))
+    expect(response.status).toBe(400)
+    expect(service.refundPayment).not.toHaveBeenCalled()
+  })
+
+  it('skips the lookup when no capture amount is given', async () => {
+    const response = await capturePayment(buildRequest({ transactionId: TXN_ID }))
+    expect(response.status).toBe(200)
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(service.capturePayment).toHaveBeenCalledWith(TXN_ID, undefined, { organizationId: 'o1', tenantId: 't1' }, undefined)
   })
 })

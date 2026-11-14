@@ -10,6 +10,7 @@ import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/en
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { decimalToString, decimalToNumber, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
@@ -148,8 +149,11 @@ export async function GET(request: Request, context: { params?: Record<string, u
     }
   }
 
+  const dealValue = parseDecimal(deal.valueAmount)
+
   return NextResponse.json({
-    dealValue: deal.valueAmount !== null ? Number(deal.valueAmount) : null,
+    dealValue: dealValue ? decimalToNumber(dealValue) : null,
+    dealValueExact: dealValue ? decimalToString(dealValue) : null,
     dealCurrency: deal.valueCurrency ?? null,
     closureOutcome: deal.closureOutcome,
     closedAt: deal.updatedAt.toISOString(),
@@ -163,6 +167,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
 
 const dealStatsResponseSchema = z.object({
   dealValue: z.number().nullable(),
+  dealValueExact: z.string().nullable(),
   dealCurrency: z.string().nullable(),
   closureOutcome: z.enum(['won', 'lost']),
   closedAt: z.string(),

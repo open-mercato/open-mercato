@@ -1,3 +1,10 @@
+import {
+  compareDecimals,
+  multiplyDecimals,
+  parseDecimal,
+  sumDecimals,
+  type DecimalValue,
+} from '@open-mercato/shared/lib/decimal'
 import type { EnrichedEvaluateItem, EvaluationContext, NormalizedRule, NormalizedRuleGroup } from './types'
 
 // Real Step 2.2 implementation — per-rule-type evaluators plus AND/OR group composition
@@ -64,6 +71,12 @@ function compareStrings(actual: string, operator: ComparisonOperator, threshold:
   return compareNumbers(actualNum, operator, thresholdNum)
 }
 
+function compareDecimalAmounts(actual: DecimalValue, operator: ComparisonOperator, threshold: unknown): boolean {
+  const parsedThreshold = parseDecimal(threshold)
+  if (parsedThreshold === null) return false
+  return compareNumbers(compareDecimals(actual, parsedThreshold), operator, 0)
+}
+
 function isComparisonOperator(value: unknown): value is ComparisonOperator {
   return value === 'eq' || value === 'neq' || value === 'gt' || value === 'gte' || value === 'lt' || value === 'lte'
 }
@@ -81,7 +94,6 @@ function applicableItems(context: EvaluationContext): EnrichedEvaluateItem[] {
 function evaluateOrderValue(config: Record<string, unknown>, context: EvaluationContext): boolean {
   const operator = config.operator
   if (!isComparisonOperator(operator)) return false
-  const value = Number(config.value)
   const taxInclusive = config.taxInclusive === true
   // `limitToCategory` is typed as a free-form string in the validator (Step 1.2 never
   // resolved the apparent naming/typing mismatch against `categoryId`-style fields used
@@ -89,14 +101,14 @@ function evaluateOrderValue(config: Record<string, unknown>, context: Evaluation
   // the same membership check `category`/`row_total` use against `categoryIds`.
   const limitToCategory = typeof config.limitToCategory === 'string' ? config.limitToCategory : null
 
-  let total = 0
+  const lineTotals: DecimalValue[] = []
   for (const item of applicableItems(context)) {
     if (limitToCategory !== null && !item.categoryIds.includes(limitToCategory)) continue
-    const unitPrice = taxInclusive ? Number(item.unitPriceGross) : Number(item.unitPriceNet)
-    total += Number(item.quantity) * unitPrice
+    const unitPrice = taxInclusive ? item.unitPriceGross : item.unitPriceNet
+    lineTotals.push(multiplyDecimals(parseDecimal(item.quantity) ?? 0, parseDecimal(unitPrice) ?? 0))
   }
 
-  return compareNumbers(total, operator, value)
+  return compareDecimalAmounts(sumDecimals(lineTotals), operator, config.value)
 }
 
 function evaluateOrderDate(config: Record<string, unknown>, context: EvaluationContext): boolean {
@@ -136,11 +148,10 @@ function evaluateCartWeight(config: Record<string, unknown>, context: Evaluation
 function evaluateRowTotal(config: Record<string, unknown>, context: EvaluationContext): boolean {
   const operator = config.operator
   if (!isComparisonOperator(operator)) return false
-  const value = Number(config.value)
   const productId = typeof config.productId === 'string' ? config.productId : null
   const categoryId = typeof config.categoryId === 'string' ? config.categoryId : null
 
-  let total = 0
+  const lineTotals: DecimalValue[] = []
   for (const item of applicableItems(context)) {
     if (productId !== null && item.productId !== productId) continue
     if (categoryId !== null && !item.categoryIds.includes(categoryId)) continue
@@ -148,10 +159,10 @@ function evaluateRowTotal(config: Record<string, unknown>, context: EvaluationCo
     // evaluator's own judgment call: use net, matching the shared culture of calling out
     // an unresolved choice (`data/validators.ts`'s comment style) rather than silently
     // picking one.
-    total += Number(item.quantity) * Number(item.unitPriceNet)
+    lineTotals.push(multiplyDecimals(parseDecimal(item.quantity) ?? 0, parseDecimal(item.unitPriceNet) ?? 0))
   }
 
-  return compareNumbers(total, operator, value)
+  return compareDecimalAmounts(sumDecimals(lineTotals), operator, config.value)
 }
 
 function evaluateProduct(config: Record<string, unknown>, context: EvaluationContext): boolean {

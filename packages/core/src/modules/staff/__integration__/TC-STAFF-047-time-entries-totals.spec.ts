@@ -3,6 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createTestCustomer, type TestCustomerFixture } from './fixtures'
+import { addDecimals, decimalToNumber, decimalToString } from '@open-mercato/shared/lib/decimal'
 
 /**
  * TC-STAFF-047: the time-entries list totals cover the whole filtered set (#6990).
@@ -28,8 +29,15 @@ type ListBody = {
     entryCount?: number
     durationMinutes?: number
     roundedMinutes?: number
-    money?: Array<{ currencyCode: string | null; amount: number }>
+    money?: Array<{ currencyCode: string | null; amount: number; amountExact?: string }>
   }
+}
+
+function sumRowCosts(rows: ReadonlyArray<Record<string, unknown>>): string {
+  return rows.reduce<string>(
+    (sum, row) => (typeof row.costExact === 'string' ? decimalToString(addDecimals(sum, row.costExact)) : sum),
+    '0',
+  )
 }
 
 async function ensureSelfStaffMemberId(
@@ -130,9 +138,9 @@ test.describe('TC-STAFF-047: time-entries totals for the whole filtered set', ()
       const allRows = await readList(request, token, `${filter}&pageSize=50`)
       const roundedSum = (allRows.items ?? []).reduce((sum, row) => sum + Number(row.roundedMinutes ?? row.rounded_minutes ?? 0), 0)
       expect(pageOfOne.totals?.roundedMinutes).toBe(roundedSum)
-      const costSum = (allRows.items ?? []).reduce((sum, row) => sum + (typeof row.cost === 'number' ? row.cost : 0), 0)
+      const costSum = sumRowCosts(allRows.items ?? [])
       expect(pageOfOne.totals?.money, 'the admin holds the rates feature, so money is included').toEqual([
-        { currencyCode: 'EUR', amount: Math.round(costSum * 100) / 100 },
+        { currencyCode: 'EUR', amount: decimalToNumber(costSum), amountExact: costSum },
       ])
 
       await login(page, 'admin')
@@ -230,12 +238,12 @@ test.describe('TC-STAFF-047: time-entries totals for the whole filtered set', ()
       expect(rows).toHaveLength(halfCentDates.length)
       for (const row of rows) {
         expect(Number(row.roundedMinutes ?? row.rounded_minutes), 'the half-cent case needs the unrounded 3 h').toBe(halfCentMinutes)
-        expect(row.cost, '3 h × 0.075 is 0.225 exactly; the row cost (entryAmount) reads 0.22').toBe(0.22)
+        expect(row.costExact, '3 h × 0.075 is 0.225 exactly; the row cost rounds it half-up to 0.23').toBe('0.23')
       }
-      const costSum = rows.reduce((sum, row) => sum + (typeof row.cost === 'number' ? row.cost : 0), 0)
+      const costSum = sumRowCosts(rows)
       expect(body.totals?.entryCount).toBe(halfCentDates.length)
       expect(body.totals?.money, 'the PostgreSQL-backed total agrees with the summed row costs').toEqual([
-        { currencyCode: 'EUR', amount: Math.round(costSum * 100) / 100 },
+        { currencyCode: 'EUR', amount: decimalToNumber(costSum), amountExact: costSum },
       ])
     } finally {
       for (const entryId of entryIds) {

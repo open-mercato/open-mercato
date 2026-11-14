@@ -471,3 +471,71 @@ describe('formatReportMinutes', () => {
     expect(formatReportMinutes(5)).toBe('0:05')
   })
 })
+
+describe('computeReportTotals - currency decimals (D10)', () => {
+  const yenProject: ReportInputProject = { id: 'p-yen', name: 'Tokyo rollout', hourlyRate: 1000, currencyCode: 'JPY' }
+
+  function legacyFrozen(reportId: string, amountExact: string) {
+    return {
+      reportId,
+      reference: 'RAP-2026-0007',
+      title: 'Tokyo · June',
+      rawMinutes: 60,
+      roundedMinutes: 60,
+      rateAmount: 1234.57,
+      rateAmountExact: '1234.57',
+      currencyCode: 'JPY',
+      amount: Number(amountExact),
+      amountExact,
+      isBillable: true,
+    }
+  }
+
+  it('totals a closed 0-decimal report to what it froze, without re-rounding legacy 2-decimal amounts', () => {
+    const totals = computeReportTotals({
+      entries: [
+        entry({ id: 'y1', timeProjectId: 'p-yen', frozen: legacyFrozen('r-closed', '1234.57') }),
+        entry({ id: 'y2', timeProjectId: 'p-yen', taskId: 't-prices', rootTaskId: 't-prices', frozen: legacyFrozen('r-closed', '1234.57') }),
+      ],
+      projects: [yenProject],
+      directory,
+      labels,
+      currentReportId: 'r-closed',
+      options: { grouping: 'project_task', nonbillableMode: 'separate', includeAlreadyReported: false, amountDecimalPlaces: 0 },
+    })
+    expect(totals.totalAmountExact).toBe('2469.14')
+    expect(totals.groups[0].amountExact).toBe('2469.14')
+    expect(totals.groups[0].lines.map((line) => line.amountExact).sort()).toEqual(['1234.57', '1234.57'])
+  })
+
+  it('rounds live amounts to the currency decimals while frozen ones keep their stored value', () => {
+    const totals = computeReportTotals({
+      entries: [
+        entry({ id: 'y1', timeProjectId: 'p-yen', roundedMinutes: 7, rateOverrideAmountExact: '1000' }),
+        entry({ id: 'y2', timeProjectId: 'p-yen', frozen: legacyFrozen('r-earlier', '1234.57') }),
+      ],
+      projects: [yenProject],
+      directory,
+      labels,
+      options: { grouping: 'project_task', nonbillableMode: 'separate', includeAlreadyReported: true, amountDecimalPlaces: 0 },
+    })
+    expect(totals.totalAmountExact).toBe('1351.57')
+  })
+
+  it('treats equal rates written with different scales as one rate', () => {
+    const totals = computeReportTotals({
+      entries: [
+        entry({ id: 'r1', rateOverrideAmount: null, rateOverrideAmountExact: '40' }),
+        entry({ id: 'r2', rateOverrideAmount: null, rateOverrideAmountExact: '40.0000' }),
+      ],
+      projects,
+      directory,
+      labels,
+      options: { grouping: 'project_task', nonbillableMode: 'separate', includeAlreadyReported: false },
+    })
+    const line = totals.groups[0].lines[0]
+    expect(line.entryCount).toBe(2)
+    expect(line.rateExact).toBe('40')
+    expect(line.rate).toBe(40)
+  })
+})

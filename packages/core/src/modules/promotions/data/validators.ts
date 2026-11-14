@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isDecimalInput } from '@open-mercato/shared/lib/decimal'
 
 const uuid = () => z.string().uuid()
 
@@ -91,7 +92,10 @@ const normalizeDecimalSeparator = (value: unknown): unknown => {
 
 const decimalStringSchema = z.preprocess(
   normalizeDecimalSeparator,
-  z.string().regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal string'),
+  z
+    .string()
+    .regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal string')
+    .refine(isDecimalInput, 'Must be a non-negative decimal string'),
 )
 
 const clearableDecimalStringSchema = z.preprocess(emptyStringToNull, decimalStringSchema.nullable().optional())

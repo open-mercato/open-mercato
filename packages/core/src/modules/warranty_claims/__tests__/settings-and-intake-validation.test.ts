@@ -79,6 +79,26 @@ describe('warranty claims settings resolution and intake validation', () => {
       .toMatchObject({ defaultWarrantyMonths: 24 })
   })
 
+  test('effective settings return the auto-approve max amount as a canonical exact string', async () => {
+    const settings = makeSettings(null)
+    settings.autoApproveMaxAmount = '500.0000'
+    const em = makeEntityManager(settings)
+
+    await expect(resolveEffectiveWarrantyClaimSettings(em, { tenantId: TENANT_ID, organizationId: ORG_ID }))
+      .resolves
+      .toMatchObject({ autoApproveMaxAmount: 500, autoApproveMaxAmountExact: '500' })
+  })
+
+  test('effective settings keep a null auto-approve max amount null', async () => {
+    const settings = makeSettings(null)
+    settings.autoApproveMaxAmount = null
+    const em = makeEntityManager(settings)
+
+    await expect(resolveEffectiveWarrantyClaimSettings(em, { tenantId: TENANT_ID, organizationId: ORG_ID }))
+      .resolves
+      .toMatchObject({ autoApproveMaxAmount: null, autoApproveMaxAmountExact: null })
+  })
+
   test('portal intake accepts product name snapshots with order line ids', () => {
     const parsed = portalIntakeInputSchema.safeParse({
       reasonCode: 'defective',

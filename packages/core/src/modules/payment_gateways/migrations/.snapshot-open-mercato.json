@@ -197,15 +197,15 @@
         },
         "reserved_amount": {
           "name": "reserved_amount",
-          "type": "numeric(18,4)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
           "unique": false,
           "length": null,
-          "precision": 18,
-          "scale": 4,
+          "precision": null,
+          "scale": null,
           "default": null,
           "comment": null,
           "collation": null,
@@ -548,19 +548,6 @@
         },
         {
           "columnNames": [
-            "operation_key",
-            "provider_key",
-            "organization_id",
-            "tenant_id"
-          ],
-          "composite": true,
-          "constraint": true,
-          "keyName": "gateway_session_initializations_scope_operation_unique",
-          "primary": false,
-          "unique": true
-        },
-        {
-          "columnNames": [
             "tenant_id",
             "organization_id",
             "updated_at",
@@ -571,6 +558,19 @@
           "keyName": "gateway_session_initializations_retention_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [
+            "operation_key",
+            "provider_key",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": true,
+          "keyName": "gateway_session_initializations_scope_operation_unique",
+          "primary": false,
+          "unique": true
         }
       ],
       "checks": [],
@@ -584,15 +584,15 @@
       "columns": {
         "amount": {
           "name": "amount",
-          "type": "numeric(18,4)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "unique": false,
           "length": null,
-          "precision": 18,
-          "scale": 4,
+          "precision": null,
+          "scale": null,
           "default": null,
           "comment": null,
           "collation": null,
@@ -601,16 +601,16 @@
         },
         "captured_amount": {
           "name": "captured_amount",
-          "type": "numeric(18,4)",
+          "type": "numeric",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
           "unique": false,
           "length": null,
-          "precision": 18,
-          "scale": 4,
-          "default": "'0'",
+          "precision": null,
+          "scale": null,
+          "default": "0",
           "comment": null,
           "collation": null,
           "enumItems": [],

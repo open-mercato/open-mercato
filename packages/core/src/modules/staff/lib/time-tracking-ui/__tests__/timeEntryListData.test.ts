@@ -110,8 +110,8 @@ describe('summarizeTimeEntries', () => {
     expect(summary.money).toHaveLength(2)
     expect(summary.money).toEqual(
       expect.arrayContaining([
-        { currencyCode: 'PLN', amount: 905 },
-        { currencyCode: 'EUR', amount: 200 },
+        { currencyCode: 'PLN', amount: 905, amountExact: '905' },
+        { currencyCode: 'EUR', amount: 200, amountExact: '200' },
       ]),
     )
     expect(summary.money.some((entry) => entry.amount === 1105)).toBe(false)
@@ -186,8 +186,8 @@ describe('readTimeEntryTotals', () => {
       durationMinutes: 18000,
       roundedMinutes: 18015,
       money: [
-        { currencyCode: 'PLN', amount: 4315.5 },
-        { currencyCode: null, amount: 10 },
+        { currencyCode: 'PLN', amount: 4315.5, amountExact: '4315.5' },
+        { currencyCode: null, amount: 10, amountExact: '10' },
       ],
     })
   })

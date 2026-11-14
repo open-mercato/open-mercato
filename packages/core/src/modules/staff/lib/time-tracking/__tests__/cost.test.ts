@@ -1,4 +1,4 @@
-import { applicableRate, entryAmount, round2, sumAmounts } from '../cost'
+import { applicableRate, entryAmount, entryAmountExact, round2, sumAmounts, sumAmountsExact } from '../cost'
 import type { CostEntry, CostProject } from '../cost'
 
 type ReportEntry = CostEntry & {
@@ -145,5 +145,36 @@ describe('round at the entry, sum upward', () => {
     expect(grandTotalGroupedBy('taskId')).toBe(flat)
     expect(grandTotalGroupedBy('personId')).toBe(flat)
     expect(grandTotalGroupedBy('date')).toBe(flat)
+  })
+})
+
+describe('entryAmountExact and sumAmountsExact - currency decimals (D10)', () => {
+  const billable = { isBillable: true, roundedMinutes: 7 }
+  const precise = { hourlyRate: '123.4567' }
+
+  it('rounds to 0 decimals for JPY', () => {
+    expect(entryAmountExact(billable, precise, null, 0)).toBe('14')
+    expect(sumAmountsExact(['14.4', '14.5'], 0)).toBe('29')
+  })
+
+  it('rounds to 2 decimals for USD', () => {
+    expect(entryAmountExact(billable, precise, null, 2)).toBe('14.4')
+    expect(sumAmountsExact(['14.404', '14.405'], 2)).toBe('28.81')
+  })
+
+  it('rounds to 3 decimals for KWD', () => {
+    expect(entryAmountExact(billable, precise, null, 3)).toBe('14.403')
+    expect(sumAmountsExact(['14.4035', '0.0004'], 3)).toBe('14.404')
+  })
+
+  it('falls back to 2 decimals when the currency is unknown', () => {
+    expect(entryAmountExact(billable, precise)).toBe('14.4')
+    expect(sumAmountsExact(['14.404', '14.405'])).toBe('28.81')
+  })
+
+  it('keeps a rate beyond float precision exact', () => {
+    expect(entryAmountExact({ isBillable: true, roundedMinutes: 60 }, { hourlyRate: '12345678901234567.891' }, null, 3)).toBe(
+      '12345678901234567.891',
+    )
   })
 })

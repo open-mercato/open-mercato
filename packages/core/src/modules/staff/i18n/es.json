@@ -2393,5 +2393,6 @@
   "staff.timesheets.widgets.timeReporting.stop": "Detener temporizador",
   "staff.timesheets.widgets.timeReporting.stopError": "No se pudo detener el temporizador",
   "staff.timesheets.widgets.timeReporting.taskNote": "Tarea / Nota",
-  "staff.timesheets.widgets.timeReporting.unknownProject": "Proyecto desconocido"
+  "staff.timesheets.widgets.timeReporting.unknownProject": "Proyecto desconocido",
+  "staff.validation.nonNegativeAmount": "Se esperaba un importe no negativo."
 }

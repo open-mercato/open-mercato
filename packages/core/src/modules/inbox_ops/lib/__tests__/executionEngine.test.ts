@@ -1807,7 +1807,7 @@ describe('executionEngine', () => {
             variantId: 'variant-2',
             productId: 'product-2',
             currencyCode: 'EUR',
-            unitPriceNet: 12.5,
+            unitPriceNet: '12.50',
           }),
         }),
       )
