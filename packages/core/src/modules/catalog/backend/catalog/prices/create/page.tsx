@@ -4,11 +4,12 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import { PRICE_FORM_INITIAL_VALUES, usePriceFormFields, type PriceFormValues } from '../../../../components/prices/priceFormFields'
+import { normalizePriceFormAmounts } from '../../../../components/prices/priceFormAmounts'
 
-function buildPricePayload(values: PriceFormValues, t: (key: string, fallback?: string) => string): Record<string, unknown> {
+function buildPricePayload(values: PriceFormValues, locale: string, t: (key: string, fallback?: string) => string): Record<string, unknown> {
   const productId = values.productId?.trim() || undefined
   const variantId = values.variantId?.trim() || undefined
   if (!productId && !variantId) {
@@ -22,8 +23,7 @@ function buildPricePayload(values: PriceFormValues, t: (key: string, fallback?: 
     variantId,
     priceKindId,
     currencyCode,
-    unitPriceNet: values.unitPriceNet?.trim() || undefined,
-    unitPriceGross: values.unitPriceGross?.trim() || undefined,
+    ...normalizePriceFormAmounts(values, locale, t),
     taxRate: values.taxRate?.trim() || undefined,
     minQuantity: values.minQuantity ?? undefined,
     maxQuantity: values.maxQuantity ?? undefined,
@@ -41,6 +41,7 @@ function buildPricePayload(values: PriceFormValues, t: (key: string, fallback?: 
 
 export default function CreateCatalogPricePage() {
   const t = useT()
+  const locale = useLocale()
   const { fields, groups } = usePriceFormFields()
   const successMessage = encodeURIComponent(t('catalog.prices.flash.created', 'Price rule created'))
 
@@ -60,7 +61,7 @@ export default function CreateCatalogPricePage() {
           cancelHref="/backend/catalog/prices"
           successRedirect={`/backend/catalog/prices?flash=${successMessage}&type=success`}
           onSubmit={async (values) => {
-            const payload = buildPricePayload(values, t)
+            const payload = buildPricePayload(values, locale, t)
             await createCrud('catalog/prices', payload)
           }}
         />

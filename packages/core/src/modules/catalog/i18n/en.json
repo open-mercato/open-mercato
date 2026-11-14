@@ -272,6 +272,7 @@
   "catalog.prices.form.editTitle": "Edit price rule",
   "catalog.prices.form.errors.delete": "Failed to delete price rule",
   "catalog.prices.form.errors.idRequired": "Price rule identifier is required.",
+  "catalog.prices.form.errors.invalidAmount": "Provide a valid non-negative price.",
   "catalog.prices.form.errors.load": "Failed to load price rule",
   "catalog.prices.form.errors.notFound": "Price rule not found",
   "catalog.prices.form.errors.productOrVariantRequired": "Choose a product or a variant.",
