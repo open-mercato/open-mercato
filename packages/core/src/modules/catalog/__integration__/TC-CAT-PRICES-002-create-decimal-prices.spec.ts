@@ -16,13 +16,15 @@ import {
 /**
  * TC-CAT-PRICES-002: Product create form accepts decimal prices.
  *
- * The variant price inputs on `/backend/catalog/products/create` are
- * `type="number"` with `min={0}`. Without an explicit `step`, the browser
- * falls back to `step=1` anchored at `min`, so values such as 19.95 fail
- * native constraint validation (`stepMismatch`) and the form never submits.
- * The variant edit page (plain text input checked against the shared
- * `validateCatalogPriceAmountInput` rule) always accepted decimals; this spec
- * pins the create page to the same behavior and guards the surrounding rules.
+ * The variant price inputs on `/backend/catalog/products/create` are plain
+ * text inputs (`inputMode="decimal"`), matching the variant edit page's price
+ * input. They used to be `type="number"`, which silently dropped the `,`
+ * keystroke in a dot-locale browser, corrupting Polish-style decimal input
+ * (`12,50` -> `1250`, issue #9250) before any JS ever ran. Malformed/negative
+ * input is now rejected at submit time via the shared
+ * `validateCatalogPriceAmountInput` rule fed by the locale-aware
+ * `parseNumericInput` helper, instead of relying on native number-input
+ * constraint validation.
  *
  * Self-contained: creates its own regular + sale price kinds (and product
  * fixtures where needed) and deletes everything in `afterAll`.
@@ -233,17 +235,6 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
 
     await input.fill('-5');
     await expect(input, 'negative input is discarded by the form').toHaveValue('');
-    await input.pressSequentially('abc');
-    await expect(input, 'non-numeric input is discarded by the browser').toHaveValue('');
-
-    const underflow = await input.evaluate((element) => {
-      const field = element as HTMLInputElement;
-      field.value = '-0.5';
-      const result = { rangeUnderflow: field.validity.rangeUnderflow, valid: field.validity.valid };
-      field.value = '';
-      return result;
-    });
-    expect(underflow, 'min=0 still blocks negative values natively').toEqual({ rangeUnderflow: true, valid: false });
 
     const productPosts: string[] = [];
     page.on('request', (outgoing) => {
@@ -251,15 +242,19 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
         productPosts.push(outgoing.url());
       }
     });
-    await fillPrice(input, '1.23456');
-    await page
-      .locator('button[type="submit"]')
-      .filter({ hasText: /^Create product$/ })
-      .first()
-      .click();
-    await expect(page.getByText('Provide a valid non-negative price.').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page).toHaveURL(/\/backend\/catalog\/products\/create$/);
-    expect(productPosts, 'over-precise price is rejected before anything is created').toEqual([]);
+    for (const malformed of ['abc', '1.23456', '12,3,4']) {
+      await input.fill(malformed);
+      await page
+        .locator('button[type="submit"]')
+        .filter({ hasText: /^Create product$/ })
+        .first()
+        .click();
+      await expect(page.getByText('Provide a valid non-negative price.').first(), `price "${malformed}" should be refused`).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(page).toHaveURL(/\/backend\/catalog\/products\/create$/);
+    }
+    expect(productPosts, 'malformed prices are rejected before anything is created').toEqual([]);
 
     const productId = await createProductFixture(request, token!, {
       title: `QA Decimal Invalid API ${uniqueStamp()}`,
@@ -274,6 +269,25 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
       expect(response.status(), `price ${String(unitPriceNet)} should be rejected`).toBe(400);
     }
     expect(await listProductPrices(request, token!, productId)).toEqual([]);
+  });
+
+  test('preserves Polish decimal-comma price magnitudes', async ({ page, request }) => {
+    await openCreateForm(page, `QA Decimal Comma ${uniqueStamp()}`);
+    await openVariantsStep(page, [regular!, sale!]);
+    const regularInput = await priceInput(page, regular!, 0);
+    const saleInput = await priceInput(page, sale!, 0);
+
+    await regularInput.pressSequentially('12,50');
+    await expect(regularInput, 'comma decimal is not swallowed character-by-character').toHaveValue('12,50');
+    await saleInput.pressSequentially('2,50');
+    await expect(saleInput, 'comma decimal is not swallowed character-by-character').toHaveValue('2,50');
+
+    const productId = await submitAndReadProductId(page);
+    productIds.push(productId);
+
+    const prices = await listProductPrices(request, token!, productId);
+    expect(netAmountsFor(prices, regular!.id)).toEqual([12.5]);
+    expect(netAmountsFor(prices, sale!.id)).toEqual([2.5]);
   });
 
   test('variant edit page still updates an existing price to a decimal', async ({ page, request }) => {
