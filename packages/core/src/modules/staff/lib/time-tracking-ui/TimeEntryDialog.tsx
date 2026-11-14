@@ -54,7 +54,7 @@ import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/exten
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DurationInput } from './DurationInput'
@@ -66,6 +66,8 @@ import { roundMinutes, DEFAULT_ROUNDING_SETTINGS, type RoundingSettings } from '
 import {
   combineDateAndClock,
   createIntervalState,
+  formatRateText,
+  parseRateText,
   reduceIntervalState,
   resetIntervalState,
   readRowItems,
@@ -180,13 +182,6 @@ function readSettings(payload: unknown): SettingsPayload {
     },
     warnings: { overlap: typeof warnings.overlap === 'boolean' ? warnings.overlap : true },
   }
-}
-
-function parseRateText(value: string): number | null {
-  const trimmed = value.trim().replace(',', '.')
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
 }
 
 /**
@@ -336,6 +331,7 @@ function DefaultTimeEntryDialog({
   mode: modeProp,
 }: TimeEntryDialogProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const { payload } = useBackendChrome()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -705,7 +701,7 @@ function DefaultTimeEntryDialog({
       )
       setIsBillable(seed.isBillable)
       setRateOverrideEnabled(seed.rateOverrideAmount !== null)
-      setRateText(seed.rateOverrideAmount !== null ? String(seed.rateOverrideAmount) : '')
+      setRateText(seed.rateOverrideAmount !== null ? formatRateText(seed.rateOverrideAmount, locale) : '')
       setTagIds(seed.tagIds)
       setOverlaps([])
       setFieldIssues(NO_FIELD_ISSUES)
@@ -731,7 +727,7 @@ function DefaultTimeEntryDialog({
         tagIds: seed.tagIds,
       })
     },
-    [],
+    [locale],
   )
 
   React.useEffect(() => {
@@ -956,7 +952,8 @@ function DefaultTimeEntryDialog({
         return
       case 'rateOverrideAmount':
         injectedFieldWritesRef.current.add(fieldId)
-        setRateText(typeof value === 'number' || typeof value === 'string' ? String(value) : '')
+        if (typeof value === 'number') setRateText(Number.isFinite(value) ? formatRateText(value, locale) : '')
+        else setRateText(typeof value === 'string' ? value : '')
         return
       case 'tagIds':
         if (!Array.isArray(value)) return
@@ -985,7 +982,7 @@ function DefaultTimeEntryDialog({
         return
       default:
     }
-  }, [isProjectMode, selectProject])
+  }, [isProjectMode, locale, selectProject])
 
   const previousEntryFormValuesRef = React.useRef<FormValues | null>(null)
 

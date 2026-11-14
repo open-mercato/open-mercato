@@ -3,7 +3,9 @@ import {
   combineDateAndClock,
   createIntervalState,
   describeTaskOption,
+  formatRateText,
   mergeProjectOptions,
+  parseRateText,
   reduceIntervalState,
   resolveTimeEntryDialogMode,
   shiftIsoDate,
@@ -224,5 +226,33 @@ describe('mergeProjectOptions', () => {
     expect(merged.get(alpha.id)?.name).toBe('Alpha')
     expect(merged.get(beta.id)?.name).toBe('Beta')
     expect(merged.size).toBe(2)
+  })
+})
+
+describe('formatRateText', () => {
+  it.each([
+    [100.5, 'pl', '100,50'],
+    [100.5, 'en', '100.50'],
+    [1234567.5, 'de', '1234567,50'],
+    [12.3456, 'pl', '12,3456'],
+    [100, 'es', '100,00'],
+  ])('formats %p for %s as %p', (amount, locale, expected) => {
+    expect(formatRateText(amount, locale)).toBe(expected)
+  })
+})
+
+describe('formatRateText round-trips through parseRateText', () => {
+  it.each(['en', 'pl', 'de', 'es', 'ko', 'fa', 'bn', 'ar-EG', 'mr', 'th-TH-u-nu-thai'])(
+    'keeps a stored rate under %s',
+    (locale) => {
+      for (const amount of [0, 100.5, 12.3456, 1234567.5]) {
+        expect(parseRateText(formatRateText(amount, locale))).toBe(amount)
+      }
+    },
+  )
+
+  it('emits Latin digits for locales with a native numbering system', () => {
+    expect(formatRateText(100.5, 'fa')).toBe('100.50')
+    expect(formatRateText(100.5, 'bn')).toBe('100.50')
   })
 })

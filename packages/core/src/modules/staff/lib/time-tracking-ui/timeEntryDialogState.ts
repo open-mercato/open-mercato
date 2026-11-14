@@ -172,6 +172,28 @@ export function shiftIsoDate(date: string, days: number): string {
   return `${shifted.getUTCFullYear()}-${month}-${day}`
 }
 
+/** Accepts a comma or a dot as the decimal separator; anything else is not a rate. */
+export function parseRateText(value: string): number | null {
+  const trimmed = value.trim().replace(',', '.')
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+/**
+ * Grouping is off and digits are forced to Latin so the text always round-trips through
+ * `parseRateText`; locales such as `fa` or `bn` would otherwise emit native digits it rejects,
+ * and saving the untouched form would clear the stored rate.
+ */
+export function formatRateText(amount: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+    useGrouping: false,
+    numberingSystem: 'latn',
+  }).format(amount)
+}
+
 export function todayIsoDate(now: Date = new Date()): string {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
