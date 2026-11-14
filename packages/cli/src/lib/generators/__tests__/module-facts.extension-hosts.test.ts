@@ -28,6 +28,7 @@ describe('module-facts extension host extraction', () => {
         'catalog:catalog_product',
         'catalog:catalog_product_variant',
         'catalog:catalog_product_price',
+        'catalog:catalog_service',
       ],
       sales: [
         'sales:sales_order',
@@ -111,6 +112,7 @@ describe('module-facts extension host extraction', () => {
       'catalog.categories.list',
       'catalog.prices.list',
       'catalog.products.list',
+      'catalog.services.list',
     ])
 
     const sales = extractModuleFacts({ moduleId: 'sales', coreSrcRoot })

@@ -874,6 +874,7 @@ type SalesReferenceDb = {
     order_id: string
     product_id: string | null
     product_variant_id: string | null
+    service_id: string | null
     name: string | null
     kind: 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
     currency_code: string
@@ -969,6 +970,39 @@ async function querySalesOrderLineReferences(
     return rows as Record<string, unknown>[]
   } catch (err) {
     if (isMissingReferenceTableError(err)) return undefined
+    throw err
+  }
+}
+
+type CatalogReferenceDb = {
+  catalog_services: {
+    id: string
+    tenant_id: string | null
+    organization_id: string | null
+    deleted_at: Date | null
+  }
+}
+
+async function queryLiveCatalogServiceIds(
+  ctx: CommandRuntimeContext,
+  scope: WarrantyClaimScope,
+  ids: string[],
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const db = em.getKysely<CatalogReferenceDb>()
+  try {
+    const rows = await db
+      .selectFrom('catalog_services')
+      .select(['id'])
+      .where('id', 'in', ids)
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
+      .where('deleted_at', 'is', null)
+      .execute()
+    return new Set(rows.map((row) => row.id))
+  } catch (err) {
+    if (isMissingReferenceTableError(err)) return new Set()
     throw err
   }
 }
@@ -2622,6 +2656,8 @@ type CreditMemoLineInput = {
   totalGrossAmount: string
   metadata: { warrantyClaimLineId: string }
   name?: string
+  kind?: SalesOrderLineKind
+  serviceId?: string
 }
 
 type CreditMemoCreateInput = {
@@ -2717,6 +2753,10 @@ function prepareCreditMemoLine(
   }
   const name = readString(sourceLine, 'name')
   if (name) input.name = name
+  const kind = readSalesOrderLineKind(sourceLine.kind)
+  if (kind) input.kind = kind
+  const serviceId = readString(sourceLine, 'service_id')
+  if (serviceId) input.serviceId = serviceId
   return { input, netUnits, grossUnits, taxUnits }
 }
 
@@ -2786,7 +2826,18 @@ const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimC
       ctx,
       scope,
       Array.from(new Set(claimLines.flatMap((line) => line.orderLineId ? [line.orderLineId] : []))),
-      ['id', 'order_id', 'name', 'currency_code', 'quantity', 'total_net_amount', 'total_gross_amount', 'tax_rate'],
+      [
+        'id',
+        'order_id',
+        'name',
+        'kind',
+        'service_id',
+        'currency_code',
+        'quantity',
+        'total_net_amount',
+        'total_gross_amount',
+        'tax_rate',
+      ],
     )
     const sourceLinesById = new Map((sourceLineRows ?? []).map((row) => [readString(row, 'id'), row]))
     const preparedLines: PreparedCreditMemoLine[] = []
@@ -3025,6 +3076,7 @@ type ReplacementOrderLineInput = {
   unitPriceGross: string
   productId?: string
   productVariantId?: string
+  serviceId?: string
   name?: string
   taxRate?: string
 }
@@ -3051,6 +3103,7 @@ type ClaimCreateReplacementOrderResult = {
   replacementOrderId: string
   replacementOrderUpdatedAt: string | null
   skippedLineIds: string[]
+  unavailableServiceLines: Array<{ id: string; lineNo: number }>
   pricing: 'zero' | 'original'
 }
 
@@ -3147,6 +3200,7 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
         'order_id',
         'product_id',
         'product_variant_id',
+        'service_id',
         'name',
         'kind',
         'currency_code',
@@ -3156,8 +3210,17 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       ],
     )
     const sourceLinesById = new Map((sourceLineRows ?? []).map((row) => [readString(row, 'id'), row]))
+    const liveServiceIds = await queryLiveCatalogServiceIds(
+      ctx,
+      scope,
+      Array.from(new Set((sourceLineRows ?? []).flatMap((row) => {
+        const referencedServiceId = readString(row, 'service_id')
+        return referencedServiceId ? [referencedServiceId] : []
+      }))),
+    )
     const replacementLines: ReplacementOrderLineInput[] = []
     const skippedLineIds: string[] = []
+    const unavailableServiceLines: Array<{ id: string; lineNo: number }> = []
     for (const line of lines) {
       const effectiveQty = line.qtyApproved ?? line.qtyClaimed
       const quantityUnits = claimedQuantityUnits(effectiveQty) ?? 0n
@@ -3174,6 +3237,7 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       const sourceLine = sourceLinesById.get(line.orderLineId) ?? null
       const productId = sourceLine ? readString(sourceLine, 'product_id') : null
       const productVariantId = sourceLine ? readString(sourceLine, 'product_variant_id') : null
+      const serviceId = sourceLine ? readString(sourceLine, 'service_id') : null
       const name = sourceLine ? readString(sourceLine, 'name') : null
       const kind = sourceLine ? readSalesOrderLineKind(sourceLine.kind) : null
       const currencyCode = sourceLine ? readString(sourceLine, 'currency_code') : null
@@ -3185,12 +3249,17 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       if (
         !sourceLine
         || sourceLine.order_id !== claim.orderId
-        || (!productId && !productVariantId && !name)
+        || (!productId && !productVariantId && !serviceId && !name)
         || !kind
         || !currencyCode
         || originalPricingIncomplete
       ) {
         skippedLineIds.push(line.id)
+        continue
+      }
+      if (serviceId && !liveServiceIds.has(serviceId)) {
+        skippedLineIds.push(line.id)
+        unavailableServiceLines.push({ id: line.id, lineNo: line.lineNo })
         continue
       }
 
@@ -3203,12 +3272,17 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       }
       if (productId) replacementLine.productId = productId
       if (productVariantId) replacementLine.productVariantId = productVariantId
+      if (serviceId) replacementLine.serviceId = serviceId
       if (name) replacementLine.name = name
       if (input.pricing === 'original') replacementLine.taxRate = taxRate as string
       replacementLines.push(replacementLine)
     }
     if (replacementLines.length === 0) {
-      throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementNoEligibleLines' })
+      throw new CrudHttpError(400, {
+        error: unavailableServiceLines.length > 0
+          ? 'warranty_claims.errors.replacementServicesUnavailable'
+          : 'warranty_claims.errors.replacementNoEligibleLines',
+      })
     }
 
     const orderInput: ReplacementOrderCreateInput = {
@@ -3308,6 +3382,7 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
       replacementOrderId,
       replacementOrderUpdatedAt,
       skippedLineIds,
+      unavailableServiceLines,
       pricing: input.pricing,
     }
   },

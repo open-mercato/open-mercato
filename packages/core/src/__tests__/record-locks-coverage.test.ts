@@ -64,6 +64,7 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   'catalog:CatalogOffer': { status: 'enabled', resourceKind: 'catalog.offer', reason: 'enabled — CRUD decorator; presence inherited from the product screen.' },
   'catalog:CatalogPriceKind': { status: 'enabled', resourceKind: 'catalog.price_kind', reason: 'enabled — CRUD decorator; custom PriceKindSettings dialog sends the lock header + surfaces the conflict.' },
   'catalog:CatalogOptionSchemaTemplate': { status: 'enabled', resourceKind: 'catalog.option_schema_template', reason: 'enabled — CRUD decorator; presence inherited from the product/variant forms.' },
+  'catalog:CatalogService': { status: 'enabled', resourceKind: 'catalog.service', reason: 'enabled — CRUD decorator; ServiceForm and ServicesDataTable send the lock header.' },
 
   // --- customers ---
   'customers:CustomerEntity': { status: 'enabled', resourceKind: 'customers.person', reason: 'enabled — Phase 1; presence (person/company) + unified guard. Company shares the same entity via `customers.company`.' },

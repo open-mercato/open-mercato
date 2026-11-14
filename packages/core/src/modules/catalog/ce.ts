@@ -5,8 +5,16 @@ const systemEntities: CustomEntitySpec[] = [
   {
     id: E.catalog.catalog_product,
     label: 'Product',
-    description: 'Base catalog item representing a sellable product or service.',
+    description: 'Base catalog item representing a sellable product.',
     labelField: 'name',
+    showInSidebar: false,
+    fields: [],
+  },
+  {
+    id: E.catalog.catalog_service,
+    label: 'Service',
+    description: 'Sellable catalog service with default pricing and work requirements.',
+    labelField: 'title',
     showInSidebar: false,
     fields: [],
   },

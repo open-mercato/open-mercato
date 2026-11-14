@@ -60,6 +60,44 @@ No API, schema, configuration, or client migration is required. Restart all work
 when deploying. Poll-success concurrency protection is tracked separately in #8711;
 this fix does not replace it. Already ingested messages remain idempotent on replay.
 
+## Catalog services and sales service lines
+
+Catalog gains a Services surface (`/backend/catalog/services`, `/api/catalog/services`) guarded by
+the new `catalog.services.view` and `catalog.services.manage` features. New tenants receive them
+through the catalog role defaults (`employee` gets both; `admin` keeps `catalog.*`). **Existing
+tenants must run `yarn mercato auth sync-role-acls`** so their roles pick up the features; until
+then the Services page is hidden and the sales line dialog's Service lookup returns no results.
+The service work-requirements editor only lists staff and resources the user may read
+(`staff.view`, `resources.view`).
+
+Sales quote, order, invoice and credit memo lines accept an optional `serviceId` (credit memo
+lines also gain `kind`, default `product`). Apply the catalog and sales migrations. Writes now
+reject a line that carries a `serviceId` without `kind: 'service'`, or a `serviceId` together with
+a `productId`/`productVariantId` (400); `kind: 'service'` lines without a catalog `serviceId`
+behave as before, including when edited in the line dialog. A new or changed `serviceId` must reference
+a service in the caller's organization (quotes/orders: not archived; invoices/credit memos may keep a
+service archived since the order). Shipments reject order lines that reference a catalog service, and a line with
+shipped quantity can no longer change its kind or catalog references. Products navigation and
+page titles now read "Products" instead of "Products & services". Line upserts accept an explicit
+`null` to clear a line's unit, product, variant or catalog snapshot. Every quote/order line input
+shape shares one line schema, so the change reaches `OrderLineCreateInput`, `OrderLineUpdateInput`,
+`QuoteLineCreateInput`, `QuoteLineUpdateInput`, the `lines` items of `OrderCreateInput`,
+`OrderUpdateInput`, `QuoteCreateInput` and `QuoteUpdateInput`, and the `lines` entries of
+`OrderLineBulkUpsertInput` (with the matching
+`POST /api/sales/orders`, `POST /api/sales/quotes`, line and bulk line request bodies): `quantityUnit`,
+`productId` and `productVariantId` are now `string | null | undefined`, `catalogSnapshot` is
+`Record<string, unknown> | null | undefined`, and each gains `serviceId?: string | null`. The `lines`
+items of `InvoiceCreateInput`/`CreditMemoCreateInput` gain `serviceId` (credit memo lines also `kind`).
+Code that reads these fields as non-nullable needs a type update. Editing a line without a product recomputes
+its normalized quantity, unit and unit snapshot from the quantity and unit, replacing any values an API
+caller supplied when creating the line.
+When an update changes a line's product without naming a unit, the stored unit is kept if the new
+product can resolve it and otherwise falls back to the new product's default unit, or to no unit when
+the new product has none (previously this returned `uom.conversion_not_found` or
+`uom.default_unit_missing`). Warranty replacement orders skip claim lines
+whose catalog service has been archived and list them in the new additive `unavailableServiceLines`
+field of the replacement-order response.
+
 ## Starter reuse and optional AI
 
 `yarn setup` can continue with pre-existing services after an explicit interactive confirmation. It shows port owners and restart/health states and then leaves those containers untouched, using the URLs already configured in `.env`. Declining shows `yarn om stop` guidance for the original checkout. Non-interactive users must explicitly pass `--no-infra` to use external services.

@@ -97,6 +97,8 @@
   "auth.acl.features.catalog.pricing.manage": "Manage catalog pricing",
   "auth.acl.features.catalog.products.manage": "Manage catalog products",
   "auth.acl.features.catalog.products.view": "View catalog products",
+  "auth.acl.features.catalog.services.manage": "Manage catalog services",
+  "auth.acl.features.catalog.services.view": "View catalog services",
   "auth.acl.features.catalog.settings.manage": "Manage catalog settings",
   "auth.acl.features.catalog.settings.view": "카탈로그 설정 보기",
   "auth.acl.features.catalog.variants.manage": "Manage catalog variants",

@@ -348,6 +348,121 @@ describe('sales.quotes.convert_to_order', () => {
   })
 })
 
+describe('sales.quotes.convert_to_order — service lines', () => {
+  test('carries the service reference and catalog snapshot onto the order line', async () => {
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>(
+      'sales.quotes.convert_to_order',
+    )
+    expect(handler).toBeTruthy()
+
+    const serviceId = '99999999-9999-4999-8999-999999999999'
+    const quote = {
+      id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+      createdAt: new Date('2026-04-12T08:00:00.000Z'),
+      quoteNumber: 'SQ-SVC',
+      statusEntryId: null,
+      status: 'confirmed',
+      currencyCode: 'USD',
+      subtotalNetAmount: '200',
+      subtotalGrossAmount: '200',
+      discountTotalAmount: '0',
+      taxTotalAmount: '0',
+      grandTotalNetAmount: '200',
+      grandTotalGrossAmount: '200',
+      lineItemCount: 1,
+      validFrom: null,
+      validUntil: null,
+      deletedAt: null,
+    }
+    const serviceLine = {
+      id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      lineNumber: 1,
+      kind: 'service',
+      statusEntryId: null,
+      status: null,
+      productId: null,
+      productVariantId: null,
+      serviceId,
+      catalogSnapshot: { service: { id: serviceId, title: 'Implementation workshop' } },
+      name: 'Implementation workshop',
+      description: null,
+      comment: null,
+      quantity: '2',
+      quantityUnit: null,
+      normalizedQuantity: '2',
+      normalizedUnit: null,
+      uomSnapshot: null,
+      currencyCode: 'USD',
+      unitPriceNet: '100',
+      unitPriceGross: '100',
+      discountAmount: '0',
+      discountPercent: '0',
+      taxRate: '0',
+      taxAmount: '0',
+      totalNetAmount: '200',
+      totalGrossAmount: '200',
+      configuration: null,
+      promotionCode: null,
+      promotionSnapshot: null,
+      metadata: null,
+      customFieldSetId: null,
+    }
+
+    const createdOrderLines: Array<Record<string, unknown>> = []
+    const em = {
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async () => []),
+      create: jest.fn((entity: { name?: string }, data: Record<string, unknown>) => {
+        if (entity?.name === 'SalesOrderLine') createdOrderLines.push(data)
+        return { ...data }
+      }),
+      persist: jest.fn(),
+      nativeDelete: jest.fn(async () => 0),
+      remove: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+
+    mockedFindOneWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === SalesQuote) return quote
+      return null
+    })
+    mockedFindWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === SalesQuoteLine) return [serviceLine]
+      return []
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.PROXY })
+    container.register({
+      em: asValue({ fork: jest.fn() }),
+      salesDocumentNumberGenerator: asValue({
+        generate: jest.fn(async () => ({ number: 'SO-SVC-1' })),
+      }),
+    })
+
+    const ctx: CommandRuntimeContext = {
+      container,
+      auth: null,
+      organizationScope: null,
+      selectedOrganizationId: quote.organizationId,
+      organizationIds: [quote.organizationId],
+      transactionalEm: em as unknown as CommandRuntimeContext['transactionalEm'],
+    }
+
+    await handler!.execute({ quoteId: quote.id, orderId: '12121212-1212-4212-8212-121212121212' }, ctx)
+
+    expect(createdOrderLines).toHaveLength(1)
+    expect(createdOrderLines[0]).toMatchObject({
+      kind: 'service',
+      serviceId,
+      productId: null,
+      productVariantId: null,
+      catalogSnapshot: { service: { id: serviceId, title: 'Implementation workshop' } },
+    })
+  })
+})
+
 describe('sales.quotes.convert_to_order — shipping and surcharge totals', () => {
   beforeAll(async () => {
     await import('../documents')

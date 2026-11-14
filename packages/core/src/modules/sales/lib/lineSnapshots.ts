@@ -37,6 +37,7 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesPersisted
     kind: line.kind,
     productId: line.productId ?? null,
     productVariantId: line.productVariantId ?? null,
+    serviceId: line.serviceId ?? null,
     name: line.name ?? null,
     description: line.description ?? null,
     comment: line.comment ?? null,

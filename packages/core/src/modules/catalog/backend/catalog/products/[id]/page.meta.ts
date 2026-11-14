@@ -7,6 +7,6 @@ export const metadata = {
   pageGroupKey: 'catalog.nav.group',
   navHidden: true,
   breadcrumb: [
-    { label: 'Products & services', labelKey: 'catalog.products.page.title', href: '/backend/catalog/products' },
+    { label: 'Products', labelKey: 'catalog.products.page.title', href: '/backend/catalog/products' },
   ],
 }

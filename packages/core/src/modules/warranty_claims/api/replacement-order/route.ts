@@ -33,6 +33,7 @@ type ReplacementOrderCommandResult = {
   replacementOrderId: string
   replacementOrderUpdatedAt: string | null
   skippedLineIds: string[]
+  unavailableServiceLines: Array<{ id: string; lineNo: number }>
   pricing: 'zero' | 'original'
 }
 
@@ -49,6 +50,10 @@ type ReplacementOrderRequest = z.infer<typeof replacementOrderRequestSchema>
 const replacementOrderResponseSchema = z.object({
   replacementOrderId: z.string().uuid(),
   skippedLineIds: z.array(z.string().uuid()),
+  unavailableServiceLines: z.array(z.object({
+    id: z.string().uuid(),
+    lineNo: z.number().int(),
+  })),
 })
 
 const errorResponseSchema = z.object({
@@ -156,6 +161,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       replacementOrderId: result.replacementOrderId,
       skippedLineIds: result.skippedLineIds,
+      unavailableServiceLines: result.unavailableServiceLines,
     })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
@@ -182,7 +188,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         {
           status: 200,
-          description: 'Replacement order created and linked; ineligible or unresolvable claim lines are reported as skipped',
+          description: 'Replacement order created and linked; ineligible or unresolvable claim lines are reported as skipped, and lines whose catalog service is no longer available are also listed in unavailableServiceLines',
           schema: replacementOrderResponseSchema,
         },
         { status: 400, description: 'Invalid request or claim is not eligible for replacement-order creation', schema: errorResponseSchema },

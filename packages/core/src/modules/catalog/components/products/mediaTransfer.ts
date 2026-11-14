@@ -1,11 +1,11 @@
 import { transferAttachmentsInChunks } from '@open-mercato/core/modules/attachments/lib/transferClient'
-import type { ProductMediaItem } from './ProductMediaManager'
+import type { CatalogMediaItem } from './ProductMediaManager'
 
 export type DraftMediaTransferInput = {
   entityId: string
   draftId?: string | null
   recordId: string
-  mediaItems: ProductMediaItem[]
+  mediaItems: CatalogMediaItem[]
 }
 
 export type DraftMediaTransferResult = {

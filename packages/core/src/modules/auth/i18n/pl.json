@@ -97,6 +97,8 @@
   "auth.acl.features.catalog.pricing.manage": "Zarządzaj cenami w katalogu",
   "auth.acl.features.catalog.products.manage": "Zarządzaj produktami w katalogu",
   "auth.acl.features.catalog.products.view": "Wyświetl produkty w katalogu",
+  "auth.acl.features.catalog.services.manage": "Zarządzaj usługami w katalogu",
+  "auth.acl.features.catalog.services.view": "Wyświetl usługi w katalogu",
   "auth.acl.features.catalog.settings.manage": "Zarządzaj ustawieniami katalogu",
   "auth.acl.features.catalog.settings.view": "Wyświetlaj ustawienia katalogu",
   "auth.acl.features.catalog.variants.manage": "Zarządzaj wariantami w katalogu",

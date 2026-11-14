@@ -15,6 +15,7 @@ const FOREIGN_CREDIT_MEMO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const SALES_RETURN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const FOREIGN_TENANT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const FOREIGN_ORG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+const SERVICE_ID = 'abababab-abab-4bab-8bab-abababababab'
 const CREDIT_MEMO_UPDATED_AT = '2026-07-17T09:30:00.000Z'
 const CLAIM_UPDATED_AT = '2026-07-17T08:00:00.000Z'
 
@@ -152,12 +153,20 @@ function scopedRow(
   return rowSatisfiesWheres(row, wheres) ? row : undefined
 }
 
+function projectColumns(row: Record<string, unknown>, columns: string[]): Record<string, unknown> {
+  return Object.fromEntries(columns.filter((column) => column in row).map((column) => [column, row[column]]))
+}
+
 function makeKysely() {
   return {
     selectFrom: (table: string) => {
       const wheres: Array<[string, string, unknown]> = []
+      let selectedColumns: string[] = []
       const builder = {
-        select: () => builder,
+        select: (columns: string[]) => {
+          selectedColumns = columns
+          return builder
+        },
         where: (column: string, op: string, value: unknown) => {
           wheres.push([column, op, value])
           return builder
@@ -166,7 +175,9 @@ function makeKysely() {
         execute: async () => {
           if (table !== 'sales_order_lines') return []
           mockSalesOrderLineBatchQueries += 1
-          return Array.from(mockSourceLineRows.values()).filter((row) => rowSatisfiesWheres(row, wheres))
+          return Array.from(mockSourceLineRows.values())
+            .filter((row) => rowSatisfiesWheres(row, wheres))
+            .map((row) => projectColumns(row, selectedColumns))
         },
         executeTakeFirst: async () => {
           const id = findIdWhere(wheres)
@@ -273,6 +284,8 @@ function sourceLine(overrides: Record<string, unknown> = {}): Record<string, unk
     id: ORDER_LINE_ID,
     order_id: ORDER_ID,
     name: 'Credited item',
+    kind: 'product',
+    service_id: null,
     currency_code: 'USD',
     quantity: '1.0000',
     unit_price_net: '100.0000',
@@ -589,6 +602,32 @@ describe('warranty_claims.claim.create_credit_memo amount contract', () => {
 
     expect(dispatchedLines()[0]).not.toHaveProperty('name')
     expect(dispatchedLines()[0].metadata).toEqual({ warrantyClaimLineId: CLAIM_LINE_ID })
+  })
+
+  it('copies the service kind and catalog service reference from a service source line', async () => {
+    seedClaim()
+    seedLine()
+    seedSourceLine(ORDER_LINE_ID, { kind: 'service', service_id: SERVICE_ID, name: 'On-site repair' })
+
+    await createCreditMemoCommand.execute(executeInput(), makeCtx())
+
+    expect(dispatchedLines()[0]).toMatchObject({
+      orderLineId: ORDER_LINE_ID,
+      kind: 'service',
+      serviceId: SERVICE_ID,
+      name: 'On-site repair',
+    })
+  })
+
+  it('keeps a plain product credit memo line as a product without a service reference', async () => {
+    seedClaim()
+    seedLine()
+    seedSourceLine()
+
+    await createCreditMemoCommand.execute(executeInput(), makeCtx())
+
+    expect(dispatchedLines()[0]).toMatchObject({ kind: 'product' })
+    expect(dispatchedLines()[0]).not.toHaveProperty('serviceId')
   })
 })
 

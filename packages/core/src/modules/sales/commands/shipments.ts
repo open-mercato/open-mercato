@@ -379,6 +379,23 @@ async function loadShippedTotals(
   }, new Map())
 }
 
+async function assertShipmentItemsStillShippable(em: EntityManager, snapshot: ShipmentSnapshot): Promise<void> {
+  const lineIds = Array.from(new Set((snapshot.items ?? []).map((item) => item.orderLineId).filter(Boolean)))
+  if (!lineIds.length) return
+  const scope = { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId }
+  const lines = await findWithDecryption(em, SalesOrderLine, { id: { $in: lineIds }, ...scope }, {}, scope)
+  const serviceLine = lines.find((line) => Boolean(line.serviceId))
+  if (!serviceLine) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'sales.shipments.undo_service_line',
+      'This shipment cannot be restored because line {{line}} is now a service.',
+      { line: String(serviceLine.lineNumber) },
+    ),
+  })
+}
+
 async function validateShipmentItems(params: {
   em: EntityManager
   order: SalesOrder
@@ -416,6 +433,15 @@ async function validateShipmentItems(params: {
     const line = lineMap.get(lineId)
     if (!line) {
       throw notFound(translate('sales.shipments.line_missing', 'Order line not found.'))
+    }
+    if (line.serviceId) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          'sales.shipments.service_line_not_shippable',
+          'Line {{line}} is a service and cannot be shipped.',
+          { line: String(line.lineNumber) },
+        ),
+      })
     }
     const lineTotal = toNumber(line.quantity)
     const alreadyShipped = shippedTotals.get(lineId) ?? 0
@@ -634,6 +660,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
+      await assertShipmentItemsStillShippable(tx, after)
       await restoreShipmentSnapshot(tx, after)
       const order = await findOneWithDecryption(tx, SalesOrder, { id: after.orderId }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
       await tx.flush()
@@ -920,6 +947,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
+      await assertShipmentItemsStillShippable(tx, before)
       await restoreShipmentSnapshot(tx, before)
       const order = await findOneWithDecryption(tx, SalesOrder, { id: before.orderId }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
       await tx.flush()
@@ -1073,6 +1101,7 @@ const deleteShipmentCommand: CommandHandler<
     if (!snapshot) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
+      await assertShipmentItemsStillShippable(tx, snapshot)
       await restoreShipmentSnapshot(tx, snapshot)
       const order = await findOneWithDecryption(tx, SalesOrder, { id: snapshot.orderId }, {}, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
       await tx.flush()
