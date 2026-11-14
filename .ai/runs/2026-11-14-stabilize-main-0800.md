@@ -47,6 +47,10 @@ Configured gate: `yarn build:packages`, `yarn generate`, `yarn build:packages`, 
 - Read-only audit task: `aed722e9-eb86-46f0-9cf8-2df9ff1ad3b1`. No child edits will be merged. Final review is reserved as the second and last subtask.
 - Runner: local. No compose development override files or running app container were found; the standard development compose file fails interpolation without local secrets. Immutable installation completed with optional native-binding warnings.
 
+- Commit `6cd2a27aa2` removed the remaining `id` declarations, after `bf633ea932` had already removed duplicates. Repair `5620e6683a` restores the optional prop and destructured binding without changing callers or styling.
+- Focused component/dialog suites: 46/46 failed before the repair with `ReferenceError: id is not defined`; 46/46 pass after it, including new coverage for updating and omitting an ID. Existing full-suite/concurrency regressions: 28/28 pass.
+- Local pre-commit hooks pass translation and template parity checks with `TMPDIR=/tmp` (the cockpit default temp path exceeds the Unix socket path limit used by `tsx`).
+
 ## Progress
 
 PR: #9512
@@ -60,7 +64,7 @@ PR: #9512
 
 ### Phase 2: Fix and verify
 
-- [ ] 2.1 Correct demonstrated build/test regressions with focused regression coverage
+- [x] 2.1 Correct demonstrated build/test regressions with focused regression coverage — 5620e6683a
 - [ ] 2.2 Run the configured ordered validation gate and all applicable PR CI checks
 
 ### Phase 3: Review and handoff
