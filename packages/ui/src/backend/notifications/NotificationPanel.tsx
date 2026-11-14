@@ -155,8 +155,8 @@ export function NotificationPanel({
           </div>
         </div>
 
-        <Tabs value={filter} onValueChange={handleFilterChange} variant="underline">
-          <TabsList className="flex w-full px-5">
+        <Tabs value={filter} onValueChange={handleFilterChange} variant="underline" className="shrink-0 overflow-x-auto">
+          <TabsList className="flex w-full min-w-max px-5">
             {(['all', 'unread', 'action'] as const).map((value) => {
               const label =
                 value === 'all'
