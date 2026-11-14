@@ -1,0 +1,201 @@
+{
+  "packages/scheduler/src/modules/scheduler": [
+    "packages/scheduler/src/modules/scheduler/backend/config/scheduled-jobs/page.tsx"
+  ],
+  "packages/documents/src/modules/documents": [
+    "packages/documents/src/modules/documents/backend/documents/FolderTree.tsx",
+    "packages/documents/src/modules/documents/backend/documents/templates/TemplatesTable.tsx",
+    "packages/documents/src/modules/documents/backend/documents/DocumentsTable.tsx"
+  ],
+  "apps/mercato/src/modules/example": [
+    "apps/mercato/src/modules/example/components/TodosTable.tsx"
+  ],
+  "packages/search/src/modules/search": [
+    "packages/search/src/modules/search/frontend/components/HybridSearchTable.tsx"
+  ],
+  "packages/checkout/src/modules/checkout": [
+    "packages/checkout/src/modules/checkout/backend/checkout/templates/page.tsx",
+    "packages/checkout/src/modules/checkout/backend/checkout/pay-links/page.tsx",
+    "packages/checkout/src/modules/checkout/backend/checkout/transactions/page.tsx"
+  ],
+  "packages/ui/src": [
+    "packages/ui/src/backend/DataTable.tsx",
+    "packages/ui/src/backend/RowActions.tsx",
+    "packages/ui/src/backend/forms/ActionsDropdown.tsx"
+  ],
+  "packages/webhooks/src/modules/webhooks": [
+    "packages/webhooks/src/modules/webhooks/backend/webhooks/page.tsx",
+    "packages/webhooks/src/modules/webhooks/backend/webhooks/[id]/page.tsx"
+  ],
+  "packages/core/src/modules/currencies": [
+    "packages/core/src/modules/currencies/backend/currencies/page.tsx",
+    "packages/core/src/modules/currencies/backend/exchange-rates/page.tsx"
+  ],
+  "packages/core/src/modules/payment_gateways": [
+    "packages/core/src/modules/payment_gateways/backend/payment-gateways/page.tsx"
+  ],
+  "packages/core/src/modules/api_keys": [
+    "packages/core/src/modules/api_keys/backend/api-keys/page.tsx"
+  ],
+  "packages/core/src/modules/planner": [
+    "packages/core/src/modules/planner/backend/planner/availability-rulesets/page.tsx"
+  ],
+  "packages/core/src/modules/inbox_ops": [
+    "packages/core/src/modules/inbox_ops/backend/inbox-ops/page.tsx"
+  ],
+  "packages/enterprise/src/modules/sso": [
+    "packages/enterprise/src/modules/sso/backend/page.tsx"
+  ],
+  "packages/core/src/modules/entities": [
+    "packages/core/src/modules/entities/components/UserEntitiesTable.tsx",
+    "packages/core/src/modules/entities/backend/entities/user/[entityId]/records/page.tsx",
+    "packages/core/src/modules/entities/components/SystemEntitiesTable.tsx"
+  ],
+  "packages/core/src/modules/sales": [
+    "packages/core/src/modules/sales/components/channels/SalesChannelOffersPanel.tsx",
+    "packages/core/src/modules/sales/components/documents/PaymentsSection.tsx",
+    "packages/core/src/modules/sales/components/documents/SalesDocumentsTable.tsx",
+    "packages/core/src/modules/sales/components/documents/ReturnsSection.tsx",
+    "packages/core/src/modules/sales/components/documents/AdjustmentsSection.tsx",
+    "packages/core/src/modules/sales/components/documents/SalesOrderDraftLines.tsx",
+    "packages/core/src/modules/sales/components/AdjustmentKindSettings.tsx",
+    "packages/core/src/modules/sales/components/PaymentMethodsSettings.tsx",
+    "packages/core/src/modules/sales/components/ShippingMethodsSettings.tsx",
+    "packages/core/src/modules/sales/backend/sales/channels/offers/page.tsx",
+    "packages/core/src/modules/sales/components/TaxRatesSettings.tsx",
+    "packages/core/src/modules/sales/backend/sales/channels/page.tsx"
+  ],
+  "packages/core/src/modules/customer_accounts": [
+    "packages/core/src/modules/customer_accounts/backend/customer_accounts/users/PortalUsersPageClient.tsx",
+    "packages/core/src/modules/customer_accounts/backend/customer_accounts/roles/page.tsx"
+  ],
+  "packages/core/src/modules/warranty_claims": [
+    "packages/core/src/modules/warranty_claims/backend/warranty_claims/registrations/page.tsx",
+    "packages/core/src/modules/warranty_claims/backend/warranty_claims/troubleshooting-guides/page.tsx",
+    "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
+    "packages/core/src/modules/warranty_claims/backend/warranty_claims/vendor-policies/page.tsx",
+    "packages/core/src/modules/warranty_claims/backend/warranty_claims/[id]/page.tsx",
+    "packages/core/src/modules/warranty_claims/backend/page.tsx"
+  ],
+  "packages/core/src/modules/customers": [
+    "packages/core/src/modules/customers/backend/customers/deals/pipeline/page.tsx",
+    "packages/core/src/modules/customers/backend/customers/deals/pipeline/components/Lane.tsx",
+    "packages/core/src/modules/customers/backend/customers/deals/pipeline/components/DealCardMenu.tsx",
+    "packages/core/src/modules/customers/backend/customers/deals/pipeline/components/DealCard.tsx",
+    "packages/core/src/modules/customers/backend/customers/deals/page.tsx",
+    "packages/core/src/modules/customers/backend/customers/people/page.tsx",
+    "packages/core/src/modules/customers/backend/customers/companies/page.tsx",
+    "packages/core/src/modules/customers/components/ActivityTypeEditor.tsx",
+    "packages/core/src/modules/customers/components/detail/ActivityTimeline.tsx",
+    "packages/core/src/modules/customers/components/detail/ActivityCard.tsx",
+    "packages/core/src/modules/customers/components/CustomerTodosTable.tsx"
+  ],
+  "packages/enterprise/src/modules/agent_orchestrator": [
+    "packages/enterprise/src/modules/agent_orchestrator/backend/processes/definitions/page.tsx",
+    "packages/enterprise/src/modules/agent_orchestrator/backend/agents/page.tsx",
+    "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/EvaluationTab.tsx"
+  ],
+  "packages/core/src/modules/attachments": [
+    "packages/core/src/modules/attachments/components/AttachmentPartitionSettings.tsx",
+    "packages/core/src/modules/attachments/components/AttachmentLibrary.tsx"
+  ],
+  "packages/core/src/modules/catalog": [
+    "packages/core/src/modules/catalog/components/prices/PricesDataTable.tsx",
+    "packages/core/src/modules/catalog/components/PriceKindSettings.tsx",
+    "packages/core/src/modules/catalog/components/products/ProductsDataTable.tsx",
+    "packages/core/src/modules/catalog/components/categories/CategoriesDataTable.tsx"
+  ],
+  "packages/core/src/modules/eudr": [
+    "packages/core/src/modules/eudr/components/MitigationActionsSection.tsx",
+    "packages/core/src/modules/eudr/backend/eudr/product-mappings/page.tsx",
+    "packages/core/src/modules/eudr/backend/eudr/risk-assessments/page.tsx",
+    "packages/core/src/modules/eudr/backend/eudr/evidence-submissions/page.tsx",
+    "packages/core/src/modules/eudr/backend/eudr/plots/page.tsx",
+    "packages/core/src/modules/eudr/backend/eudr/statements/page.tsx"
+  ],
+  "packages/core/src/modules/feature_toggles": [
+    "packages/core/src/modules/feature_toggles/components/OverridesTable.tsx",
+    "packages/core/src/modules/feature_toggles/components/FeatureTogglesTable.tsx"
+  ],
+  "packages/core/src/modules/staff": [
+    "packages/core/src/modules/staff/backend/staff/time-tracking/projects/page.tsx",
+    "packages/core/src/modules/staff/backend/staff/time-tracking/entries/page.tsx",
+    "packages/core/src/modules/staff/backend/staff/teams/page.tsx",
+    "packages/core/src/modules/staff/backend/staff/teams/[id]/edit/page.tsx",
+    "packages/core/src/modules/staff/backend/staff/team-members/page.tsx",
+    "packages/core/src/modules/staff/backend/staff/team-roles/page.tsx"
+  ],
+  "packages/core/src/modules/promotions": [
+    "packages/core/src/modules/promotions/backend/codes/page.tsx"
+  ],
+  "packages/core/src/modules/auth": [
+    "packages/core/src/modules/auth/backend/users/page.tsx",
+    "packages/core/src/modules/auth/backend/roles/page.tsx"
+  ],
+  "packages/core/src/modules/communication_channels": [
+    "packages/core/src/modules/communication_channels/backend/profile/communication-channels/page.tsx",
+    "packages/core/src/modules/communication_channels/backend/profile/communication-channels/ConnectChannelMenu.tsx"
+  ],
+  "packages/core/src/modules/data_sync": [
+    "packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx",
+    "packages/core/src/modules/data_sync/backend/data-sync/page.tsx"
+  ],
+  "packages/core/src/modules/dictionaries": [
+    "packages/core/src/modules/dictionaries/components/DictionaryTable.tsx"
+  ],
+  "packages/core/src/modules/forms": [
+    "packages/core/src/modules/forms/backend/forms/page.tsx",
+    "packages/core/src/modules/forms/ui/admin/forms/[id]/distributions/DistributionsPanel.tsx",
+    "packages/core/src/modules/forms/ui/admin/forms/[id]/distributions/RecipientsTable.tsx"
+  ],
+  "packages/core/src/modules/workflows": [
+    "packages/core/src/modules/workflows/backend/instances/page.tsx",
+    "packages/core/src/modules/workflows/backend/work-inbox/page.tsx",
+    "packages/core/src/modules/workflows/backend/definitions/page.tsx",
+    "packages/core/src/modules/workflows/backend/tasks/page.tsx"
+  ],
+  "packages/core/src/modules/availability": [
+    "packages/core/src/modules/availability/backend/availability/policies/page.tsx"
+  ],
+  "packages/core/src/modules/customer_groups": [
+    "packages/core/src/modules/customer_groups/backend/customer-groups/page.tsx"
+  ],
+  "packages/core/src/modules/ecommerce": [
+    "packages/core/src/modules/ecommerce/components/StoreListPage.tsx",
+    "packages/core/src/modules/ecommerce/components/StoreDomainsTab.tsx",
+    "packages/core/src/modules/ecommerce/components/StoreChannelsTab.tsx"
+  ],
+  "packages/core/src/modules/resources": [
+    "packages/core/src/modules/resources/backend/resources/resources/page.tsx",
+    "packages/core/src/modules/resources/backend/resources/resource-types/page.tsx"
+  ],
+  "packages/core/src/modules/audit_logs": [
+    "packages/core/src/modules/audit_logs/components/AuditLogsActions.tsx"
+  ],
+  "packages/core/src/modules/wms": [
+    "packages/core/src/modules/wms/components/backend/WmsOperationalDashboardPage.tsx",
+    "packages/core/src/modules/wms/components/backend/WmsLotsListPage.tsx",
+    "packages/core/src/modules/wms/components/backend/WmsAsnDetailPage.tsx",
+    "packages/core/src/modules/wms/components/backend/WmsPutawayQueuePage.tsx",
+    "packages/core/src/modules/wms/components/backend/WmsAsnsListPage.tsx",
+    "packages/core/src/modules/wms/components/backend/WmsInventoryConsolePage.tsx",
+    "packages/core/src/modules/wms/components/backend/WmsConfigurationPage.tsx"
+  ],
+  "packages/core/src/modules/directory": [
+    "packages/core/src/modules/directory/backend/directory/tenants/page.tsx",
+    "packages/core/src/modules/directory/backend/directory/organizations/page.tsx"
+  ],
+  "packages/core/src/modules/business_rules": [
+    "packages/core/src/modules/business_rules/backend/sets/page.tsx",
+    "packages/core/src/modules/business_rules/backend/rules/page.tsx"
+  ],
+  "packages/create-app/template/src/modules/example": [
+    "packages/create-app/template/src/modules/example/components/TodosTable.tsx"
+  ],
+  "packages/core/src/modules/devices": [
+    "packages/core/src/modules/devices/backend/devices/page.tsx"
+  ],
+  "packages/core/src/modules/query_index": [
+    "packages/core/src/modules/query_index/components/QueryIndexesTable.tsx"
+  ]
+}
