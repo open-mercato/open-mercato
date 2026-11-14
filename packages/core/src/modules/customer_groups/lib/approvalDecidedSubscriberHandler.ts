@@ -71,7 +71,12 @@ export function createApprovalDecidedHandler(status: ApprovalDecidedStatus, subs
         requestedBy,
       })
     } catch (err) {
+      // #8268 review INHERITED M3: re-throw after logging so the persistent event
+      // bus's queue retry actually retries a transient lookup/transport failure
+      // instead of acking it as delivered. The per-recipient delivery ledger
+      // (`approvalEmails.ts`) makes the retry idempotent.
       logger.warn(`[${subscriberId}] requester e-mail failed`, { err })
+      throw err
     }
   }
 }

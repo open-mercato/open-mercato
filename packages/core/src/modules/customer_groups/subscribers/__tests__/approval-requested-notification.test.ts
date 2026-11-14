@@ -51,10 +51,20 @@ describe('customer_groups approval-requested-notification subscriber', () => {
     expect(sendApprovalRequestedBuyerEmailsMock).toHaveBeenCalledTimes(1)
   })
 
-  it('still runs the buyer e-mail when the merchant notification throws', async () => {
+  it('still runs the buyer e-mail when the merchant notification throws, then re-throws so the queue retries', async () => {
     notifyMerchantDecidersMock.mockRejectedValueOnce(new Error('boom'))
-    await handle({ ...basePayload, approvalPolicy: 'both' }, ctx)
+    await expect(handle({ ...basePayload, approvalPolicy: 'both' }, ctx)).rejects.toThrow()
     expect(sendApprovalRequestedBuyerEmailsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('still runs the merchant notification when the buyer e-mail throws, then re-throws so the queue retries', async () => {
+    sendApprovalRequestedBuyerEmailsMock.mockRejectedValueOnce(new Error('boom'))
+    await expect(handle({ ...basePayload, approvalPolicy: 'both' }, ctx)).rejects.toThrow()
+    expect(notifyMerchantDecidersMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not throw when every channel succeeds', async () => {
+    await expect(handle({ ...basePayload, approvalPolicy: 'both' }, ctx)).resolves.toBeUndefined()
   })
 
   it('skips an incomplete payload without throwing', async () => {

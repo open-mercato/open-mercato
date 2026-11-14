@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 import { AssistedSellingMessage, AssistedSellingParticipant, AssistedSellingProposal, AssistedSellingThread } from '../../../data/entities'
@@ -21,6 +22,7 @@ import {
   type AssistedSellingThreadOpenAsBuyerInput,
   type AssistedSellingThreadOpenAsBuyerResult,
 } from '../../../commands/buyerThread'
+import { ASSISTED_SELLING_THREAD_RESOURCE_KIND } from '../../../commands/shared'
 
 // Step 4.5 (§6.2). `GET/POST /api/assisted_selling/storefront/thread` — the buyer's own half
 // of the conversation, cart-token bound (D-R5-13/D-R5-21), no ACL feature (§6.9): "the token
@@ -122,13 +124,42 @@ export async function POST(request: Request) {
     }
 
     const rawBody = (await readJsonSafe<Record<string, unknown>>(request, {})) ?? {}
+    let body: z.infer<typeof assistedSellingBuyerThreadOpenRequestSchema>
     try {
-      assistedSellingBuyerThreadOpenRequestSchema.parse(rawBody)
+      body = assistedSellingBuyerThreadOpenRequestSchema.parse(rawBody)
     } catch (err) {
       if (err instanceof z.ZodError) {
         return NextResponse.json({ error: '[internal] invalid request body', issues: err.issues }, { status: 400 })
       }
       throw err
+    }
+
+    // #8268 review Major 7: this write dispatched `assisted_selling.thread.open_as_buyer`
+    // without going through the shared route mutation-guard registry at all, so an
+    // unconditional denial/transform guard registered for `assisted_selling.thread`
+    // (enforced on the staff paths) never ran for a direct buyer call. `userFeatures: []`
+    // is deliberate, same as `cart/api/current/route.ts`'s own buyer-route convention —
+    // `basket.customerUserId` is a `customer_accounts.CustomerUser.id`, not an
+    // `auth.User.id`, so `rbacService` must never be asked to resolve grants for it.
+    const guarded = await runRouteMutationGuards({
+      container,
+      req: request,
+      auth: {
+        userId: basket.customerUserId ?? 'anonymous',
+        tenantId: basket.tenantId,
+        organizationId: basket.organizationId,
+        userFeatures: [],
+      },
+      input: {
+        resourceKind: ASSISTED_SELLING_THREAD_RESOURCE_KIND,
+        resourceId: null,
+        operation: 'create',
+        mutationPayload: body,
+      },
+    })
+    if (!guarded.ok) return guarded.response
+    if (guarded.modifiedPayload) {
+      body = assistedSellingBuyerThreadOpenRequestSchema.parse({ ...body, ...guarded.modifiedPayload })
     }
 
     const ctx: CommandRuntimeContext = {
@@ -153,6 +184,7 @@ export async function POST(request: Request) {
       openThreadAsBuyerCommand.id,
       { input: commandInput, ctx },
     )
+    await guarded.runAfterSuccess()
 
     return NextResponse.json({ ok: true, result }, { status: result.alreadyOpen ? 200 : 201 })
   } catch (error) {

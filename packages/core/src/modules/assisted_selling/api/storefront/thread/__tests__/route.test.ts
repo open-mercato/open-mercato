@@ -28,6 +28,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
 }))
 
+let mutationGuards: import('@open-mercato/shared/lib/crud/mutation-guard-registry').MutationGuard[] = []
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
+  getAllMutationGuardInstances: jest.fn(() => mutationGuards),
+}))
+
 const mockCommandExecute = jest.fn()
 
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -138,6 +143,7 @@ describe('GET /api/assisted_selling/storefront/thread', () => {
 describe('POST /api/assisted_selling/storefront/thread', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mutationGuards = []
     ;(checkRateLimit as jest.Mock).mockResolvedValue(null)
     ;(getClientIp as jest.Mock).mockReturnValue('127.0.0.1')
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
@@ -181,6 +187,29 @@ describe('POST /api/assisted_selling/storefront/thread', () => {
     })
     // §6.2: buyer commands carry NO staff principal.
     expect(mockCommandExecute.mock.calls[0][1].ctx.auth).toBeNull()
+  })
+
+  // #8268 review Major 7: this route used to dispatch the open-as-buyer command
+  // without going through the shared route mutation-guard registry at all, so a
+  // guard targeting `assisted_selling.thread` (enforced on the repaired staff paths)
+  // never ran for a direct buyer call.
+  it('refuses with the guard\'s own status/body and never dispatches the command when a registered guard denies', async () => {
+    mutationGuards = [
+      {
+        id: 'test.deny-buyer-thread-open',
+        targetEntity: 'assisted_selling.thread',
+        operations: ['create'],
+        async validate() {
+          return { ok: false, status: 422, body: { error: 'blocked by test guard' } }
+        },
+      },
+    ]
+
+    const response = await POST(makeRequest('POST', { 'X-Cart-Token': 'token-1' }, {}))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: 'blocked by test guard' })
+    expect(mockCommandExecute).not.toHaveBeenCalled()
   })
 
   it('answers 200 (creates nothing) when the thread already existed', async () => {

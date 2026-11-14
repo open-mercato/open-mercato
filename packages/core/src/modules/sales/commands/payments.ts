@@ -455,7 +455,7 @@ async function restorePaymentWithOrderProjections(
 
 const createPaymentCommand: CommandHandler<
   PaymentCreateInput,
-  { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number }; orderPaymentMethodIdBefore?: string | null; orderPaymentMethodCodeBefore?: string | null }
+  { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number }; orderPaymentMethodIdBefore?: string | null; orderPaymentMethodCodeBefore?: string | null; reused?: boolean }
 > = {
   id: 'sales.payments.create',
   async execute(rawInput, ctx) {
@@ -470,7 +470,7 @@ const createPaymentCommand: CommandHandler<
 
     const scope: PaymentScope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const allocationInputs = Array.isArray(input.allocations) ? input.allocations : []
-    const { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore } = await em.transactional(async (tx) => {
+    const { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused } = await em.transactional(async (tx) => {
       const order = assertFound(
         await findOneWithDecryption(tx, SalesOrder, { id: input.orderId }, {}, scope),
         'sales.payments.order_not_found'
@@ -501,6 +501,29 @@ const createPaymentCommand: CommandHandler<
           scope,
         )
         if (existingPayment) {
+          // #8268 review Major 3: reconcile monotonically under THIS lock. A live
+          // authorization can commit between the caller's own unlocked pre-check
+          // (`checkout/commands/submit.ts#findRecordedGatewayPayment`) and this locked
+          // re-check, so the row this re-check finds may still be uncaptured while THIS
+          // request already carries the real captured amount/status (a `captured`
+          // webhook racing the `authorized` session's own write). Returning it unchanged
+          // would leave it permanently uncaptured: the checkout session is already
+          // terminal by then and nothing else re-verifies
+          // (`checkout/commands/submit.ts#markGatewayPaymentRecorded`'s own header note).
+          // Only ever moves forward (strictly greater captured amount) — never reverts an
+          // already-captured row back toward a smaller/older request.
+          const requestedCaptured = Number(toNumericString(input.capturedAmount) ?? '0')
+          const existingCaptured = Number(existingPayment.capturedAmount ?? '0')
+          if (requestedCaptured > existingCaptured) {
+            existingPayment.capturedAmount = toNumericString(input.capturedAmount) ?? existingPayment.capturedAmount
+            existingPayment.capturedAt = input.capturedAt ?? new Date()
+            if (input.statusEntryId) {
+              existingPayment.statusEntryId = input.statusEntryId
+              existingPayment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId, { tenantId: input.tenantId })
+            }
+            existingPayment.updatedAt = new Date()
+            tx.persist(existingPayment)
+          }
           const orderTotals = await recomputeLockedOrders(tx, lockedOrders)
           return {
             payment: existingPayment,
@@ -509,6 +532,14 @@ const createPaymentCommand: CommandHandler<
             lockedOrders,
             orderPaymentMethodIdBefore: order.paymentMethodId ?? null,
             orderPaymentMethodCodeBefore: order.paymentMethodCode ?? null,
+            // #8268 review Critical/Blocker 1: signals `buildLog` (below) to skip the
+            // audit/undo entry and the caller (below the transaction) to skip the
+            // "created" side effects/notification — this request did not create
+            // anything, and building a "Create payment" undo for a pre-existing row
+            // would let undo delete that row and the allocations/order totals it
+            // already represents, which is a destructive regression for an ordinary
+            // repeated payment reference.
+            reused: true,
           }
         }
       }
@@ -676,59 +707,66 @@ const createPaymentCommand: CommandHandler<
       }
       const orderTotals = await recomputeLockedOrders(tx, lockedOrders)
       const totals = orderTotals.get(order.id)
-      return { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore }
+      return { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused: false }
     })
 
     await invalidateOrderCaches(ctx.container, lockedOrders.values(), ctx.auth?.tenantId ?? null)
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCrudSideEffects({
-      dataEngine,
-      action: 'created',
-      entity: payment,
-      identifiers: {
-        id: payment.id,
-        organizationId: payment.organizationId,
-        tenantId: payment.tenantId,
-      },
-      indexer: { entityType: E.sales.sales_payment },
-      events: paymentCrudEvents,
-    })
+    // #8268 review Blocker 1: a reused row (same `paymentReference`, found under the
+    // order lock above) did not just get created — emitting `created` side effects and
+    // the "payment received" notification for it would be a duplicate audit/notification
+    // event for an ordinary repeated payment reference, on top of the destructive undo
+    // `buildLog` below already guards against.
+    if (!reused) {
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'created',
+        entity: payment,
+        identifiers: {
+          id: payment.id,
+          organizationId: payment.organizationId,
+          tenantId: payment.tenantId,
+        },
+        indexer: { entityType: E.sales.sales_payment },
+        events: paymentCrudEvents,
+      })
 
-    // Create notification for payment received
-    try {
-      const notificationService = resolveNotificationService(ctx.container)
-      const typeDef = notificationTypes.find((type) => type.type === 'sales.payment.received')
-      if (typeDef) {
-        const amountDisplay = payment.amount && payment.currencyCode
-          ? `${payment.currencyCode} ${payment.amount}`
-          : ''
-        const notificationInput = buildFeatureNotificationFromType(typeDef, {
-          requiredFeature: 'sales.orders.manage',
-          bodyVariables: {
-            orderNumber: order.orderNumber ?? '',
-            amount: amountDisplay,
-          },
-          sourceEntityType: 'sales:order',
-          sourceEntityId: order.id,
-          linkHref: `/backend/sales/orders/${order.id}`,
-        })
-
-        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
-        // e-mail delivery); interactive creates are unaffected.
-        if (!ctx.bulkImport?.skipNotifications) {
-          await notificationService.createForFeature(notificationInput, {
-            tenantId: payment.tenantId,
-            organizationId: payment.organizationId ?? null,
+      // Create notification for payment received
+      try {
+        const notificationService = resolveNotificationService(ctx.container)
+        const typeDef = notificationTypes.find((type) => type.type === 'sales.payment.received')
+        if (typeDef) {
+          const amountDisplay = payment.amount && payment.currencyCode
+            ? `${payment.currencyCode} ${payment.amount}`
+            : ''
+          const notificationInput = buildFeatureNotificationFromType(typeDef, {
+            requiredFeature: 'sales.orders.manage',
+            bodyVariables: {
+              orderNumber: order.orderNumber ?? '',
+              amount: amountDisplay,
+            },
+            sourceEntityType: 'sales:order',
+            sourceEntityId: order.id,
+            linkHref: `/backend/sales/orders/${order.id}`,
           })
+
+          // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+          // e-mail delivery); interactive creates are unaffected.
+          if (!ctx.bulkImport?.skipNotifications) {
+            await notificationService.createForFeature(notificationInput, {
+              tenantId: payment.tenantId,
+              organizationId: payment.organizationId ?? null,
+            })
+          }
         }
+      } catch (err) {
+        // Notification creation is non-critical, don't fail the command
+        logger.error('sales.payments.create Failed to create notification', { err })
       }
-    } catch (err) {
-      // Notification creation is non-critical, don't fail the command
-      logger.error('sales.payments.create Failed to create notification', { err })
     }
 
-    return { paymentId: payment.id, orderTotals: totals, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore }
+    return { paymentId: payment.id, orderTotals: totals, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -736,6 +774,11 @@ const createPaymentCommand: CommandHandler<
     return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId, scope) : null
   },
   buildLog: async ({ result, snapshots }) => {
+    // #8268 review Blocker 1: a reused row must never build an undo — the command bus
+    // would mint it normally, and undo would delete that pre-existing payment (and its
+    // allocations), silently changing order totals for an ordinary repeated payment
+    // reference. Mirrors `messages.ts`'s own `deduplicated` -> `{ skipLog: true }` pattern.
+    if (result.reused) return { skipLog: true }
     const after = snapshots.after as PaymentSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()

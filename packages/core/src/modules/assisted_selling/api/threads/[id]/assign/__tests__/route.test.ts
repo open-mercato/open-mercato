@@ -15,9 +15,13 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
   getAllMutationGuardInstances: jest.fn(() => guards),
 }))
 
+let grantedFeatures: string[] = []
+const getGrantedFeatures = jest.fn(async () => grantedFeatures)
+
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'commandBus') return { execute: mockCommandBusExecute }
+    if (name === 'rbacService') return { getGrantedFeatures }
     return undefined
   }),
 }
@@ -58,7 +62,9 @@ function callPost() {
 describe('POST /threads/:id/assign — mutation guard registry (review finding M12)', () => {
   beforeEach(() => {
     mockCommandBusExecute.mockClear()
+    getGrantedFeatures.mockClear()
     guards = []
+    grantedFeatures = []
   })
 
   it('refuses with the guard\'s own status/body and never dispatches the assign command when a guard denies', async () => {
@@ -117,5 +123,70 @@ describe('POST /threads/:id/assign — mutation guard registry (review finding M
     await callPost()
 
     expect(seenUserIds).toEqual([mockAuth.sub])
+  })
+
+  // #8268 review Major 6: `userFeatures` used to be hard-coded to `[]`, which the
+  // registry treats as authoritative — a feature-gated guard never ran regardless of
+  // the caller's real grants. Now the wrapper resolves grants via
+  // `rbacService.getGrantedFeatures` (mocked above), so a feature-gated guard runs
+  // only when the caller actually holds the feature — concretely or via wildcard.
+  it('skips a feature-gated guard when the caller lacks the required feature', async () => {
+    const denyingGuard: MutationGuard = {
+      id: 'test.feature-gated-deny',
+      targetEntity: THREAD_RESOURCE_KIND,
+      operations: ['update'],
+      features: ['assisted_selling.threads.block_assign'],
+      async validate() {
+        return { ok: false, status: 422, body: { error: 'should not run' } }
+      },
+    }
+    guards = [denyingGuard]
+    grantedFeatures = []
+
+    const response = await callPost()
+
+    expect(getGrantedFeatures).toHaveBeenCalledWith(mockAuth.sub, { tenantId: TENANT_ID, organizationId: ORG_ID })
+    expect(response.status).toBe(200)
+    expect(mockCommandBusExecute).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs a feature-gated guard when the caller holds the concrete feature', async () => {
+    const denyingGuard: MutationGuard = {
+      id: 'test.feature-gated-deny-concrete',
+      targetEntity: THREAD_RESOURCE_KIND,
+      operations: ['update'],
+      features: ['assisted_selling.threads.block_assign'],
+      async validate() {
+        return { ok: false, status: 422, body: { error: 'blocked by concrete grant' } }
+      },
+    }
+    guards = [denyingGuard]
+    grantedFeatures = ['assisted_selling.threads.block_assign']
+
+    const response = await callPost()
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: 'blocked by concrete grant' })
+    expect(mockCommandBusExecute).not.toHaveBeenCalled()
+  })
+
+  it('runs a feature-gated guard when the caller holds a wildcard grant', async () => {
+    const denyingGuard: MutationGuard = {
+      id: 'test.feature-gated-deny-wildcard',
+      targetEntity: THREAD_RESOURCE_KIND,
+      operations: ['update'],
+      features: ['assisted_selling.threads.block_assign'],
+      async validate() {
+        return { ok: false, status: 422, body: { error: 'blocked by wildcard grant' } }
+      },
+    }
+    guards = [denyingGuard]
+    grantedFeatures = ['assisted_selling.*']
+
+    const response = await callPost()
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: 'blocked by wildcard grant' })
+    expect(mockCommandBusExecute).not.toHaveBeenCalled()
   })
 })

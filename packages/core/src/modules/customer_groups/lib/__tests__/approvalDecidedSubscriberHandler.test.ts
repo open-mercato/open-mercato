@@ -57,4 +57,10 @@ describe('createApprovalDecidedHandler', () => {
     await expect(handle({ approvalId: 'approval-1' }, ctx)).resolves.toBeUndefined()
     expect(sendApprovalDecidedRequesterEmailMock).not.toHaveBeenCalled()
   })
+
+  it('re-throws a requester e-mail failure so the persistent event bus retries', async () => {
+    sendApprovalDecidedRequesterEmailMock.mockRejectedValueOnce(new Error('boom'))
+    const handle = createApprovalDecidedHandler('approved', 'customer_groups:approval-approved-notification')
+    await expect(handle(payload, ctx)).rejects.toThrow('boom')
+  })
 })

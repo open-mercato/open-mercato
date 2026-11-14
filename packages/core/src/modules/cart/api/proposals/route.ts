@@ -145,11 +145,13 @@ export async function POST(request: Request) {
     const guarded = await runRouteMutationGuards({
       container,
       req: request,
+      // #8268 review Major 6: omit `userFeatures` so the wrapper resolves the caller's
+      // actual grants via `rbacService.getGrantedFeatures` — an explicit `[]` was
+      // authoritative and silently skipped every feature-gated registry guard.
       auth: {
         userId: auth.sub ?? 'anonymous',
         tenantId,
         organizationId,
-        userFeatures: [],
       },
       input: {
         resourceKind: CART_RESOURCE_KIND,

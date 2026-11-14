@@ -20,6 +20,11 @@ jest.mock('../../../../../lib/buyerIdentity', () => ({
   },
 }))
 
+let mutationGuards: import('@open-mercato/shared/lib/crud/mutation-guard-registry').MutationGuard[] = []
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
+  getAllMutationGuardInstances: jest.fn(() => mutationGuards),
+}))
+
 const mockCommandExecute = jest.fn()
 
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -40,6 +45,7 @@ const GUEST_BASKET = { id: 'cart-1', tenantId: 'tenant-1', organizationId: 'org-
 describe('POST /api/assisted_selling/storefront/thread/messages', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mutationGuards = []
     ;(checkRateLimit as jest.Mock).mockResolvedValue(null)
     ;(getClientIp as jest.Mock).mockReturnValue('127.0.0.1')
     ;(createRequestContainer as jest.Mock).mockResolvedValue({
@@ -76,6 +82,29 @@ describe('POST /api/assisted_selling/storefront/thread/messages', () => {
     expect(response.status).toBe(201)
     expect(json.result.messageId).toBe('message-1')
     expect(mockCommandExecute.mock.calls[0][1].input).toMatchObject({ body: 'hello rep', buyerCartId: 'cart-1' })
+  })
+
+  // #8268 review Major 7: this route used to dispatch the post-as-buyer command
+  // without going through the shared route mutation-guard registry at all, so a
+  // guard targeting `assisted_selling.thread` (enforced on the staff
+  // `/threads/:id/messages` path) never ran for a direct buyer call.
+  it('refuses with the guard\'s own status/body and never dispatches the command when a registered guard denies', async () => {
+    mutationGuards = [
+      {
+        id: 'test.deny-buyer-message-post',
+        targetEntity: 'assisted_selling.thread',
+        operations: ['create'],
+        async validate() {
+          return { ok: false, status: 422, body: { error: 'blocked by test guard' } }
+        },
+      },
+    ]
+
+    const response = await POST(makeRequest({ 'X-Cart-Token': 'token-1' }, { body: 'hello rep' }))
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual({ error: 'blocked by test guard' })
+    expect(mockCommandExecute).not.toHaveBeenCalled()
   })
 
   it('rejects bodyFormat other than text with 400 (S24)', async () => {

@@ -80,11 +80,20 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
 
   const container = resolveContainer(ctx)
 
+  // #8268 review INHERITED M3: each channel is attempted independently (a merchant
+  // notification failure must not block the buyer e-mail, and vice versa), but a
+  // channel's failure is collected rather than swallowed. The per-recipient delivery
+  // ledger (`approvalEmails.ts`) already makes a redelivery idempotent, so re-throwing
+  // at the end lets the persistent event bus's queue retry actually retry the channel
+  // that failed instead of silently acking a transient lookup/transport error.
+  const errors: unknown[] = []
+
   if (approvalPolicy === 'merchant' || approvalPolicy === 'both') {
     try {
       await notifyMerchantDecidersOfApprovalRequested(container, { tenantId, organizationId, approvalId, amountGross, currencyCode })
     } catch (err) {
       logger.warn('[customer_groups:approval-requested-notification] merchant decider notification failed', { err })
+      errors.push(err)
     }
   }
 
@@ -103,6 +112,11 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       })
     } catch (err) {
       logger.warn('[customer_groups:approval-requested-notification] buyer decider e-mail failed', { err })
+      errors.push(err)
     }
+  }
+
+  if (errors.length) {
+    throw new AggregateError(errors, '[internal] customer_groups approval-requested notification channel(s) failed')
   }
 }
