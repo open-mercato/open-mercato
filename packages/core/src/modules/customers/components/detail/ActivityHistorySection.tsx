@@ -17,6 +17,8 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { ActivityCard } from './ActivityCard'
 import { useActivityDelete } from './hooks/useActivityDelete'
+import { useInteractionUndoRefresh } from './hooks/useInteractionUndoRefresh'
+import { runActivityRefresh, type ActivityRefreshHandler } from './activityRefresh'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -28,6 +30,8 @@ type ActivityHistorySectionProps = {
   useCanonicalInteractions?: boolean
   refreshKey?: number
   onEditActivity?: (activity: InteractionSummary) => void
+  /** Called after an activity in the history is changed, deleted or restored by undo, so the host can refresh the panels it owns (week strip, planned list, counters). */
+  onDataRefresh?: ActivityRefreshHandler
   /** Optional guarded-mutation runner so per-row mutations route through the parent's
    * `useGuardedMutation` and emit retry-last-mutation context. */
   runMutation?: GuardedMutationRunner
@@ -182,6 +186,7 @@ export function ActivityHistorySection({
   useCanonicalInteractions = false,
   refreshKey = 0,
   onEditActivity,
+  onDataRefresh,
   runMutation,
   excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
@@ -199,9 +204,12 @@ export function ActivityHistorySection({
   const [loadedPages, setLoadedPages] = React.useState(1)
   const [localRefreshKey, setLocalRefreshKey] = React.useState(0)
   const historyRequestSeqRef = React.useRef(0)
-  const handleActivityChanged = React.useCallback(() => {
+  const handleActivityChanged = React.useCallback(async () => {
     setLocalRefreshKey((current) => current + 1)
-  }, [])
+    await runActivityRefresh(onDataRefresh, 'ActivityHistorySection')
+  }, [onDataRefresh])
+
+  useInteractionUndoRefresh(handleActivityChanged, 'ActivityHistorySection')
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 300)

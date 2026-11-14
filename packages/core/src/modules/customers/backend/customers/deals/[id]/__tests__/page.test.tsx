@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import DealDetailPage from '../page'
 
@@ -25,6 +25,9 @@ const inlineActivityComposerMock = jest.fn(
       {entityType}:{entityId}:{onScheduleRequested ? 'schedule-enabled' : 'schedule-disabled'}
     </div>
   ),
+)
+const activitiesSectionMock = jest.fn(
+  (_props: { onDataRefresh?: () => void; refreshKey?: number }) => <div>activities</div>,
 )
 const plannedActivitiesSectionMock = jest.fn(
   ({ onSchedule }: { onSchedule?: () => void }) => (
@@ -272,7 +275,7 @@ jest.mock('../../../../../components/detail/DealLostSummaryDialog', () => ({
 }))
 
 jest.mock('../../../../../components/detail/ActivitiesSection', () => ({
-  ActivitiesSection: () => <div>activities</div>,
+  ActivitiesSection: (props: { onDataRefresh?: () => void; refreshKey?: number }) => activitiesSectionMock(props),
 }))
 
 jest.mock('../../../../../components/detail/InlineActivityComposer', () => ({
@@ -407,6 +410,7 @@ describe('DealDetailPage', () => {
     })
     pushMock.mockReset()
     inlineActivityComposerMock.mockClear()
+    activitiesSectionMock.mockClear()
     plannedActivitiesSectionMock.mockClear()
     dealFormMock.mockClear()
     collapsibleZoneLayoutMock.mockClear()
@@ -751,5 +755,23 @@ describe('DealDetailPage', () => {
       expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('company:company-1:schedule-enabled')
     })
     expect(screen.getByTestId('planned-activities-section')).toHaveTextContent('schedule-enabled')
+  })
+
+  it('refreshes the composer week strip with the timeline after an activity is deleted (#9487)', async () => {
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => expect(activitiesSectionMock).toHaveBeenCalled())
+    await waitFor(() => expect(inlineActivityComposerMock).toHaveBeenCalled())
+    const readComposerRefreshKey = () =>
+      (inlineActivityComposerMock.mock.calls.at(-1)?.[0] as { refreshKey?: number } | undefined)?.refreshKey
+    const refreshKeyBeforeDelete = readComposerRefreshKey()
+    expect(typeof refreshKeyBeforeDelete).toBe('number')
+
+    await act(async () => {
+      activitiesSectionMock.mock.calls.at(-1)?.[0].onDataRefresh?.()
+    })
+
+    await waitFor(() => expect(readComposerRefreshKey()).toBe((refreshKeyBeforeDelete ?? 0) + 1))
+    expect(activitiesSectionMock.mock.calls.at(-1)?.[0].refreshKey).toBe(readComposerRefreshKey())
   })
 })
