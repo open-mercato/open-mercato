@@ -49,6 +49,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/di-classic-proxy.test.ts',
+        scans: 'module DI registrations across packages, host apps and the create-app template — CLASSIC factories require PROXY for destructuring',
+      },
+      {
         path: 'src/__tests__/explicit-sort-comparators.test.ts',
         scans: 'every packages/*/src root plus scripts/ — sort calls without an explicit comparator (#3620)',
       },
@@ -316,6 +320,10 @@ export const REPO_WIDE_GUARDS = [
  * Each entry needs a reason, so the next person can tell "already covered" from "forgotten".
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
+  {
+    path: 'apps/mercato/src/components/__tests__/DemoFeedbackWidget.test.tsx',
+    reason: 'Reads onboarding locale dictionaries as fixture data for the app widget; it does not audit onboarding source. The app-owned Jest suite runs when this component changes, and onboarding owns dictionary validation.',
+  },
   {
     path: 'packages/cli/src/lib/__tests__/module-search.test.ts',
     reason: 'Reads only package-local catalog fixtures and per-test mkdtemp app roots; packages/core and apps/mercato literals construct temporary resolver layouts, never audit repository sources.',

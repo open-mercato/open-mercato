@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getOcrConcurrencyStateForTests,
+  processAttachmentOcr,
   requestOcrProcessing,
   resetOcrConcurrencyStateForTests,
   withOcrConcurrencySlot,
@@ -8,6 +9,7 @@ import {
 import type { Attachment } from '../../data/entities'
 import type { StorageDriver } from '../drivers/types'
 import { extractAttachmentContent } from '../textExtraction'
+import { OcrService } from '../ocrService'
 
 jest.mock('../textExtraction', () => ({
   extractAttachmentContent: jest.fn(async () => null),
@@ -64,6 +66,57 @@ describe('requestOcrProcessing EntityManager isolation', () => {
     ).rejects.toThrow(/requires an EntityManager that exposes fork/)
 
     expect(setImmediateSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('processAttachmentOcr content persistence', () => {
+  const previousApiKey = process.env.OPENAI_API_KEY
+
+  beforeEach(() => {
+    process.env.OPENAI_API_KEY = 'test-key'
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    if (previousApiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = previousApiKey
+  })
+
+  it('strips U+0000 from OCR output before persisting and keeps the rest of the text', async () => {
+    jest.spyOn(OcrService.prototype, 'processFile').mockResolvedValue({
+      content: ' Ty\u0000pe3 font\n\n--- Page 2 ---\u0000 ',
+      processingTimeMs: 1,
+    })
+    const attachmentRow = { id: 'attachment-1', content: null as string | null }
+    const em = {
+      findOne: jest.fn(async () => attachmentRow),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    em.persist.mockImplementation(() => em)
+    const ocrDriver = {
+      toLocalPath: jest.fn(async () => ({
+        filePath: '/tmp/attachment-1.pdf',
+        cleanup: jest.fn(async () => undefined),
+      })),
+    } as unknown as StorageDriver
+
+    await processAttachmentOcr(
+      em as unknown as EntityManager,
+      {
+        attachmentId: 'attachment-1',
+        storagePath: 'docs/attachment-1.pdf',
+        mimeType: 'application/pdf',
+        partitionCode: 'docs',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      ocrDriver,
+    )
+
+    expect(attachmentRow.content).toBe(' Type3 font\n\n--- Page 2 --- ')
+    expect(em.persist).toHaveBeenCalledWith(attachmentRow)
+    expect(em.flush).toHaveBeenCalled()
   })
 })
 

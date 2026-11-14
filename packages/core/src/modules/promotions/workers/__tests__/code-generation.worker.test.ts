@@ -10,17 +10,18 @@ import handle from '../code-generation.worker'
 
 jest.mock('../../events', () => ({ emitPromotionsEvent: jest.fn(async () => {}) }))
 const { emitPromotionsEvent } = require('../../events') as { emitPromotionsEvent: jest.Mock }
+const crypto = require('crypto') as typeof import('crypto')
 
 const TENANT = 'tenant-1'
 const ORG = 'org-1'
 
 // Mirrors `workers/code-generation.worker.ts`'s own `CODE_CHARSET` (uppercase
 // alphanumeric excluding 0/O/1/I/L). Duplicated here, deliberately, so tests can compute
-// exactly which character a mocked `Math.random()` draw produces without exporting an
+// exactly which character a mocked `crypto.randomInt()` draw produces without exporting an
 // internal implementation detail from the production module.
 const CHARSET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'
-function charAt(randomValue: number): string {
-  return CHARSET[Math.floor(randomValue * CHARSET.length)]
+function charAt(index: number): string {
+  return CHARSET[index]
 }
 
 type Row = Record<string, unknown>
@@ -170,6 +171,20 @@ describe('promotions:code-generation worker', () => {
     emitPromotionsEvent.mockClear()
   })
 
+  it('generates voucher bodies without relying on Math.random', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { amount: 1, length: 8, prefix: 'SALE-', suffix: '-VIP' })
+    jest.spyOn(Math, 'random').mockImplementation(() => {
+      throw new Error('Math.random must not supply voucher entropy')
+    })
+
+    await handle(makeJob({ codeId: code.id as string, tenantId: TENANT, organizationId: ORG }), fakeCtx(em) as any)
+
+    const generatedRows = tables.get(GeneratedCode) ?? []
+    expect(generatedRows).toHaveLength(1)
+    expect(generatedRows[0].code).toMatch(/^SALE-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}-VIP$/)
+  })
+
   it('generates the target amount from scratch and reconciles Code.generated to the real count', async () => {
     const { em, tables } = createFakeEm()
     const code = seedCode(tables, { amount: 5, length: 6 })
@@ -224,7 +239,7 @@ describe('promotions:code-generation worker', () => {
 
   it('retries past a forced collision against the shared Code/GeneratedCode namespace and still reaches the target amount', async () => {
     const { em, tables } = createFakeEm()
-    // length: 1 so each candidate draw consumes exactly one `Math.random()` call,
+    // length: 1 so each candidate draw consumes exactly one `crypto.randomInt()` call,
     // making the sequence below fully deterministic.
     const code = seedCode(tables, { amount: 1, length: 1 })
     // A DIFFERENT code's generated row occupying the character the first mocked draw
@@ -233,15 +248,15 @@ describe('promotions:code-generation worker', () => {
     const otherCode = seedCode(tables, { amount: 1, length: 1 })
     seedGeneratedCode(tables, { codeId: otherCode.id as string, code: charAt(0) })
 
-    const randomSpy = jest.spyOn(Math, 'random')
+    const randomSpy = jest.spyOn(crypto, 'randomInt')
     randomSpy.mockReturnValueOnce(0) // collides with the pre-seeded row above
-    randomSpy.mockReturnValueOnce(0.5) // distinct character — the winning candidate
+    randomSpy.mockReturnValueOnce(15) // distinct character — the winning candidate
 
     await handle(makeJob({ codeId: code.id as string, tenantId: TENANT, organizationId: ORG }), fakeCtx(em) as any)
 
     const ownRows = (tables.get(GeneratedCode) ?? []).filter((row) => row.codeId === code.id)
     expect(ownRows).toHaveLength(1)
-    expect(ownRows[0].code).toBe(charAt(0.5))
+    expect(ownRows[0].code).toBe(charAt(15))
     expect(ownRows[0].code).not.toBe(charAt(0))
     expect(code.generated).toBe(1)
   })

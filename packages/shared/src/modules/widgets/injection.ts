@@ -222,6 +222,11 @@ export type InjectionWidgetPlacement = {
    * order.
    */
   priority?: number
+  /**
+   * Optional lucide icon name (`'list-checks'`, `'ListChecks'` or `'lucide:list-checks'`)
+   * shown next to the label by hosts that render the widget as a tab.
+   */
+  icon?: string
 }
 
 /**

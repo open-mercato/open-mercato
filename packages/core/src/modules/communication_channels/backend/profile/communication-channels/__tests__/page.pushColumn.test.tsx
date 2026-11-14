@@ -28,6 +28,8 @@ type ChannelRow = {
   pollIntervalSeconds: number | null
   lastPolledAt: string | null
   pushStatus: string | null
+  pushExpiresAt: string | null
+  pushExpired: boolean
   lastPushError: { code: string | null; message: string | null; at: string | null } | null
   supportsRealtimePush: boolean
   supportsPushRegistration: boolean
@@ -109,6 +111,8 @@ function buildRow(overrides: Partial<ChannelRow>): ChannelRow {
     pollIntervalSeconds: null,
     lastPolledAt: null,
     pushStatus: null,
+    pushExpiresAt: null,
+    pushExpired: false,
     lastPushError: null,
     supportsRealtimePush: true,
     supportsPushRegistration: false,
@@ -215,6 +219,44 @@ describe('profile communication channels — push column and poll action', () =>
 
     openRowActions(gmail)
     expect(screen.getByRole('menuitem', { name: 'Re-register push' })).toBeInTheDocument()
+  })
+
+  // Regression for https://github.com/open-mercato/open-mercato/issues/8943 — an
+  // expired Gmail watch still stores pushStatus 'active', which rendered "Push
+  // active" and hid the only action that recovers it.
+  it('shows an expired Gmail watch as expired and offers to re-register it', () => {
+    const expired = buildRow({
+      providerKey: 'gmail',
+      supportsRealtimePush: false,
+      supportsPushRegistration: true,
+      pushStatus: 'active',
+      pushExpiresAt: '2026-08-27T12:40:11.000Z',
+      pushExpired: true,
+    })
+    renderCell('pushStatus', expired)
+
+    expect(screen.getByText('Push expired — re-register to resume delivery')).toBeInTheDocument()
+    expect(screen.queryByText('Push active')).not.toBeInTheDocument()
+
+    openRowActions(expired)
+    expect(screen.getByRole('menuitem', { name: 'Re-register push' })).toBeInTheDocument()
+  })
+
+  it('keeps a live Gmail watch as "Push active" without a re-register action', () => {
+    const live = buildRow({
+      providerKey: 'gmail',
+      supportsRealtimePush: false,
+      supportsPushRegistration: true,
+      pushStatus: 'active',
+      pushExpiresAt: '2099-01-01T00:00:00.000Z',
+      pushExpired: false,
+    })
+    renderCell('pushStatus', live)
+
+    expect(screen.getByText('Push active')).toBeInTheDocument()
+
+    openRowActions(live)
+    expect(screen.queryByRole('menuitem', { name: 'Re-register push' })).not.toBeInTheDocument()
   })
 
   it('does not claim polling for a registerable push provider that the hub never polls', () => {

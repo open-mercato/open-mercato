@@ -16,6 +16,7 @@ type Harness = {
   proxy: EgressProxy
   proxyPort: number
   dials: EgressDialTarget[]
+  upstreamSockets: Socket[]
   privateConnections: () => number
   publicRequests: Recorded[]
   publicSockets: Set<Socket>
@@ -29,6 +30,13 @@ let harness: Harness
 async function listen(server: Server | ReturnType<typeof createTcpServer>): Promise<number> {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
   return (server.address() as AddressInfo).port
+}
+
+async function waitUntil(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!condition() && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 1))
+  }
 }
 
 function closeAll(): Promise<void[]> {
@@ -121,6 +129,7 @@ async function buildHarness(): Promise<Harness> {
   }
 
   const dials: EgressDialTarget[] = []
+  const upstreamSockets: Socket[] = []
   const portFor = (addresses: readonly string[]): number => {
     if (addresses.length === 1 && [PUBLIC_IP, PUBLIC_IPV6, PUBLIC_6TO4].includes(addresses[0])) return publicPort
     if (addresses.length === 1 && addresses[0] === RESET_IP) return resetPort
@@ -132,13 +141,16 @@ async function buildHarness(): Promise<Harness> {
     lookup,
     connect: (target) => {
       dials.push(target)
-      return netConnect({ host: '127.0.0.1', port: portFor(target.addresses) })
+      const upstream = netConnect({ host: '127.0.0.1', port: portFor(target.addresses) })
+      upstreamSockets.push(upstream)
+      return upstream
     },
   })
   return {
     proxy,
     proxyPort: Number(new URL(proxy.url).port),
     dials,
+    upstreamSockets,
     privateConnections: () => privateHits,
     publicRequests,
     publicSockets,
@@ -382,11 +394,14 @@ describe('browser egress proxy (#7218)', () => {
     expect(tunnel.status).toBe(200)
     tunnel.socket.on('error', () => undefined)
     const clientClosed = new Promise<void>((resolve) => tunnel.socket.once('close', () => resolve()))
+    await waitUntil(() => harness.publicSockets.size === 1)
+    expect(harness.publicSockets.size).toBe(1)
 
     await harness.proxy.close()
+    expect(harness.upstreamSockets.map((socket) => socket.destroyed)).toEqual([true])
     await clientClosed
 
-    await new Promise<void>((resolve) => setImmediate(resolve))
+    await waitUntil(() => harness.publicSockets.size === 0)
     expect(harness.publicSockets.size).toBe(0)
     await expect(
       new Promise((resolve, reject) => {
@@ -400,6 +415,59 @@ describe('browser egress proxy (#7218)', () => {
     ).rejects.toThrow(/ECONNREFUSED/)
   })
 })
+
+const REQUEST_FORMS = [
+  ['CONNECT', 'CONNECT vetting.test:443 HTTP/1.1\r\nHost: vetting.test:443\r\n\r\n'],
+  ['absolute-form', 'GET http://vetting.test/ HTTP/1.1\r\nHost: vetting.test\r\n\r\n'],
+]
+
+const CLIENT_DEPARTURES: Array<[string, (client: Socket) => void]> = [
+  ['disconnect', (client) => client.destroy()],
+  ['reset', (client) => client.resetAndDestroy()],
+]
+
+type LookupRecords = Awaited<ReturnType<LookupFn>>
+
+type DeferredLookupProxy = {
+  proxy: EgressProxy
+  dials: EgressDialTarget[]
+  started: Promise<void>
+  answer: (records: LookupRecords) => void
+}
+
+function proxyRoundTrip(proxy: EgressProxy): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const barrier = netConnect({ host: '127.0.0.1', port: Number(new URL(proxy.url).port) })
+    barrier.once('error', reject)
+    barrier.once('close', () => reject(new Error('[internal] barrier closed without a response')))
+    barrier.once('data', () => {
+      barrier.destroy()
+      resolve()
+    })
+    barrier.write('GET /barrier HTTP/1.1\r\nHost: barrier\r\nConnection: close\r\n\r\n')
+  })
+}
+
+async function startProxyWithDeferredLookup(): Promise<DeferredLookupProxy> {
+  const dials: EgressDialTarget[] = []
+  let resolveLookup: (records: LookupRecords) => void = () => undefined
+  let lookupStarted: () => void = () => undefined
+  const started = new Promise<void>((resolve) => {
+    lookupStarted = resolve
+  })
+  const proxy = await startEgressProxy({
+    lookup: () =>
+      new Promise((resolve) => {
+        resolveLookup = resolve
+        lookupStarted()
+      }),
+    connect: (dialTarget) => {
+      dials.push(dialTarget)
+      return netConnect({ host: '127.0.0.1', port: 9 })
+    },
+  })
+  return { proxy, dials, started, answer: (records) => resolveLookup(records) }
+}
 
 describe('pinned dial and vetting limits (#7218)', () => {
   it('connects the default dial to the vetted address without resolving the hostname', async () => {
@@ -457,38 +525,44 @@ describe('pinned dial and vetting limits (#7218)', () => {
     }
   })
 
-  it('does not dial for a client that left while its destination was being vetted', async () => {
-    const dials: EgressDialTarget[] = []
-    let answer: (records: Array<{ address: string; family: number }>) => void = () => undefined
-    let lookupStarted: () => void = () => undefined
-    const started = new Promise<void>((resolve) => {
-      lookupStarted = resolve
+  describe.each(CLIENT_DEPARTURES)('when the client leaves by %s', (_departure, leave) => {
+    it.each(REQUEST_FORMS)('does not dial for a client that left during vetting (%s)', async (_form, request) => {
+      const { proxy, dials, started, answer } = await startProxyWithDeferredLookup()
+      try {
+        const client = netConnect({ host: '127.0.0.1', port: Number(new URL(proxy.url).port) })
+        client.on('error', () => undefined)
+        client.write(request)
+        await started
+        const clientClosed = new Promise<void>((resolve) => client.once('close', () => resolve()))
+        leave(client)
+        await clientClosed
+        await proxyRoundTrip(proxy)
+        answer([{ address: PUBLIC_IP, family: 4 }])
+        await new Promise((resolve) => setTimeout(resolve, 20))
+
+        expect(dials).toEqual([])
+      } finally {
+        await proxy.close()
+      }
     })
-    const proxy = await startEgressProxy({
-      lookup: () =>
-        new Promise((resolve) => {
-          answer = resolve
-          lookupStarted()
-        }),
-      connect: (dialTarget) => {
-        dials.push(dialTarget)
-        return netConnect({ host: '127.0.0.1', port: 9 })
-      },
-    })
+  })
+
+  it.each(REQUEST_FORMS)('does not dial a request still being vetted when the proxy closes (%s)', async (_form, request) => {
+    const { proxy, dials, started, answer } = await startProxyWithDeferredLookup()
+    const client = netConnect({ host: '127.0.0.1', port: Number(new URL(proxy.url).port) })
+    client.on('error', () => undefined)
     try {
-      const client = netConnect({ host: '127.0.0.1', port: Number(new URL(proxy.url).port) })
-      client.on('error', () => undefined)
-      client.write('CONNECT leaving.test:443 HTTP/1.1\r\nHost: leaving.test:443\r\n\r\n')
+      client.write(request)
       await started
-      const clientClosed = new Promise<void>((resolve) => client.once('close', () => resolve()))
-      client.destroy()
-      await clientClosed
-      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      const closing = proxy.close()
       answer([{ address: PUBLIC_IP, family: 4 }])
+      await closing
       await new Promise((resolve) => setTimeout(resolve, 20))
 
       expect(dials).toEqual([])
     } finally {
+      client.destroy()
       await proxy.close()
     }
   })

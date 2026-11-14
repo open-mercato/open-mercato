@@ -51,9 +51,7 @@ Confirmed verbatim from the documentation, § "Bezpieczeństwo transakcji":
 I.e.: concatenate only the non-empty field values (in ascending order of
 their documented "kolejność Hash" position) with `|`, append the shared key,
 hash the result. Never insert a placeholder `|` for a missing optional field.
-This is confirmed against three worked examples in the docs and matches the
-already-validated reference implementation in
-`paytalk/autopay-sandbox/lib/hash.js`.
+This is confirmed against three worked examples in the docs.
 
 **Environments** (§ "Adresy środowisk"):
 
@@ -121,7 +119,7 @@ represented by an empty placeholder):
 | 4 | `Description` | No | Prepended with Autopay's own transaction identifiers in the bank statement line. |
 | 5 | `GatewayID` | No | Pre-selects a payment channel; full list via the separate `gatewayList` service (not needed for MVP — omit to show Autopay's own channel picker). |
 | 6 | `Currency` | No | Defaults to PLN. This package only ever sends PLN. |
-| 7 | `CustomerEmail` | **Yes** | Confirmed **required** in the official docs — the reference sandbox implementation in `paytalk/autopay-sandbox` treated it as optional; that assumption is superseded by this spec. |
+| 7 | `CustomerEmail` | **Yes** | Confirmed **required** in the official docs. |
 | 19 | `ValidityTime` | No | Session validity; defaults to 6 days, capped at 31 days. Not sent by this package's MVP (default is acceptable). |
 | 34 | `LinkValidityTime` | No | Not sent by this package's MVP. |
 | n/a | `Hash` | Yes | Computed over all populated fields above, in ascending numeric order. |
@@ -317,7 +315,7 @@ Package responsibilities:
 | `integration.ts` | Credential fields (`serviceId`, `sharedKey`, `hashAlgorithm`), integration metadata. |
 | `di.ts` | Adapter and health registrations. |
 | `lib/adapters/v1.ts` | `createSession`, `getStatus`, `cancel`, `refund`, explicit unsupported-operation for `capture`, status mapping. |
-| `lib/hash.ts` | Field concatenation + hash computation (SHA256 default, SHA512 configurable), ported in spirit (not copied verbatim) from the already-validated reference implementation in `paytalk/autopay-sandbox/lib/hash.js`. |
+| `lib/hash.ts` | Field concatenation + hash computation (SHA256 default, SHA512 configurable), written against the hashing rule and worked examples in the official docs. |
 | `lib/autopay-client.ts` | Builds the signed POST form (no URL carries payer data); calls `transactionStatus`/`transactionCancel`/`transactionRefund`; sandbox vs. production base URL switch (the actual per-partner redirect *path* is issued at onboarding and must never be hardcoded or guessed — only the `host_bramki` origin is fixed/documented). |
 | `api/launch/route.ts` | Public GET. Resolves the transaction by OrderID, requires the unguessable launch token, refuses non-pending or expired payments and non-Autopay gateway hosts, and renders the auto-submitting POST form. |
 | `api/return/route.ts` | Public GET. Verifies the return hash per candidate tenant (fail closed unless exactly one verifies), reads the canonical status through the payment gateway service and redirects to the stored success or cancel address — never to an address taken from the request. |
@@ -427,10 +425,10 @@ it adds a payer-visible redirect.
 ## Rollout and Operations
 
 1. Land the provider package disabled by default.
-2. Configure sandbox credentials (`ServiceID=2`, shared key `2test2`) for
-   local/CI verification of the hash math only — these will not authenticate
-   against `testpay.autopay.eu` for an actual redirect or API call, per the
-   existing `paytalk/autopay-sandbox` README's own findings.
+2. Use the docs' worked-example values (`ServiceID=2`, shared key `2test2`)
+   for local/CI verification of the hash math only — they reproduce the
+   documented hash examples and are not a substitute for credentials issued
+   to a registered Partner Service.
 3. Real sandbox credentials, once available from **the tenant's own**
    registration at https://portal.autopay.eu/, are required to complete an
    actual end-to-end hosted payment test for that tenant, and to obtain their
@@ -629,6 +627,14 @@ would eventually plug into the generic webhook route) is explicitly deferred
 to a follow-up spec and does not block this spec's MVP scope.
 
 ## Changelog
+
+### 2026-11-04
+
+- Removed every reference to a third-party sandbox project from this spec and
+  from `lib/preset.ts`. The official Autopay Online v1.1
+  documentation is the only source this package and spec cite for Autopay
+  behaviour; the worked-example values are described as reproducing the
+  documented hash examples, not as a verified sandbox finding.
 
 ### 2026-10-29
 

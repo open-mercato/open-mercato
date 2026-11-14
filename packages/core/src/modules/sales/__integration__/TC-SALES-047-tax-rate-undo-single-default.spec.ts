@@ -18,7 +18,7 @@ import {
  * undone update never changed it. Restoring the rate and demoting the other defaults commit in one
  * transaction, so a failed demotion leaves the scope unchanged and the same undo can be retried.
  */
-type TaxRateRow = { id: string; name: string; isDefault: boolean; organizationId: string | null }
+type TaxRateRow = { id: string; name: string; isDefault: boolean; organizationId: string | null; updatedAt: string }
 
 const COLLECTION = '/api/sales/tax-rates'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -195,6 +195,41 @@ test.describe('TC-SALES-047: tax-rate undo keeps a single default', () => {
       await expectSingleDefault(request, token, rateB, [rateA])
     })
   })
+
+  for (const demotion of ['update', 'undo'] as const) {
+    test(`a stale default-rate edit conflicts after demotion by ${demotion}`, async ({ request }) => {
+      const token = await getAuthToken(request, 'admin')
+      const stamp = `${Date.now()}`
+      await withDefaultRestored(request, token, async (created) => {
+        const rateA = await createTaxRate(request, token, stamp, 'a', true)
+        created.push(rateA)
+        const rateB = await createTaxRate(request, token, stamp, 'b', false)
+        created.push(rateB)
+        const clearA = demotion === 'undo'
+          ? expectOperation(await updateTaxRate(request, token, { id: rateA, isDefault: false }), 'clear A')
+          : null
+        if (clearA) await updateTaxRate(request, token, { id: rateB, isDefault: true })
+        const staleId = clearA ? rateB : rateA
+        const targetId = clearA ? rateA : rateB
+        const staleVersion = (await listTaxRates(request, token)).find((row) => row.id === staleId)?.updatedAt
+        expect(staleVersion).toBeTruthy()
+
+        if (clearA) await undoOk(request, token, clearA.undoToken, 'restore default A')
+        else await updateTaxRate(request, token, { id: rateB, isDefault: true })
+
+        const demoted = (await listTaxRates(request, token)).find((row) => row.id === staleId)
+        expect(demoted?.isDefault).toBe(false)
+        expect(demoted?.updatedAt).not.toBe(staleVersion)
+        const response = await apiRequest(request, 'PUT', COLLECTION, {
+          token,
+          headers: { 'x-om-ext-optimistic-lock-expected-updated-at': staleVersion! },
+          data: { id: staleId, name: `Stale edit ${stamp}`, isDefault: true },
+        })
+        expect(response.status(), 'a demotion must invalidate the open form version').toBe(409)
+        await expectSingleDefault(request, token, targetId, [staleId])
+      })
+    })
+  }
 
   test('a failed demotion rolls back the restored default and the update undo can be retried', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')

@@ -19,3 +19,8 @@ export async function resolveAttachmentTransferDeniedMessage(): Promise<string> 
   const { translate } = await resolveTranslations()
   return translate('ai_assistant.errors.attachmentTransferDenied', ATTACHMENT_TRANSFER_DENIED_MESSAGE_FALLBACK)
 }
+
+export async function resolvePendingActionAlreadyResolvedMessage(): Promise<string> {
+  const { translate } = await resolveTranslations()
+  return translate('ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody')
+}

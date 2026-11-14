@@ -519,6 +519,7 @@
   "resources.resources.unavailability.title.daily": "Dzienna niedostępność",
   "resources.resources.unavailability.title.once": "Niedostępność",
   "resources.resources.unavailability.title.weekly": "Tygodniowa niedostępność",
+  "resources.resources.validation.capacityInvalid": "Pojemność musi być liczbą całkowitą większą od 0.",
   "resources.search.badge.attendee": "Uczestnik",
   "resources.search.badge.availabilityRuleSet": "Zestaw reguł dostępności",
   "resources.search.badge.resource": "Zasób",

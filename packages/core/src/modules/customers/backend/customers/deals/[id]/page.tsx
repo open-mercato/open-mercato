@@ -426,7 +426,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     </div>
   )
 
-  const zone2Content = (
+  const injectedTabContent = injectedTabMap.get(activeTab)
+  const zone2Content = injectedTabContent ? (
+    <div>{injectedTabContent()}</div>
+  ) : (
     <div className="rounded-[10px] border border-border bg-card px-5 py-5">
       {(() => {
 
@@ -667,7 +670,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             isLoadingInjectedTabs={injectedTabsLoading}
             activeTab={activeTab}
             onTabChange={handleTabChange}
-            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, priority: tab.priority }))}
+            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
             peopleCount={data.counts.people}
             companiesCount={data.counts.companies}
           >

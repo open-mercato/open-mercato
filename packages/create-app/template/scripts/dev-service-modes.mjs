@@ -77,7 +77,7 @@ function assignmentPattern(key) {
   return new RegExp(String.raw`^(?:export[ \t]+)?${key}[ \t]*=[ \t]*(?:"[^"]*"|'[^']*'|[^\r\n]*)(?:[^\r\n]*)(?:\r?\n|$)`, 'gm')
 }
 
-function replaceValues(text, values) {
+export function replaceValues(text, values) {
   let result = text
   for (const [key, value] of Object.entries(values)) {
     const pattern = assignmentPattern(key)

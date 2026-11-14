@@ -36,6 +36,10 @@ interface AssignRoleDialogProps {
   open: boolean
   onClose: () => void
   onAssign: (roleType: string, userId: string) => Promise<void>
+  /** Called instead of `onAssign` when the dialog edits `editingAssignment`. */
+  onReassign?: (assignmentId: string, userId: string) => Promise<void>
+  /** Existing assignment to change: the role stays fixed and the incumbent is preselected. */
+  editingAssignment?: RoleAssignment | null
   roleTypes: DictionaryEntryOption[]
   entityName: string
   existingRoleTypes?: Set<string>
@@ -58,6 +62,8 @@ export function AssignRoleDialog({
   open,
   onClose,
   onAssign,
+  onReassign,
+  editingAssignment = null,
   roleTypes,
   entityName,
   existingRoleTypes,
@@ -85,13 +91,28 @@ export function AssignRoleDialog({
   const [currentPage, setCurrentPage] = React.useState(1)
   const deferredSearchQuery = React.useDeferredValue(searchQuery)
   const requestSequenceRef = React.useRef(0)
+  const saveButtonRef = React.useRef<HTMLButtonElement>(null)
+  const restoreSaveFocusRef = React.useRef(false)
 
+  React.useEffect(() => {
+    if (open && !saving && restoreSaveFocusRef.current) {
+      restoreSaveFocusRef.current = false
+      saveButtonRef.current?.focus()
+    }
+  }, [open, saving])
+
+  const isEditing = editingAssignment !== null
   const availableRoleTypes = React.useMemo(
-    () => roleTypes.filter((roleType) => !existingRoleTypes?.has(roleType.value)),
-    [existingRoleTypes, roleTypes],
+    () =>
+      roleTypes.filter(
+        (roleType) =>
+          !existingRoleTypes?.has(roleType.value) || roleType.value === editingAssignment?.roleType,
+      ),
+    [editingAssignment?.roleType, existingRoleTypes, roleTypes],
   )
 
   React.useEffect(() => {
+    restoreSaveFocusRef.current = false
     if (!open) {
       setStep(1)
       setSelectedRoleType('')
@@ -106,13 +127,23 @@ export function AssignRoleDialog({
       requestSequenceRef.current = 0
       return
     }
-    const resolvedInitialRoleType =
-      typeof initialRoleType === 'string' && initialRoleType.trim().length > 0
+    const resolvedInitialRoleType = editingAssignment
+      ? editingAssignment.roleType
+      : typeof initialRoleType === 'string' && initialRoleType.trim().length > 0
         ? initialRoleType.trim()
         : ''
     setStep(resolvedInitialRoleType ? 2 : 1)
     setSelectedRoleType(resolvedInitialRoleType)
-    setSelectedUser(null)
+    setSelectedUser(
+      editingAssignment
+        ? {
+            id: editingAssignment.userId,
+            displayName: editingAssignment.userName ?? editingAssignment.userEmail ?? editingAssignment.userId,
+            email: editingAssignment.userEmail ?? null,
+            teamName: null,
+          }
+        : null,
+    )
     setSearchQuery('')
     setUsers([])
     setActiveTeam('all')
@@ -121,7 +152,7 @@ export function AssignRoleDialog({
     setHasMore(false)
     setCurrentPage(1)
     requestSequenceRef.current = 0
-  }, [initialRoleType, open])
+  }, [editingAssignment, initialRoleType, open])
 
   const searchUsers = React.useCallback(
     async ({
@@ -276,16 +307,28 @@ export function AssignRoleDialog({
 
   const canLoadMore = hasMore
 
+  const isUnchangedAssignee = isEditing && selectedUser?.id === editingAssignment?.userId
+
   const handleAssign = React.useCallback(async () => {
     if (!selectedRoleType || !selectedUser) return
+    if (editingAssignment && selectedUser.id === editingAssignment.userId) {
+      onClose()
+      return
+    }
     setSaving(true)
     try {
-      await onAssign(selectedRoleType, selectedUser.id)
+      if (editingAssignment) {
+        await onReassign?.(editingAssignment.id, selectedUser.id)
+      } else {
+        await onAssign(selectedRoleType, selectedUser.id)
+      }
       onClose()
+    } catch {
+      restoreSaveFocusRef.current = true
     } finally {
       setSaving(false)
     }
-  }, [onAssign, onClose, selectedRoleType, selectedUser])
+  }, [editingAssignment, onAssign, onClose, onReassign, selectedRoleType, selectedUser])
 
   const handleKeyDown = React.useCallback(
     (e: React.KeyboardEvent) => {
@@ -325,6 +368,11 @@ export function AssignRoleDialog({
               {selectedUser.email ? <span>{selectedUser.email}</span> : null}
               {selectedUser.teamName ? <span>{selectedUser.teamName}</span> : null}
             </div>
+            {isUnchangedAssignee ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t('customers.roles.dialog.unchangedHint', 'Pick a different team member to change the assignee.')}
+              </p>
+            ) : null}
             {selectedUserConflict?.length ? (
               <div className="mt-2 space-y-1.5">
                 <Badge variant="info">
@@ -355,12 +403,19 @@ export function AssignRoleDialog({
       >
         <DialogHeader className="border-b border-border/70 px-6 py-5">
           <DialogTitle className="text-2xl font-semibold leading-none">
-            {t('customers.roles.dialog.title', 'Assign role')}
+            {isEditing
+              ? t('customers.roles.dialog.reassignTitle', 'Change assignee')
+              : t('customers.roles.dialog.title', 'Assign role')}
           </DialogTitle>
           <p className="mt-2 text-sm text-muted-foreground">
-            {t('customers.roles.dialog.subtitle', 'Multi-role assignment for {{name}}', {
-              name: entityName,
-            })}
+            {isEditing
+              ? t('customers.roles.dialog.reassignSubtitle', 'Change who holds {{role}} for {{name}}', {
+                  role: selectedRole?.label ?? selectedRoleType,
+                  name: entityName,
+                })
+              : t('customers.roles.dialog.subtitle', 'Multi-role assignment for {{name}}', {
+                  name: entityName,
+                })}
           </p>
         </DialogHeader>
 
@@ -368,11 +423,13 @@ export function AssignRoleDialog({
           <StepIndicator
             className="justify-center"
             steps={[
-              {
-                id: '1',
-                label: t('customers.roles.dialog.step1', 'Role type'),
-                status: step > 1 ? 'complete' : step === 1 ? 'current' : 'pending',
-              },
+              ...(isEditing
+                ? []
+                : [{
+                    id: '1',
+                    label: t('customers.roles.dialog.step1', 'Role type'),
+                    status: step > 1 ? 'complete' : step === 1 ? 'current' : 'pending',
+                  } satisfies StepIndicatorStep]),
               {
                 id: '2',
                 label: t('customers.roles.dialog.step2', 'Select person'),
@@ -467,6 +524,13 @@ export function AssignRoleDialog({
                           {t('customers.roles.dialog.sourceBadge.dictionary', 'Dictionary')}
                         </Badge>
                       </div>
+                      {editingAssignment ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t('customers.roles.dialog.currentAssignee', 'Currently: {{name}}', {
+                            name: editingAssignment.userName ?? editingAssignment.userEmail ?? editingAssignment.userId,
+                          })}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-2">
                       {canManageRoleTypes ? (
@@ -480,14 +544,16 @@ export function AssignRoleDialog({
                           </Link>
                         </Button>
                       ) : null}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setStep(1)}
-                      >
-                        {t('customers.roles.dialog.change', 'Change')}
-                      </Button>
+                      {isEditing ? null : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setStep(1)}
+                        >
+                          {t('customers.roles.dialog.change', 'Change')}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -578,6 +644,11 @@ export function AssignRoleDialog({
                                   className="rounded-md px-2 py-0.5 text-xs font-medium"
                                 >
                                   {user.teamName}
+                                </Badge>
+                              ) : null}
+                              {editingAssignment?.userId === user.id ? (
+                                <Badge variant="muted">
+                                  {t('customers.roles.dialog.currentBadge', 'Current')}
                                 </Badge>
                               ) : null}
                               {userConflicts.length ? (
@@ -673,12 +744,15 @@ export function AssignRoleDialog({
             {step === 3 ? (
               <Button
                 type="button"
+                ref={saveButtonRef}
                 onClick={handleAssign}
                 disabled={saving || !selectedUser || !selectedRoleType}
               >
                 {saving
                   ? t('customers.roles.assigning', 'Assigning...')
-                  : t('customers.roles.dialog.assign', 'Assign role')}
+                  : isEditing
+                    ? t('customers.roles.dialog.confirmReassign', 'Save change')
+                    : t('customers.roles.dialog.assign', 'Assign role')}
               </Button>
             ) : null}
           </div>

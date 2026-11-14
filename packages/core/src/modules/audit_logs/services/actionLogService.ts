@@ -820,6 +820,22 @@ export class ActionLogService {
     return affected === 1
   }
 
+  /**
+   * Reverts a non-transactional `claimForRedo` after the replayed command failed,
+   * so the source log stays redoable. Uses `transactionalEm` or an open request
+   * transaction when the claim ran inside one; otherwise a fork, so a failed
+   * command's request EntityManager state cannot block the compensation.
+   */
+  async releaseRedoClaim(id: string, transactionalEm?: EntityManager): Promise<boolean> {
+    const operationEm = transactionalEm ?? (this.em.isInTransaction() ? this.em : this.em.fork())
+    const affected = await operationEm.nativeUpdate(
+      ActionLog,
+      { id, executionState: 'redone', deletedAt: null },
+      { executionState: 'undone' },
+    )
+    return affected === 1
+  }
+
   async backfillProjections(options: ActionLogProjectionBackfillOptions = {}): Promise<ActionLogProjectionBackfillResult> {
     const batchSize = Math.min(Math.max(Math.trunc(options.batchSize ?? 250), 1), 1000)
     const logger = options.logger ?? (() => {})

@@ -584,9 +584,10 @@ async function deactivateOtherDefaultTaxRates(em: EntityManager, record: SalesTa
       organizationId: record.organizationId,
       tenantId: record.tenantId,
       deletedAt: null,
+      isDefault: true,
       id: { $ne: record.id } as any,
     },
-    { isDefault: false },
+    { isDefault: false, updatedAt: new Date() },
   )
 }
 

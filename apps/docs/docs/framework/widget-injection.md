@@ -58,6 +58,28 @@ Supported positions:
 
 If `relativeTo` cannot be resolved, the item is appended.
 
+### Tab placements
+
+A widget mapped to a `detail:<module>.<entity>:tabs` spot with `placement.kind: 'tab'` becomes a tab of that detail page:
+
+- `groupId`: stable tab id (falls back to the widget id); used in `?tab=` URLs
+- `groupLabel`: translation key for the tab label (falls back to the widget title)
+- `icon`: optional lucide icon name (`'list-checks'`, `'ListChecks'` or `'lucide:list-checks'`) shown next to the label
+- `priority`: ordering hint, higher first, default `0`. The host's built-in tabs sit at `0`: a positive priority places the tab before them, a negative one after, and tabs sharing a priority keep their declaration order
+
+```ts
+'detail:customers.person:tabs': [
+  {
+    widgetId: 'workflows.injection.pending-work',
+    kind: 'tab',
+    groupId: 'pending-work',
+    groupLabel: 'workflows.pendingWork.title',
+    icon: 'list-checks',
+    priority: -10,
+  },
+],
+```
+
 ### i18n requirements for injected menus
 
 Every user-facing injected menu item should include:

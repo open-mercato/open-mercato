@@ -67,7 +67,7 @@ export async function GET(req: Request) {
   }
 
   const countQb = qb.clone()
-  qb.orderBy({ createdAt: 'desc' })
+  qb.orderBy({ createdAt: 'desc', id: 'desc' })
   qb.limit(pageSize).offset(offset)
 
   const [items, total] = await Promise.all([

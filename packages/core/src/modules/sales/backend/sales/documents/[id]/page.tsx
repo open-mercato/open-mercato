@@ -38,7 +38,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHead
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { mapCrudServerErrorToFormErrors, normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -528,6 +528,7 @@ function CustomerInlineEditor({
           <div className="flex-1 min-w-0 space-y-2">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
             <LookupSelect
+              defaultOpen
               value={draftId}
               onChange={(next) => {
                 setDraftId(next)
@@ -962,6 +963,16 @@ export function handleDocumentMutationError(
   return false
 }
 
+export function handleQuoteActionError(
+  err: unknown,
+  t: (key: string, fallback?: string) => string,
+  refresh: () => void,
+  fallbackMessage: string,
+): void {
+  if (handleDocumentMutationError(err, t, refresh)) return
+  flash(normalizeCrudServerError(err).message?.trim() || fallbackMessage, 'error')
+}
+
 const prefixCustomFieldValues = (input: Record<string, unknown> | null | undefined): Record<string, unknown> => {
   if (!input || typeof input !== 'object') return {}
   return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
@@ -1381,6 +1392,7 @@ function ChannelInlineEditor({
               }}
             >
               <LookupSelect
+                defaultOpen
                 value={draft}
                 onChange={setDraft}
                 fetchItems={async (query) => {
@@ -1633,6 +1645,7 @@ function MethodInlineEditor({
               }}
             >
               <LookupSelect
+                defaultOpen
                 value={draft}
                 onChange={setDraft}
                 fetchItems={async (query) => {
@@ -3771,9 +3784,8 @@ export default function SalesDocumentDetailPage({
       router.replace(`/backend/sales/orders/${orderId}`)
     } catch (err) {
       logger.error('sales.documents.convert', { err })
-      if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
-        flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
-      }
+      handleQuoteActionError(err, t, () => setReloadKey((prev) => prev + 1),
+        t('sales.documents.detail.convertError', 'Failed to convert quote.'))
     } finally {
       setConverting(false)
     }
@@ -3791,7 +3803,7 @@ export default function SalesDocumentDetailPage({
             ...buildOptimisticLockHeader(record.updatedAt),
           },
           body: JSON.stringify({ quoteId: record.id, validForDays }),
-        })
+        }, { errorMessage: t('sales.quotes.send.failed', 'Failed to send quote.') })
         flash(t('sales.quotes.send.success', 'Quote sent.'), 'success')
         setSendOpen(false)
         const updated = await fetchDocumentByKind(record.id, 'quote')
@@ -3799,7 +3811,8 @@ export default function SalesDocumentDetailPage({
       }, { quoteId: record.id, validForDays })
     } catch (err) {
       logger.error('sales.quotes.send', { err })
-      flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
+      handleQuoteActionError(err, t, () => setReloadKey((prev) => prev + 1),
+        t('sales.quotes.send.failed', 'Failed to send quote.'))
     } finally {
       setSending(false)
     }

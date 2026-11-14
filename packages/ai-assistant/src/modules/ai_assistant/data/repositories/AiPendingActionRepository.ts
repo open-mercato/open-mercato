@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   findOneWithDecryption,
@@ -54,6 +55,7 @@ export interface AiPendingActionCreateResult {
 }
 
 export interface AiPendingActionSetStatusExtra {
+  expectedStatus?: AiPendingActionStatus
   resolvedByUserId?: string | null
   executionResult?: AiPendingActionExecutionResult | null
   failedRecords?: AiPendingActionFailedRecord[] | null
@@ -231,7 +233,7 @@ export class AiPendingActionRepository {
         organizationId: ctx.organizationId ?? null,
         ...owner,
       } as any,
-      {},
+      { refresh: true },
       {
         tenantId: ctx.tenantId ?? null,
         organizationId: ctx.organizationId ?? null,
@@ -295,7 +297,7 @@ export class AiPendingActionRepository {
               organizationId: ctx.organizationId ?? null,
               ...owner,
             } as any,
-            {},
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
             {
               tenantId: ctx.tenantId ?? null,
               organizationId: ctx.organizationId ?? null,
@@ -304,6 +306,9 @@ export class AiPendingActionRepository {
         : null
       if (!existing) {
         throw new Error(`AiPendingAction not found: ${id}`)
+      }
+      if (extra?.expectedStatus && existing.status !== extra.expectedStatus) {
+        throw new AiPendingActionStateError(existing.status, nextStatus)
       }
       if (existing.status === nextStatus) {
         return existing

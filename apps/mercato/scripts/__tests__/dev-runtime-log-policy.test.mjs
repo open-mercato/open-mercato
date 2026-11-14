@@ -263,6 +263,50 @@ test('createRuntimeNoiseFilter tracks multi-line search warning blocks across ca
   assert.equal(ignoreLine('Error: database unavailable', { startupReady: true }), false)
 })
 
+test('createRuntimeNoiseFilter ignores the err stack printed below a WARN entry (#6945)', () => {
+  const ignoreLine = createRuntimeNoiseFilter()
+
+  assert.equal(
+    ignoreLine('12:16:22.204 WARN  [shared:crud] Enricher failed enricherId=wms.catalog-product-inventory'),
+    false,
+  )
+  assert.equal(ignoreLine('    Error: Enricher timed out after 2000ms'), true)
+  assert.equal(ignoreLine('        at Timeout._onTimeout (/app/node_modules/@open-mercato/shared/dist/lib/crud/enricher-runner.js:120:16)'), true)
+  assert.equal(ignoreLine('        at listOnTimeout (node:internal/timers:588:17)'), true)
+  // The stack ends at the next non-frame line; later failures surface again
+  assert.equal(ignoreLine('Error: database unavailable'), false)
+
+  assert.equal(ignoreLine('12:16:23.000 INFO  [shared:queue] Job failed, will retry'), false)
+  assert.equal(ignoreLine('    TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string'), true)
+})
+
+test('createRuntimeNoiseFilter keeps an unrelated Error printed right after an entry without err', () => {
+  const ignoreLine = createRuntimeNoiseFilter()
+
+  // e.g. console.error(err) from another module, in the same or the next output chunk
+  assert.equal(ignoreLine('12:16:22.204 INFO  [shared:queue] Job started'), false)
+  assert.equal(ignoreLine('Error: connect ECONNREFUSED 127.0.0.1:5432'), false)
+  assert.equal(ignoreLine('    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1555:16)'), false)
+
+  assert.equal(ignoreLine('12:16:23.000 WARN  [shared:crud] Slow query'), false)
+  assert.equal(ignoreLine('TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string'), false)
+})
+
+test('createRuntimeNoiseFilter keeps the err stack printed below an ERROR entry', () => {
+  const ignoreLine = createRuntimeNoiseFilter()
+
+  assert.equal(ignoreLine('12:16:22.204 ERROR [shared:crud] Request failed'), false)
+  assert.equal(ignoreLine('Error: database unavailable'), false)
+})
+
+test('createRuntimeNoiseFilter only treats the line right after a WARN entry as its stack', () => {
+  const ignoreLine = createRuntimeNoiseFilter()
+
+  assert.equal(ignoreLine('12:16:22.204 WARN  [shared:crud] Enricher failed enricherId=x'), false)
+  assert.equal(ignoreLine('GET /backend 200 in 120ms'), false)
+  assert.equal(ignoreLine('Error: database unavailable'), false)
+})
+
 test('createRuntimeNoiseFilter tracks multi-line derived-key warning blocks across calls', () => {
   const ignoreLine = createRuntimeNoiseFilter()
 
