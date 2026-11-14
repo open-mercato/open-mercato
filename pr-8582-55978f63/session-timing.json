@@ -1,0 +1,62 @@
+[
+  {
+    "attempt": 1,
+    "reset": 200,
+    "login": 200,
+    "profile": 401
+  },
+  {
+    "attempt": 2,
+    "reset": 200,
+    "login": 200,
+    "profile": 401
+  },
+  {
+    "attempt": 3,
+    "reset": 200,
+    "login": 200,
+    "profile": 401
+  },
+  {
+    "attempt": 4,
+    "reset": 200,
+    "login": 200,
+    "profile": 401
+  },
+  {
+    "attempt": 5,
+    "reset": 200,
+    "login": 200,
+    "profile": 200
+  },
+  {
+    "attempt": 6,
+    "reset": 200,
+    "login": 200,
+    "profile": 401
+  },
+  {
+    "attempt": 7,
+    "reset": 200,
+    "login": 200,
+    "profile": 401
+  },
+  {
+    "attempt": 8,
+    "reset": 200,
+    "login": 200,
+    "profile": 401
+  },
+  {
+    "attempt": 9,
+    "reset": 200,
+    "login": 200,
+    "profile": 401
+  },
+  {
+    "attempt": 10,
+    "reset": 200,
+    "login": 200,
+    "profile": 200
+  }
+]
