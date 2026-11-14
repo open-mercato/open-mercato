@@ -30,6 +30,8 @@ function makeFixtureRepo() {
   }
   fs.symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(root, 'node_modules'), 'junction')
   writeFile(root, 'packages/shared/src/lib/i18n/config.ts', CONFIG_SOURCE)
+  const isoTablePath = path.join('packages', 'shared', 'src', 'lib', 'i18n', 'iso639.ts')
+  writeFile(root, isoTablePath, fs.readFileSync(path.join(REPO_ROOT, isoTablePath)))
   const platformDictionary = JSON.stringify({ 'auth.title': 'Sign in' })
   for (const locale of ['en', 'pl', 'es', 'de', 'ko']) {
     writeFile(root, `packages/core/src/modules/auth/i18n/${locale}.json`, platformDictionary)
@@ -37,6 +39,8 @@ function makeFixtureRepo() {
   const appDictionary = JSON.stringify({ 'records.title': 'Records' })
   writeFile(root, 'apps/mercato/src/i18n/en.json', appDictionary)
   writeFile(root, 'apps/mercato/src/i18n/xh.json', appDictionary)
+  writeFile(root, 'apps/mercato/src/i18n/faq.json', JSON.stringify({ question: 'Answer' }))
+  writeFile(root, 'apps/mercato/src/i18n/app.json', JSON.stringify({ name: 'Mercato' }))
   writeFile(root, 'apps/mercato/src/modules/records/i18n/en.json', appDictionary)
   writeFile(root, 'apps/mercato/src/modules/records/i18n/xh.json', appDictionary)
   return root

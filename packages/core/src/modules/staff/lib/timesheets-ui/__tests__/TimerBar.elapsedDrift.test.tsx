@@ -30,6 +30,21 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   apiCallOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: jest.fn((_headers: Record<string, string>, run: () => unknown) => run()),
+}))
+
+// TimerBar now also reads the shared timesheet preference to seed its picker
+// (#3750). This test is about the elapsed counter, so the preference is stubbed
+// as settled-and-empty rather than exercising its fetch.
+jest.mock('../useTimesheetPreference', () => ({
+  useTimesheetPreference: () => ({
+    lastProjectId: null,
+    updatedAt: null,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+    save: jest.fn().mockResolvedValue(undefined),
+  }),
 }))
 
 // The active timer is now owned by the shared useActiveTimesheetTimer hook

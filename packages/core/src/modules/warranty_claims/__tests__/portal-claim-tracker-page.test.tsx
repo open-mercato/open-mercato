@@ -252,6 +252,27 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     expect(view.getByRole('heading', { level: 1 }).textContent).toBe('defect, Warranty claim')
   })
 
+  it.each([
+    ['tenant-rejection', 'Tenant service policy exclusion', 'Tenant service policy exclusion'],
+    ['out-of-warranty', 'Tenant replacement text', 'Out of warranty'],
+    ['unknown-rejection', null, 'unknown-rejection'],
+    ['unavailable-rejection', undefined, 'unavailable-rejection'],
+    ['empty-label', '', 'empty-label'],
+  ])('renders the rejection banner with translation and dictionary fallbacks for %s', async (code, label, expected) => {
+    mockClaimResponses(buildClaim({
+      status: 'rejected',
+      rejectionReasonCode: code,
+      rejectionReasonLabel: label,
+      resolutionSummary: 'Contact support to appeal.',
+    }))
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+
+    expect(await view.findByText(`${enDict['warranty_claims.portal.detail.terminal.rejected']} ${expected} Contact support to appeal.`)).toBeTruthy()
+  })
+
   it('deletes a persisted portal attachment after confirmation', async () => {
     mockClaimResponses(buildClaim())
 

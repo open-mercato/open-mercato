@@ -128,7 +128,14 @@ test.describe('TC-TT-017: No access to a project', () => {
         expect(accessRequest.ok(), `POST ${ACCESS_REQUEST_ENDPOINT} should succeed: ${accessRequest.status()}`).toBeTruthy()
 
         await expect(page.getByText('Your request has been sent to the Team Leaders.')).toBeVisible()
-        await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled()
+        // This acknowledgement survives a same-scope organization-bootstrap reload
+        // (`page.accessRequest.test.tsx` → "retains the acknowledgement throughout a
+        // same-scope organization bootstrap") that can legitimately fire moments after
+        // this click on every real login, not just the delayedScope/freshSession
+        // scenarios below — give it the same generous budget as the other
+        // network-dependent assertions in this spec (lines above use 30_000ms) instead
+        // of Playwright's implicit default, which this assertion alone lacked.
+        await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled({ timeout: 30_000 })
         if (scenario.delayedScope) {
           const scopeBootstrap = page.waitForResponse((response) =>
             response.url().includes('/api/directory/organization-switcher'),
@@ -151,7 +158,7 @@ test.describe('TC-TT-017: No access to a project', () => {
           const scopeCookies = await page.context().cookies()
           expect(scopeCookies.find((cookie) => cookie.name === 'om_selected_tenant')?.value).toBe(resolvedTenant)
           expect(scopeCookies.find((cookie) => cookie.name === 'om_selected_org')?.value).toBe(resolvedOrganization)
-          await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled()
+          await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled({ timeout: 30_000 })
         }
         await expect(page.getByText('Could not send the access request.')).toHaveCount(0)
       } finally {
