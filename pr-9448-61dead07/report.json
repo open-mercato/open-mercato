@@ -1,0 +1,269 @@
+{
+  "runId": "61dead07-cf9d-4dc3-9f7d-2d0a3a61ca5e",
+  "mode": "pr",
+  "target": {
+    "prNumber": 9448,
+    "title": "Bound voucher guesses across rotating carts",
+    "branch": "cez/ca57f406",
+    "headSha": "75f71cceb0ae18b322743c39ef6b1b85cabd15e2",
+    "currentHeadSha": "75f71cceb0ae18b322743c39ef6b1b85cabd15e2"
+  },
+  "verdict": "PARTIAL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:36629",
+    "role": "own tenant-bound owner,secondmanager,restricted viewer;two tenants/independent stores",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "browserVersion": "1.61.1",
+    "runner": "local",
+    "runtime": "production,real Redis,fresh disposable Postgres",
+    "configurationVerification": "environment-verification.json"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "API: production Redis stop/restart,10 independent pairs of stores",
+      "expected": "Healthy200; outage fresh and warm keys503/no changes; restart200",
+      "observed": "Each of10 actual stop/start repetitions passed. Fresh store/client keys and warmed store/client keys; valid and invalid codes503/no-store; every cart/line/application/reservation column deep-equal; same fresh cart valid200 on recovery.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "API: trusted-IP rotation,10 independent stores",
+      "expected": "20 guesses across20 tokens; token21 throttled",
+      "observed": "20x409 then429,Retry-After; full aggregate unchanged on refusal.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "API: unresolved guests,10 independent stores",
+      "expected": "GuestB remains available after guestA20 failures",
+      "observed": "Separate guest/cart valid200 after20 invalid409; deliberately unresolvable trusted-last-hop requests.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "API: unresolved fallback full bound,10 independent stores",
+      "expected": "Shared100 budget survives token/untrusted-header rotation",
+      "observed": "100x409 across5 carts; valid101st request on sixth429,reported limit100,no aggregate changes.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "API: concurrent store capacity,10 independent stores",
+      "expected": "100 admitted; remaining10 refused",
+      "observed": "110 distinct-client requests in parallel groups of10:100x409+10x429 in every independent store.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "API: successful slot refund and real expiry",
+      "expected": "Only successful current-window slot refunded; time restores admission",
+      "observed": "99 failures+3 valid200+1failure409;next429/no mutation. Throttled trusted-IP cart admitted409 after actual61s.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "Real Redis helper across independent processes/window boundary",
+      "expected": "100 capacity across both processes; delayed refund never rewards next window",
+      "observed": "10 two-process120-attempt runs each100 admitted/20 limited/0 unavailable;10 callbacks held across actual minute boundary left later100-capacity window exhausted. Supplementary helper evidence,not a two-app deployment.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "action": "API: same-org cross-store and separate tenant,9 routes each",
+      "expected": "Foreign token indistinguishable from unknown; no stored changes",
+      "observed": "GET,promotion apply/remove,line add/update/delete,bulk,merge,undo-merge404 match unknown token; full aggregate deep-equal;own-store200.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 9,
+      "priority": "P0",
+      "action": "API: independently calculated money and lifecycle",
+      "expected": "3x10 net +20% tax=36 gross;10% code=27net+5.40tax=32.40gross",
+      "observed": "Expected undiscounted and discounted totals matched. Repeat yields1application/1reservation;remove restores36 and0reservations;reapply1;usage counter0;unrelated cart/line fields unchanged.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "Native integration via repository CLI",
+      "expected": "Production isolation,background transitions and order/cart totals agree",
+      "observed": "6/6 passed:TC-CART-STORE-01,SWEEP01-04,TOT01 real SalesOrder equivalence. Runner local with OM_INTEGRATION_MODULES=cart.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "Closest UI:/backend/codes/create English default/empty double-submit",
+      "expected": "Default usable;empty form stays on page",
+      "observed": "Hydrated role snapshot and real default screen;empty double-submit stayed oncreate. No validation-message assertion.",
+      "result": "PASS",
+      "screenshot": "step-01-default-en.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "Closest UI:create long name viaCtrl+Enter thenreload",
+      "expected": "Single201 and persistence after10s",
+      "observed": "Own code created201;name persisted after10seconds and reload.",
+      "result": "PASS",
+      "screenshot": "step-03-saved-en.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "Closest UI:390px and explicit Polish",
+      "expected": "Usable narrow layout and translated code form",
+      "observed": "Genuine long-name detail at390px;explicit pl cookie/locale redirect yielded translated title,fields and Save.",
+      "result": "PASS",
+      "screenshot": "step-05-polish.png"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "UI/API:own restricted viewer in separate browser context",
+      "expected": "Direct page denied/noSave;direct API refused",
+      "observed": "Independent narrow-role user Access Denied,no Save;GET/POST403;owner create201 positive control.",
+      "result": "PASS",
+      "screenshot": "step-06-viewer-denied.png"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "UI:two real actors save different fields and retry stale form",
+      "expected": "B quota persists;A stale name rejected twice",
+      "observed": "B saved a different quota;A button save409,focus/refill thenCtrl+Enter409;entire stored code row equals B after both.",
+      "result": "PASS",
+      "screenshot": "step-09-stale-conflict.png"
+    },
+    {
+      "step": 16,
+      "priority": "P1",
+      "action": "Closest UI:list and empty search",
+      "expected": "Own rows visible;unmatched search yields no-results state",
+      "observed": "Hydrated table shows own fixtures;unique query produced No results found/Clear search.",
+      "result": "PASS",
+      "screenshot": "step-10-empty-list.png"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "Cart/promotions native units",
+      "expected": "Relevant suites pass",
+      "observed": "50 suites/587tests passed;11 existing skips (1 skipped suite). Local workspace Jest runner.",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 18,
+      "priority": "P0",
+      "action": "Remaining complex lifecycle and UI matrix",
+      "expected": "Every applicable complex rule exercised",
+      "observed": "See explicit limits below:checkout/payment/stock/code worker+expiry,server-error/loading/focus variants and full memory production remain unexercised.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Exact inherited claim run5af72462/comment6882729531/refSHA c2c556a22a9a31f43a6504e5a7599d2df7b5fe48 retained throughout;no reset or foreign assignees;original comment refreshed.",
+    "Retry transparency:initial fixture rule used children instead of rules and expected200 instead of201;Node fetch did not preserve storefront Host so corrected to repository Playwright API transport;trimmed long-name expectation;stale keyboard retry needed input focus. All corrected runs retained.",
+    "Inherited dynamically published Redis changed port32844 to32845 on stop/start. Replaced only chain-owned container with fixed32844 Redis;final outage scenario rerun10times with fresh+warm independent stores and valid200 precontrol/recovery. Earlier port-drift attempts are fixture errors,not product regressions.",
+    "Unscoped Playwright collection consumedCPU without reaching tests;bounded attempts stopped by exact ownedPID tree. Scoped OM_INTEGRATION_MODULES=cart runner passed6tests in12.2s;no source or test assertions changed.",
+    "Cleanup and exact-lease release occur after publication;terminal proof is saved in cleanup.json/claim-release.log and final report update."
+  ],
+  "notExercised": [
+    "Fresh current-head production uses Redis only. Memory behavior is covered by native unit/route suites; a second current-head production memory-mode app was not booted.",
+    "No runtime fault injection for missing/throwing/degraded limiter registration or refund-error path; native units cover those seams. Actual configured Redis loss/recovery is exercised.",
+    "Native4 cart sweepers passed, but promotion reservation-expiry worker,generated-code generation,full code redemption/use/revert/undo/delete quotas and checkout conversion/cancel/paid/refunded stock/payment lifecycle were not exercised.",
+    "Cart exposes APIs and no released cart admin screen; cart/money/isolation/setup checks are API-driven. Closest promotional-code UI is genuine runtime evidence and does not visualize the cart503/429 assertions. Promotion tree was API fixture setup,not UI tree-editor QA.",
+    "UI state matrix:default,empty search,no-permission,long content,mobile,conflict error,persistence passed. Dedicated loading indicator,generic server-error/retry,all submit variants,Escape/nested-dialog behavior,full focus recovery and post-conflict successful refresh were not fully exercised. Empty submit remained onform; no validation-message assertion.",
+    "Independent EUR20%-tax,quantity3,10%code amounts and actual sales-order equivalence passed. Shipping,multicurrency,tax-edge rounding and exports were not exercised. Closest code UI has strings/integer quotas and no decimal monetary field;decimal-comma amount persistence is genuinely inapplicable to that form.",
+    "English/Polish closest screens exercised;other3locales not browser-tested. Diff adds no i18nkeys. No before-fix production app was rebuilt:historical production failure6881817998 and source repair6882230065 are linked for provenance,not relabeled.",
+    "Focused6native integration tests passed;full39cart suite/full repository validation gates and hostedCI were not rerun in this evidence-only task. No QA signoff/failure or pipeline changes;native changes-requested review remains a separate gate."
+  ],
+  "screenshots": [
+    {
+      "file": "step-01-default-en.png",
+      "bytes": 92250,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "9da7d8f30181cd506e8292ba2a19e43d3d8f571db8d0c0e9ae16c3d85f58c2d6"
+    },
+    {
+      "file": "step-02-empty-refusal.png",
+      "bytes": 100206,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "7d05da6bcabde31982e4fd274f6b12279ebca26b4243d16c18d6c10f8721d9e3"
+    },
+    {
+      "file": "step-03-saved-en.png",
+      "bytes": 111144,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "1b17ed22d942472525ecc422821bb3bfef6e2c958f4337a4ada478dcb750466d"
+    },
+    {
+      "file": "step-04-mobile.png",
+      "bytes": 56456,
+      "width": 390,
+      "height": 935,
+      "sha256": "fe40957c09f78bdd82ca02bdc05fcad2622164f9c99a673308169e3e43621952"
+    },
+    {
+      "file": "step-05-polish.png",
+      "bytes": 100620,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "f2e0af77aada1042625f3ab39635a4b70401f87208331980d4dfe160905475a4"
+    },
+    {
+      "file": "step-06-viewer-denied.png",
+      "bytes": 38193,
+      "width": 1280,
+      "height": 720,
+      "sha256": "fb619a640284572ffa5a3440d6d74e6b8a8cf6f25cc79ced8438a9f63330f30a"
+    },
+    {
+      "file": "step-08-list.png",
+      "bytes": 143015,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "495d0bcd44e39c1e4614f884d4543cb03685b0299b46a790753ca7163ea6a702"
+    },
+    {
+      "file": "step-09-stale-conflict.png",
+      "bytes": 109995,
+      "width": 1280,
+      "height": 720,
+      "sha256": "0d88a063ed9ca5b13682fdad55ac4b6a2873e5882b66d71f270c589bbd9f0cc6"
+    },
+    {
+      "file": "step-10-empty-list.png",
+      "bytes": 94804,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "5836cedfaaa12fe0150bf099bf9b0dc1e33da8d35ac88883d065b59269c8f8fd"
+    }
+  ]
+}
