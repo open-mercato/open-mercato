@@ -2,7 +2,7 @@
 title: "Shared security-default changes require a complete consumer audit"
 modules: ["shared","auth","cache","events","example","create_app","sso","api_keys","entities","workflows"]
 areas: ["integration","testing","module-data"]
-topics: ["access-control","data-scoping","events","testing"]
+topics: ["access-control","data-scoping","events","testing","password-policy"]
 ---
 
 # Shared security-default changes require a complete consumer audit
@@ -34,3 +34,5 @@ topics: ["access-control","data-scoping","events","testing"]
 - 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+- 2026-11-13 · auth: when enforcing credential policy, trace bootstrap callers as well as validators. `mercato init` converted development demo defaults into explicit environment overrides and generated production secrets without required character classes. Preserve absent development overrides, generate production credentials against the configured policy, and test the init-to-auth-setup handoff alongside actual setup password hashes (PR #8582).

@@ -5373,6 +5373,14 @@ the same PR. The `auto-upgrade-...` skill for the window picks up entries from t
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
 
+## Credential policy enforcement (#3821)
+
+Supplied plaintext setup passwords, explicit derived-account environment overrides, and customer password creation/reset/change now follow the configured shared password policy. Production `auth setup` no longer honors weak-password skip aliases; provide a compliant password instead. Existing hashes and login inputs are unchanged. Explicit development-only demo/skip flows and trusted prehashed imports remain supported.
+
+The isolated integration runner retains its historical disposable fixture credentials. It uses an explicit fixture password policy only in its database-initialization subprocess; the app and test subprocesses retain the configured runtime policy. This does not relax production credential validation or change existing hashes/login behavior.
+
+Client applications must send compliant passwords for customer signup, invitation acceptance, reset confirmation, password change, administrator creation and administrator reset, and handle validation failures without retrying the rejected value. Operators and direct setup-service callers must supply policy-compliant plaintext passwords and explicit derived-account overrides; production bootstrap scripts must stop relying on all four skip aliases and handle primary validation exit code 2. Review credentials created under the former bypass and rotate them through authorized flows when appropriate; this update does not rotate stored credentials. Piotr Karwatka (@pkarw) approved the scoped direct-setup/customer security exception on 2026-11-13; see [migration and compatibility scope](.ai/specs/2026-11-12-credential-policy-enforcement.md#migration--backward-compatibility).
+
 
 ## Setup service isolation and remote database acknowledgement
 

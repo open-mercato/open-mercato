@@ -74,6 +74,17 @@ describe('customer /api/customer_accounts/password/reset-confirm — atomicity a
     mockEmit.mockResolvedValue(undefined)
   })
 
+  it.each(['longpassword', 'LongPassword1', 'long-password-1!', 'Long-password!'])(
+    'rejects a sub-policy credential before mutation: %s',
+    async (password) => {
+      const response = await POST(makeRequest({ token: 'a'.repeat(40), password: password }))
+      expect(response.status).toBe(400)
+      expect(mockUpdatePassword).not.toHaveBeenCalled()
+      expect(mockTransactional).not.toHaveBeenCalled()
+      expect(mockEmit).not.toHaveBeenCalled()
+    },
+  )
+
   it('runs updatePassword + revokeAllUserSessions inside em.transactional and emits the audit event after commit', async () => {
     const res = await POST(
       makeRequest({ token: 'a'.repeat(40), password: 'new-strong-Passw0rd!' }),

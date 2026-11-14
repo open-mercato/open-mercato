@@ -20,7 +20,7 @@ import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { env } from 'process'
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import crypto from 'node:crypto'
-import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { buildPasswordSchema, formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
 import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
@@ -124,8 +124,8 @@ function hashSecret(value: string | null | undefined): string | null {
 
 function ensurePasswordPolicy(password: string): boolean {
   const policy = getPasswordPolicy()
-  const result = validatePassword(password, policy)
-  if (result.ok) return true
+  const result = buildPasswordSchema({ policy }).safeParse(password)
+  if (result.success) return true
   const requirements = formatPasswordRequirements(policy, (_key, fallback) => fallback)
   const suffix = requirements ? `: ${requirements}` : ''
   console.error(`Password does not meet the requirements${suffix}.`)
@@ -457,9 +457,11 @@ const setupApp: ModuleCli = {
       args.skipPasswordPolicy ??
       args['allow-weak-password'] ??
       args.allowWeakPassword
-    const skipPasswordPolicy = typeof skipPasswordPolicyRaw === 'boolean'
+    const requestedSkipPasswordPolicy = typeof skipPasswordPolicyRaw === 'boolean'
       ? skipPasswordPolicyRaw
       : parseBooleanToken(typeof skipPasswordPolicyRaw === 'string' ? skipPasswordPolicyRaw : null) ?? false
+    const isProduction = (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
+    const skipPasswordPolicy = requestedSkipPasswordPolicy && !isProduction
     const withExamplesRaw = args['with-examples'] ?? args.withExamples
     const withExamples = typeof withExamplesRaw === 'boolean'
       ? withExamplesRaw
@@ -524,7 +526,9 @@ const setupApp: ModuleCli = {
         orgName,
         orgSlug,
         roleNames,
-        primaryUser: { email, password, confirm: true },
+        primaryUser: skipPasswordPolicy
+          ? { email, hashedPassword: await hash(password, 10), confirm: true }
+          : { email, password, confirm: true },
         // Derived admin/employee demo accounts only land when the operator
         // explicitly opts in via --include-demo-users. Default-deny prevents
         // production deployments from silently seeding well-known emails.

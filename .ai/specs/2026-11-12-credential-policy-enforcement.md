@@ -1,0 +1,42 @@
+# Credential policy enforcement (#3821, PR #8582)
+
+## TLDR
+Enforce the configured shared password policy before storing supplied plaintext setup credentials and customer credentials. Preserve existing password hashes, login inputs, current-password verification, and trusted prehashed imports.
+
+## Compatibility Decision
+Maintainer Piotr Karwatka (@pkarw) approved the emergency security exception on 2026-11-13, acknowledging the qualifying policy-bypass vulnerability, client/operator migration and waiver of deprecation steps 1–3. [Approval record](https://github.com/open-mercato/open-mercato/pull/8582#issuecomment-6852843978). This decision does not approve QA, waive validation or authorize merging.
+
+## Overview and Problem Statement
+The existing setup service and customer credential schemas accept new passwords that fail the configured shared policy. A caller can create or replace a credential with a value prohibited by that policy. The existing PR closes those write paths; it does not rotate or invalidate stored credentials.
+
+## Proposed Solution and Architecture
+Use `buildPasswordSchema` before hashing or persistence in setup, validate explicit derived-account overrides, and use the shared schema for customer signup, invitation acceptance, password reset, password change, admin creation and admin reset. Keep the existing customer bounds of at least eight and at most 128 characters. Keep non-production disposable CLI demo bypasses and the trusted prehashed-import path. The init command leaves absent development derived-password overrides absent, so disposable defaults are not misclassified as explicit inputs. Production init generates policy-compliant derived credentials before forwarding them to setup. No data model, route name, ACL, event, dependency, or UI architecture changes.
+
+## Migration & Backward Compatibility
+**Emergency security exception approved by Piotr Karwatka (@pkarw) on 2026-11-13.** The production-bootstrap exception in `2026-11-06-production-bootstrap-credentials.md` explicitly excludes direct `auth setup` and customer API contracts and cannot be reused here.
+
+Protected surfaces are direct production `auth setup` flags `--skip-password-policy`, `--skipPasswordPolicy`, `--allow-weak-password`, and `--allowWeakPassword`; plaintext `setupInitialTenant` inputs; explicit derived-account password overrides; and exported `signupSchema`, `passwordResetConfirmSchema`, `invitationAcceptSchema`, `passwordChangeSchema`, `adminCreateUserSchema`, and `adminResetPasswordSchema`, including the HTTP requests they validate.
+
+Retaining acceptance of passwords prohibited by the configured policy retains the credential-policy bypass itself for the bridge window. The maintainer accepted this qualifying argument and the narrow scope listed above. No production flag or opt-in retains those vulnerable write paths. Deprecation steps 1–3 are waived for this scope only; migration disclosure and the dated BACKWARD_COMPATIBILITY.md entry remain required and are included. Trusted prehashed imports and existing login verification retain their established semantics; they are not newly created plaintext credential bypasses.
+
+Clients must submit passwords satisfying the configured policy on signup, invitation acceptance, customer create/reset/change requests, and direct plaintext setup calls, and handle validation errors without retrying the rejected password. Operators must supply compliant primary and derived-account passwords, remove production reliance on bypass aliases, and handle primary CLI validation exit code 2. Existing hashes and login remain valid; operators should review credentials previously created through a bypass and rotate them through normal authorized flows when appropriate. No automatic migration or rotation is performed.
+
+## Validation Plan
+Retain the six-schema unit matrix, setup/alias/derived-account regressions and request-handler rejection-before-mutation checks. The executable customer regression covers weak admin creation/reset/change rejection, retained login and compliant reset/login. Current-head runtime coverage still needs signup, invitation acceptance, reset-confirm, compliant change, denied scope, retry, CLI setup, English/Polish and mobile evidence. Required CI and personal QA remain merge gates.
+
+## Supporting QA repairs (2026-11-14)
+
+The admin reset validation headline uses a module translation key in all five locales before user lookup or mutation. Session-bound API and SSR authentication compare the verified, owner-and-scope-bound session row's existing `createdAt` Date with `sessionsRevokedAt`, retaining millisecond precision. Numeric JWT `iat` remains the fallback for legacy or unavailable creation metadata. The private session helpers retain the existing liveness query and fail closed on lookup failure. Public signatures, JWT/cookie shapes, TTLs, canonical user scope and RBAC behavior remain unchanged. Pre-reset sessions remain refused even with later refreshed JWT timestamps.
+
+Request/cookie unit regressions cover same-second new sessions and pre-reset-session refusal; existing revoked/wrong-owner/wrong-scope/legacy and TypeScript compatibility cases remain. `TC-AUTH-3821-password-policy.spec.ts` adds ten rapid reset/login/profile cycles and verifies each previous session is immediately unauthorized. The original human compatibility decision is retained for its documented password-policy scope; these changes grant no current-head personal QA or CI approval.
+
+## Final Compliance Report
+Source changes retain shared mechanisms and introduce no schema or dependency changes. The named compatibility exception is approved and recorded. Exact-head validation and QA remain required.
+
+## Changelog
+- 2026-11-12: Recorded the existing PR implementation, precise contract scope, proposed security-exception argument and pending maintainer decision.
+
+- 2026-11-13: Recorded Piotr Karwatka’s scoped security-exception approval; validation and QA gates retained.
+- 2026-11-13: Repaired init credential forwarding so development defaults remain disposable and generated production derived credentials satisfy the configured policy.
+
+- 2026-11-14: Added translated admin reset validation and precise verified-session revocation checks with request/cookie and rapid-reset regressions; protected current-head QA and CI remain required.

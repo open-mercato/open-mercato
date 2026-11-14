@@ -1,4 +1,5 @@
 import { hash } from 'bcryptjs'
+import { buildPasswordSchema, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -307,6 +308,7 @@ export async function setupInitialTenant(
   })
 
   if (!existingUser) {
+    const passwordHash = await resolvePasswordHash(primaryUser)
     const baseUsers: Array<{
       email: string
       roles: string[]
@@ -323,7 +325,7 @@ export async function setupInitialTenant(
       const employeeEmail = employeeOverride ?? `employee@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
       const envAdminPwd = readEnvValue('OM_INIT_ADMIN_PASSWORD')
       const envEmployeePwd = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD')
-      const isProduction = process.env.NODE_ENV === 'production'
+      const isProduction = (process.env.NODE_ENV ?? '').trim().toLowerCase() === 'production'
       const allowDemo = options.allowDemoDerivedPasswords === true
       if (isProduction && !allowDemo) {
         const missing: string[] = []
@@ -344,6 +346,9 @@ export async function setupInitialTenant(
       const fallbackEmployeePwd = isProduction ? generateDerivedPassword() : DEMO_DERIVED_PASSWORD
       const adminPasswordPlain = envAdminPwd ?? fallbackAdminPwd
       const employeePasswordPlain = envEmployeePwd ?? fallbackEmployeePwd
+      const passwordSchema = buildPasswordSchema()
+      if (envAdminPwd || isProduction) passwordSchema.parse(adminPasswordPlain)
+      if (envEmployeePwd || isProduction) passwordSchema.parse(employeePasswordPlain)
       const adminPasswordHash = await hash(adminPasswordPlain, 10)
       const employeePasswordHash = await hash(employeePasswordPlain, 10)
       addUniqueBaseUser(baseUsers, {
@@ -359,8 +364,6 @@ export async function setupInitialTenant(
         generatedPassword: envEmployeePwd ? null : employeePasswordPlain,
       })
     }
-    const passwordHash = await resolvePasswordHash(primaryUser)
-
     await em.transactional(async (tem) => {
       const tenant = tem.create(Tenant, {
         name: options.orgName,
@@ -562,14 +565,15 @@ function addUniqueBaseUser(
 const DEMO_DERIVED_PASSWORD = 'secret'
 
 /**
- * Generate a 16-character base64url password (96 bits of entropy) for a derived
+ * Generate a policy-compliant password with at least 96 bits of entropy for a derived
  * demo user in production when no env override is provided AND the caller
  * explicitly opted in via `allowDemoDerivedPasswords`. Surfaced via the
  * `users[].generatedPassword` snapshot so CLI callers can print it to the
  * operator — there is no other recovery path for these credentials.
  */
 function generateDerivedPassword(): string {
-  return randomBytes(12).toString('base64url')
+  const policy = getPasswordPolicy()
+  return `Aa1!${randomBytes(Math.max(12, policy.minLength)).toString('base64url')}`
 }
 
 function isDemoModeEnabled(): boolean {
@@ -585,7 +589,7 @@ function shouldKeepDemoSuperadminDuringInit(): boolean {
 
 async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | null> {
   if (typeof input.hashedPassword === 'string') return input.hashedPassword
-  if (input.password) return hash(input.password, 10)
+  if (input.password) return hash(buildPasswordSchema().parse(input.password), 10)
   return null
 }
 
