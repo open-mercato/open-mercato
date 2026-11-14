@@ -65,12 +65,21 @@ test.beforeAll(async () => {
         import { AiChat } from '@open-mercato/ui/ai/AiChat'
         import { AiMessageContent } from '@open-mercato/ui/ai/AiMessageContent'
         import '@open-mercato/ui/ai/records/registry'
+        import { MessageBubble } from '@open-mercato/ai-assistant/frontend/components/CommandPalette/MessageBubble'
+        import { ToolChatPage } from '@open-mercato/ai-assistant/frontend/components/CommandPalette/ToolChatPage'
         const content = ${JSON.stringify(content)}
         const uiParts = ${JSON.stringify(typedParts)}
         createRoot(document.getElementById('root')).render(
           <QueryClientProvider client={new QueryClient()}>
             <I18nProvider locale="en" dict={{}}>
-              {location.search === '?chat'
+              {location.search === '?legacy-message'
+                ? <MessageBubble message={{ id: 'answer', role: 'assistant', content }} />
+                : location.search === '?legacy-question'
+                ? <ToolChatPage tool={null} messages={[]} pendingToolCalls={[]} isStreaming={false}
+                    onApproveToolCall={async () => {}} onRejectToolCall={() => {}}
+                    pendingQuestion={{ id: 'question', sessionID: 'session', tool: { messageID: 'message', callID: 'call' },
+                      questions: [{ header: 'Image policy', question: content, options: [{ label: 'Continue', description: '' }] }] }} />
+                : location.search === '?chat'
                 ? <AiChat agentId="image-policy.test" conversationId="image-policy" initialMessages={[{ role: 'assistant', content }]} uiParts={uiParts} />
                 : <AiMessageContent content={content} />}
             </I18nProvider>
@@ -82,7 +91,7 @@ test.beforeAll(async () => {
   bundle = result.outputFiles[0].text
 })
 
-for (const surface of ['chat', 'standalone']) {
+for (const surface of ['chat', 'standalone', 'legacy-message', 'legacy-question']) {
   test(`TC-AI-IMAGE-001: ${surface} makes no requests for model-supplied images`, async ({ page }, testInfo) => {
     const imageRequests: string[] = []
     const errors: string[] = []
@@ -114,13 +123,16 @@ for (const surface of ['chat', 'standalone']) {
     imageRequests.length = 0
 
     await page.addScriptTag({ content: bundle })
-    const answer = page.locator('[data-ai-message-content]')
+    const legacy = surface.startsWith('legacy-')
+    const answer = legacy ? page.locator('#root .prose') : page.locator('[data-ai-message-content]')
     await expect.poll(async () => ({ text: await page.locator('#root').innerText(), errors }))
       .toMatchObject({ text: expect.stringContaining('Visible answer'), errors: [] })
     await expect(answer.getByText('Visible answer', { exact: true })).toBeVisible()
-    await expect(answer.getByText('Visible product 0', { exact: true })).toBeVisible()
-    await expect(answer.getByText('Visible person 3', { exact: true })).toBeVisible()
-    await expect(answer.getByText('Visible company 5', { exact: true })).toBeVisible()
+    if (!legacy) {
+      await expect(answer.getByText('Visible product 0', { exact: true })).toBeVisible()
+      await expect(answer.getByText('Visible person 3', { exact: true })).toBeVisible()
+      await expect(answer.getByText('Visible company 5', { exact: true })).toBeVisible()
+    }
     await expect(answer.getByRole('table')).toBeVisible()
     await expect(answer.getByRole('link', { name: 'Ordinary link' })).toHaveAttribute('href', 'https://example.invalid/details')
     if (surface === 'chat') {
