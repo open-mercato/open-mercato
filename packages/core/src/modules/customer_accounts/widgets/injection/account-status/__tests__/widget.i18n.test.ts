@@ -23,6 +23,8 @@ const DESCRIPTION_KEY = 'customer_accounts.widgets.accountStatus.description'
 const PORTAL_ACCOUNT_TAB_KEY = 'customer_accounts.widgets.portalAccountTab'
 
 const INVITE_KEYS = [
+  'customer_accounts.widgets.errorLoading',
+  'customer_accounts.widgets.retryLoading',
   'customer_accounts.widgets.invite.button',
   'customer_accounts.widgets.invite.cancel.button',
   'customer_accounts.widgets.invite.cancel.title',
@@ -43,6 +45,8 @@ const INVITE_KEYS = [
 // Keys whose translation is genuinely distinct from English in every target locale.
 // (invite.roles is excluded: "Roles" is a valid Spanish spelling.)
 const MUST_DIFFER_KEYS = [
+  'customer_accounts.widgets.errorLoading',
+  'customer_accounts.widgets.retryLoading',
   'customer_accounts.widgets.invite.button',
   'customer_accounts.widgets.invite.cancel.button',
   'customer_accounts.widgets.invite.cancel.description',

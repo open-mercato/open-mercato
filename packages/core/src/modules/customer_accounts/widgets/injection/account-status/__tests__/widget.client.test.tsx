@@ -51,12 +51,14 @@ type MockQueryOptions = { queryKey: unknown[]; queryFn: () => Promise<unknown> }
 
 const mockQueryData = new Map<string, unknown>()
 const mockQueryCalls: MockQueryOptions[] = []
+const mockQueryErrors = new Set<string>()
+const mockQueryLoading = new Set<string>()
 
 jest.mock('@tanstack/react-query', () => ({
   useQuery: (options: MockQueryOptions) => {
     mockQueryCalls.push(options)
     const key = String(options.queryKey[0])
-    return { data: mockQueryData.get(key) ?? null, isLoading: false }
+    return { data: mockQueryData.get(key) ?? null, isLoading: mockQueryLoading.has(key), isError: mockQueryErrors.has(key) }
   },
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }))
@@ -89,7 +91,10 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     flashMock.mockClear()
     mockInvalidateQueries.mockReset()
     mockRunMutation.mockClear()
+    mockInvalidateQueries.mockReset()
     mockQueryData.clear()
+    mockQueryErrors.clear()
+    mockQueryLoading.clear()
     mockQueryCalls.length = 0
     mockQueryData.set('customer-account-person', personFixture)
     mockApiCall.mockReset()
@@ -147,6 +152,36 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     fireEvent.click(await screen.findByRole('button', { name: /invite to portal/i }))
     return screen.findByRole('button', { name: /send invitation/i })
   }
+
+  it('keeps an open invitation draft disabled across read failure and recovery', async () => {
+    const { rerender } = render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Invite to Portal' }))
+    const submit = await screen.findByRole('button', { name: 'Send Invitation' })
+    const displayName = await screen.findByLabelText('Display Name')
+    fireEvent.change(displayName, { target: { value: 'Unsaved invitation draft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Buyer' }))
+    expect(submit).toBeEnabled()
+
+    mockQueryErrors.add('customer-account-status')
+    rerender(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    expect(screen.getByRole('alert')).toBeVisible()
+    expect(displayName).toHaveValue('Unsaved invitation draft')
+    expect(displayName).toBeDisabled()
+    expect(submit).toBeDisabled()
+    fireEvent.click(submit)
+    expect(mockRunMutation).not.toHaveBeenCalled()
+
+    mockQueryErrors.clear()
+    mockQueryLoading.add('customer-account-status')
+    rerender(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    expect(displayName).toHaveValue('Unsaved invitation draft')
+    expect(submit).toBeDisabled()
+    mockQueryLoading.clear()
+    rerender(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(displayName).toHaveValue('Unsaved invitation draft')
+    expect(submit).toBeEnabled()
+  })
 
   it('routes the invitation POST through useGuardedMutation.runMutation', async () => {
     const submitButton = await openInviteForm()
@@ -473,7 +508,10 @@ describe('customer_accounts AccountStatusWidget person tab host (#7499)', () => 
     mockGrantedFeatures = ['customer_accounts.invite']
     mockChromeReady = true
     mockRunMutation.mockClear()
+    mockInvalidateQueries.mockReset()
     mockQueryData.clear()
+    mockQueryErrors.clear()
+    mockQueryLoading.clear()
     mockQueryCalls.length = 0
     mockApiCall.mockReset()
     mockApiCall.mockResolvedValue({ ok: true, status: 200, result: { items: [] } } as never)
@@ -496,6 +534,30 @@ describe('customer_accounts AccountStatusWidget person tab host (#7499)', () => 
     fireEvent.keyDown(dialog, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
     expect(mockRunMutation).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'customer-account-status',
+    'customer-account-person',
+    'customer-account-pending-invitation',
+  ])('rejects an unavailable %s read and withholds invitation actions until retry', async (queryKey) => {
+    mockApiCall.mockResolvedValue({ ok: false, status: 503, result: null } as never)
+    const { rerender } = render(<AccountStatusWidget context={{ personId: 'read-failure-person' }} />)
+    const query = mockQueryCalls.find((call) => call.queryKey[0] === queryKey)
+    expect(query).toBeDefined()
+    await expect(query?.queryFn()).rejects.toThrow()
+
+    mockQueryErrors.add(queryKey)
+    rerender(<AccountStatusWidget context={{ personId: 'read-failure-person' }} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to load portal account status.')
+    expect(screen.queryByText('No portal account linked')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Invite to Portal' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(mockInvalidateQueries.mock.calls.map(([options]) => options.queryKey[0])).toEqual([
+      'customer-account-status',
+      'customer-account-person',
+      'customer-account-pending-invitation',
+    ])
   })
 
   it.each([
