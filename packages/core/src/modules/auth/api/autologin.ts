@@ -89,6 +89,8 @@ export async function GET(req: Request) {
     secure: process.env.NODE_ENV === 'production',
     maxAge: accessTokenMaxAgeSeconds,
   })
+  res.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
   return res
 }
 

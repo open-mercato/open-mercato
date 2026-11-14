@@ -116,6 +116,16 @@ describe('GET /api/auth/autologin', () => {
     expect(authServiceMock.createSession).toHaveBeenCalledTimes(1)
   })
 
+  test('drops the previous identity’s organization scope selection when it signs the visitor in', async () => {
+    setAutoLoginEnv({ OM_AUTOLOGIN_EMAIL: 'superadmin@acme.com', OM_AUTOLOGIN_PASSWORD: 'secret' })
+
+    const res = await GET(autologinRequest())
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toMatch(/om_selected_tenant=;[^,]*Max-Age=0/i)
+    expect(setCookie).toMatch(/om_selected_org=;[^,]*Max-Age=0/i)
+  })
+
   test('scopes the lookup by tenant when OM_AUTOLOGIN_TENANT is set', async () => {
     setAutoLoginEnv({
       OM_AUTOLOGIN_EMAIL: 'superadmin@acme.com',

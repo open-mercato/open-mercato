@@ -6,6 +6,8 @@ function clearAuthCookies(response: NextResponse) {
   response.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   response.cookies.set('session_token', '', { path: '/', maxAge: 0 })
   response.cookies.set('om_login_tenant', '', { path: '/', maxAge: 0 })
+  response.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
+  response.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
 }
 
 function setTenantCookie(response: NextResponse, tenantId: string) {
