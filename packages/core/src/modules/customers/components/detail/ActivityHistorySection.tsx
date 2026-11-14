@@ -16,6 +16,9 @@ import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { ActivityCard } from './ActivityCard'
+import { useActivityDelete } from './hooks/useActivityDelete'
+import { useInteractionUndoRefresh } from './hooks/useInteractionUndoRefresh'
+import { runActivityRefresh, type ActivityRefreshHandler } from './activityRefresh'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -27,6 +30,8 @@ type ActivityHistorySectionProps = {
   useCanonicalInteractions?: boolean
   refreshKey?: number
   onEditActivity?: (activity: InteractionSummary) => void
+  /** Called after an activity in the history is changed, deleted or restored by undo, so the host can refresh the panels it owns (week strip, planned list, counters). */
+  onDataRefresh?: ActivityRefreshHandler
   /** Optional guarded-mutation runner so per-row mutations route through the parent's
    * `useGuardedMutation` and emit retry-last-mutation context. */
   runMutation?: GuardedMutationRunner
@@ -181,6 +186,7 @@ export function ActivityHistorySection({
   useCanonicalInteractions = false,
   refreshKey = 0,
   onEditActivity,
+  onDataRefresh,
   runMutation,
   excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
@@ -198,9 +204,12 @@ export function ActivityHistorySection({
   const [loadedPages, setLoadedPages] = React.useState(1)
   const [localRefreshKey, setLocalRefreshKey] = React.useState(0)
   const historyRequestSeqRef = React.useRef(0)
-  const handleActivityChanged = React.useCallback(() => {
+  const handleActivityChanged = React.useCallback(async () => {
     setLocalRefreshKey((current) => current + 1)
-  }, [])
+    await runActivityRefresh(onDataRefresh, 'ActivityHistorySection')
+  }, [onDataRefresh])
+
+  useInteractionUndoRefresh(handleActivityChanged, 'ActivityHistorySection')
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 300)
@@ -353,8 +362,15 @@ export function ActivityHistorySection({
     setLoadedPages((current) => current + 1)
   }, [])
 
+  const { deleteActivity, ConfirmDialogElement } = useActivityDelete({
+    runMutation,
+    onAfterDelete: handleActivityChanged,
+    logContext: 'ActivityHistorySection',
+  })
+
   return (
     <div className="rounded-xl border bg-card">
+      {ConfirmDialogElement}
       <div className="flex items-center gap-2 border-b px-5 py-4">
         <Clock3 className="size-4 text-muted-foreground" />
         <div className="min-w-0">
@@ -362,7 +378,7 @@ export function ActivityHistorySection({
             {t('customers.activityLog.title', 'Activity history')}
           </h3>
           <p className="text-xs text-muted-foreground">
-            {t('customers.timeline.history.filtered', 'filtered: {{types}} · {{count}} results', {
+            {t('customers.timeline.history.filtered', 'filtered: {{types}}, {{count}} results', {
               types: filteredLabel,
               count: activities.length,
             })}
@@ -471,7 +487,7 @@ export function ActivityHistorySection({
                   {showYearSeparator ? (
                     <div className="flex items-center gap-3 py-1">
                       <div className="h-px flex-1 bg-border" />
-                      <span className="text-xs font-semibold text-muted-foreground">· {currentYear} ·</span>
+                      <span className="text-xs font-semibold text-muted-foreground">{currentYear}</span>
                       <div className="h-px flex-1 bg-border" />
                     </div>
                   ) : null}
@@ -479,6 +495,7 @@ export function ActivityHistorySection({
                     activity={activity}
                     onOpen={onEditActivity}
                     onChanged={handleActivityChanged}
+                    onDelete={deleteActivity}
                     runMutation={runMutation}
                   />
                 </React.Fragment>

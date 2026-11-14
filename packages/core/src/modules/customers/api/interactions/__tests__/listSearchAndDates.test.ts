@@ -107,6 +107,29 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(compiled!.parameters).not.toContain('%50%_off%')
   })
 
+  test('activityDate orders by when a row happened or is planned, so open activities are not pushed to the last page', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?sortField=activityDate&sortDir=desc'))
+    expect(res.status).toBe(200)
+    const compiled = rowsQuery()
+    expect(compiled).toBeDefined()
+    expect(compiled!.sql).toMatch(/order by coalesce\(coalesce\(occurred_at, scheduled_at\), timestamp with time zone '0001-01-01T00:00:00.000Z'\) desc, "id" desc/i)
+  })
+
+  test('occurredAt keeps ordering by the occurrence date alone', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?sortField=occurredAt&sortDir=desc'))
+    expect(res.status).toBe(200)
+    expect(rowsQuery()!.sql).toMatch(/order by coalesce\(occurred_at, timestamp with time zone '0001-01-01T00:00:00.000Z'\) desc/i)
+  })
+
+  test('excludeStatus leaves out each listed status and ignores empty entries', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?excludeStatus=done,%20canceled,,completed'))
+    expect(res.status).toBe(200)
+    const compiled = rowsQuery()
+    expect(compiled!.sql.toLowerCase()).toContain('"status" not in')
+    expect(compiled!.parameters).toEqual(expect.arrayContaining(['done', 'canceled', 'completed']))
+    expect(compiled!.parameters).not.toContain('')
+  })
+
   test('list projection includes external_message_id for email interaction links', async () => {
     const res = await GET(new Request('https://example.test/api/customers/interactions?interactionType=email'))
     expect(res.status).toBe(200)

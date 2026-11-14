@@ -86,7 +86,6 @@ export function LookupSelect({
   const resolvedSelectLabel = selectLabel ?? t('ui.lookupSelect.select', 'Select')
   const resolvedSelectedLabel = selectedLabel ?? t('ui.lookupSelect.selected', 'Selected')
   const resolvedChangeLabel = t('ui.lookupSelect.change', 'Change')
-  const resolvedStartTypingLabel = startTypingLabel ?? t('ui.lookupSelect.startTyping', 'Start typing to search.')
   const resolvedMinQueryHintLabel = minQueryHintLabel ?? t(
     'ui.lookupSelect.minQueryHint',
     'Type at least {minQuery} characters or paste an id to search.',
@@ -575,9 +574,9 @@ export function LookupSelect({
         <p className="text-xs text-muted-foreground">
           {resolvedMinQueryHintLabel}
         </p>
-      ) : (
-        <p className="text-xs text-muted-foreground">{resolvedStartTypingLabel}</p>
-      )}
+      ) : startTypingLabel ? (
+        <p className="text-xs text-muted-foreground">{startTypingLabel}</p>
+      ) : null}
       {error ? <p className="text-xs text-status-error-text" role="alert">{resolvedEmptyLabel}</p> : null}
     </div>
   )

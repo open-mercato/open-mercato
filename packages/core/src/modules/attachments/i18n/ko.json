@@ -31,7 +31,6 @@
   "attachments.library.actions.upload": "업로드",
   "attachments.library.confirm.delete": "첨부 파일 \"{{name}}\"을(를) 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
   "attachments.library.delete": "첨부 파일 삭제",
-  "attachments.library.description": "이 워크스페이스에 저장된 모든 파일을 찾아보고, 태그를 지정하고, 관리하세요.",
   "attachments.library.errors.delete": "첨부 파일 삭제에 실패했습니다.",
   "attachments.library.errors.load": "첨부 파일을 불러오지 못했습니다.",
   "attachments.library.errors.saveBlocked": "유효성 검사로 첨부 파일 변경이 차단되었습니다.",

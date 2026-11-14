@@ -104,7 +104,7 @@ test.describe('TC-CRM-8576: currency-filtered Kanban pagination', () => {
     await expect(page.getByRole('button', { name: 'New stage', exact: true }).first()).toBeEnabled()
     await page.getByRole('button', { name: /^Pipeline:/ }).click()
     const pipelineDialog = page.getByRole('dialog').filter({
-      has: page.getByText('Filter · Pipeline', { exact: true }),
+      has: page.getByText('Filter: Pipeline', { exact: true }),
     })
     await pipelineDialog.getByRole('radio', { name: pipelineName, exact: true }).click()
     await pipelineDialog.getByRole('button', { name: 'Apply', exact: true }).click()

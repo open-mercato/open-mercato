@@ -38,7 +38,7 @@ function formatDateBadge(isoLocal: string, t: TranslateFn): string {
   const dayLabel = isToday
     ? t('customers.activityComposer.today', 'Today')
     : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-  return `${dayLabel} · ${time}`
+  return `${dayLabel}, ${time}`
 }
 
 interface InlineActivityComposerProps {
@@ -49,6 +49,8 @@ interface InlineActivityComposerProps {
   runGuardedMutation?: GuardedMutationRunner
   onScheduleRequested?: () => void
   useCanonicalInteractions?: boolean
+  /** Host refresh signal forwarded to the week preview so it follows activities created, changed or deleted outside the composer. */
+  refreshKey?: number
 }
 
 export function InlineActivityComposer({
@@ -59,6 +61,7 @@ export function InlineActivityComposer({
   runGuardedMutation,
   onScheduleRequested,
   useCanonicalInteractions,
+  refreshKey,
 }: InlineActivityComposerProps) {
   const t = useT()
   const calendarRefreshRef = React.useRef<(() => void) | null>(null)
@@ -181,12 +184,12 @@ export function InlineActivityComposer({
   return (
     <div className="rounded-2xl border border-border/70 bg-card p-5" onKeyDown={handleKeyDown}>
       {/* Header: title + save button */}
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-base font-semibold text-foreground">
           <SquarePen className="size-4" />
           {t('customers.activityComposer.title', 'Log activity')}
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {onScheduleRequested ? (
             <Button type="button" variant="outline" size="sm" onClick={onScheduleRequested} disabled={saving}>
               <Calendar className="size-4" />
@@ -207,12 +210,11 @@ export function InlineActivityComposer({
         </div>
       </div>
 
-      {/* Activity type selector — 4 equal-width buttons */}
       <ActivityTypeSelector selectedType={selectedType} onSelect={handleTypeSelect} />
 
       {/* Description + date row */}
-      <div className="mt-4 flex items-start gap-3">
-        <div className="flex-1">
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1">
           <label
             htmlFor="inline-activity-composer-description"
             className="mb-1 block text-xs font-medium text-muted-foreground"
@@ -232,7 +234,7 @@ export function InlineActivityComposer({
             <p className="mt-1 text-xs text-destructive">{errors.description}</p>
           ) : null}
         </div>
-        <label className="mt-[22px] flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2.5 text-sm text-muted-foreground">
+        <label className="flex shrink-0 cursor-pointer items-center gap-2 self-start rounded-lg border bg-background px-3 py-2.5 text-sm text-muted-foreground sm:mt-5">
           <Calendar className="size-4" />
           <span className="text-sm font-medium text-foreground">{formatDateBadge(occurredAt, t)}</span>
           <input
@@ -245,7 +247,7 @@ export function InlineActivityComposer({
       </div>
 
       <div className="mt-4">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {t('customers.activityComposer.weekPreviewTitle', 'This week')}
           </span>
@@ -277,6 +279,7 @@ export function InlineActivityComposer({
               entityId={entityId}
               useCanonicalInteractions={useCanonicalInteractions}
               refreshRef={calendarRefreshRef}
+              refreshKey={refreshKey}
             />
           </div>
         ) : null}

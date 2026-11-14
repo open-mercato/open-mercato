@@ -155,7 +155,7 @@ export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
                 aria-label={t('ui.inputs.amountInput.currencyLabel', 'Currency')}
                 className={cn(
                   'h-auto w-auto shrink-0 gap-1.5 rounded-none border-0 bg-transparent px-2.5 py-2 shadow-none',
-                  'hover:bg-muted/40 focus:bg-muted/40 focus-visible:shadow-none focus-visible:border-0',
+                  'focus-visible:shadow-none focus-visible:border-0',
                   'disabled:bg-transparent disabled:hover:bg-transparent',
                   typeof size === 'number' && 'h-full py-0',
                 )}

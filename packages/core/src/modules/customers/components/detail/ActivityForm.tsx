@@ -219,7 +219,6 @@ export function ActivityForm({
           fetchOptions={loadActivityOptions}
           createOption={createActivityOption}
           labels={activityTypeLabels}
-          allowAppearance
           allowInlineCreate
           appearanceLabels={dictionaryAppearanceLabels}
           selectClassName="w-full"

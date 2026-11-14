@@ -31,7 +31,6 @@
   "attachments.library.actions.upload": "Upload",
   "attachments.library.confirm.delete": "Delete attachment \"{{name}}\"? This action cannot be undone.",
   "attachments.library.delete": "Delete attachment",
-  "attachments.library.description": "Browse, tag, and manage every file stored in this workspace.",
   "attachments.library.errors.delete": "Failed to delete attachment.",
   "attachments.library.errors.load": "Failed to load attachments.",
   "attachments.library.errors.saveBlocked": "Attachment change blocked by validation.",

@@ -1,5 +1,47 @@
 # Upgrade Notes
 
+## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
+
+The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
+`PipelineStepper` and replaced the Won / Lost buttons with a "Close deal" menu under the header
+actions. The inputs that fed the old presentation stay accepted and are marked `@deprecated`:
+
+- `DealDetailHeader` `stageOptions`, `currentStageId`, `onStageChange`, `isStageSaving`: when a
+  caller passes `stageOptions` together with `onStageChange` for an open deal, the header still
+  renders a stage menu (`StageSelectMenu`) in its action cluster, disabled while the form is dirty
+  or saving. The built-in page no longer passes them; it passes `onStageChange` and
+  `stageChangeDisabled` to `PipelineStepper` instead.
+- `PipelineStepper.footer`: still rendered under the stage strip, separated by a rule, with and
+  without stages. The built-in page renders closure controls through
+  `DealDetailHeader.secondaryActions`.
+- `DealClosureActionBar.embedded`: accepted and ignored. The bar is a popover trigger and draws no
+  card, so there is nothing to embed.
+- `CollapsibleGroupProps.fieldCount` (`@open-mercato/ui/backend/crud/CollapsibleGroup`): accepted
+  and ignored; the group title no longer shows the "N fields" counter.
+
+Below the `sm` breakpoint `PipelineStepper` now shows a "Move stage" menu next to the current
+stage, so narrow screens keep the quick stage change the header dropdown used to provide.
+
+All of these stay for at least one minor release after 0.10.0 and are tracked in
+`.ai/specs/2026-04-06-crm-detail-pages-ux-enhancements.md`. No database migration is required.
+
+## `PersonCard` and `sectionSubtitle` deprecated (#7493)
+
+`LinkedPeopleSection` now renders linked people through `DataTable` (extension table id
+`customers.linked_people.list`) instead of mapping `PersonCard`, and its row actions are
+`RowActions` items with the ids `open` and `unlink`.
+
+`PersonCard` stays exported from `components/detail/PersonCard` with the same props and the same
+standalone card markup, so existing callers need no change, and is marked `@deprecated`. New tables
+should compose the exported `Person*Cell` components and `buildPersonRowActionItems` as `DataTable`
+columns and row actions.
+
+`LinkedPeopleSectionProps.sectionSubtitle` is still accepted and rendered, and is marked
+`@deprecated`. The built-in company and deal sections no longer pass it, so their subtitle is gone.
+Move any custom text out of the section, for example into `header`.
+
+Both stay for at least one minor release. No database migration is required.
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app
@@ -73,6 +115,7 @@ Reinstall behavior is unchanged: monorepo `yarn dev:greenfield` resets the confi
 The development diagnostics banner’s Retry button now invokes runtime recovery; a page reload alone no longer leaves the historical incident as the only outcome. Existing generation/health checks still determine whether recovery succeeded.
 
 The CLI starts Next development processes with `NODE_ENV=development` so development CSP/debugging features work. Production server and background-process environment behavior is unchanged.
+
 ## Search writes honor entity strategy pins (#5930)
 
 SearchService direct and bulk writes now honor each registered entity's existing

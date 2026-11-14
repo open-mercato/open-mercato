@@ -200,3 +200,20 @@ describe('RowActions — keyboard navigation (#6718)', () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('RowActions — item icons', () => {
+  it('renders a decorative icon next to the label without changing the item name', () => {
+    renderMenu([
+      { id: 'edit', label: 'Edit', icon: <svg data-testid="edit-icon" />, onSelect: () => {} },
+      { id: 'docs', label: 'Docs', icon: <svg data-testid="docs-icon" />, href: '/docs' },
+      { id: 'delete', label: 'Delete', onSelect: () => {} },
+    ])
+    openMenu()
+
+    const edit = screen.getByRole('menuitem', { name: 'Edit' })
+    expect(edit).toContainElement(screen.getByTestId('edit-icon'))
+    expect(screen.getByTestId('edit-icon').parentElement).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('menuitem', { name: 'Docs' })).toContainElement(screen.getByTestId('docs-icon'))
+    expect(screen.getByRole('menuitem', { name: 'Delete' }).querySelector('svg')).toBeNull()
+  })
+})
