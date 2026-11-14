@@ -16,12 +16,14 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { DictionaryEntrySelect, type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber, formatLocaleNumberInput } from '@open-mercato/shared/lib/number'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { Settings } from 'lucide-react'
@@ -182,11 +184,19 @@ export function AdjustmentDialog({
   onSubmit,
 }: AdjustmentDialogProps) {
   const t = useT()
+  const locale = useLocale()
+  const parseUserNumber = React.useCallback((value: unknown): number | null => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null
+    return typeof value === 'string' ? parseLocaleNumber(value, locale) : null
+  }, [locale])
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
   const entityId = kind === 'order' ? E.sales.sales_order_adjustment : E.sales.sales_quote_adjustment
   const initialMode: 'rate' | 'amount' = resolveModeFromAdjustment(initialAdjustment)
   const [mode, setMode] = React.useState<'rate' | 'amount'>(initialMode)
   const [formResetKey, setFormResetKey] = React.useState(0)
+  const [isPreparing, setIsPreparing] = React.useState(true)
+  const preparedSourceRef = React.useRef<string | null>(null)
+  const adjustmentSourceKey = `${kind}:${initialAdjustment?.id ?? 'new'}`
   const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([])
   const taxRatesRef = React.useRef<TaxRateOption[]>([])
   const taxRatesLoadedRef = React.useRef(false)
@@ -302,22 +312,28 @@ export function AdjustmentDialog({
       }
       const rateValue = resolveTaxRateValue(values)
       if (!Number.isFinite(rateValue)) return
-      const numeric = normalizeNumber(rawValue)
+      const numeric = parseUserNumber(rawValue)
       if (!Number.isFinite(numeric)) return
       if (!setFormValue) return
       if (source === 'net') {
         const gross = roundAmount(numeric * (1 + rateValue / 100))
-        setFormValue('amountGross', Number.isFinite(gross) ? gross.toFixed(2) : '')
+        setFormValue('amountGross', Number.isFinite(gross) ? formatLocaleNumberInput(gross, locale) : '')
       } else {
         const net = roundAmount(numeric / (1 + rateValue / 100))
-        setFormValue('amountNet', Number.isFinite(net) ? net.toFixed(2) : '')
+        setFormValue('amountNet', Number.isFinite(net) ? formatLocaleNumberInput(net, locale) : '')
       }
     },
-    [mode, resolveTaxRateValue]
+    [locale, mode, parseUserNumber, resolveTaxRateValue]
   )
 
   React.useEffect(() => {
-    if (!open) return
+    if (!open) {
+      preparedSourceRef.current = null
+      setIsPreparing(true)
+      return
+    }
+    if (preparedSourceRef.current === adjustmentSourceKey) return
+    setIsPreparing(true)
     let mounted = true
     if (!kindOptions.length) {
       void loadKindOptions()
@@ -360,12 +376,14 @@ export function AdjustmentDialog({
       setInitialValues({ ...next, ...customValues })
       setMode(resolvedMode)
       setFormResetKey((prev) => prev + 1)
+      preparedSourceRef.current = adjustmentSourceKey
+      setIsPreparing(false)
     }
     prepare().catch(() => {})
     return () => {
       mounted = false
     }
-  }, [initialAdjustment, kindOptions, loadKindOptions, loadTaxRates, open])
+  }, [adjustmentSourceKey, initialAdjustment, kindOptions, loadKindOptions, loadTaxRates, open])
 
   const fields = React.useMemo<CrudField<AdjustmentFormState>[]>(() => {
     const percentSuffix = (
@@ -476,7 +494,7 @@ export function AdjustmentDialog({
         component: ({ value, setValue }) => (
           <div className="flex items-center">
             <Input
-              value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+              value={typeof value === 'string' ? value : typeof value === 'number' ? formatLocaleNumberInput(value, locale) : ''}
               onChange={(event) => setValue(event.target.value)}
               placeholder="0.00"
               disabled={mode !== 'rate'}
@@ -496,7 +514,7 @@ export function AdjustmentDialog({
         layout: 'half',
         component: ({ value, setValue, setFormValue, values }) => (
           <Input
-            value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+            value={typeof value === 'string' ? value : typeof value === 'number' ? formatLocaleNumberInput(value, locale) : ''}
             onChange={(event) => {
               setValue(event.target.value)
               lastAmountChangedRef.current = 'net'
@@ -516,7 +534,7 @@ export function AdjustmentDialog({
         layout: 'half',
         component: ({ value, setValue, setFormValue, values }) => (
           <Input
-            value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+            value={typeof value === 'string' ? value : typeof value === 'number' ? formatLocaleNumberInput(value, locale) : ''}
             onChange={(event) => {
               setValue(event.target.value)
               lastAmountChangedRef.current = 'gross'
@@ -561,17 +579,17 @@ export function AdjustmentDialog({
             const lastChanged = lastAmountChangedRef.current
             if (mode !== 'amount') return
             if (lastChanged === 'gross') {
-              const gross = normalizeNumber((values as any)?.amountGross)
+              const gross = parseUserNumber(values?.amountGross)
               if (Number.isFinite(gross)) {
                 const net = roundAmount(gross / (1 + rateNumeric / 100))
-                setFormValue?.('amountNet', net.toFixed(2))
+                setFormValue?.('amountNet', formatLocaleNumberInput(net, locale))
               }
               return
             }
-            const net = normalizeNumber((values as any)?.amountNet)
+            const net = parseUserNumber(values?.amountNet)
             if (Number.isFinite(net)) {
               const gross = roundAmount(net * (1 + rateNumeric / 100))
-              setFormValue?.('amountGross', gross.toFixed(2))
+              setFormValue?.('amountGross', formatLocaleNumberInput(gross, locale))
             }
           }
           return (
@@ -643,7 +661,7 @@ export function AdjustmentDialog({
         ),
       },
     ]
-  }, [applyOppositeAmount, currencyCode, loadKindOptions, mode, t, taxRates.length, taxRateMap])
+  }, [applyOppositeAmount, currencyCode, loadKindOptions, locale, mode, parseUserNumber, t, taxRates.length, taxRateMap])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     return [
@@ -683,9 +701,9 @@ export function AdjustmentDialog({
           { label: t('sales.documents.adjustments.labelRequired', 'Label is required.') }
         )
       }
-      const percentageRate = normalizeNumber(values.rate)
-      const amountNet = normalizeNumber(values.amountNet)
-      const amountGross = normalizeNumber(values.amountGross)
+      const percentageRate = parseUserNumber(values.rate)
+      const amountNet = parseUserNumber(values.amountNet)
+      const amountGross = parseUserNumber(values.amountGross)
       if (calculationMode === 'rate') {
         if (!Number.isFinite(percentageRate)) {
           throw createCrudFormError(
@@ -773,6 +791,7 @@ export function AdjustmentDialog({
       initialAdjustment?.metadata,
       onOpenChange,
       onSubmit,
+      parseUserNumber,
       resolveFormMode,
       resolveTaxRateValue,
       t,
@@ -798,18 +817,22 @@ export function AdjustmentDialog({
         <DialogHeader>
           <DialogTitle>{initialAdjustment ? labels.editTitle : labels.addTitle}</DialogTitle>
         </DialogHeader>
-        <CrudForm<AdjustmentFormState>
-          key={formResetKey}
-          embedded
-          fields={fields}
-          groups={groups}
-          entityId={entityId}
-          initialValues={initialValues}
-          submitLabel={initialAdjustment ? labels.submitUpdate : labels.submitCreate}
-          onSubmit={handleSubmit}
-          loadingMessage={t('sales.documents.adjustments.loading', 'Loading adjustments…')}
-          customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}
-        />
+        {isPreparing || preparedSourceRef.current !== adjustmentSourceKey ? (
+          <LoadingMessage label={t('sales.documents.adjustments.loading', 'Loading adjustments…')} />
+        ) : (
+          <CrudForm<AdjustmentFormState>
+            key={formResetKey}
+            embedded
+            fields={fields}
+            groups={groups}
+            entityId={entityId}
+            initialValues={initialValues}
+            submitLabel={initialAdjustment ? labels.submitUpdate : labels.submitCreate}
+            onSubmit={handleSubmit}
+            loadingMessage={t('sales.documents.adjustments.loading', 'Loading adjustments…')}
+            customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )
