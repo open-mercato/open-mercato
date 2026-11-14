@@ -1,0 +1,229 @@
+{
+  "schemaVersion": 1,
+  "pr": 9333,
+  "sourceCommit": "901e4a882649c74d3d9a760dcf9a7f0ee4b296e7",
+  "amendment": "Owner-approved setup-style CLI presentation, official operator docs and Enterprise feature listings.",
+  "configuredValidation": {
+    "runner": "local",
+    "node": "24.22.2",
+    "results": [
+      {
+        "command": "yarn build:packages",
+        "exitCode": 0,
+        "seconds": 59.114
+      },
+      {
+        "command": "yarn generate",
+        "exitCode": 0,
+        "seconds": 9.664
+      },
+      {
+        "command": "yarn build:packages",
+        "exitCode": 0,
+        "seconds": 0.713
+      },
+      {
+        "command": "yarn i18n:check-sync",
+        "exitCode": 0,
+        "seconds": 0.946
+      },
+      {
+        "command": "yarn i18n:check-usage",
+        "exitCode": 0,
+        "seconds": 2.593
+      },
+      {
+        "command": "yarn typecheck",
+        "exitCode": 0,
+        "seconds": 3.063
+      },
+      {
+        "command": "yarn test",
+        "exitCode": 0,
+        "seconds": 332.536
+      },
+      {
+        "command": "yarn build:app",
+        "exitCode": 0,
+        "seconds": 64.62
+      }
+    ]
+  },
+  "functionalVerification": {
+    "schemaVersion": 1,
+    "sourceCommit": "901e4a8826",
+    "recordedAt": "2026-11-13T11:57:24.193449+00:00",
+    "scope": "Approved backup CLI presentation only; no cryptographic, command, exit-code, stdout JSON or ProgressEvent schema changes.",
+    "focusedTests": {
+      "runner": "local Node 24.22.2",
+      "suites": 4,
+      "passed": 38,
+      "failed": 0,
+      "seconds": 0.615,
+      "coverage": [
+        "Human setup-style headings and semantic colors",
+        "Bounded progress state and coalescing",
+        "Exact versus estimated totals",
+        "Owned-panel suspension without erase-to-end",
+        "NO_COLOR presence, TERM=dumb and non-TTY fallback",
+        "Existing encryption, resume and JSON security boundaries",
+        "Both canonical operational and telemetry records retained",
+        "Interactive JSON progress refuses unconfirmed plaintext without a prompt or write"
+      ]
+    },
+    "packagedCli": {
+      "runner": "Node 24.22.2 with PostgreSQL 16 generated fixture",
+      "commandCount": 7,
+      "commands": [
+        {
+          "name": "create",
+          "exitCode": 0,
+          "stderrActualAnsi": true,
+          "stdoutJson": true
+        },
+        {
+          "name": "status",
+          "exitCode": 0,
+          "stderrActualAnsi": true,
+          "stdoutJson": true
+        },
+        {
+          "name": "verify",
+          "exitCode": 0,
+          "stderrActualAnsi": true,
+          "stdoutJson": true
+        },
+        {
+          "name": "preflight-restore",
+          "exitCode": 0,
+          "stderrActualAnsi": true,
+          "stdoutJson": true
+        },
+        {
+          "name": "restore-interrupted",
+          "exitCode": 130,
+          "stderrActualAnsi": true,
+          "stdoutJson": false
+        },
+        {
+          "name": "preflight-resume",
+          "exitCode": 0,
+          "stderrActualAnsi": true,
+          "stdoutJson": true
+        },
+        {
+          "name": "restore-resume",
+          "exitCode": 0,
+          "stderrActualAnsi": true,
+          "stdoutJson": true
+        }
+      ],
+      "streams": "Human stderr captured through a real PTY; machine stdout separately piped. Interruption intentionally omits --json.",
+      "realInterruption": "SIGINT after admitted restore entity progress, exit 130",
+      "resume": "Fresh preflight confirmation, same restore run identifier, exit 0",
+      "restoredRows": 143,
+      "parentRows": 3,
+      "childRows": 140,
+      "emptyTableRows": 0
+    },
+    "protocolChecks": {
+      "passed": 5,
+      "cases": [
+        {
+          "name": "json-error",
+          "exitCode": 3,
+          "stderrHasAnsi": false,
+          "stdoutRecords": 1,
+          "errorCode": "BACKUP_ENTERPRISE_RIGHTS_REQUIRED",
+          "progressRecords": 2,
+          "phases": [
+            "backup.command.refused",
+            "backup.refused"
+          ]
+        },
+        {
+          "name": "json-tty-unconfirmed",
+          "exitCode": 3,
+          "stderrHasAnsi": false,
+          "stdoutRecords": 1,
+          "errorCode": "BACKUP_UNENCRYPTED_REFUSED",
+          "progressRecords": 2,
+          "phases": [
+            "backup.command.refused",
+            "backup.refused"
+          ]
+        },
+        {
+          "name": "no-color-error",
+          "exitCode": 3,
+          "stderrHasAnsi": false,
+          "stdoutRecords": 0,
+          "plainErrorCard": true
+        },
+        {
+          "name": "dumb-error",
+          "exitCode": 3,
+          "stderrHasAnsi": false,
+          "stdoutRecords": 0,
+          "plainErrorCard": true
+        },
+        {
+          "name": "forced-tty-pipe-error",
+          "exitCode": 3,
+          "stderrHasAnsi": false,
+          "stdoutRecords": 0,
+          "plainErrorCard": true
+        }
+      ],
+      "unconfirmedBackupCreatedFiles": false
+    },
+    "cleanup": {
+      "generatedSourceAndTargetDatabases": "dropped by capture finally block",
+      "perRunContainerServiceConfiguration": "removed",
+      "privateEncryptedFixtureArchivesAndIdentityFiles": "removed by parent after screenshots and summary were verified; no fixture archives or identities uploaded"
+    }
+  },
+  "additionalFocusedChecks": {
+    "sharedScopedLogger": 3,
+    "telemetryFunnel": 10
+  },
+  "sourceReview": {
+    "reviewer": "separate coding agent; source review independent of the source authors",
+    "result": "No unresolved blocker or major findings",
+    "limits": "Same GitHub account as author; no native approving review or manual QA sign-off is claimed."
+  },
+  "documentationChecks": [
+    "MDX compilation",
+    "sidebar TypeScript syntax",
+    "relative Markdown links",
+    "Enterprise feature-list links and preservation",
+    "git diff --check"
+  ],
+  "screenshots": [
+    {
+      "name": "backup-format-create.png",
+      "bytes": 269315,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/f253d9132857329dcc2c273c8e2227bc4327bae3/pr-9333/backup-format-create.png"
+    },
+    {
+      "name": "backup-format-verify.png",
+      "bytes": 457449,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/b143489dddd5025ec4de3f29d1701b142d2b372b/pr-9333/backup-format-verify.png"
+    },
+    {
+      "name": "backup-format-resume.png",
+      "bytes": 603528,
+      "url": "https://raw.githubusercontent.com/open-mercato/open-mercato/69165e1197f17ed96b8e1348810dc7ab0ff94722/pr-9333/backup-format-resume.png"
+    }
+  ],
+  "uploadsExcluded": [
+    "backup archives",
+    "database dumps",
+    "database volumes",
+    "keys and identities",
+    "raw fixture inputs",
+    "private workspaces",
+    "raw logs"
+  ],
+  "releaseStatus": "Presentation amendment complete; manual QA and required CI still gate merge."
+}

@@ -1,5 +1,5 @@
 import type { Attributes, LogRecord } from '../types'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createLogger, type Logger } from '@open-mercato/shared/lib/logger'
 import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
 import { currentSpan } from './tracer'
 import { serializeError } from './serialize'
@@ -17,6 +17,7 @@ const logger = createLogger('telemetry')
 const CODE_ATTRIBUTE = 'error.code'
 
 export type ReportErrorContext = {
+  logger?: Pick<Logger, 'error' | 'warn'>
   /** Owning module, e.g. 'orders'. Used as a metric label. */
   module?: string
   /**
@@ -92,10 +93,15 @@ export function reportError(error: unknown, ctx?: ReportErrorContext): void {
     const safeError = new Error(serialized.message)
     safeError.name = serialized.name
     safeError.stack = serialized.stack
-    logger.error('Application error reported', { ...safeAttributes, err: safeError })
+    const output = ctx?.logger ?? logger
+    try {
+      output.error('Application error reported', { ...safeAttributes, err: safeError })
+    } catch {
+      logger.error('Application error reported', { ...safeAttributes, err: safeError })
+    }
     counter('om.errors', 1, errorLabels(ctx?.module, code))
 
-    reportToProvider(serialized, ctx?.module, code, safeAttributes)
+    reportToProvider(serialized, ctx?.module, code, safeAttributes, output)
   } finally {
     reporting = false
   }
@@ -118,6 +124,7 @@ function reportToProvider(
   module: string | undefined,
   code: string | undefined,
   safeAttributes: Attributes,
+  output: Pick<Logger, 'warn'>,
 ): void {
   try {
     const provider = getActiveProvider()
@@ -128,7 +135,11 @@ function reportToProvider(
     delete providerAttributes[CODE_ATTRIBUTE]
     provider.reportError(serialized, { module, code, attributes: providerAttributes })
   } catch (sinkError) {
-    logger.warn('Telemetry provider error sink failed', { err: sinkError as Error })
+    try {
+      output.warn('Telemetry provider error sink failed', { err: sinkError as Error })
+    } catch {
+      logger.warn('Telemetry provider error sink failed', { err: sinkError as Error })
+    }
   }
 }
 

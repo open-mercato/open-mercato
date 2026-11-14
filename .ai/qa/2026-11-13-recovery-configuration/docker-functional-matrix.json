@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "scope": "Actual shared recovery-tools stage + compiled working-tree CLI; whole app images not built",
+  "runtime": "Linux arm64 Docker on macOS arm64 host",
+  "owner": "om-recovery-proof-5d5559ec877a",
+  "cases": [
+    {
+      "case": "private-persistent-nonroot-mount",
+      "passed": true
+    },
+    {
+      "case": "configure",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "configure",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "preflight-source",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "preflight",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "create",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "create",
+      "stderrRecords": 4,
+      "ansiFree": true
+    },
+    {
+      "case": "verify-after-container-recreation",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "verify",
+      "stderrRecords": 4,
+      "ansiFree": true
+    },
+    {
+      "case": "status-default-custody",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "status",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "actual-tty-verify-output",
+      "passed": true,
+      "source": "actual compiled CLI stderr captured via container PTY; stdout stored separately"
+    },
+    {
+      "case": "preflight-restore",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "preflight",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "restore",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "restore",
+      "stderrRecords": 7,
+      "ansiFree": true
+    },
+    {
+      "case": "preflight-exercise",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "preflight",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "exercise",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "exercise",
+      "stderrRecords": 7,
+      "ansiFree": true
+    },
+    {
+      "case": "missing-volume",
+      "passed": true,
+      "exitCode": 3,
+      "noChildOutput": true
+    },
+    {
+      "case": "ephemeral-tmpfs",
+      "passed": true,
+      "exitCode": 3,
+      "noChildOutput": true
+    },
+    {
+      "case": "read-only-volume",
+      "passed": true,
+      "exitCode": 3,
+      "noChildOutput": true
+    },
+    {
+      "case": "wrong-runtime-uid",
+      "passed": true,
+      "exitCode": 3,
+      "noChildOutput": true
+    },
+    {
+      "case": "wrong-owner-no-repair",
+      "passed": true,
+      "before": "0:755",
+      "after": "0:755",
+      "exitCode": 3
+    },
+    {
+      "case": "database-url-no-hostname-rewrite",
+      "passed": true,
+      "exitCode": 3
+    },
+    {
+      "case": "no-automatic-commercial-entitlement",
+      "passed": true,
+      "exitCode": 3
+    }
+  ],
+  "noOperatorKeysUsed": true,
+  "backupsUploaded": false,
+  "source": "reviewed Docker working-tree packet and frozen compiled CLI snapshot",
+  "bundleSha256": "471ee28bece3feb5655dfddc6b5652b74809e617fbb892c7d7518cc4c74472d0",
+  "image": "sha256:9691090d5fcb8180b0f7c1692fd0b664899e834ee2665df82f30aa68525cb673",
+  "nodeVersion": "v24.22.3",
+  "clientVersions": {
+    "psql": "psql (PostgreSQL) 17.12",
+    "pg_dump": "pg_dump (PostgreSQL) 17.12",
+    "pg_restore": "pg_restore (PostgreSQL) 17.12"
+  },
+  "serverVersion": "17.11 (Debian 17.11-1.pgdg13+2)",
+  "volumeMetadata": [
+    "1001",
+    "1001:700",
+    "ext2/ext3"
+  ],
+  "configurationPlan": {
+    "assurance": "configuration-plan-only",
+    "persistentMount": true,
+    "durablePaths": {
+      "base": true,
+      "backupOutput": true,
+      "backupWorkspace": true,
+      "rotationArtifacts": true,
+      "rotationTrust": true,
+      "custody": true
+    },
+    "missingPrerequisites": [],
+    "warnings": []
+  },
+  "consistency": "quiesced",
+  "archiveEncryption": "age-v1",
+  "restore": {
+    "quarantined": true,
+    "promotionReady": false,
+    "keyRecovery": {
+      "status": "not-tested"
+    },
+    "durableStatus": "completed"
+  },
+  "exercise": {
+    "quarantined": true,
+    "promotionReady": false,
+    "keyRecovery": {
+      "status": "not-tested",
+      "testedCanaries": 0
+    },
+    "durableStatus": "completed"
+  },
+  "rows": 143,
+  "restoredSyntheticDataEqual": true,
+  "automaticDefaultPathsUsed": true,
+  "maintenanceProcessesRecreated": 22,
+  "allPassed": true,
+  "ownedGeneratedResourcesRemoved": true,
+  "dockerSourceCommit": "9e25b840a39e3bf401a59e24e46bb6d7721a41e7",
+  "helperSourceCommit": "ddd8bb292644d5020954e5caf82e06861f23ed41"
+}

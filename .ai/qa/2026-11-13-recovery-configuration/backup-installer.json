@@ -1,0 +1,16 @@
+{
+  "actualCreateInstaller": true,
+  "sandboxOnly": true,
+  "noExternal": true,
+  "manifestValid": true,
+  "infraSkillDiscoverable": true,
+  "canonicalLinkCorrect": true,
+  "bundledReferencesResolve": 5,
+  "externalCalls": 0,
+  "warnings": [],
+  "summary": [
+    "Installed 3 local skills across 1 tiers: infra.",
+    "External skills: skipped (--no-external).",
+    "Layout: .agents/skills/ (canonical); per-agent links: claude-code."
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "runtime": "v24.22.2",
+  "scope": "Configured eight-command gate, sequential worktrees; no command overrides",
+  "worktrees": {
+    "rotation": {
+      "validatedProductionCommit": "b04dc0e2a7b17ea99333d819f822ae3f784ac5b0",
+      "currentHead": "9fc64d109c31dce57f725eb861c3461f68449d96",
+      "subsequentChangesOnlyRootOwnedPlanQaSpec": [
+        ".ai/qa/2026-11-13-recovery-configuration/README.md",
+        ".ai/qa/2026-11-13-recovery-configuration/amendment-review.json",
+        ".ai/qa/2026-11-13-recovery-configuration/backup-compose-merge-stabilization.json",
+        ".ai/qa/2026-11-13-recovery-configuration/backup-installer.json",
+        ".ai/qa/2026-11-13-recovery-configuration/backup-maintenance-image.json",
+        ".ai/qa/2026-11-13-recovery-configuration/backup-maintenance-smoke.json",
+        ".ai/qa/2026-11-13-recovery-configuration/build-heap-strict-env.json",
+        ".ai/qa/2026-11-13-recovery-configuration/ci-merge-stabilization.json",
+        ".ai/qa/2026-11-13-recovery-configuration/configured-gate.json",
+        ".ai/qa/2026-11-13-recovery-configuration/docker-build-flag-propagation.json",
+        ".ai/qa/2026-11-13-recovery-configuration/docker-compose-validation.json",
+        ".ai/qa/2026-11-13-recovery-configuration/docker-full-runner-initial-failure.json",
+        ".ai/qa/2026-11-13-recovery-configuration/docker-functional-matrix.json",
+        ".ai/qa/2026-11-13-recovery-configuration/docker-image-validation.json",
+        ".ai/qa/2026-11-13-recovery-configuration/docker-registry-metadata.json",
+        ".ai/qa/2026-11-13-recovery-configuration/docker-web-runner-bounded-failure.json",
+        ".ai/qa/2026-11-13-recovery-configuration/maintenance-skill-review.json",
+        ".ai/qa/2026-11-13-recovery-configuration/native-configuration.json",
+        ".ai/qa/2026-11-13-recovery-configuration/packaged-core-json-initial-failure.json",
+        ".ai/qa/2026-11-13-recovery-configuration/packaged-core-refusal-json.json",
+        ".ai/qa/2026-11-13-recovery-configuration/packaged-core-refusal.json",
+        ".ai/qa/2026-11-13-recovery-configuration/packaged-docker-resume.json",
+        ".ai/qa/2026-11-13-recovery-configuration/retained-resume-source-boundary.json",
+        ".ai/qa/2026-11-13-recovery-configuration/rotation-installer.json",
+        ".ai/qa/2026-11-13-recovery-configuration/rotation-maintenance-image.json",
+        ".ai/qa/2026-11-13-recovery-configuration/rotation-maintenance-smoke.json",
+        ".ai/qa/2026-11-13-recovery-configuration/rotation-skill-final-validation.json",
+        ".ai/qa/2026-11-13-recovery-configuration/scenario-docs-validation.json",
+        ".ai/qa/2026-11-13-recovery-configuration/screenshot-evidence.json",
+        ".ai/qa/2026-11-13-recovery-configuration/turbo-strict-environment.json",
+        ".ai/qa/2026-11-13-recovery-configuration/validation-recovery.json",
+        ".ai/qa/2026-11-13-recovery-configuration/vault-provider-matrix.json",
+        ".ai/runs/2026-11-12-key-rotation-data-verification.md"
+      ],
+      "passedCommands": 8,
+      "totalCommands": 8,
+      "productionAndTrackedGeneratedClean": true,
+      "rootOwnedPlanQaSpecStatus": [
+        "?? .ai/specs/enterprise/2026-11-12-key-rotation-data-verification.md"
+      ],
+      "seconds": 614.564,
+      "commands": [
+        {
+          "command": "yarn build:packages",
+          "exitCode": 0,
+          "seconds": 75.659
+        },
+        {
+          "command": "yarn generate",
+          "exitCode": 0,
+          "seconds": 14.135
+        },
+        {
+          "command": "yarn build:packages",
+          "exitCode": 0,
+          "seconds": 1.058
+        },
+        {
+          "command": "yarn i18n:check-sync",
+          "exitCode": 0,
+          "seconds": 1.578
+        },
+        {
+          "command": "yarn i18n:check-usage",
+          "exitCode": 0,
+          "seconds": 3.856
+        },
+        {
+          "command": "yarn typecheck",
+          "exitCode": 0,
+          "seconds": 3.401
+        },
+        {
+          "command": "yarn test",
+          "exitCode": 0,
+          "seconds": 452.628
+        },
+        {
+          "command": "yarn build:app",
+          "exitCode": 0,
+          "seconds": 62.249
+        }
+      ]
+    },
+    "backup": {
+      "validatedProductionCommit": "724b6cb37eb98fcf5ce472b1b2090fdb5f704897",
+      "currentHead": "724b6cb37eb98fcf5ce472b1b2090fdb5f704897",
+      "subsequentChangesOnlyRootOwnedPlanQaSpec": [],
+      "passedCommands": 8,
+      "totalCommands": 8,
+      "productionAndTrackedGeneratedClean": true,
+      "rootOwnedPlanQaSpecStatus": [
+        " M .ai/runs/2026-11-12-resumable-encrypted-backup.md",
+        "?? .ai/qa/2026-11-13-recovery-configuration/"
+      ],
+      "seconds": 532.84,
+      "commands": [
+        {
+          "command": "yarn build:packages",
+          "exitCode": 0,
+          "seconds": 62.036
+        },
+        {
+          "command": "yarn generate",
+          "exitCode": 0,
+          "seconds": 10.346
+        },
+        {
+          "command": "yarn build:packages",
+          "exitCode": 0,
+          "seconds": 0.613
+        },
+        {
+          "command": "yarn i18n:check-sync",
+          "exitCode": 0,
+          "seconds": 1.055
+        },
+        {
+          "command": "yarn i18n:check-usage",
+          "exitCode": 0,
+          "seconds": 2.661
+        },
+        {
+          "command": "yarn typecheck",
+          "exitCode": 0,
+          "seconds": 2.816
+        },
+        {
+          "command": "yarn test",
+          "exitCode": 0,
+          "seconds": 357.621
+        },
+        {
+          "command": "yarn build:app",
+          "exitCode": 0,
+          "seconds": 95.692
+        }
+      ]
+    }
+  },
+  "temporaryPrivateSecurityFixturesRemaining": 0
+}

@@ -1,0 +1,35 @@
+{
+  "scope": "Read-only actual built standalone CLI outside checkout; no database, key generation, filesystem provisioning, or rights changes",
+  "runtime": "v24.22.2",
+  "exitCode": 0,
+  "stderrEmpty": true,
+  "singleStdoutResult": true,
+  "platform": "darwin",
+  "arch": "arm64",
+  "container": false,
+  "assurance": "configuration-plan-only",
+  "missingPrerequisiteCodes": [
+    "RECOVERY_POSTGRES_CLIENTS_REQUIRED",
+    "RECOVERY_PRIVATE_FILE_MISSING"
+  ],
+  "packManifest": {
+    "dist/lib/recovery-configuration.js": true,
+    "bin/mercato-backup.mjs": true,
+    "dist/modules/backups/lib/engine/cli/main.js": true
+  },
+  "focusedTests": {
+    "suites": 3,
+    "cases": 46,
+    "passed": true
+  },
+  "enterpriseBuild": {
+    "entryPoints": 737,
+    "passed": true
+  },
+  "enterpriseTypecheckPassed": true,
+  "helperSha256": "458ae24429631908f83b18c1a1944fc6cc1307490e98a26135debc8102c4899d",
+  "supplementalRuntime": "v26.12.1",
+  "sourceCommit": "ddd8bb2926",
+  "independentReview": "PASS: no remaining blocker/major in helper+CLI scope",
+  "helperUnchangedAfterDockerBuildAmendment": true
+}

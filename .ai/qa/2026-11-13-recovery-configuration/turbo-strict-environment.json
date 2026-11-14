@@ -1,0 +1,25 @@
+{
+  "runtime": "Node24.22.2",
+  "mode": "actual-turbo-strict-sandbox",
+  "results": [
+    {
+      "enterprise": "false",
+      "backups": "false",
+      "hash": "e8ccf2ed20fbc92d",
+      "strictChildValuesConfirmed": true
+    },
+    {
+      "enterprise": "true",
+      "backups": "false",
+      "hash": "05a7c9a6513e6d86",
+      "strictChildValuesConfirmed": true
+    },
+    {
+      "enterprise": "true",
+      "backups": "true",
+      "hash": "a91a53281ace4056",
+      "strictChildValuesConfirmed": true
+    }
+  ],
+  "passed": true
+}

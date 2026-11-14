@@ -1,0 +1,55 @@
+{
+  "actualVariants": [
+    {
+      "image": "om-recovery-proof:pg16",
+      "imageId": "sha256:30ee3015f9ee00447aa7b6d5f57623b4962de037a430263a8719c405602709db",
+      "architecture": "arm64",
+      "versions": {
+        "psql": "psql (PostgreSQL) 16.16",
+        "pg_dump": "pg_dump (PostgreSQL) 16.16",
+        "pg_restore": "pg_restore (PostgreSQL) 16.16"
+      },
+      "entrypointSha256": "2c215aaae3ed72b9899bb1bf9487c92f8e89281b0c73fe474d98621a84a14eea",
+      "actualBuildPassed": true
+    },
+    {
+      "image": "om-recovery-proof:pg17",
+      "imageId": "sha256:9691090d5fcb8180b0f7c1692fd0b664899e834ee2665df82f30aa68525cb673",
+      "architecture": "arm64",
+      "versions": {
+        "psql": "psql (PostgreSQL) 17.12",
+        "pg_dump": "pg_dump (PostgreSQL) 17.12",
+        "pg_restore": "pg_restore (PostgreSQL) 17.12"
+      },
+      "entrypointSha256": "2c215aaae3ed72b9899bb1bf9487c92f8e89281b0c73fe474d98621a84a14eea",
+      "actualBuildPassed": true
+    },
+    {
+      "image": "om-recovery-proof:pg18",
+      "imageId": "sha256:b1d694afaf60c8c4faf931b952754916aabd7b170672a2626e7da6e1a50e2e78",
+      "architecture": "arm64",
+      "versions": {
+        "psql": "psql (PostgreSQL) 18.7",
+        "pg_dump": "pg_dump (PostgreSQL) 18.7",
+        "pg_restore": "pg_restore (PostgreSQL) 18.7"
+      },
+      "entrypointSha256": "2c215aaae3ed72b9899bb1bf9487c92f8e89281b0c73fe474d98621a84a14eea",
+      "actualBuildPassed": true
+    },
+    {
+      "image": "om-recovery-proof:template-pg17",
+      "imageId": "sha256:c359b874972f8f85e57a0e05d2601aa399b6b7fe96e4fd3448c7990f0c66918f",
+      "architecture": "arm64",
+      "versions": {
+        "psql": "psql (PostgreSQL) 17.12",
+        "pg_dump": "pg_dump (PostgreSQL) 17.12",
+        "pg_restore": "pg_restore (PostgreSQL) 17.12"
+      },
+      "entrypointSha256": "2c215aaae3ed72b9899bb1bf9487c92f8e89281b0c73fe474d98621a84a14eea",
+      "actualBuildPassed": true
+    }
+  ],
+  "invalidMajor19RefusedAtBuild": true,
+  "corporateCa": "Existing trust algorithm preserved and inherited; no custom enterprise CA fixture asserted",
+  "fullApplicationImagesBuilt": false
+}

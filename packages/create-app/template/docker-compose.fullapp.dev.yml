@@ -8,6 +8,9 @@ services:
       context: .
       target: dev
       args:
+        - OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES:-false}
+        - OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
+        - POSTGRES_CLIENT_MAJOR=${POSTGRES_CLIENT_MAJOR:-17}
         - OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
       extra_hosts:
         - "host.docker.internal:host-gateway"
@@ -24,6 +27,8 @@ services:
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
+      OM_ENABLE_ENTERPRISE_MODULES: ${OM_ENABLE_ENTERPRISE_MODULES:-false}
+      OM_ENABLE_ENTERPRISE_MODULES_BACKUPS: ${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
       REDIS_URL: redis://redis:6379
@@ -363,6 +368,7 @@ services:
       - mercato-network-fullapp
 
 volumes:
+  recovery_data:
   postgres_data:
   # Shared MCP API key file: the mcp service provisions it, opencode reads it.
   mcp_shared:

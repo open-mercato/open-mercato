@@ -1,0 +1,15 @@
+{
+  "stabilizationCommit": "ef8861dfe5",
+  "mainCommit": "227e93ae4c3311d840b01e71bbd7bc0c76382dc0",
+  "syntheticMergeTree": "0106e0d538ff9e32268c4b6cbd3d8d16fd581122",
+  "mergeClean": true,
+  "idPropDeclarations": 1,
+  "idParameterBindings": 1,
+  "existingComboboxTests": {
+    "passed": 44,
+    "failed": 0
+  },
+  "uiBuildPassed": true,
+  "apiOrBehaviorChange": false,
+  "sourceFileSha256": "adc453869621a5e83b40aeb39858c2fdb09f95356f80544359fc115fab76ec6c"
+}

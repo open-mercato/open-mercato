@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "gib": 1,
+  "runner": "documented4vCPU8GiBNode24PG16 fixture",
+  "results": [
+    {
+      "jobs": 1,
+      "entityCount": 8,
+      "logicalBytes": "1073741824",
+      "observedConcurrentEntityStreams": 1,
+      "observedConcurrentRestoreTransactions": 1,
+      "completeOrderedContentDigestsEqual": true,
+      "peakCoordinatorRssMiB": 167.28515625,
+      "peakMemory": {
+        "phase": "restore",
+        "rss": 175411200,
+        "heapTotal": 48070656,
+        "heapUsed": 11296864,
+        "external": 49401881,
+        "arrayBuffers": 42107525
+      },
+      "peakCoordinatorAndNativeChildRssMiB": 172.4921875,
+      "rssBudgetPass": true,
+      "measurementScope": "fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child"
+    },
+    {
+      "jobs": 2,
+      "entityCount": 8,
+      "logicalBytes": "1073741824",
+      "observedConcurrentEntityStreams": 2,
+      "observedConcurrentRestoreTransactions": 2,
+      "completeOrderedContentDigestsEqual": true,
+      "peakCoordinatorRssMiB": 185.09375,
+      "peakMemory": {
+        "phase": "restore",
+        "rss": 194084864,
+        "heapTotal": 48332800,
+        "heapUsed": 11839048,
+        "external": 87156829,
+        "arrayBuffers": 81700553
+      },
+      "peakCoordinatorAndNativeChildRssMiB": 186.02734375,
+      "rssBudgetPass": true,
+      "measurementScope": "fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child"
+    },
+    {
+      "jobs": 3,
+      "entityCount": 8,
+      "logicalBytes": "1073741824",
+      "observedConcurrentEntityStreams": 3,
+      "observedConcurrentRestoreTransactions": 3,
+      "completeOrderedContentDigestsEqual": true,
+      "peakCoordinatorRssMiB": 187.37890625,
+      "peakMemory": {
+        "phase": "restore",
+        "rss": 196481024,
+        "heapTotal": 48332800,
+        "heapUsed": 11425216,
+        "external": 71932141,
+        "arrayBuffers": 49337945
+      },
+      "peakCoordinatorAndNativeChildRssMiB": 187.0703125,
+      "rssBudgetPass": true,
+      "measurementScope": "fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child"
+    },
+    {
+      "jobs": 4,
+      "entityCount": 8,
+      "logicalBytes": "1073741824",
+      "observedConcurrentEntityStreams": 4,
+      "observedConcurrentRestoreTransactions": 4,
+      "completeOrderedContentDigestsEqual": true,
+      "peakCoordinatorRssMiB": 183.765625,
+      "peakMemory": {
+        "phase": "restore",
+        "rss": 192692224,
+        "heapTotal": 48857088,
+        "heapUsed": 11947624,
+        "external": 70167624,
+        "arrayBuffers": 64711348
+      },
+      "peakCoordinatorAndNativeChildRssMiB": 184.98828125,
+      "rssBudgetPass": true,
+      "measurementScope": "fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child"
+    },
+    {
+      "jobs": 5,
+      "entityCount": 8,
+      "logicalBytes": "1073741824",
+      "observedConcurrentEntityStreams": 5,
+      "observedConcurrentRestoreTransactions": 5,
+      "completeOrderedContentDigestsEqual": true,
+      "peakCoordinatorRssMiB": 186.3203125,
+      "peakMemory": {
+        "phase": "restore",
+        "rss": 195371008,
+        "heapTotal": 48594944,
+        "heapUsed": 12142712,
+        "external": 97855884,
+        "arrayBuffers": 92399608
+      },
+      "peakCoordinatorAndNativeChildRssMiB": 187.53125,
+      "rssBudgetPass": true,
+      "measurementScope": "fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child"
+    },
+    {
+      "jobs": 6,
+      "entityCount": 8,
+      "logicalBytes": "1073741824",
+      "observedConcurrentEntityStreams": 6,
+      "observedConcurrentRestoreTransactions": 6,
+      "completeOrderedContentDigestsEqual": true,
+      "peakCoordinatorRssMiB": 193.7109375,
+      "peakMemory": {
+        "phase": "restore",
+        "rss": 203120640,
+        "heapTotal": 48332800,
+        "heapUsed": 11472080,
+        "external": 84065097,
+        "arrayBuffers": 57728149
+      },
+      "peakCoordinatorAndNativeChildRssMiB": 195.20703125,
+      "rssBudgetPass": true,
+      "measurementScope": "fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child"
+    },
+    {
+      "jobs": 7,
+      "entityCount": 8,
+      "logicalBytes": "1073741824",
+      "observedConcurrentEntityStreams": 7,
+      "observedConcurrentRestoreTransactions": 7,
+      "completeOrderedContentDigestsEqual": true,
+      "peakCoordinatorRssMiB": 188.296875,
+      "peakMemory": {
+        "phase": "restore",
+        "rss": 197443584,
+        "heapTotal": 48594944,
+        "heapUsed": 11675384,
+        "external": 41709431,
+        "arrayBuffers": 36253155
+      },
+      "peakCoordinatorAndNativeChildRssMiB": 194.2109375,
+      "rssBudgetPass": true,
+      "measurementScope": "fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child"
+    },
+    {
+      "jobs": 8,
+      "entityCount": 8,
+      "logicalBytes": "1073741824",
+      "observedConcurrentEntityStreams": 8,
+      "observedConcurrentRestoreTransactions": 8,
+      "completeOrderedContentDigestsEqual": true,
+      "peakCoordinatorRssMiB": 198.453125,
+      "peakMemory": {
+        "phase": "restore",
+        "rss": 208093184,
+        "heapTotal": 48857088,
+        "heapUsed": 12155536,
+        "external": 70733317,
+        "arrayBuffers": 65277041
+      },
+      "peakCoordinatorAndNativeChildRssMiB": 199.87890625,
+      "rssBudgetPass": true,
+      "measurementScope": "fresh Node process; native-child tree from /proc; PostgreSQL server is a separate service, not coordinator child"
+    }
+  ]
+}
