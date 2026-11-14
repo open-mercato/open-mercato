@@ -69,7 +69,7 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
     if (fs.existsSync(appEnvExample)) {
       let content = fs.readFileSync(appEnvExample, 'utf8')
       content = replaceEnvLine(content, 'JWT_SECRET', jwtSecret)
-      if (encryptionConfigured && configuredValue('TENANT_DATA_ENCRYPTION_FALLBACK_KEY') === undefined) {
+      if (configuredValue('TENANT_DATA_ENCRYPTION_FALLBACK_KEY') === undefined) {
         content = replaceEnvLine(content, 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY', '')
       }
       const suppliedSettings = Object.fromEntries(encryptionSettings.map(key => [key, configuredValue(key)]).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]))

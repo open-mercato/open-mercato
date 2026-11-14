@@ -136,7 +136,7 @@ describe('user ACL partial updates', () => {
     }))
 
     expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ ok: true, sanitized: false })
+    await expect(res.json()).resolves.toEqual({ ok: true, sanitized: false, updatedAt: null })
     expect(commandInput()).toMatchObject({
       isSuperAdmin: false,
       features: ['dashboards.view'],

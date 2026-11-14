@@ -189,6 +189,7 @@ function AddressesSectionImpl<C = unknown>({
           return [newAddress, ...existing]
         })
         flash(label('success', 'Address saved.'), 'success')
+        await loadAddresses()
       } catch (err) {
         const message =
           err instanceof Error && err.message ? err.message : label('error', 'Failed to save address.')
@@ -202,7 +203,7 @@ function AddressesSectionImpl<C = unknown>({
         popLoading()
       }
     },
-    [dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading],
+    [dataAdapter, dataContext, label, loadAddresses, normalizedEntityId, popLoading, pushLoading],
   )
 
   const handleUpdate = React.useCallback(
@@ -240,10 +241,12 @@ function AddressesSectionImpl<C = unknown>({
           })
         })
         flash(label('success', 'Address saved.'), 'success')
+        await loadAddresses()
       } catch (err) {
-        surfaceRecordConflict(err, t)
-        const message =
-          err instanceof Error && err.message ? err.message : label('error', 'Failed to save address.')
+        const isConflict = surfaceRecordConflict(err, t)
+        const message = isConflict
+          ? t('ui.forms.flash.recordModified')
+          : err instanceof Error && err.message ? err.message : label('error', 'Failed to save address.')
         const error = new Error(message) as Error & { details?: unknown }
         if (err && typeof err === 'object' && (err as { details?: unknown }).details) {
           error.details = (err as { details?: unknown }).details
@@ -254,7 +257,7 @@ function AddressesSectionImpl<C = unknown>({
         popLoading()
       }
     },
-    [addresses, dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading, t],
+    [addresses, dataAdapter, dataContext, label, loadAddresses, normalizedEntityId, popLoading, pushLoading, t],
   )
 
   const handleDelete = React.useCallback(
@@ -272,7 +275,10 @@ function AddressesSectionImpl<C = unknown>({
       } catch (err) {
         const message =
           err instanceof Error && err.message ? err.message : label('error', 'Failed to delete address.')
-        if (!surfaceRecordConflict(err, t)) flash(message, 'error')
+        if (surfaceRecordConflict(err, t)) {
+          throw new Error(t('ui.forms.flash.recordModified'))
+        }
+        flash(message, 'error')
         throw err
       } finally {
         setIsSubmitting(false)
