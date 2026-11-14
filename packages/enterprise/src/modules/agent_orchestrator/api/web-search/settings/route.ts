@@ -4,11 +4,13 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   describeOptionsSchema,
   instantiateAdapter,
   maskSecrets,
   resolveAdapterModules,
+  SECRET_PLACEHOLDER,
   unmaskSecrets,
   searchPolicySchema,
   type AdapterRegistryEntry,
@@ -192,7 +194,18 @@ export async function PUT(req: Request) {
     const incoming = incomingOptions[entry.module.id]
     if (!incoming) continue
     const stored = (current.adapterOptions[entry.module.id] as Record<string, unknown> | undefined) ?? {}
-    adapterOptions[entry.module.id] = unmaskSecrets(incoming, stored, describeOptionsSchema(entry.module))
+    const fields = describeOptionsSchema(entry.module)
+    const urlChanged = fields.some(
+      (field) => (field.format === 'url' || /url$/i.test(field.name)) && incoming[field.name] !== stored[field.name],
+    )
+    if (urlChanged && fields.some((field) => field.secret && incoming[field.name] === SECRET_PLACEHOLDER)) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        { error: translate('agent_orchestrator.webSearch.errors.reenterCredentials') },
+        { status: 400 },
+      )
+    }
+    adapterOptions[entry.module.id] = unmaskSecrets(incoming, stored, fields)
   }
 
   /**

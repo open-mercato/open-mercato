@@ -174,6 +174,12 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Web-search credentials must be re-entered when URLs change (#9118)
+
+`PUT /api/agent_orchestrator/web-search/settings` now returns HTTP 400 when an adapter URL changes while any secret still contains the masked unchanged placeholder. This includes adding or removing an explicit URL, since omission can select a different built-in default. Clients must replace every masked secret with a fresh value or explicitly remove it before retargeting. Saves to unchanged destinations continue preserving hidden credentials.
+
+Operators should review previous web-search destination changes and rotate credentials that may have been sent to an untrusted host. Existing credentials and destinations are not rewritten or rotated automatically. Startup, environment variables, configuration structure and database schema are unchanged; saving a changed destination now requires explicit credentials. See the [migration record](.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md#credential-retargeting-protection-9118). A named human maintainer must approve the emergency security exception before merge; this automated change does not grant that waiver.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

@@ -31,7 +31,7 @@ type ZodInternals = {
   entries?: Record<string, unknown>
   format?: string
   element?: { def?: ZodInternals }
-  checks?: Array<{ _zod?: { def?: { check?: string; value?: number } } }>
+  checks?: Array<{ _zod?: { def?: { check?: string; value?: number; format?: string } } }>
 }
 
 type ZodLike = { def?: ZodInternals; shape?: Record<string, ZodLike> }
@@ -96,13 +96,14 @@ export function describeOptionsSchema(module: AdapterModule<unknown>): OptionFie
     const kind = kindOf(inner)
     if (kind === null) continue
     const bounds = boundsOf(inner)
+    const format = inner.format ?? inner.checks?.find((check) => check._zod?.def?.format)?._zod?.def?.format
     fields.push({
       name,
       kind,
       required,
       secret: isSecretName(name),
       ...(kind === 'enum' && inner.entries ? { choices: Object.keys(inner.entries) } : {}),
-      ...(inner.format ? { format: inner.format } : {}),
+      ...(format ? { format } : {}),
       ...(bounds.min === undefined ? {} : { min: bounds.min }),
       ...(bounds.max === undefined ? {} : { max: bounds.max }),
     })
