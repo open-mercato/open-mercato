@@ -32,6 +32,8 @@ import {
   LinkedEntitiesField,
 } from './schedule'
 import type { ActivityType, ScheduleActivityEditData } from './schedule'
+import { parseRecurrenceCount } from './schedule/recurrenceCount'
+import { isRecurrenceEndBeforeStart } from './schedule/recurrenceEndDate'
 import { PRIORITY_NUMBER, priorityFromNumber, type EditorPriority } from '../../lib/calendar/editorPayload'
 import { selectedEventType, useEventTypeCatalog } from '../calendar/editor/useEventTypeCatalog'
 
@@ -389,12 +391,19 @@ export function ScheduleActivityDialog({
   // backlog item, so blocking its save on an empty date was wrong (#5941).
   const isDateMissing = isDateRequired(presentationType) && !trimmedDate
   const isTimeMissing = isTimeRequired(presentationType) && !state.allDay && !trimmedStartTime
+  const recurrenceCountValue = parseRecurrenceCount(state.recurrenceCount)
+  const isRecurrenceCountInvalid =
+    state.recurrenceEnabled && state.recurrenceEndType === 'count' && recurrenceCountValue === null
+  const recurrenceEndsBeforeStart =
+    state.recurrenceEnabled && isRecurrenceEndBeforeStart(state.recurrenceEndType, state.recurrenceEndDate, trimmedDate)
   const isSubmitDisabled =
     catalogPending ||
     state.saving ||
     !state.title.trim() ||
     isDateMissing ||
-    isTimeMissing
+    isTimeMissing ||
+    isRecurrenceCountInvalid ||
+    recurrenceEndsBeforeStart
 
   const handleSave = React.useCallback(async () => {
     if (catalogPending) return
@@ -405,6 +414,14 @@ export function ScheduleActivityDialog({
     }
     if (isTimeMissing) {
       flash(t('customers.activities.errors.timeRequired', 'Time is required'), 'error')
+      return
+    }
+    if (isRecurrenceCountInvalid) {
+      flash(t('customers.schedule.recurrence.errors.countInvalid', 'Enter a whole number of 1 or more.'), 'error')
+      return
+    }
+    if (recurrenceEndsBeforeStart) {
+      flash(t('customers.schedule.recurrence.errors.endBeforeStart', 'The series cannot end before its first date.'), 'error')
       return
     }
     let phoneNumberForPayload: string | undefined
@@ -432,7 +449,7 @@ export function ScheduleActivityDialog({
         : null
 
       const recurrenceRule = state.recurrenceEnabled
-        ? buildRecurrenceRule(state.recurrenceDays, state.recurrenceEndType, state.recurrenceCount, state.recurrenceEndDate)
+        ? buildRecurrenceRule(state.recurrenceDays, state.recurrenceEndType, recurrenceCountValue, state.recurrenceEndDate)
         : null
 
       const isSaveEdit = Boolean(editData?.id)
@@ -534,7 +551,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isRecurrenceCountInvalid, recurrenceEndsBeforeStart, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, recurrenceCountValue, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
@@ -842,13 +859,13 @@ export type { ScheduleActivityEditData }
 function buildRecurrenceRule(
   days: boolean[],
   endType: 'never' | 'count' | 'date',
-  count: number,
+  count: number | null,
   endDate: string,
 ): string {
   const dayNames = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
   const selectedDays = days.map((active, i) => (active ? dayNames[i] : null)).filter(Boolean)
   let rule = `FREQ=WEEKLY;BYDAY=${selectedDays.join(',')}`
-  if (endType === 'count') rule += `;COUNT=${count}`
+  if (endType === 'count' && count !== null) rule += `;COUNT=${count}`
   if (endType === 'date' && endDate) rule += `;UNTIL=${endDate.replace(/-/g, '')}T235959Z`
   return rule
 }

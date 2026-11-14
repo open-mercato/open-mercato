@@ -18,6 +18,8 @@ import {
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
 import { USER_TIMEZONE } from '../../../lib/localDay'
+import { parseRecurrenceCount } from './recurrenceCount'
+import { isRecurrenceEndBeforeStart } from './recurrenceEndDate'
 
 function parseIsoDate(value: string): Date | null {
   if (!value) return null
@@ -72,8 +74,9 @@ interface DateTimeFieldsProps {
   toggleRecurrenceDay: (index: number) => void
   recurrenceEndType: 'never' | 'count' | 'date'
   setRecurrenceEndType: (value: 'never' | 'count' | 'date') => void
-  recurrenceCount: number
-  setRecurrenceCount: (value: number) => void
+  /** Text draft of the series length; may be empty or invalid while being edited. */
+  recurrenceCount: string
+  setRecurrenceCount: (value: string) => void
   recurrenceEndDate: string
   setRecurrenceEndDate: (value: string) => void
 }
@@ -115,6 +118,10 @@ export function DateTimeFields({
   const timeMissing = timeRequired && showStartTime && !allDay && !startTime.trim()
   const dateErrorId = 'schedule-date-error'
   const timeErrorId = 'schedule-time-error'
+  const recurrenceCountInvalid = recurrenceEndType === 'count' && parseRecurrenceCount(recurrenceCount) === null
+  const recurrenceCountErrorId = 'schedule-recurrence-count-error'
+  const recurrenceEndBeforeStart = isRecurrenceEndBeforeStart(recurrenceEndType, recurrenceEndDate, date)
+  const recurrenceEndDateErrorId = 'schedule-recurrence-end-date-error'
 
   return (
     <>
@@ -283,15 +290,16 @@ export function DateTimeFields({
             {recurrenceEndType === 'count' ? (
               <Input
                 type="number"
+                inputMode="numeric"
                 size="sm"
                 min={1}
+                step={1}
                 value={recurrenceCount}
-                onChange={(event) => {
-                  const parsed = parseInt(event.target.value, 10)
-                  setRecurrenceCount(Number.isFinite(parsed) && parsed > 0 ? parsed : 1)
-                }}
+                onChange={(event) => setRecurrenceCount(event.target.value)}
                 aria-label={t('customers.schedule.recurrence.afterOccurrences', 'After occurrences')}
-                className="w-20"
+                aria-invalid={recurrenceCountInvalid || undefined}
+                aria-describedby={recurrenceCountInvalid ? recurrenceCountErrorId : undefined}
+                className={cn('w-20', recurrenceCountInvalid && 'border-status-error-border')}
               />
             ) : null}
             {recurrenceEndType === 'date' ? (
@@ -300,11 +308,23 @@ export function DateTimeFields({
                 onChange={(next) => setRecurrenceEndDate(formatIsoDate(next))}
                 placeholder={t('customers.schedule.recurrence.onDate', 'On date')}
                 aria-label={t('customers.schedule.recurrence.onDate', 'On date')}
+                minDate={parseIsoDate(date) ?? undefined}
+                aria-describedby={recurrenceEndBeforeStart ? recurrenceEndDateErrorId : undefined}
                 size="sm"
-                className="w-40"
+                className={cn('w-40', recurrenceEndBeforeStart && 'border-status-error-border')}
               />
             ) : null}
           </div>
+          {recurrenceCountInvalid ? (
+            <p id={recurrenceCountErrorId} className="text-xs text-status-error-text">
+              {t('customers.schedule.recurrence.errors.countInvalid', 'Enter a whole number of 1 or more.')}
+            </p>
+          ) : null}
+          {recurrenceEndBeforeStart ? (
+            <p id={recurrenceEndDateErrorId} className="text-xs text-status-error-text">
+              {t('customers.schedule.recurrence.errors.endBeforeStart', 'The series cannot end before its first date.')}
+            </p>
+          ) : null}
         </div>
       )}
     </>

@@ -2873,6 +2873,8 @@
   "customers.schedule.recurrence.active": "Repeats",
   "customers.schedule.recurrence.afterOccurrences": "Nach Wiederholungen",
   "customers.schedule.recurrence.ends": "Ends",
+  "customers.schedule.recurrence.errors.countInvalid": "Gib eine ganze Zahl ab 1 ein.",
+  "customers.schedule.recurrence.errors.endBeforeStart": "Die Serie darf nicht vor dem ersten Termin enden.",
   "customers.schedule.recurrence.never": "Never",
   "customers.schedule.recurrence.none": "Does not repeat",
   "customers.schedule.recurrence.onDate": "On date",

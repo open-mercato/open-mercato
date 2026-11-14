@@ -52,7 +52,7 @@ function createScheduleState(overrides: Record<string, unknown> = {}) {
     setRecurrenceDays: jest.fn(),
     recurrenceEndType: 'never' as const,
     setRecurrenceEndType: jest.fn(),
-    recurrenceCount: 8,
+    recurrenceCount: '8',
     setRecurrenceCount: jest.fn(),
     recurrenceEndDate: '',
     setRecurrenceEndDate: jest.fn(),
@@ -544,6 +544,100 @@ describe('ScheduleActivityDialog', () => {
       })
 
       expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('recurrence ending after a number of occurrences', () => {
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    function renderMeeting(overrides: Record<string, unknown>) {
+      mockScheduleState = createScheduleState({
+        activityType: 'meeting' as const,
+        title: 'Weekly sync',
+        recurrenceEnabled: true,
+        recurrenceDays: [true, false, true, false, false, false, false],
+        recurrenceEndType: 'count' as const,
+        ...overrides,
+      })
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+      return screen.getByRole('button', { name: /^Save activity$/ })
+    }
+
+    it('saves the typed number of occurrences', async () => {
+      const saveButton = renderMeeting({ recurrenceCount: '5' })
+      expect(saveButton).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(lastSavedPayload().recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE;COUNT=5')
+    })
+
+    it.each([
+      ['an empty field', ''],
+      ['zero', '0'],
+      ['a fraction', '2.5'],
+    ])('does not save a series with %s as its number of occurrences', async (_label, draft) => {
+      const saveButton = renderMeeting({ recurrenceCount: draft })
+      expect(saveButton).toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
+
+    it('does not save a series that ends before its first date', async () => {
+      const saveButton = renderMeeting({
+        date: '2026-11-13',
+        recurrenceEndType: 'date' as const,
+        recurrenceEndDate: '2026-10-30',
+      })
+      expect(saveButton).toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
+
+    it('saves a series that ends on or after its first date', async () => {
+      const saveButton = renderMeeting({
+        date: '2026-11-13',
+        recurrenceEndType: 'date' as const,
+        recurrenceEndDate: '2026-11-13',
+      })
+      expect(saveButton).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(lastSavedPayload().recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20261113T235959Z')
+    })
+
+    it('ignores the occurrences draft when the series does not end by count', async () => {
+      const saveButton = renderMeeting({ recurrenceCount: '', recurrenceEndType: 'never' as const })
+      expect(saveButton).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(lastSavedPayload().recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE')
     })
   })
 
