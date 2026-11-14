@@ -101,7 +101,7 @@ function resolveSettledStatus(
 ): UnifiedPaymentStatus {
   if (status !== 'captured' || amount === undefined || amountPaid === undefined) return status
   const expected = toGrosze(amount)
-  const paid = toGrosze(amountPaid)
+  const paid = amountPaid <= 0 ? 0 : toGrosze(amountPaid)
   if (expected === null || paid === null || paid >= expected) return status
   logger.warn('Tpay reported a settled transaction with a partial payment')
   return 'pending'
