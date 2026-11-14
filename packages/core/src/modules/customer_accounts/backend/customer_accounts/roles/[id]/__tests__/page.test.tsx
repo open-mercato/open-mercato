@@ -5,6 +5,8 @@ import * as React from 'react'
 import { waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import CustomerRoleDetailPage from '../page'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 const readApiResultOrThrowMock = jest.fn()
 
@@ -38,6 +40,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 type CapturedCrudFormProps = {
   initialValues?: Record<string, unknown>
   onDelete?: () => Promise<void> | void
+  onSubmit?: (values: Record<string, unknown>) => Promise<void>
 }
 
 const crudFormPropsCapture: { current: CapturedCrudFormProps | null } = { current: null }
@@ -60,6 +63,8 @@ async function renderRolePage(id: string): Promise<CapturedCrudFormProps> {
 
 describe('customer role detail page Delete control (issue #9009)', () => {
   beforeEach(() => {
+    jest.clearAllMocks()
+    jest.mocked(apiCall).mockReset()
     readApiResultOrThrowMock.mockReset()
   })
 
@@ -99,5 +104,39 @@ describe('customer role detail page Delete control (issue #9009)', () => {
 
     expect(props.initialValues?.id).toBe('role-default')
     expect(props.onDelete).toBeUndefined()
+  })
+
+  it.each([400, 409])('rejects a refused delete and retry with HTTP%s so CrudForm cannot announce success', async (status) => {
+    readApiResultOrThrowMock.mockResolvedValue({ id: 'role-123', name: 'Assigned role', features: [], isDefault: false })
+    const body = status === 409
+      ? { code: 'optimistic_lock_conflict', currentUpdatedAt: '2026-05-02T00:00:00.000Z', expectedUpdatedAt: '2026-05-01T00:00:00.000Z' }
+      : { error: 'Role has assigned users' }
+    jest.mocked(apiCall).mockImplementation(async () => ({
+      ok: false, status, result: body,
+      response: { status, text: async () => JSON.stringify(body) } as Response,
+      cacheStatus: null,
+    }))
+    const props = await renderRolePage('role-123')
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(props.onDelete?.()).rejects.toMatchObject({ status, ...body })
+    }
+    expect(flash).not.toHaveBeenCalled()
+  })
+
+  it.each(['role', 'acl'])('rejects the failed %s save instead of completing the form lifecycle', async (failure) => {
+    readApiResultOrThrowMock.mockResolvedValue({ id: 'role-123', name: 'Assigned role', features: [], isDefault: false })
+    const rejected = {
+      ok: false, status: 400, result: { error: 'Save refused' },
+      response: { status: 400, text: async () => JSON.stringify({ error: 'Save refused' }) } as Response,
+      cacheStatus: null,
+    }
+    if (failure === 'acl') {
+      jest.mocked(apiCall).mockResolvedValueOnce({ ok: true, status: 200, result: {}, response: {} as Response, cacheStatus: null })
+    }
+    jest.mocked(apiCall).mockResolvedValueOnce(rejected)
+    const props = await renderRolePage('role-123')
+    await expect(props.onSubmit?.({ name: 'Changed name', features: [] })).rejects.toMatchObject({ status: 400 })
+    expect(apiCall).toHaveBeenCalledTimes(failure === 'role' ? 1 : 2)
+    expect(flash).not.toHaveBeenCalled()
   })
 })
