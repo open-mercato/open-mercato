@@ -55,6 +55,8 @@ Runner: GitHub Actions for the full suite. For evidence-only changes the local g
 
 - [Independent final review](https://github.com/open-mercato/open-mercato/pull/9497#issuecomment-6868238844), task `7e1c1b72-864b-4c01-b9b0-27f9700da300`, approved the entire diff at `5ac46e189b5504165ad01f7b9aa9efb77e58ab74` with zero findings. The parent inspected the report and empty child diff, then repeated all 42 named regression tests successfully. GitHub rejected native self-approval by the shared App; this attributed review does not replace any separate-account approval requirement. The reviewer permits verdict/link/checklist-only completion records after parent delta inspection and fresh final-head CI. No child branch was merged.
 
+- The reviewed-head full suite [43529691838](https://github.com/open-mercato/open-mercato/actions/runs/43529691838) passed all 24 applicable jobs and all 15 shards; every other applicable PR check passed. The `automerge` request was then applied while the PR remained draft. These completion-only records require a fresh full suite at the final pushed head; ready promotion is held until that suite passes. The PR body and final outcome comment carry the live activation result without another source commit.
+
 ## Progress
 
 PR: #9497
