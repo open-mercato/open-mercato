@@ -138,6 +138,52 @@ describe('TimeGrid dense overlaps (#7500)', () => {
     expect(onItemClick).not.toHaveBeenCalled()
   })
 
+  describe('placement of the overflow list and its row peek (#9552)', () => {
+    function installViewport(mobile: boolean) {
+      jest.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+        matches: query.includes('max-width') && mobile,
+        media: query,
+        onchange: null,
+        addEventListener: jest.fn(),
+        removeEventListener: jest.fn(),
+        addListener: jest.fn(),
+        removeListener: jest.fn(),
+        dispatchEvent: jest.fn(),
+      }))
+    }
+
+    it.each([
+      { mobile: true, side: 'bottom' },
+      { mobile: false, side: 'right' },
+    ])('opens the list on the $side side when mobile is $mobile, like the regular peek', ({ mobile, side }) => {
+      installViewport(mobile)
+      installColumnWidth(170)
+      renderGrid(denseItems())
+
+      fireEvent.click(screen.getByRole('button', { name: /^5 more events, / }))
+
+      const list = screen.getByRole('dialog', { name: '5 overlapping events' })
+      expect(list).toHaveAttribute('data-side', side)
+    })
+
+    it('opens a viewer\'s row peek downward on a phone instead of beside the list', async () => {
+      installViewport(true)
+      installColumnWidth(170)
+      const user = userEvent.setup()
+      renderGrid(denseItems(), jest.fn(), false)
+
+      await user.click(screen.getByRole('button', { name: /^5 more events, / }))
+      const list = screen.getByRole('dialog', { name: '5 overlapping events' })
+      await user.click(within(list).getByRole('button', { name: /^Charlie demo, / }))
+
+      const dialogs = await screen.findAllByRole('dialog')
+      expect(dialogs).toHaveLength(2)
+      for (const dialog of dialogs) {
+        expect(dialog).toHaveAttribute('data-side', 'bottom')
+      }
+    })
+  })
+
   it('closes the overflow list and any peek when the grid scrolls', () => {
     installColumnWidth(170)
     const { container } = renderGrid(denseItems())
