@@ -57,13 +57,12 @@ async function scrollDialogTo(dialog: Locator, position: 'top' | 'middle' | 'bot
 }
 
 async function openCreateDealDialog(page: Page, companyId: string, companyName: string) {
-  await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'commit' });
+  await page.goto(`/backend/customers/companies-v2/${companyId}?tab=deals`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('tab', { name: /^deals/i })).toHaveAttribute('aria-selected', 'true');
   const dialog = page.getByRole('dialog', { name: 'Create deal' });
-  // The page is reached at `commit`, so a click can land before it hydrates and do nothing.
   await expect(async () => {
     if (!(await dialog.isVisible())) {
-      await page.getByRole('tab', { name: /^deals/i }).click({ timeout: 5_000 });
       await page.getByRole('button', { name: /^(Add deal|Create a deal)$/ }).first().click({ timeout: 5_000 });
     }
     await expect(dialog).toBeVisible({ timeout: 3_000 });
