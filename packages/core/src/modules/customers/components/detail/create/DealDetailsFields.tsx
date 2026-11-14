@@ -5,14 +5,14 @@ import { format } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import { DealSectionCard } from './DealSectionCard'
 import { DealFormField } from './DealFormField'
 import { PipelineSelect } from './PipelineSelect'
-import { DealStagePath } from './DealStagePath'
+import { DealStagePath, selectableDealStages } from './DealStagePath'
 import { SuffixInput } from './SuffixInput'
 import { DealCurrencyField } from './DealCurrencyField'
 import { DealOwnerSelect, type DealOwnerOption } from '../DealOwnerSelect'
@@ -30,6 +30,7 @@ export type DealDetailsFieldsProps = {
   stages: PipelineStageOption[]
   pipelineName?: string | null
   stagesFailed?: boolean
+  stagesLoading?: boolean
   onRetryStages?: () => void
   /** Seeds the owner picker so a self-assigned user outside the roster still renders by name. */
   ownerInitialOption?: DealOwnerOption | null
@@ -57,11 +58,13 @@ export function DealDetailsFields({
   stages,
   pipelineName = null,
   stagesFailed = false,
+  stagesLoading = false,
   onRetryStages,
   ownerInitialOption,
   tr,
 }: DealDetailsFieldsProps) {
   const locale = useOptionalLocale()
+  const hasSelectableStages = selectableDealStages(stages, values.pipelineStageId).length > 0
   return (
     <>
       <DealSectionCard>
@@ -101,7 +104,17 @@ export function DealDetailsFields({
             )}
           />
         ) : null}
-        {values.pipelineId && stages.length ? (
+        {values.pipelineId && stagesLoading && !stagesFailed ? (
+          <div role="status">
+            <LoadingMessage label={tr('customers.deals.create.stagesLoading', 'Stages are still loading. Try again in a moment.')} />
+          </div>
+        ) : null}
+        {values.pipelineId && !stagesFailed && !stagesLoading && !hasSelectableStages ? (
+          <p className="text-sm text-muted-foreground">
+            {tr('customers.deals.create.noOpenStages', 'This pipeline has no open stages. The deal will be saved without a stage.')}
+          </p>
+        ) : null}
+        {values.pipelineId && !stagesFailed && !stagesLoading && hasSelectableStages ? (
           <div className="space-y-2" data-crud-field-id="pipelineStageId">
             <Label>{tr('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage')}</Label>
             <DealStagePath
@@ -116,36 +129,31 @@ export function DealDetailsFields({
       </DealSectionCard>
 
       <DealSectionCard title={tr('customers.deals.create.sections.details.title', 'Details')}>
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <DealFormField
             fieldId="valueAmount"
             controlId="valueAmount"
             label={tr('customers.deals.create.fields.valueAmount', 'Deal value')}
             error={errors.valueAmount}
           >
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <SuffixInput
-                id="valueAmount"
-                suffix={values.valueCurrency}
-                inputMode="decimal"
-                value={values.valueAmount}
-                onChange={(event) => patch({ valueAmount: sanitizeAmount(event.target.value, locale) })}
-                placeholder="0"
-                aria-invalid={errors.valueAmount ? true : undefined}
-                disabled={isSubmitting}
-              />
-              <div data-crud-field-id="valueCurrency" className="w-28">
-                <Label htmlFor="valueCurrency" className="sr-only">
-                  {tr('customers.people.detail.deals.fields.valueCurrency', 'Currency')}
-                </Label>
-                <DealCurrencyField
-                  id="valueCurrency"
-                  value={values.valueCurrency}
-                  onChange={(code) => patch({ valueCurrency: code })}
-                  disabled={isSubmitting}
-                />
-              </div>
-            </div>
+            <SuffixInput
+              id="valueAmount"
+              suffix={values.valueCurrency}
+              inputMode="decimal"
+              value={values.valueAmount}
+              onChange={(event) => patch({ valueAmount: sanitizeAmount(event.target.value, locale) })}
+              placeholder="0"
+              aria-invalid={errors.valueAmount ? true : undefined}
+              disabled={isSubmitting}
+            />
+          </DealFormField>
+          <DealFormField fieldId="valueCurrency" controlId="valueCurrency" label={tr('customers.people.detail.deals.fields.valueCurrency', 'Currency')}>
+            <DealCurrencyField
+              id="valueCurrency"
+              value={values.valueCurrency}
+              onChange={(code) => patch({ valueCurrency: code })}
+              disabled={isSubmitting}
+            />
           </DealFormField>
           <DealFormField fieldId="expectedCloseAt" label={tr('customers.deals.create.fields.expectedCloseAt', 'Expected close date')}>
             <DatePicker

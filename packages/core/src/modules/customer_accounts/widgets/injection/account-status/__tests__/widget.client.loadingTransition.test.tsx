@@ -16,6 +16,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AccountStatusWidget from '../widget.client'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: ['customer_accounts.invite'] }, isReady: true }),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback || _key,
 }))
@@ -86,7 +90,7 @@ describe('customer_accounts AccountStatusWidget loading transition (#5499)', () 
   it('never renders the empty state or a live invite button while the person record is in flight', async () => {
     const person = createDeferred<unknown>()
 
-    mockApiCall.mockImplementation(async (url: string) => {
+    mockApiCall.mockImplementation(async (url) => {
       if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users?')) {
         return { ok: true, status: 200, result: { items: [], total: 0 } } as never
       }
@@ -144,7 +148,7 @@ describe('customer_accounts AccountStatusWidget loading transition (#5499)', () 
   // account nor an invitation still has to reach "No portal account linked" and an
   // enabled Invite to Portal button once both queries settle.
   it('still reaches the empty state once the person resolves with no invitation', async () => {
-    mockApiCall.mockImplementation(async (url: string) => {
+    mockApiCall.mockImplementation(async (url) => {
       if (typeof url === 'string' && url.includes('/api/customer_accounts/admin/users?')) {
         return { ok: true, status: 200, result: { items: [], total: 0 } } as never
       }

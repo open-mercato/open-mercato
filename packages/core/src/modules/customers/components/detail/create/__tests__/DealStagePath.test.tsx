@@ -39,6 +39,7 @@ describe('DealStagePath', () => {
     render(<DealStagePath stages={stages} value="qualified" onChange={jest.fn()} label="Sales" />)
 
     expect(screen.getByRole('button', { name: /Qualified/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /Qualified/ })).toHaveClass('bg-status-info-bg', 'text-status-info-text')
     expect(screen.getAllByRole('listitem')[1]).toHaveAttribute('aria-current', 'step')
     expect(screen.getByRole('button', { name: /^Lead$/ })).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByRole('button', { name: /^Lead$/ }).querySelector('svg')).not.toBeNull()

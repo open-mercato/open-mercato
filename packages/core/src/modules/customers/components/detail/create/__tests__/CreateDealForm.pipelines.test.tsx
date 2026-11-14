@@ -329,6 +329,7 @@ describe('CreateDealForm pipeline defaults', () => {
 
     const createDeal = screen.getByRole('button', { name: 'Create deal' })
     expect(createDeal).toBeDisabled()
+    expect(createDeal.closest('[title]')).toHaveAttribute('title', 'Stages are still loading. Try again in a moment.')
     fireEvent.change(screen.getByLabelText('Deal title'), { target: { value: 'New deal' } })
     fireEvent.submit(document.getElementById(createDeal.getAttribute('form') as string) as HTMLFormElement)
     await waitFor(() => expect(flash).toHaveBeenCalledWith('Stages are still loading. Try again in a moment.', 'error'))

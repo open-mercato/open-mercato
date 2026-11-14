@@ -53,7 +53,7 @@ export function DealStagePath({ stages, value, onChange, disabled = false, label
               }}
               className={cn(
                 'h-auto min-h-9 whitespace-normal rounded-full border py-1.5 pl-1.5 pr-3.5 font-normal shadow-none transition-colors',
-                isCurrent && 'border-accent-indigo bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo',
+                isCurrent && 'border-status-info-border bg-status-info-bg text-status-info-text hover:bg-status-info-bg',
                 isCompleted && 'border-status-success-border bg-status-success-bg text-status-success-text hover:bg-status-success-bg/70',
                 !isCurrent && !isCompleted && 'border-border bg-background text-muted-foreground hover:border-accent-indigo/60 hover:bg-background hover:text-foreground',
               )}
@@ -62,7 +62,7 @@ export function DealStagePath({ stages, value, onChange, disabled = false, label
                 aria-hidden="true"
                 className={cn(
                   'flex size-6 shrink-0 items-center justify-center rounded-full text-xs tabular-nums',
-                  isCurrent && 'bg-background/20 text-accent-indigo-foreground',
+                  isCurrent && 'bg-status-info-bg text-status-info-text',
                   isCompleted && 'bg-status-success-icon text-status-success-bg',
                   !isCurrent && !isCompleted && 'bg-muted text-muted-foreground',
                 )}

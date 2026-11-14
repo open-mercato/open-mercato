@@ -96,3 +96,20 @@ describe('DealDetailsFields', () => {
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Currency' })).toHaveTextContent('USD'))
   })
 })
+
+it.each([
+  { stages: [], label: 'empty' },
+  { stages: [{ id: 'won', label: 'Won', order: 0 }, { id: 'lost', label: 'Lost', order: 1 }], label: 'outcomes only' },
+])('explains saving without a stage for $label pipelines', async ({ stages }) => {
+  renderWithProviders(<DealDetailsFields values={{ ...EMPTY_VALUES, pipelineId: 'pipe-1' }} errors={{}} isSubmitting={false} patch={jest.fn()} onPipelineChange={jest.fn()} pipelines={[]} stages={stages} tr={translate} />)
+  expect(screen.getByText('This pipeline has no open stages. The deal will be saved without a stage.')).toBeVisible()
+  expect(screen.queryByText('Pipeline stage')).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Currency' })).toBeInTheDocument())
+})
+
+it('announces stage loading rather than an empty pipeline', async () => {
+  renderWithProviders(<DealDetailsFields values={{ ...EMPTY_VALUES, pipelineId: 'pipe-1' }} errors={{}} isSubmitting={false} patch={jest.fn()} onPipelineChange={jest.fn()} pipelines={[]} stages={[]} stagesLoading tr={translate} />)
+  expect(screen.getByText('Stages are still loading. Try again in a moment.').closest('[role="status"]')).toBeInTheDocument()
+  expect(screen.queryByText(/saved without a stage/)).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Currency' })).toBeInTheDocument())
+})

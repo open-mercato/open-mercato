@@ -325,6 +325,116 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     return render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
   }
 
+  it.each([
+    { features: [] },
+    { features: ['customer_accounts.view'] },
+    { features: ['customer_accounts.invite.other'] },
+    { features: ['customers.*', 'customer_accounts.view'] },
+  ])('hides invite and resend without an effective invite grant: $features', ({ features }) => {
+    mockGrantedFeatures = features
+    const { rerender } = render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    expect(screen.getByText('No portal account linked')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Invite to Portal' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Email')).not.toBeInTheDocument()
+
+    mockQueryData.set('customer-account-pending-invitation', {
+      id: 'invitation-1',
+      email: 'buyer@example.test',
+      expiresAt: '2026-06-18T12:00:00.000Z',
+    })
+    rerender(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    expect(screen.getByText('Invitation pending')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Resend invitation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel invitation' })).not.toBeInTheDocument()
+    expect(mockApiCall).not.toHaveBeenCalled()
+    expect(mockRunMutation).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('waits for permission readiness before exposing invite controls (pending: %s)', (pending) => {
+    mockChromeReady = false
+    if (pending) {
+      mockQueryData.set('customer-account-pending-invitation', {
+        id: 'invitation-1',
+        email: 'buyer@example.test',
+        expiresAt: '2026-06-18T12:00:00.000Z',
+      })
+    }
+    const { rerender } = render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    const actionName = pending ? 'Resend invitation' : 'Invite to Portal'
+
+    expect(screen.getByText(pending ? 'Invitation pending' : 'No portal account linked')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: actionName })).not.toBeInTheDocument()
+    expect(mockApiCall).not.toHaveBeenCalled()
+
+    mockChromeReady = true
+    rerender(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    expect(screen.getByRole('button', { name: actionName })).toBeEnabled()
+  })
+
+  it.each(['customer_accounts.invite', 'customer_accounts.*', '*'])('allows invite and resend submission with grant %s', async (feature) => {
+    mockGrantedFeatures = [feature]
+    const { rerender } = render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    for (const pending of [false, true]) {
+      if (pending) {
+        mockQueryData.set('customer-account-pending-invitation', {
+          id: 'invitation-1',
+          email: 'buyer@example.test',
+          expiresAt: '2026-06-18T12:00:00.000Z',
+        })
+        rerender(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+      }
+      fireEvent.click(screen.getByRole('button', { name: pending ? 'Resend invitation' : 'Invite to Portal' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Buyer' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Send Invitation' }))
+
+      await waitFor(() => expect(mockApiCall.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(pending ? 2 : 1))
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Send Invitation' })).not.toBeInTheDocument())
+    }
+    expect(mockRunMutation).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['revoked', 'loading'] as const)('removes an open invite form when permissions become %s', async (state) => {
+    const { rerender } = render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Invite to Portal' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Buyer' }))
+    const sendButton = screen.getByRole('button', { name: 'Send Invitation' })
+    expect(sendButton).toBeEnabled()
+
+    if (state === 'revoked') mockGrantedFeatures = ['customer_accounts.view']
+    else mockChromeReady = false
+    rerender(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    expect(screen.queryByRole('button', { name: 'Send Invitation' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Email')).not.toBeInTheDocument()
+    fireEvent.click(sendButton)
+    expect(mockRunMutation).not.toHaveBeenCalled()
+    expect(mockApiCall.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0)
+  })
+
+  it('does not send an invitation if permission is revoked while a mutation guard waits', async () => {
+    let resumeMutation: (() => void) | undefined
+    const guardWait = new Promise<void>((resolve) => { resumeMutation = resolve })
+    mockRunMutation.mockImplementationOnce(async ({ operation }) => {
+      await guardWait
+      return operation()
+    })
+    const { rerender } = render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Invite to Portal' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Buyer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send Invitation' }))
+    expect(mockRunMutation).toHaveBeenCalledTimes(1)
+
+    mockGrantedFeatures = ['customer_accounts.view']
+    rerender(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+    await act(async () => { resumeMutation?.() })
+
+    expect(mockApiCall.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0)
+    expect(flashMock).not.toHaveBeenCalledWith('Invitation sent successfully', 'success')
+  })
+
   it.each(['customer_accounts.invite', 'customer_accounts.*', '*'])('shows Cancel for the effective grant %s', (feature) => {
     mockGrantedFeatures = [feature]
     renderPendingInvitation()
