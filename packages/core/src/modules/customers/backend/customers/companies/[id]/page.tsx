@@ -40,6 +40,7 @@ import { InlineDictionaryEditor, renderMultilineMarkdownDisplay } from '../../..
 import { formatTemplate } from '../../../../components/detail/utils'
 import { coerceDisplayName } from '../../../../lib/displayName'
 import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
@@ -285,46 +286,74 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     [injectedTabs, t],
   )
 
-  React.useEffect(() => {
+  // Bumped per request and on effect cleanup so only the latest response lands.
+  const loadRequestRef = React.useRef(0)
+  // The company whose overview is on screen; null while an error or not-found state replaces it.
+  const loadedCompanyIdRef = React.useRef<string | null>(null)
+  // The company the page currently targets. A child may still hold a previous
+  // company's loadData (e.g. a Mark done that resolves after navigation); such
+  // a call must not start a request that would replace this company's overview.
+  const activeCompanyIdRef = React.useRef(id)
+  activeCompanyIdRef.current = id
+  const loadData = React.useCallback(async () => {
     if (!id) {
       setIsNotFound(true)
       setIsLoading(false)
       return
     }
     const companyId = id
-    let cancelled = false
-    async function load() {
+    if (activeCompanyIdRef.current !== companyId) return
+    const requestId = ++loadRequestRef.current
+    // A refresh of the company already on screen keeps the page (and any
+    // unsaved inline drafts) mounted instead of flipping back to the spinner.
+    const isInitialLoad = loadedCompanyIdRef.current !== companyId
+    if (isInitialLoad) {
       setIsLoading(true)
       setError(null)
-      try {
-        const search = new URLSearchParams()
-        search.append('include', 'todos')
-        search.append('include', 'people')
-        const payload = await readApiResultOrThrow<CompanyOverview>(
-          `/api/customers/companies/${encodeURIComponent(companyId)}?${search.toString()}`,
-          undefined,
-          { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
-        )
-        if (cancelled) return
-        setData(payload as CompanyOverview)
-      } catch (err) {
-        if (cancelled) return
-        if (isDetailNotFoundStatus((err as { status?: number }).status)) {
-          setIsNotFound(true)
-        } else {
-          const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
-          setError(message)
-        }
-        setData(null)
-      } finally {
-        if (!cancelled) setIsLoading(false)
-      }
+      setIsNotFound(false)
     }
-    load().catch(() => {})
-    return () => {
-      cancelled = true
+    try {
+      const search = new URLSearchParams()
+      search.append('include', 'todos')
+      search.append('include', 'people')
+      const payload = await readApiResultOrThrow<CompanyOverview>(
+        `/api/customers/companies/${encodeURIComponent(companyId)}?${search.toString()}`,
+        undefined,
+        { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
+      )
+      if (requestId !== loadRequestRef.current) return
+      loadedCompanyIdRef.current = companyId
+      setData(payload as CompanyOverview)
+    } catch (err) {
+      if (requestId !== loadRequestRef.current) return
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
+        loadedCompanyIdRef.current = null
+        setIsNotFound(true)
+        setData(null)
+      } else if (isInitialLoad) {
+        const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+        loadedCompanyIdRef.current = null
+        setError(message)
+        setData(null)
+      } else {
+        // Background refresh: keep the overview on screen, but report the failure.
+        getTelemetryRuntime()?.reportError(err, {
+          module: 'customers',
+          code: 'customers.company_overview_refresh_failed',
+          attributes: { companyId },
+        })
+      }
+    } finally {
+      if (requestId === loadRequestRef.current) setIsLoading(false)
     }
   }, [id, t])
+
+  React.useEffect(() => {
+    loadData().catch(() => {})
+    return () => {
+      loadRequestRef.current += 1
+    }
+  }, [loadData])
 
   const saveCompany = React.useCallback(
     async (patch: Record<string, unknown>, apply: (prev: CompanyOverview) => CompanyOverview) => {
@@ -884,6 +913,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                     }}
                     onActionChange={handleSectionActionChange}
                     onLoadingChange={handleActivitiesLoadingChange}
+                    onDataRefresh={loadData}
                   />
                 )
               }
