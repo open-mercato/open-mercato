@@ -28,6 +28,58 @@ interface PlannedActivitiesSectionProps {
   onRetryLoad?: () => void
 }
 
+function PlannedRowMenu({
+  activity,
+  onEdit,
+  onCancel,
+}: {
+  activity: InteractionSummary
+  onEdit?: (activity: InteractionSummary) => void
+  onCancel?: (id: string) => void
+}) {
+  const t = useT()
+  if (!onEdit && !onCancel) return null
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.more', 'More')} onClick={(e) => e.stopPropagation()}>
+          <MoreHorizontal className="size-3.5" />
+        </IconButton>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-40 p-1">
+        {onEdit ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-xs"
+            onClick={(event) => {
+              event.stopPropagation()
+              onEdit(activity)
+            }}
+          >
+            {t('customers.timeline.planned.reschedule', 'Reschedule')}
+          </Button>
+        ) : null}
+        {onCancel ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-xs text-destructive hover:text-destructive"
+            onClick={(event) => {
+              event.stopPropagation()
+              onCancel(activity.id)
+            }}
+          >
+            {t('customers.timeline.planned.cancel', 'Cancel')}
+          </Button>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function PlannedActivitiesSection({ activities, onComplete, onSchedule, onEdit, onCancel, loadFailed = false, onRetryLoad }: PlannedActivitiesSectionProps) {
   const t = useT()
 
@@ -89,11 +141,11 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
             return (
               <div
                 key={activity.id}
-                className="flex items-center gap-3 border-l-2 border-l-destructive px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors"
-                onClick={() => onEdit?.(activity)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') onEdit?.(activity) }}
+                className={cn('flex items-center gap-3 border-l-2 border-l-destructive px-4 py-3', onEdit && 'cursor-pointer hover:bg-accent/50 transition-colors')}
+                onClick={onEdit ? () => onEdit(activity) : undefined}
+                role={onEdit ? 'button' : undefined}
+                tabIndex={onEdit ? 0 : undefined}
+                onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
               >
                 <div className="flex items-center justify-center size-8 rounded-full bg-destructive/10 shrink-0">
                   {TypeIcon ? <TypeIcon className="size-4 text-destructive" /> : <AlertCircle className="size-4 text-destructive" />}
@@ -129,39 +181,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                     {t('customers.timeline.planned.markDone', 'Mark done')}
                   </Button>
                 )}
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.more', 'More')} onClick={(e) => e.stopPropagation()}>
-                      <MoreHorizontal className="size-3.5" />
-                    </IconButton>
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-40 p-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start text-xs"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onEdit?.(activity)
-                      }}
-                    >
-                      {t('customers.timeline.planned.reschedule', 'Reschedule')}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start text-xs text-destructive hover:text-destructive"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onCancel?.(activity.id)
-                      }}
-                    >
-                      {t('customers.timeline.planned.cancel', 'Cancel')}
-                    </Button>
-                  </PopoverContent>
-                </Popover>
+                <PlannedRowMenu activity={activity} onEdit={onEdit} onCancel={onCancel} />
               </div>
             )
           })}
@@ -171,11 +191,11 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
             return (
               <div
                 key={activity.id}
-                className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors"
-                onClick={() => onEdit?.(activity)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') onEdit?.(activity) }}
+                className={cn('flex items-center gap-3 px-4 py-3', onEdit && 'cursor-pointer hover:bg-accent/50 transition-colors')}
+                onClick={onEdit ? () => onEdit(activity) : undefined}
+                role={onEdit ? 'button' : undefined}
+                tabIndex={onEdit ? 0 : undefined}
+                onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
               >
                 <div className="flex items-center justify-center size-8 rounded-full bg-muted shrink-0">
                   {TypeIcon ? <TypeIcon className="size-4 text-muted-foreground" /> : <Clock className="size-4 text-muted-foreground" />}
@@ -191,39 +211,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                     )}
                   </div>
                 </div>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.more', 'More')} onClick={(e) => e.stopPropagation()}>
-                      <MoreHorizontal className="size-3.5" />
-                    </IconButton>
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-40 p-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start text-xs"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onEdit?.(activity)
-                      }}
-                    >
-                      {t('customers.timeline.planned.reschedule', 'Reschedule')}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-start text-xs text-destructive hover:text-destructive"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onCancel?.(activity.id)
-                      }}
-                    >
-                      {t('customers.timeline.planned.cancel', 'Cancel')}
-                    </Button>
-                  </PopoverContent>
-                </Popover>
+                <PlannedRowMenu activity={activity} onEdit={onEdit} onCancel={onCancel} />
               </div>
             )
           })}

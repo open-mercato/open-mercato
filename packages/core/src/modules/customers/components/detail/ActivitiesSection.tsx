@@ -48,6 +48,8 @@ export type ActivitiesSectionProps = {
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
   onEditActivity?: (activity: InteractionSummary) => void
+  /** Hides the row write actions for a user who cannot manage interactions. */
+  readOnly?: boolean
   /** Interaction type hidden from the timeline by default ('task' unless overridden); pass null to show every type. */
   excludeInteractionType?: string | null
   /** Sends the search term and a sort choice to the interactions API, shows the sort control and surfaces failed interaction loads as an error with retry. Callers that omit it keep the local filter over loaded rows. */
@@ -169,6 +171,7 @@ export function ActivitiesSection({
   onDataRefresh,
   refreshKey = 0,
   onEditActivity,
+  readOnly = false,
   runGuardedMutation,
   excludeInteractionType = 'task',
   serverHistoryControls = false,
@@ -531,7 +534,7 @@ export function ActivitiesSection({
           <ActivityTimeline
             activities={visibleActivities}
             onEdit={onEditActivity}
-            onMarkDone={handleMarkDone}
+            onMarkDone={readOnly ? undefined : handleMarkDone}
           />
           {totalCount > 0 || hasMore ? (
             <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">

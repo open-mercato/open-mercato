@@ -463,6 +463,13 @@ describe('Customer ActivitiesSection wrapper', () => {
       expect(onDataRefresh).toHaveBeenCalledTimes(1)
     })
 
+    it('offers no Mark done when the section is read-only', async () => {
+      await renderSection({ readOnly: true })
+
+      const calls = activityTimelineMock.mock.calls as unknown as Array<[{ onMarkDone?: unknown }]>
+      expect(calls[calls.length - 1]?.[0]?.onMarkDone).toBeUndefined()
+    })
+
     it('does not notify the parent when marking done fails', async () => {
       const runGuardedMutation = jest.fn(async () => {
         throw new Error('[internal] complete failed')

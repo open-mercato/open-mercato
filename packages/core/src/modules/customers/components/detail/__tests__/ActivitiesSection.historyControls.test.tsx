@@ -12,6 +12,10 @@ import { ActivityLogTab } from '../ActivityLogTab'
 import type { InteractionSummary } from '../types'
 
 const mockT = (key: string, fallback?: string) => fallback ?? key
+jest.mock('../hooks/useCanManageInteractions', () => ({
+  useCanManageInteractions: () => true,
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockT,
 }))

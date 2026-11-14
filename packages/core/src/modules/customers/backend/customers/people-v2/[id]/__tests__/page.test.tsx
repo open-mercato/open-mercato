@@ -149,6 +149,10 @@ jest.mock('../../../../../components/detail/TasksSection', () => ({
   TasksSection: () => <div>tasks</div>,
 }))
 
+jest.mock('../../../../../components/detail/hooks/useCanManageInteractions', () => ({
+  useCanManageInteractions: () => true,
+}))
+
 jest.mock('../../../../../components/detail/InlineActivityComposer', () => ({
   InlineActivityComposer: () => <div>composer</div>,
 }))

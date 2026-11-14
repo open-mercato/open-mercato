@@ -15,6 +15,10 @@ jest.mock('../PlannedActivitiesSection', () => ({
 jest.mock('../ActivitiesSection', () => ({
   ActivitiesSection: (props: Record<string, unknown>) => { timelineMock(props); return <div>timeline</div> },
 }))
+let mockCanManage = true
+jest.mock('../hooks/useCanManageInteractions', () => ({
+  useCanManageInteractions: () => mockCanManage,
+}))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string) => key,
 }))
@@ -30,6 +34,34 @@ describe('ActivityLogTab', () => {
     composerMock.mockClear()
     plannedMock.mockClear()
     timelineMock.mockClear()
+    mockCanManage = true
+  })
+
+  it('shows the lists without the composer or any write action to a user who cannot manage interactions', () => {
+    mockCanManage = false
+    render(
+      <ActivityLogTab
+        entityId="company-1"
+        plannedActivities={[{ id: 'int-1', interactionType: 'call', status: 'planned' } as never]}
+        onScheduleRequested={() => {}}
+        onEditActivity={() => {}}
+        onMarkDone={async () => {}}
+        onCancelActivity={async () => {}}
+      />,
+    )
+
+    expect(screen.queryByText('composer')).toBeNull()
+    expect(composerMock).not.toHaveBeenCalled()
+    expect(screen.getByText('planned')).toBeInTheDocument()
+    expect(screen.getByText('timeline')).toBeInTheDocument()
+    const planned = lastProps(plannedMock)
+    expect(planned.onComplete).toBeUndefined()
+    expect(planned.onSchedule).toBeUndefined()
+    expect(planned.onEdit).toBeUndefined()
+    expect(planned.onCancel).toBeUndefined()
+    expect((planned.activities as unknown[])).toHaveLength(1)
+    expect(lastProps(timelineMock).onEditActivity).toBeUndefined()
+    expect(lastProps(timelineMock).readOnly).toBe(true)
   })
 
   it('renders the deal activity layout in order and scopes every section to the record', () => {
