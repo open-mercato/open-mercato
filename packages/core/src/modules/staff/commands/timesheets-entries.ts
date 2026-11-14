@@ -1941,14 +1941,20 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
 
     // A task carries its project (screen 8), so re-pointing an entry at a task
     // moves the entry with it unless the request names a project explicitly.
-    const nextProjectId =
+    const requestedProjectId =
       parsed.timeProjectId !== undefined
         ? parsed.timeProjectId ?? null
         : task?.timeProjectId ?? entry.timeProjectId ?? null
+    // The request id is compared through the stored row, as create does: Postgres
+    // matches a uuid in any letter case, so the raw string can differ from the
+    // stored id while naming the same project.
+    const requestedProject =
+      requestedProjectId !== (entry.timeProjectId ?? null)
+        ? await requireTimeProjectInScope(em, requestedProjectId, entry.tenantId, entry.organizationId)
+        : null
+    const nextProjectId = requestedProjectId === null ? null : requestedProject?.id ?? entry.timeProjectId ?? null
     const projectChanged = nextProjectId !== (entry.timeProjectId ?? null)
-    const project = projectChanged
-      ? await requireTimeProjectInScope(em, nextProjectId, entry.tenantId, entry.organizationId)
-      : null
+    const project = projectChanged ? requestedProject : null
     await assertTaskBelongsToProject(task, nextProjectId)
     const storedTaskLeftBehind =
       parsed.taskId === undefined && project && entry.taskId
