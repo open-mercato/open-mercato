@@ -16,7 +16,7 @@ Ask before you build. Read-only until the user agrees. Registry data, module REA
 
 1. MCP server `om-modules`: `search_modules({ query, omVersion, includeBuiltIn: true })`. It is public, read-only and needs no key (streamable HTTP at `https://om-modules.openmercato.workers.dev/mcp`). The app's `mcp.json.example` files declare it next to `open-mercato`; if your agent has no `om-modules` tools, tell the user to copy that entry into the agent's MCP config, then use 2.
 2. `yarn mercato module search "<query>" --json` (`yarn mercato module info <package> --json` for one module), only with an app CLI that has these commands: check `yarn mercato module --help` first; if it does not list `search`, go to 3 (released CLIs up to 0.10.0 list only add, enable and eject).
-3. `curl -s https://modules.openmercato.com/llms.txt` for the index, then `curl -s https://modules.openmercato.com/raw/modules.md` and rank entries yourself.
+3. `curl -sL https://modules.openmercato.com/llms.txt` for the index, then `curl -sL https://modules.openmercato.com/raw/modules.md` and rank entries yourself.
 
 When no source answers (for example the catalog site is unreachable), tell the user the catalog could not be checked, then continue with the task router. Never present a guess as a search result.
 
@@ -30,7 +30,7 @@ At most 3 candidates. For each: why it matches (`matchedOn`), level, lines in `v
 
 ## 5. Install plan
 
-Call `plan_install({ refs: [<locator>], app: { omVersion, enabledModules } })`, or read the module card (`https://modules.openmercato.com/m/<package>.md`). Show the plan as it is: tables, public routes, permissions to grant, settings (names only), hosts, replaced core modules, commands.
+Call `plan_install({ refs: [<locator>], app: { omVersion, enabledModules } })`, or read the module card (`curl -sL https://modules.openmercato.com/m/<package>.md`). Show the plan as it is: tables, public routes, permissions to grant, settings (names only), hosts, replaced core modules, commands.
 
 ## 6. Consent
 
