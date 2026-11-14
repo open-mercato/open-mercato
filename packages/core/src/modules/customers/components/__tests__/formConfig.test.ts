@@ -32,6 +32,7 @@ import {
   type Translator,
   createCompanyEditFields,
 } from '../formConfig'
+import { COMPANY_TAX_ID_MAX_LENGTH, companyCreateSchema } from '../../data/validators'
 
 const t: Translator = (_key, fallback) => fallback ?? _key
 
@@ -407,6 +408,17 @@ describe('company VAT / tax ID (required company field)', () => {
     expect(createField).toMatchObject({ required: false, type: 'text' })
     const editField = createCompanyEditFields(t as any).find((entry) => entry.id === 'taxId')
     expect(editField).toMatchObject({ required: false, type: 'text' })
+  })
+
+  it('caps the VAT ID input at the length the API accepts, so the form cannot submit a longer value', () => {
+    const t = (_key: string, fallback?: string) => fallback ?? _key
+    const createField = createCompanyFormFields(t as any).find((entry) => entry.id === 'taxId')
+    const editField = createCompanyEditFields(t as any).find((entry) => entry.id === 'taxId')
+    expect(createField).toMatchObject({ maxLength: COMPANY_TAX_ID_MAX_LENGTH })
+    expect(editField).toMatchObject({ maxLength: COMPANY_TAX_ID_MAX_LENGTH })
+    const atLimit = 'X'.repeat(COMPANY_TAX_ID_MAX_LENGTH)
+    expect(companyCreateSchema.shape.taxId.safeParse(atLimit).success).toBe(true)
+    expect(companyCreateSchema.shape.taxId.safeParse(`${atLimit}X`).success).toBe(false)
   })
 
   it('lets a host opt into a required VAT ID on either form', () => {

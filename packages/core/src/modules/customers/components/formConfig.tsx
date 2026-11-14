@@ -61,6 +61,7 @@ import {
 } from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import {
+  COMPANY_TAX_ID_MAX_LENGTH,
   CUSTOMER_EMAIL_INVALID_MESSAGE_KEY,
   CUSTOMER_PHONE_INVALID_MESSAGE_KEY,
   CUSTOMER_URL_INVALID_MESSAGE_KEY,
@@ -1400,6 +1401,7 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
       type: 'text',
       layout: 'half',
       required: options?.requireTaxId ?? false,
+      maxLength: COMPANY_TAX_ID_MAX_LENGTH,
       placeholder: t('customers.companies.detail.fields.taxIdPlaceholder', 'e.g. PL1234567890'),
     },
     {
