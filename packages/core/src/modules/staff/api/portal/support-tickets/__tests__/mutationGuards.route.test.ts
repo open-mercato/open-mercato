@@ -231,4 +231,27 @@ describe('portal support ticket attachment upload', () => {
     expect(mockRunAfterSuccess).not.toHaveBeenCalled()
     expect(mockEmitAttachmentActivity).not.toHaveBeenCalled()
   })
+
+  it('keeps the upload invocation open until activity delivery completes', async () => {
+    passGuards()
+    mockUpload.mockResolvedValue({ id: ATTACHMENT_ID, fileName: 'passport scan.png' })
+    let release!: () => void
+    const delivery = new Promise<void>((resolve) => { release = resolve })
+    mockEmitAttachmentActivity.mockReturnValueOnce(delivery)
+    let completed = false
+    const response = uploadAttachment(uploadRequest()).then((result) => {
+      completed = true
+      return result
+    })
+    try {
+      for (let attempt = 0; attempt < 20 && !mockEmitAttachmentActivity.mock.calls.length; attempt += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      expect(mockEmitAttachmentActivity).toHaveBeenCalledTimes(1)
+      expect(completed).toBe(false)
+    } finally {
+      release()
+    }
+    expect((await response).status).toBe(201)
+  })
 })

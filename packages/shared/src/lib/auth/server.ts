@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { isMfaPendingJwtPayload, verifyJwt } from './jwt'
 import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { isTransientDbError } from '@open-mercato/shared/lib/db/pg-errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
@@ -190,6 +191,13 @@ function applySuperAdminScope(
 }
 
 async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
+  return runWithDatabaseExecutionContext(
+    { kind: 'identity', tenantId: null, source: 'identity', operation: 'api-key-authentication' },
+    () => resolveApiKeyIdentity(secret),
+  )
+}
+
+async function resolveApiKeyIdentity(secret: string): Promise<AuthContext> {
   if (!secret) return null
   const cache = getSharedApiKeyAuthCache()
   const cached = cache.get(secret)
@@ -375,21 +383,27 @@ async function resolveCanonicalInteractiveAuthContext(auth: AuthContext): Promis
   if (!auth || auth.isApiKey) return auth
   if (typeof auth.sub !== 'string' || auth.sub.trim().length === 0) return null
 
-  try {
-    const [{ createRequestContainer }, { resolveCanonicalStaffAuthContext }] = await Promise.all([
-      import('@open-mercato/shared/lib/di/container'),
-      import('@open-mercato/core/modules/auth/lib/sessionIntegrity'),
-    ])
-    const container = await createRequestContainer()
-    const em = container.resolve('em') as EntityManager
-    return await resolveCanonicalStaffAuthContext(em, auth)
-  } catch (err) {
-    // A thrown error here means we could not check the token against the
-    // database (DB down, pool exhausted, timeout). This is NOT the same as the
-    // token being invalid — surface it so callers keep the session intact and
-    // fail the request transiently instead of force-logging the user out.
-    throw new AuthResolutionUnavailableError(err)
-  }
+  const actorTenant = typeof auth.actorTenantId === 'string' ? auth.actorTenantId : auth.tenantId
+  return runWithDatabaseExecutionContext(
+    { kind: 'identity', tenantId: actorTenant, source: 'identity', operation: 'staff-session-authentication' },
+    async () => {
+      try {
+        const [{ createRequestContainer }, { resolveCanonicalStaffAuthContext }] = await Promise.all([
+          import('@open-mercato/shared/lib/di/container'),
+          import('@open-mercato/core/modules/auth/lib/sessionIntegrity'),
+        ])
+        const container = await createRequestContainer()
+        const em = container.resolve('em') as EntityManager
+        return await resolveCanonicalStaffAuthContext(em, auth)
+      } catch (err) {
+        // A thrown error here means we could not check the token against the
+        // database (DB down, pool exhausted, timeout). This is NOT the same as the
+        // token being invalid — surface it so callers keep the session intact and
+        // fail the request transiently instead of force-logging the user out.
+        throw new AuthResolutionUnavailableError(err)
+      }
+    },
+  )
 }
 
 export async function resolveAuthFromCookiesDetailed(): Promise<AuthResolution> {

@@ -225,3 +225,30 @@ describe('OnboardingService', () => {
     })
   })
 })
+
+describe('deferred preparation lifecycle binding', () => {
+  it('binds claim and heartbeat updates to the persisted request generation and workspace', async () => {
+    const nativeUpdate = jest.fn().mockResolvedValue(1)
+    const service = new OnboardingService({ nativeUpdate } as unknown as EntityManager)
+    const binding = { tenantId: 'tenant-a', organizationId: 'org-a', tokenHash: 'verified-token-hash' }
+    const now = new Date()
+    await service.claimPreparation('req-1', now, new Date(0), binding)
+    await service.renewPreparation('req-1', now, binding)
+    for (const call of nativeUpdate.mock.calls) {
+      expect(call[1]).toMatchObject({ id: 'req-1', status: 'completed', preparationCompletedAt: null, ...binding })
+    }
+  })
+
+  it('cannot complete a request generation that changed after its last read', async () => {
+    const nativeUpdate = jest.fn().mockResolvedValue(0)
+    const service = new OnboardingService({ nativeUpdate } as unknown as EntityManager)
+    const request = makeRequest({ status: 'completed', tenantId: 'tenant-a', organizationId: 'org-a', preparationStartedAt: new Date() })
+    await service.markPreparationCompleted(request, new Date())
+    expect(nativeUpdate).toHaveBeenCalledWith(OnboardingRequest, {
+      id: request.id, tokenHash: request.tokenHash, tenantId: 'tenant-a', organizationId: 'org-a',
+      status: 'completed', preparationCompletedAt: null, deletedAt: null,
+    }, expect.objectContaining({ preparationCompletedAt: expect.any(Date), preparationStartedAt: null }))
+    expect(request.preparationCompletedAt).toBeNull()
+    expect(request.preparationStartedAt).not.toBeNull()
+  })
+})

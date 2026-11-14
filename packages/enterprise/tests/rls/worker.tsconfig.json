@@ -1,0 +1,31 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "paths": {
+      "@open-mercato/shared/*": [
+        "../../../../packages/shared/src/*"
+      ],
+      "@open-mercato/shared/modules/*": [
+        "../../../../packages/shared/src/modules/*"
+      ],
+      "@open-mercato/queue": [
+        "../../../../packages/queue/src/index.ts"
+      ],
+      "@open-mercato/events": [
+        "../../../../packages/events/src/index.ts"
+      ],
+      "@open-mercato/events/*": [
+        "../../../../packages/events/src/*"
+      ]
+    },
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false
+  },
+  "include": [
+    "worker.run.ts",
+    "../../../scheduler/src/modules/scheduler/data/entities.ts"
+  ]
+}

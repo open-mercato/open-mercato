@@ -110,6 +110,22 @@ describe('query_index delete_one coverage refresh throttling', () => {
     jest.restoreAllMocks()
   })
 
+  it('awaits search deletion before returning from the accepted subscriber', async () => {
+    const { ctx, emitEvent } = createContext()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    emitEvent.mockImplementationOnce(async () => { await gate })
+    let settled = false
+    const completion = handleDeleteOne({ entityType: 'example:todo', recordId: 'lifetime-1', suppressCoverage: true }, ctx)
+      .then(() => { settled = true })
+    await flushFireAndForget()
+    expect(emitEvent).toHaveBeenCalledWith('search.delete_record', expect.anything())
+    expect(settled).toBe(false)
+    release()
+    await completion
+    expect(mockRecordIndexerError).not.toHaveBeenCalled()
+  })
+
   it('emits coverage.refresh only once for repeated deletes of the same scope within the throttle window', async () => {
     const { ctx, emitEvent } = createContext()
     const payload = { entityType: 'query_index:throttle_entity', recordId: 'r1', tenantId: 't1', organizationId: null }

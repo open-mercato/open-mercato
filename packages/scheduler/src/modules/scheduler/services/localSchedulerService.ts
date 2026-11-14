@@ -1,3 +1,7 @@
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { isDatabaseRuntimeEnabled, runWithFreshDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { assertScheduleEnvelope, resolveScheduleDatabaseContext, withSchedulerMaintenance } from '../lib/databaseContext.js'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -57,6 +61,7 @@ export interface LocalSchedulerConfig {
 export class LocalSchedulerService {
   private isRunning = false
   private pollTimer?: NodeJS.Timeout
+  private activePolls = new Set<Promise<void>>()
   private lockStrategy: LocalLockStrategy
 
   constructor(
@@ -84,11 +89,12 @@ export class LocalSchedulerService {
     )
 
     // Run initial poll immediately
-    await this.poll()
+    await this.runPoll()
+    if (!this.isRunning) return
 
     // Schedule recurring polls
     this.pollTimer = setInterval(() => {
-      this.poll().catch((error) => {
+      this.runPoll().catch((error) => {
         logger.error('Poll error', { err: error })
       })
     }, this.config.pollIntervalMs)
@@ -108,17 +114,65 @@ export class LocalSchedulerService {
       this.pollTimer = undefined
     }
 
+    if (isDatabaseRuntimeEnabled()) await Promise.allSettled([...this.activePolls])
     logger.info('Polling engine stopped')
   }
 
   /**
    * Poll for due schedules and execute them
    */
+  private async runPoll(): Promise<void> {
+    const polling = this.poll()
+    this.activePolls.add(polling)
+    try { await polling } finally { this.activePolls.delete(polling) }
+  }
+
   private async poll(): Promise<void> {
     if (!this.isRunning) {
       return
     }
 
+    if (isDatabaseRuntimeEnabled()) {
+      const schedules = await withSchedulerMaintenance('scheduler.local-poll', async (em) => {
+        const found = await em.find(ScheduledJob, {
+          isEnabled: true, deletedAt: null, nextRunAt: { $lte: new Date() },
+        }, { limit: 100, orderBy: { nextRunAt: 'ASC' } })
+        return found.map((schedule) => ({
+          id: schedule.id, scopeType: schedule.scopeType, tenantId: schedule.tenantId,
+          organizationId: schedule.organizationId, sourceType: schedule.sourceType,
+          sourceModule: schedule.sourceModule, createdByUserId: schedule.createdByUserId,
+          updatedByUserId: schedule.updatedByUserId, targetType: schedule.targetType,
+          targetQueue: schedule.targetQueue, targetPayload: schedule.targetPayload,
+        }))
+      })
+      for (const schedule of schedules) {
+        if (!this.isRunning) break
+        try {
+          const context = await resolveScheduleDatabaseContext(schedule)
+          await runWithFreshDatabaseExecutionContext(context, async () => {
+            const container = await createRequestContainer()
+            try {
+              const em = container.resolve<EntityManager>('em')
+              const persisted = await em.findOne(ScheduledJob, { id: schedule.id, deletedAt: null, isEnabled: true })
+              if (!persisted) return
+              assertScheduleEnvelope(persisted, {
+                scheduleId: schedule.id, scopeType: schedule.scopeType,
+                tenantId: schedule.tenantId, organizationId: schedule.organizationId,
+              })
+              if (persisted.scopeType === 'system') await resolveScheduleDatabaseContext(persisted)
+              const service = container.resolve<LocalSchedulerService>('localSchedulerService')
+              await service.executeScheduleInContext(persisted, this.lockStrategy)
+            } finally {
+              try { container.resolve<EntityManager>('em').clear() } finally { await container.dispose() }
+            }
+          })
+        } catch (error) {
+          logger.error('Scoped schedule execution failed', { scheduleId: schedule.id, err: error })
+          getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.scoped_execution_failed' })
+        }
+      }
+      return
+    }
     const em = this.em().fork()
 
     try {
@@ -152,10 +206,14 @@ export class LocalSchedulerService {
    * Execute a single schedule
    */
   private async executeSchedule(schedule: ScheduledJob): Promise<void> {
+    return this.executeScheduleInContext(schedule, this.lockStrategy)
+  }
+
+  private async executeScheduleInContext(schedule: ScheduledJob, lockStrategy: LocalLockStrategy): Promise<void> {
     const lockKey = `schedule:${schedule.id}`
     const scheduleLogger = logger.child({ scheduleId: schedule.id, scheduleName: schedule.name })
 
-    const { acquired } = await this.lockStrategy.runWithLock(lockKey, async () => {
+    const { acquired } = await lockStrategy.runWithLock(lockKey, async () => {
       scheduleLogger.info('Executing schedule')
 
       // Emit started event
@@ -251,7 +309,7 @@ export class LocalSchedulerService {
         // Still update next run time even on failure
         await this.updateNextRun(schedule)
       }
-    })
+    }, this.em)
 
     if (!acquired) {
       scheduleLogger.debug('Schedule already locked, skipping')

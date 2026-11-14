@@ -165,7 +165,7 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
 
   // Spread the burst: give each chunk an increasing `delayMs` and fire every chunk's
   // emissions up front instead of blocking per chunk. `coverage_refresh.ts` already defers
-  // `delayMs > 0` work via `setTimeout(...).unref()`, so this only lowers the peak concurrent
+  // delayed work while awaiting completion, so this only lowers the peak concurrent
   // count of in-flight forked EntityManagers/connections — the total query count is unchanged.
   // A suggested non-zero `QUERY_INDEX_WARMUP_STAGGER_MS` (e.g. 2000) de-spikes memory-constrained
   // dev/staging; the default stays 0 so no deployment's behavior silently changes.

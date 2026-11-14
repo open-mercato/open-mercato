@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -144,84 +145,88 @@ export async function GET(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
-  const { translate } = await resolveTranslations()
-  const url = new URL(req.url)
-  const parsed = eventQuerySchema.safeParse({ claimId: url.searchParams.get('claimId') ?? undefined })
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
-  }
-  const claim = await loadOwnedClaim(context, parsed.data.claimId)
-  if (!claim) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
-  }
-  const events = await findWithDecryption(
-    context.em,
-    WarrantyClaimEvent,
-    { claim: claim.id, visibility: 'customer', tenantId: context.tenantId, organizationId: context.organizationId },
-    { orderBy: { createdAt: 'ASC' } },
-    { tenantId: context.tenantId, organizationId: context.organizationId },
-  )
-  return NextResponse.json({ items: events.map(serializeEvent) })
+  return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+    const { translate } = await resolveTranslations()
+    const url = new URL(req.url)
+    const parsed = eventQuerySchema.safeParse({ claimId: url.searchParams.get('claimId') ?? undefined })
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
+    }
+    const claim = await loadOwnedClaim(context, parsed.data.claimId)
+    if (!claim) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
+    }
+    const events = await findWithDecryption(
+      context.em,
+      WarrantyClaimEvent,
+      { claim: claim.id, visibility: 'customer', tenantId: context.tenantId, organizationId: context.organizationId },
+      { orderBy: { createdAt: 'ASC' } },
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+    )
+    return NextResponse.json({ items: events.map(serializeEvent) })
+  })
 }
 
 export async function POST(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
-  const { translate } = await resolveTranslations()
-  let body: unknown
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
-  }
-  const parsed = portalCommentSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
-  }
-  const claim = await loadOwnedClaim(context, parsed.data.claimId)
-  if (!claim) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
-  }
-  const input: CommentClaimInput = {
-    claimId: claim.id,
-    body: parsed.data.body,
-    visibility: 'customer',
-    actorCustomerId: context.customerId,
-  }
-  const guarded = await runPortalCommentGuard(req, context, claim.id, { ...input })
-  if (!guarded.ok) {
-    return guarded.response
-  }
-  const effectiveInput: CommentClaimInput = guarded.modifiedPayload
-    ? {
-        ...input,
-        ...guarded.modifiedPayload,
-        claimId: input.claimId,
-        visibility: input.visibility,
-        actorCustomerId: input.actorCustomerId,
+  return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+    const { translate } = await resolveTranslations()
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
+    }
+    const parsed = portalCommentSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
+    }
+    const claim = await loadOwnedClaim(context, parsed.data.claimId)
+    if (!claim) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
+    }
+    const input: CommentClaimInput = {
+      claimId: claim.id,
+      body: parsed.data.body,
+      visibility: 'customer',
+      actorCustomerId: context.customerId,
+    }
+    const guarded = await runPortalCommentGuard(req, context, claim.id, { ...input })
+    if (!guarded.ok) {
+      return guarded.response
+    }
+    const effectiveInput: CommentClaimInput = guarded.modifiedPayload
+      ? {
+          ...input,
+          ...guarded.modifiedPayload,
+          claimId: input.claimId,
+          visibility: input.visibility,
+          actorCustomerId: input.actorCustomerId,
+        }
+      : input
+
+    const commandBus = context.commandCtx.container.resolve('commandBus') as CommandBus
+    try {
+      await commandBus.execute<CommentClaimInput, { claimId: string }>(
+        'warranty_claims.claim.comment',
+        { input: effectiveInput, ctx: context.commandCtx },
+      )
+      await guarded.runAfterSuccess()
+    } catch (err) {
+      if (isCrudHttpError(err)) {
+        return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
       }
-    : input
-
-  const commandBus = context.commandCtx.container.resolve('commandBus') as CommandBus
-  try {
-    await commandBus.execute<CommentClaimInput, { claimId: string }>(
-      'warranty_claims.claim.comment',
-      { input: effectiveInput, ctx: context.commandCtx },
-    )
-    await guarded.runAfterSuccess()
-  } catch (err) {
-    if (isCrudHttpError(err)) {
-      return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
+      const interceptorRejection = getCommandInterceptorHttpRejection(err)
+      if (interceptorRejection) {
+        return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+      }
+      throw err
     }
-    const interceptorRejection = getCommandInterceptorHttpRejection(err)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
-    throw err
-  }
 
-  return NextResponse.json({ ok: true, claimId: claim.id })
+    return NextResponse.json({ ok: true, claimId: claim.id })
+  })
 }
 
 const eventSchema = z.object({

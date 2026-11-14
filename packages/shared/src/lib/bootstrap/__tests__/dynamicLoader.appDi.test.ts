@@ -171,6 +171,11 @@ describe('bootstrapFromAppRoot — app-level DI reaches worker/CLI processes', (
   it('runs generated registrations for worker and CLI processes (#7980)', async () => {
     const appRoot = createAppRoot(null)
 
+    createBootstrapMock.mockImplementationOnce(() => {
+      expect((globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY]).toBe(1)
+      return () => {}
+    })
+
     await bootstrapFromAppRoot(appRoot)
 
     expect((globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY]).toBe(1)

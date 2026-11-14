@@ -1,5 +1,7 @@
 import { Pool } from 'pg'
-import { searchDebugWarn, searchWarn } from '../../../lib/debug'
+import { configureDatabasePool, databaseStorageMode, resolveDatabaseConnectionUrl, type DatabasePoolLifecycle } from '@open-mercato/shared/lib/db/runtime'
+import { resolvePgVectorStorage, provisionPgVectorStorage, validatePgVectorStorage, type PgVectorStorageOptions } from './storage'
+import { reportSearchError, searchWarn } from '../../../lib/debug'
 import { compileIndexDocFilterExists, compileSearchScopePredicate } from '../../../lib/index-doc-filter'
 
 type PgPoolQueryResult<T> = { rows: T[]; rowCount?: number }
@@ -26,18 +28,18 @@ import type {
   VectorDriverStatus,
 } from '../../types'
 
-type PgVectorDriverOptions = {
+export type PgVectorDriverOptions = PgVectorStorageOptions & {
   pool?: PgPool
   connectionString?: string
-  tableName?: string
-  migrationsTable?: string
-  dimension?: number
-  distanceMetric?: 'cosine' | 'euclidean' | 'inner'
 }
 
-const DEFAULT_TABLE = 'vector_search'
-const DEFAULT_MIGRATIONS_TABLE = 'vector_search_migrations'
-const DEFAULT_DIMENSION = 1536
+type PgVectorDriver = VectorDriver & { close(): Promise<void> }
+const poolStorageKey = Symbol.for('@open-mercato/search.pgvectorPoolStorage.v1')
+function poolStorage() {
+  const globals = globalThis as typeof globalThis & { [poolStorageKey]?: WeakMap<object, { configuration: string; driver: PgVectorDriver }> }
+  return globals[poolStorageKey] ??= new WeakMap()
+}
+
 const DRIVER_ID = 'pgvector' as const
 
 // `undefined_file` is what Postgres raises for `extension "vector" is not available`
@@ -49,16 +51,6 @@ const EXTENSION_MISSING_CODES = new Set(['58P01', '0A000', '42704'])
 const EXTENSION_UNAVAILABLE_REASON = 'extension "vector" is not available on this PostgreSQL server'
 // Re-probe occasionally so installing pgvector recovers without restarting the process.
 const UNAVAILABLE_RECHECK_MS = 60_000
-
-function assertIdentifier(name: string, defaultName: string): string {
-  const candidate = name ?? defaultName
-  if (!candidate || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(candidate)) return defaultName
-  return candidate
-}
-
-function quoteIdent(name: string): string {
-  return `"${name}"`
-}
 
 function toVectorLiteral(values: number[]): string {
   const formatted = values.map((n) => {
@@ -95,13 +87,9 @@ async function withClient<T>(pool: PgPool, fn: (client: PgPoolClient) => Promise
   }
 }
 
-export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDriver {
-  const tableName = assertIdentifier(opts.tableName ?? DEFAULT_TABLE, DEFAULT_TABLE)
-  const migrationsTable = assertIdentifier(opts.migrationsTable ?? DEFAULT_MIGRATIONS_TABLE, DEFAULT_MIGRATIONS_TABLE)
-  let dimension = opts.dimension ?? DEFAULT_DIMENSION
-  const distanceMetric = opts.distanceMetric ?? 'cosine'
-  const tableIdent = quoteIdent(tableName)
-  const migrationsIdent = quoteIdent(migrationsTable)
+export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): PgVectorDriver {
+  let storage = resolvePgVectorStorage(opts)
+  const { tableName, tableIdent, migrationsIdent } = storage
 
   const pool: PgPool =
     opts.pool ??
@@ -110,8 +98,36 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       if (!conn) {
         throw new Error('[vector.pgvector] DATABASE_URL is not configured')
       }
-      return new Pool({ connectionString: conn }) as unknown as PgPool
+      return new Pool({ connectionString: resolveDatabaseConnectionUrl('runtime', conn) }) as unknown as PgPool
     })()
+
+  const configuration = JSON.stringify(storage.descriptor)
+  const existing = poolStorage().get(pool)
+  if (existing) {
+    if (existing.configuration !== configuration) throw new Error('[internal] Conflicting pgvector storage configuration for the same pool')
+    return existing.driver
+  }
+  let lifecycle: DatabasePoolLifecycle
+  try {
+    lifecycle = configureDatabasePool(pool, {
+      id: `search.pgvector:${storage.schema}.${tableName}`, purpose: 'runtime', tables: storage.tables,
+    })
+  } catch (error) {
+    void pool.end().catch((cleanupError: unknown) => reportSearchError('vector.pgvector', cleanupError, 'search.pool_cleanup_failed'))
+    throw error
+  }
+
+  let closed = false
+  const close = async () => {
+    if (closed) return
+    closed = true
+    try { await pool.end() } finally { lifecycle.dispose(); poolStorage().delete(pool) }
+  }
+
+  const ensurePoolReady = async () => {
+    if (closed) throw new Error('[internal] Pgvector driver is closed')
+    try { await lifecycle.ready() } catch (error) { await close(); throw error }
+  }
 
   let ready: Promise<void> | null = null
   let status: { value: VectorDriverStatus; at: number } | null = null
@@ -142,6 +158,11 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   }
 
   const getStatus = async (): Promise<VectorDriverStatus> => {
+    await ensurePoolReady()
+    if (databaseStorageMode(storage.descriptor) === 'validate') {
+      await ensureReady()
+      return { available: true }
+    }
     const cached = readCachedStatus()
     if (cached) return cached
     try {
@@ -164,138 +185,29 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   const isHealthy = async (): Promise<boolean> => (await getStatus()).available
 
   const ensureReady = async () => {
+    await ensurePoolReady()
     const cached = readCachedStatus()
     if (cached && !cached.available) {
       throw new Error(`[vector.pgvector] ${cached.reason ?? 'vector store unavailable'}`)
     }
     if (!ready) {
       ready = withClient(pool, async (client) => {
-        const ensureExtension = async (extension: 'pgcrypto' | 'vector') => {
-          try {
-            await client.query(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
-          } catch (error) {
-            const pgError = error as { code?: string; message?: string }
-            if (pgError?.code === '42501') {
-              const details = pgError.message ? ` (${pgError.message})` : ''
-              searchDebugWarn('vector.pgvector', `skipping ${extension} extension creation; requires superuser${details}`)
-              return
-            }
-            if (extension === 'vector' && pgError?.code && EXTENSION_MISSING_CODES.has(pgError.code)) {
-              markExtensionMissing()
-            }
-            throw error
-          }
-        }
-
-        await ensureExtension('pgcrypto')
-        await ensureExtension('vector')
-
-        await client.query(
-          `CREATE TABLE IF NOT EXISTS ${migrationsIdent} (
-            id text primary key,
-            applied_at timestamptz not null default now()
-          )`,
-        )
-
-        await client.query(
-          `CREATE TABLE IF NOT EXISTS ${tableIdent} (
-            id uuid primary key default gen_random_uuid(),
-            driver_id text not null,
-            entity_id text not null,
-            record_id text not null,
-            tenant_id uuid not null,
-            organization_id uuid null,
-            checksum text not null,
-            embedding vector(${dimension}) not null,
-            url text null,
-            presenter jsonb null,
-            links jsonb null,
-            payload jsonb null,
-            result_title text null,
-            result_subtitle text null,
-            result_icon text null,
-            result_badge text null,
-            result_snapshot text null,
-            primary_link_href text null,
-            primary_link_label text null,
-            created_at timestamptz not null default now(),
-            updated_at timestamptz not null default now()
-          )`,
-        )
-
-        await client.query(
-          `CREATE UNIQUE INDEX IF NOT EXISTS ${tableName}_uniq ON ${tableIdent} (driver_id, entity_id, record_id, tenant_id)`,
-        )
-        await client.query(
-          `CREATE INDEX IF NOT EXISTS ${tableName}_lookup ON ${tableIdent} (tenant_id, organization_id, entity_id)`,
-        )
-        // ivfflat index only supports up to 2000 dimensions
-        // For higher dimensions, skip the index (uses sequential scan, slower but works)
-        // Also check actual table dimension in case driver was initialized with different value
-        let actualDimension = dimension
-        try {
-          const dimResult = await client.query<{ atttypmod: number }>(
-            `SELECT a.atttypmod
-             FROM pg_attribute a
-             JOIN pg_class c ON a.attrelid = c.oid
-             WHERE c.relname = $1
-             AND a.attname = 'embedding'
-             AND a.atttypmod > 0`,
-            [tableName]
-          )
-          if (dimResult.rows.length > 0 && dimResult.rows[0].atttypmod > 0) {
-            actualDimension = dimResult.rows[0].atttypmod
-          }
-        } catch {
-          // Ignore errors reading dimension, use configured value
-        }
-
-        if (actualDimension <= 2000) {
-          try {
-            await client.query(
-              `CREATE INDEX IF NOT EXISTS ${tableName}_embedding_idx ON ${tableIdent}
-                USING ivfflat (embedding vector_${distanceMetric}_ops) WITH (lists = 100)`,
-            )
-          } catch (indexErr: unknown) {
-            // Handle case where dimension exceeds ivfflat limit
-            const errorMessage = indexErr instanceof Error ? indexErr.message : String(indexErr)
-            if (errorMessage.includes('2000 dimensions')) {
-              searchDebugWarn('pgvector', 'Skipping ivfflat index - dimension exceeds 2000 limit. Searches will use sequential scan.')
-            } else {
-              throw indexErr
-            }
-          }
+        if (databaseStorageMode(storage.descriptor) === 'validate') {
+          await validatePgVectorStorage(client, storage)
         } else {
-          searchDebugWarn('pgvector', `Skipping ivfflat index - dimension ${actualDimension} exceeds 2000 limit. Searches will use sequential scan.`)
+          await provisionPgVectorStorage(client, storage)
         }
-
-        const columnAlters = [
-          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_title text`,
-          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_subtitle text`,
-          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_icon text`,
-          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_badge text`,
-          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_snapshot text`,
-          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS primary_link_href text`,
-          `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS primary_link_label text`,
-        ]
-        for (const statement of columnAlters) {
-          await client.query(statement)
-        }
-
-        await client.query(
-          `INSERT INTO ${migrationsIdent} (id, applied_at) VALUES ($1, now()) ON CONFLICT (id) DO NOTHING`,
-          ['0001_init'],
-        )
       }).then(() => {
         cacheStatus({ available: true })
-      }).catch((err) => {
+      }).catch(async (err) => {
         ready = null
         const pgError = err as { code?: string; message?: string }
         // Without the extension the `vector` column type does not exist either, so the
         // table DDL fails even when `CREATE EXTENSION` was skipped rather than raised.
-        if (pgError?.code === '42704' && /\bvector\b/.test(pgError.message ?? '')) {
+        if (pgError?.code && EXTENSION_MISSING_CODES.has(pgError.code) && /\bvector\b/.test(pgError.message ?? '')) {
           markExtensionMissing()
         }
+        if (databaseStorageMode(storage.descriptor) === 'validate') await close()
         throw err
       })
     }
@@ -473,7 +385,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           result_snapshot,
           primary_link_href,
           primary_link_label,
-          embedding <=> $1::vector AS distance
+          embedding ${storage.distanceMetric === 'euclidean' ? '<->' : storage.distanceMetric === 'inner' ? '<#>' : '<=>'} $1::vector AS distance
         FROM ${tableIdent}
         WHERE driver_id = $2
           AND tenant_id = $3::uuid
@@ -483,7 +395,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
           )
           AND ${sourceScopeClause.sql}
           ${indexDocClause ? `AND ${indexDocClause.sql}` : ''}
-        ORDER BY embedding <=> $1::vector
+        ORDER BY embedding ${storage.distanceMetric === 'euclidean' ? '<->' : storage.distanceMetric === 'inner' ? '<#>' : '<=>'} $1::vector
         LIMIT $6
       `,
       params,
@@ -695,15 +607,19 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   }
 
   const getTableDimension = async (): Promise<number | null> => {
+    if (closed) throw new Error('[internal] Pgvector driver is closed')
+    if (databaseStorageMode(storage.descriptor) === 'validate') await ensureReady()
+    else await ensurePoolReady()
     try {
       const res = await pool.query<{ atttypmod: number }>(
         `SELECT a.atttypmod
          FROM pg_attribute a
          JOIN pg_class c ON a.attrelid = c.oid
-         WHERE c.relname = $1
+         JOIN pg_namespace n ON c.relnamespace = n.oid
+         WHERE c.relname = $1 AND n.nspname = $2
          AND a.attname = 'embedding'
          AND a.atttypmod > 0`,
-        [tableName]
+        [tableName, storage.schema]
       )
       if (res.rows.length > 0 && res.rows[0].atttypmod > 0) {
         return res.rows[0].atttypmod
@@ -715,17 +631,24 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   }
 
   const recreateWithDimension = async (newDimension: number): Promise<void> => {
+    if (databaseStorageMode(storage.descriptor) === 'validate') {
+      throw new Error('[internal] Pgvector dimension changes require maintenance storage provisioning')
+    }
+    const nextStorage = resolvePgVectorStorage({ schema: storage.schema, applicationSchema: storage.applicationSchema, tableName, migrationsTable: storage.migrationsTable, dimension: newDimension, distanceMetric: storage.distanceMetric })
+    await ensurePoolReady()
     await withClient(pool, async (client) => {
       await client.query(`DROP TABLE IF EXISTS ${tableIdent} CASCADE`)
       await client.query(`DROP TABLE IF EXISTS ${migrationsIdent} CASCADE`)
     })
     ready = null
-    dimension = newDimension
+    storage = nextStorage
+    poolStorage().set(pool, { configuration: JSON.stringify(storage.descriptor), driver })
     await ensureReady()
   }
 
-  return {
+  const driver: PgVectorDriver = {
     id: 'pgvector',
+    close,
     supportsIndexDocFilter: true,
     ensureReady,
     isHealthy,
@@ -741,4 +664,6 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     getTableDimension,
     recreateWithDimension,
   }
+  poolStorage().set(pool, { configuration, driver })
+  return driver
 }

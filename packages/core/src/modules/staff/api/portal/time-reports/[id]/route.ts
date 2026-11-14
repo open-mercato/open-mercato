@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 /**
  * `GET /api/staff/portal/time-reports/{id}` — EP-50.
  *
@@ -79,83 +80,85 @@ export async function GET(req: Request) {
     const scopeOrResponse = await resolvePortalScope(req)
     if (scopeOrResponse instanceof Response) return scopeOrResponse
     const scope = scopeOrResponse
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
 
-    const reportId = readReportId(req)
-    if (!reportId) {
-      return NextResponse.json({ ok: false, error: 'staff.errors.invalidInput' }, { status: 400 })
-    }
+      const reportId = readReportId(req)
+      if (!reportId) {
+        return NextResponse.json({ ok: false, error: 'staff.errors.invalidInput' }, { status: 400 })
+      }
 
-    const connection = scope.em.getConnection()
-    const owned = portalOwnedReportClause(scope)
-    const rows = (await connection.execute(
-      `
-        SELECT id, reference, title, period_from, period_to, closed_at,
-               total_billable_minutes, total_nonbillable_minutes
-        FROM staff_time_reports
-        WHERE ${owned.sql} AND id = ?
-        LIMIT 1
-      `,
-      [...owned.params, reportId],
-    )) as ReportRow[]
+      const connection = scope.em.getConnection()
+      const owned = portalOwnedReportClause(scope)
+      const rows = (await connection.execute(
+        `
+          SELECT id, reference, title, period_from, period_to, closed_at,
+                 total_billable_minutes, total_nonbillable_minutes
+          FROM staff_time_reports
+          WHERE ${owned.sql} AND id = ?
+          LIMIT 1
+        `,
+        [...owned.params, reportId],
+      )) as ReportRow[]
 
-    const report = rows?.[0]
-    if (!report) {
-      return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
-    }
+      const report = rows?.[0]
+      if (!report) {
+        return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
+      }
 
-    const periodFrom = toIsoDate(report.period_from)
-    const periodTo = toIsoDate(report.period_to)
-    if (!periodFrom || !periodTo) {
-      return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
-    }
+      const periodFrom = toIsoDate(report.period_from)
+      const periodTo = toIsoDate(report.period_to)
+      if (!periodFrom || !periodTo) {
+        return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
+      }
 
-    const projectRows = (await connection.execute(
-      `
-        SELECT entry.time_project_id AS time_project_id,
-               project.name AS project_name,
-               COALESCE(SUM(CASE WHEN line.frozen_is_billable THEN line.frozen_rounded_minutes ELSE 0 END), 0) AS billable_minutes,
-               COALESCE(SUM(CASE WHEN line.frozen_is_billable THEN 0 ELSE line.frozen_rounded_minutes END), 0) AS nonbillable_minutes
-        FROM staff_time_report_entries line
-        JOIN staff_time_entries entry
-          ON entry.id = line.time_entry_id
-         AND entry.tenant_id = line.tenant_id
-         AND entry.organization_id = line.organization_id
-        LEFT JOIN staff_time_projects project
-          ON project.id = entry.time_project_id
-         AND project.tenant_id = line.tenant_id
-         AND project.organization_id = line.organization_id
-        WHERE line.report_id = ?
-          AND line.tenant_id = ?
-          AND line.organization_id = ?
-        GROUP BY entry.time_project_id, project.name
-        ORDER BY project.name ASC NULLS LAST
-      `,
-      [report.id, scope.tenantId, scope.organizationId],
-    )) as ProjectRow[]
+      const projectRows = (await connection.execute(
+        `
+          SELECT entry.time_project_id AS time_project_id,
+                 project.name AS project_name,
+                 COALESCE(SUM(CASE WHEN line.frozen_is_billable THEN line.frozen_rounded_minutes ELSE 0 END), 0) AS billable_minutes,
+                 COALESCE(SUM(CASE WHEN line.frozen_is_billable THEN 0 ELSE line.frozen_rounded_minutes END), 0) AS nonbillable_minutes
+          FROM staff_time_report_entries line
+          JOIN staff_time_entries entry
+            ON entry.id = line.time_entry_id
+           AND entry.tenant_id = line.tenant_id
+           AND entry.organization_id = line.organization_id
+          LEFT JOIN staff_time_projects project
+            ON project.id = entry.time_project_id
+           AND project.tenant_id = line.tenant_id
+           AND project.organization_id = line.organization_id
+          WHERE line.report_id = ?
+            AND line.tenant_id = ?
+            AND line.organization_id = ?
+          GROUP BY entry.time_project_id, project.name
+          ORDER BY project.name ASC NULLS LAST
+        `,
+        [report.id, scope.tenantId, scope.organizationId],
+      )) as ProjectRow[]
 
-    return NextResponse.json(
-      detailResponseSchema.parse({
-        id: report.id,
-        reference: report.reference,
-        title: report.title,
-        periodFrom,
-        periodTo,
-        closedAt:
-          report.closed_at instanceof Date
-            ? report.closed_at.toISOString()
-            : typeof report.closed_at === 'string' && report.closed_at.trim().length > 0
-              ? report.closed_at
-              : null,
-        totalBillableMinutes: toMinutes(report.total_billable_minutes),
-        totalNonbillableMinutes: toMinutes(report.total_nonbillable_minutes),
-        projects: projectRows.map((row) => ({
-          timeProjectId: row.time_project_id ?? null,
-          projectName: row.project_name ?? null,
-          billableMinutes: toMinutes(row.billable_minutes),
-          nonbillableMinutes: toMinutes(row.nonbillable_minutes),
-        })),
-      }),
-    )
+      return NextResponse.json(
+        detailResponseSchema.parse({
+          id: report.id,
+          reference: report.reference,
+          title: report.title,
+          periodFrom,
+          periodTo,
+          closedAt:
+            report.closed_at instanceof Date
+              ? report.closed_at.toISOString()
+              : typeof report.closed_at === 'string' && report.closed_at.trim().length > 0
+                ? report.closed_at
+                : null,
+          totalBillableMinutes: toMinutes(report.total_billable_minutes),
+          totalNonbillableMinutes: toMinutes(report.total_nonbillable_minutes),
+          projects: projectRows.map((row) => ({
+            timeProjectId: row.time_project_id ?? null,
+            projectName: row.project_name ?? null,
+            billableMinutes: toMinutes(row.billable_minutes),
+            nonbillableMinutes: toMinutes(row.nonbillable_minutes),
+          })),
+        }),
+      )
+    })
   } catch (err) {
     logger.error('staff portal time-report detail failed', { err })
     return NextResponse.json({ ok: false, error: 'staff.errors.internal' }, { status: 500 })

@@ -4886,6 +4886,19 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     const { modId, imps, appImportBase } = discovered
     commandLoaderEntries.push(...discovered.commandLoaderEntries)
 
+    const generatorSource = discovered.resolve('generators.ts')
+    if (generatorSource) {
+      assertGeneratorPluginUsesTypeOnlyImports(generatorSource.absolutePath)
+      try {
+        const pluginModule = await import(buildCacheBustedSourceImportUrl(generatorSource.absolutePath))
+        const plugins: import('@open-mercato/shared/modules/generators').GeneratorPlugin[] =
+          pluginModule.generatorPlugins ?? pluginModule.default ?? []
+        requiresFullBootstrap ||= plugins.some((plugin) => Boolean(plugin.bootstrapRegistration))
+      } catch {
+        requiresFullBootstrap = true
+      }
+    }
+
     let cliImportName: string | null = null
     const translations: GeneratedObjectEntry[] = []
     const subscribers: WriterFunction[] = []

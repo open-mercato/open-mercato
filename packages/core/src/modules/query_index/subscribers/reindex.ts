@@ -174,9 +174,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       partitionIndex,
       resetCoverage,
       vectorService,
-      onProgress: (info) => {
-        void updateProgress(info)
-      },
+      onProgress: (info) => updateProgress(info),
     })
     await updateProgress(
       { processed: result.processed, total: result.total },

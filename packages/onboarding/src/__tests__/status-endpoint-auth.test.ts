@@ -1,3 +1,7 @@
+jest.mock('../modules/onboarding/lib/tenant-continuation', () => ({
+  ...jest.requireActual('../modules/onboarding/lib/tenant-continuation'),
+  hasPersistedWorkspace: jest.fn(async () => true),
+}))
 import { OnboardingRequest } from '../modules/onboarding/data/entities'
 
 const findLatestByTenantId = jest.fn()
@@ -19,6 +23,7 @@ jest.mock('next/server', () => {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
+    dispose: jest.fn(async () => undefined),
     resolve: (name: string) => {
       if (name === 'em') return {}
       throw new Error(`unexpected resolve(${name})`)
@@ -39,6 +44,7 @@ jest.mock('@open-mercato/shared/lib/url', () => ({
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service', () => ({
   OnboardingService: jest.fn().mockImplementation(() => ({
     findLatestByTenantId,
+    findById: () => findLatestByTenantId(),
     markCompleted,
   })),
 }))

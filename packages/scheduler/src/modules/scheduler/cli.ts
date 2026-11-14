@@ -1,3 +1,9 @@
+import { isDatabaseRuntimeEnabled, runWithFreshDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { BullMQSchedulerService } from './services/bullmqSchedulerService.js'
+import { LocalSchedulerService } from './services/localSchedulerService.js'
+import { resolveScheduleDatabaseContext } from './lib/databaseContext.js'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
@@ -8,6 +14,18 @@ import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import type { ExecuteSchedulePayload } from './workers/execute-schedule.worker.js'
+
+const invocationContainers = new AsyncLocalStorage<AppContainer[]>()
+
+async function createSchedulerContainer() {
+  const container = await createRequestContainer()
+  invocationContainers.getStore()?.push(container)
+  return container
+}
+
+const unavailableProcessDependency = (): never => {
+  throw new Error('[internal] Scheduler process dependencies must be resolved inside a fresh invocation')
+}
 
 const writeLine = (text = '') => {
   process.stdout.write(`${text}\n`)
@@ -31,7 +49,7 @@ const listCommand: ModuleCli = {
   command: 'list',
   async run(rest) {
     const args = parseArgs(rest)
-    const { resolve } = await createRequestContainer()
+    const { resolve } = await createSchedulerContainer()
     const em = resolve('em') as EntityManager
 
     const where: Record<string, unknown> = { deletedAt: null }
@@ -84,7 +102,7 @@ const listCommand: ModuleCli = {
 const statusCommand: ModuleCli = {
   command: 'status',
   async run() {
-    const { resolve } = await createRequestContainer()
+    const { resolve } = await createSchedulerContainer()
     const em = resolve('em') as EntityManager
 
     const totalCount = await em.count(ScheduledJob, { deletedAt: null })
@@ -124,7 +142,7 @@ const runCommand: ModuleCli = {
       return
     }
 
-    const { resolve } = await createRequestContainer()
+    const { resolve } = await createSchedulerContainer()
     const em = resolve('em') as EntityManager
 
     const job = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
@@ -133,6 +151,8 @@ const runCommand: ModuleCli = {
       process.exitCode = 1
       return
     }
+
+    const databaseContext = isDatabaseRuntimeEnabled() ? await resolveScheduleDatabaseContext(job) : undefined
 
     writeLine(`\n🚀 Manually triggering schedule: ${job.name}\n`)
     writeLine(`  ID: ${job.id}`)
@@ -162,7 +182,9 @@ const runCommand: ModuleCli = {
       executionQueue = createQueue<ExecuteSchedulePayload>('scheduler-execution', 'async', {
         connection: { url: getRedisUrlOrThrow('QUEUE') },
       })
-      const queueJobId = await executionQueue.enqueue(payload)
+      const queueJobId = databaseContext
+        ? await runWithFreshDatabaseExecutionContext(databaseContext, () => executionQueue!.enqueue(payload))
+        : await executionQueue.enqueue(payload)
 
       writeLine(`✓ Job successfully triggered via scheduler-execution queue (job ${queueJobId})`)
       writeLine(`  The worker will pick it up and enqueue to: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
@@ -180,7 +202,13 @@ const runCommand: ModuleCli = {
 const startCommand: ModuleCli = {
   command: 'start',
   async run() {
-    const { resolve } = await createRequestContainer()
+    const resolve = isDatabaseRuntimeEnabled()
+      ? (name: string) => name === 'bullmqSchedulerService'
+        ? new BullMQSchedulerService(unavailableProcessDependency)
+        : new LocalSchedulerService(unavailableProcessDependency, (queue) => createQueue(queue, 'local'), {
+          tenantHasFeature: unavailableProcessDependency, userHasAllFeatures: unavailableProcessDependency,
+        }, { pollIntervalMs: parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10) })
+      : (await createSchedulerContainer()).resolve
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
     writeLine(`🚀 Starting scheduler (strategy: ${queueStrategy})...\n`)
@@ -197,7 +225,9 @@ const startCommand: ModuleCli = {
         }
 
         // Sync all enabled schedules with BullMQ
-        await bullmqService.syncAll()
+        try { await bullmqService.syncAll() } finally {
+          if (isDatabaseRuntimeEnabled()) await (bullmqService as BullMQSchedulerService).destroy()
+        }
 
         writeLine('✓ Scheduler sync completed')
         writeLine('')
@@ -260,7 +290,7 @@ const auditQueueTargetsCommand: ModuleCli = {
   command: 'audit-queue-targets',
   async run(rest) {
     const args = parseArgs(rest)
-    const { resolve } = await createRequestContainer()
+    const { resolve } = await createSchedulerContainer()
     const em = resolve('em') as EntityManager
 
     const where: Record<string, unknown> = { deletedAt: null, sourceType: 'module' }
@@ -294,4 +324,18 @@ const auditQueueTargetsCommand: ModuleCli = {
   },
 }
 
-export default [listCommand, statusCommand, runCommand, startCommand, auditQueueTargetsCommand]
+export default [listCommand, statusCommand, runCommand, startCommand, auditQueueTargetsCommand].map((command): ModuleCli => ({
+  ...command,
+  async run(rest) {
+    if (!isDatabaseRuntimeEnabled() || command === startCommand) return command.run(rest)
+    return runWithFreshDatabaseExecutionContext({
+      kind: 'maintenance', tenantId: null, source: 'scheduler', operation: `scheduler.cli.${command.command}`,
+    }, () => invocationContainers.run([], async () => {
+      try { return await command.run(rest) } finally {
+        for (const container of invocationContainers.getStore() ?? []) {
+          try { container.resolve<EntityManager>('em').clear?.() } finally { await container.dispose() }
+        }
+      }
+    }))
+  },
+}))

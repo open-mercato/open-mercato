@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 /**
  * Server-side customer auth helpers for Next.js server components.
  *
@@ -12,7 +13,7 @@ import { CUSTOMER_JWT_AUDIENCE, CustomerSessionService } from '@open-mercato/cor
 import { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 import { tryNormalizeHostname } from '@open-mercato/core/modules/customer_accounts/lib/hostname'
 import { platformDomains } from '@open-mercato/core/modules/customer_accounts/lib/platformDomains'
-import { validateUserState } from './customerAuth'
+import { CustomerAuthUnavailableError, validateUserState, type CustomerAuthResolution } from './customerAuth'
 import type { CustomerAuthContext } from './customerAuth'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -26,14 +27,10 @@ async function assertSessionStillActive(input: {
   tenantId: string
   organizationId: string
 }): Promise<boolean> {
-  try {
-    const container = await createRequestContainer()
-    const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
-    const session = await service.findActiveSessionForClaims(input)
-    return session !== null
-  } catch {
-    return false
-  }
+  const container = await createRequestContainer()
+  const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
+  const session = await service.findActiveSessionForClaims(input)
+  return session !== null
 }
 
 /**
@@ -51,7 +48,7 @@ async function assertSessionStillActive(input: {
  * if (!customerAuth) redirect('/login')
  * ```
  */
-export async function getCustomerAuthFromCookies(
+async function readCustomerAuthFromCookies(
   options?: { expectedTenantId?: string },
 ): Promise<CustomerAuthContext | null> {
   const cookieStore = await cookies()
@@ -73,41 +70,68 @@ export async function getCustomerAuthFromCookies(
       // JWTs are rejected as if unauthenticated.
       return null
     }
-    const stillActive = await assertSessionStillActive({
-      sessionId: sid,
-      userId,
-      tenantId,
-      organizationId,
-    })
-    if (!stillActive) return null
+    return await runWithDatabaseExecutionContext(
+      { kind: 'identity', tenantId, source: 'identity', operation: 'customer-cookie-authentication' },
+      async () => {
+        try {
+          const stillActive = await assertSessionStillActive({
+            sessionId: sid,
+            userId,
+            tenantId,
+            organizationId,
+          })
+          if (!stillActive) return null
 
-    const userState = await validateUserState(
-      userId,
-      tenantId,
-      organizationId,
-      payload.iat,
+          const userState = await validateUserState(
+            userId,
+            tenantId,
+            organizationId,
+            payload.iat,
+          )
+          if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
+
+          return {
+            sub: userId,
+            sid,
+            type: 'customer',
+            // Authorization scope comes from userState (re-derived from the DB in validateUserState),
+            // not from the JWT's own tenantId/orgId/customerEntityId/personEntityId claims (#2244).
+            tenantId: userState.tenantId,
+            orgId: userState.organizationId,
+            email: String(payload.email || ''),
+            displayName: String(payload.displayName || ''),
+            customerEntityId: userState.customerEntityId ?? null,
+            personEntityId: userState.personEntityId ?? null,
+            resolvedFeatures: userState.resolvedFeatures,
+            isPortalAdmin: userState.isPortalAdmin,
+          }
+        } catch (error) {
+          throw new CustomerAuthUnavailableError(error)
+        }
+      },
     )
-    if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
-
-    return {
-      sub: userId,
-      sid,
-      type: 'customer',
-      // Authorization scope comes from userState (re-derived from the DB in validateUserState),
-      // not from the JWT's own tenantId/orgId/customerEntityId/personEntityId claims (#2244).
-      tenantId: userState.tenantId,
-      orgId: userState.organizationId,
-      email: String(payload.email || ''),
-      displayName: String(payload.displayName || ''),
-      customerEntityId: userState.customerEntityId ?? null,
-      personEntityId: userState.personEntityId ?? null,
-      resolvedFeatures: userState.resolvedFeatures,
-      isPortalAdmin: userState.isPortalAdmin,
-    }
-  } catch {
+  } catch (error) {
+    if (error instanceof CustomerAuthUnavailableError) throw error
     // Invalid or expired JWT — treat as unauthenticated
     return null
   }
+}
+
+export async function resolveCustomerAuthFromCookiesDetailed(
+  options?: { expectedTenantId?: string },
+): Promise<CustomerAuthResolution> {
+  try {
+    const auth = await readCustomerAuthFromCookies(options)
+    return { auth, status: auth ? 'authenticated' : 'unauthenticated' }
+  } catch {
+    return { auth: null, status: 'error' }
+  }
+}
+
+export async function getCustomerAuthFromCookies(
+  options?: { expectedTenantId?: string },
+): Promise<CustomerAuthContext | null> {
+  return (await resolveCustomerAuthFromCookiesDetailed(options)).auth
 }
 
 /**

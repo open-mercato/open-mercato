@@ -17,7 +17,14 @@ type Payload = {
 }
 
 const DEFAULT_DELAY_MS = 0
-const pending = new Map<string, NodeJS.Timeout>()
+type PendingRefresh = {
+  timer?: NodeJS.Timeout
+  completion: Promise<void>
+  resolve: () => void
+  reject: (error: unknown) => void
+}
+
+const pending = new Map<string, PendingRefresh>()
 
 function forkRefreshEntityManager(em: EntityManager): EntityManager {
   const fork = (em as unknown as { fork?: (options?: Record<string, unknown>) => EntityManager }).fork
@@ -82,17 +89,22 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
     return
   }
 
-  const existing = pending.get(key)
-  if (existing) {
-    clearTimeout(existing)
+  let entry = pending.get(key)
+  if (entry?.timer) clearTimeout(entry.timer)
+  if (!entry) {
+    let resolve!: () => void
+    let reject!: (error: unknown) => void
+    const completion = new Promise<void>((onResolve, onReject) => {
+      resolve = onResolve
+      reject = onReject
+    })
+    entry = { completion, resolve, reject }
+    pending.set(key, entry)
   }
-
-  const timer = setTimeout(() => {
+  const scheduled = entry
+  scheduled.timer = setTimeout(() => {
     pending.delete(key)
-    void handleRefresh()
+    handleRefresh().then(scheduled.resolve, scheduled.reject)
   }, delayMs)
-  if (typeof timer.unref === 'function') {
-    timer.unref()
-  }
-  pending.set(key, timer)
+  await scheduled.completion
 }

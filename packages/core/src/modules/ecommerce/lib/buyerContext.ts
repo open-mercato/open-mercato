@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -368,18 +369,23 @@ export async function resolveBuyerContext(
     logger.debug('Portal session scope does not match the resolved store', { storeId: store.store.id })
     throw new StorefrontResolutionError(401, 'portal_session_scope_mismatch')
   }
-  const customerUserId = auth?.sub ?? null
-  const cache = buyerContextCache(container, { tenantId: store.tenantId, storeId: store.store.id })
-  if (!opts.fresh) {
-    const cached = await cache.get(customerUserId)
-    if (cached && cached.customerUserId === customerUserId) return cached
-  }
-  const identity = customerUserId
-    ? await loadBuyerIdentity(requireService<EntityManager>(container, 'em'), customerUserId, store)
-    : ANONYMOUS_IDENTITY
-  const buyer = await buildBuyerContext(container, store, identity)
-  await cache.set(buyer)
-  return buyer
+  return runWithDatabaseExecutionContext(
+    { kind: 'tenant', tenantId: store.tenantId, source: 'public-token', operation: 'storefront-buyer' },
+    async () => {
+      const customerUserId = auth?.sub ?? null
+      const cache = buyerContextCache(container, { tenantId: store.tenantId, storeId: store.store.id })
+      if (!opts.fresh) {
+        const cached = await cache.get(customerUserId)
+        if (cached && cached.customerUserId === customerUserId) return cached
+      }
+      const identity = customerUserId
+        ? await loadBuyerIdentity(requireService<EntityManager>(container, 'em'), customerUserId, store)
+        : ANONYMOUS_IDENTITY
+      const buyer = await buildBuyerContext(container, store, identity)
+      await cache.set(buyer)
+      return buyer
+    },
+  )
 }
 
 export function composeStoreContext(store: ResolvedStore, buyer: BuyerContext): StoreContext {

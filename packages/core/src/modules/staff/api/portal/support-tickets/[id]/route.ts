@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -73,69 +74,71 @@ export async function GET(req: Request) {
   try {
     const scope = await resolveSupportPortalScope(req, PORTAL_SUPPORT_TICKETS_VIEW_FEATURE)
     if (scope instanceof Response) return scope
-    const taskId = readPathId(req, /\/support-tickets\/([^/]+)/)
-    const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
-    if (!owned) return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
-    const { task, ticket } = owned
-    const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
-    const status = await scope.em.findOne(StaffTimeTaskStatus, { id: task.taskStatusId, ...decryptionScope }, { fields: ['id', 'isDefault', 'isDone'] })
-    const comments = await scope.em.find(
-      StaffTimeTaskComment,
-      { taskId: task.id, ...decryptionScope, visibility: 'customer', deletedAt: null },
-      { orderBy: { createdAt: 'asc', id: 'asc' } },
-    )
-    const staffUserIds = [...new Set(comments.map((comment) => comment.authorUserId).filter((id): id is string => typeof id === 'string'))]
-    const staffNames = new Map<string, string | null>()
-    if (staffUserIds.length) {
-      try {
-        const users = await findWithDecryption(
-          scope.em,
-          User,
-          { id: { $in: staffUserIds }, tenantId: scope.tenantId },
-          undefined,
-          decryptionScope,
-        )
-        for (const user of users) staffNames.set(user.id, nonEmptyName(user.name))
-      } catch (err) {
-        logger.warn('staff portal support ticket could not resolve staff names', { err, taskId: task.id })
-        getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_staff_names_failed' })
-        staffNames.clear()
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const taskId = readPathId(req, /\/support-tickets\/([^/]+)/)
+      const owned = taskId ? await loadPortalOwnedTicket(scope, taskId) : null
+      if (!owned) return NextResponse.json({ ok: false, error: 'staff.errors.notFound' }, { status: 404 })
+      const { task, ticket } = owned
+      const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+      const status = await scope.em.findOne(StaffTimeTaskStatus, { id: task.taskStatusId, ...decryptionScope }, { fields: ['id', 'isDefault', 'isDone'] })
+      const comments = await scope.em.find(
+        StaffTimeTaskComment,
+        { taskId: task.id, ...decryptionScope, visibility: 'customer', deletedAt: null },
+        { orderBy: { createdAt: 'asc', id: 'asc' } },
+      )
+      const staffUserIds = [...new Set(comments.map((comment) => comment.authorUserId).filter((id): id is string => typeof id === 'string'))]
+      const staffNames = new Map<string, string | null>()
+      if (staffUserIds.length) {
+        try {
+          const users = await findWithDecryption(
+            scope.em,
+            User,
+            { id: { $in: staffUserIds }, tenantId: scope.tenantId },
+            undefined,
+            decryptionScope,
+          )
+          for (const user of users) staffNames.set(user.id, nonEmptyName(user.name))
+        } catch (err) {
+          logger.warn('staff portal support ticket could not resolve staff names', { err, taskId: task.id })
+          getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_support_staff_names_failed' })
+          staffNames.clear()
+        }
       }
-    }
-    const request = ticket.customerRequestSnapshot
-    const canReply = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
-    const attachments = await loadVisibleAttachments(scope, task.id, canReply)
-    return NextResponse.json(
-      detailSchema.parse({
-        id: task.id,
-        supportReference: ticket.supportReference,
-        subject: request && typeof request.subject === 'string' ? request.subject : '',
-        description: request && typeof request.body === 'string' ? request.body : '',
-        category: ticket.categorySnapshot,
-        portalStatus: derivePortalStatus(status),
-        createdAt: task.createdAt ? task.createdAt.toISOString() : null,
-        updatedAt: task.updatedAt ? task.updatedAt.toISOString() : null,
-        canReply,
-        requester: {
-          name: nonEmptyName(ticket.customerSnapshot?.reporterDisplayName),
-          isSelf: ticket.reportedByCustomerUserId === scope.auth.sub,
-        },
-        messages: comments.map((comment) => ({
-          id: comment.id,
-          authorKind: comment.authorKind === 'customer' ? 'customer' : 'staff',
-          authorName:
-            comment.authorKind === 'customer'
-              ? nonEmptyName(comment.authorDisplaySnapshot?.displayName)
-              : comment.authorUserId
-                ? staffNames.get(comment.authorUserId) ?? null
-                : null,
-          isSelf: comment.authorKind === 'customer' && comment.authorCustomerUserId === scope.auth.sub,
-          body: comment.body,
-          createdAt: comment.createdAt ? comment.createdAt.toISOString() : null,
-        })),
-        attachments,
-      }),
-    )
+      const request = ticket.customerRequestSnapshot
+      const canReply = await scope.hasFeature(PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
+      const attachments = await loadVisibleAttachments(scope, task.id, canReply)
+      return NextResponse.json(
+        detailSchema.parse({
+          id: task.id,
+          supportReference: ticket.supportReference,
+          subject: request && typeof request.subject === 'string' ? request.subject : '',
+          description: request && typeof request.body === 'string' ? request.body : '',
+          category: ticket.categorySnapshot,
+          portalStatus: derivePortalStatus(status),
+          createdAt: task.createdAt ? task.createdAt.toISOString() : null,
+          updatedAt: task.updatedAt ? task.updatedAt.toISOString() : null,
+          canReply,
+          requester: {
+            name: nonEmptyName(ticket.customerSnapshot?.reporterDisplayName),
+            isSelf: ticket.reportedByCustomerUserId === scope.auth.sub,
+          },
+          messages: comments.map((comment) => ({
+            id: comment.id,
+            authorKind: comment.authorKind === 'customer' ? 'customer' : 'staff',
+            authorName:
+              comment.authorKind === 'customer'
+                ? nonEmptyName(comment.authorDisplaySnapshot?.displayName)
+                : comment.authorUserId
+                  ? staffNames.get(comment.authorUserId) ?? null
+                  : null,
+            isSelf: comment.authorKind === 'customer' && comment.authorCustomerUserId === scope.auth.sub,
+            body: comment.body,
+            createdAt: comment.createdAt ? comment.createdAt.toISOString() : null,
+          })),
+          attachments,
+        }),
+      )
+    })
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support ticket GET failed')
   }

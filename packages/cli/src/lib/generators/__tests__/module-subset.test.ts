@@ -1253,6 +1253,22 @@ export default async function handle(): Promise<void> {}
     expect(second.filesWritten).not.toContain(manifestPath)
   })
 
+  it('runs bootstrap registrations before dev supervisor probes for any enabled plugin owner', async () => {
+    scaffoldModule(tmpDir, 'custom_runtime', 'pkg', ['generators.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'custom_runtime', 'generators.ts'),
+      `export const generatorPlugins = [{
+        id: 'custom.runtime',
+        bootstrapRegistration: { entriesExportName: 'entries', registrationImports: [], buildCall: () => '' },
+      }]`,
+    )
+    const resolver = createMockResolver(tmpDir, [{ id: 'custom_runtime', from: '@open-mercato/core' }])
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+    const manifestPath = path.join(tmpDir, 'output', 'generated', 'dev-supervisor.generated.json')
+    expect(JSON.parse(fs.readFileSync(manifestPath, 'utf8')).requiresFullBootstrap).toBe(true)
+  })
+
   it('falls back to full bootstrap for worker overrides and computed scheduler commands', async () => {
     scaffoldModule(tmpDir, 'events', 'pkg', ['workers/dispatch.ts'])
     scaffoldModule(tmpDir, 'scheduler', 'pkg', ['cli.ts'])

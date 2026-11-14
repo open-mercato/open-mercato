@@ -1,0 +1,11 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "paths": {
+      "@open-mercato/shared/*": ["../../../../packages/shared/src/*"]
+    }
+  },
+  "include": ["migration.run.ts"]
+}

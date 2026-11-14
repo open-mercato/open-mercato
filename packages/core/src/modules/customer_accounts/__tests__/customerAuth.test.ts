@@ -86,6 +86,41 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     })
   })
 
+  it('enters verified customer identity bootstrap before creating the session container', async () => {
+    const { registerDatabaseRuntimeAdapter } = await import('@open-mercato/shared/lib/db/runtime')
+    const runtimeKey = Symbol.for('@open-mercato/shared.databaseRuntime.v1')
+    const globals = globalThis as Record<symbol, unknown>
+    let entered = false
+    delete globals[runtimeKey]
+    registerDatabaseRuntimeAdapter({
+      id: 'portal-auth-test', version: '1', configurationKey: 'portal-auth-test',
+      configurePool: () => { throw new Error('[internal] No pool in this fixture') },
+      run: (context, callback) => {
+        entered = true
+        expect(context).toMatchObject({ kind: 'identity', tenantId, operation: 'customer-session-authentication' })
+        return callback()
+      },
+    })
+    createRequestContainer.mockImplementationOnce(async () => {
+      expect(entered).toBe(true)
+      return { resolve: (name: string) => containerResolve(name) }
+    })
+    try {
+      const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+      const request = new Request('https://example.test/api/portal', { headers: { cookie: buildCustomerCookieHeader(token) } })
+      expect(await getCustomerAuthFromRequest(request)).toMatchObject({ tenantId })
+    } finally { delete globals[runtimeKey] }
+  })
+
+  it('distinguishes unavailable identity storage from an unauthenticated customer', async () => {
+    const { resolveCustomerAuthFromRequestDetailed } = await import('../lib/customerAuth')
+    findActiveSessionForClaims.mockRejectedValue(new Error('[internal] identity store unavailable'))
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    const request = new Request('https://example.test/api/portal', { headers: { cookie: buildCustomerCookieHeader(token) } })
+    expect(await resolveCustomerAuthFromRequestDetailed(request)).toEqual({ auth: null, status: 'error' })
+    expect(await getCustomerAuthFromRequest(request)).toBeNull()
+  })
+
   it('accepts a valid customer token and looks up the referenced session', async () => {
     const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
     const req = new Request('http://localhost/api/customer/me', {

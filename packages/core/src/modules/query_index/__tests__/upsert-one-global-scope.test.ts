@@ -72,3 +72,44 @@ describe('query_index upsert_one global scope', () => {
     expect(mockRecordIndexerError).not.toHaveBeenCalled()
   })
 })
+
+describe('query_index accepted tail lifetime', () => {
+  beforeEach(() => { jest.clearAllMocks() })
+
+  it('awaits token rebuild and both search events before settling', async () => {
+    let releaseTokens!: () => void
+    let tokensStarted!: () => void
+    const started = new Promise<void>((resolve) => { tokensStarted = resolve })
+    const tokens = new Promise<void>((resolve) => { releaseTokens = resolve })
+    let active = true
+    let settled = false
+    mockReindexSearchTokensForRecord.mockImplementationOnce(async () => {
+      tokensStarted()
+      await tokens
+      expect(active).toBe(true)
+    })
+    let releaseSearch!: () => void
+    const search = new Promise<void>((resolve) => { releaseSearch = resolve })
+    const emitted: string[] = []
+    const em = {}
+    const ctx = { resolve: (name: string) => name === 'em' ? { fork: () => em } : {
+      emitEvent: async (event: string) => {
+        emitted.push(event)
+        await search
+        expect(active).toBe(true)
+      },
+    } }
+    const completion = handleUpsertOne({ entityType: 'customers:customer_person', recordId: 'person-1', suppressCoverage: true }, ctx)
+      .finally(() => { active = false; settled = true })
+    await started
+    await flushFireAndForget()
+    expect(settled).toBe(false)
+    releaseTokens()
+    await flushFireAndForget()
+    expect(settled).toBe(false)
+    releaseSearch()
+    await completion
+    expect(emitted).toEqual(['query_index.vectorize_one', 'search.index_record'])
+    expect(mockRecordIndexerError).not.toHaveBeenCalled()
+  })
+})

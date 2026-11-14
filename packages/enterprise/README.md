@@ -158,3 +158,82 @@ Agencies operate on the front line; Open Mercato stands behind system quality.
 
 - This package does not represent the complete Enterprise Edition offering.
 - Enterprise Edition includes implementation standards, certification workflow, and partner support layers beyond code features.
+
+
+## Tenant RLS operations
+
+`tenant_boundaries` is opt-in defense in depth alongside application tenant filters,
+RBAC, encryption and optimistic locking. The initial FORCE RLS canary is
+`customer_entities`. The reviewed manifest explicitly classifies other tables as
+identity, global, mixed or deferred; these are not implicitly protected.
+
+### Prepare and activate
+
+1. Stop protected traffic and workers for the rollout. Back up the database and
+   retain the previous application artifact and exact policy migration version.
+   Use PostgreSQL 16, 17 or 18 with direct connections or a session pooler.
+   Transaction poolers are unsupported.
+2. Enable enterprise modules (`OM_ENABLE_ENTERPRISE_MODULES=true`) in the build
+   environment and run `yarn generate`, then build the packages and application.
+   Ship the generated registrations for `tenant_boundaries` and module-owned
+   `database.ts` declarations together. Custom tables need reviewed declarations
+   and manifest entries before activation; unknown tenant tables fail closed.
+3. Have the DBA provision a standalone runtime LOGIN with NOSUPERUSER,
+   NOBYPASSRLS, NOCREATEROLE, NOCREATEDB and NOREPLICATION, without role
+   memberships. It must not own the database, schemas, relations or functions.
+   Grant CONNECT, schema USAGE and only the required SELECT/INSERT/UPDATE/DELETE
+   and sequence privileges, without GRANT OPTION. Do not grant TRUNCATE,
+   database CREATE/TEMP, schema CREATE or executable application SECURITY DEFINER
+   functions. Review inherited PUBLIC privileges too: PostgreSQL commonly grants
+   TEMP to PUBLIC, so revoking TEMP only from the runtime login is insufficient.
+   Coordinate revoking PUBLIC TEMP/database CREATE and schema CREATE with other
+   database users. Review default privileges for future objects as well.
+4. Provision a distinct reviewed maintenance LOGIN on the same database endpoint.
+   It requires BYPASSRLS and the ownership/DDL privileges needed by the migrations
+   and declared storage provisioning. It must not be a superuser, hold role
+   memberships, or have role/database administration or replication privileges.
+   Keep its connection secret available only to processes performing explicitly
+   classified maintenance; absence of tenant identity never grants this authority.
+5. Supply `DATABASE_URL` for the restricted login and
+   `OM_TENANT_RLS_MAINTENANCE_DATABASE_URL` for the separate maintenance login
+   through the deployment secret manager. Set `OM_TENANT_RLS=on` and explicitly
+   set `OM_TENANT_RLS_POOL_MODE=direct` or `session`. The optional
+   `OM_TENANT_RLS_SCHEMA` defaults to `public`; it must match the application
+   schema/search path. An optional `OM_TENANT_RLS_MANIFEST` points to a reviewed
+   JSON manifest. Never place connection credentials in committed configuration.
+6. Run the existing `yarn db:migrate` workflow in that maintenance-enabled
+   environment. Its preflight audits inventory and both roles; completion
+   provisions declared storage and reconciles the exact reviewed canary policies,
+   even with no pending migrations. Resolve failures before allowing traffic;
+   do not manually widen policies or bypass startup checks to get a green boot.
+7. Start fresh app and worker processes with the same generated declarations and
+   configuration. Guarded readiness verifies each runtime endpoint and its policy
+   catalog before protected work. Exercise own/foreign reads and writes, public
+   flows and jobs in staging. Inspect the
+   [actual pool-40 comparison](tests/rls/pool40-analysis.md): isolation passed,
+   but the measured high-concurrency run was slower than the genuine pre-PR build.
+   Treat capacity and latency acceptance as an explicit rollout decision.
+
+Changes to configuration, credentials, grants, policies or declarations require
+stopping new work, draining in-flight requests/jobs, closing affected pools and
+restarting all consumers. Runtime pgvector readiness is SELECT-only; provision
+storage through the maintenance migration lifecycle. Extension visibility and the
+application schema/search path must agree.
+
+### Rollback
+
+Stop new protected work and drain requests, subscribers, jobs and transactions.
+Close every affected runtime and maintenance pool. Keep the activation and
+maintenance configuration enabled while the DBA runs the version-matched
+`Migration20261113160000.down` through the approved migration rollback tooling;
+its policy rollback verifies the installed policy tuple and refuses mismatches.
+Do not run a blind DROP POLICY or disable unrelated policies. Only after exact
+policy rollback succeeds may the operator turn `OM_TENANT_RLS` off and restart
+the previous compatible artifact. Verify application tenant filtering and foreign
+read/write rejection before restoring traffic. Removing policies removes the
+second database boundary and must be recorded as a security rollback. Turning
+only the adapter off while FORCE policies remain installed can deny all protected
+traffic; changing only environment variables is not a complete rollback.
+
+The [disposable regression guide](tests/rls/README.md) documents test commands,
+not production credentials or permission to migrate a developer database.
