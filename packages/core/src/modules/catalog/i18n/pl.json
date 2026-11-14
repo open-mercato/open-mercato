@@ -263,6 +263,7 @@
   "catalog.priceKinds.table.promotionYes": "Tak",
   "catalog.priceKinds.table.title": "Tytuł",
   "catalog.priceKinds.title": "Rodzaje cen",
+  "catalog.prices.errors.taxClassUnavailable": "Klasy podatkowe są niedostępne.",
   "catalog.prices.flash.created": "Utworzono regułę cenową",
   "catalog.prices.flash.deleted": "Usunięto regułę cenową",
   "catalog.prices.flash.updated": "Zaktualizowano regułę cenową",

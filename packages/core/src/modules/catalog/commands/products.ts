@@ -402,12 +402,14 @@ async function resolveScopedTaxRate(
   if (!taxRateId) {
     return { taxRateId: null, taxRate: normalizedRate };
   }
-  const record = await findOneWithDecryption(em, SalesTaxRate, {
-    id: taxRateId,
-    organizationId,
-    tenantId,
-    deletedAt: null,
-  });
+  const record = em.getMetadata().has(SalesTaxRate)
+    ? await findOneWithDecryption(em, SalesTaxRate, {
+        id: taxRateId,
+        organizationId,
+        tenantId,
+        deletedAt: null,
+      })
+    : null;
   if (!record) {
     const { translate } = await resolveTranslations();
     throw new CrudHttpError(400, {

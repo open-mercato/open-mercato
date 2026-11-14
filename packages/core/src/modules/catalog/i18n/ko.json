@@ -263,6 +263,7 @@
   "catalog.priceKinds.table.promotionYes": "예",
   "catalog.priceKinds.table.title": "제목",
   "catalog.priceKinds.title": "가격 종류",
+  "catalog.prices.errors.taxClassUnavailable": "세금 클래스를 사용할 수 없습니다.",
   "catalog.prices.flash.created": "가격 규칙이 생성되었습니다",
   "catalog.prices.flash.deleted": "가격 규칙이 삭제되었습니다",
   "catalog.prices.flash.updated": "가격 규칙이 업데이트되었습니다",
