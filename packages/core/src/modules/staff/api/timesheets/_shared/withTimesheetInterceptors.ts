@@ -282,7 +282,10 @@ export async function runTimesheetInterceptors(args: {
         if (!after.ok) {
           return {
             ok: false,
-            response: NextResponse.json(after.body, { status: after.statusCode }),
+            response: NextResponse.json(after.body, {
+              status: after.statusCode,
+              ...(Object.keys(after.headers).length ? { headers: after.headers } : {}),
+            }),
           }
         }
         return { ok: true, descriptor: after.body }

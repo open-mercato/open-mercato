@@ -2488,6 +2488,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
+        let afterInterceptorHeaders: Record<string, string> | undefined
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,
@@ -2501,10 +2502,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           if (afterInterceptors && !afterInterceptors.ok) {
             return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
           }
-          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+          if (afterInterceptors?.ok) {
+            resolvedPayload = afterInterceptors.body
+            afterInterceptorHeaders = afterInterceptors.headers
+          }
         }
         const status = action.status ?? 201
-        const response = json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status, headers: afterInterceptorHeaders })
         attachOperationHeader(response, logEntry)
         const commandResultId = pickFirstIdentifier(
           (result as Record<string, unknown> | null | undefined)?.id,
@@ -2804,6 +2808,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         )
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
+        let afterInterceptorHeaders: Record<string, string> | undefined
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,
@@ -2817,10 +2822,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           if (afterInterceptors && !afterInterceptors.ok) {
             return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
           }
-          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+          if (afterInterceptors?.ok) {
+            resolvedPayload = afterInterceptors.body
+            afterInterceptorHeaders = afterInterceptors.headers
+          }
         }
         const status = action.status ?? 200
-        const response = json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status, headers: afterInterceptorHeaders })
         attachOperationHeader(response, logEntry)
         if (cmdUpdateGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
           await runGuardAfterSuccessCallbacks(cmdUpdateGuardAfterCallbacks, {
@@ -3141,6 +3149,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         )
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
+        let afterInterceptorHeaders: Record<string, string> | undefined
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
           const afterInterceptors = await applyInterceptorsAfter({
             ctx,
@@ -3154,10 +3163,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           if (afterInterceptors && !afterInterceptors.ok) {
             return json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })
           }
-          if (afterInterceptors?.ok) resolvedPayload = afterInterceptors.body
+          if (afterInterceptors?.ok) {
+            resolvedPayload = afterInterceptors.body
+            afterInterceptorHeaders = afterInterceptors.headers
+          }
         }
         const status = action.status ?? 200
-        const response = json(resolvedPayload, { status })
+        const response = json(resolvedPayload, { status, headers: afterInterceptorHeaders })
         attachOperationHeader(response, logEntry)
         if (cmdDeleteGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
           await runGuardAfterSuccessCallbacks(cmdDeleteGuardAfterCallbacks, {
