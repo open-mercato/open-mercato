@@ -1,3 +1,4 @@
+import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { RequiredEntityData } from '@mikro-orm/core'
@@ -448,6 +449,7 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
         },
       }),
       phases: [
+        () => guardUpdateRedo(ctx, entityManager, EudrPlot, record, loadPlotSnapshot),
         () => {
           const geometry = normalizePlotGeometry({
             geometry: parsed.geometry ?? record.geometry,
@@ -471,6 +473,7 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
 
     return { entityId: record.id, updatedAt: record.updatedAt }
   },
+  redo: ({ input, ctx, logEntry }) => updatePlotCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     return loadPlotSnapshot(entityManager, result.entityId)

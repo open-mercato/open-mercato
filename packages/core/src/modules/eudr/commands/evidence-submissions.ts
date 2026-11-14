@@ -1,3 +1,4 @@
+import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { RequiredEntityData } from '@mikro-orm/core'
@@ -521,6 +522,7 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
         },
       }),
       phases: [
+        () => guardUpdateRedo(ctx, entityManager, EudrEvidenceSubmission, record, loadEvidenceSubmissionSnapshot),
         async () => {
           const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
           const nextPlotIds = parsed.plotIds !== undefined
@@ -543,6 +545,7 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
 
     return { entityId: record.id, updatedAt: record.updatedAt }
   },
+  redo: ({ input, ctx, logEntry }) => updateEvidenceSubmissionCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     return loadEvidenceSubmissionSnapshot(entityManager, result.entityId)

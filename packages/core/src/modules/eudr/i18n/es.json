@@ -123,6 +123,7 @@
   "eudr.errors.plot_required": "El ID de parcela es obligatorio",
   "eudr.errors.pointAreaRequired": "Las parcelas de punto requieren un área positiva.",
   "eudr.errors.polygonRequired": "Usa geometría de polígono para parcelas de más de 4 hectáreas.",
+  "eudr.errors.redoConflict": "Este registro cambió después de deshacer la acción. Se rechazó rehacerla y se conservó la versión actual. Recargue el registro y vuelva a aplicar el cambio manualmente.",
   "eudr.errors.referenceIssuedAtImmutable": "La fecha de emisión de la referencia no se puede cambiar.",
   "eudr.errors.referenceIssuedAtInvalid": "La fecha de emisión de la referencia no puede estar en el futuro.",
   "eudr.errors.referenceNumbersRequired": "Los números de referencia y verificación son obligatorios.",

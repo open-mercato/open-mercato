@@ -1,3 +1,4 @@
+import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { RequiredEntityData } from '@mikro-orm/core'
@@ -530,6 +531,7 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
         },
       }),
       phases: [
+        () => guardUpdateRedo(ctx, entityManager, EudrRiskAssessment, record, loadRiskAssessmentSnapshot),
         async () => {
           const nextStatementId = parsed.statementId ?? record.statementId
           const statement = await requireStatementInScope(entityManager, nextStatementId, scope)
@@ -572,6 +574,7 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
 
     return { entityId: record.id, updatedAt: record.updatedAt }
   },
+  redo: ({ input, ctx, logEntry }) => updateRiskAssessmentCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     return loadRiskAssessmentSnapshot(entityManager, result.entityId)
