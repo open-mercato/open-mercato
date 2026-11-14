@@ -240,6 +240,9 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
     { root: 'TENANT_DATA_ENCRYPTION_KEY=root-fixture-key\n', env: {}, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'root-fixture-key'] },
     { root: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=user-original\n', env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'company-default' }, expected: ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'user-original'] },
     { env: { TENANT_DATA_ENCRYPTION_KEY: 'ambient-fixture-key' }, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'ambient-fixture-key'] },
+    { env: { TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ambient-fallback-fixture' }, extraDefaults: {}, expected: ['TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'ambient-fallback-fixture'] },
+    { env: {}, extraDefaults: { TENANT_DATA_ENCRYPTION_KEY: 'company-fixture-key' }, expected: ['TENANT_DATA_ENCRYPTION_KEY', 'company-fixture-key'] },
+    { root: 'VAULT_ADDR=https://root-vault.fixture\nVAULT_TOKEN=root-token-fixture\n', env: {}, extraDefaults: {}, expected: ['VAULT_ADDR', 'https://root-vault.fixture'] },
     { env: { VAULT_ADDR: 'https://ambient-vault.fixture', VAULT_TOKEN: 'ambient-fixture-token' }, extraDefaults: {}, expected: ['VAULT_ADDR', 'https://ambient-vault.fixture'] },
     { env: { VAULT_ADDR: '' }, extraDefaults: { VAULT_ADDR: 'https://vault.fixture', VAULT_TOKEN: 'fixture-token', POSTGRES_PASSWORD: 'private-fixture-password' }, expected: ['VAULT_ADDR', 'https://vault.fixture'] },
   ]
@@ -259,7 +262,8 @@ test('supplied root, ambient and company key/KMS settings survive missing app en
       assert.equal(appSettings[configuration.expected[0]], configuration.expected[1])
       const expectedFallback = configuration.expected[0] === 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' ? configuration.expected[1] : ''
       assert.equal(appSettings.TENANT_DATA_ENCRYPTION_FALLBACK_KEY, expectedFallback)
-      assert.equal(rootSettings.TENANT_DATA_ENCRYPTION_FALLBACK_KEY, expectedFallback || undefined)
+      const expectedRootFallback = parseEnv(configuration.root ?? '').TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? configuration.extraDefaults.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+      assert.equal(rootSettings.TENANT_DATA_ENCRYPTION_FALLBACK_KEY, expectedRootFallback)
       if (configuration.root || configuration.extraDefaults[configuration.expected[0]]) {
         assert.equal(rootSettings[configuration.expected[0]], configuration.expected[1])
       }
