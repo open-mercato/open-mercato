@@ -6,9 +6,6 @@ import {
   resolveTenantContext,
   TenantResolutionError,
 } from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
-import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
   checkAuthRateLimit,
@@ -16,11 +13,8 @@ import {
   customerPasswordResetIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
-import { sendCustomerPasswordResetEmail } from '@open-mercato/core/modules/customer_accounts/lib/authLinkEmails'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-
-const logger = createLogger('customer_accounts').child({ component: 'password-reset-request' })
+import { getPasswordResetDeliveryQueue } from '@open-mercato/core/modules/customer_accounts/lib/authLinkQueue'
+import { detectLocale } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -59,30 +53,15 @@ export async function POST(req: Request) {
     throw err
   }
 
-  const container = await createRequestContainer()
-  const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
-
-  const user = await customerUserService.findByEmail(email, tenantId)
-  if (user) {
-    const rawToken = await customerTokenService.createPasswordReset(user.id, tenantId)
-    await sendCustomerPasswordResetEmail({
-      container,
-      tenantId,
-      organizationId: user.organizationId,
-      email: user.email,
-      rawToken,
-    }).catch((error) => {
-      logger.error('Password reset email failed', { err: error })
-      getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.password_reset_email_failed' })
-    })
-    void import('@open-mercato/core/modules/customer_accounts/events').then(({ emitCustomerAccountsEvent }) =>
-      emitCustomerAccountsEvent('customer_accounts.password_reset.requested', {
-        userId: user.id,
-        tenantId,
-      })
-    ).catch(() => undefined)
-  }
+  // Lookup, token minting and email delivery all happen inside a queue worker
+  // (see workers/passwordResetDelivery.ts) so the response never depends on
+  // whether the account exists — known and unknown emails return identically,
+  // without waiting on a DB write or outbound email transport latency (#8889).
+  // `detectLocale()` only reads the request's cookie/Accept-Language — it runs
+  // identically regardless of whether the account exists, so capturing it here
+  // preserves the recovery-email language once delivery moves to the worker.
+  const locale = await detectLocale()
+  await getPasswordResetDeliveryQueue().enqueue({ email, tenantId, locale })
 
   // Always return 200 to prevent email enumeration
   return NextResponse.json({ ok: true })
