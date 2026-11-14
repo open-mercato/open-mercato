@@ -36,6 +36,12 @@ export type OverflowBlockProps = {
   onJoin(item: CalendarItem): void
   /** Opens the event editor for a listed meeting. A row is that action directly; a viewer's row opens the peek instead. */
   onEdit(item: CalendarItem): void
+  /**
+   * Where the list, and a viewer's peek opened from one of its rows, are placed. The grid
+   * passes the side it uses for the regular event peek, so a phone opens both downward
+   * instead of past the screen edge.
+   */
+  peekSide?: React.ComponentProps<typeof PopoverContent>['side']
 }
 
 type TypeIconProps = { item: CalendarItem; typeIcons?: Record<string, string | null>; className?: string }
@@ -72,8 +78,10 @@ export function OverflowBlock({
   onOpenChange,
   onJoin,
   onEdit,
+  peekSide = 'right',
 }: OverflowBlockProps) {
   const t = useT()
+  const listTitleId = React.useId()
   const locale = useLocale()
   const count = items.length
   const rangeLabel = formatTimeRange(locale, start, end)
@@ -124,8 +132,8 @@ export function OverflowBlock({
           <span aria-hidden className="pointer-events-none absolute inset-x-3 bottom-0.5 h-px bg-border" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="right" sideOffset={8} className="w-72 p-2">
-        <p className="px-2 text-sm font-semibold leading-5 text-foreground">
+      <PopoverContent align="start" side={peekSide} sideOffset={8} aria-labelledby={listTitleId} className="w-72 p-2">
+        <p id={listTitleId} className="px-2 text-sm font-semibold leading-5 text-foreground">
           {t('customers.calendar.grid.overflowTitle', '{count} overlapping events', { count })}
         </p>
         <p className="px-2 pb-2 text-xs leading-4 text-muted-foreground">{rangeLabel}</p>
@@ -169,6 +177,7 @@ export function OverflowBlock({
                   </Button>
                 ) : (
                   <EventPeekPopover
+                    side={peekSide}
                     item={item}
                     open={peekItemId === item.id}
                     joinUrl={joinUrl}
