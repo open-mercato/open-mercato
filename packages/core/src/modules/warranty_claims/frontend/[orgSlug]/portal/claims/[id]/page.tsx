@@ -32,6 +32,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
 import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
+import { usePortalLiveRefetch } from '@open-mercato/ui/portal/hooks/usePortalLiveRefetch'
 
 type Props = { params: { orgSlug: string; id: string } }
 
@@ -419,10 +420,13 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     if (user) void loadClaim()
   }, [loadClaim, user])
 
-  usePortalAppEvent('warranty_claims.claim.portal_status_changed', (event) => {
-    if (!user || event.payload.claimId !== params.id) return
-    void loadClaim(false)
-  })
+  usePortalLiveRefetch(
+    'warranty_claims.claim.portal_status_changed',
+    () => {
+      if (user) void loadClaim(false)
+    },
+    { filter: (event) => event.payload.claimId === params.id },
+  )
 
   usePortalAppEvent('warranty_claims.claim.comment_added', (event) => {
     if (!user || event.payload.claimId !== params.id) return

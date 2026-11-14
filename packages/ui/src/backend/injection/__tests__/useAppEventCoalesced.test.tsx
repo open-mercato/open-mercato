@@ -163,4 +163,20 @@ describe('useAppEventCoalesced', () => {
 
     expect(invalidateQueries).toHaveBeenCalledTimes(2)
   })
+
+  it('ignores events rejected by the filter option without opening a window', () => {
+    const handler = jest.fn()
+    renderHook(() =>
+      useAppEventCoalesced('messages.message.*', handler, [], {
+        filter: (event) => event.payload.messageId === 'message-2',
+      }),
+    )
+
+    dispatchMessageEvents(2)
+    expect(handler).toHaveBeenCalledTimes(0)
+
+    dispatchMessageEvents(3)
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler.mock.calls[0][0].payload.messageId).toBe('message-2')
+  })
 })

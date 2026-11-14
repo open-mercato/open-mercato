@@ -437,13 +437,16 @@ The portal extensibility system lets app modules build customer-facing pages tha
 
 ### Portal Hooks (`packages/ui/src/portal/hooks/`)
 
-| Hook | Import | Purpose |
-|------|--------|---------|
-| `useCustomerAuth` | `@open-mercato/ui/portal/hooks/useCustomerAuth` | Customer auth state (user, roles, features, logout) |
-| `useTenantContext` | `@open-mercato/ui/portal/hooks/useTenantContext` | Resolve tenant/org from URL slug |
-| `usePortalInjectedMenuItems` | `@open-mercato/ui/portal/hooks/usePortalInjectedMenuItems` | Load feature-gated menu items for portal surfaces |
-| `usePortalEventBridge` | `@open-mercato/ui/portal/hooks/usePortalEventBridge` | SSE connection for portal real-time events |
-| `usePortalAppEvent` | `@open-mercato/ui/portal/hooks/usePortalAppEvent` | Listen for portal events by pattern |
+Import each from `@open-mercato/ui/portal/hooks/<hook>`.
+
+| Hook | Purpose |
+|------|---------|
+| `useCustomerAuth` | Customer auth state (user, roles, features, logout) |
+| `useTenantContext` | Resolve tenant/org from URL slug |
+| `usePortalInjectedMenuItems` | Load feature-gated menu items for portal surfaces |
+| `usePortalEventBridge` | SSE connection for portal real-time events |
+| `usePortalAppEvent` | Listen for portal events by pattern |
+| `usePortalLiveRefetch` | Refetch on matching events and on every reconnect (no replay) |
 
 ### Portal Shell (`packages/ui/src/portal/PortalShell.tsx`)
 
@@ -549,6 +552,6 @@ const events = [
   { id: 'sales.order.status_changed', label: 'Order Status Changed', portalBroadcast: true },
 ] as const
 
-import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
-usePortalAppEvent('sales.order.status_changed', (event) => { refetch() })
+import { usePortalLiveRefetch } from '@open-mercato/ui/portal/hooks/usePortalLiveRefetch'
+usePortalLiveRefetch('sales.order.status_changed', refetch)
 ```

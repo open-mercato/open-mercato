@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useRef } from 'react'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
-import { PORTAL_EVENT_DOM_NAME } from './usePortalAppEvent'
+import { PORTAL_BRIDGE_RECONNECTED_EVENT_ID, PORTAL_EVENT_DOM_NAME } from './usePortalAppEvent'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { publishPortalBridgeHealth } from './portalBridgeStatus'
 
@@ -12,7 +12,6 @@ const HEARTBEAT_TIMEOUT = 45_000
 const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
 const DEDUP_WINDOW_MS = 500
-const PORTAL_BRIDGE_RECONNECTED_EVENT_ID = 'om:portal-bridge:reconnected'
 
 /**
  * React hook that establishes a singleton SSE connection to the portal event bridge.

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { apiCall } from '../utils/apiCall'
-import { useAppEvent } from '../injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '../injection/useAppEvent'
 import type { MessagePollItem, UseMessagesPollResult } from './useMessagesPoll'
 
 export function useMessagesSse(): UseMessagesPollResult {
@@ -89,7 +89,7 @@ export function useMessagesSse(): UseMessagesPollResult {
   )
 
   useAppEvent(
-    'om:bridge:reconnected',
+    BRIDGE_RECONNECTED_EVENT_ID,
     () => {
       void fetchMessages()
     },

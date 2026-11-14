@@ -4,7 +4,10 @@
 import * as React from 'react'
 import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { PORTAL_EVENT_DOM_NAME } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
+import {
+  PORTAL_BRIDGE_RECONNECTED_EVENT_ID,
+  PORTAL_EVENT_DOM_NAME,
+} from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
 
 const apiCallMock = jest.fn()
 const getTelemetryRuntimeMock = jest.fn()
@@ -150,6 +153,16 @@ function dispatchPortalEvent(id: string, claimId: string) {
       payload: { claimId },
       timestamp: Date.now(),
       organizationId: 'organization-1',
+    },
+  }))
+}
+
+function dispatchPortalReconnect() {
+  fireEvent(window, new CustomEvent(PORTAL_EVENT_DOM_NAME, {
+    detail: {
+      id: PORTAL_BRIDGE_RECONNECTED_EVENT_ID,
+      payload: {},
+      timestamp: Date.now(),
     },
   }))
 }
@@ -492,6 +505,68 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     expect(view.queryByText('An earlier staff reply.')).toBeNull()
   })
 
+  it('refetches the claim and timeline on portal bridge reconnect while keeping the draft mounted', async () => {
+    mockClaimResponses(buildClaim())
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+    const textarea = await view.findByPlaceholderText('Write a message to our support team…')
+    fireEvent.change(textarea, { target: { value: 'Draft written while offline' } })
+    textarea.focus()
+
+    const updatedClaim = buildClaim({ status: 'resolved', resolutionSummary: 'Resolved while you were away.' })
+    mockClaimResponses(updatedClaim, null, 'Reply missed during the gap.')
+    const response = { ok: true, status: 200, result: { item: updatedClaim } }
+    const pendingDetail = deferResponse<typeof response>()
+    apiCallMock.mockReturnValueOnce(pendingDetail.promise)
+    apiCallMock.mockClear()
+
+    dispatchPortalReconnect()
+
+    expect(apiCallMock).toHaveBeenCalledWith('/api/warranty_claims/portal/claims/claim-1')
+    expect(view.getByPlaceholderText('Write a message to our support team…')).toBe(textarea)
+    expect(document.activeElement).toBe(textarea)
+
+    await act(async () => { pendingDetail.resolve(response) })
+
+    expect(await view.findByText('Resolved while you were away.')).toBeTruthy()
+    expect(await view.findByText('Reply missed during the gap.')).toBeTruthy()
+    expect(view.getByPlaceholderText('Write a message to our support team…')).toBe(textarea)
+    expect((textarea as HTMLTextAreaElement).value).toBe('Draft written while offline')
+    expect(document.activeElement).toBe(textarea)
+  })
+
+  it('keeps the newest claim when a reconnect refresh finishes after a later status refresh', async () => {
+    mockClaimResponses(buildClaim())
+    const view = renderWithProviders(
+      <WarrantyClaimPortalDetailPage params={{ orgSlug: 'acme-corp', id: 'claim-1' }} />,
+      { dict: enDict },
+    )
+    await view.findByPlaceholderText('Write a message to our support team…')
+    const newestResponse = {
+      ok: true,
+      status: 200,
+      result: { item: buildClaim({ status: 'resolved', resolutionSummary: 'Newest resolution.' }) },
+    }
+    const olderResponse = { ...newestResponse, result: { item: buildClaim({ status: 'info_requested' }) } }
+    mockClaimResponses(newestResponse.result.item)
+    const reconnectRefresh = deferResponse<typeof olderResponse>()
+    const statusRefresh = deferResponse<typeof newestResponse>()
+    apiCallMock.mockReturnValueOnce(reconnectRefresh.promise).mockReturnValueOnce(statusRefresh.promise)
+    apiCallMock.mockClear()
+
+    dispatchPortalReconnect()
+    dispatchPortalEvent('warranty_claims.claim.portal_status_changed', 'claim-1')
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
+
+    await act(async () => { statusRefresh.resolve(newestResponse) })
+    expect(await view.findByText('Newest resolution.')).toBeTruthy()
+
+    await act(async () => { reconnectRefresh.resolve(olderResponse) })
+    expect(view.getByText('Newest resolution.')).toBeTruthy()
+  })
+
   it('ignores unrelated portal events and removes its subscriptions on unmount', async () => {
     mockClaimResponses(buildClaim())
     const view = renderWithProviders(
@@ -510,6 +585,7 @@ describe('WarrantyClaimPortalDetailPage (portal claim tracker)', () => {
     view.unmount()
     dispatchPortalEvent('warranty_claims.claim.portal_status_changed', 'claim-1')
     dispatchPortalEvent('warranty_claims.claim.comment_added', 'claim-1')
+    dispatchPortalReconnect()
     expect(apiCallMock).not.toHaveBeenCalled()
   })
 

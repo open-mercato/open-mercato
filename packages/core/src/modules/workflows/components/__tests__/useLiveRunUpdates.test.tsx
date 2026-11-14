@@ -5,7 +5,7 @@
  */
 import * as React from 'react'
 import { act, render } from '@testing-library/react'
-import { APP_EVENT_DOM_NAME } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { APP_EVENT_DOM_NAME, BRIDGE_RECONNECTED_EVENT_ID } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useLiveRunUpdates, LIVE_REFRESH_THROTTLE_MS } from '../run/useLiveRunUpdates'
 
 const INSTANCE_ID = '11111111-1111-4111-8111-111111111111'
@@ -110,7 +110,7 @@ describe('useLiveRunUpdates', () => {
     const onRefresh = jest.fn()
     render(<Probe onRefresh={onRefresh} />)
 
-    emit('om:bridge:reconnected')
+    emit(BRIDGE_RECONNECTED_EVENT_ID)
     flushThrottle()
 
     expect(onRefresh).toHaveBeenCalledTimes(1)

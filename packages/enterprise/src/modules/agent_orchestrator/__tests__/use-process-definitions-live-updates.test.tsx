@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import { act, renderHook } from '@testing-library/react'
-import { APP_EVENT_DOM_NAME } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { APP_EVENT_DOM_NAME, BRIDGE_RECONNECTED_EVENT_ID } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useProcessDefinitionsLiveUpdates } from '../components/useProcessDefinitionsLiveUpdates'
 
 function emit(eventId: string): void {
@@ -18,12 +18,12 @@ describe('useProcessDefinitionsLiveUpdates', () => {
     const reload = jest.fn()
     renderHook(() => useProcessDefinitionsLiveUpdates(reload))
 
-    act(() => { emit('om:bridge:reconnected') })
+    act(() => { emit(BRIDGE_RECONNECTED_EVENT_ID) })
     expect(reload).toHaveBeenCalledTimes(1)
 
     act(() => {
       emit('agent_orchestrator.process.execution.started')
-      emit('om:bridge:reconnected')
+      emit(BRIDGE_RECONNECTED_EVENT_ID)
       emit('agent_orchestrator.process.execution.completed')
     })
     expect(reload).toHaveBeenCalledTimes(1)
@@ -38,7 +38,7 @@ describe('useProcessDefinitionsLiveUpdates', () => {
     const reload = jest.fn()
     renderHook(() => useProcessDefinitionsLiveUpdates(reload))
     act(() => {
-      emit('om:bridge:reconnected')
+      emit(BRIDGE_RECONNECTED_EVENT_ID)
       emit('agent_orchestrator.process.execution.started')
     })
     act(() => { jest.advanceTimersByTime(5000) })
@@ -50,7 +50,7 @@ describe('useProcessDefinitionsLiveUpdates', () => {
     let lastExecution = 'failed'
     const reload = jest.fn(() => lastExecution)
     renderHook(() => useProcessDefinitionsLiveUpdates(reload))
-    act(() => { emit('om:bridge:reconnected') })
+    act(() => { emit(BRIDGE_RECONNECTED_EVENT_ID) })
     expect(reload).toHaveLastReturnedWith('failed')
 
     lastExecution = 'running'
@@ -64,13 +64,13 @@ describe('useProcessDefinitionsLiveUpdates', () => {
     const { unmount } = renderHook(() => useProcessDefinitionsLiveUpdates(reload))
     act(() => {
       emit('agent_orchestrator.process.execution.started')
-      emit('om:bridge:reconnected')
+      emit(BRIDGE_RECONNECTED_EVENT_ID)
     })
     expect(reload).toHaveBeenCalledTimes(1)
 
     unmount()
     act(() => {
-      emit('om:bridge:reconnected')
+      emit(BRIDGE_RECONNECTED_EVENT_ID)
       emit('agent_orchestrator.process.execution.completed')
       jest.advanceTimersByTime(10000)
     })

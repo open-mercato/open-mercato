@@ -13,6 +13,11 @@ export const DEFAULT_APP_EVENT_COALESCE_WINDOW_MS = 1000
 export type AppEventCoalesceOptions = {
   /** Coalescing window in milliseconds. Defaults to {@link DEFAULT_APP_EVENT_COALESCE_WINDOW_MS}. */
   windowMs?: number
+  /**
+   * Extra predicate applied after the pattern match. Events it rejects neither
+   * trigger the handler nor open or extend a coalescing window.
+   */
+  filter?: (payload: AppEventPayload) => boolean
 }
 
 /**
@@ -54,6 +59,8 @@ export function useAppEventCoalesced(
 ): void {
   const handlerRef = useRef(handler)
   handlerRef.current = handler
+  const filterRef = useRef(options.filter)
+  filterRef.current = options.filter
   const windowMs = options.windowMs ?? DEFAULT_APP_EVENT_COALESCE_WINDOW_MS
 
   useEffect(() => {
@@ -72,6 +79,7 @@ export function useAppEventCoalesced(
       const detail = (e as CustomEvent<AppEventPayload>).detail
       if (!detail || typeof detail.id !== 'string') return
       if (!matchesPattern(eventPattern, detail.id)) return
+      if (filterRef.current && !filterRef.current(detail)) return
       if (windowTimer !== null) {
         pending = detail
         return
