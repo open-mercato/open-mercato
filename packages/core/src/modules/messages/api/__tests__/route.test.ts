@@ -7,6 +7,7 @@ const resolveMessageChannelThreadAccessMock = jest.fn()
 const delegateComposeToSenderMock = jest.fn()
 const resolveReplyParentMessageMock = jest.fn()
 const canPostToChannelThreadMock = jest.fn(async () => true)
+const checkExternalEmailBudgetMock: jest.Mock<Promise<Response | null>> = jest.fn(async () => null)
 
 jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async <T>(_tenantId: string | null, callback: () => Promise<T> | T) => callback(),
@@ -42,6 +43,11 @@ jest.mock('@open-mercato/core/modules/messages/lib/composeSenderDelegation', () 
   delegateComposeToSender: (...args: unknown[]) => delegateComposeToSenderMock(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/messages/lib/externalEmailBudget'),
+  checkExternalEmailBudget: (...args: unknown[]) => checkExternalEmailBudgetMock(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/messages/lib/message-types-registry', () => ({
   getMessageType: jest.fn(),
 }))
@@ -54,7 +60,9 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { GET, POST } from '@open-mercato/core/modules/messages/api/route'
+import { NextResponse } from 'next/server'
 import { EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE } from '@open-mercato/core/modules/messages/lib/channelThreadAccess'
+import { ExternalEmailBudgetError } from '@open-mercato/core/modules/messages/lib/externalEmailBudget'
 
 const tenantId = '7fb7fe47-ddf6-4f65-b5ae-b08e2df2fdb7'
 const organizationId = '2045013f-8977-4f57-a1cc-9bb7d2f42a0e'
@@ -262,6 +270,7 @@ describe('messages /api/messages POST', () => {
     }))
 
     expect(response.status).toBe(201)
+    expect(checkExternalEmailBudgetMock).not.toHaveBeenCalled()
     expect(commandBus.execute).toHaveBeenCalledWith(
       'messages.messages.compose',
       expect.objectContaining({
@@ -290,6 +299,70 @@ describe('messages /api/messages POST', () => {
 
     expect(response.status).toBe(201)
     expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not enforce an external recipient budget while saving a draft', async () => {
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        visibility: 'public',
+        externalEmail: 'draft-recipient@example.test',
+        recipients: [],
+        subject: 'Draft',
+        body: 'Body',
+        isDraft: true,
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(checkExternalEmailBudgetMock).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops command composition when the external recipient budget rejects the message', async () => {
+    commandBus.execute.mockRejectedValueOnce(new ExternalEmailBudgetError(
+      NextResponse.json({ error: 'Too many requests' }, { status: 429 }),
+    ))
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        visibility: 'public',
+        externalEmail: 'limited@example.test',
+        recipients: [],
+        subject: 'Subject',
+        body: 'Body',
+      }),
+    }))
+
+    expect(response.status).toBe(429)
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
+  })
+
+  it('stops delegated composition when the external recipient budget rejects the message', async () => {
+    checkExternalEmailBudgetMock.mockResolvedValueOnce(
+      NextResponse.json({ error: 'Too many requests' }, { status: 429 }),
+    )
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        visibility: 'public',
+        externalEmail: 'limited@example.test',
+        recipients: [],
+        subject: 'Subject',
+        body: 'Body',
+        senderChannelId: '22222222-2222-4222-8222-222222222222',
+      }),
+    }))
+
+    expect(response.status).toBe(429)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
   })
 
   it('threads a delegated mailbox send onto the conversation thread the server resolved', async () => {
@@ -321,6 +394,11 @@ describe('messages /api/messages POST', () => {
     }))
 
     expect(response.status).toBe(201)
+    expect(checkExternalEmailBudgetMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { tenantId, userId },
+      'client@example.com',
+    )
     expect(delegateComposeToSenderMock).toHaveBeenCalledTimes(1)
     expect(delegateComposeToSenderMock.mock.calls[0][2]).toMatchObject({
       senderChannelId,

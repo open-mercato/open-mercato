@@ -4,9 +4,10 @@ import { attachOperationMetadataHeader, OperationLogEntryLike } from '../../../l
 import { canUseMessageEmailFeature, parseRequestBodySafe, resolveMessageContext } from '../../../lib/routeHelpers'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../../guards'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
-import { forwardResponseSchema, forwardMessageSchema as forwardSchema } from '../../openapi'
+import { errorResponseSchema, forwardResponseSchema, forwardMessageSchema as forwardSchema } from '../../openapi'
 import { MessageCommandExecuteResult } from '../../../commands/shared'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { getExternalEmailBudgetErrorResponse } from '../../../lib/externalEmailBudget'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['messages.compose'] },
@@ -63,6 +64,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       },
     })
   } catch (error) {
+    const budgetResponse = getExternalEmailBudgetErrorResponse(error)
+    if (budgetResponse) return budgetResponse
     const interceptorRejection = getCommandInterceptorHttpRejection(error)
     if (interceptorRejection) {
       return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
@@ -119,6 +122,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'Message not found' },
         { status: 409, description: 'Forward not allowed for message type' },
         { status: 413, description: 'Forward body exceeds maximum length' },
+        { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
+        { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],
     },
   },
