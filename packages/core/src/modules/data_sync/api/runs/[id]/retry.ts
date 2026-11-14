@@ -4,7 +4,9 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { ProgressService } from '../../../../progress/lib/progressService'
+import type { IntegrationStateService } from '../../../../integrations/lib/state-service'
 import type { SyncRunService } from '../../../lib/sync-run-service'
 import { retrySyncSchema } from '../../../data/validators'
 import { startDataSyncRun } from '../../../lib/start-run'
@@ -54,6 +56,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
   const container = await createRequestContainer()
   const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
   const progressService = container.resolve('progressService') as ProgressService
+  const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
   const scope = { organizationId, tenantId: auth.tenantId }
 
   const previous = await syncRunService.getRun(parsedParams.data.id, scope)
@@ -62,6 +65,16 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
   }
   if (previous.status !== 'failed' && previous.status !== 'cancelled') {
     return NextResponse.json({ error: 'Only failed or cancelled runs can be retried' }, { status: 409 })
+  }
+  if (!(await integrationStateService.isEnabled(previous.integrationId, scope))) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      {
+        error: translate('data_sync.errors.integrationDisabled', 'Integration is disabled'),
+        code: 'integrationDisabled',
+      },
+      { status: 409 },
+    )
   }
 
   const overlap = await syncRunService.findRunningOverlap(
