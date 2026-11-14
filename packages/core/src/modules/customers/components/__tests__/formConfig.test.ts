@@ -31,6 +31,7 @@ import {
   mapPersonOverviewToFormValues,
   type Translator,
 } from '../formConfig'
+import { parseCompanyAnnualRevenue } from '../../lib/parseCompanyAnnualRevenue'
 
 const t: Translator = (_key, fallback) => fallback ?? _key
 
@@ -317,6 +318,47 @@ describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
     expect('sizeBucket' in payload).toBe(false)
     expect('annualRevenue' in payload).toBe(false)
     expect('description' in payload).toBe(false)
+  })
+})
+
+describe('company annual revenue locale decimal comma (issue #9430)', () => {
+  it('parses a Polish decimal comma instead of stripping it as a thousands separator', () => {
+    expect(parseCompanyAnnualRevenue('1234,56', 'pl-PL')).toBe(1234.56)
+    expect(parseCompanyAnnualRevenue('15,99', 'pl-PL')).toBe(15.99)
+    expect(parseCompanyAnnualRevenue('150,5', 'pl-PL')).toBe(150.5)
+    expect(parseCompanyAnnualRevenue('2500000,13', 'pl-PL')).toBe(2500000.13)
+  })
+
+  it('still accepts a dot, so the workaround users learned keeps working', () => {
+    expect(parseCompanyAnnualRevenue('1234.56', 'pl-PL')).toBe(1234.56)
+    expect(parseCompanyAnnualRevenue('15.99', 'pl-PL')).toBe(15.99)
+    expect(parseCompanyAnnualRevenue('150.5', 'en-US')).toBe(150.5)
+  })
+
+  it('saves the locale-parsed amount on create and edit payloads', () => {
+    const created = buildCompanyPayload({ displayName: 'Acme', annualRevenue: '1234,56' }, null, 'pl-PL')
+    expect(created.annualRevenue).toBe('1234.56')
+
+    const edited = buildCompanyEditPayload(
+      { id: COMPANY_ID, displayName: 'Acme', annualRevenue: '15,99' } as any,
+      null,
+      'pl-PL',
+    )
+    expect(edited.annualRevenue).toBe('15.99')
+  })
+
+  it('keeps en-US thousands grouping working without a silent scale change', () => {
+    const payload = buildCompanyPayload({ displayName: 'Acme', annualRevenue: '1,500,000' }, null, 'en-US')
+    expect(payload.annualRevenue).toBe('1500000')
+  })
+
+  it('rejects unparseable or over-precise input instead of silently changing the amount', () => {
+    expect(parseCompanyAnnualRevenue('abc', 'pl-PL')).toBeNull()
+    expect(parseCompanyAnnualRevenue('15,999', 'pl-PL')).toBeNull()
+    expect(parseCompanyAnnualRevenue('-10', 'pl-PL')).toBeNull()
+    expect(() => buildCompanyPayload({ displayName: 'Acme', annualRevenue: 'abc' }, null, 'pl-PL')).toThrow(
+      'ANNUAL_REVENUE_INVALID',
+    )
   })
 })
 
