@@ -32,7 +32,7 @@ for (const language of ['en', 'pl'] as const) {
       const context = await browser.newContext({ baseURL, viewport: { width, height: 1000 } })
       const page = await context.newPage()
       const amountHeader = language === 'pl' ? 'Kwota' : 'Amount'
-      const updatedHeader = language === 'pl' ? 'Zaktualizowano' : 'Updated'
+      const updatedHeader = language === 'pl' ? 'Zaktualizowano' : 'Updated at'
       const listResponse = (query: Record<string, string>) => page.waitForResponse((response) => {
         const url = new URL(response.url())
         return url.pathname === '/api/payment_gateways/transactions'
