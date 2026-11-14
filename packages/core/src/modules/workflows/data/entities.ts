@@ -275,8 +275,8 @@ export interface WorkflowInstanceMetadata {
  */
 @Entity({ tableName: 'workflow_definitions' })
 // Versions of the same workflow coexist as separate rows; uniqueness is per
-// (workflowId, version, tenantId) so draft/published versions can live together.
-@Unique({ properties: ['workflowId', 'version', 'tenantId'] })
+// (workflowId, version, tenantId, organizationId) so draft/published versions can live together.
+@Unique({ name: 'workflow_definitions_workflow_version_tenant_org_unique', properties: ['workflowId', 'version', 'tenantId', 'organizationId'] })
 @Index({ name: 'workflow_definitions_enabled_idx', properties: ['enabled'] })
 @Index({ name: 'workflow_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'workflow_definitions_workflow_id_idx', properties: ['workflowId'] })
