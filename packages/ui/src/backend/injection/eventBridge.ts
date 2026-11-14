@@ -4,6 +4,7 @@ import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injec
 import { subscribeOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { APP_EVENT_DOM_NAME } from './useAppEvent'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { SELECTED_ORGANIZATION_COOKIE, SELECTED_TENANT_COOKIE } from '@open-mercato/shared/lib/scope/cookies'
 
 const logger = createLogger('ui').child({ component: 'EventBridge' })
 
@@ -13,7 +14,7 @@ const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
 const DEDUP_WINDOW_MS = 500
 const BRIDGE_RECONNECTED_EVENT_ID = 'om:bridge:reconnected'
-const SCOPE_COOKIE_NAMES = ['om_selected_org', 'om_selected_tenant'] as const
+const SCOPE_COOKIE_NAMES = [SELECTED_ORGANIZATION_COOKIE, SELECTED_TENANT_COOKIE] as const
 
 function readScopeCookieSignature(): string {
   if (typeof document === 'undefined') return ''

@@ -4,7 +4,11 @@ import type { AwilixContainer } from 'awilix'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { isSessionBoundApiKey } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
-import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import {
+  SELECTED_ORGANIZATION_COOKIE,
+  SELECTED_TENANT_COOKIE,
+  isAllOrganizationsSelection,
+} from '@open-mercato/core/modules/directory/constants'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
@@ -185,7 +189,7 @@ function normalizeOrganizationId(value: unknown): string | null {
 export function getSelectedOrganizationFromRequest(req: Request | { cookies?: { get: (name: string) => { value: string } | undefined }; headers?: { get(name: string): string | null } }): string | null {
   const cookieContainer = (req as { cookies?: { get: (name: string) => { value: string } | undefined } }).cookies
   if (cookieContainer && typeof cookieContainer.get === 'function') {
-    const val = cookieContainer.get('om_selected_org')?.value
+    const val = cookieContainer.get(SELECTED_ORGANIZATION_COOKIE)?.value
     return val ?? null
   }
   const headerContainer = (req as { headers?: { get(name: string): string | null } }).headers
@@ -198,7 +202,7 @@ export function getSelectedTenantFromRequest(
 ): string | null {
   const cookieContainer = (req as { cookies?: { get: (name: string) => { value: string } | undefined } }).cookies
   if (cookieContainer && typeof cookieContainer.get === 'function') {
-    const val = cookieContainer.get('om_selected_tenant')?.value
+    const val = cookieContainer.get(SELECTED_TENANT_COOKIE)?.value
     return val ?? null
   }
   const headerContainer = (req as { headers?: { get(name: string): string | null } }).headers
