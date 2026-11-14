@@ -263,6 +263,7 @@
   "catalog.priceKinds.table.promotionYes": "Sí",
   "catalog.priceKinds.table.title": "Título",
   "catalog.priceKinds.title": "Tipos de precio",
+  "catalog.prices.errors.taxClassUnavailable": "Las clases de impuesto no están disponibles.",
   "catalog.prices.flash.created": "Regla de precio creada",
   "catalog.prices.flash.deleted": "Regla de precio eliminada",
   "catalog.prices.flash.updated": "Regla de precio actualizada",
