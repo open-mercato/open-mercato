@@ -138,6 +138,40 @@ describe('quote send + accept flow', () => {
     expect(mockEm.persist).toHaveBeenCalledWith(quote)
   })
 
+  test('sends to the document\'s "Send to" address ahead of the snapshot contact (#8459)', async () => {
+    const quote = {
+      id: '22222222-2222-4222-8222-222222222223',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-2',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: {
+        contact: { email: 'contact@example.com' },
+        customer: { primaryEmail: 'primary@example.com' },
+      },
+      metadata: { customerEmail: 'accounting@example.com' },
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | null) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    expect(res.status).toBe(200)
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'accounting@example.com' }))
+  })
+
   test('accept never matches a raw (unhashed) stored token — hashed lookup only (#2929)', async () => {
     const RAW_STORED_TOKEN = '77777777-7777-4777-8777-777777777777'
     const rawStoredQuote = {
