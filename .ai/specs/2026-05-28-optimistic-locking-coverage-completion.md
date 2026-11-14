@@ -462,6 +462,12 @@ organization/channel scope that an admin principal carries.
 
 ## Changelog
 
+### 2026-11-14
+
+- Customer and staff address routes disable the generic reader's soft-delete filter because their entities do not have `deleted_at`; stale child PUT/DELETE must return the existing 409 conflict response.
+- Shared address panels reload canonical child rows after successful create/update so later edits and deletes retain the saved row's current `updatedAt`.
+- Regression coverage: `TC-CRM-ADDRESS-LOCK` and `TC-STAFF-ADDRESS-LOCK` exercise fresh writes, stale update/delete refusal and preserved fields; shared UI tests cover token refresh across create/update/delete. Live two-user address editing and ordinary repeat edits are required QA paths.
+
 - 2026-10-29: #7815 makes custom-record POST create-only with a scoped advisory
   transaction, documents the 409 contract and preserves internal seed upserts.
 
