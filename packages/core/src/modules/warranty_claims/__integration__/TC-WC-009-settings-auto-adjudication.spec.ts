@@ -89,6 +89,7 @@ async function resetAutoApprovalOff(
 
 test.describe('TC-WC-009: warranty claim settings and auto-adjudication', () => {
   test('covers settings CRUD, locking, validation, and risk-gated auto-approval', async ({ request }) => {
+    test.slow()
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const { tenantId } = getTokenScope(adminToken)

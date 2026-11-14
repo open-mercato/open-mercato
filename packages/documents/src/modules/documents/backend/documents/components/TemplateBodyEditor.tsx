@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 import type { Editor } from '@tiptap/core'
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react'
 import { Bold, Heading1, Heading2, Italic, List, ListOrdered } from 'lucide-react'
@@ -35,9 +36,11 @@ export function TemplateBodyEditor({ bodyHtml, tokenOptions, onChange }: {
   onChange: (html: string) => void
 }) {
   const t = useT()
+  const nonce = useContentSecurityPolicyNonce()
   const editorLabelId = React.useId()
   const [token, setToken] = React.useState<string | undefined>()
   const editor = useEditor({
+    injectNonce: nonce,
     extensions: getDocumentEditorExtensions({
       entityRefFallbackLabel: t('documents.editor.entityRef.fallbackLabel'),
     }),

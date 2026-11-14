@@ -1,0 +1,134 @@
+---
+title: Promotions
+description: Public HTTP surface for the promotions rule engine — admin CRUD plus the cart-facing evaluate/codes/usage routes.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+The `promotions` module ships SPEC-055 Phases 1-3: the rule-tree engine, promotional codes, and the usage/budget ledger. This page covers only the public HTTP surface. Internal commands, DI services, the evaluation pipeline, and implementation gotchas live in `packages/core/src/modules/promotions/AGENTS.md` — read that file if you're extending the module itself rather than integrating against it over HTTP.
+
+Phases 4-5 (the extensibility registry, custom rule/benefit types, admin configurator widgets) are **not implemented** — spec-only, out of scope for every route below.
+
+## Authentication
+
+Every route requires `requireAuth: true` — either a staff cookie session or an API key, unified behind the platform's standard `getAuthFromRequest`. There is no module-specific auth header: a withdrawn `X-Module-Key` scheme never shipped. No request body or query string carries `organizationId`/`tenantId` on any route — scope always comes from the resolved caller identity.
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+
+curl -s -X POST "$BASE_URL/promotions/evaluate" \
+  -H "Authorization: ApiKey $API_KEY" -H "Content-Type: application/json" \
+  -d '{"items":[],"currency":"USD","evaluatedAt":"2026-10-15T00:00:00Z","buyer":{"customerId":null,"customerIds":[],"customerGroupIds":[]},"customerOrderCount":null,"cartWeight":null,"codes":[]}'
+```
+
+## Admin CRUD — `/api/promotions`
+
+**Permissions** — `GET` requires `promotions.view`; `POST`/`PUT`/`DELETE` require `promotions.create`/`.update`/`.delete` respectively. Standard `makeCrudRoute` CRUD against the `Promotion` aggregate (name, status, date window, tags, eligible currencies, budget).
+
+`PUT` is a genuine partial update — an omitted field is left untouched, never reset to its create-time default (`active`/`tags`/`excludedTags`/`excludeFlags`/`cumulative`/`eligibleCurrencies` included). A date-only `endsAt` (the datepicker's own output) is bumped to the end of that day (23:59:59.999 UTC) on write, so a promotion "ending today" stays eligible for the whole day rather than going dead at midnight; a full ISO timestamp passes through unchanged. `startsAt` and the evaluation engine's own comparison are unaffected — the fix lives entirely on the write path.
+
+### `PUT /api/promotions/{id}/tree`
+
+Requires `promotions.update`. Saves the whole rule-condition tree (groups, rules, benefits) for one promotion in a single call — this is the tree builder's save action, backed by `promotions.rule_tree.reconcile`. Protects the `Promotion` aggregate with its own `updatedAt`-based optimistic lock (carried in the body, not a header) — a `409` means someone else edited the tree since the page loaded. A `422` carries a Zod `issues[]` array — e.g. an `order_value`/`row_total` rule or a tiered/fixed benefit saved with no `eligibleCurrencies` on the parent promotion (D-R4-27's single-currency validation).
+
+### `PATCH /api/promotions/order`
+
+Requires `promotions.update`. Batch-reorders promotions (the list page's drag-sort), with a per-item `updatedAt` for the same optimistic-lock protection — a conflicting item is reported individually rather than failing the whole batch.
+
+## Admin codes — `/api/promotions/codes`
+
+**Permissions** — all methods require `promotions.codes.manage`. Standard CRUD against `Code` (static vouchers and dynamic-pool definitions).
+
+`code`/`prefix`/`suffix` are normalized to trimmed, upper-cased, `A-Z0-9`-only strings on write, and every lookup path (`codes/reserve`, `codes/validate`, `codes/use`, `codes/release`, dynamic-pool generation's own collision check) normalizes the presented string the same way before comparing — a buyer typing `summer10` matches a stored `SUMMER10`.
+
+### `POST /api/promotions/codes/{id}/generate`
+
+Requires `promotions.codes.manage`. Enqueues the code-generation worker for a dynamic-pool `Code`. Idempotent on restart — the worker reconciles against a fresh count of already-generated rows rather than trusting a possibly-stale counter.
+
+### `GET /api/promotions/codes/{id}/generated`
+
+Requires `promotions.codes.manage`. Paginated list of the individual codes generated for a dynamic pool.
+
+## Cart-facing evaluation routes
+
+These four resolve buyer-scope visibility via `customer_groups.CustomerGroupsService.resolveAssortmentScope` — not `ecommerce`'s heavier channel/store-bound `resolveBuyerContext`, which none of their wire contracts can supply. All four fail **closed** to empty results if scope resolution genuinely fails (never fail open).
+
+### `POST /api/promotions/evaluate`
+
+Requires `promotions.evaluate`. The primary integration point — evaluates every active, eligible promotion against a cart context and returns resolved effects (`LINE_DISCOUNT`/`CART_DISCOUNT`/`ADD_FREE_ITEM`; `DELIVERY_DISCOUNT` is defined but unreachable in this release). Items are addressed by `productId`/`variantId`/`lineId` — never SKU.
+
+```json
+{
+  "items": [{ "lineId": "line-1", "productId": "<uuid>", "variantId": null, "quantity": "2", "unitPriceNet": "19.99", "unitPriceGross": "23.99", "priceIsPromotional": false }],
+  "currency": "USD",
+  "evaluatedAt": "2026-10-15T00:00:00Z",
+  "buyer": { "customerId": null, "customerIds": [], "customerGroupIds": [] },
+  "customerOrderCount": null,
+  "cartWeight": null,
+  "codes": [{ "id": "<code-uuid>", "type": "static" }]
+}
+```
+
+Every amount-carrying effect in the response carries both `amountNet` and `amountGross` — never a single `amount` plus a basis flag.
+
+### `POST /api/promotions/product-page`
+
+Requires `promotions.evaluate`. The one route in this module still addressed by SKU rather than id — a listing/PDP context has no cart line identity to carry. Body: `{ "skus": ["SKU-1", "SKU-2"] }`. Returns badge-worthy promotions per SKU that currently matches, resolved against the caller's buyer scope (no buyer identity in this wire contract at all, so it resolves against the anonymous/default-group scope rather than skip the check).
+
+### `GET /api/promotions/dynamic-labels`
+
+Requires `promotions.evaluate`. Returns every promotion visible in the caller's buyer scope, flattened to its plain-language conditions and tags — for rendering "10% off orders over $50" style labels outside a specific cart context. No request body.
+
+### `POST /api/promotions/free-products`
+
+Requires `promotions.evaluate`. Resolves which free-product offers (`free_product` and `buy_x_get_y` benefits) currently apply to a cart context — same body shape as `evaluate` (`evaluateInputSchema`).
+
+## Cart-facing codes routes
+
+### `POST /api/promotions/codes/reserve`
+
+Requires `promotions.codes.redeem`. Body: `{ "codeString": "...", "cartId": "<uuid>", "customerId": "<uuid-or-null>" }`. Resolves a code string (checking both static and dynamically-generated codes), checks eligibility (active, remaining uses, per-customer limit), and creates or extends a `CodeReservation` for the `(code, cart)` pair. Idempotent per `(code, cart)` — calling it again before the reservation lapses just extends it.
+
+**Errors**: `422` for an unknown, inactive, exhausted, or (for a per-customer-limited code) unidentified-customer case.
+
+### `POST /api/promotions/codes/validate`
+
+Requires `promotions.codes.redeem`. Identical body shape as `reserve`, but never reserves — a read-only eligibility check.
+
+### `POST /api/promotions/codes/use`
+
+Requires `promotions.codes.redeem`. Body: `{ "codeId": "<uuid>", "codeString": "...", "cartId": "<uuid>", "customerId": "<uuid-or-null>", "type": "static" }`. Redeems a previously reserved code under a row lock — this is the concurrency-sensitive call site: proven against live Postgres that 8 concurrent calls on one single-use code yield exactly 1 success.
+
+### `POST /api/promotions/codes/release`
+
+Requires `promotions.codes.redeem`. Releases a cart's reservation on a code. Resolves `codeString` → the underlying code id internally; releasing an unknown code string is a documented no-op, not an error.
+
+## Cart-facing usage routes
+
+### `POST /api/promotions/usage/register`
+
+Requires `promotions.usage.manage`. Called once an order/quote is confirmed — registers each applied promotion's discount against its lifetime budget. Body: `{ "orderId": "...", "orderType": "order"|"quote"|"pos_cart", "customerId": "<uuid-or-null>", "currency": "USD", "appliedPromotions": [{ "promotionId": "<uuid>", "promotionName": "...", "effects": [...] }] }`.
+
+Idempotent on re-submission for the same `orderId`. Returns `200` when every promotion registered within budget, **`207 Multi-Status`** (identical body shape, `budgetExceeded: string[]` populated) when one or more promotions in the batch would have exceeded their budget — the budget is still enforced per promotion, independently, under its own row lock; one promotion exceeding budget never blocks the others in the same batch.
+
+### `POST /api/promotions/usage/revert`
+
+Requires `promotions.usage.manage`. Body: `{ "orderId": "..." }`. Soft-reverts the usage registered for a cancelled order or a rejected/expired quote.
+
+## Error codes worth knowing
+
+| Situation | HTTP | Notes |
+|---|---|---|
+| Missing/invalid auth | 401 | No API key or session, or neither carries a tenant |
+| Missing organization scope | 400 | Caller has no single resolvable organization |
+| Invalid request body | 400 | Zod validation failure, `issues[]` attached |
+| Unknown/inactive/exhausted code | 422 | `codes/reserve`, `codes/validate`, `codes/use` |
+| Per-customer-limited code, no identified customer | 422 | Same three routes |
+| Budget exceeded for one or more promotions | 207 | `usage/register` only — not a failure, see above |
+
+## Feature flags
+
+RBAC gates declared in `packages/core/src/modules/promotions/acl.ts`: `promotions.view`/`.create`/`.update`/`.delete`, `promotions.codes.manage`, `promotions.codes.redeem`, `promotions.evaluate`, `promotions.usage.manage`. Grant the cart-facing subset (`codes.redeem`, `evaluate`, `usage.manage`) to the API key your storefront/checkout integration uses; keep the admin subset (`view`/`create`/`update`/`delete`/`codes.manage`) to staff roles.

@@ -3,7 +3,11 @@ import path from 'node:path'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { registerCrossProcessEventListener, registerGlobalEventTap } from '@open-mercato/events/bus'
+import {
+  CROSS_PROCESS_EVENT_INSTANCE_ID,
+  registerCrossProcessEventListener,
+  registerGlobalEventTap,
+} from '@open-mercato/events/bus'
 import { exampleTag } from '../openapi'
 
 type CapturedEvent = {
@@ -110,7 +114,7 @@ function ensureCaptureTap(): void {
   })
 
   registerCrossProcessEventListener((envelope) => {
-    if (envelope.originPid === process.pid) return
+    if (envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID) return
     captureEvent(envelope.event, envelope.payload)
   })
 }

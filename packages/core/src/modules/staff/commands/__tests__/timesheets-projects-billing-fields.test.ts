@@ -367,6 +367,7 @@ describe('staff.timesheets.time_projects create/update billing fields', () => {
       budgetKind: 'none',
       budgetValue: null,
       budgetWarnAtPercent: 80,
+      defaultAssigneeStaffMemberId: null,
       deletedAt: null,
     }
     mockFindOneWithDecryption.mockResolvedValue(makeStoredProject({ name: 'Renamed' }))

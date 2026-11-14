@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
@@ -9,7 +10,9 @@ import { getDocumentEditorExtensions } from '../../../lib/editorConfig'
 import type { TemplatePreviewResult } from './templateUi'
 
 function PreviewSurface({ html, fallbackLabel }: { html: string; fallbackLabel: string }) {
+  const nonce = useContentSecurityPolicyNonce()
   const editor = useEditor({
+    injectNonce: nonce,
     extensions: getDocumentEditorExtensions({ entityRefFallbackLabel: fallbackLabel }),
     content: html,
     editable: false,

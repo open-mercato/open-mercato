@@ -97,3 +97,12 @@ describe('TokenSearchStrategy excludes base customer entities by default', () =>
     expect(entityTypePredicates(wheres)).toEqual([['entity_type', 'in', [CUSTOMER_ENTITY, PERSON_PROFILE]]])
   })
 })
+
+jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
+  buildQueryIndexSearchScopePredicate: () => jest.requireActual('kysely').sql`true`,
+  filterQueryIndexSearchRecords: async (_database: unknown, _scope: unknown, records: unknown[]) => records,
+  resolveQueryIndexSearchScope: async () => ({
+    blockedEntityTypes: [],
+    tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
+  }),
+}))

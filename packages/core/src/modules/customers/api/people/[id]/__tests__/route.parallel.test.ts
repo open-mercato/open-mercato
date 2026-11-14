@@ -1,5 +1,16 @@
 /** @jest-environment node */
 
+import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
+
+let mockCacheEnabled = false
+const mockCache = { get: jest.fn(), set: jest.fn() }
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  isCrudCacheEnabled: () => mockCacheEnabled,
+  resolveCrudCache: () => mockCacheEnabled ? mockCache : null,
+}))
+
+
 // Regression coverage for issue #3203: the people detail route must dispatch its
 // independent enrichment reads in parallel instead of awaiting them one after
 // another. The test makes findWithDecryption hang until all expected calls are
@@ -19,6 +30,7 @@ const mockEm = {
   findOne: jest.fn(),
   find: jest.fn(),
   count: jest.fn(),
+  createQueryBuilder: jest.fn(),
 }
 
 const mockContainer = {
@@ -113,7 +125,11 @@ function buildPerson() {
 }
 
 describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)', () => {
+  afterEach(() => registerResponseEnrichers([]))
   beforeEach(() => {
+    mockCacheEnabled = false
+    mockCache.get.mockReset()
+    mockCache.set.mockReset()
     jest.resetModules()
     mockGetAuthFromRequest.mockReset()
     mockResolveOrganizationScopeForRequest.mockReset()
@@ -128,6 +144,11 @@ describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)',
     mockEm.find.mockReset()
     mockEm.count.mockReset()
     mockEm.count.mockResolvedValue(0)
+    mockEm.createQueryBuilder.mockReset()
+    mockEm.createQueryBuilder.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+    })
     mockContainer.resolve.mockClear()
 
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1', isApiKey: false })
@@ -176,4 +197,84 @@ describe('GET /api/customers/people/[id] — parallel enrichment (issue #3203)',
     expect(body.person.id).toBe(PERSON_ID)
     expect(maxInFlight).toBeGreaterThanOrEqual(2)
   })
+
+  it('counts adapter-created tasks without loading the task preview (#6068)', async () => {
+    mockEm.count.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) =>
+      where.source === 'adapter:todo' ? 2 : 0,
+    )
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request(`http://localhost/api/customers/people/${PERSON_ID}`),
+      { params: { id: PERSON_ID } },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.counts.todos).toBe(2)
+    expect(body.todos).toEqual([])
+  })
+
+  it('preserves same-tenant cross-organization and offboarded authors on people details', async () => {
+    const { CustomerActivity } = await import('../../../../data/entities')
+    const { User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const authors = [
+      { id: 'local-author', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null, name: 'Local author', email: 'local@example.com' },
+      { id: 'foreign-author', tenantId: 'tenant-2', organizationId: 'org-2', deletedAt: null, name: 'Foreign author', email: 'foreign@example.com' },
+      { id: 'other-org-author', tenantId: 'tenant-1', organizationId: 'org-2', deletedAt: null, name: 'Other org author', email: 'other-org@example.com' },
+      { id: 'deleted-author', tenantId: 'tenant-1', organizationId: 'org-2', deletedAt: new Date(), name: 'Offboarded author', email: 'offboarded@example.com' },
+    ]
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === CustomerActivity) return authors.map((author) => ({
+        id: `activity-${author.id}`, activityType: 'call', authorUserId: author.id,
+        createdAt: new Date('2026-10-28T12:00:00Z'),
+      }))
+      if (entity === User) return authors.filter((author) =>
+        (where.tenantId === undefined || author.tenantId === where.tenantId)
+        && (where.organizationId === undefined || author.organizationId === where.organizationId)
+        && (where.deletedAt === undefined || author.deletedAt === where.deletedAt))
+      return []
+    })
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request(`http://localhost/api/customers/people/${PERSON_ID}?include=activities`),
+      { params: { id: PERSON_ID } },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.activities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ authorUserId: 'local-author', authorName: 'Local author', authorEmail: 'local@example.com' }),
+      expect.objectContaining({ authorUserId: 'deleted-author', authorName: 'Offboarded author', authorEmail: 'offboarded@example.com' }),
+      expect.objectContaining({ authorUserId: 'foreign-author', authorName: null, authorEmail: null }),
+      expect.objectContaining({ authorUserId: 'other-org-author', authorName: 'Other org author', authorEmail: 'other-org@example.com' }),
+    ]))
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(mockEm, User, expect.objectContaining({
+      tenantId: 'tenant-1',
+    }), {}, { tenantId: 'tenant-1', organizationId: 'org-1' })
+  })
+
+  it('enriches person cold/cache-hit reads and preserves cached native data', async () => {
+    mockCacheEnabled = true
+    mockCache.get.mockResolvedValue(null)
+    let priority = 'high'
+    const enrichOne = jest.fn(async (record: Record<string, unknown>) => ({ ...record, _example: { priority } }))
+    registerResponseEnrichers([{ moduleId: 'example', enrichers: [{ id: 'example.priority', targetEntity: 'customers.person', timeout: 10, enrichOne }] }])
+    const { GET } = await import('../route')
+    const request = new Request(`http://localhost/api/customers/people/${PERSON_ID}`)
+    const cold = await GET(request, { params: { id: PERSON_ID } })
+    expect(await cold.json()).toMatchObject({ _example: { priority: 'high' }, person: { _example: { priority: 'high' } } })
+    const base = mockCache.set.mock.calls[0][1] as Record<string, unknown>
+    expect(base).not.toHaveProperty('_example')
+    priority = 'critical'
+    mockCache.get.mockResolvedValue(base)
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildPerson())
+    const hit = await GET(request, { params: { id: PERSON_ID } })
+    expect(await hit.json()).toMatchObject({ _example: { priority: 'critical' } })
+    expect(base).not.toHaveProperty('_example')
+    expect(base.person).not.toHaveProperty('_example')
+    expect(enrichOne).toHaveBeenCalledTimes(2)
+  })
+
 })

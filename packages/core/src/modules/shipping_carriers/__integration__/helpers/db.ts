@@ -65,6 +65,25 @@ export type CarrierShipmentRow = {
   tenantId: string
 }
 
+export async function insertCarrierShipmentInDb(input: {
+  id: string
+  orderId: string
+  providerKey: string
+  carrierShipmentId: string
+  organizationId: string
+  tenantId: string
+}): Promise<void> {
+  await withClient(async (client) => {
+    await client.query(
+      `insert into carrier_shipments
+        (id, order_id, provider_key, carrier_shipment_id, tracking_number, unified_status,
+         organization_id, tenant_id, created_at, updated_at)
+       values ($1, $2, $3, $4, $4, 'label_created', $5, $6, now(), now())`,
+      [input.id, input.orderId, input.providerKey, input.carrierShipmentId, input.organizationId, input.tenantId],
+    )
+  })
+}
+
 /** Forces a shipment's `unified_status` to a specific value (e.g. `in_transit`). */
 export async function setCarrierShipmentStatusInDb(shipmentId: string, status: string): Promise<void> {
   await withClient(async (client) => {

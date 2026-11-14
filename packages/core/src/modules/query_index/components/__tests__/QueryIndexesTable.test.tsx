@@ -8,6 +8,7 @@ import { screen, waitFor } from '@testing-library/react'
 import QueryIndexesTable from '../QueryIndexesTable'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open-mercato/shared/modules/widgets/injection-loader'
 
 class MockResizeObserver {
   observe() {}
@@ -147,6 +148,8 @@ const mockItems = [
 
 describe('QueryIndexesTable', () => {
   beforeEach(() => {
+    registerCoreInjectionWidgets([])
+    registerCoreInjectionTables([])
     jest.resetAllMocks()
     ;(readApiResultOrThrow as jest.Mock).mockResolvedValue({ items: mockItems })
   })

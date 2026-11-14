@@ -1,5 +1,8 @@
 /** @jest-environment node */
 
+import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { resolveLinkedCustomerAuth } from '../lib/portalAuthGuard'
+
 const MAX_UPLOAD_MB = 1
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 const CLAIM_ID = '123e4567-e89b-42d3-a456-426614174001'
@@ -7,8 +10,9 @@ const ATTACHMENT_ID = '123e4567-e89b-42d3-a456-426614174002'
 
 const mockLoadPortalOwnedClaim = jest.fn()
 const mockUpload = jest.fn()
-const mockRemoveFlush = jest.fn(async () => undefined)
-const mockEm = { remove: jest.fn(() => ({ flush: mockRemoveFlush })) }
+const mockRemoveAttachmentRecord = jest.fn()
+const mockEm = {}
+const mockConsume = jest.fn()
 
 jest.mock('../lib/portalAuthGuard', () => ({
   resolveLinkedCustomerAuth: jest.fn(async () => ({
@@ -22,7 +26,7 @@ jest.mock('../lib/portalAuthGuard', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
-    resolve: jest.fn((token: string) => (token === 'em' ? mockEm : undefined)),
+    resolve: jest.fn((token: string) => (token === 'em' ? mockEm : token === 'rateLimiterService' ? { consume: mockConsume } : undefined)),
   })),
 }))
 
@@ -43,6 +47,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('@open-mercato/core/modules/attachments/lib/thumbnailCache', () => ({
   clearAttachmentThumbnailCache: jest.fn(async () => undefined),
+}))
+
+jest.mock('@open-mercato/core/modules/attachments/lib/storageReferences', () => ({
+  removeAttachmentRecord: (...args: unknown[]) => mockRemoveAttachmentRecord(...args),
 }))
 
 jest.mock('../lib/portalClaimAccess', () => ({
@@ -108,15 +116,18 @@ function uploadRequest(method: 'POST' | 'PUT', fileBytes: number): Request {
 
 describe('warranty portal attachment upload size limit', () => {
   const originalMaxUpload = process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
+  const originalEntityIds: EntityIds = getEntityIds(false)
 
   beforeAll(async () => {
     process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = String(MAX_UPLOAD_MB)
+    registerEntityIds({ attachments: { attachment: 'attachments:attachment' } })
     const routeModule = await import('../api/portal/attachments/route')
     POST = routeModule.POST
     PUT = routeModule.PUT
   })
 
   afterAll(() => {
+    registerEntityIds(originalEntityIds)
     if (originalMaxUpload === undefined) delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
     else process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = originalMaxUpload
   })
@@ -127,7 +138,9 @@ describe('warranty portal attachment upload size limit', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockConsume.mockResolvedValue({ allowed: true, remainingPoints: 99, msBeforeNext: 0 })
     mockLoadPortalOwnedClaim.mockResolvedValue({ id: CLAIM_ID })
+    mockRemoveAttachmentRecord.mockResolvedValue({ removed: true, releaseStorage: false })
     mockUpload.mockResolvedValue({
       id: 'attachment-1',
       url: '/api/attachments/file/attachment-1',
@@ -137,6 +150,46 @@ describe('warranty portal attachment upload size limit', () => {
       storageMetadata: { tags: ['customer-visible'] },
       createdAt: new Date('2026-10-13T00:00:00.000Z'),
     })
+  })
+
+  it.each(['POST', 'PUT'] as const)('%s throttles before parsing or uploading a body', async (method) => {
+    mockConsume.mockResolvedValue({ allowed: false, remainingPoints: 0, msBeforeNext: 1500 })
+    const request = uploadRequest(method, 1024)
+    const formDataSpy = jest.spyOn(request, 'formData')
+
+    const response = await (method === 'POST' ? POST : PUT)(request)
+
+    expect(response.status).toBe(429)
+    expect(response.headers.get('Retry-After')).toBe('2')
+    expect(mockConsume).toHaveBeenCalledWith('portal:tenant-1:customer-user-1', expect.objectContaining({
+      points: 100,
+      duration: 60,
+      keyPrefix: 'attachments_upload',
+    }))
+    expect(formDataSpy).not.toHaveBeenCalled()
+    expect(request.bodyUsed).toBe(false)
+    expect(mockLoadPortalOwnedClaim).not.toHaveBeenCalled()
+    expect(mockUpload).not.toHaveBeenCalled()
+    expect(mockRemoveAttachmentRecord).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['tenant-2', 'customer-user-1'],
+    ['tenant-1', 'customer-user-2'],
+  ])('isolates the throttle for %s and %s', async (tenantId, principal) => {
+    jest.mocked(resolveLinkedCustomerAuth).mockResolvedValueOnce({
+      sub: principal,
+      email: 'customer@example.com',
+      tenantId,
+      orgId: 'org-1',
+      customerEntityId: 'customer-1',
+    })
+    mockConsume.mockResolvedValue({ allowed: false, remainingPoints: 0, msBeforeNext: 1000 })
+
+    const response = await POST(uploadRequest('POST', 1024))
+
+    expect(response.status).toBe(429)
+    expect(mockConsume).toHaveBeenCalledWith(`portal:${tenantId}:${principal}`, expect.any(Object))
   })
 
   it.each(['POST', 'PUT'] as const)('%s answers 413 for a chunked multipart body over the limit before reading the claim', async (method) => {
