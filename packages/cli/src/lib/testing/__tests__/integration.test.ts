@@ -69,8 +69,8 @@ const mockHealthyReadinessFetch = (
     }
     return { status: 401, ok: false, text: async () => '' } as unknown as Response
   }
-  if (url.includes('/api/customers/people?pageSize=1')) {
-    return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+  if (url.endsWith('/api/auth/profile')) {
+    return { status: 200, ok: true, text: async () => JSON.stringify({ email: 'admin@acme.com', name: null, roles: ['admin'] }) } as unknown as Response
   }
   if (url.endsWith('/login')) {
     const response = overrides.loginPageResponse
@@ -679,6 +679,80 @@ describe('waitForApplicationReadiness', () => {
   const makeFakeProcess = (): ChildProcess => new EventEmitter() as unknown as ChildProcess
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+  const mockAppWithoutCustomersModule = (profileStatus: number) => {
+    const requestedUrls: string[] = []
+    let profileAuthorization: string | null = null
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      requestedUrls.push(url)
+      if (url.endsWith('/api/auth/login')) {
+        return {
+          status: 200,
+          ok: true,
+          headers: makeSetCookieHeaders([
+            'auth_token=test-auth-token; Path=/; HttpOnly; SameSite=Lax',
+            'session_token=test-session-token; Path=/; HttpOnly; SameSite=Lax',
+          ]),
+          text: async () => JSON.stringify({ token: 'test-admin-token' }),
+        } as unknown as Response
+      }
+      if (url.endsWith('/api/auth/profile')) {
+        const headers = init?.headers as Record<string, string> | undefined
+        profileAuthorization = headers?.Authorization ?? null
+        return {
+          status: profileStatus,
+          ok: profileStatus === 200,
+          text: async () => (profileStatus === 200 ? JSON.stringify({ email: 'admin@acme.com', name: null, roles: ['admin'] }) : ''),
+        } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          ok: true,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+        } as unknown as Response
+      }
+      if (url.endsWith('/backend') || url.includes('/_next/static/')) {
+        return { status: 200, ok: true, text: async () => '' } as unknown as Response
+      }
+      return { status: 404, ok: false, text: async () => '' } as unknown as Response
+    })
+    return { fetchSpy, requestedUrls, getProfileAuthorization: () => profileAuthorization }
+  }
+
+  it('becomes ready without the customers module by probing the always-present auth profile route', async () => {
+    const { fetchSpy, requestedUrls, getProfileAuthorization } = mockAppWithoutCustomersModule(200)
+
+    try {
+      await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+        timeoutMs: 1_000,
+        intervalMs: 5,
+        stabilizationMs: 10,
+      })
+      expect(requestedUrls).toContain('http://127.0.0.1:5001/api/auth/profile')
+      expect(requestedUrls.some((url) => url.includes('/api/customers/'))).toBe(false)
+      expect(getProfileAuthorization()).toBe('Bearer test-admin-token')
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('reports the auth profile probe status when the authenticated API check fails', async () => {
+    const { fetchSpy } = mockAppWithoutCustomersModule(401)
+
+    try {
+      await expect(
+        waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+          timeoutMs: 50,
+          intervalMs: 5,
+          stabilizationMs: 10,
+        }),
+      ).rejects.toThrow(/Authenticated GET \/api\/auth\/profile returned 401/)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
   it('verifies backend browser navigation with cookies returned by login', async () => {
     let backendCookieHeader: string | null = null
 
@@ -707,8 +781,8 @@ describe('waitForApplicationReadiness', () => {
           text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
         } as unknown as Response
       }
-      if (url.includes('/api/customers/people')) {
-        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      if (url.endsWith('/api/auth/profile')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ email: 'admin@acme.com', name: null, roles: ['admin'] }) } as unknown as Response
       }
       if (url.endsWith('/backend')) {
         backendCookieHeader = typeof init?.headers === 'object'
@@ -760,8 +834,8 @@ describe('waitForApplicationReadiness', () => {
           text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
         } as unknown as Response
       }
-      if (url.includes('/api/customers/people')) {
-        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      if (url.endsWith('/api/auth/profile')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ email: 'admin@acme.com', name: null, roles: ['admin'] }) } as unknown as Response
       }
       if (url.endsWith('/backend')) {
         return {
@@ -839,8 +913,8 @@ describe('waitForApplicationReadiness', () => {
           text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
         } as unknown as Response
       }
-      if (url.includes('/api/customers/people')) {
-        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      if (url.endsWith('/api/auth/profile')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ email: 'admin@acme.com', name: null, roles: ['admin'] }) } as unknown as Response
       }
       if (url.endsWith('/backend')) {
         return {
@@ -913,8 +987,8 @@ describe('waitForApplicationReadiness', () => {
             text: async () => JSON.stringify({ token: 'token' }),
           } as unknown as Response
         }
-        if (url.includes('/api/customers/people')) {
-          return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+        if (url.endsWith('/api/auth/profile')) {
+          return { status: 200, ok: true, text: async () => JSON.stringify({ email: 'admin@acme.com', name: null, roles: ['admin'] }) } as unknown as Response
         }
         if (url.endsWith('/backend')) {
           return { status: 200, ok: true, text: async () => '' } as unknown as Response

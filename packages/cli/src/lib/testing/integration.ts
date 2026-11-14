@@ -345,6 +345,7 @@ const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   integration: 'INT',
 }
 const BACKEND_BROWSER_AUTH_REDIRECT_LIMIT = 6
+const AUTHENTICATED_API_PROBE_PATH = '/api/auth/profile'
 const BUILD_CACHE_STATE_VERSION = 2
 const BUILD_CACHE_ENV_KEYS = [
   'NODE_ENV',
@@ -1515,7 +1516,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
       }
     }
 
-    const apiResponse = await probeFetch(`${baseUrl}/api/customers/people?pageSize=1`, {
+    const apiResponse = await probeFetch(`${baseUrl}${AUTHENTICATED_API_PROBE_PATH}`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -1527,8 +1528,8 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
       apiStatus: apiResponse.status,
       healthy,
       detail: healthy
-        ? 'Authenticated GET /api/customers/people returned 200'
-        : `Authenticated GET /api/customers/people returned ${apiResponse.status}`,
+        ? `Authenticated GET ${AUTHENTICATED_API_PROBE_PATH} returned 200`
+        : `Authenticated GET ${AUTHENTICATED_API_PROBE_PATH} returned ${apiResponse.status}`,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
