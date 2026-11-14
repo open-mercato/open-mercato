@@ -352,6 +352,7 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 | `OPENAI_API_KEY` | OpenAI | `gpt-5-mini` | `OPENAI_BASE_URL` |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-3-flash` | N/A (pass `baseUrlOverride` to `runAiAgentText` when using a Vertex AI proxy) |
 | `DEEPINFRA_API_KEY` | DeepInfra | `zai-org/GLM-5.1` | `DEEPINFRA_BASE_URL` |
+| `ATLASCLOUD_API_KEY` | Atlas Cloud | `qwen/qwen3.7-plus` | `ATLASCLOUD_BASE_URL` |
 | `GROQ_API_KEY` | Groq | `llama-3.3-70b-versatile` | `GROQ_BASE_URL` |
 | `TOGETHER_API_KEY` | Together AI | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | `TOGETHER_BASE_URL` |
 | `FIREWORKS_API_KEY` | Fireworks AI | `accounts/fireworks/models/llama-v3p3-70b-instruct` | `FIREWORKS_BASE_URL` |
@@ -361,7 +362,7 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 | `OPENROUTER_API_KEY` | OpenRouter | `meta-llama/llama-3.3-70b-instruct` | `OPENROUTER_BASE_URL` |
 | `LM_STUDIO_API_KEY` | LM Studio (local) | *(empty — auto-detects loaded model)* | `LM_STUDIO_BASE_URL` |
 
-At least one MUST be set or the runtime throws `AiModelFactoryError` with `code: 'no_provider_configured'` on first invocation. See `/framework/ai-assistant/overview` for the full matrix.
+At least one MUST be set, else the runtime throws `AiModelFactoryError` (`code: 'no_provider_configured'`) on first invocation. Full matrix: `/framework/ai-assistant/overview`.
 
 **baseURL override hierarchy** (highest to lowest priority for a given call):
 1. `baseUrlOverride` on `runAiAgentText` / `runAiAgentObject` — programmatic callers only (R6: no HTTP exposure before Phase 4a).
@@ -375,7 +376,7 @@ Process-wide defaults (Phase 0 of spec
 
 | Variable | Purpose |
 |----------|---------|
-| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Provider-only preferences can fall through when unconfigured; when paired with `OM_AI_MODEL`, the named provider must be configured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
+| `OM_AI_PROVIDER` | Optional. Names the registered provider id to prefer when multiple are configured. Provider-only preferences can fall through when unconfigured; when paired with `OM_AI_MODEL`, the named provider must be configured. Built-in ids: `anthropic`, `google`, `openai`, `deepinfra`, `atlas-cloud`, `groq`, `together`, `fireworks`, `azure`, `litellm`, `ollama`, `openrouter`, `lm-studio`. The legacy `OPENCODE_PROVIDER` env is read as a backward-compatibility fallback. |
 | `OM_AI_MODEL` | Optional. Process-wide model id used when neither caller override, `OM_AI_<MODULE>_MODEL`, nor `agentDefaultModel` applies. Slash-qualified ids (e.g. `openai/gpt-5-mini`) consume the provider axis at the same step — DeepInfra ids that already contain slashes (`meta-llama/Llama-3.3-70B-Instruct-Turbo`) stay intact via the registry-membership guard. The legacy `OPENCODE_MODEL` env is read as a backward-compatibility fallback. |
 
 `OM_AI_*` are the canonical names; the legacy `OPENCODE_PROVIDER` / `OPENCODE_MODEL` envs stay bound to the OpenCode Code Mode stack and are also honored here as backward-compatibility fallbacks — see "Coexistence with OpenCode Code Mode" below.
@@ -391,7 +392,7 @@ Azure is a **native** Responses-API adapter, not an OpenAI-compatible preset: [`
 
 All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
-Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips every other source. When set, the settings UI is clipped to the allowed subset, the chat-UI `<ModelPicker>` only offers these values, the dispatcher rejects out-of-allowlist `?provider=` / `?model=` query params with typed 400 errors, and the model-factory swaps to a safe pair (emitting `console.warn` and an `allowlistFallback` field on the resolution) whenever an agent default, tenant override, or higher-priority source resolves to something blocked.
+Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips every other source. When set, the settings UI and chat-UI `<ModelPicker>` only offer the allowed values, the dispatcher rejects out-of-allowlist `?provider=`/`?model=` params with typed 400 errors, and the model-factory swaps to a safe pair (with `console.warn` and an `allowlistFallback` resolution field) whenever an agent default, tenant override, or higher-priority source is blocked.
 
 | Variable | Purpose |
 |----------|---------|
