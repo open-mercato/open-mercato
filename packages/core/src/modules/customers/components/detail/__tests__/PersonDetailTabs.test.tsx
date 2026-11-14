@@ -96,6 +96,26 @@ describe('PersonDetailTabs', () => {
     },
   )
 
+  it('marks the rail busy only while injected tabs are loading', () => {
+    const { rerender } = render(<PersonDetailTabs activeTab="activities" onTabChange={jest.fn()} isLoadingInjectedTabs>panel</PersonDetailTabs>)
+    expect(screen.getByTestId('detail-tabs-row')).toHaveAttribute('aria-busy', 'true')
+    rerender(<PersonDetailTabs activeTab="activities" onTabChange={jest.fn()} isLoadingInjectedTabs={false}>panel</PersonDetailTabs>)
+    expect(screen.getByTestId('detail-tabs-row')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it('renders the icon declared on an injected tab placement', () => {
+    render(
+      <PersonDetailTabs
+        activeTab="activities"
+        onTabChange={() => {}}
+        injectedTabs={[{ id: 'pending-work', label: 'Pending work', icon: 'list-checks', priority: 10 }]}
+      >
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: 'Pending work' }).querySelector('svg.lucide-list-checks')).not.toBeNull()
+  })
+
   it('folds a tab that appears after the first measurement instead of staying on the measuring render', () => {
     const widthSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100 } as DOMRect)
     const clientWidth = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth')
