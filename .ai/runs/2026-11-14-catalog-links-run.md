@@ -58,8 +58,8 @@ Affected areas:
 
 ### Phase 1: Documentation links
 
-- [ ] 1.1 Update catalog links and link text in apps/docs/docs
-- [ ] 1.2 Update catalog links in README.md and packages/create-app/README.md
+- [x] 1.1 Update catalog links and link text in apps/docs/docs — e9ba7d7a6
+- [x] 1.2 Update catalog links in README.md and packages/create-app/README.md — 68ba81d4c
 
 ### Phase 2: Strings the tools print
 
