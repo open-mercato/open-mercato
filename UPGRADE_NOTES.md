@@ -174,6 +174,28 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.9.0 → 0.9.1 (unreleased)
 
+### Currencies adds opt-in official NBP average rates
+
+The `currencies` module now provides the explicit-only `nbp_average` provider for NBP
+tables A and B. It persists official `average` rates as foreign-currency-to-PLN values and
+stores the NBP publication number in the nullable `exchange_rates.external_reference` column.
+The migration is additive and existing `NBP` table-C buy/sell behavior is unchanged.
+
+**Action for consumers:** existing unfiltered `ExchangeRateService` calls retain their
+default-provider behavior. To request an official rate, call it with
+`options: { provider: 'nbp_average', rateType: 'average' }`. Enable the separate
+`nbp_average` fetch configuration only for organizations that should ingest these rates.
+`externalReference` is provider-owned provenance and is deliberately read-only in manual
+exchange-rate create/update payloads. The machine-readable `nbp_average` source is intentional;
+the existing `NBP` and `Raiffeisen Bank Polska` source values remain frozen legacy spellings.
+
+`POST /api/currencies/fetch-rates` keeps its previous request shapes during a bridge release: a
+date-only `date` such as `2026-08-24`, an empty `providers` list (which continues to select the
+default providers) and unknown request properties are still accepted, and unknown properties are
+ignored instead of rejected. Duplicate provider names and unparseable dates are rejected. A later
+release will require a complete RFC 3339 timestamp, reject unknown properties and reject an empty
+provider list; update callers that still send the legacy shapes before upgrading past the bridge.
+
 ### Encryption maintenance safety confirmations (#6767)
 
 Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.

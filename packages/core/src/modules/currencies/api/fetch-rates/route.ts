@@ -4,55 +4,110 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { CurrencyFetchConfig } from '../../data/entities'
 
+const logger = createLogger('currencies').child({ component: 'api/fetch-rates' })
+
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['currencies.fetch.manage'],
+  POST: { requireAuth: true, requireFeatures: ['currencies.fetch.manage'] },
 }
 
-export async function POST(req: NextRequest) {
-  const container = await createRequestContainer()
+// The request contract stays permissive for a bridge release: date-only strings,
+// an empty `providers` list (default-provider selection) and unknown properties
+// were all accepted before the explicit-only provider was introduced. Unknown
+// keys are stripped rather than rejected; a later release can tighten this.
+const fetchRatesRequestSchema = z.object({
+  date: z.string().trim().min(1)
+    .refine((value) => Number.isFinite(new Date(value).getTime()), 'Date must be a valid date')
+    .optional(),
+  providers: z.array(z.string().trim().min(1).max(50)).max(20)
+    .refine((providers) => new Set(providers).size === providers.length, 'Providers must be unique')
+    .optional(),
+})
+const fetchRatesGuardedRequestSchema = fetchRatesRequestSchema.strip()
 
+type FetchRatesRequest = z.infer<typeof fetchRatesRequestSchema>
+
+export async function POST(req: NextRequest) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth || !auth.tenantId || !auth.orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { translate } = await resolveTranslations()
+  const invalidRequest = () => NextResponse.json(
+    { error: translate('currencies.fetch.error_invalid_request', 'Invalid fetch-rates request') },
+    { status: 400 }
+  )
+
+  let body: unknown
   try {
-    const auth = await getAuthFromRequest(req)
-    if (!auth || !auth.tenantId || !auth.orgId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    body = await req.json()
+  } catch {
+    return invalidRequest()
+  }
+  const parsed = fetchRatesRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return invalidRequest()
+  }
+
+  const container = await createRequestContainer()
+  try {
+    const guardResult = await runRouteMutationGuards({
+      container,
+      req,
+      auth: {
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId,
+        userId: auth.sub,
+      },
+      input: {
+        resourceKind: 'currencies.fetch_rates',
+        resourceId: null,
+        operation: 'custom',
+        mutationPayload: parsed.data,
+      },
+    })
+    if (!guardResult.ok) {
+      return guardResult.response
+    }
+    const guardedInput = guardResult.modifiedPayload
+      ? fetchRatesGuardedRequestSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
+      : { success: true as const, data: parsed.data }
+    if (!guardedInput.success) {
+      return invalidRequest()
+    }
+    const input: FetchRatesRequest = guardedInput.data
+    const fetchDate = input.date ? new Date(input.date) : new Date()
+    if (!Number.isFinite(fetchDate.getTime())) {
+      return invalidRequest()
     }
 
     const em = container.resolve<EntityManager>('em')
     const fetchService = container.resolve<RateFetchingService>('rateFetchingService')
 
-    let body
-    try {
-      body = await req.json()
-    } catch {
-      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-    }
-
-    const { date, providers } = body
-
-    const fetchDate = date ? new Date(date) : new Date()
-
     const result = await fetchService.fetchRatesForDate(
       fetchDate,
       { tenantId: auth.tenantId, organizationId: auth.orgId },
-      { providers }
+      {
+        ...(input.providers && input.providers.length > 0 ? { providers: input.providers } : {}),
+        translate,
+      },
     )
 
-    // Update last sync info for each provider
-    const providerSources = providers?.length
-      ? providers
+    const providerSources = input.providers?.length
+      ? input.providers
       : Object.keys(result.byProvider)
 
-    // Fetch all configs at once to avoid N+1 queries
-    const configFilter: Record<string, unknown> = {
+    const allConfigs = providerSources.length > 0 ? await em.find(CurrencyFetchConfig, {
       tenantId: auth.tenantId,
       provider: { $in: providerSources },
       organizationId: auth.orgId,
-    }
-    const allConfigs = await em.find(CurrencyFetchConfig, configFilter)
+    }) : []
     const configMap = new Map(allConfigs.map((c) => [c.provider, c]))
 
     for (const providerSource of providerSources) {
@@ -75,29 +130,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Flush all config updates at once
     await em.flush()
-
+    await guardResult.runAfterSuccess()
     return NextResponse.json(result)
-  } catch (err: any) {
+  } catch (err) {
+    logger.error('Fetch rates request failed', { err })
+    const failureMessage = translate(
+      'currencies.fetch.error_fetch_rates',
+      'Failed to fetch currency rates'
+    )
     return NextResponse.json(
       {
-        error: err.message,
+        error: failureMessage,
         totalFetched: 0,
         byProvider: {},
-        errors: [err.message],
+        errors: [failureMessage],
       },
       { status: 500 }
     )
   } finally {
-    await (container as any).dispose?.()
+    await (container as unknown as { dispose?: () => Promise<void> }).dispose?.()
   }
 }
-
-const fetchRatesRequestSchema = z.object({
-  date: z.string().datetime().optional(),
-  providers: z.array(z.string()).optional(),
-})
 
 const fetchRatesResponseSchema = z.object({
   totalFetched: z.number(),
@@ -135,6 +189,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Bad request', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 422, description: 'Blocked by a mutation guard', schema: errorSchema },
         { status: 500, description: 'Internal server error', schema: fetchRatesResponseSchema },
       ],
     },

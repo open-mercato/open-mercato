@@ -1,5 +1,10 @@
 import { describe, it, expect } from '@jest/globals'
-import { truncateToMinute, exchangeRateCreateSchema, exchangeRateUpdateSchema } from '../validators'
+import {
+  truncateToMinute,
+  exchangeRateCreateSchema,
+  exchangeRateUpdateSchema,
+  providerSchema,
+} from '../validators'
 
 describe('truncateToMinute', () => {
   it('should zero out seconds and milliseconds', () => {
@@ -71,6 +76,28 @@ describe('exchangeRateCreateSchema', () => {
     })
 
     expect(result1.date.getTime()).toBe(result2.date.getTime())
+  })
+
+  it('accepts average as an additive rate type', () => {
+    const result = exchangeRateCreateSchema.parse({
+      organizationId: '123e4567-e89b-12d3-a456-426614174000',
+      tenantId: '123e4567-e89b-12d3-a456-426614174001',
+      fromCurrencyCode: 'EUR',
+      toCurrencyCode: 'PLN',
+      rate: '4.2531',
+      date: '2026-08-24T00:00:00.000Z',
+      source: 'nbp_average',
+      type: 'average',
+    })
+
+    expect(result.type).toBe('average')
+  })
+})
+
+describe('providerSchema', () => {
+  it('accepts the explicit NBP average provider while retaining existing providers', () => {
+    expect(providerSchema.parse('nbp_average')).toBe('nbp_average')
+    expect(providerSchema.parse('NBP')).toBe('NBP')
   })
 })
 

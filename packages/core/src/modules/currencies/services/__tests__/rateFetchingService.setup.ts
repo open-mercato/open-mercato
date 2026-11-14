@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { Currency, ExchangeRate } from '../../data/entities'
 import type { RateProvider, RateProviderResult } from '../providers/base'
+import type { ProviderSelectionMode } from '../providers/base'
 
 export interface MockEntityManagerConfig {
   currencies?: Currency[]
@@ -14,6 +15,7 @@ export interface MockProviderConfig {
   isAvailable?: boolean
   rates?: RateProviderResult[]
   error?: Error
+  selectionMode?: ProviderSelectionMode
 }
 
 /**
@@ -25,6 +27,10 @@ function matchesFilter(value: unknown, filter: unknown): boolean {
   if (filter && typeof filter === 'object' && '$in' in (filter as Record<string, unknown>)) {
     const candidates = (filter as { $in: unknown[] }).$in
     return Array.isArray(candidates) && candidates.includes(value)
+  }
+  if (filter && typeof filter === 'object' && '$nin' in (filter as Record<string, unknown>)) {
+    const excluded = (filter as { $nin: unknown[] }).$nin
+    return Array.isArray(excluded) && !excluded.includes(value)
   }
   return value === filter
 }
@@ -74,6 +80,7 @@ export function createMockEntityManager(config: MockEntityManagerConfig = {}) {
           if (!matchesFilter(r.toCurrencyCode, filter.toCurrencyCode)) return false
           if (!matchesDateFilter(r.date, filter.date)) return false
           if (!matchesFilter(r.source, filter.source)) return false
+          if (!matchesFilter(r.type, filter.type)) return false
           if (filter.isActive !== undefined && r.isActive !== filter.isActive) return false
           if (filter.deletedAt !== undefined && filter.deletedAt === null && r.deletedAt !== null) return false
           return true
@@ -135,6 +142,7 @@ export function createMockProvider(config: MockProviderConfig): RateProvider {
   return {
     source: config.source,
     name: config.name || config.source,
+    selectionMode: config.selectionMode,
     isAvailable: jest.fn(() => config.isAvailable ?? true),
     fetchRates: jest.fn(async (date, scope, currencies) => {
       if (config.error) {

@@ -27,7 +27,8 @@ const sourceSchema = z
   .transform(s => s.trim())
 
 // Rate type validation schema
-const rateTypeSchema = z.enum(['buy', 'sell']).nullable().optional()
+export const rateTypeSchema = z.enum(['buy', 'sell', 'average']).nullable().optional()
+export type RateType = NonNullable<z.infer<typeof rateTypeSchema>>
 
 // Currency validators
 export const currencyCreateSchema = z.object({
@@ -139,7 +140,7 @@ export type ExchangeRateUpdateInput = z.infer<typeof exchangeRateUpdateSchema>
 export type ExchangeRateDeleteInput = z.infer<typeof exchangeRateDeleteSchema>
 
 // Currency Fetch Config validators
-export const providerSchema = z.enum(['NBP', 'Raiffeisen Bank Polska', 'Custom'])
+export const providerSchema = z.enum(['NBP', 'nbp_average', 'Raiffeisen Bank Polska', 'Custom'])
 
 export const syncTimeSchema = z
   .string()
