@@ -1,5 +1,20 @@
 "use client"
 
+type TranslateWithFallback = (key: string, fallback?: string) => string
+
+export function translateLineItemServerError(
+  message: string,
+  t: TranslateWithFallback,
+): string {
+  if (message === "uom.unit_not_found") {
+    return t(
+      "sales.documents.items.errors.uom.unitNotFound",
+      "The specified unit code was not found.",
+    )
+  }
+  return message
+}
+
 export function normalizeNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim().length) {

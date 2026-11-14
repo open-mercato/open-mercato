@@ -1,4 +1,29 @@
-import { resolveCatalogPriceAmount, resolveLineDiscountDisplay } from '../lineItemUtils'
+import {
+  resolveCatalogPriceAmount,
+  resolveLineDiscountDisplay,
+  translateLineItemServerError,
+} from '../lineItemUtils'
+
+describe('translateLineItemServerError', () => {
+  it('translates an unknown unit code using the sales unit error copy', () => {
+    const t = (key: string, fallback?: string) =>
+      key === 'sales.documents.items.errors.uom.unitNotFound'
+        ? 'Nie znaleziono jednostki.'
+        : fallback ?? key
+
+    expect(translateLineItemServerError('uom.unit_not_found', t)).toBe(
+      'Nie znaleziono jednostki.',
+    )
+  })
+
+  it('preserves other server messages', () => {
+    const t = (key: string, fallback?: string) => fallback ?? key
+
+    expect(translateLineItemServerError('Something went wrong.', t)).toBe(
+      'Something went wrong.',
+    )
+  })
+})
 
 describe('resolveLineDiscountDisplay', () => {
   it('returns null when neither a discount amount nor a percentage is recorded', () => {
