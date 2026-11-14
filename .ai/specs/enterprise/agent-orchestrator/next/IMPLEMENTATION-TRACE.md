@@ -19,7 +19,7 @@
 | 2 | `2026-06-20-agent-eval-harness-and-metrics.md` | ✅ Implemented | `AgentEvalCase`/`AgentEvalAssertion`/`AgentEvalResult`/`AgentCorrection`/`AgentMetricRollup` entities; `lib/eval/`, `lib/metrics/`; `workers/{llm-judge,metric-rollup}.ts`; `api/{corrections,eval-cases/*,eval-assertions,agents/[id]/metrics,metrics/overview}`; `backend/eval-assertions` page |
 | 3 | `2026-06-19-agent-operations-ui.md` | 🟡 Partial | Cockpit exists as **standalone `backend/` pages** (`overview`, `caseload`, `traces`, `agents`, `playground`, `processes`, `audit`, `eval-assertions`), **not** the specced widget-injection overlays into `workflows` My-Tasks. Since the last audit: Overview KPIs are **rollup-backed** (`/metrics/overview`, live fallback), Caseload is server-paginated with real run enrichment, and the decision panel shows **real guardrail verdicts** (`proposal.guardResults` → `components/ProposalFacts.tsx`). As of 2026-07-12 the **trace inspector is fully real-data** — guardrail-verdicts panel (`GuardrailsCard`), context bundle, proposal-rationale reasoning, and working Add-to-evals / Flag / Re-run header actions (`api/runs/[id]/{eval-case,flag,rerun}`) — except the **model-comparison card** (still Sample; needs #9 shadow runs). The Processes pages read **live projection data** (#11). Remaining spec delta: standalone pages vs the specced widget-injection model. |
 | 4 | `2026-06-24-trace-eval-pr4b-and-followups.md` | 🟡 Nearly complete | F1/F2/F4/F5/F6/F7/F8/F9/F10 ✅ (F8 + F10 closed 2026-07-12), F3 ⬜ (rides with the native-runtime rollout) — see the F-table below. |
-| 5 | `2026-06-19-agent-runtime-guardrails.md` | ✅ Implemented (P1–P4) | `AgentGuardrailCheck`/`AgentGuardrailSet` entities; `lib/guardrails/{guardrailService,promptInjection,grounding,groundingSets,syncGroundingSets}.ts`; `api/guardrail-checks`; event `guardrail.tripped`. P3 injection isolation + P4 grounding cite-or-abstain landed after Context `retrieve()` (Waves 1+3 complete). |
+| 5 | `2026-06-19-agent-runtime-guardrails.md` | 🟡 Partial (P1, P3–P4; P2 moderation/PII not built) | `AgentGuardrailCheck`/`AgentGuardrailSet` entities; `lib/guardrails/{guardrailService,promptInjection,grounding,groundingSets,syncGroundingSets}.ts`; `api/guardrail-checks`; event `guardrail.tripped`. P1 output-schema/tool-scope, P3 injection isolation and P4 grounding cite-or-abstain are implemented. **P2 moderation/PII screening is not:** `moderation` and `pii` exist only as declared check kinds (`data/entities.ts`, `data/validators.ts`); no runtime check emits them (`guardrailService.checkInput` notes they "compose here later"). PII handling that does exist is redaction, not screening: the context packer's name-based `pii` rule (`lib/context/redactor.ts`) and trace content capture's `redactPii` (`lib/trace/contentCapture.ts`). Corrected 2026-11-13. |
 | 6 | `2026-06-19-agent-context-knowledge-plane.md` | ✅ Implemented (P1–P4) | `AgentContextBundle` entity; `lib/context/{registry,contextResolver,retrievalSource,documentIngest,documentOcrProvider,documentSource,packer,redactor}.ts`; `api/context-bundles`. TDCR registry + retrieval + doc-ingest/OCR + redaction/token-budget packer (Wave 2 complete). |
 | 7 | `2026-06-19-agent-identity-and-on-behalf-of.md` | ✅ Implemented (P1–P4) | `AgentPrincipal`/`AgentDelegationGrant` entities; `lib/identity/{agentPrincipalService,agentTokenService,agentDelegationGrantService,agentAuthMdService,agentNoBypassSubscriber,agentWriteScope}.ts`; `api/identity/{token,well-known,…}`; events `agent_principal.registered`/`delegation_grant.revoked`; `agentRuntime.run` `ctx.runAs` fail-closed no-bypass (Wave 4 complete). |
 | 8 | `2026-06-19-agent-dispatch.md` | ⬜ Not started | No `AgentTask`/`AgentBinding`/`AgentTaskLease`, no `DispatchService`/`TaskRouter`, no internal/pull/A2A adapters in `lib/`. Its identity prerequisite (Wave 4) is now met. |
@@ -77,13 +77,13 @@
 
 A dependency-ordered roadmap. Each **Wave** is independently shippable; phases inside a wave are the owning
 spec's own phase numbers. Effort: S ≤ 2d, M ≈ 3–6d, L ≈ 1–2wk (one engineer).
-**Waves 0–4 are complete** (0 minus F3); they are kept below, collapsed, as the as-built record.
+**Waves 0–4 are complete** (0 minus F3, 1 minus Guardrails P2 moderation/PII); they are kept below, collapsed, as the as-built record.
 
 ### Dependency graph (what must precede what)
 
 ```
 Wave 0  Stabilize shipped trace/eval (F1–F10)                   ✅ done (F3 deferred to the native-runtime rollout)
-Wave 1  Guardrails P1–P2 (schema/tool-scope, moderation/PII)    ✅ done
+Wave 1  Guardrails P1–P2 (schema/tool-scope, moderation/PII)    🟡 P1 done; P2 moderation/PII not built
 Wave 2  Context & Knowledge Plane P1–P4                         ✅ done
 Wave 3  Guardrails P3–P4 (injection isolation, grounding)       ✅ done
 Wave 4  Identity & On-Behalf-Of P1–P4                           ✅ done
@@ -110,8 +110,9 @@ optional widget-injection migration.
 
 - **Wave 0** (`2026-06-24-trace-eval-pr4b-and-followups.md`): F4 → F5 → F8(partial) → F6 → F7 → F2 → F1 → F9 all
   landed; **F3 (partitioning/retention) deliberately deferred** to ride with the native-runtime rollout.
-- **Wave 1+3 — Guardrails P1–P4** (`2026-06-19-agent-runtime-guardrails.md`): output-schema/tool-scope,
-  moderation/PII, prompt-injection isolation, grounding cite-or-abstain (`lib/guardrails/`, `AgentGuardrailCheck`,
+- **Wave 1+3 — Guardrails P1, P3–P4** (`2026-06-19-agent-runtime-guardrails.md`): output-schema/tool-scope,
+  prompt-injection isolation, grounding cite-or-abstain. P2 moderation/PII screening was not built (declared
+  check kinds only; see row 5) (`lib/guardrails/`, `AgentGuardrailCheck`,
   `guardrail.tripped`).
 - **Wave 2 — Context P1–P4** (`2026-06-19-agent-context-knowledge-plane.md`): TDCR registry/resolver, retrieval
   source, document ingest/OCR, redaction + token-budget packer (`lib/context/`, `AgentContextBundle`).

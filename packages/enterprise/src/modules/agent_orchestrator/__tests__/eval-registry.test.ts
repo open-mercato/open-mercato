@@ -24,15 +24,16 @@ function runView(overrides: Partial<ScorerRunView> = {}): ScorerRunView {
     toolCalls: [],
     stepCount: 0,
     disposition: null,
+    guardrailChecks: [],
     ...overrides,
   }
 }
 
 describe('scorer registry — catalog', () => {
-  it('registers 22 definitions: 21 deterministic + 1 judge', () => {
+  it('registers 23 definitions: 22 deterministic + 1 judge', () => {
     const definitions = listScorerDefinitions()
-    expect(definitions).toHaveLength(22)
-    expect(definitions.filter((definition) => definition.kind === 'deterministic')).toHaveLength(21)
+    expect(definitions).toHaveLength(23)
+    expect(definitions.filter((definition) => definition.kind === 'deterministic')).toHaveLength(22)
     expect(definitions.filter((definition) => definition.kind === 'llm_judge')).toHaveLength(1)
   })
 

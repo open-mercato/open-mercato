@@ -1,5 +1,6 @@
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import {
+  AiAgentRun,
   AiChatConversation,
   AiChatConversationParticipant,
   AiChatMessage,
@@ -153,6 +154,7 @@ function mockEm(options: { orgs?: OrgRow[] } = {}) {
   }
 
   const pendingPersist: any[] = []
+  const nativeUpdates: Array<{ entity: unknown; where: Record<string, unknown>; data: Record<string, unknown> }> = []
 
   const em: any = {
     find,
@@ -242,8 +244,13 @@ function mockEm(options: { orgs?: OrgRow[] } = {}) {
         else store.push(row)
       }
     },
+    nativeUpdate: async (entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
+      nativeUpdates.push({ entity, where, data })
+      return 1
+    },
     transactional: async (fn: (tx: any) => Promise<unknown>) => fn(em),
     __stores: stores,
+    __nativeUpdates: nativeUpdates,
   }
 
   return em
@@ -400,6 +407,42 @@ describe('AiChatConversationRepository', () => {
     expect(em.__stores.conv[0].deletedAt).toEqual(at)
     expect(em.__stores.conv[0].status).toBe('closed')
     expect(em.__stores.message.every((row: MessageRow) => row.deletedAt instanceof Date)).toBe(true)
+  })
+
+  it('softDelete soft-deletes the conversation agent runs scoped to tenant and organization', async () => {
+    const em = mockEm({
+      orgs: [{ id: 'org-1', tenant: tenantAlpha, isActive: true, deletedAt: null }],
+    })
+    const repo = new AiChatConversationRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-1', userId: 'u-1' }
+    await repo.createOrGet({ conversationId: 'c-runs', agentId: 'a' }, ctx)
+    const at = new Date('2026-05-18T13:30:00.000Z')
+    await repo.softDelete('c-runs', ctx, at)
+    expect(em.__nativeUpdates).toEqual([
+      {
+        entity: AiAgentRun,
+        where: {
+          tenantId: tenantAlpha,
+          organizationId: 'org-1',
+          conversationId: 'c-runs',
+          deletedAt: null,
+        },
+        data: { deletedAt: at },
+      },
+    ])
+  })
+
+  it('softDelete does not touch agent runs when the conversation is not accessible', async () => {
+    const em = mockEm()
+    const repo = new AiChatConversationRepository(em)
+    await repo.createOrGet(
+      { conversationId: 'c-foreign', agentId: 'a' },
+      { tenantId: tenantBeta, organizationId: null, userId: 'u-3' },
+    )
+    await expect(
+      repo.softDelete('c-foreign', { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }),
+    ).rejects.toBeInstanceOf(AiChatConversationAccessError)
+    expect(em.__nativeUpdates).toEqual([])
   })
 
   it('list only returns conversations owned by the caller', async () => {

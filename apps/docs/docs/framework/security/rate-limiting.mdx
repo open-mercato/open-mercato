@@ -256,10 +256,10 @@ These variables bound LLM OCR cost amplification in the attachments module. They
 | `OM_ATTACHMENT_OCR_MAX_PAGES` | `50` | Max PDF pages processed for OCR / text extraction |
 | `OM_ATTACHMENT_OCR_PAGE_TIMEOUT_MS` | `60000` | Per-page LLM OCR call timeout |
 | `OM_ATTACHMENT_OCR_MAX_OUTPUT_TOKENS` | `4096` | Max output tokens per OCR `generateText` call |
-| `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` | `2` | Max concurrent in-process OCR jobs **per replica** |
-| `OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE` | `50` | Max waiters blocked on the concurrency slot |
+| `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` | `2` | Concurrency of the `attachments-ocr` queue worker (capped at 20) and of the in-process fallback |
+| `OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE` | `50` | Max waiters blocked on the in-process fallback concurrency slot |
 
-Cluster-wide OCR concurrency is `OM_ATTACHMENT_OCR_MAX_CONCURRENCY ×` the number of app replicas because counters are in-process, not shared via Redis.
+LLM OCR runs as a durable job on the `attachments-ocr` queue (`packages/queue`), so it survives restarts and is bounded per worker process. Only when the queue cannot accept a job does the upload fall back to the in-process scheduler, whose counters are per replica.
 
 ## Strategies
 

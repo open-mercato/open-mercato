@@ -7,7 +7,7 @@ import { resolveAgentOutcomeZod } from '../sdk/agentOutcomeContract'
 import { processSubjectSchema, type ProcessSubject } from '../../data/validators'
 import type { AgentRuntimeService } from './agentRuntime'
 import type { AgentRunAs } from './persistence'
-import { resolveAgentPrincipal } from '../identity/agentPrincipalService'
+import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
 import { withProcessSubject } from '../processes/subjectContext'
 import type {
   AgentDispositionReview,
@@ -86,6 +86,11 @@ export type AgentOutcomeContractSnapshot = {
   schema: ZodTypeAny
 }
 
+export type AgentAccessRequirementSnapshot = {
+  agentId: string
+  requiredFeatures: string[]
+}
+
 export interface AgentWorkflowBridge {
   invokeAgentForWorkflow(
     args: InvokeAgentForWorkflowArgs,
@@ -97,6 +102,12 @@ export interface AgentWorkflowBridge {
    * falls back to `unknown` ledger entries.
    */
   listAgentOutcomeContracts?(): Promise<AgentOutcomeContractSnapshot[]>
+  /**
+   * Invoke requirements of every registered agent, so the workflows module can
+   * warn at authoring time when a definition grant cannot invoke an agent its
+   * INVOKE_AGENT step targets. OPTIONAL for the same reason as above.
+   */
+  listAgentAccessRequirements?(): Promise<AgentAccessRequirementSnapshot[]>
 }
 
 export type AgentWorkflowBridgeDeps = {
@@ -146,6 +157,8 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
         workflowInstanceId: ctx.workflowInstanceId,
         stepId: ctx.stepId,
         invocationId: ctx.invocationId,
+        ...(ctx.userId ? { invoker: { kind: 'workflow' as const, actingUserId: ctx.userId } } : {}),
+        entryPoint: 'workflow',
         onRunPersisted: (runId) => {
           if (!topLevelRunId) topLevelRunId = runId
         },
@@ -225,6 +238,14 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     return contracts
   }
 
+  async listAgentAccessRequirements(): Promise<AgentAccessRequirementSnapshot[]> {
+    await ensureAgentsLoaded()
+    return listAgentEntries().map((entry) => ({
+      agentId: entry.id,
+      requiredFeatures: [...(entry.requiredFeatures ?? [])],
+    }))
+  }
+
   private parseSubject(raw: unknown): ProcessSubject | null {
     if (!raw || typeof raw !== 'object') return null
     const parsed = processSubjectSchema.safeParse(raw)
@@ -232,24 +253,24 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
   }
 
   /**
-   * Resolves the on-behalf-of attribution for an `INVOKE_AGENT` run. Returns the
-   * agent principal's `auth.User` id (actor) + the invoking human (`onBehalfOfUserId`)
-   * when the agent is provisioned and enabled; null otherwise (fail-open — the run
-   * keeps its `userId`-derived attribution until a principal exists). Org-scoped.
+   * Resolves the on-behalf-of attribution for an `INVOKE_AGENT` run through the
+   * runtime's shared resolver: the agent principal's `auth.User` id (actor) and
+   * the invoking human (`onBehalfOfUserId`) when the agent has an enabled
+   * principal; null otherwise (fail-open, unless the agent declares
+   * `principal.required`, which throws `AgentPrincipalMissingError`).
    */
-  private async resolveRunAs(
+  private resolveRunAs(
     agentId: string,
     ctx: InvokeAgentForWorkflowArgs['ctx'],
   ): Promise<AgentRunAs | null> {
-    const principal = await resolveAgentPrincipal(
-      this.container,
-      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    return resolveRunAsForAgent(this.container, {
       agentId,
-    )
-    if (!principal || !principal.enabled) return null
-    return {
-      agentUserId: principal.userId,
-      onBehalfOfUserId: ctx.userId ?? null,
-    }
+      ctx: {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId: ctx.userId ?? '',
+        ...(ctx.userId ? { invoker: { kind: 'workflow' as const, actingUserId: ctx.userId } } : {}),
+      },
+    })
   }
 }

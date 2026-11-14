@@ -27,6 +27,9 @@ function canonicalize(value: unknown): unknown {
  * SQL-queryable. 64-char SHA-256 hex → fits `varchar(64)`.
  */
 export function canonicalInputKey(input: unknown): string {
-  const canonical = JSON.stringify(canonicalize(input) ?? null)
-  return createHash('sha256').update(canonical).digest('hex')
+  return createHash('sha256').update(canonicalJson(input)).digest('hex')
+}
+
+export function canonicalJson(input: unknown): string {
+  return JSON.stringify(canonicalize(input) ?? null)
 }

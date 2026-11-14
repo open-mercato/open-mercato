@@ -3,10 +3,35 @@ import {
   defineAiAgent,
   type AiAgentDefinition,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
+import { computeAgentDefinitionHash } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-definition-hash'
+import {
+  aiAgentCallSettingsSchema,
+  type AiAgentCallSettings,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import type { ZodTypeAny } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { AgentType } from '../../data/validators'
+import {
+  normalizeAgentPrincipalDeclaration,
+  normalizeAgentRequiredFeatures,
+  type AgentPrincipalDeclaration,
+  type AgentPrincipalDeclarationInput,
+  type AgentType,
+  type IntegrityRuleInput,
+  type IntegrityRule,
+  type UntrustedInputDecl,
+  type UntrustedInputDeclInput,
+} from '../../data/validators'
+import { parseAgentIntegrityRules, parseAgentUntrustedInputs } from '../guardrails/integrity/declaration'
+import { buildUntrustedInputInstruction } from '../guardrails/integrity/untrustedInput'
 import { getSkillEntry } from './defineSkill'
+import type { JudgeRubric } from '../eval/judgeRubric'
+import { parseAgentEvalRubrics, registerAgentRubrics, type JudgeRubricInput } from '../eval/rubrics'
+export {
+  registerIntegrityChecker,
+  type IntegrityCheckerFn,
+  type IntegrityCheckerInput,
+  type IntegrityCheckerResult,
+} from './integrityCheckers'
 import type { JsonSchemaNode } from './outcomeSchema'
 import type { AgentTokenUsage, FileAgentFile } from '../tokens/types'
 
@@ -85,6 +110,12 @@ export interface DefineAgentInput {
   subAgents?: string[]
   defaultProvider?: string
   defaultModel?: string
+  /**
+   * Agent-level model-call defaults (temperature, seed, ...), forwarded to
+   * `defineAiAgent({ modelSettings })`. Per-call `callSettings` (run ctx, eval
+   * run override) win key by key; provider defaults apply to unset keys.
+   */
+  modelSettings?: AiAgentCallSettings
   /** Object-safe loop subset only. */
   loop?: { maxSteps?: number }
   /**
@@ -126,6 +157,47 @@ export interface DefineAgentInput {
    * it fall back to the panel's generic derivation.
    */
   facts?: AgentFact[]
+  /**
+   * ACL features the INVOKER must hold to run this agent. Normalised (trimmed,
+   * deduped, empties dropped) onto `AgentRegistryEntry.requiredFeatures` and
+   * forwarded to `defineAiAgent({ requiredFeatures })` so the ai-assistant policy
+   * check applies the same gate. Additive/BC-safe: omitted means no extra gate.
+   */
+  requiredFeatures?: string[]
+  /**
+   * The agent's own identity: a login-less `kind='agent'` user plus a per-org role
+   * holding exactly `roleFeatures`, provisioned and kept authoritative by
+   * `syncAgentPrincipals` (unknown feature ids dropped with a warning, never
+   * super-admin). Validated at registration and stored parsed on
+   * `AgentRegistryEntry.principal`. Additive/BC-safe: omitted means no declared principal.
+   */
+  principal?: AgentPrincipalDeclarationInput
+  /**
+   * Output-integrity rules (spec `2026-10-21-output-integrity-guardrails`): quotes
+   * that must appear in the source, references that must resolve, citations that
+   * must come from a consulted tool, custom checkers. Validated at registration —
+   * every output path must be able to exist in `result.schema` and rule ids must be
+   * unique — and stored parsed (defaults applied) on `AgentRegistryEntry.integrity`.
+   * Additive/BC-safe: omitted means no integrity checks.
+   */
+  integrity?: IntegrityRuleInput[]
+  /**
+   * Run-input fields that carry untrusted content (spec
+   * `2026-10-21-output-integrity-guardrails` → Untrusted inputs): each declared
+   * string field is screened for prompt injection before the model call and the
+   * flag mapped through its `injection` action (`warn` default, `block`, `off`).
+   * Labels and paths must be unique; stored parsed on
+   * `AgentRegistryEntry.untrustedInputs`. Additive/BC-safe: omitted means no screen.
+   */
+  untrustedInputs?: UntrustedInputDeclInput[]
+  /**
+   * Named judge rubrics this agent's `llm_judge` assertions can reference with
+   * `{ "rubricRef": "<key>" }` (spec `2026-10-21-eval-reports-and-reproducible-regression`
+   * → Rubric library). An agent rubric shadows a built-in of the same key.
+   * Validated at registration; stored parsed on `AgentRegistryEntry.evalRubrics`.
+   * Additive/BC-safe: omitted means only the built-in rubrics resolve.
+   */
+  evalRubrics?: Record<string, JudgeRubricInput>
 }
 
 /**
@@ -174,6 +246,8 @@ export interface AgentRegistryEntry {
   instructions: string
   defaultProvider?: string
   defaultModel?: string
+  /** Validated agent-level model-call defaults (see DefineAgentInput). */
+  modelSettings?: AiAgentCallSettings
   /** Object-safe loop subset (see DefineAgentInput). */
   loop?: { maxSteps?: number }
   /** Runtime the agent executes on. Always set (`'native'` for `defineAgent` agents; `'in-process'` accepted as a legacy alias). */
@@ -191,6 +265,16 @@ export interface AgentRegistryEntry {
   outcomeSchema?: JsonSchemaNode
   /** Optional Caseload fact declarations (see DefineAgentInput). */
   facts?: AgentFact[]
+  /** Normalised invoker features (see DefineAgentInput); undefined when the agent declares none. */
+  requiredFeatures?: string[]
+  /** Parsed principal declaration (see DefineAgentInput); undefined when the agent declares none. */
+  principal?: AgentPrincipalDeclaration
+  /** Parsed integrity rules (see DefineAgentInput); undefined when the agent declares none. */
+  integrity?: IntegrityRule[]
+  /** Parsed untrusted input declarations (see DefineAgentInput); undefined when the agent declares none. */
+  untrustedInputs?: UntrustedInputDecl[]
+  /** Parsed judge rubrics (see DefineAgentInput); undefined when the agent declares none. */
+  evalRubrics?: Record<string, JudgeRubric>
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
   /**
@@ -203,9 +287,27 @@ export interface AgentRegistryEntry {
    * tab. File-defined (`runtime: 'opencode'`) agents only; undefined for native.
    */
   sourceFiles?: FileAgentFile[]
+  /**
+   * ai-assistant definition hash of the underlying `defineAiAgent` definition.
+   * Native (`defineAgent`) agents only; one input of their AO definition hash.
+   */
+  aiDefinitionHash?: string
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
+
+function parseAgentModelSettings(
+  agentId: string,
+  modelSettings: AiAgentCallSettings | undefined,
+): AiAgentCallSettings | undefined {
+  if (modelSettings === undefined) return undefined
+  const parsed = aiAgentCallSettingsSchema.safeParse(modelSettings)
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    throw new Error(`[internal] agent "${agentId}" declares invalid modelSettings: ${issues.join('; ')}`)
+  }
+  return Object.keys(parsed.data).length ? parsed.data : undefined
+}
 
 export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   if (registry.has(input.id)) {
@@ -231,6 +333,12 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
   const subAgents = input.subAgents ?? []
   const delegationTools = subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
   const effectiveTools = Array.from(new Set([...ownTools, ...skillTools, ...delegationTools]))
+  const requiredFeatures = normalizeAgentRequiredFeatures(input.id, input.requiredFeatures)
+  const principal = normalizeAgentPrincipalDeclaration(input.id, input.principal)
+  const integrity = parseAgentIntegrityRules(input.id, input.result.schema, input.integrity, { effectiveTools })
+  const untrustedInputs = parseAgentUntrustedInputs(input.id, input.untrustedInputs)
+  const modelSettings = parseAgentModelSettings(input.id, input.modelSettings)
+  const evalRubrics = parseAgentEvalRubrics(input.id, input.evalRubrics)
 
   registry.set(input.id, {
     id: input.id,
@@ -250,20 +358,32 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     instructions: input.instructions,
     defaultProvider: input.defaultProvider,
     defaultModel: input.defaultModel,
+    ...(modelSettings ? { modelSettings } : {}),
     loop: input.loop,
     runtime: 'native',
     sampleInput: input.sampleInput,
     facts: input.facts,
+    requiredFeatures,
+    principal,
+    integrity,
+    untrustedInputs,
+    ...(evalRubrics ? { evalRubrics } : {}),
   })
+  registerAgentRubrics(input.id, evalRubrics)
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
   )
   const subAgentSection = subAgents.length
     ? `## Sub-agents\nYou may delegate independent sub-tasks to these agents by calling the \`${DELEGATE_TOOL_ID}\` tool with { agentId, input }. When several sub-tasks are independent, issue multiple delegate calls in the SAME step so they run in parallel, then combine their results. Available sub-agents: ${subAgents.join(', ')}.`
     : null
-  const systemPrompt = [input.instructions, ...skillSections, ...(subAgentSection ? [subAgentSection] : [])]
-    .join('\n\n')
-  return defineAiAgent({
+  const untrustedInputSection = buildUntrustedInputInstruction(untrustedInputs)
+  const systemPrompt = [
+    input.instructions,
+    ...skillSections,
+    ...(subAgentSection ? [subAgentSection] : []),
+    ...(untrustedInputSection ? [untrustedInputSection] : []),
+  ].join('\n\n')
+  const aiDefinition = defineAiAgent({
     id: input.id,
     moduleId: input.moduleId,
     label: input.label,
@@ -280,9 +400,14 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     mutationPolicy: 'read-only',
     defaultProvider: input.defaultProvider,
     defaultModel: input.defaultModel,
+    ...(modelSettings ? { modelSettings } : {}),
     loop: input.loop,
     output: { schemaName: input.id.replace(/\W+/g, '_'), schema: input.result.schema },
+    ...(requiredFeatures ? { requiredFeatures } : {}),
   })
+  const registered = registry.get(input.id)
+  if (registered) registered.aiDefinitionHash = computeAgentDefinitionHash(aiDefinition)
+  return aiDefinition
 }
 
 /**
@@ -301,6 +426,19 @@ export function registerFileAgent(entry: AgentRegistryEntry): void {
 
 export function getAgentEntry(id: string): AgentRegistryEntry | undefined {
   return registry.get(id)
+}
+
+/**
+ * The effective read-only tool allowlist `defineAgent` forwards to `defineAiAgent`:
+ * the agent's own tools, every tool its skills contribute, and the delegation
+ * tool when it declares sub-agents.
+ */
+export function resolveAgentEffectiveTools(
+  entry: Pick<AgentRegistryEntry, 'tools' | 'skills' | 'subAgents'>,
+): string[] {
+  const skillTools = entry.skills.flatMap((skillId) => getSkillEntry(skillId)?.tools ?? [])
+  const delegationTools = entry.subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
+  return Array.from(new Set([...entry.tools, ...skillTools, ...delegationTools]))
 }
 
 export function listAgentEntries(): AgentRegistryEntry[] {
@@ -525,6 +663,7 @@ async function loadFileAgents(): Promise<void> {
         outcomeSchema: descriptor.outcomeSchema,
         sampleInput: descriptor.sampleInput,
         facts: descriptor.facts,
+        requiredFeatures: normalizeAgentRequiredFeatures(descriptor.id, descriptor.requiredFeatures),
         tokenUsage: descriptor.tokenUsage,
         sourceFiles: descriptor.sourceFiles,
       })

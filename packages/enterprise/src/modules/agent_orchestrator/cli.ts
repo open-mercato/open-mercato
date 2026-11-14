@@ -3,10 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AgentTokenUsage } from './lib/tokens/types'
 import {
   AgentCorrection,
+  AgentEvalSuiteRun,
   AgentProposal,
   AgentRun,
   AgentSpan,
@@ -15,7 +17,48 @@ import {
   type AgentSpanKind,
 } from './data/entities'
 import { recomputeProcessInstance } from './lib/processes/processProjection'
+import { EVAL_SET_EXPORT_CURRENT, EVAL_SET_SNAPSHOT_LATEST, evalSetSnapshotSchema } from './data/validators'
 import { runEvalGate } from './lib/eval/evalGate'
+import { parseEvalCliCallSettings, readEvalRunToolSummary } from './lib/eval/evalRunSettings'
+import {
+  EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING,
+  buildToolFixtureFile,
+  buildToolFixturesFromRun,
+  conventionalToolFixturePath,
+  findEvalCaseKeyForRun,
+  parseEvalCliToolFixtureFlags,
+  writeToolFixtureFile,
+} from './lib/eval/toolFixtures'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { manifestFromFile, type EvalSetFile } from './lib/eval/evalSetFile'
+import {
+  evalSetFileForExport,
+  evalSetFormatFromPath,
+  formatEvalSetFileIssues,
+  readEvalSetFile,
+  type EvalSetFileExport,
+} from './lib/eval/evalSetFileIo'
+import { stringifyEvalSetFile, type EvalSetTextFormat } from './lib/eval/evalSetYaml'
+import { EvalSetUnresolvedError, resolveSnapshotPin } from './lib/eval/manifest'
+import { collectRubricRefs, ensureAgentRubricsLoaded, ensureRubricLibrary } from './lib/eval/rubrics'
+import { buildEvalReport } from './lib/eval/report/buildEvalReport'
+import { buildEvalErrorReport, type BuildEvalErrorReportInput } from './lib/eval/report/errorReport'
+import { renderEvalReportJunit } from './lib/eval/report/renderJunit'
+import { renderEvalReportMarkdown } from './lib/eval/report/renderMarkdown'
+import type { EvalReport } from './lib/eval/report/reportSchema'
+import { AGENT_ORCHESTRATOR_OTEL_EXPORT_QUEUE, getAgentOrchestratorQueue } from './lib/queue'
+import {
+  OTEL_EXPORT_BACKFILL_USAGE,
+  formatOtelExportBackfillSkips,
+  parseOtelExportBackfillArgs,
+  runOtelExportBackfill,
+} from './lib/trace/otel/exportBackfill'
+import { loadRunExportBundle } from './lib/trace/otel/loadRunExportBundle'
+import {
+  createPrincipalSyncDeps,
+  formatPrincipalSyncSummary,
+  runPrincipalSync,
+} from './lib/identity/principalSyncCommand'
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {}
@@ -528,12 +571,80 @@ const seedDemo: ModuleCli = {
   },
 }
 
+const EVAL_REPORT_FORMATS = ['json', 'md', 'junit'] as const
+type EvalReportFormat = (typeof EVAL_REPORT_FORMATS)[number]
+const DEFAULT_EVAL_REPORT_FORMATS: EvalReportFormat[] = ['json', 'md']
+const EVAL_REPORT_FILE_NAMES: Record<EvalReportFormat, string> = {
+  json: 'report.json',
+  md: 'report.md',
+  junit: 'junit.xml',
+}
+const EVAL_GATE_USAGE =
+  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]\n' +
+  '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
+
+function isEvalReportFormat(value: string): value is EvalReportFormat {
+  return (EVAL_REPORT_FORMATS as readonly string[]).includes(value)
+}
+
+function parseEvalReportFormats(raw: string | undefined): EvalReportFormat[] | null {
+  if (raw === undefined) return DEFAULT_EVAL_REPORT_FORMATS
+  const tokens = raw.split(',').map((token) => token.trim().toLowerCase()).filter(Boolean)
+  if (!tokens.length || !tokens.every(isEvalReportFormat)) return null
+  return Array.from(new Set(tokens))
+}
+
+function parseOptionalBooleanFlag(raw: string | undefined): boolean | null {
+  if (raw === undefined) return false
+  return parseBooleanToken(raw)
+}
+
+function parseMinPassScore(raw: string | undefined): number | null | undefined {
+  if (raw === undefined) return undefined
+  const value = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(value) || value < 0 || value > 1) return null
+  return value
+}
+
+function renderEvalReport(report: EvalReport, format: EvalReportFormat): string {
+  if (format === 'md') return renderEvalReportMarkdown(report)
+  if (format === 'junit') return renderEvalReportJunit(report)
+  return `${JSON.stringify(report, null, 2)}\n`
+}
+
+function writeEvalReportFiles(dir: string, report: EvalReport, formats: EvalReportFormat[]): string[] {
+  const resolved = path.resolve(dir)
+  fs.mkdirSync(resolved, { recursive: true })
+  return formats.map((format) => {
+    const filePath = path.join(resolved, EVAL_REPORT_FILE_NAMES[format])
+    fs.writeFileSync(filePath, renderEvalReport(report, format), 'utf8')
+    return filePath
+  })
+}
+
+function errorMessageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): void {
+  try {
+    const written = writeEvalReportFiles(dir, buildEvalErrorReport(input), ['json'])
+    console.error(`Error report: ${written.join(', ')}`)
+  } catch (writeError) {
+    console.error(`Could not write the error report: ${errorMessageOf(writeError)}`)
+  }
+}
+
 /**
  * Regression gate over an agent's approved eval cases.
  *
  *   yarn mercato agent_orchestrator eval --agent <agentId> --tenant <id> --org <id> \
- *     [--release <id>] [--eval-set-version <v>] [--baseline <suiteRunId>] \
- *     [--repeat <n>] [--gate true]
+ *     [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file>] \
+ *     [--require-snapshot true] [--baseline <suiteRunId>] \
+ *     [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] \
+ *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] \
+ *     [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] \
+ *     [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]
  *
  * A thin wrapper over the SAME library the workbench uses — one scorer registry,
  * one replay engine, no second implementation to drift. With `--gate true` the
@@ -544,17 +655,45 @@ const seedDemo: ModuleCli = {
  * pinned dataset the verdict is not reproducible, so it must not read as a gate
  * result — and `--gate true` on an advisory run is refused rather than silently
  * passing.
+ *
+ * `--snapshot latest` freezes the current dataset and pins its manifest hash;
+ * `--snapshot sha256:<hex>` replays a stored manifest, so the run (and its
+ * baseline) is tied to the identical dataset. `--require-snapshot true` refuses
+ * label-only pins and unpinned runs with exit 2. `--cases <file>` runs an
+ * eval-set file (`.json`, `.yaml`, `.yml`) instead of the database cases and pins
+ * the run to the file's manifest hash; an unreadable or invalid file exits 2.
+ * `--temperature`/`--seed` override the agent's `modelSettings` for this eval run
+ * only and are recorded on the suite run (`summary.__evalRun`); invalid values
+ * exit 2.
+ *
+ * `--record <dir>` runs live tools and writes each case's tool calls to
+ * `<dir>/<agentId>/<caseKey>.tools.json`; `--replay <dir>` (or a `--cases` file
+ * whose cases reference `fixtures.tools`) answers tool calls from those files
+ * without running handlers. A tool call with no fixture errors the case
+ * (`tool_fixture_missing`) unless `--on-fixture-miss live`, which runs the real
+ * tool and reports the suite as `mixed`. `--fixtures-from-run <runId>` writes a
+ * best-effort `fidelity: 'summary'` fixture from a stored run into `--record`
+ * and exits without running the suite. Native agents only: OpenCode agents run
+ * live and report `unsupported_runtime`.
+ *
+ * Exit codes: 0 passed or report-only; 1 gate failed (stored outcome, or narrowed
+ * by `--fail-on-flaky`/`--min-pass-score`, or the run threw under `--gate true`);
+ * 2 usage/environment error, advisory run refused, label pin refused under
+ * `--require-snapshot true`, invalid eval-set file, or report not writable.
+ * Report files are written BEFORE the exit code is set; when the run throws, a
+ * minimal `report.json` with `status: 'error'` is written instead. The narrowing
+ * flags apply only under `--gate true` and can never widen a failure into a pass.
  */
 const evalGate: ModuleCli = {
   command: 'eval',
   async run(rest: string[]) {
     const args = parseArgs(rest)
     const agentDefinitionId = args.agent
-    const tenantId = args.tenant
-    const organizationId = args.org
+    const tenantId = args.tenant || process.env.OM_EVAL_TENANT_ID || undefined
+    const organizationId = args.org || process.env.OM_EVAL_ORG_ID || undefined
 
     if (!agentDefinitionId || !tenantId || !organizationId) {
-      console.error('Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v>] [--baseline <suiteRunId>] [--repeat <n>] [--gate true]')
+      console.error(EVAL_GATE_USAGE)
       process.exitCode = 2
       return
     }
@@ -567,21 +706,148 @@ const evalGate: ModuleCli = {
       return
     }
 
+    const reportDir = args.report
+    const formats = parseEvalReportFormats(args.format)
+    if (!formats) {
+      console.error(`--format must be a comma-separated list of: ${EVAL_REPORT_FORMATS.join(', ')}`)
+      process.exitCode = 2
+      return
+    }
+    if (args.format !== undefined && !reportDir) {
+      console.error('--format requires --report <dir>')
+      process.exitCode = 2
+      return
+    }
+    const includePayloads = parseOptionalBooleanFlag(args['include-payloads'])
+    const failOnFlaky = parseOptionalBooleanFlag(args['fail-on-flaky'])
+    if (includePayloads === null || failOnFlaky === null) {
+      console.error('--include-payloads and --fail-on-flaky take true or false')
+      process.exitCode = 2
+      return
+    }
+    const minPassScore = parseMinPassScore(args['min-pass-score'])
+    if (minPassScore === null) {
+      console.error('--min-pass-score must be a number between 0 and 1')
+      process.exitCode = 2
+      return
+    }
+
+    const callSettings = parseEvalCliCallSettings({ temperature: args.temperature, seed: args.seed })
+    if (!callSettings.ok) {
+      console.error(callSettings.message)
+      process.exitCode = 2
+      return
+    }
+
+    const requireSnapshot = parseOptionalBooleanFlag(args['require-snapshot'])
+    if (requireSnapshot === null) {
+      console.error('--require-snapshot takes true or false')
+      process.exitCode = 2
+      return
+    }
+    const rawSnapshot = args.snapshot
+    const parsedSnapshot = rawSnapshot === undefined ? null : evalSetSnapshotSchema.safeParse(rawSnapshot)
+    if (parsedSnapshot && !parsedSnapshot.success) {
+      console.error('--snapshot must be "latest" or sha256:<64 lowercase hex>')
+      process.exitCode = 2
+      return
+    }
+    const snapshot = parsedSnapshot?.success ? parsedSnapshot.data : undefined
+    if (snapshot && args['eval-set-version'] !== undefined) {
+      console.error('--snapshot and --eval-set-version are mutually exclusive: pin either a frozen manifest or a label')
+      process.exitCode = 2
+      return
+    }
+    const casesPath = args.cases
+    if (casesPath !== undefined && (snapshot || args['eval-set-version'] !== undefined)) {
+      console.error('--cases cannot be combined with --snapshot or --eval-set-version: the file pins its own manifest hash')
+      process.exitCode = 2
+      return
+    }
+    let casesFile: EvalSetFile | undefined
+    let casesVersion: string | null = null
+    let evalSetDir: string | null = null
+    if (casesPath !== undefined) {
+      await ensureAgentRubricsLoaded()
+      const read = readEvalSetFile(casesPath)
+      if (!read.ok) {
+        console.error(`Invalid eval set file ${read.resolvedPath}:`)
+        for (const line of formatEvalSetFileIssues(read.issues)) console.error(line)
+        process.exitCode = 2
+        return
+      }
+      if (read.file.agentId !== agentDefinitionId) {
+        console.error(`Eval set file ${read.resolvedPath} is for agent "${read.file.agentId}", not "${agentDefinitionId}".`)
+        process.exitCode = 2
+        return
+      }
+      try {
+        casesVersion = manifestFromFile(read.file).version
+      } catch (error) {
+        console.error(`Invalid eval set file ${read.resolvedPath}: ${errorMessageOf(error)}`)
+        process.exitCode = 2
+        return
+      }
+      casesFile = read.file
+      evalSetDir = path.dirname(read.resolvedPath)
+    }
+    const toolFixtures = parseEvalCliToolFixtureFlags({
+      record: args.record,
+      replay: args.replay,
+      onFixtureMiss: args['on-fixture-miss'],
+      fixturesFromRun: args['fixtures-from-run'],
+      casesFile: casesFile ?? null,
+      evalSetDir,
+    })
+    if (!toolFixtures.ok) {
+      console.error(toolFixtures.message)
+      process.exitCode = 2
+      return
+    }
+    if (args['fixtures-from-run'] !== undefined && toolFixtures.recordDir) {
+      process.exitCode = await exportFixturesFromRun({
+        runId: args['fixtures-from-run'],
+        caseKey: args.case ?? null,
+        agentDefinitionId,
+        recordDir: toolFixtures.recordDir,
+        scope: { tenantId, organizationId },
+      })
+      return
+    }
+    if (toolFixtures.recordDir) {
+      console.warn(`Warning: recording tool fixtures into ${toolFixtures.recordDir}. ${EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING}`)
+    }
+    if (requireSnapshot && !snapshot && !casesFile) {
+      console.error(
+        'Refusing a run without a frozen snapshot under --require-snapshot true: pass --snapshot <sha256:...|latest> or --cases <file> instead of a label pin.',
+      )
+      process.exitCode = 2
+      return
+    }
+
+    const scope = { tenantId, organizationId }
+    const releaseId = args.release ?? null
+    const evalSetVersion = snapshot ?? args['eval-set-version'] ?? null
+    const errorReportInput = { agentDefinitionId, releaseId, evalSetVersion: casesVersion ?? evalSetVersion, repeatCount }
+
     const container = await createRequestContainer()
     let result: Awaited<ReturnType<typeof runEvalGate>>
     try {
       result = await runEvalGate(container, {
         agentDefinitionId,
-        releaseId: args.release ?? null,
-        evalSetVersion: args['eval-set-version'] ?? null,
+        releaseId,
+        ...(casesFile ? { cases: casesFile } : snapshot ? { snapshot } : { evalSetVersion }),
         baselineSuiteRunId: args.baseline ?? null,
         repeatCount,
-        scope: { tenantId, organizationId },
+        scope,
         triggeredBy: 'ci',
+        ...(callSettings.value ? { callSettings: callSettings.value } : {}),
+        ...(toolFixtures.options ? { toolFixtures: toolFixtures.options } : {}),
       })
     } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error))
-      // A gate that could not run is NOT a pass.
+      const message = errorMessageOf(error)
+      console.error(message)
+      if (reportDir) writeEvalErrorReport(reportDir, { ...errorReportInput, message })
       process.exitCode = gate ? 1 : 2
       return
     }
@@ -592,6 +858,17 @@ const evalGate: ModuleCli = {
     console.log(`Pass score:  ${result.passScore === null ? 'n/a (nothing measurable)' : result.passScore.toFixed(3)}`)
     console.log(`Baseline:    ${result.baselineSuiteRunId ?? 'none — first run for this agent'}`)
     console.log(`Outcome:     ${result.outcome.toUpperCase()}`)
+    if (toolFixtures.options) {
+      const em = (container.resolve('em') as EntityManager).fork()
+      const suiteRun = await findOneWithDecryption(em, AgentEvalSuiteRun, { id: result.suiteRunId, ...scope }, undefined, scope)
+      const tools = readEvalRunToolSummary(suiteRun?.summary)
+      if (tools) {
+        console.log(`Tool mode:   ${tools.mode}${tools.misses ? ` (${tools.misses} fixture miss(es))` : ''}`)
+        if (tools.summaryFidelityCases) {
+          console.warn(`Warning: ${tools.summaryFidelityCases} case(s) replayed summary-fidelity fixtures (redacted or truncated tool outputs).`)
+        }
+      }
+    }
 
     if (result.safetyRegressions.length) {
       console.log('')
@@ -599,17 +876,270 @@ const evalGate: ModuleCli = {
       for (const key of result.safetyRegressions) console.log(`  - ${key}`)
     }
 
-    if (!gate) return
+    let report: EvalReport | null = null
+    let reportFailed = false
+    if (reportDir || (gate && failOnFlaky)) {
+      try {
+        const em = (container.resolve('em') as EntityManager).fork()
+        report = await buildEvalReport(em, scope, result.suiteRunId, { includePayloads })
+        if (!report) throw new Error(`[internal] eval suite run ${result.suiteRunId} is not in scope`)
+      } catch (error) {
+        const message = errorMessageOf(error)
+        console.error(`Could not build the eval report: ${message}`)
+        reportFailed = true
+        if (reportDir) {
+          writeEvalErrorReport(reportDir, { ...errorReportInput, suiteRunId: result.suiteRunId, message })
+        }
+      }
+    }
+    if (report && reportDir) {
+      try {
+        const written = writeEvalReportFiles(reportDir, report, formats)
+        console.log(`Report:      ${written.join(', ')}`)
+      } catch (error) {
+        console.error(`Could not write the eval report to ${reportDir}: ${errorMessageOf(error)}`)
+        reportFailed = true
+      }
+    }
+
+    if (!gate) {
+      if (reportFailed) process.exitCode = 2
+      return
+    }
 
     if (result.outcome === 'advisory') {
       console.error('')
-      console.error('Refusing to gate on an advisory run: pass --eval-set-version to pin the dataset, or drop --gate.')
+      console.error('Refusing to gate on an advisory run: pass --snapshot or --eval-set-version to pin the dataset, or drop --gate.')
       process.exitCode = 2
       return
     }
     if (result.outcome === 'failed') {
       process.exitCode = 1
+      return
     }
+    if (minPassScore !== undefined && (result.passScore === null || result.passScore < minPassScore)) {
+      console.error('')
+      console.error(
+        `Pass score ${result.passScore === null ? 'n/a' : result.passScore.toFixed(3)} is below --min-pass-score ${minPassScore}.`,
+      )
+      process.exitCode = 1
+      return
+    }
+    if (failOnFlaky && report && report.totals.flakyCases > 0) {
+      console.error('')
+      console.error(`${report.totals.flakyCases} flaky case(s) with --fail-on-flaky true.`)
+      process.exitCode = 1
+      return
+    }
+    if (reportFailed) process.exitCode = 2
+  },
+}
+
+async function exportFixturesFromRun(input: {
+  runId: string
+  caseKey: string | null
+  agentDefinitionId: string
+  recordDir: string
+  scope: { tenantId: string; organizationId: string }
+}): Promise<number> {
+  const container = await createRequestContainer()
+  const em = (container.resolve('em') as EntityManager).fork()
+  const stored = await buildToolFixturesFromRun(em, input.scope, input.runId)
+  if (!stored) {
+    console.error(`Run ${input.runId} was not found in this organization.`)
+    return 2
+  }
+  if (stored.agentId !== input.agentDefinitionId) {
+    console.error(`Run ${input.runId} belongs to agent "${stored.agentId}", not "${input.agentDefinitionId}".`)
+    return 2
+  }
+  const caseKey = input.caseKey ?? (await findEvalCaseKeyForRun(em, input.scope, input.runId))
+  if (!caseKey) {
+    console.error('No eval case was created from this run: pass --case <key> to name the fixture file.')
+    return 2
+  }
+  const filePath = conventionalToolFixturePath(input.recordDir, stored.agentId, caseKey)
+  try {
+    writeToolFixtureFile(
+      filePath,
+      buildToolFixtureFile({ agentId: stored.agentId, caseKey, fixtures: stored.fixtures, fidelity: 'summary' }),
+    )
+  } catch (error) {
+    console.error(`Could not write the fixture file: ${errorMessageOf(error)}`)
+    return 2
+  }
+  console.warn(`Warning: wrote ${filePath}. ${EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING}`)
+  console.log(`Fixtures:    ${stored.fixtures.length} tool call(s), fidelity summary`)
+  return 0
+}
+
+const EVAL_SET_USAGE =
+  'Usage: mercato agent_orchestrator eval-set export --agent <agentId> --tenant <tenantId> --org <organizationId> [--snapshot <current|latest|sha256:...>] [--format json|yaml] [--out <file>]\n' +
+  '       mercato agent_orchestrator eval-set validate <file> | --file <file>\n' +
+  '  export writes the current approved cases (or a frozen manifest) as an eval-set file; without --out it prints to stdout.\n' +
+  '  validate checks the schema and scorer configs offline (no database access) and exits 2 on an invalid file.\n' +
+  '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
+
+function isEvalSetTextFormat(value: string): value is EvalSetTextFormat {
+  return value === 'json' || value === 'yaml'
+}
+
+function resolveExportFormat(rawFormat: string | undefined, outPath: string | undefined): EvalSetTextFormat | null {
+  if (rawFormat !== undefined) {
+    const normalized = rawFormat.trim().toLowerCase()
+    return isEvalSetTextFormat(normalized) ? normalized : null
+  }
+  return (outPath ? evalSetFormatFromPath(outPath) : null) ?? 'json'
+}
+
+async function runEvalSetExport(rest: string[]): Promise<void> {
+  const args = parseArgs(rest)
+  const agentDefinitionId = args.agent
+  const tenantId = args.tenant || process.env.OM_EVAL_TENANT_ID || undefined
+  const organizationId = args.org || process.env.OM_EVAL_ORG_ID || undefined
+  if (!agentDefinitionId || !tenantId || !organizationId) {
+    console.error(EVAL_SET_USAGE)
+    process.exitCode = 2
+    return
+  }
+  const outPath = args.out
+  const format = resolveExportFormat(args.format, outPath)
+  if (!format) {
+    console.error('--format must be json or yaml')
+    process.exitCode = 2
+    return
+  }
+  const rawSnapshot = args.snapshot ?? EVAL_SET_EXPORT_CURRENT
+  const parsedSnapshot =
+    rawSnapshot === EVAL_SET_EXPORT_CURRENT ? null : evalSetSnapshotSchema.safeParse(rawSnapshot)
+  if (parsedSnapshot && !parsedSnapshot.success) {
+    console.error('--snapshot must be "current", "latest" or sha256:<64 lowercase hex>')
+    process.exitCode = 2
+    return
+  }
+  const snapshot = parsedSnapshot?.success ? parsedSnapshot.data : EVAL_SET_SNAPSHOT_LATEST
+  const scope = { tenantId, organizationId }
+
+  let exported: EvalSetFileExport
+  let version: string
+  try {
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager).fork()
+    const pinned = await resolveSnapshotPin(em, scope, agentDefinitionId, snapshot)
+    await ensureRubricLibrary(collectRubricRefs(pinned.manifest.assertions.map((assertion) => assertion.config)))
+    exported = evalSetFileForExport(pinned.manifest)
+    version = pinned.version
+  } catch (error) {
+    if (error instanceof EvalSetUnresolvedError) {
+      console.error(`Eval set ${rawSnapshot} is not known for agent "${agentDefinitionId}" in this organization.`)
+      process.exitCode = 2
+      return
+    }
+    console.error(`Could not export the eval set: ${errorMessageOf(error)}`)
+    process.exitCode = 1
+    return
+  }
+
+  if (exported.downgradedKeys.length) {
+    console.error(
+      `Warning: llm_judge assertions cannot gate in an eval-set file; exported with severity "warn": ${exported.downgradedKeys.join(', ')}`,
+    )
+  }
+  if (!exported.ok) {
+    console.error(`The eval set ${version} cannot be exported as a valid file:`)
+    for (const line of formatEvalSetFileIssues(exported.issues)) console.error(line)
+    process.exitCode = 2
+    return
+  }
+
+  const text = stringifyEvalSetFile(exported.file, format)
+  if (!outPath) {
+    process.stdout.write(text)
+    return
+  }
+  const resolvedOut = path.resolve(outPath)
+  try {
+    if (fs.existsSync(resolvedOut) && !fs.statSync(resolvedOut).isFile()) {
+      console.error(`Refusing to write ${resolvedOut}: not a regular file`)
+      process.exitCode = 2
+      return
+    }
+    fs.mkdirSync(path.dirname(resolvedOut), { recursive: true })
+    fs.writeFileSync(resolvedOut, text, 'utf8')
+  } catch (error) {
+    console.error(`Could not write ${resolvedOut}: ${errorMessageOf(error)}`)
+    process.exitCode = 2
+    return
+  }
+  console.error(
+    `Exported ${exported.file.cases.length} case(s) and ${exported.file.assertions.length} assertion(s) from ${version} to ${resolvedOut}`,
+  )
+}
+
+async function runEvalSetValidate(rest: string[]): Promise<void> {
+  const positional = rest[0] !== undefined && !rest[0].startsWith('-') ? rest[0] : undefined
+  const args = parseArgs(positional === undefined ? rest : rest.slice(1))
+  const filePath = positional ?? args.file
+  if (!filePath) {
+    console.error(EVAL_SET_USAGE)
+    process.exitCode = 2
+    return
+  }
+  await ensureAgentRubricsLoaded()
+  const read = readEvalSetFile(filePath)
+  if (!read.ok) {
+    console.error(`Invalid eval set file ${read.resolvedPath}:`)
+    for (const line of formatEvalSetFileIssues(read.issues)) console.error(line)
+    process.exitCode = 2
+    return
+  }
+  let version: string
+  try {
+    version = manifestFromFile(read.file).version
+  } catch (error) {
+    console.error(`Invalid eval set file ${read.resolvedPath}: ${errorMessageOf(error)}`)
+    process.exitCode = 2
+    return
+  }
+  console.log(`Valid:       ${read.resolvedPath}`)
+  console.log(`Agent:       ${read.file.agentId}`)
+  console.log(`Cases:       ${read.file.cases.length}`)
+  console.log(`Assertions:  ${read.file.assertions.length}`)
+  console.log(`Version:     ${version}`)
+}
+
+/**
+ * Eval-set files on disk.
+ *
+ *   yarn mercato agent_orchestrator eval-set export --agent <agentId> --tenant <id> --org <id> \
+ *     [--snapshot <current|latest|sha256:...>] [--format json|yaml] [--out <file>]
+ *   yarn mercato agent_orchestrator eval-set validate <file>
+ *
+ * `export` turns the agent's current approved cases and enabled assertions
+ * (`current`/`latest`) or a stored frozen manifest (`sha256:`) into a file;
+ * `--format` defaults to the `--out` extension, else JSON. Judge assertions
+ * stored with `gate` severity are written as `warn` with a warning, because the
+ * file format refuses judge gates. `validate` runs offline and never touches the
+ * database.
+ *
+ * Exit codes: 0 success; 1 export failed unexpectedly; 2 usage error, unknown
+ * snapshot, invalid file, or output not writable.
+ */
+const evalSet: ModuleCli = {
+  command: 'eval-set',
+  help: EVAL_SET_USAGE,
+  async run(rest: string[]) {
+    const [subcommand, ...subRest] = rest
+    if (subcommand === 'export') {
+      await runEvalSetExport(subRest)
+      return
+    }
+    if (subcommand === 'validate') {
+      await runEvalSetValidate(subRest)
+      return
+    }
+    console.error(EVAL_SET_USAGE)
+    process.exitCode = 2
   },
 }
 
@@ -714,6 +1244,88 @@ const tokenUsage: ModuleCli = {
   },
 }
 
-const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, tokenUsage]
+/**
+ * Backfill terminal agent runs to the OTel exporter. `--dry-run` prints one
+ * OTLP/JSON request per line (NDJSON) to stdout with no network and no queue;
+ * otherwise the deployment switch must be on and each run passing the tenant
+ * export gate is enqueued for the export worker (which re-checks the gate).
+ *
+ *   yarn mercato agent_orchestrator otel:export --run <runId> [--dry-run]
+ *   yarn mercato agent_orchestrator otel:export --since <iso> [--until <iso>] [--tenant <tenantId>] [--limit <n>] [--dry-run]
+ */
+const otelExport: ModuleCli = {
+  command: 'otel:export',
+  async run(rest: string[]) {
+    const parsed = parseOtelExportBackfillArgs(rest ?? [])
+    if (!parsed.ok) {
+      console.error(parsed.error)
+      console.error(OTEL_EXPORT_BACKFILL_USAGE)
+      process.exitCode = 2
+      return
+    }
+    const container = await createRequestContainer()
+    const em = (container.resolve('em') as EntityManager).fork()
+    const summary = await runOtelExportBackfill(parsed.args, {
+      container,
+      selectRuns: (filter, limit) =>
+        em.find(AgentRun, filter, {
+          fields: ['id', 'tenantId', 'organizationId', 'agentId', 'source'],
+          orderBy: { createdAt: 'asc' },
+          limit,
+        }),
+      loadBundle: (runId) => loadRunExportBundle(em.fork(), runId),
+      enqueue: (payload, options) =>
+        getAgentOrchestratorQueue(AGENT_ORCHESTRATOR_OTEL_EXPORT_QUEUE).enqueue(payload, options),
+      writeLine: (line) => {
+        process.stdout.write(`${line}\n`)
+      },
+    })
+
+    if (summary.mode === 'deployment_disabled') {
+      console.error(
+        'OTel export is disabled for this deployment (set OM_AGENT_OTEL_EXPORT=on with an OTLP endpoint), or pass --dry-run to inspect the payloads locally.',
+      )
+      process.exitCode = 1
+      return
+    }
+    if (summary.mode === 'dry_run') {
+      console.error(
+        `Dry run: ${summary.printed}/${summary.selected} run(s) printed; skipped: ${formatOtelExportBackfillSkips(summary.skipped)}.`,
+      )
+      return
+    }
+    console.log(
+      `Enqueued ${summary.enqueued}/${summary.selected} run(s) for OTel export; skipped: ${formatOtelExportBackfillSkips(summary.skipped)}.`,
+    )
+  },
+}
+
+/**
+ * Reconciles declared agent principals (`defineAgent({ principal })`) into each
+ * organization's execution identities. Without flags every live organization of
+ * every tenant is synced; `--tenant` / `--org` narrow the set. Idempotent.
+ *
+ *   yarn mercato agent_orchestrator principals:sync [--tenant <tenantId>] [--org <organizationId>]
+ */
+const principalsSync: ModuleCli = {
+  command: 'principals:sync',
+  async run(rest: string[]) {
+    const args = parseArgs(rest ?? [])
+    const container = await createRequestContainer()
+    const summary = await runPrincipalSync(
+      { tenantId: args.tenant, organizationId: args.org },
+      createPrincipalSyncDeps(container),
+    )
+    if (summary.outcomes.length === 0) {
+      console.error('No organization found for the given --tenant/--org.')
+      process.exitCode = 1
+      return
+    }
+    for (const line of formatPrincipalSyncSummary(summary)) console.log(line)
+    if (summary.totals.failed > 0) process.exitCode = 1
+  },
+}
+
+const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, evalSet, tokenUsage, otelExport, principalsSync]
 
 export default agentOrchestratorCliCommands

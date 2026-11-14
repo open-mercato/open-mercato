@@ -2,7 +2,10 @@ import {
   CUSTOMERS_BASE_ENTITY_TYPE,
   indexesCustomerBaseEntity,
   listSearchTokenExcludedEntityTypes,
+  passesSearchTokenIndexGates,
+  resolveSearchTokenIndexGates,
 } from '../lib/search-entity-policy'
+import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import { buildSearchTokenRows } from '../lib/search-tokens'
 
 const PERSON_PROFILE = 'customers:customer_person_profile'
@@ -64,5 +67,36 @@ describe('the base-entity exclusion never touches the token writer', () => {
   it('keeps writing rows for the profile entities the customer is found by', () => {
     delete process.env.OM_SEARCH_CUSTOMERS_INDEX_BASE_ENTITY
     expect(buildRows(PERSON_PROFILE).length).toBeGreaterThan(0)
+  })
+})
+
+describe('search token index gates', () => {
+  afterEach(() => registerSearchModuleConfigs([]))
+
+  const input = { recordId: 'rec-1', record: { id: 'rec-1' }, tenantId: 't1', organizationId: null }
+
+  it('resolves no gate for entities without shouldIndex', () => {
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo' }] }])
+    expect(resolveSearchTokenIndexGates('example:todo')).toEqual([])
+  })
+
+  it('resolves the gate even when the entity config is disabled', () => {
+    const gate = () => true
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', enabled: false, shouldIndex: gate }] }])
+    expect(resolveSearchTokenIndexGates('example:todo')).toEqual([gate])
+    expect(resolveSearchTokenIndexGates('example:other')).toEqual([])
+  })
+
+  it('accepts only a strict true from every gate', async () => {
+    await expect(passesSearchTokenIndexGates('example:todo', [() => true, async () => true], input)).resolves.toBe(true)
+    await expect(passesSearchTokenIndexGates('example:todo', [() => true, () => false], input)).resolves.toBe(false)
+    await expect(passesSearchTokenIndexGates('example:todo', [() => 'yes' as unknown as boolean], input)).resolves.toBe(false)
+  })
+
+  it('fails closed when a gate throws', async () => {
+    const throwing = () => {
+      throw new Error('lookup failed')
+    }
+    await expect(passesSearchTokenIndexGates('example:todo', [throwing], input)).resolves.toBe(false)
   })
 })

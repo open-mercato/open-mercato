@@ -109,6 +109,12 @@ export type CommandRuntimeContext = {
    * audit path.
    */
   runAs?: CommandRunAsContext
+  /**
+   * Correlation ids (e.g. `agentRunId`, `proposalId`) merged into the action log
+   * `context.correlation` of every write this context produces. Additive: keys
+   * already present in the logged context win, and non-string values are dropped.
+   */
+  auditCorrelation?: Record<string, string>
 }
 
 export type CommandRunAsContext = {

@@ -21,6 +21,26 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend',
     expiresAfterHours: 168,
   },
+  {
+    type: 'ai_assistant.pending_action.awaiting_approval',
+    module: 'ai_assistant',
+    channels: ['in_app', 'email'],
+    titleKey: 'ai_assistant.notifications.pendingActionAwaitingApproval.title',
+    bodyKey: 'ai_assistant.notifications.pendingActionAwaitingApproval.body',
+    icon: 'shield-check',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/config/ai-assistant/pending-actions/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/config/ai-assistant/pending-actions',
+    expiresAfterHours: 24,
+  },
 ]
 
 export default notificationTypes

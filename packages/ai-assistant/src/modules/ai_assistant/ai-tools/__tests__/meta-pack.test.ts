@@ -304,7 +304,12 @@ describe('meta-pack registry bootstrap', () => {
 describe('meta-pack tool surface', () => {
   it('exports the read-only meta tools', () => {
     const names = metaAiTools.map((tool) => tool.name)
-    expect(names).toEqual(['meta.list_agents', 'meta.describe_agent', 'meta.update_task_plan'])
+    expect(names).toEqual([
+      'meta.list_agents',
+      'meta.describe_agent',
+      'meta.update_task_plan',
+      'ai_assistant.get_pending_action',
+    ])
     for (const tool of metaAiTools) {
       expect(tool.isMutation).not.toBe(true)
       expect(tool.requiredFeatures).toEqual(['ai_assistant.view'])

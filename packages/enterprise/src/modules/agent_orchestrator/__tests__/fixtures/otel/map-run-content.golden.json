@@ -1,0 +1,427 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "open-mercato-agents"
+            }
+          },
+          {
+            "key": "service.version",
+            "value": {
+              "stringValue": "1.2.3"
+            }
+          },
+          {
+            "key": "deployment.environment.name",
+            "value": {
+              "stringValue": "staging"
+            }
+          },
+          {
+            "key": "om.tenant.id",
+            "value": {
+              "stringValue": "11111111-1111-4111-8111-111111111111"
+            }
+          },
+          {
+            "key": "om.organization.id",
+            "value": {
+              "stringValue": "22222222-2222-4222-8222-222222222222"
+            }
+          },
+          {
+            "key": "om.genai.semconv",
+            "value": {
+              "stringValue": "1.43"
+            }
+          }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": {
+            "name": "@open-mercato/enterprise/agent_orchestrator",
+            "version": "0.10.0"
+          },
+          "spans": [
+            {
+              "traceId": "b0e2e59fcb19d50bb35f93c9e625bbfb",
+              "spanId": "209c1fa629052063",
+              "name": "invoke_agent sales.quote_drafter",
+              "kind": 1,
+              "startTimeUnixNano": "1793095200000000000",
+              "endTimeUnixNano": "1793095205000000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "invoke_agent"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.id",
+                  "value": {
+                    "stringValue": "sales.quote_drafter"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.name",
+                  "value": {
+                    "stringValue": "Quote drafter"
+                  }
+                },
+                {
+                  "key": "gen_ai.agent.version",
+                  "value": {
+                    "stringValue": "3"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.model",
+                  "value": {
+                    "stringValue": "gpt-test"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": "120"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": "40"
+                  }
+                },
+                {
+                  "key": "om.run.id",
+                  "value": {
+                    "stringValue": "33333333-3333-4333-8333-333333333333"
+                  }
+                },
+                {
+                  "key": "om.run.source",
+                  "value": {
+                    "stringValue": "runtime"
+                  }
+                },
+                {
+                  "key": "om.run.runtime",
+                  "value": {
+                    "stringValue": "native"
+                  }
+                },
+                {
+                  "key": "om.run.result_kind",
+                  "value": {
+                    "stringValue": "proposal"
+                  }
+                },
+                {
+                  "key": "om.run.agent_type",
+                  "value": {
+                    "stringValue": "decision_maker"
+                  }
+                },
+                {
+                  "key": "om.run.confidence",
+                  "value": {
+                    "doubleValue": 0.8
+                  }
+                },
+                {
+                  "key": "om.cost.minor",
+                  "value": {
+                    "intValue": "2"
+                  }
+                },
+                {
+                  "key": "om.cost.currency",
+                  "value": {
+                    "stringValue": "USD"
+                  }
+                },
+                {
+                  "key": "om.agent.definition_hash",
+                  "value": {
+                    "stringValue": "def-hash-1"
+                  }
+                },
+                {
+                  "key": "om.prompt.override.version",
+                  "value": {
+                    "intValue": "4"
+                  }
+                },
+                {
+                  "key": "om.tools.sha256",
+                  "value": {
+                    "stringValue": "tools-hash-1"
+                  }
+                },
+                {
+                  "key": "om.knowledge.pricing",
+                  "value": {
+                    "stringValue": "v7"
+                  }
+                },
+                {
+                  "key": "om.entry_point",
+                  "value": {
+                    "stringValue": "playground"
+                  }
+                },
+                {
+                  "key": "om.channel",
+                  "value": {
+                    "stringValue": "backend"
+                  }
+                },
+                {
+                  "key": "om.correlation_id",
+                  "value": {
+                    "stringValue": "corr-1"
+                  }
+                },
+                {
+                  "key": "om.invoker.kind",
+                  "value": {
+                    "stringValue": "user"
+                  }
+                }
+              ],
+              "events": [],
+              "links": [
+                {
+                  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+                  "spanId": "00f067aa0ba902b7",
+                  "attributes": [
+                    {
+                      "key": "om.link.relation",
+                      "value": {
+                        "stringValue": "platform_trace"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "status": {
+                "code": 0
+              }
+            },
+            {
+              "traceId": "b0e2e59fcb19d50bb35f93c9e625bbfb",
+              "spanId": "8118b60f09642d7b",
+              "name": "chat gpt-test-2026",
+              "kind": 3,
+              "startTimeUnixNano": "1793095200100000000",
+              "endTimeUnixNano": "1793095200900000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "chat"
+                  }
+                },
+                {
+                  "key": "gen_ai.provider.name",
+                  "value": {
+                    "stringValue": "openai"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.model",
+                  "value": {
+                    "stringValue": "gpt-test"
+                  }
+                },
+                {
+                  "key": "gen_ai.response.model",
+                  "value": {
+                    "stringValue": "gpt-test-2026"
+                  }
+                },
+                {
+                  "key": "gen_ai.request.temperature",
+                  "value": {
+                    "doubleValue": 0.2
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.input_tokens",
+                  "value": {
+                    "intValue": "100"
+                  }
+                },
+                {
+                  "key": "gen_ai.usage.output_tokens",
+                  "value": {
+                    "intValue": "30"
+                  }
+                },
+                {
+                  "key": "gen_ai.response.finish_reasons",
+                  "value": {
+                    "arrayValue": {
+                      "values": [
+                        {
+                          "stringValue": "tool-calls"
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "key": "om.cost.micros",
+                  "value": {
+                    "intValue": "1500"
+                  }
+                },
+                {
+                  "key": "om.capture.fidelity",
+                  "value": {
+                    "stringValue": "exact"
+                  }
+                },
+                {
+                  "key": "om.content.export_status",
+                  "value": {
+                    "stringValue": "exported"
+                  }
+                }
+              ],
+              "events": [
+                {
+                  "timeUnixNano": "1793095200900000000",
+                  "name": "gen_ai.client.inference.operation.details",
+                  "attributes": [
+                    {
+                      "key": "gen_ai.system_instructions",
+                      "value": {
+                        "stringValue": "[{\"type\":\"text\",\"content\":\"You draft quotes.\"}]"
+                      }
+                    },
+                    {
+                      "key": "gen_ai.input.messages",
+                      "value": {
+                        "stringValue": "[{\"role\":\"user\",\"parts\":[{\"type\":\"text\",\"content\":\"Quote for [redacted-email]\"}]},{\"role\":\"assistant\",\"parts\":[{\"type\":\"tool_call\",\"id\":\"call-1\",\"name\":\"catalog.search\",\"arguments\":{\"query\":\"chairs\"}}]},{\"role\":\"tool\",\"parts\":[{\"type\":\"tool_call_response\",\"id\":\"call-1\",\"response\":{\"hits\":3}}]}]"
+                      }
+                    },
+                    {
+                      "key": "gen_ai.output.messages",
+                      "value": {
+                        "stringValue": "[{\"role\":\"assistant\",\"parts\":[{\"type\":\"text\",\"content\":\"Three chairs found.\"}],\"finish_reason\":\"stop\"}]"
+                      }
+                    },
+                    {
+                      "key": "gen_ai.tool.definitions",
+                      "value": {
+                        "stringValue": "[{\"type\":\"function\",\"name\":\"catalog.search\",\"description\":\"Search the catalog\",\"parameters\":{\"type\":\"object\"}}]"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "links": [],
+              "status": {
+                "code": 0
+              },
+              "parentSpanId": "209c1fa629052063"
+            },
+            {
+              "traceId": "b0e2e59fcb19d50bb35f93c9e625bbfb",
+              "spanId": "56384c0e0075e08b",
+              "name": "execute_tool catalog.search",
+              "kind": 1,
+              "startTimeUnixNano": "1793095200300000000",
+              "endTimeUnixNano": "1793095200900000000",
+              "attributes": [
+                {
+                  "key": "gen_ai.operation.name",
+                  "value": {
+                    "stringValue": "execute_tool"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.name",
+                  "value": {
+                    "stringValue": "catalog.search"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.type",
+                  "value": {
+                    "stringValue": "function"
+                  }
+                },
+                {
+                  "key": "om.tool.status",
+                  "value": {
+                    "stringValue": "ok"
+                  }
+                },
+                {
+                  "key": "om.tool.latency_ms",
+                  "value": {
+                    "intValue": "120"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.id",
+                  "value": {
+                    "stringValue": "call-1"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.arguments",
+                  "value": {
+                    "stringValue": "{\"query\":\"chairs\"}"
+                  }
+                },
+                {
+                  "key": "gen_ai.tool.call.result",
+                  "value": {
+                    "stringValue": "{\"hits\":3}"
+                  }
+                }
+              ],
+              "events": [],
+              "links": [],
+              "status": {
+                "code": 0
+              },
+              "parentSpanId": "8118b60f09642d7b"
+            },
+            {
+              "traceId": "b0e2e59fcb19d50bb35f93c9e625bbfb",
+              "spanId": "f7bad1538712d26c",
+              "name": "om.context.bundle",
+              "kind": 1,
+              "startTimeUnixNano": "1793095200100000000",
+              "endTimeUnixNano": "1793095200900000000",
+              "attributes": [
+                {
+                  "key": "om.span.name",
+                  "value": {
+                    "stringValue": "context.bundle"
+                  }
+                }
+              ],
+              "events": [],
+              "links": [],
+              "status": {
+                "code": 0
+              },
+              "parentSpanId": "209c1fa629052063"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

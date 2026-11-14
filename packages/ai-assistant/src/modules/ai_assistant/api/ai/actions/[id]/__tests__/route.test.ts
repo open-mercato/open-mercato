@@ -11,11 +11,23 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
 
-jest.mock('../../../../../data/repositories/AiPendingActionRepository', () => ({
-  AiPendingActionRepository: jest.fn().mockImplementation(() => ({
-    getById: repoGetByIdMock,
-  })),
-}))
+jest.mock('../../../../../data/repositories/AiPendingActionRepository', () => {
+  const actual = jest.requireActual('../../../../../data/repositories/AiPendingActionRepository')
+  return {
+    ...actual,
+    AiPendingActionRepository: jest.fn().mockImplementation(() => ({
+      getById: repoGetByIdMock,
+      getByIdForApprover: async (
+        id: string,
+        scope: { tenantId: string; organizationId?: string | null },
+        viewer: { userId: string; canApproveAny: boolean },
+      ) => {
+        const row = await repoGetByIdMock(id, scope)
+        return row && actual.canViewerAccessPendingAction(row, viewer) ? row : null
+      },
+    })),
+  }
+})
 
 import { GET } from '../route'
 
@@ -137,7 +149,79 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
     expect(repoGetByIdMock).toHaveBeenCalledWith(PENDING_ACTION_ID, {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-      userId: 'user-1',
+    })
+  })
+
+  describe('owner / approver visibility', () => {
+    const approverAcl = {
+      features: ['ai_assistant.view', 'ai_assistant.pending_actions.approve'],
+      isSuperAdmin: false,
+    }
+
+    it('another user without the approve feature gets 404 on a chat row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+      expect((await response.json()).code).toBe('pending_action_not_found')
+    })
+
+    it('another user without the approve feature gets 404 on an MCP row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      repoGetByIdMock.mockResolvedValueOnce(
+        makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool' }),
+      )
+
+      const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+    })
+
+    it('an approver can read another user\'s MCP row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      loadAclMock.mockResolvedValueOnce(approverAcl)
+      repoGetByIdMock.mockResolvedValueOnce(
+        makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool' }),
+      )
+
+      const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(200)
+      expect((await response.json()).id).toBe(PENDING_ACTION_ID)
+    })
+
+    it('an approver can read another user\'s MCP row through a wildcard grant', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      loadAclMock.mockResolvedValueOnce({ features: ['ai_assistant.*'], isSuperAdmin: false })
+      repoGetByIdMock.mockResolvedValueOnce(
+        makeRow({ channel: 'tools-api', agentId: 'ai_assistant.raw_tool' }),
+      )
+
+      const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(200)
+    })
+
+    it('an approver still gets 404 on someone else\'s chat row', async () => {
+      authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      loadAclMock.mockResolvedValueOnce(approverAcl)
+      repoGetByIdMock.mockResolvedValueOnce(makeRow({ channel: 'agent' }))
+
+      const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(404)
+    })
+
+    it('the creator still reads their own MCP row without the approve feature', async () => {
+      repoGetByIdMock.mockResolvedValueOnce(
+        makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool' }),
+      )
+
+      const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+      expect(response.status).toBe(200)
     })
   })
 
@@ -189,6 +273,19 @@ describe('GET /api/ai/actions/:id route (Step 5.7)', () => {
     expect(body).not.toHaveProperty('idempotencyKey')
     expect(body).not.toHaveProperty('tenantId')
     expect(body).not.toHaveProperty('organizationId')
+  })
+
+  it('returns the channel and requester like the list route', async () => {
+    repoGetByIdMock.mockResolvedValueOnce(
+      makeRow({ channel: 'mcp', agentId: 'ai_assistant.raw_tool', apiKeyId: 'key-1' }),
+    )
+
+    const response = await GET(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.channel).toBe('mcp')
+    expect(body.requester).toEqual({ userId: 'user-1', apiKeyId: 'key-1' })
   })
 
   it('returns 400 when the id param is empty', async () => {

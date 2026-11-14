@@ -1,5 +1,6 @@
 import type { EntityId } from './entities'
 import { createLogger } from '../lib/logger'
+import type { AuthContext } from '../lib/auth/server'
 
 const logger = createLogger('shared').child({ component: 'search-registry' })
 
@@ -113,6 +114,36 @@ export type SearchOptions = {
    * filtered search; any other strategy returns no results for it rather than unfiltered ones.
    */
   indexDocFilter?: SearchIndexDocFilter
+  /**
+   * Caller the search runs for (additive, 2026-11-13). Entities that declare
+   * `SearchEntityConfig.filterResults` only return results when it is set: the
+   * service passes it to the hook, and drops every result of such an entity when
+   * the viewer is missing or the hook throws (fail closed). Entities without the
+   * hook ignore it.
+   */
+  viewer?: SearchViewer
+}
+
+/**
+ * Authenticated caller of a search, with the request container its visibility
+ * checks resolve services from.
+ */
+export type SearchViewer = {
+  auth: NonNullable<AuthContext>
+  container?: unknown
+}
+
+/**
+ * Input of `SearchEntityConfig.filterResults`: the merged results of one entity,
+ * already tenant- and organization-scoped, plus the caller.
+ */
+export type SearchResultVisibilityContext = {
+  entityId: EntityId
+  results: SearchResult[]
+  tenantId: string
+  organizationId?: string | null
+  organizationIds?: string[] | null
+  viewer: SearchViewer
 }
 
 /**
@@ -261,6 +292,8 @@ export type SearchServiceOptions = {
   presenterEnricher?: PresenterEnricherFn
   /** Resolve entity write restrictions; omission uses the registered search configurations. */
   resolveEntityStrategies?: (entityId: EntityId) => SearchStrategyId[] | undefined
+  /** Resolve an entity's `filterResults` hook; omission skips per-record visibility filtering. */
+  resolveResultFilter?: (entityId: EntityId) => SearchEntityConfig['filterResults'] | undefined
   /** TTL (ms) for the per-strategy availability cache. Defaults to 2_000. */
   availabilityCacheTtlMs?: number
 }
@@ -337,6 +370,34 @@ export type SearchEntityConfig = {
   resolveLinks?: (ctx: SearchBuildContext) => Promise<SearchResultLink[] | null> | SearchResultLink[] | null
   /** Define which fields are searchable vs hash-only */
   fieldPolicy?: SearchFieldPolicy
+  /**
+   * Per-record index gate, evaluated by the search indexer before any strategy
+   * (fulltext, vector, tokens) receives the record — on live index events,
+   * by-id/batch indexing and every reindex path.
+   *
+   * Return `true` to index the record. Returning `false` — or throwing — removes
+   * the record from every strategy and skips indexing (fail closed). The context
+   * carries `queryEngine` for loading related records (opt-in flags, parents).
+   * Omit the hook to index every record of the entity (the default).
+   *
+   * The query index applies the same gate before writing the entity's
+   * `search_tokens`: it evaluates the hook per record (with a base-table query
+   * engine) and writes tokens on `true`, or deletes that record's tokens on
+   * `false` / a throw. Tokens therefore stay available without fulltext or vector
+   * providers, and no token writer can surface a record the hook rejects.
+   */
+  shouldIndex?: (ctx: SearchBuildContext) => boolean | Promise<boolean>
+  /**
+   * Per-record result visibility, evaluated by `SearchService.search()` after
+   * merging and before presenter enrichment (additive, 2026-11-13). Return the
+   * subset of `results` (the same objects) the viewer may see; anything else is
+   * dropped, and a returned object the service did not pass in is ignored. When the search has no
+   * `SearchOptions.viewer`, or the hook throws, every result of the entity is
+   * dropped (fail closed). Filtering runs after the strategies' `limit`, so a
+   * search can return fewer results than requested. Omit the hook to keep every
+   * scoped result (the default).
+   */
+  filterResults?: (ctx: SearchResultVisibilityContext) => Promise<SearchResult[]> | SearchResult[]
   /**
    * Per-entity view feature(s) required to read this entity's records through
    * data-returning surfaces (e.g. the `search_get` / `search_aggregate` AI tools).

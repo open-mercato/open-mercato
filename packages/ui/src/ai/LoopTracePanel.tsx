@@ -1,7 +1,10 @@
 'use client'
 
 import * as React from 'react'
-import { ChevronDown, ChevronRight, Wrench } from 'lucide-react'
+import Link from 'next/link'
+import { Activity, ChevronDown, ChevronRight, Wrench } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { buildAiRunTraceHref, readRunIdFromLoopTrace, useCanViewAiRunTrace } from './run-trace-link'
 
 export interface LoopTracePanelStepRecord {
   stepIndex: number
@@ -35,6 +38,7 @@ export interface LoopTracePanelTrace {
     | 'abort'
   totalDurationMs: number
   totalUsage: { inputTokens: number; outputTokens: number }
+  runId?: string
 }
 
 type LoopStepRecord = LoopTracePanelStepRecord
@@ -46,6 +50,7 @@ function formatMs(ms: number): string {
 }
 
 function LoopStepRow({ step }: { step: LoopStepRecord }) {
+  const t = useT()
   const [expanded, setExpanded] = React.useState(false)
   const hasTools = step.toolCalls.length > 0
 
@@ -56,14 +61,16 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
         className="flex w-full items-center gap-2 px-2 py-1.5 text-xs hover:bg-muted/40"
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
-        aria-label={`Step ${step.stepIndex}`}
+        aria-label={t('ui.ai.loopTrace.step', 'Step {index}', { index: step.stepIndex })}
       >
         {expanded ? (
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden />
         ) : (
           <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
         )}
-        <span className="font-medium text-muted-foreground">Step {step.stepIndex}</span>
+        <span className="font-medium text-muted-foreground">
+          {t('ui.ai.loopTrace.step', 'Step {index}', { index: step.stepIndex })}
+        </span>
         <span className="font-mono text-muted-foreground/60">{step.modelId}</span>
         {hasTools ? (
           <span className="ml-auto flex items-center gap-1 text-muted-foreground">
@@ -81,7 +88,9 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
         <div className="bg-muted/20 px-4 pb-2 pt-1 text-xs">
           {step.textDelta ? (
             <div className="mb-2">
-              <div className="mb-0.5 font-semibold text-muted-foreground">Text</div>
+              <div className="mb-0.5 font-semibold text-muted-foreground">
+                {t('ui.ai.loopTrace.text', 'Text')}
+              </div>
               <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-background p-1.5 font-mono">
                 {step.textDelta}
               </pre>
@@ -89,7 +98,9 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
           ) : null}
           {hasTools ? (
             <div>
-              <div className="mb-0.5 font-semibold text-muted-foreground">Tool calls</div>
+              <div className="mb-0.5 font-semibold text-muted-foreground">
+                {t('ui.ai.loopTrace.toolCalls', 'Tool calls')}
+              </div>
               <ul className="flex flex-col gap-1">
                 {step.toolCalls.map((tc, index) => (
                   <li
@@ -103,7 +114,9 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
                         <span className="text-muted-foreground/60">{formatMs(tc.durationMs)}</span>
                       ) : null}
                       {tc.error ? (
-                        <span className="text-status-error-fg">error: {tc.error.code}</span>
+                        <span className="text-status-error-fg">
+                          {t('ui.ai.loopTrace.toolError', 'error: {code}', { code: tc.error.code })}
+                        </span>
                       ) : null}
                     </div>
                     {tc.args !== undefined ? (
@@ -134,7 +147,11 @@ export interface LoopTracePanelProps {
  * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
  */
 export function LoopTracePanel({ trace, className }: LoopTracePanelProps) {
+  const t = useT()
   const [open, setOpen] = React.useState(false)
+  const canViewRunTrace = useCanViewAiRunTrace()
+  const runId = readRunIdFromLoopTrace(trace)
+  const totalTokens = trace.totalUsage.inputTokens + trace.totalUsage.outputTokens
 
   return (
     <section
@@ -153,9 +170,11 @@ export function LoopTracePanel({ trace, className }: LoopTracePanelProps) {
         ) : (
           <ChevronRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
         )}
-        <span className="font-semibold text-muted-foreground">Loop trace</span>
+        <span className="font-semibold text-muted-foreground">
+          {t('ui.ai.loopTrace.title', 'Loop trace')}
+        </span>
         <span className="ml-1 font-mono text-muted-foreground/60">
-          {trace.steps.length} step{trace.steps.length !== 1 ? 's' : ''}
+          {t('ui.ai.loopTrace.steps', '{count} steps', { count: trace.steps.length })}
         </span>
         <span
           className="ml-auto font-mono text-muted-foreground/60"
@@ -165,9 +184,22 @@ export function LoopTracePanel({ trace, className }: LoopTracePanelProps) {
         </span>
         <span className="font-mono text-muted-foreground/60">{formatMs(trace.totalDurationMs)}</span>
         <span className="font-mono text-muted-foreground/60">
-          {trace.totalUsage.inputTokens + trace.totalUsage.outputTokens} tok
+          {t('ui.ai.loopTrace.tokens', '{count} tok', { count: totalTokens })}
         </span>
       </button>
+
+      {runId && canViewRunTrace ? (
+        <div className="flex justify-end border-t border-border px-3 py-1.5">
+          <Link
+            href={buildAiRunTraceHref(runId)}
+            className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+            data-ai-loop-trace-full-trace-link={runId}
+          >
+            <Activity className="size-3" aria-hidden />
+            {t('ai_assistant.chat.openFullTrace', 'Open full trace')}
+          </Link>
+        </div>
+      ) : null}
 
       {open ? (
         <ul id="loop-trace-steps" className="border-t border-border" role="list">
@@ -175,7 +207,9 @@ export function LoopTracePanel({ trace, className }: LoopTracePanelProps) {
             <LoopStepRow key={step.stepIndex} step={step} />
           ))}
           {trace.steps.length === 0 ? (
-            <li className="px-3 py-2 text-muted-foreground">No steps recorded.</li>
+            <li className="px-3 py-2 text-muted-foreground">
+              {t('ui.ai.loopTrace.noSteps', 'No steps recorded.')}
+            </li>
           ) : null}
         </ul>
       ) : null}

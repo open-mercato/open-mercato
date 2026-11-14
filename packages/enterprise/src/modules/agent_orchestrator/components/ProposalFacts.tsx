@@ -4,6 +4,7 @@ import { Check, ShieldAlert } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { AgentFactView, GuardCheckView } from './types'
+import { guardrailKindLabelKey } from './guardrailEvidence'
 import {
   deriveFactsFromInput,
   deriveProposedFields,
@@ -125,8 +126,10 @@ export function ReasoningList({
                 <ShieldAlert className="size-4 shrink-0 text-status-error-text" />
                 <span className="text-foreground">
                   {t('agent_orchestrator.caseload.inbox.guardrailFlagged', undefined, {
-                    kind: check.kind,
-                    result: check.result,
+                    kind: check.ruleId
+                      ? `${t(guardrailKindLabelKey(check.kind), check.kind)} (${check.ruleId})`
+                      : t(guardrailKindLabelKey(check.kind), check.kind),
+                    result: t(`agent_orchestrator.traces.detail.guardrailResult.${check.result}`, check.result),
                   })}
                 </span>
               </div>

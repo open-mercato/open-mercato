@@ -101,6 +101,7 @@ describe('online/offline scorer parity', () => {
     toolCalls: [{ toolName: 'search', args: { q: 'shoes' }, status: 'ok', sequence: 0 }],
     stepCount: 1,
     disposition: 'auto_approved',
+    guardrailChecks: [{ kind: 'evidence_quote', phase: 'output', result: 'pass', ruleId: 'quotes', outcome: null }],
   }
 
   const configFor: Record<string, unknown> = {
@@ -122,6 +123,7 @@ describe('online/offline scorer parity', () => {
     disposition_equals: { expected: 'auto_approved' },
     required_keys: { requiredKeys: ['answer'] },
     action_vocabulary: { allowedActions: ['set_stage'] },
+    guardrail_check: { ruleId: 'quotes', expect: 'pass' },
   }
 
   /**

@@ -1,0 +1,142 @@
+---
+title: Trace capture policy and step metadata
+description: How Agent Orchestrator decides what each LLM step records, the per-step span attributes, full-fidelity content capture and retention, and who may change the policy or read content.
+---
+
+# Trace capture policy and step metadata
+
+Every LLM step of an Agent Orchestrator run answers four questions: which model, with which parameters, how many tokens, and at what cost. What a step records is governed by a per-tenant **trace capture policy**.
+
+## Capture levels
+
+| Level | What a step records |
+| --- | --- |
+| `off` | The legacy span attributes only (`inputTokens`, `outputTokens`, `finishReason`). Output is byte-identical to earlier releases. |
+| `metadata` | Model, parameters as sent, usage, cost, latency, response id, content hashes and sizes, capture fidelity. No prompt or response content. Default. |
+| `full` | Everything `metadata` records, plus the redacted request and response of each step and the packed context payload, stored as encrypted artifacts. See [Content capture](#content-capture). |
+
+## Resolution order
+
+For each run the level is resolved from the most specific source to the least specific:
+
+1. An unexpired per-agent override (`perAgent`, optionally time-boxed with `until`).
+2. The tenant policy: `evalLevel` for evaluation runs when set, otherwise `level`.
+3. The deployment default (`OM_AGENT_TRACE_CONTENT_DEFAULT`, default `metadata`).
+
+The result is then clamped to the **deployment ceiling** (`OM_AGENT_TRACE_CONTENT_MAX`, default `full`). A level that the ceiling lowers is reported with source `deployment`. An unrecognized environment value falls back to `metadata` for the default and never to a looser level. A tenant that never saved a policy uses the deployment default, and per-agent overrides apply only to tenants that saved one.
+
+The resolved capture (`level`, `source`, `retentionDays`, `redactPii`) is written to the run manifest as `om.capture`, and the run page shows it.
+
+`OM_AGENT_TRACE_CAPTURE=off` remains the kill switch for per-step span capture on native runs.
+
+## Policy settings
+
+Stored in module config `agent_orchestrator/trace_capture_policy` per tenant:
+
+| Field | Meaning |
+| --- | --- |
+| `level` | Tenant level. Defaults to `metadata`. |
+| `evalLevel` | Optional level for evaluation runs. |
+| `perAgent` | Up to 200 overrides keyed by agent id, each with `level` and an optional `until` expiry. |
+| `retentionDays` | 1 to 3650, default 30. |
+| `redactPii` | Default `false`. |
+| `includeProviderBody` | Default `false`. |
+
+`retentionDays` and `redactPii` apply to captured content and are also recorded in `om.capture`. `includeProviderBody` is stored but has no effect: the model SDK does not expose the raw provider request body, so the artifacts are built from the call the runtime made. The settings page keeps it read-only and preserves the stored value on save.
+
+Manage it at `/backend/settings/trace-capture`, or through `GET` and `PUT /api/agent_orchestrator/trace-capture/settings`. Saves go through the undoable command `agent_orchestrator.traceCapturePolicy.update` and use optimistic locking on the row's `updatedAt`.
+
+## Step span attributes
+
+Each LLM span carries these keys when the level is `metadata` or above.
+
+| Attribute | Meaning |
+| --- | --- |
+| `gen_ai.operation.name`, `gen_ai.provider.name` | Operation and provider. |
+| `gen_ai.request.model` | Requested model. |
+| `gen_ai.request.temperature`, `top_p`, `top_k`, `max_tokens`, `seed`, `stop_sequences`, `presence_penalty`, `frequency_penalty` | Parameters as sent to the provider. Only values actually sent are recorded. |
+| `gen_ai.response.model`, `gen_ai.response.id`, `gen_ai.response.finish_reasons` | What the provider answered. |
+| `gen_ai.usage.input_tokens`, `output_tokens` | Token usage. |
+| `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.reasoning.output_tokens` | Cached input and reasoning tokens when reported. |
+| `om.cost.micros`, `om.cost.currency`, `om.cost.pricing_source` | Estimated cost, see below. |
+| `om.latency.ms` | Model call latency. |
+| `om.prompt.system.sha256`, `om.tools.sha256`, `om.tools.count`, `om.messages.count` | Hashes and counts for the request, never the text. |
+| `om.content.request.sha256`, `om.content.request.bytes`, and the `response` equivalents | Content hashes and sizes. The hash is computed over the request as sent, before redaction. |
+| `om.content.request.key`, `om.content.response.key` | Storage keys of the content artifacts. Only at `full`, and only when the upload succeeded. |
+| `om.content.status` | `stored`, `over_cap_truncated` (stored, but cut to the byte cap), `storage_unavailable` (the upload failed, metadata only), or `disabled` below `full`. |
+| `om.content.redactions` | `{ rule, count }` per redaction rule applied to the stored content. |
+| `om.capture.fidelity` | `exact`, `reconstructed` or `reported`. |
+| `om.params.defaults` | `true` when no request parameters were sent at all, so every parameter was left to the provider default. Not written when any parameter was sent. |
+
+The legacy keys `inputTokens`, `outputTokens` and `finishReason` are still written, so existing consumers keep working.
+
+### Fidelity
+
+- `exact`: the call was observed directly, either through the model SDK hooks (one start and end per step) or as a synthesized `generateObject` / `streamObject` call made by the runtime itself.
+- `reconstructed`: the call was made by a caller-supplied `generateObject` callback, so the runtime only sees what it handed over and there is one step with no tool list.
+- `reported`: the numbers were reported by an external runtime rather than measured here.
+
+### Cost in micros
+
+`om.cost.micros` is the estimated cost in millionths of the currency unit (an integer), computed from the token counts and the price table. Prices come from the built-in table and can be overridden with `OM_AGENT_MODEL_PRICING` (JSON, per one million tokens); the currency is `OM_AGENT_COST_CURRENCY`. Cached and reasoning tokens have no separate price. When a model has no known price, `om.cost.pricing_source` is set to `unknown` and `om.cost.micros` and `om.cost.currency` are omitted.
+
+## Content capture
+
+At the `full` level each LLM step uploads two artifacts and the context assembler uploads one more per run. They are written to the `agent-trace-content` storage namespace, encrypted, and scoped to the run's tenant and organization.
+
+| Artifact | Schema | Holds |
+| --- | --- | --- |
+| LLM request | `om.llm_request.v1` | Provider, model, system prompt, messages, tool definitions, response format and parameters. |
+| LLM response | `om.llm_response.v1` | Finish reason, content parts, structured object, usage and provider metadata. |
+| Context payload | `om.context_payload.v1` | The packed context records, screened untrusted text and the retrieval query. Referenced by the context bundle's `payloadRef`. |
+
+A failed upload never fails the run: the step records `om.content.status = storage_unavailable` and keeps its metadata.
+
+### Redaction
+
+Content is redacted before it is stored. Secret-looking object keys and secret strings (session tokens, authorization headers, bearer and basic credentials) are always removed. With `redactPii` on, emails, phone numbers, IBANs and card numbers are replaced as well. File and image parts are replaced by `{ type: 'file', mediaType, bytes, sha256 }`, so binary data is never stored. Every rule that fired is counted in `om.content.redactions`.
+
+### Size cap
+
+Each artifact is capped at `OM_AGENT_TRACE_CONTENT_MAX_BYTES` (default 1 MiB). Over the cap the largest messages are truncated first and replaced with `{ _truncated: true, originalBytes }`, and the step status becomes `over_cap_truncated`.
+
+### Reading content
+
+Captured content is served by `GET /api/agent_orchestrator/runs/:id/artifact?kind=llm_request|llm_response|context_payload&key=…`:
+
+- The caller needs `agent_orchestrator.trace.view_content` on top of `trace.view`, otherwise the route returns 403.
+- The key must be referenced by an `llm` span of that run (`om.content.request.key` / `om.content.response.key`) or by its context bundle `payloadRef`. Any other key, or a run outside the caller's tenant and organization, returns 404.
+- Content whose key is older than the tenant's `retentionDays`, or whose object is no longer stored, returns **410 Gone**. 502 means storage is currently unavailable.
+- Every successful read is written to the access log with resource kind `agent_orchestrator.agent_run.content`, the actor (user or API key), the run id, the kind and the key.
+
+The other artifact kinds (`output`, `tool_request`, `tool_response`, `raw_output`) keep their earlier behavior, including 502 when the object is missing.
+
+### Retention
+
+The `agent_orchestrator:trace-content-retention` worker runs once a day per organization (a schedule registered by the module's tenant setup). It reads content keys from the database, from `llm` spans and context bundles created between seven days before the retention cutoff and the cutoff, and deletes those objects. An object that is already gone counts as deleted, and when storage is unavailable the organization is skipped until the next run. Span and bundle rows are append-only and are not changed: the route answers 410 from the key's age.
+
+Because the worker only looks back seven days past the cutoff, content from periods when it did not run is not swept later. Add a bucket lifecycle rule that expires objects under the `agent-trace-content` prefix after your longest `retentionDays` as a backstop.
+
+Captured content counts against the tenant's attachment storage quota.
+
+## Permissions
+
+| Feature | Grants |
+| --- | --- |
+| `agent_orchestrator.trace.view` | Reading traces, step metadata and the current capture policy. |
+| `agent_orchestrator.trace.view_content` | Changing the capture policy and reading captured content. It depends on `trace.view`, is held by admin and superadmin through the module wildcard, and is not part of any narrower default role. |
+
+Saving the policy needs both `agent_orchestrator.agents.manage` and `agent_orchestrator.trace.view_content`.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OM_AGENT_TRACE_CAPTURE` | `on` | `off` disables per-step span capture on native runs. |
+| `OM_AGENT_TRACE_CONTENT_DEFAULT` | `metadata` | Deployment default level. |
+| `OM_AGENT_TRACE_CONTENT_MAX` | `full` | Deployment ceiling. Set `metadata` to forbid content capture everywhere. |
+| `OM_AGENT_TRACE_CONTENT_MAX_BYTES` | `1048576` | Byte cap per content artifact. |
+| `OM_AGENT_MODEL_PRICING` | built-in table | JSON price override. |
+| `OM_AGENT_COST_CURRENCY` | `USD` | Currency label for cost. |
+
+See also [Exporting agent traces to OpenTelemetry](./agent-trace-otel-export).

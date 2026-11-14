@@ -1,0 +1,6 @@
+  12 failed
+  3 flaky
+    packages/core/src/modules/sync_excel/__integration__/TC-SX-009.spec.ts:319:3 › TC-SX-009: sync_excel re-import after a delete or a failed row › a batch row whose address is rejected keeps its mapping, so retries and the corrected file reuse the same person 
+  116 skipped
+  2954 passed (51.5m)
+💥 Failed: Command failed: yarn run test:integration (exit 1).

@@ -7,10 +7,10 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { AgentProposal, AgentRun, AgentSpan, AgentToolCall } from '../../../data/entities'
-import { projectRunView } from '../../../lib/eval/projectRunView'
+import { loadRunGuardrailChecks, projectRunView } from '../../../lib/eval/projectRunView'
 import { getScorerDefinition, parseScorerConfig, runScorer } from '../../../lib/eval/registry'
 import { createModelJudge } from '../../../lib/eval/llmJudge'
-import { normalizeJudgeRubric } from '../../../lib/eval/judgeRubric'
+import { collectRubricRefs, ensureRubricLibrary, resolveJudgeRubric } from '../../../lib/eval/rubrics'
 import type { Json } from '../../../lib/eval/types'
 import { agentOrchestratorTag } from '../../openapi'
 
@@ -73,15 +73,23 @@ export async function POST(req: Request) {
   const toolCalls = await findWithDecryption(em, AgentToolCall, { agentRunId: run.id, ...scope }, undefined, scope)
   const spans = await em.find(AgentSpan, { agentRunId: run.id, ...scope })
   const proposal = await em.findOne(AgentProposal, { runId: run.id, ...scope })
-  const runView = projectRunView({ run, toolCalls, spans, disposition: proposal?.disposition ?? null })
+  const guardrailChecks = await loadRunGuardrailChecks(em, run.id, scope)
+  const runView = projectRunView({ run, toolCalls, spans, disposition: proposal?.disposition ?? null, guardrailChecks })
 
   const expected = (input.expected ?? null) as Json | null
 
   if (definition.kind === 'llm_judge') {
-    const rubric = normalizeJudgeRubric(input.config, '')
-    if (!rubric) {
-      return NextResponse.json({ error: '[internal] rubric is required to preview a judge' }, { status: 422 })
+    await ensureRubricLibrary(collectRubricRefs([input.config]))
+    const resolution = resolveJudgeRubric(input.config, { agentId: run.agentId, fallbackText: '' })
+    if (!resolution.ok) {
+      return resolution.reason === 'unknown_rubric'
+        ? NextResponse.json(
+            { error: '[internal] unknown rubric for this agent', code: 'unknown_rubric', rubricRef: resolution.rubricRef },
+            { status: 422 },
+          )
+        : NextResponse.json({ error: '[internal] rubric is required to preview a judge' }, { status: 422 })
     }
+    const rubric = resolution.rubric
     try {
       const verdict = await createModelJudge(container)({ rubric, runOutput: run.output, expected })
       return NextResponse.json({ ...verdict, scorerKey: input.scorerKey, runId: run.id })
@@ -109,14 +117,14 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Dry-run a scorer or judge rubric against a real historical run',
       description:
-        'Scores an existing AgentRun with the supplied scorerKey + config and returns the verdict WITHOUT persisting anything. `passed: null` means the assertion would be skipped. Config is validated with the same rules as saving, so a preview cannot green-light a config the form would reject. Judge previews resolve a model and therefore cost a round-trip; they return 422 (not 500) when no provider is configured. Gated by agent_orchestrator.eval.manage.',
+        'Scores an existing AgentRun with the supplied scorerKey + config and returns the verdict WITHOUT persisting anything. `passed: null` means the assertion would be skipped. Config is validated with the same rules as saving, so a preview cannot green-light a config the form would reject. A judge `rubricRef` resolves against the agent of the run (agent rubric first, then built-in); an unknown ref is a 422 with `code: unknown_rubric`. Judge previews resolve a model and therefore cost a round-trip; they return 422 (not 500) when no provider is configured. Gated by agent_orchestrator.eval.manage.',
       responses: [{ status: 200, description: 'The verdict this assertion would produce' }],
       errors: [
         { status: 400, description: 'Invalid body', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Missing agent_orchestrator.eval.manage', schema: errorSchema },
         { status: 404, description: 'Run not found (or cross-tenant)', schema: errorSchema },
-        { status: 422, description: 'Unknown scorer, invalid config, or judge unavailable', schema: errorSchema },
+        { status: 422, description: 'Unknown scorer, invalid config, unknown rubric, or judge unavailable', schema: errorSchema },
       ],
     },
   },

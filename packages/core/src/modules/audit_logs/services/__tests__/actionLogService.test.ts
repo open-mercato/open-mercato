@@ -491,6 +491,263 @@ describe('ActionLogService normalizeInput', () => {
     expect(created.primaryChangedField).toBe('entity.displayName')
     expect(created.relatedResourceKind).toBe('customers.deal')
     expect(created.relatedResourceId).toBe('deal-1')
+    expect(created.correlationKeys).toBeNull()
+  })
+
+  it('populates correlation keys from context.correlation when creating a log entity', () => {
+    const service = new ActionLogService(
+      {} as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    const serviceWithPrivateAccess = service as unknown as {
+      createLogEntity: (
+        fork: { create: (_entity: unknown, payload: Record<string, unknown>) => Record<string, unknown> },
+        query: Record<string, unknown>,
+      ) => Record<string, unknown>
+    }
+
+    const created = serviceWithPrivateAccess.createLogEntity({
+      create: (_entity, payload) => payload,
+    }, {
+      commandId: 'customers.deals.update',
+      context: {
+        source: 'agent',
+        correlation: { proposalId: 'prop-1', agentRunId: 'run-1', note: 'free text here' },
+      },
+      executionState: 'done',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+    })
+
+    expect(created.correlationKeys).toEqual(['agentRunId:run-1', 'proposalId:prop-1'])
+    expect(created.contextJson).toEqual({
+      source: 'agent',
+      correlation: { proposalId: 'prop-1', agentRunId: 'run-1', note: 'free text here' },
+    })
+  })
+})
+
+describe('ActionLogService.backfillProjections - correlation keys', () => {
+  function buildBackfillService(rows: Record<string, unknown>[]) {
+    const updates: Array<{ values: Record<string, unknown>; id: unknown }> = []
+    let served = false
+    const selectBuilder = {
+      select: () => selectBuilder,
+      where: () => selectBuilder,
+      orderBy: () => selectBuilder,
+      limit: () => selectBuilder,
+      execute: async () => {
+        if (served) return []
+        served = true
+        return rows
+      },
+    }
+    const fakeKysely = {
+      selectFrom: () => selectBuilder,
+      updateTable: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (_column: string, _operator: string, id: unknown) => ({
+            execute: async () => {
+              updates.push({ values, id })
+            },
+          }),
+        }),
+      }),
+    }
+    const service = new ActionLogService(
+      { getKysely: () => fakeKysely } as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    return { service, updates }
+  }
+
+  const baseRow = {
+    tenant_id: 'tenant-1',
+    organization_id: 'org-1',
+    actor_user_id: null,
+    command_id: 'customers.deals.update',
+    action_label: null,
+    snapshot_before: null,
+    changes_json: null,
+    action_type: 'edit',
+    source_key: 'agent',
+    changed_fields: [],
+    primary_changed_field: null,
+    created_at: new Date('2026-10-01T00:00:00.000Z'),
+  }
+
+  it('fills correlation_keys for rows whose context carries correlation ids', async () => {
+    const { service, updates } = buildBackfillService([
+      {
+        ...baseRow,
+        id: 'log-1',
+        correlation_keys: null,
+        context_json: { source: 'agent', correlation: { agentRunId: 'run-1' } },
+      },
+    ])
+
+    const result = await service.backfillProjections()
+
+    expect(result).toEqual({ errors: 0, scanned: 1, skipped: 0, updated: 1 })
+    expect(updates).toHaveLength(1)
+    expect(updates[0].id).toBe('log-1')
+    expect(updates[0].values.correlation_keys).toEqual(['agentRunId:run-1'])
+  })
+
+  it('skips rows whose correlation keys already match and keeps null for uncorrelated rows', async () => {
+    const { service, updates } = buildBackfillService([
+      {
+        ...baseRow,
+        id: 'log-2',
+        correlation_keys: ['agentRunId:run-2'],
+        context_json: { source: 'agent', correlation: { agentRunId: 'run-2' } },
+      },
+      {
+        ...baseRow,
+        id: 'log-3',
+        correlation_keys: null,
+        context_json: { source: 'agent' },
+      },
+    ])
+
+    const result = await service.backfillProjections({ batchSize: 10 })
+
+    expect(result).toEqual({ errors: 0, scanned: 2, skipped: 2, updated: 0 })
+    expect(updates).toHaveLength(0)
+  })
+})
+
+describe('ActionLogService.backfillProjections - query scoping and cursor', () => {
+  type Pred = (row: Record<string, unknown>) => boolean
+
+  function compare(cell: unknown, op: string, value: unknown): boolean {
+    const left = cell instanceof Date ? cell.getTime() : cell
+    const right = value instanceof Date ? value.getTime() : value
+    if (op === 'is') return cell === null || cell === undefined
+    if (op === '=') return left === right
+    if (op === '>') return (left as number | string) > (right as number | string)
+    throw new Error(`[internal] unsupported operator ${op}`)
+  }
+
+  function columnPred(column: string, op: string, value: unknown): Pred {
+    const key = column.replace('action_logs.', '')
+    return (row) => compare(row[key], op, value)
+  }
+
+  function buildImmutableKysely(rows: Record<string, unknown>[]) {
+    const selectCalls: number[] = []
+    const updates: Array<{ values: Record<string, unknown>; id: unknown }> = []
+    const expressionBuilder = Object.assign(
+      (column: string, op: string, value: unknown) => columnPred(column, op, value),
+      {
+        or: (list: Pred[]): Pred => (row) => list.some((fn) => fn(row)),
+        and: (list: Pred[]): Pred => (row) => list.every((fn) => fn(row)),
+      },
+    )
+    const makeBuilder = (preds: Pred[], limit: number | null): Record<string, unknown> => ({
+      select: () => makeBuilder(preds, limit),
+      where: (arg: unknown, op?: string, value?: unknown) => {
+        const pred = typeof arg === 'function'
+          ? (arg as (eb: typeof expressionBuilder) => Pred)(expressionBuilder)
+          : columnPred(arg as string, op as string, value)
+        return makeBuilder([...preds, pred], limit)
+      },
+      orderBy: () => makeBuilder(preds, limit),
+      limit: (next: number) => makeBuilder(preds, next),
+      execute: async () => {
+        const matched = rows
+          .filter((row) => preds.every((fn) => fn(row)))
+          .sort((left, right) => {
+            const byDate = (left.created_at as Date).getTime() - (right.created_at as Date).getTime()
+            return byDate !== 0 ? byDate : String(left.id).localeCompare(String(right.id))
+          })
+        selectCalls.push(matched.length)
+        if (selectCalls.length > 50) throw new Error('[internal] backfill did not terminate')
+        return limit === null ? matched : matched.slice(0, limit)
+      },
+    })
+    const fakeKysely = {
+      selectFrom: () => makeBuilder([], null),
+      updateTable: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (_column: string, _operator: string, id: unknown) => ({
+            execute: async () => {
+              updates.push({ values, id })
+            },
+          }),
+        }),
+      }),
+    }
+    const service = new ActionLogService(
+      { getKysely: () => fakeKysely } as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+    return { service, updates, selectCalls }
+  }
+
+  const completeRow = {
+    tenant_id: 'tenant-1',
+    organization_id: 'org-1',
+    actor_user_id: null,
+    command_id: 'customers.deals.update',
+    action_label: null,
+    snapshot_before: null,
+    changes_json: null,
+    action_type: 'edit',
+    source_key: 'agent',
+    changed_fields: [],
+    primary_changed_field: null,
+    correlation_keys: ['agentRunId:run-1'],
+    context_json: { source: 'agent', correlation: { agentRunId: 'run-1' } },
+    deleted_at: null,
+  }
+
+  function rowAt(id: string, minute: number, overrides: Record<string, unknown> = {}) {
+    return {
+      ...completeRow,
+      id,
+      created_at: new Date(Date.UTC(2026, 9, 1, 0, minute)),
+      ...overrides,
+    }
+  }
+
+  it('applies tenant and organization scope filters', async () => {
+    const { service, updates } = buildImmutableKysely([
+      rowAt('in-scope', 1, { correlation_keys: null }),
+      rowAt('other-tenant', 2, { tenant_id: 'tenant-2', correlation_keys: null }),
+      rowAt('other-org', 3, { organization_id: 'org-2', correlation_keys: null }),
+      rowAt('deleted', 4, { correlation_keys: null, deleted_at: new Date() }),
+    ])
+
+    const result = await service.backfillProjections({ tenantId: 'tenant-1', organizationId: 'org-1' })
+
+    expect(result).toEqual({ errors: 0, scanned: 1, skipped: 0, updated: 1 })
+    expect(updates.map((update) => update.id)).toEqual(['in-scope'])
+  })
+
+  it('only scans rows with missing projections when not forced', async () => {
+    const { service, updates } = buildImmutableKysely([
+      rowAt('complete', 1),
+      rowAt('missing-correlation', 2, { correlation_keys: null }),
+      rowAt('missing-type', 3, { action_type: null }),
+    ])
+
+    const result = await service.backfillProjections()
+
+    expect(result.scanned).toBe(2)
+    expect(updates.map((update) => update.id)).toEqual(['missing-correlation', 'missing-type'])
+  })
+
+  it('advances the cursor so a forced run processes each row once and terminates', async () => {
+    const { service, updates, selectCalls } = buildImmutableKysely([
+      rowAt('log-c', 2),
+      rowAt('log-a', 1),
+      rowAt('log-b', 1),
+      rowAt('log-d', 3),
+    ])
+
+    const result = await service.backfillProjections({ force: true, batchSize: 2 })
+
+    expect(result).toEqual({ errors: 0, scanned: 4, skipped: 0, updated: 4 })
+    expect(updates.map((update) => update.id)).toEqual(['log-a', 'log-b', 'log-c', 'log-d'])
+    expect(selectCalls).toEqual([4, 2, 0])
   })
 })
 
@@ -881,5 +1138,85 @@ describe('ActionLogService markRedone', () => {
     expect(fork.flush).toHaveBeenCalledTimes(1)
     expect(em.findOne).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('ActionLogService correlation key filter', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '22222222-2222-4222-8222-222222222222'
+  const runKey = 'agentRunId:33333333-3333-4333-8333-333333333333'
+  const proposalKey = 'proposalId:44444444-4444-4444-8444-444444444444'
+
+  function captureWheres(query: Record<string, unknown>): unknown[] {
+    const wheres: unknown[] = []
+    const builder: Record<string, unknown> = {}
+    builder.selectAll = () => builder
+    builder.where = (...args: unknown[]) => {
+      wheres.push(args)
+      return builder
+    }
+    builder.orderBy = () => builder
+    const fakeEm = { getKysely: () => ({ selectFrom: () => builder }) }
+    const service = new ActionLogService(fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const internals = service as unknown as {
+      buildListQuery: (parsed: Record<string, unknown>) => unknown
+      parseListQuery: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+    internals.buildListQuery(internals.parseListQuery(query))
+    return wheres
+  }
+
+  function serializeWheres(wheres: unknown[]): string {
+    return JSON.stringify(wheres.map((args) => (args as unknown[]).map((arg) => {
+      if (arg && typeof arg === 'object' && 'toOperationNode' in arg) {
+        return (arg as { toOperationNode: () => unknown }).toOperationNode()
+      }
+      return arg
+    })))
+  }
+
+  it('adds an array-overlap predicate over correlation_keys with every requested key', () => {
+    const serialized = serializeWheres(captureWheres({ tenantId, organizationId, correlationKeys: [runKey, proposalKey, runKey] }))
+    expect(serialized).toContain('action_logs.correlation_keys && array[')
+    expect(serialized).toContain(runKey)
+    expect(serialized).toContain(proposalKey)
+    expect(serialized.split(runKey)).toHaveLength(2)
+  })
+
+  it('adds no correlation predicate when no keys are requested', () => {
+    expect(serializeWheres(captureWheres({ tenantId }))).not.toContain('correlation_keys')
+  })
+
+  function buildServiceWithListSpy() {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const list = jest.spyOn(service, 'list').mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 })
+    return { service, list }
+  }
+
+  it('lists by correlation keys within the tenant and organization scope', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    await service.listByCorrelationKeys({ tenantId, organizationId, keys: [runKey, ' ', proposalKey], page: 2, pageSize: 25 })
+
+    expect(list).toHaveBeenCalledWith({ tenantId, organizationId, correlationKeys: [runKey, proposalKey], page: 2, pageSize: 25 })
+  })
+
+  it('caps the page size at 100', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    await service.listByCorrelationKeys({ tenantId, organizationId, keys: [runKey], pageSize: 500 })
+
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 100, page: 1 }))
+  })
+
+  it('returns an empty page without querying when the scope or keys are missing', async () => {
+    const { service, list } = buildServiceWithListSpy()
+
+    const missingOrg = await service.listByCorrelationKeys({ tenantId, organizationId: '', keys: [runKey] })
+    const missingKeys = await service.listByCorrelationKeys({ tenantId, organizationId, keys: [] })
+
+    expect(list).not.toHaveBeenCalled()
+    expect(missingOrg).toEqual({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 })
+    expect(missingKeys.total).toBe(0)
   })
 })

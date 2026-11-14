@@ -5,6 +5,13 @@ import { captureLogs } from './support/captureLogs'
 
 const createSessionApiKeyMock = jest.fn()
 const deleteSessionApiKeyMock = jest.fn()
+jest.mock('../lib/guardrails/guardrailService', () => {
+  const actual = jest.requireActual('../lib/guardrails/guardrailService')
+  return {
+    ...actual,
+    persistVerdict: async (_ctx: unknown, _scope: unknown, args: { verdict: { checks: unknown[] } }) => args.verdict.checks,
+  }
+})
 jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   generateSessionToken: () => 'sess_runner_test_token',
   createSessionApiKey: (...args: unknown[]) => {
@@ -113,7 +120,7 @@ function makeHarness() {
   const rbacService = {
     loadAcl: async () => ({ isSuperAdmin: false, features: ['agent_orchestrator.agents.run'] }),
   }
-  const em = {}
+  const em = { fork: () => ({}) }
   // Shared cross-process correlation store — the runner opens a row, the fake
   // client's submit_outcome (resolving the SAME store from the container)
   // completes it, and the runner polls it back.
@@ -286,9 +293,10 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     // Spans are derived 1:1 from tool calls, so this run produced none — and a
     // run with no span is unauditable, which `dispositionService` reads as
     // `trace_incomplete` and holds for a human however confident the agent was.
-    expect(payload.spans).toHaveLength(1)
-    expect(payload.spans![0].kind).toBe('llm')
-    expect(Date.parse(payload.spans![0].startedAt)).not.toBeNaN()
+    const stepSpans = (payload.spans ?? []).filter((span) => span.kind !== 'system')
+    expect(stepSpans).toHaveLength(1)
+    expect(stepSpans[0].kind).toBe('llm')
+    expect(Date.parse(stepSpans[0].startedAt)).not.toBeNaN()
   })
 
   it('stamps the declared model (alongside runtime) on runs.create so the cockpit can show/filter runs by model', async () => {

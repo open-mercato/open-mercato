@@ -7,7 +7,7 @@ import {
   createPagedListResponseSchema,
 } from '../openapi'
 
-const ENTITY_TYPE = 'agent_orchestrator:context_bundle'
+const ENTITY_TYPE = 'agent_orchestrator:agent_context_bundle'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.context.read'] },

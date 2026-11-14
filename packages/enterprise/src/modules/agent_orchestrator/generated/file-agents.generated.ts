@@ -75,6 +75,11 @@ export type FileAgentDescriptor = {
    * 1). Absent for agents without sub-agents and for sub-agents themselves.
    */
   subAgentDescriptors?: FileAgentDescriptor[]
+  /**
+   * ACL features the invoker must hold to run this agent, from AGENT.md
+   * `requiredFeatures`. Absent when the agent declares none.
+   */
+  requiredFeatures?: string[]
   maxSteps?: number
   provider?: string
   model?: string

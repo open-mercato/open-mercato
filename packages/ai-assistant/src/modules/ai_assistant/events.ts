@@ -67,6 +67,13 @@ const events = [
     entity: 'ai_moderation_flag',
     category: 'system' as const,
   },
+  {
+    id: 'ai_assistant.agent_run.completed',
+    label: 'AI Agent Run Completed',
+    entity: 'ai_agent_run',
+    category: 'system' as const,
+    clientBroadcast: false,
+  },
 ] as const
 
 export const eventsConfig = createModuleEvents({
@@ -167,6 +174,23 @@ export interface AiModerationFlagCreatedPayload {
   agentId: string
   userId: string
   categories: string[]
+}
+
+/**
+ * Emitted (persistent, best-effort) after an agent run and its steps/tool
+ * calls are committed. Carries ids only — subscribers load content through
+ * the `aiAgentRunReader` DI service.
+ *
+ * Spec `2026-10-21-chat-run-tracing-and-citations`.
+ */
+export interface AiAgentRunCompletedPayload {
+  runId: string
+  tenantId: string
+  organizationId: string | null
+  agentId: string
+  channel: string
+  status: string
+  conversationId: string | null
 }
 
 export default eventsConfig

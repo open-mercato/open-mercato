@@ -30,6 +30,7 @@ import {
   syncWorkflowDefinitionPrincipal,
 } from '../../../../lib/definition-grant'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { collectAgentInvokeGrantWarnings } from '../../../../lib/agent-invoke-grant-warnings'
 
 const logger = createLogger('workflows').child({ component: 'definition-publish-api' })
 
@@ -211,10 +212,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
       })
     }
 
+    const warnings = await collectAgentInvokeGrantWarnings(container, {
+      definition: published.definition,
+      grantedFeatures: published.grantedFeatures,
+    })
+
     return NextResponse.json({
       data: serializeWorkflowDefinition(published),
       breakingChanges,
       message: 'Workflow definition published successfully',
+      ...(warnings.length ? { warnings } : {}),
     })
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
@@ -230,7 +237,7 @@ export const openApi = {
     POST: {
       summary: 'Publish a new workflow definition version',
       description:
-        'Mints a frozen published version snapshotting the definition and its IO port contract. Returns affected sub-workflow callers; pass acknowledgeBreakingChanges=true to publish despite breaking changes.',
+        'Mints a frozen published version snapshotting the definition and its IO port contract. Returns affected sub-workflow callers; pass acknowledgeBreakingChanges=true to publish despite breaking changes. May return non-blocking `warnings` (e.g. `agent_invoke_not_covered` when the definition grant cannot invoke an INVOKE_AGENT step\'s agent).',
       tags: ['Workflows'],
       pathParams: z.object({ id: z.string().describe('Workflow definition id') }),
       requestBody: publishInputSchema,

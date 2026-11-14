@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { AgentEvalAssertion } from '../../data/entities'
 import {
   evalAssertionCreateSchema,
@@ -10,7 +11,14 @@ import {
   type EvalAssertionCreateInput,
   type EvalAssertionUpdateInput,
 } from '../../data/validators'
-import { parseScorerConfig } from '../../lib/eval/registry'
+import { getScorerDefinition, parseScorerConfig } from '../../lib/eval/registry'
+import {
+  collectRubricRefs,
+  ensureAgentRubricsLoaded,
+  ensureRubricLibrary,
+  isKnownRubricRef,
+  readRubricRef,
+} from '../../lib/eval/rubrics'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
@@ -50,6 +58,35 @@ function resolveScorerForWrite(scorerKey: string | undefined, key: string, confi
     })
   }
   return resolved
+}
+
+/**
+ * A judge `{ rubricRef }` must name a rubric the assertion's agent can resolve
+ * (its own, then built-in); a wildcard assertion accepts any key some agent or
+ * the built-in library declares. Checked at write so a typo is a 422 rather
+ * than a judge that skips as `unknown_rubric` on every run.
+ */
+function assertRubricRefKnown(scorerKey: string, appliesTo: string, config: unknown): void {
+  if (getScorerDefinition(scorerKey)?.kind !== 'llm_judge') return
+  const rubricRef = readRubricRef(config)
+  if (!rubricRef || isKnownRubricRef(appliesTo, rubricRef)) return
+  throw new CrudHttpError(422, {
+    error: '[internal] unknown rubric for this agent',
+    code: 'unknown_rubric',
+    scorerKey,
+    rubricRef,
+    issues: [`rubricRef: rubric "${rubricRef}" is not declared by "${appliesTo}" or built in`],
+  })
+}
+
+async function loadRubricsForWrite(request: Request, options: { onAppliesTo: boolean }): Promise<void> {
+  const body = await readJsonSafe<Record<string, unknown> | null>(request.clone(), null)
+  if (!body || typeof body !== 'object') return
+  if (options.onAppliesTo && body.appliesTo !== undefined) {
+    await ensureAgentRubricsLoaded()
+    return
+  }
+  await ensureRubricLibrary(collectRubricRefs([body.config]))
 }
 
 const crud = makeCrudRoute<
@@ -116,11 +153,13 @@ const crud = makeCrudRoute<
       if (!organizationId || !tenantId) {
         throw new CrudHttpError(400, { error: '[internal] organization and tenant context required' })
       }
+      const scorerKey = resolveScorerForWrite(input.scorerKey, input.key, input.config)
+      assertRubricRefKnown(scorerKey, input.appliesTo, input.config)
       return {
         tenantId,
         organizationId,
         key: input.key,
-        scorerKey: resolveScorerForWrite(input.scorerKey, input.key, input.config),
+        scorerKey,
         title: input.title,
         description: input.description ?? null,
         appliesTo: input.appliesTo,
@@ -140,6 +179,7 @@ const crud = makeCrudRoute<
       if (input.key !== undefined) row.key = input.key
       if (input.title !== undefined) row.title = input.title
       if (input.description !== undefined) row.description = input.description ?? null
+      const appliesToChanged = input.appliesTo !== undefined && input.appliesTo !== row.appliesTo
       if (input.appliesTo !== undefined) row.appliesTo = input.appliesTo
       if (input.type !== undefined) row.type = input.type
       // Severity is no longer coerced. A judge assertion MAY now be declared
@@ -159,6 +199,9 @@ const crud = makeCrudRoute<
       if (scorerChanged || configChanged) {
         const nextConfig = input.config !== undefined ? input.config : row.config
         row.scorerKey = resolveScorerForWrite(input.scorerKey ?? row.scorerKey, input.key ?? row.key, nextConfig)
+      }
+      if (scorerChanged || configChanged || appliesToChanged) {
+        assertRubricRefKnown(row.scorerKey, row.appliesTo, input.config !== undefined ? input.config : row.config)
       }
       if (configChanged) {
         row.config = input.config ?? null
@@ -182,8 +225,15 @@ const crud = makeCrudRoute<
 })
 
 export const GET = crud.GET
-export const POST = crud.POST
-export const PUT = crud.PUT
+export async function POST(request: Request) {
+  await loadRubricsForWrite(request, { onAppliesTo: false })
+  return crud.POST(request)
+}
+
+export async function PUT(request: Request) {
+  await loadRubricsForWrite(request, { onAppliesTo: true })
+  return crud.PUT(request)
+}
 export const DELETE = crud.DELETE
 
 const evalAssertionListItemSchema = z.object({

@@ -167,8 +167,8 @@ export type ScorerDefinition<TConfig = unknown> = {
 `score` stays a **pure function** — no `EntityManager`, no request scope — preserving gap-04's shared-scorer
 premise.
 
-**Catalog — 21 definitions: 20 deterministic + 1 judge.** With the deprecated `min_confidence` alias, 22
-keys resolve. (promptfoo ships ~40 type *names*; these fold into params because `key` is now an instance
+**Catalog — 23 definitions: 22 deterministic + 1 judge** (21 at Phase 1; the agent group later gained
+`action_vocabulary` and `guardrail_check`). With the deprecated `min_confidence` alias, 24 keys resolve. (promptfoo ships ~40 type *names*; these fold into params because `key` is now an instance
 slug and a scorer may be instantiated many times per agent.)
 
 | Group | `scorerKey` (count) | Config |
@@ -177,7 +177,7 @@ slug and a scorer may be instantiated many times per agent.)
 | structured (4) | `json_valid`, `json_schema`, `json_match`, `json_path_compare` | `schema`, `path`, `mode: exact\|subset`, `ignore[]`, `operator: eq\|ne\|gt\|gte\|lt\|lte\|in\|contains`, `value`, `source` |
 | tools (4) | `tool_used`, `tool_args_match`, `tool_sequence`, `tool_count` | `name\|pattern`, `min`, `max`, `args`, `mode: partial\|exact`, `steps[]`, `order: in_order\|exact` |
 | economics (3) | `latency`, `cost`, `step_count` | `threshold`, `direction` |
-| agent (5) | `confidence_threshold`, `disposition_equals`, `output_present`, `required_keys`, `no_pii` | `threshold`, `direction`, `expected: auto_approved\|user_task`, `requiredKeys[]`, `patterns[]` |
+| agent (7) | `confidence_threshold`, `disposition_equals`, `output_present`, `required_keys`, `no_pii`, `action_vocabulary`, `guardrail_check` | `threshold`, `direction`, `expected: auto_approved\|user_task`, `requiredKeys[]`, `patterns[]` |
 | judge (1) | `llm_judge` | `JudgeRubric` (§3.2) |
 
 `llm_judge` is a **first-class registry member** with `kind: 'llm_judge'`, so `GET /eval-scorers` projects
@@ -656,7 +656,7 @@ never settles on an SSE page and produces deterministic false failures.
 
 | TC | Path | Asserts |
 |---|---|---|
-| EVAL-001 | `GET /eval-scorers` | 21 definitions projected incl. `llm_judge`; every one exposes `fields[]`; `openApi` served |
+| EVAL-001 | `GET /eval-scorers` | 23 definitions projected incl. `llm_judge`; every one exposes `fields[]`; `openApi` served |
 | EVAL-002 | `POST /eval-assertions` | malformed config → 422; unknown `scorer_key` → 422; **two `contains` assertions with different slugs coexist for one agent** |
 | EVAL-003 | `POST /eval-cases` + `GET /eval-cases/:id` | authoring; detail decrypts; list still omits `input`/`expected`; **DELETE not routed** |
 | EVAL-004 | `POST /eval-runs` | suite completes; case runs link a real `agentRunId`; **no proposal from an eval run reaches the caseload queue** |
@@ -852,3 +852,7 @@ document; their CODE is that spec's Phase 4.
 - **H7** Phase 5's "reproducible subject" needed a sibling spec's phase → stated as an explicit contingency in §3.6, §7 and §8 rather than an implied guarantee.
 - **H8** Exported scorer types were missing from the BC section → added, with an internal-surface declaration and a fallback protocol.
 - **M/L** `skipped` column dropped (`passed: null` is the sole marker, with a stated invariant); `DELETE /eval-cases` removed as incompatible with ≥6yr retention; `needsExpected` made a function of config; `eval_suite_run.progressed` replaced by worker-emitted `eval_case_run.started/.completed`; CLI flags aligned with `runEvalGate`'s optionality; `required_keys` rationale corrected to migration-safety; `preview` route assigned to Phase 3; gap-04 label reconciled to Supersedes; `z.unknown().optional()` citation corrected.
+
+- **2026-11-13:** Scorer count corrected to the registry (`lib/eval/registry/index.ts`, asserted by
+  `__tests__/eval-registry.test.ts`): 23 definitions, 22 deterministic + `llm_judge`. The agent group added
+  `action_vocabulary` and `guardrail_check` after Phase 1; the Phase 1 status rows keep the count of that time.

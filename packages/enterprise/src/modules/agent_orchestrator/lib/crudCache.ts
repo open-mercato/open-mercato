@@ -1,5 +1,5 @@
 import { canonicalizeResourceTag, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
-import { AgentProposal, AgentRun } from '../data/entities'
+import { AgentEvalAssertion, AgentEvalCase, AgentProposal, AgentRun } from '../data/entities'
 
 /**
  * CRUD GET-cache invalidation for runs and proposals written outside a route.
@@ -21,6 +21,8 @@ import { AgentProposal, AgentRun } from '../data/entities'
  */
 const AGENT_RUN_RESOURCE = canonicalizeResourceTag(AgentRun.name) ?? 'agent.run'
 const AGENT_PROPOSAL_RESOURCE = canonicalizeResourceTag(AgentProposal.name) ?? 'agent.proposal'
+const AGENT_EVAL_CASE_RESOURCE = canonicalizeResourceTag(AgentEvalCase.name) ?? 'agent.eval.case'
+const AGENT_EVAL_ASSERTION_RESOURCE = canonicalizeResourceTag(AgentEvalAssertion.name) ?? 'agent.eval.assertion'
 
 type CacheContainer = Parameters<typeof invalidateCrudCache>[0]
 
@@ -59,4 +61,19 @@ export function invalidateAgentProposalCache(
   reason: string,
 ): Promise<void> {
   return invalidate(container, AGENT_PROPOSAL_RESOURCE, target, reason)
+}
+
+/**
+ * Flushes the eval-case and eval-assertion list caches of one organization
+ * after a bulk write (an eval-set import or its undo), so the rows it created,
+ * changed or removed show in `/eval-cases` and `/eval-assertions` at once.
+ */
+export async function invalidateAgentEvalSetCaches(
+  container: CacheContainer,
+  scope: { tenantId: string; organizationId: string },
+  reason: string,
+): Promise<void> {
+  const collection = { id: null, tenantId: scope.tenantId, organizationId: scope.organizationId }
+  await invalidateCrudCache(container, AGENT_EVAL_CASE_RESOURCE, collection, scope.tenantId, reason)
+  await invalidateCrudCache(container, AGENT_EVAL_ASSERTION_RESOURCE, collection, scope.tenantId, reason)
 }

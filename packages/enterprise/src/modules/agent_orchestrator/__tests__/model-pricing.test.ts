@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { computeCostMinor, resolveModelPrice } from '../lib/runtime/modelPricing'
+import { computeCostMicros, computeCostMinor, resolveModelPrice } from '../lib/runtime/modelPricing'
 import { captureLogs } from './support/captureLogs'
 
 describe('modelPricing — Q8 minimal pricing config', () => {
@@ -81,5 +81,50 @@ describe('modelPricing — Q8 minimal pricing config', () => {
     expect(computeCostMinor('gpt-4o-mini', 1000, 1000)?.currency).toBe('PLN')
     process.env.OM_AGENT_COST_CURRENCY = 'not-a-code'
     expect(computeCostMinor('gpt-4o-mini', 1000, 1000)?.currency).toBe('USD')
+  })
+
+  describe('computeCostMicros', () => {
+    beforeEach(() => {
+      delete process.env.OM_AGENT_MODEL_PRICING
+      delete process.env.OM_AGENT_COST_CURRENCY
+    })
+
+    it('is consistent with computeCostMinor for the same usage', () => {
+      const micros = computeCostMicros('claude-sonnet-4-5', { inputTokens: 200_000, outputTokens: 100_000 })
+      expect(micros).toEqual({ micros: 2_100_000, currency: 'USD', pricingSource: 'default' })
+      expect(computeCostMinor('claude-sonnet-4-5', 200_000, 100_000)?.costMinor).toBe(
+        Math.round((micros?.micros ?? 0) / 10_000),
+      )
+    })
+
+    it('reports env_override when the override supplies the price', () => {
+      process.env.OM_AGENT_MODEL_PRICING = JSON.stringify({ 'gpt-5': { inputPer1M: 1, outputPer1M: 2 } })
+      expect(computeCostMicros('openai/gpt-5', { inputTokens: 1000, outputTokens: 1000 })).toEqual({
+        micros: 3000,
+        currency: 'USD',
+        pricingSource: 'env_override',
+      })
+      expect(computeCostMicros('gpt-4o', { inputTokens: 1, outputTokens: 0 })?.pricingSource).toBe('default')
+    })
+
+    it('returns null for an unknown or absent model', () => {
+      expect(computeCostMicros('some-unknown-model', { inputTokens: 10, outputTokens: 10 })).toBeNull()
+      expect(computeCostMicros(null, { inputTokens: 10, outputTokens: 10 })).toBeNull()
+    })
+
+    it('keeps non-zero micros for a small step where minor units round to zero', () => {
+      const usage = { inputTokens: 120, outputTokens: 40 }
+      expect(computeCostMinor('gpt-4o-mini', usage.inputTokens, usage.outputTokens)?.costMinor).toBe(0)
+      expect(computeCostMicros('gpt-4o-mini', usage)?.micros).toBe(42)
+    })
+
+    it('treats missing token counts as zero and honors the currency', () => {
+      process.env.OM_AGENT_COST_CURRENCY = 'eur'
+      expect(computeCostMicros('gpt-4o-mini', { inputTokens: null, outputTokens: 1000 })).toEqual({
+        micros: 600,
+        currency: 'EUR',
+        pricingSource: 'default',
+      })
+    })
   })
 })

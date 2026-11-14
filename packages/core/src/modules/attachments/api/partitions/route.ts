@@ -4,16 +4,23 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
 import { resolvePartitionEnvKey } from '../../lib/partitionEnv'
 import { getDeclaredAttachmentAccessRequirements } from '../../lib/access-protection'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveDefaultAttachmentOcrEnabled } from '../../lib/ocrConfig'
+import { enqueueDocumentSectionSearch, type DocumentStructureQueueContainer } from '../../lib/documentStructure/queue'
 import {
-  attachmentsTag,
   partitionCreateSchema,
   partitionUpdateSchema,
+  isDocumentStructureFlagCombinationValid,
+  DOCUMENT_SECTIONS_REQUIRE_STRUCTURE_MESSAGE,
+} from '../../data/validators'
+import {
+  attachmentsTag,
   partitionResponseSchema,
   partitionListResponseSchema,
   attachmentErrorSchema,
@@ -23,9 +30,20 @@ const deleteSchema = z.object({
   id: z.string().uuid(),
 })
 
+const logger = createLogger('attachments').child({ component: 'attachment-partitions' })
+
 const DEFAULT_CODES = new Set(DEFAULT_ATTACHMENT_PARTITIONS.map((entry) => entry.code))
 
 type AuthLike = { sub?: string; tenantId?: string | null; orgId?: string | null; isSuperAdmin?: boolean } | null | undefined
+
+function invalidPayloadResponse(error: z.ZodError) {
+  const fieldErrors: Record<string, string> = {}
+  for (const issue of error.issues) {
+    const key = issue.path.map(String).join('.')
+    if (key && !fieldErrors[key]) fieldErrors[key] = issue.message
+  }
+  return NextResponse.json({ error: 'Invalid payload', fieldErrors }, { status: 400 })
+}
 
 function isSuperAdmin(auth: AuthLike): boolean {
   return auth?.isSuperAdmin === true
@@ -54,6 +72,8 @@ function serializePartition(entry: AttachmentPartition) {
     ocrModel: entry.ocrModel ?? null,
     storageDriver: entry.storageDriver ?? 'local',
     configJson: entry.configJson ?? null,
+    extractDocumentStructure: entry.extractDocumentStructure ?? false,
+    indexDocumentSections: entry.indexDocumentSections ?? false,
     createdAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
     updatedAt: entry.updatedAt instanceof Date ? entry.updatedAt.toISOString() : null,
     envKey: resolvePartitionEnvKey(entry.code),
@@ -70,6 +90,27 @@ export const metadata = {
 async function resolveEm() {
   const { resolve } = await createRequestContainer()
   return resolve('em') as EntityManager
+}
+
+async function enqueuePartitionSectionSearchSync(
+  container: DocumentStructureQueueContainer,
+  entry: AttachmentPartition,
+): Promise<void> {
+  const tenantId = entry.tenantId ?? null
+  try {
+    await enqueueDocumentSectionSearch(container, {
+      mode: entry.indexDocumentSections ? 'index' : 'delete',
+      tenantId,
+      organizationId: null,
+      partitionCode: entry.code,
+    })
+  } catch (error) {
+    logger.error('Failed to enqueue partition section search sync', { partitionCode: entry.code, err: error })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'attachments',
+      code: 'attachments.document_structure_search_enqueue_failed',
+    })
+  }
 }
 
 export async function GET(req: Request) {
@@ -108,7 +149,7 @@ export async function POST(req: Request) {
   }
   const parsed = partitionCreateSchema.safeParse(json)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+    return invalidPayloadResponse(parsed.error)
   }
   const code = sanitizePartitionCode(parsed.data.code)
   if (!code) {
@@ -139,6 +180,8 @@ export async function POST(req: Request) {
         ? parsed.data.requiresOcr
         : resolveDefaultAttachmentOcrEnabled(),
     ocrModel: parsed.data.ocrModel?.trim() || null,
+    extractDocumentStructure: parsed.data.extractDocumentStructure,
+    indexDocumentSections: parsed.data.indexDocumentSections,
     tenantId: auth.tenantId,
     organizationId: auth.orgId ?? null,
   })
@@ -165,9 +208,10 @@ export async function PUT(req: Request) {
   }
   const parsed = partitionUpdateSchema.safeParse(json)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+    return invalidPayloadResponse(parsed.error)
   }
-  const em = await resolveEm()
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
   const entry = await findOneWithDecryption(
     em,
     AttachmentPartition,
@@ -180,6 +224,19 @@ export async function PUT(req: Request) {
   }
   if (sanitizePartitionCode(parsed.data.code) !== entry.code) {
     return NextResponse.json({ error: 'Partition code cannot be changed.' }, { status: 400 })
+  }
+  const nextDocumentStructureFlags = {
+    extractDocumentStructure: parsed.data.extractDocumentStructure ?? entry.extractDocumentStructure ?? false,
+    indexDocumentSections: parsed.data.indexDocumentSections ?? entry.indexDocumentSections ?? false,
+  }
+  if (!isDocumentStructureFlagCombinationValid(nextDocumentStructureFlags)) {
+    return NextResponse.json(
+      {
+        error: 'Invalid payload',
+        fieldErrors: { indexDocumentSections: DOCUMENT_SECTIONS_REQUIRE_STRUCTURE_MESSAGE },
+      },
+      { status: 400 },
+    )
   }
   entry.title = parsed.data.title.trim()
   entry.description = parsed.data.description?.trim() ?? null
@@ -196,7 +253,13 @@ export async function PUT(req: Request) {
   if (parsed.data.configJson !== undefined) {
     entry.configJson = parsed.data.configJson ?? null
   }
+  const indexDocumentSectionsChanged = (entry.indexDocumentSections ?? false) !== nextDocumentStructureFlags.indexDocumentSections
+  entry.extractDocumentStructure = nextDocumentStructureFlags.extractDocumentStructure
+  entry.indexDocumentSections = nextDocumentStructureFlags.indexDocumentSections
   await em.persist(entry).flush()
+  if (indexDocumentSectionsChanged) {
+    await enqueuePartitionSectionSearchSync(container, entry)
+  }
   return NextResponse.json({ item: serializePartition(entry) })
 }
 
@@ -257,7 +320,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Create new partition',
-      description: 'Creates a new attachment partition with specified storage and OCR settings. Requires unique partition code.',
+      description: 'Creates a new attachment partition with specified storage, OCR and document structure settings. Requires unique partition code. indexDocumentSections requires extractDocumentStructure.',
       requestBody: {
         contentType: 'application/json',
         schema: partitionCreateSchema,
@@ -266,7 +329,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 201, description: 'Partition created successfully', schema: partitionResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid payload or partition code', schema: attachmentErrorSchema },
+        { status: 400, description: 'Invalid payload, partition code, or document structure flag combination', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
         { status: 403, description: 'Partitions locked in demo mode', schema: attachmentErrorSchema },
         { status: 409, description: 'Partition code already exists', schema: attachmentErrorSchema },
@@ -274,7 +337,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update partition',
-      description: 'Updates an existing partition. Partition code cannot be changed. Title, description, OCR settings, and access control can be modified.',
+      description: 'Updates an existing partition. Partition code cannot be changed. Title, description, OCR settings, document structure settings, and access control can be modified. Omitted document structure flags keep their current values; indexDocumentSections requires extractDocumentStructure.',
       requestBody: {
         contentType: 'application/json',
         schema: partitionUpdateSchema,
@@ -283,7 +346,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Partition updated successfully', schema: partitionResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid payload or code change attempt', schema: attachmentErrorSchema },
+        { status: 400, description: 'Invalid payload, code change attempt, or document structure flag combination', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized', schema: attachmentErrorSchema },
         { status: 403, description: 'Partitions locked in demo mode', schema: attachmentErrorSchema },
         { status: 404, description: 'Partition not found', schema: attachmentErrorSchema },

@@ -36,7 +36,7 @@ import { emitAgentOrchestratorEvent } from '../../../../events'
  * unbounded self-registration surface.
  */
 export const metadata = {
-  POST: {},
+  POST: { requireAuth: false },
 }
 
 const oauthErrorSchema = z.object({ error: z.string() })

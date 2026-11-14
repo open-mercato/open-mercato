@@ -17,6 +17,7 @@ import {
   mapAgentWindowMetrics,
   formatNumber,
   type AgentDetailView,
+  type AgentPrincipalView,
   type SkillDetailView,
   type AgentWindowMetricsView,
 } from '../../../components/types'
@@ -129,6 +130,9 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     blockedMessage: t('agent_orchestrator.proposal.flash.blocked'),
   })
   const [savingIcon, setSavingIcon] = React.useState(false)
+  const updatePrincipal = React.useCallback((principal: AgentPrincipalView | null) => {
+    setAgent((prev) => (prev ? { ...prev, principal } : prev))
+  }, [])
   const [savingTags, setSavingTags] = React.useState(false)
 
   const updateIcon = React.useCallback(
@@ -320,7 +324,12 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             </>
           ) : (
             <TabsContent value="configuration" className="pt-4">
-              <ConfigurationTab agent={agent} runtimeTokens={runtimeTokens} onSkillClick={setActiveSkill} />
+              <ConfigurationTab
+                agent={agent}
+                runtimeTokens={runtimeTokens}
+                onSkillClick={setActiveSkill}
+                onPrincipalChange={updatePrincipal}
+              />
             </TabsContent>
           )}
         </Tabs>

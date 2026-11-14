@@ -62,6 +62,14 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: 
 jest.mock('../../lib/requestScope', () => ({ resolveAttachmentRequestScope: async () => ({ denied: false, organizationId: 'org' }) }))
 jest.mock('../../data/entities', () => ({ Attachment: class Attachment {}, AttachmentPartition: class AttachmentPartition {} }))
 jest.mock('../../lib/assignmentDetails', () => ({ resolveAssignmentEnrichments: async () => new Map(), applyAssignmentEnrichments: (value: unknown) => value }))
+jest.mock('../../lib/documentStructure/purge', () => ({
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0, indexedSectionIds: [] })),
+  enqueuePurgedSectionSearchDelete: jest.fn(async () => undefined),
+}))
+const mockPurgeModule = jest.requireMock('../../lib/documentStructure/purge') as {
+  purgeDocumentStructure: jest.Mock
+  enqueuePurgedSectionSearchDelete: jest.Mock
+}
 
 const request = (body: unknown, method = 'PATCH') => new Request('http://localhost/api/attachments/library/file', { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }) as NextRequest
 const params = { params: Promise.resolve({ id: firstId }) }
@@ -232,4 +240,23 @@ it('caps an unpaged protected record list at 100 visible rows after filtering hi
   expect(result.items[0].id).toBe('visible-0')
   expect(result.items[99].id).toBe('visible-99')
   expect(result.items.some((record) => record.id === firstId)).toBe(false)
+})
+
+it.each(['library', 'record'])('purges document structure inside the %s delete transaction and queues section search cleanup after commit', async (surface) => {
+  mockPurgeModule.purgeDocumentStructure.mockResolvedValueOnce({ extractionCount: 1, sectionCount: 2, indexedSectionIds: ['section-1', 'section-2'] })
+  const response = surface === 'library'
+    ? await deleteLibrary(new Request('http://localhost/api/attachments/library/file', { method: 'DELETE' }) as NextRequest, params)
+    : await deleteRecord(new Request(`http://localhost/api/attachments?id=${firstId}`, { method: 'DELETE' }) as NextRequest)
+  expect(response.status).toBe(200)
+  expect(mockPurgeModule.purgeDocumentStructure).toHaveBeenCalledWith(
+    mockTx,
+    { attachmentId: firstId, tenantId: 'tenant', organizationId: 'org' },
+    { flush: false },
+  )
+  expect(mockPurgeModule.purgeDocumentStructure.mock.invocationCallOrder[0]).toBeLessThan(mockTx.remove.mock.invocationCallOrder[0])
+  expect(mockPurgeModule.enqueuePurgedSectionSearchDelete).toHaveBeenCalledWith(
+    { tenantId: 'tenant', organizationId: 'org' },
+    ['section-1', 'section-2'],
+  )
+  expect(mockCommit.mock.invocationCallOrder[0]).toBeLessThan(mockPurgeModule.enqueuePurgedSectionSearchDelete.mock.invocationCallOrder[0])
 })

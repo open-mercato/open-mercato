@@ -317,4 +317,33 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     expect(instanceId).toBe('instance-1')
     expect(status).toBe('FAILED')
   })
+
+  it('records the typed reason of a coded agent failure on the failed step and instance', async () => {
+    const denial = Object.assign(new Error('[internal] invoker may not run agent "claims.liability.policy_check"'), {
+      code: 'agent_invoke_denied',
+      agentId: 'claims.liability.policy_check',
+    })
+    const invokeAgentForWorkflow = jest.fn().mockRejectedValue(denial)
+    const stepAttempt: Record<string, unknown> = makeStepAttempt()
+    const em = {
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === StepInstance) return stepAttempt
+        return { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId }
+      }),
+      flush: jest.fn(),
+    } as unknown as EntityManager
+    const container = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'agentWorkflowBridge') return { invokeAgentForWorkflow }
+        throw new Error(`unexpected resolve(${name})`)
+      }),
+    } as unknown as AwilixContainer
+
+    await expect(handleInvokeAgentJob(em, container, makeJob())).resolves.toBeUndefined()
+    expect(stepAttempt.status).toBe('FAILED')
+    expect(stepAttempt.errorData).toMatchObject({ agentId: 'claims.liability.policy_check', code: 'agent_invoke_denied' })
+    const [, , , status, result] = completeWorkflowMock.mock.calls[0]
+    expect(status).toBe('FAILED')
+    expect(result).toMatchObject({ details: { code: 'agent_invoke_denied' } })
+  })
 })

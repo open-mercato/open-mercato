@@ -91,9 +91,12 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       // different facts and a run may legitimately disagree with its agent's declaration.
       if (query.agentType) filters.agent_type = { $eq: query.agentType }
       if (query.flagged) filters.flagged_at = { $ne: null }
+      const createdAtRange: Record<string, string> = {}
       if (query.window && WINDOW_MS[query.window]) {
-        filters.created_at = { $gte: new Date(Date.now() - WINDOW_MS[query.window]).toISOString() }
+        createdAtRange.$gte = new Date(Date.now() - WINDOW_MS[query.window]).toISOString()
       }
+      if (query.createdBefore) createdAtRange.$lt = new Date(query.createdBefore).toISOString()
+      if (Object.keys(createdAtRange).length > 0) filters.created_at = createdAtRange
       // 'overridden' joins on AgentCorrection, which lands in PR2; until then only
       // the self-contained facets are honored.
       if (query.filter === 'eval-fail') filters.eval_passed = { $eq: false }

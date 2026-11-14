@@ -59,6 +59,7 @@ write time.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
+- Document section search records MUST be written only through `section-search` queue jobs and the entity's `shouldIndex` gate (live extraction + opted-in partition); purge, supersede and partition toggle-off enqueue the matching deletes.
 
 ## Never
 

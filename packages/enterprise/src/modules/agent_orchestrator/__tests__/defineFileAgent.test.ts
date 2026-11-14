@@ -109,6 +109,23 @@ describe('loadFileAgentDir', () => {
     expect(loaded!.openCodeAgentFile).toContain('submit_outcome')
   })
 
+  it('carries normalised requiredFeatures onto the entry, and leaves them undefined when absent', () => {
+    const declaring = makeAgentDir({
+      agentMd: VALID_AGENT_MD.replace(
+        'maxSteps: 12',
+        'maxSteps: 12\nrequiredFeatures: [deals.health.run,  deals.health.run , customers.deals.view]',
+      ),
+      outcome: VALID_OUTCOME,
+    })
+    const plain = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
+    created.push(declaring, plain)
+    expect(loadFileAgentDir(declaring)!.entry.requiredFeatures).toEqual([
+      'deals.health.run',
+      'customers.deals.view',
+    ])
+    expect(loadFileAgentDir(plain)!.entry.requiredFeatures).toBeUndefined()
+  })
+
   it('reads an optional SAMPLE.json into entry.sampleInput (and ignores a malformed one)', () => {
     const good = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
     fs.writeFileSync(

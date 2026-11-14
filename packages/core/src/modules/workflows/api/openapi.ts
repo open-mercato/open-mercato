@@ -444,9 +444,16 @@ export const workflowDefinitionDetailResponseSchema = z.object({
   data: workflowDefinitionResponseSchema,
 })
 
+export const workflowDefinitionSaveWarningSchema = z.object({
+  code: z.literal('agent_invoke_not_covered'),
+  stepId: z.string(),
+  agentId: z.string(),
+})
+
 export const workflowDefinitionMutationResponseSchema = z.object({
   data: workflowDefinitionResponseSchema,
   message: z.string(),
+  warnings: z.array(workflowDefinitionSaveWarningSchema).optional(),
 })
 
 export const workflowDefinitionResetResponseSchema = z.object({
