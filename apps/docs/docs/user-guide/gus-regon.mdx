@@ -1,0 +1,64 @@
+---
+title: GUS REGON Company Lookup
+description: Fill Polish company data by NIP from the official GUS REGON registry.
+sidebar_label: GUS REGON Lookup
+---
+
+This guide explains how to connect the Polish business registry REGON (GUS BIR1.1 API) to Open Mercato. Operators type a NIP, click **Fetch from GUS**, and get the company name and registered address filled in. Only empty fields are filled — values typed by the operator are never overwritten.
+
+REGON covers every registered entity in Poland, including businesses that are not VAT taxpayers (VAT-exempt companies, sole traders, foundations, associations).
+
+## Before you start
+
+- The `gus_regon` module enabled in your application's `modules.ts`.
+- For production data: a BIR1.1 user key issued by GUS (request it at [api.stat.gov.pl](https://api.stat.gov.pl/Home/RegonApi)). The GUS test environment works with the public test key `abcde12345abcde12345` and returns synthetic data.
+- The `integrations.credentials.manage` feature for the person who configures the integration, and `gus_regon.lookup` for the people who use the lookup (granted to superadmin, admin and employee by default). Tenants created before the module was enabled pick the grant up with `yarn mercato auth sync-role-acls`.
+
+## Configure the integration
+
+1. Navigate to **External Systems → Integrations** and click **Configure** on the GUS REGON card.
+2. Fill in the credentials:
+   - **Environment** — `Test` (synthetic GUS data) or `Production`.
+   - **BIR API key** — required for Production and for the CRM company card. In Test you can leave it empty for lookups from other forms, or enter the public test key.
+   - **Show on CRM company forms** — off by default. Turn it on to add the **Fetch data from GUS REGON** card to the company create and edit forms. It takes effect only once an API key is entered.
+3. Save and run the health check. A healthy result means Open Mercato logged in to BIR1 with these credentials.
+4. Enable the integration.
+
+The integration page shows a status line explaining whether the CRM company card is on, off, waiting for an API key, or hidden because the integration is disabled.
+
+## Using the lookup
+
+On **Customers → Companies → Create** (and on the company edit form), enter a NIP — spaces, dashes and a `PL` prefix are accepted — and click **Fetch from GUS**. The card shows the company found with its REGON number and fills:
+
+- **Display name** and **Legal name**, when empty;
+- on the create form, one primary address from the registered office, when no address exists yet.
+
+When GUS is slow or unavailable, the form keeps working and you fill the fields manually. An entity that has ceased activity is filled with a warning.
+
+## Optional env preconfiguration
+
+```env
+OM_INTEGRATION_GUS_REGON_API_KEY=...
+OM_INTEGRATION_GUS_REGON_ENVIRONMENT=test
+OM_INTEGRATION_GUS_REGON_SHOW_ON_COMPANY_FORMS=false
+OM_INTEGRATION_GUS_REGON_ENABLED=true
+OM_INTEGRATION_GUS_REGON_FORCE_PRECONFIGURE=false
+```
+
+The API key is the trigger: without it nothing is preconfigured. In standalone apps created with `create-mercato-app`, the module is opt-in: uncomment `gus_regon` in `src/modules.ts`. New tenants pick the preset up automatically. To apply it to an existing tenant:
+
+```bash
+yarn mercato gus_regon configure-from-env --tenant <tenantId> --org <organizationId> [--force]
+```
+
+Without `--force`, existing GUS REGON credentials or integration state are left untouched.
+
+## Adding the lookup to other forms
+
+Developers can attach the same card to any `CrudForm` (for example a supplier form in an app module) declaratively with `createGusLookupWidget` and a map of GUS values to form fields. See the package README (`packages/gus-regon/README.md`).
+
+## Limitations
+
+- **Basic registry data only.** The lookup uses the BIR1.1 `DaneSzukajPodmioty` search (name, REGON, registered address). Full reports (PKD codes, legal form, local units) are not fetched.
+- **No REGON field on the CRM company form.** The REGON number is shown in the card, not stored.
+- **One request per click.** There is no caching or rate limiting; GUS may throttle a key that is used excessively.
