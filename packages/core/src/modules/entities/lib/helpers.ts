@@ -217,7 +217,7 @@ export async function setRecordCustomFields(
     const raw = values[key]
     if (raw === undefined) return false
     const def = defsByKey?.get(key)
-    const collapseToSingle = Array.isArray(raw) && Boolean(def) && (def as any).configJson?.multi !== true
+    const collapseToSingle = Array.isArray(raw) && def !== undefined && def.configJson?.multi !== true
     const isArray = (Array.isArray(raw) && !collapseToSingle)
       || (raw === null && def?.configJson?.multi === true)
     return !isArray
