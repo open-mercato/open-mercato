@@ -432,6 +432,13 @@ export function AddressTiles<C = unknown>({
         key={key}
         className="rounded-lg border-2 border-dashed border-muted-foreground/50 bg-muted/30 p-4 text-sm"
         onKeyDown={(event) => {
+          if (event.defaultPrevented) return
+          if (event.key === 'Escape') {
+            if (disableActions) return
+            event.preventDefault()
+            handleCancel()
+            return
+          }
           if (!(event.metaKey || event.ctrlKey)) return
           if (event.key !== 'Enter') return
           event.preventDefault()
