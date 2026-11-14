@@ -965,6 +965,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: yarn workspace @open-mercato/core test:pg-integration
 
+      - name: Run webhook delivery claim suite against real Postgres
+        if: ${{ !cancelled() }}
+        run: yarn workspace @open-mercato/webhooks test:pg-integration
+
       - name: Check OAuth grant import paths resolve against the built dist
         if: ${{ !cancelled() }}
         run: node scripts/check-oauth-publish-shape.mjs
