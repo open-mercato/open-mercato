@@ -37,6 +37,8 @@ import {
   resetTelemetryRuntime,
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
+import { normalizeFilters } from '@open-mercato/shared/lib/query/join-utils'
+import type { QueryOptions } from '@open-mercato/shared/lib/query/types'
 import { z } from 'zod'
 import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
@@ -452,6 +454,81 @@ describe('CRUD Factory', () => {
     const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
     expect(queryArgs?.filters).toEqual({
       id: { $in: [idA, idB] },
+    })
+  })
+
+  describe('advanced filters preserve buildFilters security predicates (#9016)', () => {
+    const nilId = '00000000-0000-0000-0000-000000000000'
+    const rows = [
+      { id: 'allowed-1', member_id: 'member-1', title: 'A' },
+      { id: 'allowed-2', member_id: 'member-2', title: 'B' },
+      { id: 'forbidden', member_id: 'outsider', title: 'A' },
+    ]
+
+    const matches = (row: Record<string, unknown>, filters: ReturnType<typeof normalizeFilters>) => {
+      const matchesLeaf = (filter: (typeof filters)[number]) => {
+        const value = row[filter.field]
+        if (filter.op === 'eq') return value === filter.value
+        if (filter.op === 'ne') return value !== null && value !== filter.value
+        if (filter.op === 'exists') return (value !== null && value !== undefined) === filter.value
+        throw new Error('[internal] Unexpected filter operator in security regression')
+      }
+      const groups = new Map<string, typeof filters>()
+      for (const filter of filters) {
+        if (!filter.orGroup) continue
+        const group = groups.get(filter.orGroup) ?? []
+        group.push(filter)
+        groups.set(filter.orGroup, group)
+      }
+      return filters.filter((filter) => !filter.orGroup).every(matchesLeaf)
+        && (groups.size === 0 || [...groups.values()].some((group) => group.every(matchesLeaf)))
+    }
+
+    it.each([
+      { name: 'member equality', server: { member_id: 'member-1' }, field: 'member_id', op: 'is_not_empty', expected: ['allowed-1'] },
+      { name: 'member operator', server: { member_id: { $eq: 'member-1' } }, field: 'member_id', op: 'is_not', value: 'nobody', expected: ['allowed-1'] },
+      { name: 'deny-all id', server: { id: nilId }, field: 'id', op: 'is_not_empty', expected: [] },
+      { name: 'deny-all id operator', server: { id: { $eq: nilId } }, field: 'id', op: 'is_not', value: nilId, expected: [] },
+      { name: 'conflicting member', server: { member_id: 'member-1' }, field: 'member_id', op: 'is', value: 'outsider', expected: [] },
+      { name: 'non-overlapping filter', server: { member_id: 'member-1' }, field: 'title', op: 'is', value: 'A', expected: ['allowed-1'] },
+      { name: 'client OR against direct member', server: { member_id: 'member-1' }, field: 'member_id', op: 'is_not_empty', or: true, expected: ['allowed-1'] },
+      { name: 'overlapping OR cross product', server: { $or: [{ member_id: 'member-1' }, { member_id: 'member-2' }] }, field: 'member_id', op: 'is_not_empty', or: true, expected: ['allowed-1', 'allowed-2'] },
+    ])('GET intersects $name with client predicates through query normalization', async (scenario) => {
+      const secureRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        list: {
+          schema: querySchema.passthrough(),
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'member_id'],
+          buildFilters: () => scenario.server,
+        },
+      })
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: QueryOptions) => {
+        expect(options.tenantId).toBe(defaultTenantId)
+        const filters = normalizeFilters(options.filters)
+        expect(filters.length).toBeGreaterThan(0)
+        const items = rows.filter((row) => matches(row, filters)).map((row) => ({
+          ...row, is_done: false, organization_id: defaultOrganizationId, tenant_id: defaultTenantId,
+        }))
+        return { items, total: items.length }
+      })
+      const params = new URLSearchParams({
+        'filter[conditions][0][field]': scenario.field,
+        'filter[conditions][0][op]': scenario.op,
+      })
+      if (scenario.value) params.set('filter[conditions][0][value]', scenario.value)
+      if (scenario.or) {
+        params.set('filter[logic]', 'or')
+        params.set('filter[conditions][1][field]', 'member_id')
+        params.set('filter[conditions][1][op]', 'is')
+        params.set('filter[conditions][1][value]', 'outsider')
+      }
+      const response = await secureRoute.GET(new Request(`http://x/api/example/todos?${params}`))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual(scenario.expected)
+      expect(body.total).toBe(scenario.expected.length)
     })
   })
 
