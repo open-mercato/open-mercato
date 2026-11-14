@@ -8,6 +8,8 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useSalesDocumentMutation } from './useSalesDocumentMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -83,6 +85,9 @@ export function SalesDocumentAdjustmentsSection({
   const t = useT()
   const runDocumentMutation = useSalesDocumentMutation(kind, documentId)
   const locale = useLocale()
+  const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
+  const canManage = chromeReady && hasFeature(chromePayload?.grantedFeatures, kind === 'order' ? 'sales.orders.manage' : 'sales.quotes.manage')
+  const writesReadOnly = amountsReadOnly || !canManage
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null
   const resolvedTenantId = tenantFromProps ?? tenantId ?? null
@@ -285,17 +290,18 @@ export function SalesDocumentAdjustmentsSection({
   )
 
   const handleOpenCreate = React.useCallback(() => {
+    if (writesReadOnly) return
     setActiveAdjustment(null)
     setDialogOpen(true)
-  }, [])
+  }, [writesReadOnly])
 
   const handleEdit = React.useCallback(
     (row: AdjustmentRow) => {
-      if (amountsReadOnly) return
+      if (writesReadOnly) return
       setActiveAdjustment(row)
       setDialogOpen(true)
     },
-    [amountsReadOnly]
+    [writesReadOnly]
   )
 
   const handleCloseDialog = React.useCallback(() => {
@@ -305,13 +311,17 @@ export function SalesDocumentAdjustmentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (!canManage) {
+      onActionChange(null)
+      return
+    }
     onActionChange({
       label: t('sales.documents.adjustments.add', 'Add adjustment'),
       onClick: handleOpenCreate,
       disabled: amountsReadOnly,
     })
     return () => onActionChange(null)
-  }, [amountsReadOnly, handleOpenCreate, onActionChange, t])
+  }, [amountsReadOnly, canManage, handleOpenCreate, onActionChange, t])
 
   const handleFormSubmit = React.useCallback(
     async (values: AdjustmentSubmitPayload) => {
@@ -466,7 +476,7 @@ export function SalesDocumentAdjustmentsSection({
 
   const renderRowActions = React.useCallback(
     (row: AdjustmentRow) =>
-      amountsReadOnly ? null : (
+      writesReadOnly ? null : (
         <RowActions
           items={[
             {
@@ -483,7 +493,7 @@ export function SalesDocumentAdjustmentsSection({
           ]}
         />
       ),
-    [amountsReadOnly, handleDelete, handleEdit, t]
+    [writesReadOnly, handleDelete, handleEdit, t]
   )
 
   return (
@@ -502,14 +512,14 @@ export function SalesDocumentAdjustmentsSection({
           columns={columns}
           isLoading={loading && rows.length > 0}
           embedded
-          onRowClick={amountsReadOnly ? undefined : handleEdit}
+          onRowClick={writesReadOnly ? undefined : handleEdit}
           rowActions={renderRowActions}
           emptyState={
             <TabEmptyState
               title={t('sales.documents.empty.adjustments.title', 'No adjustments yet.')}
               description={t('sales.documents.empty.adjustments.description', 'Add discounts, fees, or taxes to refine totals.')}
-              actionLabel={t('sales.documents.adjustments.add', 'Add adjustment')}
-              onAction={handleOpenCreate}
+              actionLabel={canManage ? t('sales.documents.adjustments.add', 'Add adjustment') : undefined}
+              onAction={canManage ? handleOpenCreate : undefined}
               disabled={amountsReadOnly}
             />
           }
@@ -517,7 +527,7 @@ export function SalesDocumentAdjustmentsSection({
       )}
 
       <AdjustmentDialog
-        open={dialogOpen}
+        open={dialogOpen && canManage}
         onOpenChange={(open) => {
           if (!open) {
             handleCloseDialog()

@@ -5,6 +5,11 @@ import * as React from 'react'
 import { render, waitFor, fireEvent, act } from '@testing-library/react'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 
+let mockGrantedFeatures: string[] = ['sales.quotes.manage']
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures }, isReady: true }),
+}))
+
 const mockApiCall = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -106,6 +111,7 @@ describe('SalesDocumentAdjustmentsSection totals-refresh self-reload (#8263)', (
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockGrantedFeatures = ['sales.quotes.manage']
     dialogProps.length = 0
     quoteAdjustmentsItems = []
     mockApiCall.mockImplementation((url: string) => {
@@ -116,6 +122,32 @@ describe('SalesDocumentAdjustmentsSection totals-refresh self-reload (#8263)', (
     })
     mockCreateCrud.mockResolvedValue({ ok: true, result: { id: 'adj-1' } })
     mockDeleteCrud.mockResolvedValue({ ok: true, result: {} })
+  })
+
+  it.each([
+    { granted: ['sales.quotes.manage'] },
+    { granted: ['sales.*'] },
+    { granted: ['*'] },
+  ])('offers quote adjustments for a matching manage grant $granted', async ({ granted }) => {
+    mockGrantedFeatures = granted
+    const onActionChange = jest.fn()
+    render(<SalesDocumentAdjustmentsSection documentId="quote-1" kind="quote" currencyCode="USD" onActionChange={onActionChange} />)
+    await waitFor(() => expect(onActionChange).toHaveBeenLastCalledWith(expect.objectContaining({ label: 'Add adjustment' })))
+  })
+
+  it.each([
+    { granted: ['sales.quotes.view'] },
+    { granted: ['sales.orders.manage'] },
+    { granted: [] },
+  ])('withholds quote adjustment writes without the matching manage grant $granted', async ({ granted }) => {
+    mockGrantedFeatures = granted
+    quoteAdjustmentsItems = [{ id: 'adj-reader', label: 'QA read-only', kind: 'shipping', amount_net: 5, amount_gross: 6.15 }]
+    const onActionChange = jest.fn()
+    const { queryByTestId, getByTestId } = render(<SalesDocumentAdjustmentsSection documentId="quote-1" kind="quote" currencyCode="USD" onActionChange={onActionChange} />)
+    await waitFor(() => expect(getByTestId('row-adj-reader')).toBeTruthy())
+    expect(onActionChange).toHaveBeenLastCalledWith(null)
+    expect(queryByTestId('row-action-edit')).toBeNull()
+    expect(queryByTestId('row-action-delete')).toBeNull()
   })
 
   it('reloads its own adjustments list exactly once per create, not twice via its own totals-refresh event', async () => {
