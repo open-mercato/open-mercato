@@ -7,8 +7,16 @@
 // (already covered by `rule-evaluators.test.ts`/`effect-resolvers.test.ts`).
 
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { evaluatePromotions } from '../evaluation-engine'
 import { PromotionsServiceImpl, type PromotionsServiceContainer } from '../promotions-service'
-import type { BuyerContext, EvaluateInput, NormalizedPromotion } from '../types'
+import type { BuyerContext, EvaluateInput, EvaluationInput, NormalizedPromotion } from '../types'
+
+jest.mock('../evaluation-engine', () => {
+  const actual = jest.requireActual('../evaluation-engine')
+  return { ...actual, evaluatePromotions: jest.fn(actual.evaluatePromotions) }
+})
+
+const evaluatePromotionsMock = evaluatePromotions as jest.MockedFunction<typeof evaluatePromotions>
 
 const TENANT = 'tenant-1'
 const ORG = 'org-1'
@@ -149,11 +157,23 @@ function fakeContainer(options: {
   em?: FakeEm
   commandBus?: FakeCommandBus
   promotionCodeService?: FakePromotionCodeService
+  catalogEnabled?: boolean
 }): PromotionsServiceContainer {
-  const { promotionCacheService, auth = { tenantId: TENANT, orgId: ORG }, em = fakeEm(), commandBus, promotionCodeService } = options
+  const {
+    promotionCacheService,
+    auth = { tenantId: TENANT, orgId: ORG },
+    em = fakeEm(),
+    commandBus,
+    promotionCodeService,
+    catalogEnabled = true,
+  } = options
   return {
     resolve: <T>(name: string): T => {
       if (name === 'promotionCacheService') return promotionCacheService as unknown as T
+      if (name === 'catalogScopedProductService') {
+        if (!catalogEnabled) throw new Error(`[internal] not registered: ${name}`)
+        return {} as unknown as T
+      }
       if (name === 'auth') return auth as unknown as T
       if (name === 'em') return em as unknown as T
       if (name === 'commandBus') {
@@ -335,6 +355,77 @@ describe('PromotionsServiceImpl.evaluateForProduct', () => {
     })
 
     expect(result.badges).toEqual([])
+  })
+})
+
+describe('PromotionsServiceImpl without the catalog module', () => {
+  const lineItem = {
+    lineId: 'line-1',
+    productId: 'prod-1',
+    variantId: null,
+    quantity: '1',
+    unitPriceNet: '10.00',
+    unitPriceGross: '12.30',
+    priceIsPromotional: false,
+  }
+
+  function catalogLessEm(): FakeEm & { getKysely: jest.Mock } {
+    const getKysely = jest.fn(() => {
+      throw new Error('relation "catalog_product_category_assignments" does not exist')
+    })
+    return fakeEm({ getKysely }) as FakeEm & { getKysely: jest.Mock }
+  }
+
+  beforeEach(() => evaluatePromotionsMock.mockClear())
+
+  it('evaluates non-category rules without querying catalog tables', async () => {
+    const promo = codeMatchingPromotion({ id: 'promo-code', codeId: 'code-a' })
+    const em = catalogLessEm()
+    const service = new PromotionsServiceImpl(
+      fakeContainer({ promotionCacheService: fakeCacheService([promo]), em, catalogEnabled: false }),
+    )
+
+    const result = await service.evaluate(
+      evaluateInput({ items: [lineItem], codes: [{ id: 'code-a', type: 'static' }] }),
+    )
+
+    expect(result.appliedPromotions.map((applied) => applied.promotionId)).toEqual(['promo-code'])
+    expect(em.getKysely).not.toHaveBeenCalled()
+    const evaluationInput = evaluatePromotionsMock.mock.calls[0][1] as EvaluationInput
+    expect(evaluationInput.items).toEqual([expect.objectContaining({ productId: 'prod-1', categoryIds: [] })])
+  })
+
+  it('does not match a `category` rule instead of failing', async () => {
+    const promo = categoryMatchingPromotion({ id: 'promo-cat', categoryId: 'cat-1' })
+    const em = catalogLessEm()
+    const service = new PromotionsServiceImpl(
+      fakeContainer({ promotionCacheService: fakeCacheService([promo]), em, catalogEnabled: false }),
+    )
+
+    const result = await service.evaluate(evaluateInput({ items: [lineItem] }))
+
+    expect(result.appliedPromotions).toEqual([])
+    expect(em.getKysely).not.toHaveBeenCalled()
+  })
+
+  it('evaluateForProduct returns no category badge without querying catalog tables', async () => {
+    const promo = categoryMatchingPromotion({ id: 'promo-cat', categoryId: 'cat-1' })
+    const em = catalogLessEm()
+    const service = new PromotionsServiceImpl(
+      fakeContainer({ promotionCacheService: fakeCacheService([promo]), em, catalogEnabled: false }),
+    )
+
+    const result = await service.evaluateForProduct({
+      productId: 'prod-1',
+      variantId: null,
+      buyer: buyer(),
+      evaluatedAt: '2026-06-15T00:00:00.000Z',
+    })
+
+    expect(result.badges).toEqual([])
+    expect(em.getKysely).not.toHaveBeenCalled()
+    const evaluationInput = evaluatePromotionsMock.mock.calls[0][1] as EvaluationInput
+    expect(evaluationInput.items).toEqual([expect.objectContaining({ productId: 'prod-1', categoryIds: [] })])
   })
 })
 
