@@ -362,7 +362,7 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 | `OPENROUTER_API_KEY` | OpenRouter | `meta-llama/llama-3.3-70b-instruct` | `OPENROUTER_BASE_URL` |
 | `LM_STUDIO_API_KEY` | LM Studio (local) | *(empty — auto-detects loaded model)* | `LM_STUDIO_BASE_URL` |
 
-At least one MUST be set or the runtime throws `AiModelFactoryError` with `code: 'no_provider_configured'` on first invocation. See `/framework/ai-assistant/overview` for the full matrix.
+At least one MUST be set, else the runtime throws `AiModelFactoryError` (`code: 'no_provider_configured'`) on first invocation. Full matrix: `/framework/ai-assistant/overview`.
 
 **baseURL override hierarchy** (highest to lowest priority for a given call):
 1. `baseUrlOverride` on `runAiAgentText` / `runAiAgentObject` — programmatic callers only (R6: no HTTP exposure before Phase 4a).
@@ -392,7 +392,7 @@ Azure is a **native** Responses-API adapter, not an OpenAI-compatible preset: [`
 
 All new callers MUST use `createModelFactory(container)` from `@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory` — never inline provider SDK calls (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`). The factory enforces the resolution order (caller override → `OM_AI_<MODULE>_MODEL` → `agentDefaultModel` → `OM_AI_MODEL` → provider default) and throws the documented `AiModelFactoryError` codes when misconfigured. See **Model Resolution** below.
 
-Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips every other source. When set, the settings UI is clipped to the allowed subset, the chat-UI `<ModelPicker>` only offers these values, the dispatcher rejects out-of-allowlist `?provider=` / `?model=` query params with typed 400 errors, and the model-factory swaps to a safe pair (emitting `console.warn` and an `allowlistFallback` field on the resolution) whenever an agent default, tenant override, or higher-priority source resolves to something blocked.
+Operator-defined allowlist (Phase 1780-5) — the ULTIMATE constraint that clips every other source. When set, the settings UI and chat-UI `<ModelPicker>` only offer the allowed values, the dispatcher rejects out-of-allowlist `?provider=`/`?model=` params with typed 400 errors, and the model-factory swaps to a safe pair (with `console.warn` and an `allowlistFallback` resolution field) whenever an agent default, tenant override, or higher-priority source is blocked.
 
 | Variable | Purpose |
 |----------|---------|
