@@ -71,7 +71,7 @@ ${pc.bold('Options:')}
   --app-url <url>    Bootstrap a ready app from a GitHub repository URL
   --template <slug | owner/repo>[#ref]
                      Create the app from an app template: a slug listed at
-                     https://modules.openmercato.com/templates or any GitHub repo
+                     https://www.openmercato.com/run/templates or any GitHub repo
                      (set GITHUB_TOKEN for a private one). Prints owner/repo@sha
                      and whether that commit is verified before the download
   --keep-name        With --template, keep the template's package.json name

@@ -553,7 +553,7 @@ export async function downloadRepositoryTarball(
 
 /** Printed when `--app <name>` finds no official repo (Templates umbrella spec, A8). */
 export const READY_APP_MISS_HINT =
-  'Ready apps are now app templates: see https://modules.openmercato.com/templates or use --template <owner/repo>.'
+  'Ready apps are now app templates: see https://www.openmercato.com/run/templates or use --template <owner/repo>.'
 
 export async function downloadReadyAppSnapshot(
   source: ReadyAppSource,
