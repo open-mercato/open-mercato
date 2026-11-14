@@ -174,7 +174,7 @@ export function ActivitiesCard({
   }, [effectiveEvents])
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card pt-4 pb-4 px-4">
+    <div className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-card pt-4 pb-4 px-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Calendar className="size-4 text-foreground" />

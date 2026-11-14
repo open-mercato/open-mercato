@@ -6,6 +6,9 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { ScrollAreaRoot, ScrollAreaViewport, ScrollAreaScrollbar, ScrollAreaThumb } from '@open-mercato/ui/primitives/scroll-area'
 import type { InteractionSummary } from './types'
 import { isSameDay, toLocalZonedDate } from '../../lib/localDay'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -182,6 +185,7 @@ function formatDayLabel(date: Date, t: TranslateFn): string {
 
 export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0, events: providedEvents }: ActivitiesDayStripProps) {
   const t = useT()
+  const monthLabelId = React.useId()
   const [anchor, setAnchor] = React.useState<Date>(() => anchorCenteredOn(selectedDate))
   const [fetchedEvents, setFetchedEvents] = React.useState<InteractionSummary[]>([])
   // When the parent supplies `events` (preferred path — keeps day strip and
@@ -256,68 +260,79 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   }, [])
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-md px-3.5 py-3 w-full">
+    <div className="flex min-w-0 w-full flex-col gap-2.5 rounded-md px-3.5 py-3">
       <div className="flex items-center justify-center gap-1.5 rounded-md bg-muted px-1.5 py-1.5">
-        <button
+        <IconButton
           type="button"
+          size="xs"
           onClick={handleHeaderPrev}
           aria-label={t('customers.activities.calendar.prevMonth', 'Previous month')}
           className="flex size-6 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
         >
           <ChevronLeft className="size-4 text-foreground" />
-        </button>
-        <span className="flex-1 text-center text-sm font-medium leading-5 text-foreground">{headerLabel}</span>
-        <button
+        </IconButton>
+        <span id={monthLabelId} className="flex-1 text-center text-sm font-medium leading-5 text-foreground">{headerLabel}</span>
+        <IconButton
           type="button"
+          size="xs"
           onClick={handleHeaderNext}
           aria-label={t('customers.activities.calendar.nextMonth', 'Next month')}
           className="flex size-6 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
         >
           <ChevronRight className="size-4 text-foreground" />
-        </button>
+        </IconButton>
       </div>
-      <div className="flex w-full items-center gap-2">
-        <button
+      <div className="flex min-w-0 w-full items-center gap-2">
+        <IconButton
           type="button"
+          size="xs"
           onClick={handlePrev}
           aria-label={t('customers.activities.calendar.prevWindow', 'Previous days')}
           className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
         >
           <ChevronLeft className="size-4 text-foreground" />
-        </button>
-        <div className="flex flex-1 items-stretch justify-center gap-1">
-          {visibleDays.map((day) => {
-            const busy = computeDayBusyness(events, day)
-            const isSelected = isSameDay(day, selectedDate)
-            const isToday = isSameDay(day, todayDate)
-            const weekend = isWeekend(day)
-            const busyLabel = busy.eventCount > 0
-              ? formatBusyLabel(busy, t)
-              : weekend
-                ? t('customers.activities.calendar.weekend', 'Weekend')
-                : ''
-            return (
-              <DayCard
-                key={day.toISOString()}
-                day={day}
-                isActive={isSelected}
-                isToday={isToday}
-                busyness={busy}
-                label={busyLabel}
-                dayName={formatDayLabel(day, t)}
-                onSelect={() => onSelectDate(day)}
-              />
-            )
-          })}
-        </div>
-        <button
+        </IconButton>
+        <ScrollAreaRoot className="h-30 min-w-0 flex-1" type="auto">
+          <ScrollAreaViewport tabIndex={0} role="group" aria-labelledby={monthLabelId} className="focus-visible:shadow-focus">
+            <div className="flex w-max min-w-full items-stretch justify-center gap-1 px-1 pt-1 pb-3">
+              {visibleDays.map((day) => {
+                const busy = computeDayBusyness(events, day)
+                const isSelected = isSameDay(day, selectedDate)
+                const isToday = isSameDay(day, todayDate)
+                const weekend = isWeekend(day)
+                const busyLabel = busy.eventCount > 0
+                  ? formatBusyLabel(busy, t)
+                  : weekend
+                    ? t('customers.activities.calendar.weekend', 'Weekend')
+                    : ''
+                return (
+                  <DayCard
+                    key={day.toISOString()}
+                    day={day}
+                    isActive={isSelected}
+                    isToday={isToday}
+                    busyness={busy}
+                    label={busyLabel}
+                    dayName={formatDayLabel(day, t)}
+                    onSelect={() => onSelectDate(day)}
+                  />
+                )
+              })}
+            </div>
+          </ScrollAreaViewport>
+          <ScrollAreaScrollbar orientation="horizontal">
+            <ScrollAreaThumb />
+          </ScrollAreaScrollbar>
+        </ScrollAreaRoot>
+        <IconButton
           type="button"
+          size="xs"
           onClick={handleNext}
           aria-label={t('customers.activities.calendar.nextWindow', 'Next days')}
           className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
         >
           <ChevronRight className="size-4 text-foreground" />
-        </button>
+        </IconButton>
       </div>
     </div>
   )
@@ -336,22 +351,27 @@ interface DayCardProps {
 function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }: DayCardProps) {
   const dayNumber = String(day.getDate()).padStart(2, '0')
   return (
-    <button
+    <Button
       type="button"
-      onClick={onSelect}
+      variant="ghost"
+      onClick={(event) => {
+        event.currentTarget.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' })
+        onSelect()
+      }}
+      onFocus={(event) => event.currentTarget.scrollIntoView({ behavior: 'instant', block: 'nearest', inline: 'nearest' })}
       aria-pressed={isActive}
       aria-label={`${dayName} ${dayNumber}`}
       className={cn(
-        'flex h-[104px] w-[101px] flex-col items-center gap-[6px] overflow-hidden rounded-[10px] border p-[12px] transition-colors',
+        'flex h-26 w-25 shrink-0 flex-col items-center justify-start gap-1.5 overflow-hidden rounded-lg border p-3 transition-colors',
         isActive
-          ? 'border-transparent bg-foreground'
+          ? 'border-transparent bg-foreground hover:bg-foreground'
           : 'border-border bg-card hover:border-foreground/40',
       )}
     >
-      <span className="text-[11px] font-medium leading-none tracking-[0.44px] text-muted-foreground">
+      <span className="text-overline font-medium leading-none tracking-widest text-muted-foreground">
         {dayName}
       </span>
-      <div className="flex items-center gap-[5px]">
+      <div className="flex items-center gap-1">
         <span
           className={cn(
             'text-2xl font-semibold leading-7',
@@ -367,15 +387,15 @@ function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }:
           />
         ) : null}
       </div>
-      <div className="flex h-4 w-[82px] items-end gap-[1.5px]">
+      <div className="flex h-4 w-20 items-end gap-0.5">
         {busyness.slots.map((state, index) => (
           <BusySlot key={index} state={state} active={isActive} />
         ))}
       </div>
-      <span className="text-[11px] leading-[14px] font-normal whitespace-nowrap text-muted-foreground">
+      <span className="text-overline leading-3.5 font-normal whitespace-nowrap text-muted-foreground">
         {label}
       </span>
-    </button>
+    </Button>
   )
 }
 
@@ -397,7 +417,7 @@ function BusySlot({ state, active }: { state: SlotState; active: boolean }) {
     else if (state === 'partial') bgClass = 'bg-muted-foreground'
     else bgClass = 'bg-foreground'
   }
-  return <div className={cn('w-[7px] shrink-0 rounded-[1.5px]', heightClass, bgClass)} aria-hidden />
+  return <div className={cn('min-w-0 flex-1 rounded-sm', heightClass, bgClass)} aria-hidden />
 }
 
 export default ActivitiesDayStrip
