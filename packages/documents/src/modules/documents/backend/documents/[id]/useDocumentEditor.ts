@@ -4,6 +4,7 @@ import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSec
 import * as React from 'react'
 import type { Editor } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import type { Transaction } from '@tiptap/pm/state'
 import { useEditor } from '@tiptap/react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -15,6 +16,7 @@ import {
 } from '../../../lib/editorConfig'
 import { createEntitySuggestionExtension } from '../../../lib/entitySuggestion'
 import { DocumentPagination } from './documentPagination'
+import { DocumentFindingDecorations } from './findingDecorations'
 import type { CollabResources, EditorSelectionRange, EditorWordCount } from './editorTypes'
 
 type UseDocumentEditorInput = {
@@ -61,6 +63,18 @@ function documentCounts(editor: Editor | null): EditorWordCount {
   return countDocumentWordsAndCharacters(editor.state.doc)
 }
 
+/**
+ * Tiptap also emits `update` from `setEditable()` with an empty transaction.
+ * Only a real document change may reach content persistence, otherwise merely
+ * opening a document in single-user mode re-saves (and re-materialises) it.
+ */
+export function isDocumentChangingUpdate(
+  transaction: Pick<Transaction, 'docChanged'>,
+  appendedTransactions: ReadonlyArray<Pick<Transaction, 'docChanged'>> = [],
+): boolean {
+  return transaction.docChanged || appendedTransactions.some((appended) => appended.docChanged)
+}
+
 export function useDocumentEditor(input: UseDocumentEditorInput) {
   const t = useT()
   const nonce = useContentSecurityPolicyNonce()
@@ -103,10 +117,10 @@ export function useDocumentEditor(input: UseDocumentEditorInput) {
         placeholder: t('documents.editor.placeholder'),
         fallbackUserLabel: t('documents.users.unknown'),
         fallbackEntityRefLabel: t('documents.editor.entityRef.fallbackLabel'),
-      }), ...getClientEditorExtras(), DocumentPagination, ...suggestions]
+      }), ...getClientEditorExtras(), DocumentPagination, DocumentFindingDecorations, ...suggestions]
       : [...getDocumentEditorExtensions({
         entityRefFallbackLabel: t('documents.editor.entityRef.fallbackLabel'),
-      }), ...getClientEditorExtras(), DocumentPagination, ...suggestions]
+      }), ...getClientEditorExtras(), DocumentPagination, DocumentFindingDecorations, ...suggestions]
   }, [input.collabResources, input.editorMode, t])
 
   const editor = useEditor({
@@ -141,9 +155,10 @@ export function useDocumentEditor(input: UseDocumentEditorInput) {
       editorRef.current = null
       input.onEditorReady?.(null)
     },
-    onUpdate: ({ editor: updated }) => {
+    onUpdate: ({ editor: updated, transaction, appendedTransactions }) => {
       editorRef.current = updated
       scheduleCounts(updated)
+      if (!isDocumentChangingUpdate(transaction, appendedTransactions)) return
       input.onUpdate?.(updated)
     },
   }, [input.documentId, input.editorMode, extensions])

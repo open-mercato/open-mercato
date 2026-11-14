@@ -316,6 +316,12 @@ export interface AiChatProps {
   defaultCompactFooter?: boolean
   /** Optional extra action nodes rendered in the conversation header bar. */
   headerActions?: React.ReactNode
+  /**
+   * Puts `text` into the composer and focuses it, without sending, whenever
+   * `requestId` changes. Lets a host page pre-fill a question (e.g. "Ask AI"
+   * on a record) while the user stays in control of submitting it.
+   */
+  composerPrefill?: { text: string; requestId: number | string }
   /** Called once on mount (and on reset) with the effective conversation id. */
   onConversationIdChange?: (conversationId: string) => void
   /**
@@ -1189,6 +1195,7 @@ export function AiChat({
   welcomeDescription,
   defaultCompactFooter = false,
   headerActions,
+  composerPrefill,
   onConversationIdChange,
   onConversationNotFound,
 }: AiChatProps) {
@@ -1614,6 +1621,18 @@ export function AiChat({
     upload.reset()
     setTimeout(() => textareaRef.current?.focus(), 0)
   }, [chat, upload])
+
+  const composerPrefillText = composerPrefill?.text
+  const composerPrefillRequestId = composerPrefill?.requestId
+  React.useEffect(() => {
+    if (composerPrefillRequestId === undefined || composerPrefillText === undefined) return
+    setInput(composerPrefillText)
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.focus()
+    textarea.setSelectionRange(composerPrefillText.length, composerPrefillText.length)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-apply only when the host issues a new request id
+  }, [composerPrefillRequestId])
 
   const resolvedPlaceholder =
     placeholder ?? t('ai_assistant.chat.composerPlaceholder', 'Message the AI agent...')

@@ -1,5 +1,5 @@
 import { Schema } from '@tiptap/pm/model'
-import { countDocumentWordsAndCharacters } from '../backend/documents/[id]/useDocumentEditor'
+import { countDocumentWordsAndCharacters, isDocumentChangingUpdate } from '../backend/documents/[id]/useDocumentEditor'
 
 describe('document word and character counts', () => {
   it('matches the existing CharacterCount semantics with one document traversal', () => {
@@ -24,5 +24,14 @@ describe('document word and character counts', () => {
       characters: characterText.length,
       words: wordText.split(' ').filter((word) => word !== '').length,
     })
+  })
+})
+
+describe('document editor update filter', () => {
+  it('ignores the empty update Tiptap emits from setEditable and keeps real edits', () => {
+    expect(isDocumentChangingUpdate({ docChanged: false }, [])).toBe(false)
+    expect(isDocumentChangingUpdate({ docChanged: false })).toBe(false)
+    expect(isDocumentChangingUpdate({ docChanged: true }, [])).toBe(true)
+    expect(isDocumentChangingUpdate({ docChanged: false }, [{ docChanged: false }, { docChanged: true }])).toBe(true)
   })
 })

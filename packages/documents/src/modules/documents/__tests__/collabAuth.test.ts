@@ -675,11 +675,13 @@ describe('documents collab auth hooks', () => {
     type FakeEntityManager = {
       transactional: <T>(callback: (transactionalEm: FakeEntityManager) => Promise<T>) => Promise<T>
       findOne: jest.Mock
+      find: jest.Mock
       nativeUpdate: jest.Mock
     }
     const em = {} as FakeEntityManager
     em.transactional = async <T>(callback: (transactionalEm: FakeEntityManager) => Promise<T>) => callback(em)
     em.findOne = jest.fn(async () => persisted)
+    em.find = jest.fn(async () => [])
     em.nativeUpdate = jest.fn(async (_entity, _where, input: { yjsState: Buffer }) => {
       persisted.yjsState = Buffer.from(input.yjsState)
       return 1

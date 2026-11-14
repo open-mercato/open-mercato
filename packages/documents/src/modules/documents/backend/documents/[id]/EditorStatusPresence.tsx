@@ -2,6 +2,7 @@
 
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -16,7 +17,7 @@ const STATUS_STYLES: Record<ConnectionStatus, { pill: string; dot: string }> = {
   offline: { pill: 'border-status-error-border bg-status-error-bg text-status-error-text', dot: 'bg-status-error-icon' },
 }
 
-export function EditorStatusPresence({ status, users, counts, mode, canEdit, onModeChange, fallbackSave }: {
+export function EditorStatusPresence({ status, users, counts, mode, canEdit, onModeChange, fallbackSave, statusNotice }: {
   status: ConnectionStatus
   users: PresenceUser[]
   counts: EditorWordCount
@@ -24,6 +25,7 @@ export function EditorStatusPresence({ status, users, counts, mode, canEdit, onM
   canEdit: boolean
   onModeChange: (mode: EditorMode) => void
   fallbackSave?: { status: FallbackSaveStatus; onSave: () => void }
+  statusNotice?: string | null
 }) {
   const t = useT()
   const style = STATUS_STYLES[status]
@@ -64,15 +66,33 @@ export function EditorStatusPresence({ status, users, counts, mode, canEdit, onM
           </Button>
         </div>
       ) : null}
-      <span
-        className={cn('inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium', style.pill)}
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <span className={cn('size-2 rounded-full', style.dot)} aria-hidden="true" />
-        {t(`documents.editor.realtime.${status}`)}
-      </span>
+      {statusNotice ? (
+        <SimpleTooltip content={statusNotice} size="sm">
+          <span
+            className={cn('inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium', style.pill)}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            tabIndex={0}
+            data-testid="documents-editor-status-pill"
+          >
+            <span className={cn('size-2 rounded-full', style.dot)} aria-hidden="true" />
+            <span>{t(`documents.editor.realtime.${status}`)}</span>
+            <span className="sr-only">{statusNotice}</span>
+          </span>
+        </SimpleTooltip>
+      ) : (
+        <span
+          className={cn('inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium', style.pill)}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          data-testid="documents-editor-status-pill"
+        >
+          <span className={cn('size-2 rounded-full', style.dot)} aria-hidden="true" />
+          {t(`documents.editor.realtime.${status}`)}
+        </span>
+      )}
     </div>
   )
 }

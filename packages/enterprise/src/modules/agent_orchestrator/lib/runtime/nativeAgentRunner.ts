@@ -215,8 +215,11 @@ export class NativeAgentRunner {
     const stepRecords: NativeStepRecord[] = []
     const recordStep = async (event: unknown): Promise<void> => {
       const raw = event as {
+        toolResults?: Array<{ toolCallId?: string; output?: unknown; result?: unknown }>
         toolCalls?: Array<{
+          toolCallId?: string
           toolName?: string
+          input?: unknown
           args?: unknown
           result?: unknown
           experimental_toToolResultError?: { code?: string; message?: string }
@@ -234,10 +237,14 @@ export class NativeAgentRunner {
           inputTokens: raw.usage?.inputTokens ?? 0,
           outputTokens: raw.usage?.outputTokens ?? 0,
         },
-        toolCalls: (raw.toolCalls ?? []).map((toolCall) => ({
+        toolCalls: (raw.toolCalls ?? []).map((toolCall) => {
+          const matchedResult = toolCall.toolCallId
+            ? (raw.toolResults ?? []).find((entry) => entry.toolCallId === toolCall.toolCallId)
+            : undefined
+          return {
           toolName: toolCall.toolName ?? 'unknown',
-          args: toolCall.args ?? {},
-          result: toolCall.result,
+          args: toolCall.input ?? toolCall.args ?? {},
+          result: matchedResult ? (matchedResult.output ?? matchedResult.result) : toolCall.result,
           ...(toolCall.experimental_toToolResultError
             ? {
                 error: {
@@ -250,7 +257,8 @@ export class NativeAgentRunner {
             typeof toolCall.startTime === 'number' && typeof toolCall.endTime === 'number'
               ? toolCall.endTime - toolCall.startTime
               : 0,
-        })),
+          }
+        }),
         endedAtMs: Date.now(),
       })
     }

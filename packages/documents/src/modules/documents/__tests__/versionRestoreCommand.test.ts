@@ -6,6 +6,7 @@ const mockFindOneWithDecryption = jest.fn()
 const mockAssertDocumentCommandCanEdit = jest.fn()
 const mockMutateDocumentContentState = jest.fn()
 const mockEnforceDocumentVersionRetention = jest.fn(async () => [])
+const mockReanchorOpenFindings = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
@@ -36,6 +37,10 @@ jest.mock('../lib/contentService', () => ({
 jest.mock('../lib/historyLimits', () => ({
   ...jest.requireActual('../lib/historyLimits'),
   enforceDocumentVersionRetention: (...args: unknown[]) => mockEnforceDocumentVersionRetention(...args),
+}))
+
+jest.mock('../lib/findingReanchoring', () => ({
+  reanchorOpenFindings: (...args: unknown[]) => mockReanchorOpenFindings(...args),
 }))
 
 jest.mock('../lib/versionContent', () => ({
@@ -205,6 +210,11 @@ describe('documents.version.restore command', () => {
       return content
     })
 
+    mockReanchorOpenFindings.mockImplementation(async () => {
+      order.push('reanchor-findings')
+      return { checked: 0, changed: 0, located: 0, unlocated: 0 }
+    })
+
     const result = await restoreVersionCommand.execute(input(), ctx)
     const log = await restoreVersionCommand.buildLog!({
       input: input(),
@@ -218,6 +228,14 @@ describe('documents.version.restore command', () => {
     expect(order.indexOf('lock-document')).toBeLessThan(order.indexOf('authorize'))
     expect(order.indexOf('authorize')).toBeLessThan(order.indexOf('lock-content'))
     expect(order.indexOf('enforce-retention')).toBeLessThan(order.indexOf('mutate-content'))
+    expect(order.indexOf('mutate-content')).toBeLessThan(order.indexOf('reanchor-findings'))
+    expect(order.indexOf('reanchor-findings')).toBeLessThan(order.indexOf('commit'))
+    expect(mockReanchorOpenFindings).toHaveBeenCalledWith(
+      expect.anything(),
+      documentId,
+      { tenantId, organizationId },
+      Buffer.from('materialized target'),
+    )
     expect(order.indexOf('commit')).toBeLessThan(order.indexOf('buffer-index'))
     expect(content.contentHtml).toBe('<p>After body</p>')
     expect(content.contentText).toBe('After body')

@@ -80,6 +80,10 @@ describe('documents post-log command projections', () => {
       'documents.document.archive',
       'documents.document.unarchive',
       'documents.document.duplicate',
+      'documents.finding.ingest',
+      'documents.finding.apply',
+      'documents.finding.keep',
+      'documents.finding.reopen',
     ])
   })
 

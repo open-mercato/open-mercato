@@ -198,6 +198,19 @@ describe('Tabs Phase B.5 — variant + orientation + leading + count', () => {
     expect(count.textContent).toBe('0')
   })
 
+  it('lets the pill label truncate so it never overlaps the count', () => {
+    const { getByText } = render(
+      <Tabs defaultValue="a">
+        <TabsList>
+          <TabsTrigger value="a" count={3}>Long label</TabsTrigger>
+        </TabsList>
+      </Tabs>,
+    )
+    const label = getByText('Long label')
+    expect(label.className).toContain('min-w-0')
+    expect(label.className).toContain('truncate')
+  })
+
   it('omits the count slot entirely when prop is undefined', () => {
     const { container } = render(
       <Tabs defaultValue="a">

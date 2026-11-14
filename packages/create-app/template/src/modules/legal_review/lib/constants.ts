@@ -1,0 +1,7 @@
+export const NDA_REVIEWER_AGENT_ID = 'legal_review.nda_reviewer'
+export const LEGAL_MATTER_RELEASE_COMMAND_ID = 'legal_review.matter.release'
+export const NDA_REVIEW_WORKFLOW_ID = 'legal_review_nda_review_v1'
+export const DOCUMENT_FINDING_INGEST_COMMAND_ID = 'documents.finding.ingest'
+export const DOCUMENTS_REVIEW_CLEARED_SIGNAL = 'documents_review_cleared'
+export const AGENT_PROPOSAL_READY_SIGNAL = 'agent_orchestrator.proposal.ready'
+export const LEGAL_MATTER_HEADER_SPOT_ID = 'detail:documents.document:header'

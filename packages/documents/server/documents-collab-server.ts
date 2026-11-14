@@ -77,6 +77,7 @@ import {
   DOCUMENTS_COLLAB_MAX_PAYLOAD_BYTES,
 } from '@open-mercato/documents/modules/documents/lib/resourceLimits'
 import { COLLAB_CONTENT_RESET_CLOSE_EVENT } from '@open-mercato/documents/modules/documents/lib/collabCloseEvents'
+import { reanchorOpenFindings } from '@open-mercato/documents/modules/documents/lib/findingReanchoring'
 
 export { htmlToYDoc, yDocToContent }
 
@@ -2110,6 +2111,7 @@ export async function initializeDocumentYjsState(
       },
       { yjsState },
     )
+    await reanchorOpenFindings(transactionalEm, documentId, scope, yjsState)
     return yjsState
   })
 }
