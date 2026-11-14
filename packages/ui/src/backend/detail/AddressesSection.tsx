@@ -189,6 +189,7 @@ function AddressesSectionImpl<C = unknown>({
           return [newAddress, ...existing]
         })
         flash(label('success', 'Address saved.'), 'success')
+        await loadAddresses()
       } catch (err) {
         const message =
           err instanceof Error && err.message ? err.message : label('error', 'Failed to save address.')
@@ -202,7 +203,7 @@ function AddressesSectionImpl<C = unknown>({
         popLoading()
       }
     },
-    [dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading],
+    [dataAdapter, dataContext, label, loadAddresses, normalizedEntityId, popLoading, pushLoading],
   )
 
   const handleUpdate = React.useCallback(
@@ -240,6 +241,7 @@ function AddressesSectionImpl<C = unknown>({
           })
         })
         flash(label('success', 'Address saved.'), 'success')
+        await loadAddresses()
       } catch (err) {
         surfaceRecordConflict(err, t)
         const message =
@@ -254,7 +256,7 @@ function AddressesSectionImpl<C = unknown>({
         popLoading()
       }
     },
-    [addresses, dataAdapter, dataContext, label, normalizedEntityId, popLoading, pushLoading, t],
+    [addresses, dataAdapter, dataContext, label, loadAddresses, normalizedEntityId, popLoading, pushLoading, t],
   )
 
   const handleDelete = React.useCallback(

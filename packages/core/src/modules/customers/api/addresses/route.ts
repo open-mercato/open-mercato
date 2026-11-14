@@ -42,6 +42,7 @@ const crud = makeCrudRoute({
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
+    softDeleteField: null,
   },
   indexer: {
     entityType: E.customers.customer_address,
