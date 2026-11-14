@@ -1,4 +1,31 @@
 import { sql, type RawBuilder } from 'kysely'
+import type { NormalizedFilter } from './join-utils'
+
+const JSONB_COLUMN_VALUES = Symbol('jsonbColumnValues')
+
+type JsonbColumnValues = { [JSONB_COLUMN_VALUES]: true; values: unknown }
+
+function isJsonbColumnValues(value: unknown): value is JsonbColumnValues {
+  return !!value && typeof value === 'object'
+    && (value as Record<symbol, unknown>)[JSONB_COLUMN_VALUES] === true
+}
+
+export async function prepareOverlapFilters(
+  filters: NormalizedFilter[],
+  resolveColumnType: (field: string) => Promise<string | null>,
+): Promise<void> {
+  const columnTypes = new Map<string, string | null>()
+  for (const filter of filters) {
+    if ((filter.op !== 'overlap' && filter.op !== 'noverlap') || filter.field.startsWith('cf:')) continue
+    if (!columnTypes.has(filter.field)) columnTypes.set(filter.field, await resolveColumnType(filter.field))
+    if (columnTypes.get(filter.field) !== 'jsonb') continue
+    const values = Array.isArray(filter.value) ? filter.value : [filter.value]
+    if (values.some((value) => value !== null && value !== undefined && typeof value !== 'string')) {
+      throw new TypeError('[internal] QueryEngine: JSONB overlap requires string values')
+    }
+    filter.value = { [JSONB_COLUMN_VALUES]: true, values: filter.value } satisfies JsonbColumnValues
+  }
+}
 
 const LITERAL_SAFE_DOC_KEY = /^[A-Za-z0-9_:.-]{1,128}$/
 
@@ -11,6 +38,7 @@ const LITERAL_SAFE_DOC_KEY = /^[A-Za-z0-9_:.-]{1,128}$/
  * never widen a query by accident.
  */
 export function normalizeOverlapValues(value: unknown): string[] {
+  if (isJsonbColumnValues(value)) return normalizeOverlapValues(value.values)
   const list: readonly unknown[] = Array.isArray(value)
     ? value
     : value === undefined || value === null
@@ -48,7 +76,8 @@ export function jsonbDocKeyExpression(docColumnRef: string, key: string): RawBui
 export function buildJsonbOverlapPredicate(docColumnRef: string, key: string, value: unknown): RawBuilder<boolean> {
   const values = normalizeOverlapValues(value)
   if (!values.length) return sql<boolean>`false`
-  return sql<boolean>`${jsonbDocKeyExpression(docColumnRef, key)} ?| ${values}::text[]`
+  const keyExpr = jsonbDocKeyExpression(docColumnRef, key)
+  return sql<boolean>`(jsonb_typeof(${keyExpr}) = 'array' and ${keyExpr} ?| ${values}::text[])`
 }
 
 /**
@@ -78,7 +107,9 @@ export function buildArrayColumnOverlapPredicate(
   const values = normalizeOverlapValues(value)
   if (!values.length) return sql<boolean>`false`
   const columnExpr = typeof column === 'string' ? sql.ref(column) : column
-  return sql<boolean>`${columnExpr} && ${values}`
+  return isJsonbColumnValues(value)
+    ? sql<boolean>`(jsonb_typeof(${columnExpr}) = 'array' and ${columnExpr} ?| ${values}::text[])`
+    : sql<boolean>`${columnExpr} && ${values}`
 }
 
 /**
@@ -91,6 +122,10 @@ export function buildArrayColumnNoOverlapPredicate(
 ): RawBuilder<boolean> {
   const values = normalizeOverlapValues(value)
   const columnExpr = typeof column === 'string' ? sql.ref(column) : column
+  if (isJsonbColumnValues(value)) {
+    const isArray = sql<boolean>`jsonb_typeof(${columnExpr}) = 'array'`
+    return values.length ? sql<boolean>`(${isArray} and not (${columnExpr} ?| ${values}::text[]))` : isArray
+  }
   if (!values.length) return sql<boolean>`${columnExpr} is not null`
   return sql<boolean>`not (${columnExpr} && ${values})`
 }

@@ -1,8 +1,8 @@
 ---
 title: "Query-index custom-field cardinality comes from definitions, not row count"
-modules: ["entities","query_index","search"]
+modules: ["entities","query_index","search","shared","customers"]
 areas: ["module-data","umes","backend-ui"]
-topics: ["custom-fields","data-scoping","query-index"]
+topics: ["custom-fields","data-scoping","query-index","encryption","filters","typechecking"]
 ---
 
 # Query-index custom-field cardinality comes from definitions, not row count
@@ -14,3 +14,7 @@ topics: ["custom-fields","data-scoping","query-index"]
 **Rule**: When building query-index documents, resolve the scoped custom-field definition and preserve arrays for `multi: true` fields even when exactly one value is stored. Use the shared definition-selection helpers so tenant/organization overrides match CRUD response decoration.
 
 **Applies to**: `packages/core/src/modules/query_index/lib/indexer.ts`, custom-field projection builders, CRUD list responses backed by `entity_indexes.doc`, and edit forms for tags/listbox/multi-select fields.
+
+**Filtering correction (#7996)**: Do not bind a custom-field predicate to the base record merely because it entered through the base list API. CRM routes supply secondary sources. Resolve the field through existing definition/source precedence, then bind encrypted token checks to that source's entity, record and organization. Use the same source selection for data and count, retain generated aliases, and test duplicate keys plus wrong-tenant/organization token evidence. Token presence is field-scoped evidence, not proof for each stored array element.
+
+**Verification correction (#7996)**: When sharing query-filter metadata across Basic and Hybrid engines, remove superseded local type aliases and typecheck every consuming engine. Shared-only typechecking and transpile-only Jest suites do not detect a conflicting core import or prove that grouping metadata reaches the actual app typecheck.
