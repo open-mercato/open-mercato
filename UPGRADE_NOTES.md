@@ -83,6 +83,29 @@ operators whose entities previously reached an excluded writer should purge thos
 entities from that index using the existing cleanup operations. Existing vectors
 and embedding-provider retention are not removed automatically.
 
+## Blocklisted fields are no longer stored in the index document (#5759)
+
+The search field blocklist (`OM_SEARCH_FIELD_BLOCKLIST`, default `password`, `token`,
+`secret`, `hash`) kept those fields out of `search_text` and `search_tokens`, but both
+document builders copied the base row into `entity_indexes.doc` verbatim:
+`doc->>'password_hash'` held the bcrypt verifier. `buildIndexDocument()` and
+`buildIndexDoc()` now strip globally blocklisted keys before the document is encrypted
+and written. The query engine is unaffected, because it reads base columns from the base
+table. `cf:`/`l10n:` keys and per-entity entries (`<entityType>@<field>`) are not stripped.
+
+Check when upgrading:
+
+1. A `formatResult` / `buildSource` / `resolveUrl` in your own `search.ts` that reads a
+   field whose name contains `password`, `token`, `secret` or `hash` now gets `undefined`
+   for it in global-search enrichment. That includes an encryption rule's `hashField`
+   column; encrypted exact-match lookup still works through the base table. Rename the
+   field, or read it only in `checksumSource`.
+2. Existing rows keep their stored values until the record is next indexed. Run
+   `mercato query_index rebuild-all` (or `rebuild --entity <type>`) to remove them now,
+   and treat any credential that was in `entity_indexes` as disclosed.
+
+[Specification](.ai/specs/2026-08-28-blocklisted-fields-in-the-stored-index-document.md).
+
 ## Archive limits for imported apps in create-mercato-app
 
 `create-mercato-app --app` and `--app-url` now import through the same safe archive path as the new `--template`

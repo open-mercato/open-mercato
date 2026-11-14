@@ -14,7 +14,7 @@ import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { resolveSearchConfig, stripBlocklistedDocFields } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
@@ -82,6 +82,10 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   for (const source of docSources) {
     for (const [k, v] of Object.entries(source)) doc[k] = v
   }
+  const searchConfig = resolveSearchConfig()
+  // The event path builds its own document, so it strips here as well: otherwise a reindex
+  // would remove the column and the next ordinary write would put it straight back.
+  stripBlocklistedDocFields(doc, searchConfig)
 
   // Attach custom fields under flat keys 'cf:<key>'
   let cfQuery = db
@@ -257,7 +261,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   // Kept outside the guard below: a failure while building the aggregate search field is a
   // bug in the aggregation or its configuration, and must surface instead of being mistaken
   // for an encryption failure and silently skipping encryption.
-  doc = attachAggregateSearchField(doc, { entityType: params.entityType })
+  doc = attachAggregateSearchField(doc, { entityType: params.entityType, config: searchConfig })
 
   try {
     const encryption = resolveTenantEncryptionService(em as any)

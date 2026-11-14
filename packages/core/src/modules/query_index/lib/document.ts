@@ -1,6 +1,7 @@
 import {
   isSearchFieldBlocklisted,
   resolveSearchConfig,
+  stripBlocklistedDocFields,
   type SearchConfig,
 } from '@open-mercato/shared/lib/search/config'
 import { isIndexDocEnrichedKey } from './doc-enrichers'
@@ -145,10 +146,12 @@ export function buildIndexDocument(
   scope: IndexDocumentScope = {},
   options: AggregateSearchOptions = {},
 ): Record<string, unknown> {
+  const config = options.config ?? resolveSearchConfig()
   const doc: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(baseRow)) {
     doc[key] = value
   }
+  stripBlocklistedDocFields(doc, config)
 
   const scopeOrg = normalizeScopeValue(scope.organizationId ?? null)
   const scopeTenant = normalizeScopeValue(scope.tenantId ?? null)
@@ -184,5 +187,5 @@ export function buildIndexDocument(
     }
   }
 
-  return attachAggregateSearchField(doc, options)
+  return attachAggregateSearchField(doc, { ...options, config })
 }
