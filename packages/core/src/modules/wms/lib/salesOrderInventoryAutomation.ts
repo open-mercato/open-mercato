@@ -49,6 +49,10 @@ function isBalanceIntegrityViolationError(error: unknown): boolean {
   return error instanceof CrudHttpError && error.status === 409 && error.body?.error === 'balance_integrity_violation'
 }
 
+function isInvalidReservationStateError(error: unknown): boolean {
+  return error instanceof CrudHttpError && error.status === 409 && error.body?.error === 'invalid_reservation_state'
+}
+
 type SalesOrderRow = {
   id?: string
   order_number?: string | null
@@ -545,6 +549,7 @@ export async function releaseInventoryForCancelledOrder(
         ctx: commandCtx,
       })
     } catch (error) {
+      if (isInvalidReservationStateError(error)) continue
       if (!isBalanceIntegrityViolationError(error)) throw error
       void emitWmsEvent('wms.inventory.balance_drift', {
         id: reservation.id,
