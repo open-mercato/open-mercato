@@ -4,6 +4,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 
 const persist = jest.fn()
 const flush = jest.fn()
@@ -31,7 +32,7 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({
+  createRequestContainer: jest.fn(async () => ({
     resolve: () => ({
       getConnection: () => ({ execute }),
       getMetadata: () => ({ get: () => ({ tableName: 'users' }) }),
@@ -39,7 +40,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       persist,
       flush,
     }),
-  }),
+  })),
 }))
 
 describe('auth rotate-encryption-key CLI', () => {
@@ -73,7 +74,7 @@ describe('auth rotate-encryption-key CLI', () => {
   }
 
   it('rotates encrypted emails with old key and uses raw find', async () => {
-    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     mockEncryptedUser()
 
@@ -101,36 +102,6 @@ describe('auth rotate-encryption-key CLI', () => {
     expect(flush).toHaveBeenCalled()
   })
 
-  it('rejects argv key material unless the unsafe compatibility bridge is explicit', async () => {
-    const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
-
-    await expect(rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])).rejects.toThrow('--allow-unsafe-old-key')
-
-    expect(execute).not.toHaveBeenCalled()
-    expect(persist).not.toHaveBeenCalled()
-  })
-
-  it('rejects argv key material when the unsafe compatibility bridge is explicitly false', async () => {
-    const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
-
-    await expect(
-      rotate.run(['--allow-unsafe-old-key=false', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1']),
-    ).rejects.toThrow('--allow-unsafe-old-key')
-
-    expect(execute).not.toHaveBeenCalled()
-  })
-
-  it('rejects a bare --old-key flag without a value', async () => {
-    const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
-
-    await expect(
-      rotate.run(['--allow-unsafe-old-key', '--old-key', '--tenant', 'tenant-1', '--org', 'org-1']),
-    ).rejects.toThrow('--old-key requires a value')
-
-    expect(execute).not.toHaveBeenCalled()
-    expect(persist).not.toHaveBeenCalled()
-  })
-
   it('accepts an --old-key equal to TENANT_DATA_ENCRYPTION_OLD_KEY through the bridge', async () => {
     const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -143,16 +114,31 @@ describe('auth rotate-encryption-key CLI', () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('TENANT_DATA_ENCRYPTION_OLD_KEY'))
   })
 
-  it('rejects an --old-key that differs from TENANT_DATA_ENCRYPTION_OLD_KEY', async () => {
+  it.each<{ name: string; flags: string[]; message: string; environmentKey?: string }>([
+    { name: 'argv key material without the unsafe bridge', flags: ['--old-key', 'old-secret'], message: '--allow-unsafe-old-key' },
+    { name: 'the --old-key=<value> form without the unsafe bridge', flags: ['--old-key=old-secret'], message: '--allow-unsafe-old-key' },
+    { name: 'the --oldKey alias without the unsafe bridge', flags: ['--oldKey', 'old-secret'], message: '--allow-unsafe-old-key' },
+    { name: 'an unsafe bridge set to false', flags: ['--allow-unsafe-old-key=false', '--old-key', 'old-secret'], message: '--allow-unsafe-old-key' },
+    { name: 'a bare --old-key flag', flags: ['--allow-unsafe-old-key', '--old-key'], message: '--old-key requires a value' },
+    { name: 'an empty --old-key value', flags: ['--allow-unsafe-old-key', '--old-key='], message: '--old-key requires a value' },
+    { name: 'a whitespace-only --old-key value', flags: ['--allow-unsafe-old-key', '--old-key', '  '], message: '--old-key requires a value' },
+    {
+      name: 'an --old-key that differs from TENANT_DATA_ENCRYPTION_OLD_KEY',
+      flags: ['--allow-unsafe-old-key', '--old-key', 'argument-secret'],
+      message: 'contain different values',
+      environmentKey: 'environment-secret',
+    },
+  ])('rejects $name before opening the database', async ({ flags, message, environmentKey }) => {
     const rotate = cli.find((c) => c.command === 'rotate-encryption-key')!
-    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'environment-secret'
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    if (environmentKey) process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = environmentKey
 
-    await expect(
-      rotate.run(['--allow-unsafe-old-key', '--old-key', 'argument-secret', '--tenant', 'tenant-1', '--org', 'org-1']),
-    ).rejects.toThrow('contain different values')
+    await expect(rotate.run([...flags, '--tenant', 'tenant-1', '--org', 'org-1'])).rejects.toThrow(message)
 
+    expect(createRequestContainer).not.toHaveBeenCalled()
     expect(execute).not.toHaveBeenCalled()
     expect(persist).not.toHaveBeenCalled()
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 
   it('encrypts plaintext emails without old key using findWithDecryption', async () => {

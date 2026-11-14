@@ -14,7 +14,7 @@ Retirement requires an explicit tenant-scoped offline-maintenance confirmation. 
 
 ## Migration & Backward Compatibility
 
-No schema, ciphertext-format, route, key derivation or ordinary-write changes. Existing `--old-key`/`--oldKey` options are deprecated; the unsafe compatibility bridge remains available through explicit `--allow-unsafe-old-key`. Prefer `TENANT_DATA_ENCRYPTION_OLD_KEY`; no removal date is scheduled. Existing policy-retirement scripts must add `--confirm-offline-maintenance <tenantUuid>` after arranging an actual writer outage. These safety gates intentionally reject unacknowledged risky invocations. Operator and script migration is documented in UPGRADE_NOTES.md.
+No schema, ciphertext-format, route, key derivation or ordinary-write changes. Existing `--old-key`/`--oldKey` options of `entities rotate-encryption-key` and `auth rotate-encryption-key` are deprecated; the unsafe compatibility bridge remains available through explicit `--allow-unsafe-old-key`. Prefer `TENANT_DATA_ENCRYPTION_OLD_KEY`; no removal date is scheduled. Existing policy-retirement scripts must add `--confirm-offline-maintenance <tenantUuid>` after arranging an actual writer outage. These safety gates intentionally reject unacknowledged risky invocations. Operator and script migration is documented in UPGRADE_NOTES.md.
 
 ## Coverage
 
@@ -26,5 +26,5 @@ Offline confirmation is operator attestation, not proof that every external proc
 
 ## Changelog
 
-- 2026-11-14: Apply the same previous-key gate to `auth rotate-encryption-key`: read `TENANT_DATA_ENCRYPTION_OLD_KEY`, refuse argv key material without `--allow-unsafe-old-key`, and refuse an argv value that differs from the environment.
+- 2026-11-14: Apply the same previous-key gate to `auth rotate-encryption-key`: read `TENANT_DATA_ENCRYPTION_OLD_KEY`, refuse argv key material without `--allow-unsafe-old-key`, an empty `--old-key`, and an argv value that differs from the environment.
 - 2026-11-02: Carry the reviewed maintenance safety fixes forward to main while preserving custom-document rotation; add CAS updates, accurate policy scope discovery, offline confirmation, protected final sweep, and explicit unsafe argv bridge. Document the selected offline-only contract and unsupported online coordination; validate eight real PostgreSQL maintenance scenarios, including a non-null lookup hash selected before CAS and safely cleared, and residual ciphertext beyond the first bounded final-sweep page.
