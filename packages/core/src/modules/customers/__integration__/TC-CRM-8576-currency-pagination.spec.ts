@@ -105,8 +105,9 @@ test.describe('TC-CRM-8576: currency-filtered Kanban pagination', () => {
     }
   })
 
-  test.beforeEach(async ({ context, page }) => {
+  test.beforeEach(async ({ context, page }, testInfo) => {
     await context.addCookies(authCookies)
+    await page.setViewportSize({ width: 1280, height: 720 })
     await page.goto('/backend/customers/deals/pipeline')
     await expect(page.getByRole('button', { name: 'New stage', exact: true }).first()).toBeEnabled()
     await page.getByRole('button', { name: /^Pipeline:/ }).click()
@@ -114,7 +115,9 @@ test.describe('TC-CRM-8576: currency-filtered Kanban pagination', () => {
       has: page.getByText('Filter · Pipeline', { exact: true }),
     })
     await pipelineDialog.getByRole('radio', { name: pipelineName, exact: true }).click()
-    await expect(pipelineDialog.getByRole('button', { name: 'Apply', exact: true })).toBeInViewport()
+    await expect(pipelineDialog.getByRole('button', { name: 'Apply', exact: true })).toBeInViewport({ ratio: 1 })
+    await expect(pipelineDialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 })
+    await testInfo.attach('pipeline-filter-actions', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' })
     await pipelineDialog.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(pipelineDialog).toBeHidden()
     await expect(page.getByRole('button', { name: 'Currency: All', exact: true })).toBeVisible()
