@@ -217,6 +217,17 @@ Fully compliant — ready for implementation after authoritative Tpay notificati
 
 ## Changelog
 
+### 2026-11-12
+
+- Implementation note from the Autopay counterpart
+  (`.ai/specs/2026-09-10-autopay-hosted-pln-payment-sessions.md`, "Scheduled
+  Status Reconciliation"): the scheduler dispatch guard only fires a
+  module-authored schedule onto a queue owned by `sourceModule`, and it strips
+  `scope` from `targetPayload`. A provider therefore needs its own queue plus
+  a thin worker that fixes `providerKey` and delegates to the core
+  `payment-gateways-status-poller` handler, instead of registering directly
+  onto the core queue with `scope.providerKey` as written above.
+
 ### 2026-08-01
 
 - Split scheduled reconciliation from the Tpay notification-settlement capability.
