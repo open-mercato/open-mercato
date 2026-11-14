@@ -346,6 +346,8 @@
   "customers.calendar.grid.nextDay": "Następny dzień",
   "customers.calendar.grid.nonWorking": "Dzień wolny",
   "customers.calendar.grid.onPlatform": "na {platform}",
+  "customers.calendar.grid.overflowAria": "Więcej wydarzeń: {count}, {range}",
+  "customers.calendar.grid.overflowTitle": "Nakładające się wydarzenia: {count}",
   "customers.calendar.grid.previousDay": "Poprzedni dzień",
   "customers.calendar.grid.untitled": "Bez tytułu",
   "customers.calendar.grid.venue": "Miejsce: {name}",
