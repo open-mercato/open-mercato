@@ -79,6 +79,14 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldDefs', () => ({
   useCustomFieldDefs: () => ({ data: [] }),
 }))
 
+// DataTable holds its body in a loading placeholder until the injected column
+// widgets settle (`isInitializingColumns`). The registry only becomes ready via
+// the async ClientBootstrap, which does not run under jsdom, so stub the hook as
+// "loaded, no widgets" — this suite is about the list's own columns.
+jest.mock('@open-mercato/ui/backend/injection/useInjectionDataWidgets', () => ({
+  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
+}))
+
 // Not under test here — stubbed out so this suite stays focused on the
 // list's own columns instead of the KPI strip's `/summary` contract.
 jest.mock('../../../../components/DealsKpiStrip', () => ({
