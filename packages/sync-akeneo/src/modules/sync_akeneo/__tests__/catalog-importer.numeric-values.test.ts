@@ -18,6 +18,10 @@ const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockEnsureCustomFieldDefinitions = jest.fn()
 
+jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
+  loadCustomFieldSnapshot: jest.fn(async () => ({})),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: mockContainerResolve,
