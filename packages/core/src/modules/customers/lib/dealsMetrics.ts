@@ -129,6 +129,19 @@ export function convertSumsToBase(
   baseCode: string | null,
   rates: Map<string, RateResult>,
 ): ConvertedSums {
+  const result = convertSumsToBaseUnrounded(perCurrency, baseCode, rates)
+  return { ...result, total: Math.round(result.total) }
+}
+
+/**
+ * `convertSumsToBase` without the final rounding, for callers that add several converted
+ * subtotals (e.g. one per organization) and must round only once, after combining them.
+ */
+export function convertSumsToBaseUnrounded(
+  perCurrency: CurrencySum[],
+  baseCode: string | null,
+  rates: Map<string, RateResult>,
+): ConvertedSums {
   if (!baseCode) {
     const missing = Array.from(
       new Set(perCurrency.map((entry) => entry.currency).filter((code): code is string => Boolean(code))),
@@ -155,5 +168,5 @@ export function convertSumsToBase(
       }
     }
   }
-  return { total: Math.round(total), convertedAll, missingRateCurrencies }
+  return { total, convertedAll, missingRateCurrencies }
 }

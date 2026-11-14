@@ -14,9 +14,13 @@ type BaseCurrencyResolver = {
 export async function resolveOptionalBaseCurrencyCode(
   container: AppContainer,
   tenantId: string,
-  organizationId: string | undefined,
+  organizationIdOrIds: string | readonly string[] | undefined,
 ): Promise<string | null> {
-  if (!organizationId) return null
+  const organizationIds = [...new Set(
+    (Array.isArray(organizationIdOrIds) ? organizationIdOrIds : [organizationIdOrIds])
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+  )]
+  if (organizationIds.length === 0) return null
 
   let resolver: BaseCurrencyResolver
   try {
@@ -26,7 +30,7 @@ export async function resolveOptionalBaseCurrencyCode(
   }
 
   try {
-    const result = await resolver.resolveBaseCurrency({ tenantId, organizationIds: [organizationId] })
+    const result = await resolver.resolveBaseCurrency({ tenantId, organizationIds })
     return result.status === 'resolved' ? result.code : null
   } catch {
     return null

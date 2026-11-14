@@ -53,4 +53,18 @@ describe('resolveOptionalBaseCurrencyCode', () => {
       'org-1',
     )).resolves.toBeNull()
   })
+
+  test('resolves one code across every organization in a multi-organization scope', async () => {
+    const resolveBaseCurrency = jest.fn(async () => ({ status: 'ambiguous' }))
+
+    await expect(resolveOptionalBaseCurrencyCode(
+      createContainer({ resolveBaseCurrency }),
+      'tenant-1',
+      ['org-1', 'org-2', 'org-1'],
+    )).resolves.toBeNull()
+    expect(resolveBaseCurrency).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1', 'org-2'],
+    })
+  })
 })
