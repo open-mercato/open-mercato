@@ -11,11 +11,8 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * Invoices are a standalone sales document (`/api/sales/invoices`, gated by
  * `sales.invoices.manage`). The create command returns `{ invoiceId }`, so fields are read
  * back via GET. This spec snapshots the order grand total, creates an invoice with the same
- * totals, and verifies the invoice persists them (the totals-verification intent).
- *
- * Scope notes (pre-existing defects tracked separately so this coverage stays green):
- *  - `orderId` is validated on create (unknown order → 400, covered below) but the order
- *    relation is not persisted (`order_id` reads back null), so linkage is not asserted.
+ * totals, and verifies the invoice persists them (the totals-verification intent), and that
+ * an invoice created from an order keeps that order link.
  */
 
 type JsonRecord = Record<string, unknown>
@@ -87,11 +84,8 @@ test.describe('TC-SALES-032 invoice create/read/update/delete + totals', () => {
       expect((created.invoice_number as string).length).toBeGreaterThan(0)
       // The invoice preserves the totals it was created with (matching the order).
       expect(num(created.grand_total_gross_amount)).toBe(orderGross)
-      // Characterization of a known gap (tracked separately): `orderId` is validated on
-      // create (see the unknown-order case below) but the order relation is not persisted,
-      // so `order_id` reads back null. This pins current behavior and will fail — by design —
-      // once the link is persisted, prompting a flip to `expect(created.order_id).toBe(orderId)`.
-      expect(created.order_id).toBeNull()
+      // The invoice keeps the order it was created from.
+      expect(created.order_id).toBe(orderId)
 
       const updatedDueDate = '2030-06-15T00:00:00.000Z'
       const updatedGrossTotal = 125.5
