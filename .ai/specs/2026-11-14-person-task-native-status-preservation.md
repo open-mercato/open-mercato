@@ -12,7 +12,7 @@ The merged task reader includes native interactions, but its compatibility proje
 
 Keep the merged reader and its existing 403-only legacy fallback. Add optional `todoStatus` to canonical task projections and its OpenAPI response schema. The profile retains that value, falling back to the existing boolean when older servers or legacy providers omit it.
 
-For a canonical-source task whose current status is neither planned nor done, use the existing dictionary-backed interaction editor and existing `PUT /api/customers/interactions` endpoint. Map only supplied title/body/schedule/priority/custom fields and retain the loaded optimistic-lock version. Existing adapter and external-provider planned/done writes keep their existing endpoint and boolean payload. Existing server permissions, mutation guards, command effects and tenant/organization scope remain authoritative.
+For a canonical-source task whose current status is neither planned nor done, use the existing dictionary-backed interaction editor and existing `PUT /api/customers/interactions` endpoint. Map only supplied title/body/schedule/priority/custom fields and retain the loaded optimistic-lock version. Omit custom values that are empty both before and after submission, using the existing customer custom-value emptiness semantics, so an untouched unchecked default is not materialized. Retain explicit clears of previously populated fields. Existing adapter and external-provider planned/done writes keep their existing endpoint and boolean payload. Existing server permissions, mutation guards, command effects and tenant/organization scope remain authoritative.
 
 ## Data models and API contracts
 
@@ -41,3 +41,5 @@ Same customers module; additive response only; existing guards, scoped commands 
 ## Changelog
 
 - 2026-11-14: Documented the compatibility-mode native status repair and exact regression coverage.
+
+- 2026-11-14: Production whole-record QA exposed untouched checkbox-default persistence; preserve absent/empty custom values while retaining intentional clears.

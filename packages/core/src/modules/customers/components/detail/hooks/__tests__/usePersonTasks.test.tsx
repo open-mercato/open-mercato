@@ -337,6 +337,23 @@ describe('usePersonTasks merged customer task reads', () => {
     expect(result.current.tasks[0]).toMatchObject({ title: 'Renamed', status, isDone: false })
   })
 
+  it('does not persist untouched empty custom defaults while retaining explicit custom clears', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: 'waiting', todoCustomValues: { existing_flag: true } }],
+      total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const { result } = await renderTasks()
+    await act(async () => {
+      await result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Renamed', status: 'waiting' },
+        custom: { shared_with_leadership: false, empty_text: null, empty_list: [], existing_flag: false },
+      })
+    })
+    const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body)
+    expect(payload.customValues).toEqual({ existing_flag: false })
+    expect(result.current.tasks[0].customValues).toMatchObject({ existing_flag: false })
+  })
+
   it.each([403, 409])('does not downgrade a refused native edit (%s) to the binary adapter', async (status) => {
     readApiResultOrThrowMock.mockResolvedValue({
       items: [{ ...makeRows(1)[0], todoStatus: 'waiting' }], total: 1, page: 1, pageSize: PAGE_SIZE,

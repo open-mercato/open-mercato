@@ -4,6 +4,7 @@ import * as React from 'react'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { resolveTodoApiPath } from '../utils'
+import { isEmptyCustomValue } from '../customFieldUtils'
 import type { TodoLinkSummary } from '../types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -407,7 +408,11 @@ export function usePersonTasks({
           if (base.priority !== undefined) body.priority = base.priority
           if (base.description !== undefined) body.body = base.description
           if (base.scheduledAt !== undefined) body.scheduledAt = base.scheduledAt
-          if (Object.keys(custom).length) body.customValues = custom
+          const changedCustomValues = Object.fromEntries(
+            Object.entries(custom).filter(([key, value]) =>
+              !isEmptyCustomValue(value) || !isEmptyCustomValue(task.customValues?.[key])),
+          )
+          if (Object.keys(changedCustomValues).length) body.customValues = changedCustomValues
         } else {
           if (normalizedDone !== undefined) body.is_done = normalizedDone
           if (Object.keys(customValues).length) body.customFields = customValues
