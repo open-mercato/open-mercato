@@ -150,8 +150,9 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
     <div className="relative inline-flex" data-card-action="true" onClick={(event) => event.stopPropagation()}>
       <IconButton
         ref={btnRef}
+        type="button"
         variant="ghost"
-        size="xs"
+        size="default"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={ariaLabel}
@@ -160,7 +161,7 @@ export function DealCardMenu({ items, ariaLabel }: DealCardMenuProps): React.Rea
           setOpen((previous) => !previous)
           requestAnimationFrame(updatePosition)
         }}
-        className="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <MoreVertical className="size-3.5" aria-hidden="true" />
       </IconButton>
