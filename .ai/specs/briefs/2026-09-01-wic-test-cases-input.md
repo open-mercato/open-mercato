@@ -26,14 +26,17 @@ zero network, identical input for every run.
 |---|---|---|
 | M1 | a release rollup PR: head is a long-lived branch (`develop`), base is the default branch, ~150k added lines | books nothing — head-not-long-lived gate |
 | M2 | an ordinary fix merged straight to the default branch in a repo that also has `develop` | books |
-| M3 | the same head branch merged into both `develop` and the default branch (hotfix pattern) | two verdicts, one booking — ledger dedupe by (repo, head branch) |
+| M3 | the same head SHA merged into both a `release/v*` line and the default branch (backport pattern) | two verdicts, one booking — ledger dedupe by `(repo, headRefOid)` |
 | M4 | a PR in a repo that has only a default branch, no `develop` | books from the default branch |
 | M5 | a PR in a private repo of the org | ineligible, zero — repo gate |
-| M6 | a PR already present in the ledger, re-scored later | books once — ledger idempotency |
-| M7 | a repo turns public with pre-existing old merged PRs | old PRs do not enter the ledger retroactively |
+| M6 | a PR already present in the ledger, re-scored and re-ratified later | books once — ledger idempotency on `(repo, prNumber)` |
+| M7 | a repo turns public with pre-existing old merged PRs | old PRs do not enter the ledger retroactively (`BOOKING_START`) |
 | M8 | an issue reported by one account, closed by another account's merged PR | 0.25 credit proposed for the reporter, booked in the merge month |
-| M9 | an issue reported and never fixed by any merged PR | zero |
+| M9 | an issue reported by the PR author, closed by that same PR | zero credit — self-dealt issue |
 | M10 | a PR that only adds spec files under `.ai/` | books like any other merged PR |
+| M11 | a PR declaring `Supersedes #N` where #N closed unmerged | books to #N's author; the declaring author books nothing for it |
+| M12 | two PRs from different forks that reuse the same head branch name | both book — different head SHAs |
+| M13 | a routine dependency bump touching 3+ packages and a snapshot | 0.0 — bonuses suppressed at base 0 |
 
 ## Rubric layer (model judgment; three runs must all match the labeled expectation)
 
@@ -42,12 +45,27 @@ zero network, identical input for every run.
 | R1 | a deep refactor touching ~60 files across 4 packages, including test paths | 0.75, level L1 | 1.00 (base 0.5 + 0.25 packages + 0.25 tests), level L3 |
 | R2 | a large working proof-of-concept on its own | 1.00, level L2 | 1.00, level L4 (L2 retired; level derived from points) |
 | R3 | one PR touching 4 packages with tests vs. one touching 2 packages without | bonus varied run to run | exactly +0.50 vs. +0.00 — computed, not judged |
-| R4 | one month: nine small merged fixes plus one deep refactor | 2.25 + 0.75 = 3.00, L1 | ledger caps small items at 1.00; refactor 1.00; total 2.00, L3 |
+| R4 | one month: nine small merged fixes plus one deep refactor | 2.25 + 0.75 = 3.00, L1 | ledger caps small items at 1.00 (totals, not base points); refactor 1.00; total 2.00, L3 |
 | R5 | a spec merged in month M, its implementation merged in month M+1 | grouped, capped | per PR: 0.5 then 1.0, no grouping, no cross-month state (approved decision Q1) |
+| R6 | an issue fixed by a PR merged to a non-default branch | no credit (no `closingIssuesReferences`) | 0.25 credit emitted from body keywords, `source: "body-keywords"`, confirmed by ratification |
+
+## Ledger layer (Phase 3 fixtures)
+
+| # | Case | Expected |
+|---|---|---|
+| L1 | a verdict comment edited after its 👍 | flagged, pays nothing until re-scored and re-ratified |
+| L2 | a PR body rewritten after the verdict was posted | `bodySha` mismatch → flagged |
+| L3 | two ratified verdicts on one PR by different logins | earliest ratification counts; the second is in `exceptions` |
+| L4 | a verdict posted by a login other than the PR author | payee is the PR author from the API |
+| L5 | a verdict ratified 40 days after its merge month | booked in the ratification month with `lateOf` |
+| L6 | a company holding three partner logins, each hitting the small-items cap | one cap per company, not per login |
+| L7 | a repo on the allowlist that turned private | reported and skipped, run still completes for the rest |
 
 ## Real-data note
 
-The two pilot-month reports under `.ai/runs/wic/` (2026-03 and 2026-04) were produced by the
-1.0 monthly model from single-repo dumps missing `baseRefName`, `headRefName`, and
-`closingIssuesReferences`. They are not usable as corpus fixtures and not comparable with 2.0
-verdicts; their PRs enter the ledger as already-booked so nothing double-counts.
+The two pilot-month reports (2026-03 and 2026-04) were produced by the 1.0 monthly model from
+single-repo dumps missing `baseRefName`, `headRefName`, and `closingIssuesReferences`. They are
+not usable as corpus fixtures and not comparable with 2.0 verdicts, and they are not present in
+this repository. The ledger therefore refuses to book anything merged before `BOOKING_START`
+(default `2026-10-01`) unless the owner supplies the pilot PRs in `scripts/wic/booked.json`, so
+nothing double-counts.

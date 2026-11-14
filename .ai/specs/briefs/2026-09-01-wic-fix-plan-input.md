@@ -1,149 +1,173 @@
-# WIC: model rozliczenia i plan zmian
+# WIC: settlement model and change plan
 
-Kod: gałąź `feat/wic-evaluator-skill`, commit `6d28c125c` w repo `~/Documents/OM`. Praca na worktree.
+Companion input to `.ai/specs/2026-09-01-wic-score-skill.md`. Translated from the original Polish
+working note in revision 2 (2026-11-14); local paths and session identifiers removed. Where this
+note and the spec disagree, the spec wins — discrepancies are listed under "Superseded by the
+current spec".
 
-## Model rozliczenia (ustalony)
+Code: branch `feat/wic-evaluator-skill`, commit `6d28c125c` in the `open-mercato` repository.
+Work happens on a worktree.
 
-**Jednostką rozliczenia jest PR zmergowany do gałęzi długowiecznej** publicznego,
-niezarchiwizowanego repozytorium w organizacji `open-mercato`. Merge jest jedynym momentem
-zaksięgowania, bo tylko on jest nieodwracalny: data i diff już się nie zmienią.
+## Settlement model (agreed)
 
-**Zasięg: 12 repozytoriów** (publiczne, nie zarchiwizowane): `open-mercato`, `official-modules`,
+**The unit of settlement is a PR merged into a long-lived branch** of a public, non-archived
+repository in the `open-mercato` organization. The merge is the only booking moment, because it is
+the only irreversible one: the date and the diff no longer change.
+
+**Scope: 12 repositories** (public, not archived): `open-mercato`, `official-modules`,
 `skills`, `cezar`, `cezar-legacy`, `ready-apps`, `ready-app-oss-prm`, `open-mercato-evals`,
 `n8n-nodes`, `open-mercato-infra`, `api-client-example`, `aida-ux`.
-Kryterium mechaniczne to „publiczne i nie zarchiwizowane", a nie obecność pliku licencji: pięć
-z nich (`cezar`, `ready-apps`, `ready-app-oss-prm`, `open-mercato-infra`, `aida-ux`) nie ma
-`LICENSE`, co wygląda na przeoczenie do naprawienia osobno, a nie na powód odcięcia wypłat.
+The mechanical criterion is "public and not archived", not the presence of a license file: five of
+them (`cezar`, `ready-apps`, `ready-app-oss-prm`, `open-mercato-infra`, `aida-ux`) have no
+`LICENSE`, which looks like an oversight to fix separately rather than a reason to cut payouts.
 
-**Gałęzie długowieczne:** `develop` tam, gdzie istnieje (`open-mercato`, `official-modules`,
-`cezar`, `ready-app-oss-prm`) oraz gałąź domyślna każdego repo. Obie księgują, bo w repo
-z `develop` gałąź `main` też dostaje zwykłą pracę (#4957, #4917 w `open-mercato`).
+**Long-lived branches:** `develop` where it exists (`open-mercato`, `official-modules`,
+`cezar`, `ready-app-oss-prm`) and each repository's default branch. Both book, because in a repo
+with `develop` the `main` branch also receives ordinary work (#4957, #4917 in `open-mercato`).
 
-**Wykluczenie rollupów:** PR, którego gałąź źródłowa sama jest gałęzią długowieczną, nie księguje
-się wcale. Inaczej autor PR-a wydaniowego (#3594 `release: v0.6.6`, +156 065 linii) księguje cały
-kwartał pracy zespołu.
+**Rollup exclusion:** a PR whose source branch is itself a long-lived branch does not book at all.
+Otherwise the author of a release PR (#3594 `release: v0.6.6`, +156,065 lines) would book a whole
+quarter of the team's work.
 
-**Deduplikacja:** ta sama gałąź źródłowa zmergowana do dwóch gałęzi długowiecznych tego samego repo
-(wzorzec hotfiksa) księguje się raz. Klucz: (repo, `headRefName`).
+**Deduplication:** the same source branch merged into two long-lived branches of the same repo
+(the hotfix pattern) books once. Original key: (repo, `headRefName`). See "Superseded by the
+current spec" below — revision 2 keys this on the head SHA.
 
-**Miesiąc:** miesiąc merge'a. Podział na miesiące jest projekcją raportu na końcu, nie zapytaniem
-na wejściu.
+**Month:** the month of the merge. Splitting into months is a projection of the report at the end,
+not a query at the input.
 
-**Wejście:** znacznik startowy plus rejestr zaksięgowanych PR-ów kluczowany po (repo, numer PR).
-Przebieg dopisuje, nigdy nie przepisuje. Repozytorium, które dopiero staje się publiczne, zaczyna
-księgować od znacznika, więc historia się nie otwiera.
+**Input:** a start marker plus a register of booked PRs keyed by (repo, PR number). A run appends,
+never rewrites. A repository that only becomes public starts booking from the marker, so history
+does not open up.
 
-**Zgłoszenie błędu** księguje się autorowi zgłoszenia w momencie merge'a PR-a, który je zamyka
-(`closingIssuesReferences`). Zgłoszenie bez naprawy jest warte zero.
+**Bug report** credit books to the reporter at the moment of the merge of the PR that closes it
+(`closingIssuesReferences`). A report with no fix is worth zero.
 
-**Specyfikacja** dodana pod `.ai/` księguje się jak każdy inny zmergowany PR; rozpoznawana
-mechanicznie po ścieżkach plików.
+**Specification** added under `.ai/` books like any other merged PR; it is recognized
+mechanically by file paths.
 
-## Co ten model kasuje z wcześniejszych wersji planu
+## What this model deletes from earlier plan versions
 
-Cutoff `--as-of`, sygnały akceptacji wyciągane z komentarzy, samocertyfikacja, wyjątek dla
-niezmergowanych PR-ów z recenzją APPROVED, spór o przypisanie miesiąca, hash payloadu jako kotwica
-audytowa. Wszystkie te problemy brały się stąd, że rozliczaliśmy zmienny stan zamiast zdarzenia
-nieodwracalnego. Rejestr zaksięgowanych PR-ów zastępuje hash.
+The `--as-of` cutoff, acceptance signals mined from comments, self-certification, the exception
+for unmerged PRs with an APPROVED review, the dispute about month assignment, and the payload
+hash as an audit anchor. All of those problems came from settling a mutable state instead of an
+irreversible event. The register of booked PRs replaces the hash.
 
-## Rozliczenie per PR (przesądzone)
+## Per-PR settlement (settled)
 
-Płacimy za każdy zmergowany PR osobno. Grupowania PR-ów w jedną funkcjonalność nie robimy:
-rozbicie pracy na mniejsze PR-y jest pożądane i ma się opłacać, bo taki jest nasz proces
+We pay for every merged PR separately. We do not group PRs into one feature: splitting work into
+smaller PRs is desirable and has to pay off, because that is our process
 (`om-auto-create-pr-loop`).
 
-Konsekwencja przyjęta świadomie: ta sama funkcjonalność dowieziona w dziesięciu małych PR-ach
-kosztuje więcej niż dowieziona w jednym dużym, a dwóch partnerów robiących tę samą pracę może
-dostać różne kwoty w zależności od tego, jak pocięli dostawę.
+A consciously accepted consequence: the same feature delivered in ten small PRs costs more than
+delivered in one large one, and two partners doing the same work may receive different amounts
+depending on how they sliced the delivery.
 
-## Zmiany w fetcherze
+## Fetcher changes
 
-### F1. Zapytanie po organizacji zamiast po jednym repo
+### F1. Query by organization instead of one repo
 
-Dziś `repo:open-mercato/open-mercato` na sztywno. Nowe: lista repo z
-`gh repo list open-mercato --json name,isPrivate,isArchived`, filtr publiczne i nie zarchiwizowane,
-potem `is:pr is:merged author:<login> merged:>=<watermark>` per repo, z pobraniem `baseRefName`,
-`headRefName`, `mergedAt`, `closingIssuesReferences`.
+Today `repo:open-mercato/open-mercato` is hard-coded. New: a repo list from
+`gh repo list open-mercato --json name,isPrivate,isArchived`, filtered to public and not
+archived, then `is:pr is:merged author:<login> merged:>=<watermark>` per repo, fetching
+`baseRefName`, `headRefName`, `mergedAt`, `closingIssuesReferences`.
 
-### F2. Twarde błędy zamiast cichych zer
+### F2. Hard errors instead of silent zeros
 
-`ghJson()` łapie wszystko i zwraca `null` (`:12-16`), a wywołujący robi `|| []` (`:163-172`), więc
-limit lub 422 daje artefakt bez danych przy kodzie wyjścia 0. Zmiana: `ghJson` rzuca; błędy do
-`payload.errors[]`; niepusta lista to niezerowy kod wyjścia. Trzy ponowienia z backoffem na 403/429
-przed twardym błędem, bo limit wyszukiwania to 30 zapytań na minutę, a teraz przechodzimy przez
-12 repozytoriów. Zapis do pliku tymczasowego i `mv` na końcu.
+`ghJson()` catches everything and returns `null` (`:12-16`), and callers do `|| []` (`:163-172`),
+so a limit or a 422 yields a data-less artifact with exit code 0. Change: `ghJson` throws; errors
+go to `payload.errors[]`; a non-empty list means a non-zero exit code. Three retries with backoff
+on 403/429 before the hard error, because the search limit is 30 requests a minute and we now go
+through 12 repositories. Write to a temp file and `mv` at the end.
 
-### F3. Paginacja i sufit wyszukiwarki
+### F3. Pagination and the search ceiling
 
-`--paginate` bez `--slurp` na `search/issues` rozsypuje JSON przy ponad stu wynikach (odtworzone na
-gh 2.72: `gh` kończy się kodem 0, emitując nieparsowalne wyjście). Osobno `search/issues` ma sufit
-1000 wyników i zwraca 422. Zmiana: `--slurp`, scalenie `.items`, asercja
-`items.length === total_count`, niezgodność to twardy błąd.
+`--paginate` without `--slurp` on `search/issues` breaks JSON past a hundred results (reproduced on
+gh 2.72: `gh` exits 0 while emitting unparsable output). Separately, `search/issues` has a
+1000-result ceiling and returns 422. Change: `--slurp`, merge `.items`, assert
+`items.length === total_count`, mismatch is a hard error. (The per-PR spec drops the search API
+entirely, which supersedes this item for the verdict path.)
 
-### F4. Higiena determinizmu
+### F4. Determinism hygiene
 
-`generatedAt` do pliku sidecar. Sortowanie komentarzy po `id`, nie po treści (`:41-44`), bo edycja
-komentarza przestawia dziś cały artefakt. `localeCompare` (`:46`, `:53`, `:57`, `:196`) na
-porównanie po punktach kodowych.
+`generatedAt` goes to a sidecar file. Sort comments by `id`, not by content (`:41-44`), because
+editing a comment currently reshuffles the whole artifact. Replace `localeCompare` (`:46`, `:53`,
+`:57`, `:196`) with codepoint comparison.
 
-### F5. Jeden format
+### F5. One format
 
-Wrapper wymusza `FORMAT="markdown"`, a renderer markdown gubi daty artefaktu (`:285` wypisuje tylko
-`merged=true, closed=true`). Zmiana: `FORMAT="json"` i usunięcie gałęzi markdown. Spec dostaje wpis
-w changelogu, bo definiuje fixture jako markdown.
+The wrapper forces `FORMAT="markdown"`, and the markdown renderer loses artifact dates (`:285`
+prints only `merged=true, closed=true`). Change: `FORMAT="json"` and delete the markdown branch.
+The spec records the change in its changelog because it defined the fixture as markdown.
 
-## Zmiany w rubryce
+## Rubric changes
 
-### R1. Tylko zmergowane PR-y
+### R1. Merged PRs only
 
-Znika cała ścieżka „niezmergowany PR z akceptacją Core Team" i cała ścieżka miękkiej akceptacji
-z komentarzy. Pozycja albo jest zaksięgowana merge'em, albo nie istnieje.
+The whole "unmerged PR with Core Team approval" path and the whole soft-acceptance path from
+comments disappear. An entry is either booked by a merge or it does not exist.
 
-### R2. Dwie komórki w tabeli poziomów
+### R2. Two cells in the level table
 
-PoC z L2 na L4, Complex Bug / Deep Refactor z L1 na L3. Poziom staje się funkcją punktów bazowych
-(1.0 = L4, 0.5 = L3, 0.25 = L1), L2 wycofane. Do sprawdzenia po stronie PRM, czy zniknięcie L2 nie
-psuje mapowania na tier. Dziś refaktor na 63 plikach wychodzi jako L1, a specyfikacja jako L3.
+PoC from L2 to L4, Complex Bug / Deep Refactor from L1 to L3. The level becomes a function of base
+points (1.0 = L4, 0.5 = L3, 0.25 = L1), L2 retired. To be checked on the PRM side whether the
+disappearance of L2 breaks the tier mapping.
 
-### R3. Impact bonus liczony, nie oceniany
+### R3. Impact bonus computed, not judged
 
-+0.25 gdy PR dotyka co najmniej trzech pakietów lub modułów (prefiksy ścieżek z `filesSummary`),
-+0.25 gdy dotyka ścieżek testowych. Progi jako literalne stałe w rubryce. Bounty tylko przy jawnym
-numerze w treści PR; ścieżka bounty jest obecnie nieaktywna, bo repo nie ma etykiety `bounty`,
-i rubryka ma to odnotować.
++0.25 when a PR touches at least three packages or modules (path prefixes from `filesSummary`),
++0.25 when it touches test paths. Thresholds are literal constants in the rubric. Bounty only with
+an explicit number in the PR body; the bounty path is currently inactive because the repo has no
+`bounty` label, and the rubric has to note that. Revision 2 adds: bonuses apply only when the base
+class is above 0.
 
-### R4. Sufit na drobiazgi
+### R4. Small-items ceiling
 
-Suma pozycji drobnych ograniczona do 1.0 miesięcznie, nadwyżka wykazana w kolumnie wykluczeń,
-żeby partner widział, że praca została zauważona, tylko nie zapłacona ponad sufit.
+The sum of small items is capped at 1.0 per month; the excess is shown in an exclusions column so
+the partner sees the work was noticed but not paid above the ceiling.
 
-Zakres działania sufitu, zapisany wprost, żeby nikt nie liczył na więcej: domyka rozbicie
-w obrębie jednego miesiąca (dziesięć drobnych PR-ów daje 1.0, tyle samo co jeden duży), nie domyka
-rozłożenia tych samych PR-ów na trzy miesiące (do 2.5) ani miksu jeden duży plus dziewięć drobnych
-(2.0), bo sufitowane są tylko pozycje drobne. Globalnego sufitu miesięcznego nie wprowadzamy,
-bo karałby miesiące z realnie dużą dostawą.
+The ceiling's scope, stated plainly so nobody counts on more: it closes splitting within one
+month (ten small PRs yield 1.0, the same as one large one), it does not close spreading the same
+PRs across three months (up to 2.5) or a mix of one large plus nine small (2.0), because only
+small items are capped. We do not introduce a global monthly ceiling, because it would punish
+months with genuinely large delivery.
 
-Zmienia wypłaty, wchodzi po akceptacji właściciela programu.
+It changes payouts and enters only after the program owner's approval.
 
-## Narzędzia i wersja
+## Tooling and versioning
 
-### C1. Komparator
+### C1. Comparator
 
-`parseReport` czyta wyłącznie `lines[headerIndex + 2]` i po cichu ignoruje dalsze wiersze, a
-`Why bonus` (wolna proza) bramkuje kod wyjścia. Zmiana: wszystkie wiersze, klucz (profil, zakres
-`from..to`), brakujący wiersz to różnica, `Why bonus` poza polami bramkującymi. Bez flagi
-`--strict`, jest jeden wywołujący.
+`parseReport` reads only `lines[headerIndex + 2]` and silently ignores further rows, and
+`Why bonus` (free prose) gates the exit code. Change: all rows, key (profile, range `from..to`), a
+missing row is a difference, `Why bonus` outside the gating fields. No `--strict` flag; there is
+one caller.
 
-### C2. Wersja i status raportów historycznych
+### C2. Version and status of historical reports
 
-Wersja na `2.0-agent`, wpis w changelogu speca, oraz zdanie wprost: raporty z marca i kwietnia 2026
-powstały w innym modelu rozliczenia, nie są porównywalne z nowymi i nie służą do ustalania tieru.
-Ich PR-y wchodzą do rejestru jako zaksięgowane, żeby nie policzyły się drugi raz.
+Version `2.0-agent`, a changelog entry in the spec, and an explicit sentence: the March and April
+2026 reports were produced under a different settlement model, are not comparable with the new
+ones, and do not serve to set tiers. Their PRs enter the register as booked so they are not
+counted twice.
 
-## Kolejność
+## Order
 
-1. F2, F3 (bez nich żaden dump nie jest wiarygodny)
-2. F1, F4, F5 (zasięg i kształt danych)
-3. Rejestr, watermark, wykluczenie rollupów, deduplikacja
-4. R1, R2, C1, C2 (nie wymagają decyzji biznesowej)
-5. R3, R4 i reguła grupowania (zmieniają wypłaty, po akceptacji)
+1. F2, F3 (without them no dump is credible)
+2. F1, F4, F5 (scope and data shape)
+3. Register, watermark, rollup exclusion, deduplication
+4. R1, R2, C1, C2 (no business decision required)
+5. R3, R4 and the grouping rule (they change payouts, after approval)
+
+## Superseded by the current spec
+
+Revision 2 of `.ai/specs/2026-09-01-wic-score-skill.md` settles the points this note left open or
+answered differently for the per-PR design:
+
+| This note | Current spec |
+|---|---|
+| Dedupe key `(repo, headRefName)` | `(repo, headRefOid)`; a branch name can be reused across forks or months |
+| `develop` is the second long-lived branch | `develop` retired in `open-mercato/open-mercato` on 2026-10-21; long-lived = default branch + `release/v*` |
+| Scope discovered by `gh repo list` (the list above is stale: `cezar-legacy` does not exist, `official-modules` and `ready-apps` are archived) | Explicit allowlist `scripts/wic/repos.json` seeded from public, non-archived, non-fork repos (14 at the 2026-11-14 snapshot) and re-validated on every run |
+| Backfill from the March/April reports | Those reports are not in the repository; `BOOKING_START` (default `2026-10-01`) makes pre-history non-bookable, and `scripts/wic/booked.json` accepts an owner-supplied list |
+| Small-items cap per partner | Cap per company (the registry maps several logins to one company) |
+| Issue credit from `closingIssuesReferences` | API refs plus body-keyword fallback for non-default-branch merges, minus self-dealt credits, deduped by `(repo, issueNumber)` |

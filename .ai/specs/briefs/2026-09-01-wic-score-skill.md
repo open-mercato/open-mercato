@@ -1,8 +1,14 @@
 # Brief: wic-score-skill — per-PR partner self-scoring of WIC contribution
 
 Date: 2026-09-01
-Routing: om-auto-write-spec (decided in agents-master brainstorm, session cez/ec044aff)
+Routing: om-auto-write-spec (decided in an agents-master brainstorm)
 Owner of open payout decisions: Maciej (matgren)
+
+> Revision 2 note (2026-11-14): this is the original design brief, preserved as the source input.
+> Where it disagrees with `.ai/specs/2026-09-01-wic-score-skill.md`, the spec wins — see the
+> "Superseded by the current spec" table in `2026-09-01-wic-fix-plan-input.md` for the settled
+> differences (ratification via `@core-team`, head-SHA dedupe, company payee unit, body pinning,
+> base-0 bonus suppression, issue-credit dedupe, ledger enumeration).
 
 ## Goal
 
