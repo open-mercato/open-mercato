@@ -1,6 +1,6 @@
 ---
 title: "Design-system coverage needs a source inventory and visual checks"
-modules: ["ui", "design_system"]
+modules: ["ui", "design_system", "security"]
 areas: ["backend-ui", "testing"]
 topics: ["design-system", "ui-components", "visual-testing", "native-navigation", "realtime", "dev-runtime"]
 ---
@@ -14,6 +14,7 @@ topics: ["design-system", "ui-components", "visual-testing", "native-navigation"
 - Detect truncated tool output before treating an inventory as complete. Request smaller records when needed.
 - Compare actual fills and typography properties, not only printed design captions.
 - Validate the reported composition at its real size, with realistic text, in both themes. Include geometry checks for clipping and order defects.
+- Backend-only changes verified through an existing UI still require visual inspection of that UI. Record the actual theme and computed surface/text colors in light and dark modes; a successful API call or enrollment proves functionality, not theme correctness. Report functional and visual outcomes separately, and correct an earlier PASS when its screenshots show a defect.
 - Show missing families and unverified variants. Do not present reference-only specimens as implemented production components.
 - Keep the complete source inventory visible inside the product catalogue through names, counts and variant axes, without sending the reviewer to an external design file. Do not substitute whole-page screenshots for implemented components when the reviewer wants a usable component catalogue.
 - A designer-facing DS entry point should explain foundations, components, patterns and usage through working examples. Keep the source audit as a secondary resource; inventory completeness is not the main browsing experience. Review a supplied presentation reference before adding more catalogue chrome.

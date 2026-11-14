@@ -25,9 +25,10 @@ jest.mock('../commands/shared', () => ({
 
 jest.mock('../lib/permissions', () => ({
   resolveUserAccess: jest.fn(),
+  resolveUserDocumentTier: jest.fn(),
 }))
 
-import { resolveUserAccess } from '../lib/permissions'
+import { resolveUserAccess, resolveUserDocumentTier } from '../lib/permissions'
 import { assertDocumentCommandCapability } from '../commands/shared'
 import { Document, DocumentComment, DocumentShare, DocumentTemplate } from '../data/entities'
 import {
@@ -214,6 +215,36 @@ describe('documents transactional mutation snapshots', () => {
     })).rejects.toMatchObject({ status: 409 })
   })
 
+  it('preserves an existing editor share when a mentioned recipient has lost module view access', async () => {
+    const document = { id: DOCUMENT_ID, title: 'Document' } as Document
+    const share = {
+      id: SHARE_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+      documentId: DOCUMENT_ID, principalType: 'user', principalId: PRINCIPAL_ID,
+      permission: 'editor', deletedAt: null, updatedAt: UPDATED_AT,
+    } as DocumentShare
+    findOne.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === Document) return document
+      if (entity === DocumentShare) return share
+      return null
+    })
+    ;(resolveUserDocumentTier as jest.Mock).mockResolvedValueOnce('editor')
+    ;(resolveUserAccess as jest.Mock).mockResolvedValueOnce(null)
+    const em = fakeEntityManager((_entity, data) => ({ ...data, createdAt: UPDATED_AT, updatedAt: UPDATED_AT }))
+    const input: CommentCreateCommandInput = {
+      tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, documentId: DOCUMENT_ID,
+      commentId: RESOURCE_ID, actorUserId: USER_ID,
+      comment: { body: `Review this @[${PRINCIPAL_ID}]`, mentions: [{ userId: PRINCIPAL_ID }], grantAccessTo: [PRINCIPAL_ID], parentCommentId: null },
+      grantShares: [{ userId: PRINCIPAL_ID, shareId: SHARE_ID }],
+    }
+
+    const result = await createCommentCommand.execute(input, commandContext(em))
+
+    expect(share.permission).toBe('editor')
+    expect(share.updatedAt).toBe(UPDATED_AT)
+    expect(result.undo.shareMutations).toEqual([])
+    expect(result.projections?.filter((projection) => projection.kind === 'mention-notification')).toEqual([])
+  })
+
   it('captures comment and mention-share snapshots in-transaction with one projection per side effect', async () => {
     const document = { id: DOCUMENT_ID, title: 'Document' } as Document
     let comment: DocumentComment | null = null
@@ -224,9 +255,8 @@ describe('documents transactional mutation snapshots', () => {
       if (entity === DocumentShare) return share
       return null
     })
-    ;(resolveUserAccess as jest.Mock)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('commenter')
+    ;(resolveUserDocumentTier as jest.Mock).mockResolvedValueOnce(null)
+    ;(resolveUserAccess as jest.Mock).mockResolvedValueOnce('commenter')
     const em = fakeEntityManager((entity, data) => {
       const row = { ...data, createdAt: UPDATED_AT, updatedAt: UPDATED_AT }
       if (entity === DocumentComment) comment = row as DocumentComment
@@ -272,9 +302,8 @@ describe('documents transactional mutation snapshots', () => {
     expect(Date.parse(shareUndoUpdatedAt)).toBeGreaterThan(
       Date.parse(result.undo.shareMutations[0]!.after.updatedAt!),
     )
-    ;(resolveUserAccess as jest.Mock)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce('commenter')
+    ;(resolveUserDocumentTier as jest.Mock).mockResolvedValueOnce(null)
+    ;(resolveUserAccess as jest.Mock).mockResolvedValueOnce('commenter')
     const redone = await createCommentCommand.execute(payload.__redoInput, ctx)
     expect(Date.parse(redone.updatedAt)).toBeGreaterThan(Date.parse(commentUndoUpdatedAt))
     ;(comment as DocumentComment).body = 'Post-commit value'

@@ -1,7 +1,8 @@
 import { createHmac } from 'node:crypto'
+import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/types'
 import { expect, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test'
-import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/helpers/integration/api'
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const AUTH_COOKIE_NAME = 'auth_token'
@@ -114,12 +115,12 @@ export async function loginViaApi(
   return await response.json() as LoginSuccessResponse
 }
 
-export async function setAuthCookie(target: BrowserContext | Page, token: string): Promise<void> {
+export async function setAuthCookie(target: BrowserContext | Page, token: string, baseUrl = BASE_URL): Promise<void> {
   const context = 'context' in target ? target.context() : target
   await context.addCookies([{
     name: AUTH_COOKIE_NAME,
     value: token,
-    url: BASE_URL,
+    url: baseUrl,
     sameSite: 'Lax',
     httpOnly: true,
   }])
@@ -141,9 +142,9 @@ export async function fetchJson<T>(
   request: APIRequestContext,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
-  options: { token: string; data?: unknown; headers?: Record<string, string> },
+  options: { token: string; data?: unknown; headers?: Record<string, string>; baseUrl?: string },
 ): Promise<{ status: number; body: T }> {
-  const response = await request.fetch(`${BASE_URL}${path}`, {
+  const response = await request.fetch(`${options.baseUrl ?? BASE_URL}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${options.token}`,
@@ -220,45 +221,102 @@ export async function enrollOtpEmail(
   }
 }
 
+export async function createPasskeyAuthenticator(page: Page): Promise<() => Promise<void>> {
+  const session = await page.context().newCDPSession(page)
+  await session.send('WebAuthn.enable')
+  const { authenticatorId } = await session.send('WebAuthn.addVirtualAuthenticator', {
+    options: {
+      protocol: 'ctap2',
+      transport: 'internal',
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+    },
+  })
+  return async () => {
+    try {
+      await session.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId })
+    } finally {
+      await session.detach()
+    }
+  }
+}
+
 export async function enrollPasskey(
   request: APIRequestContext,
   token: string,
+  page: Page,
+  label = 'QA Passkey',
 ): Promise<PasskeyEnrollmentResult> {
+  const baseUrl = new URL(page.url()).origin
   const setup = await fetchJson<{
     setupId: string
-    clientData?: { challenge?: string }
+    clientData: PublicKeyCredentialCreationOptionsJSON
   }>(request, 'POST', '/api/security/mfa/provider/passkey', {
     token,
-    data: { label: 'QA Passkey' },
+    data: { label },
+    baseUrl,
   })
   expect(setup.status).toBe(200)
-  const challenge = setup.body.clientData?.challenge
-  expect(typeof challenge).toBe('string')
-  const credentialId = `qa-passkey-${Date.now()}`
-  const confirm = await fetchJson<{ ok: true }>(
-    request,
-    'PUT',
-    '/api/security/mfa/provider/passkey',
-    {
-      token,
-      data: {
-        setupId: setup.body.setupId,
-        payload: {
-          credentialId,
-          publicKey: Buffer.from(`public-key:${credentialId}`).toString('base64url'),
-          challenge,
-          transports: ['internal'],
-          label: 'QA Passkey',
-        },
-      },
-    },
-  )
+  const response = await page.evaluate(async (options) => {
+    const credential = await navigator.credentials.create({
+      publicKey: PublicKeyCredential.parseCreationOptionsFromJSON(options),
+    })
+    if (!(credential instanceof PublicKeyCredential)) {
+      throw new Error('Virtual authenticator did not create a public-key credential')
+    }
+    return credential.toJSON()
+  }, setup.body.clientData)
+  const confirm = await fetchJson<{ ok: true }>(request, 'PUT', '/api/security/mfa/provider/passkey', {
+    token,
+    data: { setupId: setup.body.setupId, payload: { response, label } },
+    baseUrl,
+  })
   expect(confirm.status).toBe(200)
   return {
     setupId: setup.body.setupId,
-    credentialId,
-    challenge: challenge as string,
+    credentialId: response.id,
+    challenge: setup.body.clientData.challenge,
   }
+}
+
+export async function verifyPasskeyChallenge(
+  request: APIRequestContext,
+  pendingToken: string,
+  challengeId: string,
+  credentialPages: ReadonlyMap<string, Page>,
+): Promise<{ status: number; body: { ok?: boolean; token?: string }; credentialId: string }> {
+  const firstPage = credentialPages.values().next().value
+  if (!firstPage) throw new Error('Passkey verification requires an enrolled virtual authenticator')
+  const baseUrl = new URL(firstPage.url()).origin
+  const prepared = await fetchJson<{ clientData: PublicKeyCredentialRequestOptionsJSON }>(
+    request, 'POST', '/api/security/mfa/prepare', {
+      token: pendingToken,
+      data: { challengeId, methodType: 'passkey' },
+      baseUrl,
+    },
+  )
+  expect(prepared.status).toBe(200)
+  const credentialId = prepared.body.clientData.allowCredentials?.[0]?.id
+  const page = credentialId ? credentialPages.get(credentialId) : undefined
+  expect(page, 'Prepared challenge must refer to an enrolled virtual authenticator').toBeTruthy()
+  if (!page) throw new Error('No virtual authenticator for the prepared credential')
+  const response = await page.evaluate(async (options) => {
+    const credential = await navigator.credentials.get({
+      publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(options),
+    })
+    if (!(credential instanceof PublicKeyCredential)) {
+      throw new Error('Virtual authenticator did not sign the passkey challenge')
+    }
+    return credential.toJSON()
+  }, prepared.body.clientData)
+  const verified = await fetchJson<{ ok?: boolean; token?: string }>(request, 'POST', '/api/security/mfa/verify', {
+    token: pendingToken,
+    data: { challengeId, methodType: 'passkey', payload: { response } },
+    baseUrl,
+  })
+  return { ...verified, credentialId: response.id }
 }
 
 export async function prepareOtpEmailChallenge(
@@ -307,8 +365,6 @@ export async function verifyTotpChallenge(
  * Negative-path helper. It prepares a real passkey challenge and then submits the two values the
  * server already discloses — the credential id and the challenge — instead of a WebAuthn assertion.
  * Passkey verification must refuse this; accepting it was the second-factor bypass fixed in #3852.
- * There is no API-level happy path for passkey verification: producing a genuine assertion requires
- * an authenticator, so a real one needs a Playwright virtual authenticator driving the browser flow.
  */
 export async function attemptUnsignedPasskeyVerify(
   request: APIRequestContext,

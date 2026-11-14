@@ -28,12 +28,6 @@
     {
       "file": "src/components/DemoFeedbackWidget.tsx",
       "rule": "arbitrary-tailwind",
-      "match": "min-w-[90px]",
-      "reason": "Existing scaffold styling retained as a bounded migration baseline."
-    },
-    {
-      "file": "src/components/DemoFeedbackWidget.tsx",
-      "rule": "arbitrary-tailwind",
       "match": "animate-[caption-slide_0.3s_ease-out]",
       "reason": "Existing scaffold styling retained as a bounded migration baseline."
     },

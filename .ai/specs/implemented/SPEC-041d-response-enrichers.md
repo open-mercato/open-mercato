@@ -390,3 +390,30 @@ export const enrichers: ResponseEnricher[] = [
 ### Example
 - `apps/mercato/src/modules/example/data/enrichers.ts` — customer todo count enricher
 - Target entity: `customers.person` (opted in via `enrichers: { entityId: 'customers.person' }` in people route)
+
+
+## Sales quote-header activation (2026-10-22, #7783)
+
+The Sales document CRUD factory opts both orders and quotes into the existing response-enricher runner, using each binding's entity ID: `sales:sales_order` or `sales:sales_quote`. Previously quote headers were deliberately excluded by a WMS-focused regression test, preventing independent app-owned quote enrichers as well.
+
+The HTTP order/quote route definitions also state their exact `enrichers: { entityId }` opt-in in the live `makeCrudRoute` options, so the static facts generator can prove activation and retain route provenance. Shared factory defaults are preserved for existing callers; no interprocedural extractor or new public API is introduced.
+
+The runner and registry remain the owners of exact/wildcard target matching, batched execution, tenant/organization context, feature checks, timeout/fallback, and cache-hit enrichment. Sales must not introduce a second runner. Order-targeted WMS enrichment must not execute for quote reads. Quote lines are a separate surface.
+
+### API and integration coverage
+
+- `GET /api/sales/quotes`: an enabled quote-targeted test contributor adds a namespaced field without changing existing fields, pagination, filters, or totals.
+- `GET /api/sales/quotes?id=<id>`: the detail read path receives the same contribution.
+- Quote/order isolation: quote-only and order-only contributors run only for their respective headers; wildcard contributors follow the existing registry semantics.
+- Verify caller features, tenant/organization scope, non-critical fallback, and cache-hit/miss behavior through the actual route and shared runner.
+- Retain the WMS live regression proving quote responses do not acquire order-only `_wms` data.
+
+### Migration & Backward Compatibility
+
+No route, HTTP method, request schema, existing field meaning, entity target ID, or envelope changes. Output is additive and contributor-owned. Matching quote and wildcard enrichers can now run where they were previously skipped; downstream authors must review scope/ACL checks, fallback, read-only behavior, and cache correctness for those contributions. No database migration is required. Existing order enrichment is preserved.
+
+## Changelog
+
+| Date | Change |
+| --- | --- |
+| 2026-10-22 | Activate the existing response-enricher pipeline for Sales quote headers (#7783), with exact-target order/WMS isolation and route-level integration regression coverage. |

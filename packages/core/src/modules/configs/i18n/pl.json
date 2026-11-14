@@ -198,6 +198,10 @@
   "configs.upgrades.attachmentsOrgReconcile.loading": "Uzgadnianie organizacji załączników…",
   "configs.upgrades.attachmentsOrgReconcile.message": "Wersja {{version}} naprawia załączniki zapisane pod niewłaściwą organizacją. Uruchom uzgadnianie, aby przenieść istniejące załączniki do organizacji rekordu, do którego należą.",
   "configs.upgrades.attachmentsOrgReconcile.success": "Organizacje załączników zostały uzgodnione.",
+  "configs.upgrades.cartSweeperSchedules.cta": "Zaplanuj mechanizmy porządkujące koszyki",
+  "configs.upgrades.cartSweeperSchedules.loading": "Planowanie mechanizmów porządkujących koszyki…",
+  "configs.upgrades.cartSweeperSchedules.message": "Wersja {{version}} dodaje mechanizmy porządkujące modułu koszyka (oznaczanie jako opuszczony, wygasanie, zwalnianie blokad, czyszczenie). Przestrzenie robocze istniejące wcześniej nie mają jeszcze żadnego z tych harmonogramów. Uruchom to, aby je zarejestrować.",
+  "configs.upgrades.cartSweeperSchedules.success": "Harmonogramy mechanizmów porządkujących koszyki zostały zarejestrowane.",
   "configs.upgrades.devicesPushTokenEncryption.cta": "Szyfruj tokeny push urządzeń",
   "configs.upgrades.devicesPushTokenEncryption.loading": "Tworzenie mapy szyfrowania tokenów push…",
   "configs.upgrades.devicesPushTokenEncryption.message": "Wersja {{version}} dodaje mobilne powiadomienia push i szyfruje tokeny push urządzeń w spoczynku. Istniejący najemcy nie mają mapy szyfrowania dla nowej encji urządzenia, więc tokeny zarejestrowane po aktualizacji byłyby przechowywane bez szyfrowania. Uruchom to, aby utworzyć mapę i zaszyfrować tokeny push.",
@@ -205,5 +209,9 @@
   "configs.upgrades.ecommerceDraftStore.cta": "Utwórz domyślny sklep",
   "configs.upgrades.ecommerceDraftStore.loading": "Tworzenie domyślnego sklepu…",
   "configs.upgrades.ecommerceDraftStore.message": "Wersja {{version}} dodaje moduł sklepów. Przestrzenie robocze istniejące wcześniej nie mają jeszcze żadnego sklepu. Uruchom to, aby utworzyć jeden sklep w wersji szkicu na podstawie nazwy organizacji, który możesz skonfigurować. Jeśli sklep już istnieje, nic się nie dzieje.",
-  "configs.upgrades.ecommerceDraftStore.success": "Utworzono domyślny sklep."
+  "configs.upgrades.ecommerceDraftStore.success": "Utworzono domyślny sklep.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.cta": "Zaplanuj mechanizm porządkujący rezerwacje kodów",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.loading": "Planowanie mechanizmu porządkującego rezerwacje kodów…",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.message": "Wersja {{version}} dodaje mechanizm porządkujący rezerwacje kodów modułu promocji. Przestrzenie robocze istniejące wcześniej nie mają jeszcze żadnego harmonogramu dla niego. Uruchom to, aby go zarejestrować.",
+  "configs.upgrades.promotionsCodeReservationSweepSchedule.success": "Harmonogram mechanizmu porządkującego rezerwacje kodów został zarejestrowany."
 }

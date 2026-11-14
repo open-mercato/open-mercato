@@ -150,6 +150,10 @@ export class GatewayPaymentOperation {
   expression:
     'create index "gateway_session_initializations_prune_idx" on "gateway_session_initializations" ("tenant_id", "organization_id", "updated_at") where "gateway_transaction_id" is not null',
 })
+@Index({
+  name: 'gateway_session_initializations_retention_idx',
+  properties: ['tenantId', 'organizationId', 'updatedAt', 'id'],
+})
 export class GatewaySessionInitialization {
   [OptionalProps]?: 'claimToken' | 'claimedAt' | 'gatewayTransactionId' | 'createdAt' | 'updatedAt'
 

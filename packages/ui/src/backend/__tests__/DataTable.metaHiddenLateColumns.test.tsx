@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
+import { renderToString } from 'react-dom/server'
 import { render, screen, waitFor } from '@testing-library/react'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -72,6 +73,21 @@ describe('DataTable — meta.hidden on columns that arrive after the first rende
       const name = entry.split('=')[0]?.trim()
       if (name) document.cookie = `${name}=; Max-Age=0; Path=/`
     }
+  })
+
+  it('omits hidden defaults from the server-rendered header', () => {
+    const html = renderToString(<Harness columns={COLUMNS_WITH_CUSTOM_FIELDS} />)
+
+    expect(html).toContain('Active note')
+    expect(html).not.toContain('Archived note')
+  })
+
+  it('renders a saved visibility override in the server-rendered header', () => {
+    const html = renderToString(
+      <Harness columns={COLUMNS_WITH_CUSTOM_FIELDS} initialSettings={{ columnVisibility: { cf_archived_note: true } }} />,
+    )
+
+    expect(html).toContain('Archived note')
   })
 
   it('hides a meta.hidden column that only appears on a later render', async () => {

@@ -1,6 +1,7 @@
 import type { ProbeCost, SearchAdapter } from '../contract/adapter'
+import { WebResearchError } from '../contract/errors'
 import { silentLogger } from '../contract/http'
-import { timedOut, toOutcomeFailure, type FetchOutcome } from '../contract/outcomes'
+import { blocked, timedOut, toOutcomeFailure, type FetchOutcome } from '../contract/outcomes'
 import type { SearchPolicy } from '../contract/policy'
 import {
   searchRequestSchema,
@@ -112,11 +113,13 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     deadlineAt: number,
     report: (event: SearchStepEvent, detail?: string, metrics?: SearchStepMetrics) => void,
   ): Promise<{ results: readonly SearchResult[]; pagesRead: number }> {
-    const targets = results.filter((result) => result.content === null).slice(0, policy.content.maxPages)
+    const targets = results
+      .filter((result) => result.content === null && (options.isContentUrlAllowed?.(result.url) ?? true))
+      .slice(0, policy.content.maxPages)
     if (targets.length === 0) return { results, pagesRead: 0 }
     report('started', `reading ${targets.length} page(s) for inline content`)
 
-    const contentByUrl = new Map<string, string>()
+    const contentByUrl = new Map<string, FetchedPage>()
     // Counts pages we actually went to the network for, not pages that yielded
     // usable text: the budget this feeds is about egress, and a fetch that came
     // back empty still cost a request to somebody else's server.
@@ -135,7 +138,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
           { signal },
         )
         if (outcome.status === 'ok' && outcome.page.text.trim().length > 0) {
-          contentByUrl.set(next.url, outcome.page.text)
+          contentByUrl.set(next.url, outcome.page)
         }
       }
     })
@@ -147,8 +150,8 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
 
     return {
       results: results.map((result) => {
-        const content = contentByUrl.get(result.url)
-        return content === undefined ? result : { ...result, content }
+        const page = contentByUrl.get(result.url)
+        return page === undefined ? result : { ...result, url: page.url, content: page.text }
       }),
       pagesRead,
     }
@@ -157,6 +160,17 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
   async function fetchPage(request: FetchRequest, runOptions: RunOptions = {}): Promise<FetchOutcome> {
     const maxBytes = request.maxBytes ?? policy.content.maxBytesPerPage
     const render = request.render ?? 'auto'
+    let policyDenied = false
+    const assertUrlAllowed = (url: string): void => {
+      if (options.isContentUrlAllowed && !options.isContentUrlAllowed(url)) {
+        policyDenied = true
+        throw new WebResearchError('blocked', `domain not allowed: ${url}`)
+      }
+    }
+
+    if (options.isContentUrlAllowed && !options.isContentUrlAllowed(request.url)) {
+      return { status: 'blocked', reason: `domain not allowed: ${request.url}`, code: 'domain_blocked' }
+    }
 
     if (render !== 'always') {
       try {
@@ -164,7 +178,9 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
           maxBytes,
           accept: TEXTUAL_CONTENT,
           ...(runOptions.signal ? { signal: runOptions.signal } : {}),
+          ...(options.isContentUrlAllowed ? { assertUrlAllowed } : {}),
         })
+        assertUrlAllowed(response.url)
         const isHtml = response.contentType === null || response.contentType.includes('html')
         const text = isHtml ? extractMainContent(response.body) || htmlToText(response.body) : response.body
         const classification = classifyPage({
@@ -191,7 +207,8 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
         return { status: 'ok', page: { ...page, escalatedBecause: classification.verdict } }
       } catch (error) {
         const failure = toOutcomeFailure(error)
-        if (render !== 'never' && failure.status === 'blocked') {
+        if (policyDenied && failure.status === 'blocked') return { ...failure, code: 'domain_blocked' }
+        if (!policyDenied && render !== 'never' && failure.status === 'blocked') {
           const escalated = await escalateFetch(request, 'blocked', maxBytes, runOptions)
           if (escalated?.status === 'ok') return escalated
         }
@@ -251,6 +268,7 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     maxBytes: number,
     runOptions: RunOptions,
   ): Promise<FetchOutcome | null> {
+    if (options.isContentUrlAllowed) return blocked('browser rendering cannot enforce content URL policy')
     if (!policy.escalateToBrowser) return null
     const entry = browserEntries.find(
       (candidate) =>
@@ -535,7 +553,8 @@ export function createSearchEngine(options: SearchEngineOptions): SearchEngine {
     // A comparison is a diagnostic: serving it from cache would show an operator
     // yesterday's adapter behaviour while they change settings, and storing it
     // would put every adapter's full result list in the cache for one debug run.
-    const useCache = options.cache !== undefined && policy.cacheTtlMs > 0 && !compare
+    const useCache =
+      options.cache !== undefined && policy.cacheTtlMs > 0 && !compare && options.isContentUrlAllowed === undefined
 
     if (useCache) {
       const cached = await options.cache!.get(cacheKey).catch(() => null)

@@ -1,27 +1,36 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import mainAppConfig from '../../../../apps/mercato/next.config'
-import templateConfig from '../../template/next.config'
+import {
+  PHASE_DEVELOPMENT_SERVER,
+  PHASE_PRODUCTION_BUILD,
+  PHASE_PRODUCTION_SERVER,
+} from 'next/constants'
 
-async function resolveHeaders(config: typeof mainAppConfig) {
+import resolveMainAppConfig from '../../../../apps/mercato/next.config'
+import resolveTemplateConfig from '../../template/next.config'
+
+async function resolveHeaders(resolveConfig: typeof resolveMainAppConfig, phase: string) {
+  const config = resolveConfig(phase)
   assert.equal(typeof config.headers, 'function', 'expected next.config.ts to declare headers()')
-  return config.headers()
+  return config.headers!()
 }
 
-test('standalone template mirrors the main app response security headers', async () => {
-  const mainAppHeaders = await resolveHeaders(mainAppConfig)
-  const templateHeaders = await resolveHeaders(templateConfig)
+for (const phase of [PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER]) {
+  test(`standalone template mirrors the main app response security headers in ${phase}`, async () => {
+    const mainAppHeaders = await resolveHeaders(resolveMainAppConfig, phase)
+    const templateHeaders = await resolveHeaders(resolveTemplateConfig, phase)
 
-  assert.deepEqual(
-    templateHeaders,
-    mainAppHeaders,
-    'standalone template response security headers drifted from the main app baseline',
-  )
-})
+    assert.deepEqual(
+      templateHeaders,
+      mainAppHeaders,
+      `standalone template response security headers drifted from the main app baseline in ${phase}`,
+    )
+  })
+}
 
 test('standalone template keeps integration and attachment security policies', async () => {
-  const headers = await resolveHeaders(templateConfig)
+  const headers = await resolveHeaders(resolveTemplateConfig, PHASE_PRODUCTION_SERVER)
   const globalRule = headers.find((rule) => rule.source === '/:path*')
   const attachmentRule = headers.find(
     (rule) => rule.source === '/api/attachments/file/:path*',

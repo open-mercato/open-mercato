@@ -19,6 +19,7 @@ import {
   CustomerDeal,
   CustomerDealStageTransition,
   CustomerDictionaryEntry,
+  CustomerPipeline,
   CustomerPipelineStage,
 } from '../../data/entities'
 
@@ -228,6 +229,7 @@ describe('customers.deals.update stage transitions', () => {
       fork: () => em,
       findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
         if (ctor === CustomerDeal && where.id === existingDeal.id) return existingDeal
+        if (ctor === CustomerPipeline && where.id === existingDeal.pipelineId) return { id: existingDeal.pipelineId, tenantId: existingDeal.tenantId, organizationId: existingDeal.organizationId }
         if (ctor === CustomerPipelineStage && where.id === stageTwo.id) return stageTwo
         if (ctor === CustomerDealStageTransition) return null
         if (ctor === CustomerDictionaryEntry) return null
@@ -340,6 +342,7 @@ describe('customers.deals.update stage transitions', () => {
         fork: () => em,
         findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
           if (ctor === CustomerDeal && where.id === existingDeal.id) return existingDeal
+          if (ctor === CustomerPipeline && where.id === existingDeal.pipelineId) return { id: existingDeal.pipelineId, tenantId: existingDeal.tenantId, organizationId: existingDeal.organizationId }
           if (ctor === CustomerDealStageTransition) return null
           if (ctor === CustomerDictionaryEntry) return null
           return null
@@ -470,6 +473,7 @@ describe('customers.deals.update stage transitions', () => {
         fork: () => em,
         findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
           if (ctor === CustomerDeal && where.id === existingDeal.id) return existingDeal
+          if (ctor === CustomerPipeline && where.id === existingDeal.pipelineId) return { id: existingDeal.pipelineId, tenantId: existingDeal.tenantId, organizationId: existingDeal.organizationId }
           if (ctor === CustomerDealStageTransition) return null
           if (ctor === CustomerDictionaryEntry) return null
           return null
@@ -883,6 +887,7 @@ describe('customers.deals.update stage transitions', () => {
       fork: () => em,
       findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
         if (ctor === CustomerDeal && where.id === existingDeal.id) return existingDeal
+        if (ctor === CustomerPipeline && where.id === existingDeal.pipelineId) return { id: existingDeal.pipelineId, tenantId: existingDeal.tenantId, organizationId: existingDeal.organizationId }
         if (ctor === CustomerPipelineStage && where.id === stageTwo.id) return stageTwo
         if (ctor === CustomerDealStageTransition) {
           const error = new Error('relation "customer_deal_stage_transitions" does not exist') as Error & { code?: string }

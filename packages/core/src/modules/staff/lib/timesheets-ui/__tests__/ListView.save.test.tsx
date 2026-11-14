@@ -125,7 +125,7 @@ describe('timesheet inline description save', () => {
   })
 
   it('does not treat a failed PUT as success: keeps the editor open, flashes an error, and never calls onEntryUpdated', async () => {
-    apiCallOrThrowMock.mockRejectedValue(Object.assign(new Error('Server error'), { status: 500 }))
+    apiCallOrThrowMock.mockRejectedValue(Object.assign(new Error(''), { status: 500 }))
     const onEntryUpdated = jest.fn()
 
     renderList(onEntryUpdated)
@@ -137,6 +137,18 @@ describe('timesheet inline description save', () => {
     expect(onEntryUpdated).not.toHaveBeenCalled()
     // Editor stays open so the user can retry — the input is still present.
     expect(screen.getByPlaceholderText('Add description')).toBeInTheDocument()
+  })
+
+  it('flashes the reason a refused PUT carries instead of the generic message (#7393)', async () => {
+    const reason = 'This date is outside your assignment to this project.'
+    apiCallOrThrowMock.mockRejectedValue(Object.assign(new Error(reason), { status: 403 }))
+
+    renderList(jest.fn())
+    startEditingAndSubmit('Updated note')
+
+    await waitFor(() => {
+      expect(flashMock).toHaveBeenCalledWith(reason, 'error')
+    })
   })
 
   it('treats a 2xx PUT as success: closes the editor and calls onEntryUpdated', async () => {

@@ -43,6 +43,10 @@ Core does not perform provider preconfiguration. The S3 package owns its schema/
 - CLI reports the redacted error and rethrows typed configuration failures so the command cannot report success. Recovery workers preserve the same typed error for retry/error handling.
 - Direct creation helpers cannot repair a missing requested partition into implicit local storage in strict mode.
 
+### Caller integration boundary
+
+Factory validation remains process-wide, including calls made by other modules. This implementation's localized HTTP 503 mapping, validation-before-metadata-removal guarantee and typed worker/CLI propagation cover the `attachments` module's own routes, quota recovery worker and CLI. They do not yet cover independent callers in `warranty_claims/api/portal/attachments/route.ts`, `documents/api/[id]/attachments/[attachmentId]/route.ts` or enterprise `agent_orchestrator`'s `attachmentStager`; follow-up [#7941](https://github.com/open-mercato/open-mercato/issues/7941) tracks their integration. Those callers still encounter factory rejection, but may expose a generic error or swallow it. In particular, warranty portal deletion currently removes metadata before resolving storage, so strict rejection there can leave orphaned bytes. Operators must audit these paths before enabling strict mode for deployments using them. This boundary does not bypass strict validation or change provider policy.
+
 Scope remains the existing tenant/organization pair. Validators receive that pair unchanged when supplied; partial scope is rejected in strict mode. Global operations remain supported with both scope values absent/empty. Errors include no scope values, partition names, bucket names, endpoints, credentials or raw validator exception messages.
 
 ## 📝 Data Models
@@ -74,12 +78,16 @@ No new screen. Existing attachment failures display a localized storage-configur
 - Explicit local driver: valid under strict mode, including seeded partitions with null config; existing local root environment settings are unchanged.
 - Existing global attachments: preserve the both-or-neither scope contract; do not invent a sentinel organization.
 - Invalid config on deletion: retain metadata and thumbnails so the operator can repair configuration and retry.
+- A missing partition prevents owner-policy evaluation. For an authenticated deletion whose attachment row was already loaded under the caller's tenant/organization filter, strict mode reports the existing redacted `partition_missing` 503 rather than hiding the operational failure as 404. This exposes only the existence of a UUID-addressed record within that same scope; it does not reveal partition/configuration values or grant access. Other actions routed through `assertAttachmentOwnerAccess` retain their missing-partition 404. Retaining metadata makes partition repair and retry possible; operators requiring indistinguishable same-scope existence errors should not enable strict mode without accepting this trade-off.
+- Library deletion keeps its strict preflight before opening the storage-reference transaction, so invalid configuration rejects without acquiring shared-object reference locks. Its in-transaction owner and storage checks remain mandatory: configuration or ownership can change after preflight, and only the refreshed locked row authorizes removal. The record deletion route instead validates inside its transaction and rolls back on rejection; it guarantees metadata/byte safety but does not promise the library/CLI no-reference-lock fast-failure behavior. This intentional distinction preserves the existing strict deletion regression rather than removing its guarantee for symmetry.
 
 ## 📝 Migration & Backward Compatibility
 
 This is additive and opt-in. Legacy mode preserves unknown/null/missing-partition fallback. Enable strict mode only after inventorying partitions, enabling their providers and registering validators in every process entry point. Provider/application validators must be installed before traffic or worker polling begins. Restart all processes after changing the policy. Rollback is setting `legacy` and restarting; it does not delete or move any data.
 
 Applications should use `attachmentService` for business operations. The factory/validator entry points support storage-provider authors and platform integration. Explicit direct driver construction, S3 standalone APIs and deprecated explicit-filesystem helpers are outside partition resolution; migrate callers that require this policy to the supported service/factory rather than treating strict mode as a filesystem sandbox.
+
+The caller integration boundary above also applies during rollout: do not assume another module maps a factory rejection to HTTP 503 or validates before its own metadata side effects. Track the independent callers in #7941 before relying on those guarantees outside `attachments`.
 
 ## 📝 Risks & Impact Review
 
@@ -110,8 +118,11 @@ One cohesive capability delivered in one implementation PR after a design-only s
 
 ## Final Compliance Report
 
-Design preserves existing public contracts in legacy mode, introduces no schema or dependency, retains scope and mutation ordering, and keeps provider knowledge in its provider package. Independent review found the scope cohesive and no architectural blocker; it requested explicit structural revalidation of enhanced output and compatibility with supported MinIO/default-chain settings, both included above. Implementation and validation are pending. This spec does not claim deployment or approval.
+Design preserves existing public contracts in legacy mode, introduces no schema or dependency, retains scope and mutation ordering, and keeps provider knowledge in its provider package. Independent review found the scope cohesive and no architectural blocker; it requested explicit structural revalidation of enhanced output and compatibility with supported MinIO/default-chain settings, both included above. Implementation and focused validation are recorded in `.ai/runs/2026-10-01-attachment-storage-validation.md`. Current-head hosted CI and required QA remain independent gates; this spec does not claim deployment or approval.
 
 ## Changelog
 
+- 2026-11-02: Integrate current main; preserve the strict library preflight no-reference-lock guarantee and locked owner/storage recheck, document both inherited trade-offs, and normalize validator import order.
+
+- 2026-10-25: Compose strict deletion ordering with reference-counted removal from #7292; explicitly scope caller-level guarantees and track independent callers in #7941.
 - 2026-10-01: Initial autonomous design for #6690. Defaults preserve legacy behavior, require strict external-driver validation and keep authorization separate.

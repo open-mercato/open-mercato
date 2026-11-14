@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { StaffTeamMember, StaffTimeProjectMember } from '../../../data/entities'
 import {
   assertProjectAccess,
+  isProjectAccessibleOnDate,
   isWithinAssignmentWindow,
   normalizeAssignmentGraceDays,
   resolveProjectAccess,
@@ -94,13 +95,17 @@ describe('resolveProjectAccess', () => {
       canManageAll: false,
       projectIds: ['project-1', 'project-2'],
       staffMemberId: 'member-1',
+      assignmentWindows: {
+        'project-1': [{ startIndex: null, endIndex: null }],
+        'project-2': [{ startIndex: null, endIndex: null }],
+      },
     })
   })
 
   it('returns no projects for a staff member with no membership', async () => {
     const em = createEm({ members: [staffMemberRow()], memberships: [] })
     const access = await resolveProjectAccess({ em, ...baseCtx, userFeatures: ['staff.timesheets.view'] })
-    expect(access).toEqual({ canManageAll: false, projectIds: [], staffMemberId: 'member-1' })
+    expect(access).toEqual({ canManageAll: false, projectIds: [], staffMemberId: 'member-1', assignmentWindows: {} })
   })
 
   it('ignores an inactive membership', async () => {
@@ -334,6 +339,70 @@ describe('resolveProjectAccess assignment window', () => {
       { graceDays: 14 },
     )
     expect(access.projectIds).toEqual(['project-1'])
+  })
+
+  describe('isProjectAccessibleOnDate (#6988)', () => {
+    it('accepts an entry dated inside the assignment and refuses one dated before it starts', async () => {
+      const access = await resolveWith([
+        assignedMembershipRow({ assignedStartDate: dayOffset(-30), assignedEndDate: null }),
+      ])
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(-30))).toBe(true)
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(-31))).toBe(false)
+    })
+
+    it('extends the entry-date bound by the grace days after the assignment ends', async () => {
+      const access = await resolveWith([assignedMembershipRow({ assignedEndDate: dayOffset(-1) })], {
+        graceDays: 14,
+      })
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(-1))).toBe(true)
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(13))).toBe(true)
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(14))).toBe(false)
+    })
+
+    it('reads a coerced entry date by its UTC calendar day', async () => {
+      const access = await resolveWith([
+        assignedMembershipRow({ assignedStartDate: dayOffset(0), assignedEndDate: null }),
+      ])
+      expect(isProjectAccessibleOnDate(access, 'project-1', new Date(`${isoDayOffset(0)}T00:00:00.000Z`))).toBe(true)
+      expect(isProjectAccessibleOnDate(access, 'project-1', new Date(`${isoDayOffset(-1)}T00:00:00.000Z`))).toBe(false)
+    })
+
+    it('accepts a date covered by any of several assignments to the same project', async () => {
+      const access = await resolveWith([
+        assignedMembershipRow({ assignedStartDate: dayOffset(-60), assignedEndDate: dayOffset(-40) }),
+        assignedMembershipRow({ id: 'assignment-2', assignedStartDate: dayOffset(-10), assignedEndDate: null }),
+      ], { graceDays: 0 })
+      expect(access.projectIds).toEqual(['project-1'])
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(-5))).toBe(true)
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(-50))).toBe(false)
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(-20))).toBe(false)
+    })
+
+    it('refuses a project that is not accessible today whatever the entry date', async () => {
+      const access = await resolveWith([assignedMembershipRow({ assignedEndDate: dayOffset(-15) })], {
+        graceDays: 14,
+      })
+      expect(isProjectAccessibleOnDate(access, 'project-1', isoDayOffset(-20))).toBe(false)
+    })
+
+    it('fails closed on an unparseable entry date', async () => {
+      const access = await resolveWith([assignedMembershipRow({ assignedEndDate: null })])
+      expect(isProjectAccessibleOnDate(access, 'project-1', 'not-a-date')).toBe(false)
+      expect(isProjectAccessibleOnDate(access, 'project-1', null)).toBe(false)
+    })
+
+    it('places no date bound on a manager or on a hand-built access without windows', () => {
+      expect(
+        isProjectAccessibleOnDate({ canManageAll: true, projectIds: [], staffMemberId: null }, 'project-9', '1999-01-01'),
+      ).toBe(true)
+      expect(
+        isProjectAccessibleOnDate(
+          { canManageAll: false, projectIds: ['project-1'], staffMemberId: 'member-1' },
+          'project-1',
+          '1999-01-01',
+        ),
+      ).toBe(true)
+    })
   })
 
   it('denies every membership when the injected clock is unusable', async () => {

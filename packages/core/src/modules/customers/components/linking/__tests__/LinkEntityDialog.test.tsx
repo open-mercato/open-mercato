@@ -66,6 +66,49 @@ describe('LinkEntityDialog', () => {
     ).toBeInTheDocument()
   })
 
+  // Regression guard for #7495: the dialog host is `p-0` + `overflow-hidden`, so the
+  // primitive's default bordered footer (`-mx-6`) would push the count and actions
+  // past the clipped edges. The footer must keep its own inset instead.
+  it('renders the footer without the primitive negative margins so its inset survives the p-0 host', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument())
+    const footer = screen.getByRole('button', { name: 'Cancel' }).closest('[data-slot="dialog-footer"]')
+    expect(footer).not.toBeNull()
+    const classes = (footer as HTMLElement).className.split(/\s+/)
+    expect(classes).toContain('px-6')
+    expect(classes).not.toContain('-mx-6')
+    expect(classes).not.toContain('border-input')
+    expect(footer).not.toHaveAttribute('data-bordered')
+    expect(classes).toContain('border-t')
+  })
+
+  // The panes only sit side by side from `lg`. A fixed height below that lets a full
+  // results page collapse the stacked right pane to its padding.
+  it('fixes the dialog height only for the side-by-side layout', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+    const classes = (await screen.findByRole('dialog')).className.split(/\s+/)
+    expect(classes).toContain('lg:h-160')
+    expect(classes).not.toContain('sm:h-160')
+  })
+
   it('toggles selection when a row is clicked and reports diff on save', async () => {
     const adapter = buildAdapter()
     const onConfirm = jest.fn(async () => undefined)
@@ -278,5 +321,164 @@ describe('LinkEntityDialog', () => {
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1))
     const call = onConfirm.mock.calls[0][0] as Parameters<typeof onConfirm>[0]
     expect(call.linkSettings).toEqual({ role: 'decision_maker', isPrimary: true })
+  })
+
+  it('restores the empty preview hint after a zero-to-one-to-zero selection', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
+    expect(
+      screen.getByText('Select an entry on the left to see details here.'),
+    ).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Acme Corp'))
+    })
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Select an entry on the left to see details here.'),
+      ).not.toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Acme Corp'))
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Select an entry on the left to see details here.'),
+      ).toBeInTheDocument(),
+    )
+  })
+
+  it('restores the empty preview hint when the last entry is deselected via keyboard', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
+    const row = getSearchResultRow('Acme Corp')
+
+    await act(async () => {
+      fireEvent.keyDown(row, { key: 'Enter' })
+    })
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Select an entry on the left to see details here.'),
+      ).not.toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      fireEvent.keyDown(row, { key: ' ' })
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Select an entry on the left to see details here.'),
+      ).toBeInTheDocument(),
+    )
+  })
+
+  it('moves focus to a remaining selection when the focused entry is deselected', async () => {
+    const adapter = buildAdapter({
+      renderPreview: (option) => <div data-testid="preview-card">{option.label}</div>,
+    })
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={['a', 'b']}
+        onConfirm={async () => undefined}
+      />,
+    )
+
+    await waitFor(() => expect(getSearchResultRow('Globex')).toBeInTheDocument())
+
+    const selectedGlobexButton = screen
+      .getAllByRole('button')
+      .find(
+        (button) =>
+          button.getAttribute('aria-pressed') === null && button.textContent?.includes('Globex'),
+      )!
+    await act(async () => {
+      fireEvent.click(selectedGlobexButton)
+    })
+    await waitFor(() => expect(screen.getByTestId('preview-card')).toHaveTextContent('Globex'))
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Globex'))
+    })
+
+    await waitFor(() => expect(screen.getByTestId('preview-card')).toHaveTextContent('Acme Corp'))
+  })
+
+  it('ignores a delayed fetchDetails response for an entry that is no longer focused', async () => {
+    let resolveDetails: ((value: { note: string }) => void) | null = null
+    const adapter = buildAdapter({
+      fetchDetails: jest.fn(
+        () =>
+          new Promise<{ note: string }>((resolve) => {
+            resolveDetails = resolve
+          }),
+      ),
+      renderPreview: (option, details) => (
+        <div data-testid="preview-card">
+          {option.label}
+          {details ? (
+            <span data-testid="preview-details">{(details as { note: string }).note}</span>
+          ) : null}
+        </div>
+      ),
+    })
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+
+    await waitFor(() => expect(getSearchResultRow('Acme Corp')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Acme Corp'))
+    })
+    await waitFor(() => expect(screen.getByTestId('preview-card')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(getSearchResultRow('Acme Corp'))
+    })
+    await waitFor(() =>
+      expect(
+        screen.getByText('Select an entry on the left to see details here.'),
+      ).toBeInTheDocument(),
+    )
+
+    await act(async () => {
+      resolveDetails?.({ note: 'late details' })
+    })
+
+    expect(screen.queryByTestId('preview-details')).not.toBeInTheDocument()
+    expect(screen.queryByText('late details')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Select an entry on the left to see details here.'),
+    ).toBeInTheDocument()
   })
 })

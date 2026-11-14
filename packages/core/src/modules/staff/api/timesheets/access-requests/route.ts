@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -74,7 +75,8 @@ async function resolveAccessRequestContext(req: Request): Promise<AccessRequestC
   if (!requesterUserId) {
     throw new CrudHttpError(401, { error: translate('staff.errors.unauthorized', 'Unauthorized') })
   }
-  if (!auth.orgId) {
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (!scope.tenantId || !scope.selectedId || scope.selectionRejected === true) {
     throw new CrudHttpError(400, {
       error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.'),
     })
@@ -82,8 +84,8 @@ async function resolveAccessRequestContext(req: Request): Promise<AccessRequestC
   return {
     container,
     em: (container.resolve('em') as EntityManager).fork(),
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    tenantId: scope.tenantId,
+    organizationId: scope.selectedId,
     requesterUserId,
     requesterEmail: typeof auth.email === 'string' && auth.email.trim().length > 0 ? auth.email : null,
     translate,
@@ -155,17 +157,14 @@ async function resolveRequesterName(context: AccessRequestContext): Promise<stri
 async function POST(req: Request) {
   try {
     const context = await resolveAccessRequestContext(req)
-    // The grant list the interceptors and the mutation-guard registry gate on
-    // comes from the module's single RBAC authority, so it is always an array:
-    // the nullable read it replaces could not say whether an empty answer meant
-    // "no grants" or "could not ask". Authorization itself stays with the
-    // declarative `requireFeatures` guard in `metadata`.
-    const grantedFeatures = (
-      await resolveFeatureAccess(context.container, context.requesterUserId, [VIEW_FEATURE], {
-        tenantId: context.tenantId,
-        organizationId: context.organizationId,
-      })
-    ).grantedFeatures
+    const featureAccess = await resolveFeatureAccess(context.container, context.requesterUserId, [VIEW_FEATURE], {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+    })
+    if (!featureAccess.allowed) {
+      throw new CrudHttpError(403, { error: context.translate('staff.errors.forbidden', 'Forbidden') })
+    }
+    const grantedFeatures = featureAccess.grantedFeatures
 
     const interceptors = await runTimesheetInterceptors({
       request: req,

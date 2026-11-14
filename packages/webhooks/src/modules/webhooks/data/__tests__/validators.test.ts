@@ -113,3 +113,104 @@ describe('webhookCreateSchema — reserved custom headers', () => {
     expect(webhookUpdateSchema.safeParse({ customHeaders: { 'x-api-key': 'value' } }).success).toBe(true)
   })
 })
+
+describe('webhookUpdateSchema — partial updates do not inject create defaults', () => {
+  it('parses {isActive:false} to exactly {isActive:false}', () => {
+    expect(webhookUpdateSchema.parse({ isActive: false })).toEqual({ isActive: false })
+  })
+
+  it('parses {maxRetries:4} without adding any other key', () => {
+    const parsed = webhookUpdateSchema.parse({ maxRetries: 4 })
+    expect(parsed).toEqual({ maxRetries: 4 })
+    expect(Object.keys(parsed)).toEqual(['maxRetries'])
+  })
+
+  it.each([
+    ['maxRetries', 31],
+    ['maxRetries', -1],
+    ['timeoutMs', 999],
+    ['timeoutMs', 60001],
+    ['rateLimitPerMinute', -1],
+    ['rateLimitPerMinute', 10001],
+    ['autoDisableThreshold', 1001],
+    ['autoDisableThreshold', -1],
+    ['httpMethod', 'GET'],
+    ['deliveryStrategy', 'smtp'],
+  ])('still rejects out-of-bounds %s = %p', (field, value) => {
+    expect(webhookUpdateSchema.safeParse({ [field]: value }).success).toBe(false)
+  })
+
+  it('still accepts in-bounds values for the defaulted fields', () => {
+    const input = {
+      httpMethod: 'PATCH',
+      deliveryStrategy: 'http',
+      maxRetries: 0,
+      timeoutMs: 60000,
+      rateLimitPerMinute: 10000,
+      autoDisableThreshold: 0,
+    }
+    expect(webhookUpdateSchema.parse(input)).toEqual(input)
+  })
+})
+
+describe('webhookCreateSchema — defaults', () => {
+  it('applies every create default when the fields are omitted', () => {
+    const parsed = webhookCreateSchema.parse(baseInput())
+    expect(parsed).toMatchObject({
+      httpMethod: 'POST',
+      deliveryStrategy: 'http',
+      maxRetries: 10,
+      timeoutMs: 15000,
+      rateLimitPerMinute: 0,
+      autoDisableThreshold: 100,
+    })
+  })
+
+  it('keeps explicit values over the defaults', () => {
+    const parsed = webhookCreateSchema.parse(baseInput({
+      httpMethod: 'PUT',
+      maxRetries: 3,
+      timeoutMs: 5000,
+      rateLimitPerMinute: 7,
+      autoDisableThreshold: 5,
+    }))
+    expect(parsed).toMatchObject({
+      httpMethod: 'PUT',
+      maxRetries: 3,
+      timeoutMs: 5000,
+      rateLimitPerMinute: 7,
+      autoDisableThreshold: 5,
+    })
+  })
+
+  it('still rejects out-of-bounds defaulted fields on create', () => {
+    expect(webhookCreateSchema.safeParse(baseInput({ maxRetries: 31 })).success).toBe(false)
+    expect(webhookCreateSchema.safeParse(baseInput({ timeoutMs: 999 })).success).toBe(false)
+    expect(webhookCreateSchema.safeParse(baseInput({ httpMethod: 'GET' })).success).toBe(false)
+  })
+})
+
+describe('webhookUpdateSchema — id field (#7504)', () => {
+  const WEBHOOK_ID = '123e4567-e89b-12d3-a456-426614174099'
+
+  it('retains a valid id instead of stripping it', () => {
+    const result = webhookUpdateSchema.safeParse({ id: WEBHOOK_ID, name: 'Renamed' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.id).toBe(WEBHOOK_ID)
+    }
+  })
+
+  it('parses successfully when id is omitted, matching the PUT /:id route body shape', () => {
+    const result = webhookUpdateSchema.safeParse({ name: 'Renamed' })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.id).toBeUndefined()
+    }
+  })
+
+  it('rejects a non-uuid id', () => {
+    const result = webhookUpdateSchema.safeParse({ id: 'not-a-uuid', name: 'Renamed' })
+    expect(result.success).toBe(false)
+  })
+})
