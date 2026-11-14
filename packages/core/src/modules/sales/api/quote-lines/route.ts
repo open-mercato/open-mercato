@@ -1,5 +1,5 @@
 import { SalesQuoteLine } from "../../data/entities";
-import { quoteLineCreateSchema } from "../../data/validators";
+import { quoteLineCreateSchema, quoteLineUpdateSchema } from "../../data/validators";
 import { E } from "#generated/entities.ids.generated";
 import * as F from "#generated/entities/sales_quote_line";
 import { makeSalesLineRoute } from "../../lib/makeSalesLineRoute";
@@ -11,6 +11,7 @@ const route = makeSalesLineRoute({
   parentFkColumn: "quote_id",
   parentFkParam: "quoteId",
   createSchema: quoteLineCreateSchema,
+  updateSchema: quoteLineUpdateSchema,
   features: { view: "sales.quotes.view", manage: "sales.quotes.manage" },
   commandPrefix: "sales.quotes.lines",
   openApi: {
