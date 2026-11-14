@@ -219,7 +219,14 @@ export async function sendApprovalRequestedBuyerEmails(
     ),
   }
 
-  await Promise.all(
+  // #8268 review Major 3: `Promise.all` is fail-fast — if recipient A's send rejects
+  // while recipient B's is still in flight, `Promise.all` rejects immediately and this
+  // function returns without ever awaiting B. B has no delivery row until its own send
+  // and ledger write finish, so the queue's redelivery (which races in ~1s later) can
+  // still be mid-flight for B and send it a second e-mail. `Promise.allSettled` lets
+  // every recipient's attempt finish before this batch decides what, if anything, to
+  // retry — only the recipients that are genuinely still missing a delivery row.
+  const outcomes = await Promise.allSettled(
     pending.map((candidate) =>
       deliverApprovalEmail(em, deliveryScope, 'requested', candidate.id, {
         to: candidate.email,
@@ -228,10 +235,18 @@ export async function sendApprovalRequestedBuyerEmails(
       }),
     ),
   )
+  const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
 
   const remaining = await loadDeliveredRecipientKeys(em, input.tenantId, input.approvalId, 'requested')
   if (eligible.every((candidate) => remaining.has(candidate.id))) {
     await markEmailBatchComplete(em, deliveryScope, 'requested')
+  }
+
+  if (failures.length) {
+    throw new AggregateError(
+      failures.map((failure) => failure.reason),
+      '[internal] customer_groups approval-requested buyer e-mail recipient(s) failed',
+    )
   }
 }
 

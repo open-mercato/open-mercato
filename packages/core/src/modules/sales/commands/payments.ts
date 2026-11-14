@@ -455,9 +455,27 @@ async function restorePaymentWithOrderProjections(
 
 const createPaymentCommand: CommandHandler<
   PaymentCreateInput,
-  { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number }; orderPaymentMethodIdBefore?: string | null; orderPaymentMethodCodeBefore?: string | null; reused?: boolean }
+  { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number }; orderPaymentMethodIdBefore?: string | null; orderPaymentMethodCodeBefore?: string | null; reused?: boolean; reconciled?: boolean }
 > = {
   id: 'sales.payments.create',
+  async prepare(rawInput, ctx) {
+    const parsed = paymentCreateSchema.parse(rawInput ?? {})
+    if (!parsed.orderId || !parsed.paymentReference) return {}
+    const em = ctx.container.resolve('em') as EntityManager
+    const scope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+    const existing = await findOneWithDecryption(
+      em,
+      SalesPayment,
+      { organizationId: parsed.organizationId, tenantId: parsed.tenantId, order: parsed.orderId, paymentReference: parsed.paymentReference, deletedAt: null },
+      {},
+      scope,
+    )
+    if (!existing) return {}
+    ensureTenantScope(ctx, existing.tenantId)
+    ensureOrganizationScope(ctx, existing.organizationId)
+    const snapshot = await loadPaymentSnapshot(em, existing.id, scope)
+    return snapshot ? { before: snapshot } : {}
+  },
   async execute(rawInput, ctx) {
     const input = paymentCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
@@ -470,7 +488,7 @@ const createPaymentCommand: CommandHandler<
 
     const scope: PaymentScope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const allocationInputs = Array.isArray(input.allocations) ? input.allocations : []
-    const { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused } = await em.transactional(async (tx) => {
+    const { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused, reconciled } = await em.transactional(async (tx) => {
       const order = assertFound(
         await findOneWithDecryption(tx, SalesOrder, { id: input.orderId }, {}, scope),
         'sales.payments.order_not_found'
@@ -484,6 +502,23 @@ const createPaymentCommand: CommandHandler<
       )
       if (order.deletedAt) {
         throw notFound('sales.payments.order_not_found')
+      }
+      // #8268 review Major 1: both guards below must run before reconciling an
+      // existing payment too — this command is reachable from ordinary
+      // `POST /api/sales/payments`, not only trusted checkout repair, so a stale
+      // parent version or a mismatched input currency must 409 before any mutation,
+      // reconciliation included.
+      // Guard the parent order's aggregate version (Gap A): a payment mutation
+      // recalculates the order totals, so a stale parent must 409 before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      if (
+        order.currencyCode &&
+        input.currencyCode &&
+        order.currencyCode.toUpperCase() !== input.currencyCode.toUpperCase()
+      ) {
+        throw new CrudHttpError(400, {
+          error: translate('sales.payments.currency_mismatch', 'Payment currency must match the order currency.'),
+        })
       }
       // #8268 review Critical 2: the order row is now locked FOR UPDATE above, so a
       // fresh re-check for the SAME (order, paymentReference) pair closes the race
@@ -514,7 +549,12 @@ const createPaymentCommand: CommandHandler<
           // already-captured row back toward a smaller/older request.
           const requestedCaptured = Number(toNumericString(input.capturedAmount) ?? '0')
           const existingCaptured = Number(existingPayment.capturedAmount ?? '0')
-          if (requestedCaptured > existingCaptured) {
+          // #8268 review Major 2: a reconciled update (captured amount actually moved
+          // forward) is tracked separately from an unchanged replay of the same
+          // reference. Only the former is a real mutation that needs its own CRUD
+          // update effects/audit trail; the latter stays the silent no-op it always was.
+          const reconciled = requestedCaptured > existingCaptured
+          if (reconciled) {
             existingPayment.capturedAmount = toNumericString(input.capturedAmount) ?? existingPayment.capturedAmount
             existingPayment.capturedAt = input.capturedAt ?? new Date()
             if (input.statusEntryId) {
@@ -533,19 +573,14 @@ const createPaymentCommand: CommandHandler<
             orderPaymentMethodIdBefore: order.paymentMethodId ?? null,
             orderPaymentMethodCodeBefore: order.paymentMethodCode ?? null,
             // #8268 review Critical/Blocker 1: signals `buildLog` (below) to skip the
-            // audit/undo entry and the caller (below the transaction) to skip the
-            // "created" side effects/notification — this request did not create
-            // anything, and building a "Create payment" undo for a pre-existing row
-            // would let undo delete that row and the allocations/order totals it
-            // already represents, which is a destructive regression for an ordinary
-            // repeated payment reference.
+            // destructive "Create payment" undo — this request did not create
+            // anything, and that undo would delete this pre-existing row (and the
+            // allocations/order totals it already represents).
             reused: true,
+            reconciled,
           }
         }
       }
-      // Guard the parent order's aggregate version (Gap A): a payment mutation
-      // recalculates the order totals, so a stale parent must 409 before we touch it.
-      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {
@@ -558,15 +593,6 @@ const createPaymentCommand: CommandHandler<
             },
           })
         }
-      }
-      if (
-        order.currencyCode &&
-        input.currencyCode &&
-        order.currencyCode.toUpperCase() !== input.currencyCode.toUpperCase()
-      ) {
-        throw new CrudHttpError(400, {
-          error: translate('sales.payments.currency_mismatch', 'Payment currency must match the order currency.'),
-        })
       }
       let paymentMethod = null
       if (input.paymentMethodId) {
@@ -707,18 +733,18 @@ const createPaymentCommand: CommandHandler<
       }
       const orderTotals = await recomputeLockedOrders(tx, lockedOrders)
       const totals = orderTotals.get(order.id)
-      return { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused: false }
+      return { payment, order, totals, lockedOrders, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused: false, reconciled: false }
     })
 
     await invalidateOrderCaches(ctx.container, lockedOrders.values(), ctx.auth?.tenantId ?? null)
 
-    // #8268 review Blocker 1: a reused row (same `paymentReference`, found under the
-    // order lock above) did not just get created — emitting `created` side effects and
-    // the "payment received" notification for it would be a duplicate audit/notification
-    // event for an ordinary repeated payment reference, on top of the destructive undo
-    // `buildLog` below already guards against.
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     if (!reused) {
-      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      // #8268 review Blocker 1: a reused row (same `paymentReference`, found under the
+      // order lock above) did not just get created — emitting `created` side effects and
+      // the "payment received" notification for it would be a duplicate audit/notification
+      // event for an ordinary repeated payment reference, on top of the destructive undo
+      // `buildLog` below already guards against.
       await emitCrudSideEffects({
         dataEngine,
         action: 'created',
@@ -764,9 +790,27 @@ const createPaymentCommand: CommandHandler<
         // Notification creation is non-critical, don't fail the command
         logger.error('sales.payments.create Failed to create notification', { err })
       }
+    } else if (reconciled) {
+      // #8268 review Major 2: the reused row's captured amount/status actually moved
+      // forward under this request — that is a real mutation of the row, distinct from
+      // an unchanged replay, so it gets its own `updated` CRUD effects (payment-index
+      // refresh included) the same way `sales.payments.update` does, just never the
+      // `created` effects/notification a brand-new row gets above.
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: payment,
+        identifiers: {
+          id: payment.id,
+          organizationId: payment.organizationId,
+          tenantId: payment.tenantId,
+        },
+        indexer: { entityType: E.sales.sales_payment },
+        events: paymentCrudEvents,
+      })
     }
 
-    return { paymentId: payment.id, orderTotals: totals, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused }
+    return { paymentId: payment.id, orderTotals: totals, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore, reused, reconciled }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -774,14 +818,31 @@ const createPaymentCommand: CommandHandler<
     return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId, scope) : null
   },
   buildLog: async ({ result, snapshots }) => {
-    // #8268 review Blocker 1: a reused row must never build an undo — the command bus
-    // would mint it normally, and undo would delete that pre-existing payment (and its
-    // allocations), silently changing order totals for an ordinary repeated payment
-    // reference. Mirrors `messages.ts`'s own `deduplicated` -> `{ skipLog: true }` pattern.
-    if (result.reused) return { skipLog: true }
+    // #8268 review Blocker 1 / Major 2: an unchanged replay must never build an undo —
+    // the command bus would mint it normally, and undo would delete that pre-existing
+    // payment (and its allocations), silently changing order totals for an ordinary
+    // repeated payment reference. Mirrors `messages.ts`'s own `deduplicated` -> `{ skipLog: true }`.
+    // A *reconciled* reuse did mutate the row, so it still gets a non-destructive,
+    // update-style log entry below instead of being skipped.
+    if (result.reused && !result.reconciled) return { skipLog: true }
     const after = snapshots.after as PaymentSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
+    if (result.reused && result.reconciled) {
+      const before = snapshots.before as PaymentSnapshot | undefined
+      return {
+        actionLabel: translate('sales.audit.payments.update', 'Update payment'),
+        resourceKind: 'sales.payment',
+        resourceId: result.paymentId,
+        parentResourceKind: 'sales.order',
+        parentResourceId: after.orderId ?? before?.orderId ?? null,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        snapshotBefore: before ?? null,
+        snapshotAfter: after,
+        payload: { undo: { before, after } satisfies PaymentUndoPayload },
+      }
+    }
     return {
       actionLabel: translate('sales.audit.payments.create', 'Create payment'),
       resourceKind: 'sales.payment',
@@ -796,6 +857,18 @@ const createPaymentCommand: CommandHandler<
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<PaymentUndoPayload>(logEntry)
+    if (payload?.before) {
+      // #8268 review Major 2: a reconciled-reuse log carries both snapshots like a
+      // normal update does — revert the row's scalar fields non-destructively, the
+      // same way `sales.payments.update`'s own undo does, instead of deleting it (it
+      // pre-existed this command and this command never created it).
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const { lockedOrders } = await restorePaymentWithOrderProjections(em, payload.before, {
+        orderIds: [snapshotOrderIds(payload?.after)],
+      })
+      await invalidateOrderCaches(ctx.container, lockedOrders.values(), ctx.auth?.tenantId ?? null)
+      return
+    }
     const after = payload?.after
     if (!after) return
     const scope: PaymentScope = { tenantId: after.tenantId, organizationId: after.organizationId }

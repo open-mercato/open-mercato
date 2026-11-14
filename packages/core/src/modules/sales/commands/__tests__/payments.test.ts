@@ -1,10 +1,22 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandLogBuilderArgs, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveDictionaryEntryValue } from '../../lib/dictionaries'
 import { resolveNotificationService } from '../../../notifications/lib/notificationService'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+
+// #8268 review Minor/Medium: the shape `createPaymentCommand.execute` resolves to at
+// runtime, typed once so the reconciliation tests below read `result.paymentId`/
+// `.reused` directly instead of `(result as any)?.paymentId`.
+type CreatePaymentTestResult = {
+  paymentId: string
+  reused?: boolean
+  reconciled?: boolean
+  orderPaymentMethodIdBefore?: string | null
+  orderPaymentMethodCodeBefore?: string | null
+}
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -190,10 +202,10 @@ describe('createPaymentCommand buildLog — orderPaymentMethodIdBefore in undo p
     expect(buildLog).toBeInstanceOf(Function)
 
     const after = buildPaymentSnapshot()
-    const log = (await buildLog?.({
+    const log = await buildLog?.({
       result: { paymentId: 'payment-1', reused: true, orderPaymentMethodIdBefore: null, orderPaymentMethodCodeBefore: null },
       snapshots: { after },
-    } as any)) as any
+    } as unknown as CommandLogBuilderArgs<unknown, CreatePaymentTestResult>)
 
     expect(log).toEqual({ skipLog: true })
   })
@@ -791,7 +803,7 @@ describe('createPaymentCommand.execute — idempotent paymentReference re-check 
   // already carries the real captured amount. Must reconcile monotonically instead of
   // returning the stale row unchanged.
   it('reconciles a stale uncaptured reused row onto a newer captured request (Major 3)', async () => {
-    const execute = commandRegistry.get('sales.payments.create')?.execute
+    const execute = commandRegistry.get<Record<string, unknown>, CreatePaymentTestResult>('sales.payments.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
     const CAPTURED_STATUS_ENTRY_ID = 'ffffffff-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -832,11 +844,11 @@ describe('createPaymentCommand.execute — idempotent paymentReference re-check 
         statusEntryId: CAPTURED_STATUS_ENTRY_ID,
         paymentReference: GATEWAY_REFERENCE,
       },
-      ctx as any,
+      ctx as unknown as CommandRuntimeContext,
     )
 
-    expect((result as any)?.paymentId).toBe(EXISTING_PAYMENT_ID)
-    expect((result as any)?.reused).toBe(true)
+    expect(result?.paymentId).toBe(EXISTING_PAYMENT_ID)
+    expect(result?.reused).toBe(true)
     // Reconciled in place, under the same order lock — never left permanently uncaptured.
     expect(existingPayment.capturedAmount).toBe('100')
     expect(existingPayment.statusEntryId).toBe(CAPTURED_STATUS_ENTRY_ID)
@@ -845,7 +857,7 @@ describe('createPaymentCommand.execute — idempotent paymentReference re-check 
   })
 
   it('never reconciles backwards when the reused row is already captured for at least as much as requested', async () => {
-    const execute = commandRegistry.get('sales.payments.create')?.execute
+    const execute = commandRegistry.get<Record<string, unknown>, CreatePaymentTestResult>('sales.payments.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
     const existingPayment = {
@@ -885,7 +897,7 @@ describe('createPaymentCommand.execute — idempotent paymentReference re-check 
         capturedAmount: 0,
         paymentReference: GATEWAY_REFERENCE,
       },
-      ctx as any,
+      ctx as unknown as CommandRuntimeContext,
     )
 
     expect(existingPayment.capturedAmount).toBe('100')

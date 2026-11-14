@@ -210,7 +210,22 @@ describe('sendApprovalRequestedBuyerEmails', () => {
       customerRbacService: { userHasAllFeatures },
     })
 
-    await expect(sendApprovalRequestedBuyerEmails(em, container, baseInput)).rejects.toThrow('transport failure')
+    // #8268 review Major 3 (follow-up): `sendApprovalRequestedBuyerEmails` now awaits every
+    // recipient's attempt with `Promise.allSettled` before deciding anything, then throws
+    // the collected failures as one `AggregateError` — never the bare first-rejection message
+    // `Promise.all` used to surface, which is what let this test pass even before the
+    // underlying fail-fast bug was fixed (every mock here resolves/throws synchronously, so
+    // `Promise.all`'s early rejection never actually raced the sibling's in-flight work).
+    let caught: unknown
+    try {
+      await sendApprovalRequestedBuyerEmails(em, container, baseInput)
+      throw new Error('[internal] expected sendApprovalRequestedBuyerEmails to reject')
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(AggregateError)
+    expect((caught as AggregateError).errors).toHaveLength(1)
+    expect((caught as AggregateError).errors[0]).toMatchObject({ message: 'transport failure' })
 
     expect(sendEmailMock).toHaveBeenCalledTimes(2)
     // decider-1's delivery survived decider-2's failure.

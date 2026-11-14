@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AssistedSellingThread } from '../data/entities'
 
 const logger = createLogger('assisted_selling')
@@ -64,13 +65,23 @@ export async function handleCartAdoptedForAssistedSellingIdentity(
     const em = container.resolve<EntityManager>('em').fork()
     // Scoped the same way `migrateOrCloseThreadOnMerge` scopes its own source-thread
     // lookup — the adopted cart's own open, non-deleted thread, never a closed/historical one.
-    const thread = await em.findOne(AssistedSellingThread, {
-      tenantId,
-      organizationId,
-      buyerCartId: cartId,
-      status: 'open',
-      deletedAt: null,
-    })
+    // #8268 review Major 5: reads must go through `findOneWithDecryption` (never raw
+    // `em.findOne`), per `packages/core/AGENTS.md` § Encryption and this module's own
+    // `encryption.ts` header note — not because Thread's current map exposes PII here, but
+    // because the wrapper is the one place that contract is enforced for every future field.
+    const thread = await findOneWithDecryption(
+      em,
+      AssistedSellingThread,
+      {
+        tenantId,
+        organizationId,
+        buyerCartId: cartId,
+        status: 'open',
+        deletedAt: null,
+      },
+      {},
+      { tenantId, organizationId },
+    )
     if (!thread) return
 
     await withAtomicFlush(

@@ -338,6 +338,38 @@ describe('assisted_selling.proposal.author', () => {
       ),
     ).rejects.toMatchObject({ status: 403 })
   })
+
+  // #8268 review Major 4: proves the production consumer side of the cart-adoption identity
+  // migration (`lib/cartAdoptedIdentityMigration.ts`) — once a thread carries a buyer's
+  // `customerId`/`customerUserId` (exactly what that subscriber writes after a login merge
+  // adopts the thread's own cart), the ORDINARY author path (no `targetBuyerIdentity`
+  // override, unlike the merge-retarget path covered below) must resolve THAT buyer's
+  // assortment/pricing scope, not a guest one.
+  test('resolves the assortment scope for the thread\'s adopted buyer identity, not a guest, when authoring a new proposal', async () => {
+    const adoptedCustomerId = 'customer-adopted-0001'
+    const adoptedCustomerUserId = 'customer-user-adopted-0001'
+    const thread = makeOpenThread({ customerId: adoptedCustomerId, customerUserId: adoptedCustomerUserId })
+    const { em } = makeFakeEm({ threads: [thread] })
+    const rbac = makeRbac(['assisted_selling.proposals.author', 'cart.proposals.author'])
+    const commandBus = makeCommandBus()
+    const storeContextService = makeStoreContextService()
+    const ctx = makeCtx({ em, rbac, commandBus, storeContextService, organizationIds: [ORG_ID] })
+
+    await authorProposalCommand.execute(
+      {
+        tenantId: TENANT_ID,
+        organizationIds: [ORG_ID],
+        threadId: THREAD_ID,
+        lines: [{ productId: 'prod-1', quantity: '1' }],
+        idempotencyKey: 'idem-key-adopted-buyer',
+      },
+      ctx,
+    )
+
+    expect(storeContextService.resolveForBuyer).toHaveBeenCalledWith(
+      expect.objectContaining({ customerId: adoptedCustomerId, customerUserId: adoptedCustomerUserId }),
+    )
+  })
 })
 
 describe('assisted_selling.proposal.withdraw', () => {
