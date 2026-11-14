@@ -42,14 +42,21 @@ Non-goals: unrelated cleanup, public contract removals, production changes, migr
 
 Configured gate: `yarn build:packages`, `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, `yarn build:app`. Choose and record the local/Docker runner before execution. PR CI must additionally run all 15 shards and every applicable reported check. Existing full-suite regression tests exercise the workflow override. Independent review uses GitHub checks first per repo policy.
 
+## Evidence
+
+- Read-only audit task: `aed722e9-eb86-46f0-9cf8-2df9ff1ad3b1`. No child edits will be merged. Final review is reserved as the second and last subtask.
+- Runner: local. No compose development override files or running app container were found; the standard development compose file fails interpolation without local secrets. Immutable installation completed with optional native-binding warnings.
+
 ## Progress
+
+PR: #9512
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Evidence and visibility
 
-- [ ] 1.1 Commit this plan and open the draft stabilization PR
-- [ ] 1.2 Dispatch one independent read-only investigation of current main failures and existing full-suite safeguards
+- [x] 1.1 Commit this plan and open the draft stabilization PR — 81b76c2bd4
+- [x] 1.2 Dispatch one independent read-only investigation of current main failures and existing full-suite safeguards — 81b76c2bd4
 
 ### Phase 2: Fix and verify
 
