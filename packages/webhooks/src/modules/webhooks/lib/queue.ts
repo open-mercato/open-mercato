@@ -66,6 +66,10 @@ export async function enqueueWebhookDelivery(job: WebhookDeliveryJob, delayMs?: 
   return jobId
 }
 
+export async function enqueueWebhookDeliveryFromJob(job: WebhookDeliveryJob, delayMs: number): Promise<string> {
+  return getWebhookQueue().enqueue(job, delayMs > 0 ? { delayMs } : undefined)
+}
+
 export function getInboundDispatchQueue(
   queueName: string = WEBHOOK_INBOUND_DISPATCH_QUEUE,
 ): Queue<InboundDispatchJob> {

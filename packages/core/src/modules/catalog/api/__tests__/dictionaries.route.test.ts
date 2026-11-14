@@ -4,15 +4,20 @@ const mockEm = {
   find: jest.fn(),
 }
 
-const mockContainer = { resolve: jest.fn() }
+const mockCanViewDictionaries = jest.fn()
+const mockContainer = { resolve: jest.fn(() => ({ userHasAllFeatures: mockCanViewDictionaries })) }
+const mockContext = {
+  container: mockContainer,
+  em: mockEm,
+  organizationId: 'org-1',
+  tenantId: 'tenant-1',
+  readableOrganizationIds: ['org-1', 'org-parent'],
+  auth: { sub: 'user-1' },
+  translate: (key: string) => key,
+}
 
 jest.mock('@open-mercato/core/modules/dictionaries/api/context', () => ({
-  resolveDictionariesRouteContext: jest.fn(async () => ({
-    container: mockContainer,
-    em: mockEm,
-    organizationId: 'org-1',
-    tenantId: 'tenant-1',
-  })),
+  resolveDictionariesRouteContext: jest.fn(async () => mockContext),
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/data/entities', () => ({
@@ -140,5 +145,116 @@ describe('catalog dictionary lookup — entry translations (#6951)', () => {
       { value: 'box', label: 'Box (piece)' },
       { value: 'kg', label: 'Kilogram (weight)' },
     ])
+  })
+})
+
+
+describe('catalog dictionary authorization and organization scope (#9157)', () => {
+  const storedDictionaries = [
+    { id: 'outside', key: 'unit', organizationId: 'org-outside', tenantId: 'tenant-1', deletedAt: null, isActive: true },
+    { id: 'parent', key: 'unit', organizationId: 'org-parent', tenantId: 'tenant-1', deletedAt: null, isActive: true },
+    { id: 'own', key: 'unit', organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null, isActive: true },
+    { id: 'other-tenant', key: 'unit', organizationId: 'org-1', tenantId: 'tenant-other', deletedAt: null, isActive: true },
+    { id: 'custom', key: 'private-status', organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null, isActive: true },
+  ]
+  let availableDictionaries = storedDictionaries
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockContext.readableOrganizationIds = ['org-1', 'org-parent']
+    mockCanViewDictionaries.mockResolvedValue(false)
+    availableDictionaries = storedDictionaries
+    registerTranslationOverlayPlugin(null, null)
+    mockEm.find.mockImplementation(async (entity: unknown, where: {
+      tenantId: string
+      organizationId?: { $in: string[] } | string
+      key?: { $in: string[] }
+      dictionary?: { id: string }
+      deletedAt?: null
+      isActive?: boolean
+    }) => {
+      if (entity !== Dictionary) return [{ ...entries[0], id: `${where.dictionary?.id}-entry` }]
+      return availableDictionaries.filter((item) =>
+        item.tenantId === where.tenantId
+        && where.key?.$in.includes(item.key)
+        && (typeof where.organizationId !== 'object' || where.organizationId.$in.includes(item.organizationId))
+        && item.deletedAt === where.deletedAt
+        && item.isActive === where.isActive,
+      )
+    })
+  })
+
+  it('does not expose a dictionary that exists only in another organization', async () => {
+    availableDictionaries = storedDictionaries.filter((item) => item.id === 'outside')
+
+    const response = await GET(request(), { params: { key: 'unit' } })
+
+    expect(response.status).toBe(404)
+    expect(mockEm.find).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails closed when no organizations are readable', async () => {
+    mockContext.readableOrganizationIds = []
+
+    const response = await GET(request(), { params: { key: 'unit' } })
+
+    expect(response.status).toBe(404)
+  })
+
+  it('prefers the selected organization and keeps tenant, active and deletion filters', async () => {
+    const response = await GET(request(), { params: { key: ' UNIT ' } })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ id: 'own', entries: [{ id: 'own-entry' }] })
+    expect(mockEm.find).toHaveBeenNthCalledWith(1, Dictionary, {
+      tenantId: 'tenant-1',
+      organizationId: { $in: ['org-1', 'org-parent'] },
+      key: { $in: ['unit', 'units', 'measurement_units'] },
+      deletedAt: null,
+      isActive: true,
+    }, expect.any(Object))
+    expect(mockCanViewDictionaries).not.toHaveBeenCalled()
+  })
+
+  it('falls back only to a readable inherited dictionary', async () => {
+    availableDictionaries = storedDictionaries.filter((item) => item.id !== 'own')
+
+    const response = await GET(request(), { params: { key: 'unit' } })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ id: 'parent', entries: [{ id: 'parent-entry' }] })
+  })
+
+  it.each(['currency', 'currencies', 'unit', 'units', 'measurement_units'])(
+    'keeps catalog-owned key %s available without dictionaries.view', async (key) => {
+      await GET(request(), { params: { key } })
+
+      expect(mockCanViewDictionaries).not.toHaveBeenCalled()
+      expect(mockEm.find).toHaveBeenCalled()
+    },
+  )
+
+  it.each(['private-status', 'constructor', '__proto__', 'tostring'])(
+    'requires dictionaries.view before reading non-catalog key %s', async (key) => {
+      const response = await GET(request(), { params: { key } })
+
+      expect(response.status).toBe(403)
+      expect(mockCanViewDictionaries).toHaveBeenCalledWith('user-1', ['dictionaries.view'], {
+        tenantId: 'tenant-1', organizationId: 'org-1',
+      })
+      expect(mockEm.find).not.toHaveBeenCalled()
+    },
+  )
+
+  it('preserves arbitrary-key reads when the scoped RBAC service authorizes them', async () => {
+    mockCanViewDictionaries.mockResolvedValue(true)
+
+    const response = await GET(request(), { params: { key: 'private-status' } })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ id: 'custom' })
+    expect(mockCanViewDictionaries).toHaveBeenCalledWith('user-1', ['dictionaries.view'], {
+      tenantId: 'tenant-1', organizationId: 'org-1',
+    })
   })
 })

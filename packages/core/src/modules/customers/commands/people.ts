@@ -54,6 +54,7 @@ import {
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
+  shouldBumpOptimisticLockVersion,
   ensureDictionaryEntry,
   invalidateDictionaryKindCaches,
   emitQueryIndexDeleteEvents,
@@ -84,8 +85,11 @@ type PersonAddressSnapshot = {
   id: string
   name: string | null
   purpose: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -344,8 +348,11 @@ function serializePersonSnapshot(
       id: address.id,
       name: address.name ?? null,
       purpose: address.purpose ?? null,
+      companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,
@@ -1039,7 +1046,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
           parsed.twitterUrl, parsed.companyEntityId,
         ].some((v) => v !== undefined)
-        if (profileFieldsUpdated) {
+        if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
         }
 
@@ -1684,8 +1691,11 @@ const deletePersonCommand: CommandHandler<
           entity,
           name: address.name,
           purpose: address.purpose,
+          companyName: address.companyName ?? null,
           addressLine1: address.addressLine1,
           addressLine2: address.addressLine2,
+          buildingNumber: address.buildingNumber ?? null,
+          flatNumber: address.flatNumber ?? null,
           city: address.city,
           region: address.region,
           postalCode: address.postalCode,

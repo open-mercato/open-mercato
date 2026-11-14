@@ -240,7 +240,7 @@
   "business_rules.rules.form.placeholders.entityType": "입력을 시작하면 제안이 표시됩니다",
   "business_rules.rules.form.placeholders.eventType": "입력을 시작하면 제안이 표시됩니다",
   "business_rules.rules.form.placeholders.ruleCategory": "예: 가격 책정, 워크플로, 데이터 품질",
-  "business_rules.rules.form.placeholders.ruleId": "AUTO_GENERATED_ID",
+  "business_rules.rules.form.placeholders.ruleId": "ORDER_APPROVAL_CHECK",
   "business_rules.rules.form.placeholders.ruleName": "설명적인 규칙 이름을 입력하세요",
   "business_rules.rules.form.priority": "우선순위",
   "business_rules.rules.form.ruleCategory": "카테고리",

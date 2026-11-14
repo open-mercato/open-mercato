@@ -76,7 +76,7 @@ import { UserCircle2 } from 'lucide-react'
 import { ReassignOwnerDialog } from './components/ReassignOwnerDialog'
 import type { BulkActionExecuteResult } from '@open-mercato/ui/backend/DataTable'
 import { requestBulkOwnerReassignment, buildReassignOwnerSuccess } from '../../../lib/reassignDealOwner'
-import { buildDealDuplicatePayload } from '../../../lib/duplicateDeal'
+import { buildDealDuplicatePayload, formatDealDuplicateTitle } from '../../../lib/duplicateDeal'
 
 const logger = createLogger('customers')
 
@@ -219,6 +219,9 @@ export default function CustomersDealsPage() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
+  const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs([E.customers.customer_deal], {
+    keyExtras: [scopeVersion],
+  })
   const queryClient = useQueryClient()
 
   const [rows, setRows] = React.useState<DealRow[]>([])
@@ -466,8 +469,9 @@ export default function CustomersDealsPage() {
       invalidateCustomerDictionary(queryClient, 'deal-statuses'),
       invalidateCustomerDictionary(queryClient, 'pipeline-stages'),
     ])
+    void refetchCustomFieldDefs()
     setReloadToken((token) => token + 1)
-  }, [queryClient])
+  }, [queryClient, refetchCustomFieldDefs])
 
   const bulkMutationContextId = 'customers-deals-list:bulk-delete'
   const { runMutation: runBulkMutation, retryLastMutation: retryBulkMutation } = useGuardedMutation<{
@@ -559,7 +563,9 @@ export default function CustomersDealsPage() {
       if (pendingDuplicateId) return
       const payload = buildDealDuplicatePayload(
         row,
-        t('customers.deals.list.duplicateTitle', '{title} (copy)', { title: row.title }),
+        formatDealDuplicateTitle(row.title, (title) =>
+          t('customers.deals.list.duplicateTitle', '{title} (copy)', { title }),
+        ),
       )
       setPendingDuplicateId(row.id)
       try {
@@ -777,9 +783,6 @@ export default function CustomersDealsPage() {
     return succeeded.length > 0
   }, [bulkMutationContextId, confirm, retryBulkMutation, runBulkMutation, t])
 
-  const { data: customFieldDefs = [] } = useCustomFieldDefs([E.customers.customer_deal], {
-    keyExtras: [scopeVersion, reloadToken],
-  })
   const currentUserId = useCurrentUserId()
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
@@ -1333,7 +1336,7 @@ export default function CustomersDealsPage() {
             onPageSizeChange: handlePageSizeChange,
             cacheStatus,
           }}
-          isLoading={isLoading}
+          isLoading={isLoading || customFieldDefsLoading}
           refreshButton={{
             label: t('customers.deals.list.refresh'),
             onRefresh: handleRefresh,

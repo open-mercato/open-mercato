@@ -46,16 +46,22 @@ describe('Cache Service', () => {
     })
 
     it('should respect defaultTtl option', async () => {
+      const initialTime = 1_000_000
+      const now = jest.spyOn(Date, 'now').mockReturnValue(initialTime)
       const cache = createCacheService({ 
         strategy: 'memory',
         defaultTtl: 100
       })
-      
-      await cache.set('test', 'value') // Should use default TTL
-      expect(await cache.get('test')).toBe('value')
-      
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      expect(await cache.get('test')).toBeNull()
+
+      try {
+        await cache.set('test', 'value') // Should use default TTL
+        expect(await cache.get('test')).toBe('value')
+
+        now.mockReturnValue(initialTime + 101)
+        expect(await cache.get('test')).toBeNull()
+      } finally {
+        now.mockRestore()
+      }
     })
 
     it('should keep file-backed cache defaults under .mercato', async () => {

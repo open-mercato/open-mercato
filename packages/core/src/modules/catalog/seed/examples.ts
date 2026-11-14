@@ -824,6 +824,13 @@ async function loadPriceKinds(
   return map;
 }
 
+export function listCatalogExampleKeys(): { productHandles: string[]; variantSkus: string[] } {
+  return {
+    productHandles: PRODUCT_SEEDS.map((seed) => seed.handle),
+    variantSkus: PRODUCT_SEEDS.flatMap((seed) => seed.variants.map((variant) => variant.sku)),
+  };
+}
+
 export async function seedCatalogExamples(
   em: EntityManager,
   container: AwilixContainer,

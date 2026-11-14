@@ -11,6 +11,8 @@ import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readSafeDecryptedString } from '../lib/decryptionSafety'
+import { isInitialReplacementOrderApproval } from '../lib/replacementOrderUndo'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
@@ -64,6 +66,7 @@ import type { WarrantyEntitlementInput, WarrantyEntitlementResolver } from '../s
 import {
   WARRANTY_CLAIM_RESOURCE_KIND,
   appendClaimEvent,
+  assertUniqueClaimLineNumbers,
   enforceWarrantyClaimOptimisticLock,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -675,9 +678,25 @@ async function assertUndoSnapshotCurrent(ctx: CommandRuntimeContext, after: Clai
 
 async function restoreSnapshot(em: EntityManager, before: ClaimSnapshot, after: ClaimSnapshot): Promise<WarrantyClaim> {
   const { claim, lines } = await requireCurrentUndoSnapshot(em, after)
-  restoreClaimDelta(claim, before, after)
   const beforeLinesById = new Map((Array.isArray(before.lines) ? before.lines : []).map((line) => [line.id, line]))
   const afterLinesById = new Map((Array.isArray(after.lines) ? after.lines : []).map((line) => [line.id, line]))
+  const projectedLines = []
+  for (const line of lines) {
+    const beforeLine = beforeLinesById.get(line.id)
+    const afterLine = afterLinesById.get(line.id)
+    if (!beforeLine || !afterLine) return throwClaimUndoConflict()
+    const deletedAt = beforeLine.deletedAt !== afterLine.deletedAt ? beforeLine.deletedAt : line.deletedAt
+    const lineNo = beforeLine.lineNo !== afterLine.lineNo ? beforeLine.lineNo : line.lineNo
+    projectedLines.push({ id: line.id, lineNo, deletedAt, changesNumber: Boolean(line.deletedAt) || lineNo !== line.lineNo })
+  }
+  for (const projected of projectedLines) {
+    if (projected.deletedAt || !projected.changesNumber) continue
+    await assertUniqueClaimLineNumbers([
+      projected.lineNo,
+      ...projectedLines.filter((line) => !line.deletedAt && line.id !== projected.id && line.lineNo === projected.lineNo).map((line) => line.lineNo),
+    ])
+  }
+  restoreClaimDelta(claim, before, after)
   for (const line of lines) {
     const beforeLine = beforeLinesById.get(line.id)
     const afterLine = afterLinesById.get(line.id)
@@ -1422,7 +1441,7 @@ function assertClaimUpdateFields(claim: WarrantyClaim, input: ClaimUpdateInput):
 
 function applyClaimUpdate(claim: WarrantyClaim, input: ClaimUpdateInput, customerName: string | null, orderNumber: string | null): void {
   if (hasOwn(input, 'customerId')) claim.customerId = input.customerId ?? null
-  if (hasOwn(input, 'customerName')) claim.customerName = customerName
+  if (hasOwn(input, 'customerId') || hasOwn(input, 'customerName')) claim.customerName = customerName
   if (hasOwn(input, 'orderId')) {
     claim.orderId = input.orderId ?? null
     claim.orderNumber = orderNumber
@@ -1511,6 +1530,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
   isUndoable: true,
   async execute(rawInput, ctx) {
     const input = parseCommandInput(claimCreateSchema, rawInput)
+    await assertUniqueClaimLineNumbers((input.lines ?? []).map((line, index) => line.lineNo ?? index + 1))
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await validateClaimReferences(ctx, scope, {
@@ -1673,7 +1693,7 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
     const customerChanged = hasOwn(input, 'customerId') && (input.customerId ?? null) !== (claim.customerId ?? null)
     const shouldRefreshCustomerName = hasOwn(input, 'customerId') || hasOwn(input, 'customerName')
     const customerName = shouldRefreshCustomerName
-      ? await resolveCustomerName(ctx, input.customerId ?? claim.customerId, scope, input.customerName ?? claim.customerName, { strict: customerChanged })
+      ? await resolveCustomerName(ctx, effectiveCustomerId, scope, customerChanged ? input.customerName : (input.customerName ?? claim.customerName), { strict: customerChanged })
       : claim.customerName ?? null
     const orderNumber = hasOwn(input, 'orderId')
       ? await resolveOrderNumber(ctx, input.orderId, scope, (input.orderId ?? null) === (claim.orderId ?? null) ? claim.orderNumber : null)
@@ -3044,13 +3064,20 @@ async function dispatchSalesOrderDelete(
   ctx: CommandRuntimeContext,
   scope: WarrantyClaimScope,
   replacementOrderId: string,
+  expectedUpdatedAt?: string,
 ): Promise<void> {
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  const dispatchContext = scrubbedDispatchContext(ctx)
+  if (expectedUpdatedAt) {
+    dispatchContext.request = new Request(ctx.request?.url ?? 'http://localhost', {
+      headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: expectedUpdatedAt },
+    })
+  }
   await commandBus.execute(
     'sales.orders.delete',
     {
       input: { id: replacementOrderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      ctx: scrubbedDispatchContext(ctx),
+      ctx: dispatchContext,
     },
   )
 }
@@ -3058,6 +3085,7 @@ async function dispatchSalesOrderDelete(
 const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderInput, ClaimCreateReplacementOrderResult> = {
   id: 'warranty_claims.claim.create_replacement_order',
   isUndoable: true,
+  redo: ({ input, ctx }) => createReplacementOrderCommand.execute({ ...input, updatedAt: undefined }, ctx),
   prepare: async (rawInput, ctx) => {
     const input = parseCommandInput(claimCreateReplacementOrderSchema, rawInput)
     const scope = resolveScope(ctx, input)
@@ -3318,10 +3346,13 @@ const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderI
         const currentUpdatedAt = currentRow.updated_at
           ? new Date(currentRow.updated_at as string | Date).toISOString()
           : null
-        if (!replacementOrder.updatedAt || !currentUpdatedAt || currentUpdatedAt !== replacementOrder.updatedAt) {
+        if (!replacementOrder.updatedAt || !currentUpdatedAt || (
+          currentUpdatedAt !== replacementOrder.updatedAt
+          && !await isInitialReplacementOrderApproval(ctx, scope, replacementOrder.id, replacementOrder.updatedAt, currentUpdatedAt)
+        )) {
           throw new CrudHttpError(409, { error: 'warranty_claims.errors.replacementOrderChangedUndoAborted' })
         }
-        await dispatchSalesOrderDelete(ctx, scope, replacementOrder.id)
+        await dispatchSalesOrderDelete(ctx, scope, replacementOrder.id, currentUpdatedAt)
       } else {
         replacementOrderBridgeLogger.info('warranty_claims.claim.create_replacement_order undo found replacement order already absent', {
           claimId: before.id,

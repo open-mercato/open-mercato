@@ -10,6 +10,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useProjectAccessScope } from './projectAccessScope'
+import type { ResolvedProjectAccessScope } from './projectAccessScopeHeaders'
 
 export const MY_WORK_HREF = '/backend/staff/time-tracking'
 export const ACCESS_REQUEST_ENDPOINT = '/api/staff/timesheets/access-requests'
@@ -22,36 +24,52 @@ export type AccessRequestButtonProps = {
    * project exists to a user who has no right to it.
    */
   timeProjectId?: string | null
+  resolvedScope?: ResolvedProjectAccessScope | null
   label: string
   sentLabel: string
   variant?: 'default' | 'outline'
 }
 
-export function AccessRequestButton({
+export function AccessRequestButton(props: AccessRequestButtonProps) {
+  const { scopeKey, isCurrentScope } = useProjectAccessScope(props.timeProjectId, props.resolvedScope)
+  return <ScopedAccessRequestButton key={scopeKey} {...props} isCurrentScope={isCurrentScope} />
+}
+
+function ScopedAccessRequestButton({
   timeProjectId,
   label,
   sentLabel,
   variant = 'outline',
-}: AccessRequestButtonProps) {
+  isCurrentScope,
+}: AccessRequestButtonProps & { isCurrentScope: () => boolean }) {
   const t = useT()
   const [submitting, setSubmitting] = React.useState(false)
   const [sent, setSent] = React.useState(false)
+  const mounted = React.useRef(true)
+  React.useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
   const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: ACCESS_REQUEST_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
   const requestAccess = React.useCallback(async () => {
+    const isCurrent = () => mounted.current && isCurrentScope()
+    if (!isCurrent()) return
     const payload = timeProjectId ? { timeProjectId } : {}
     setSubmitting(true)
     try {
       await runMutation({
-        operation: () =>
-          apiCallOrThrow(ACCESS_REQUEST_ENDPOINT, {
+        operation: () => {
+          if (!isCurrent()) throw new Error('[internal] Access request scope changed')
+          return apiCallOrThrow(ACCESS_REQUEST_ENDPOINT, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(payload),
-          }),
+          })
+        },
         context: {
           formId: ACCESS_REQUEST_CONTEXT_ID,
           resourceKind: 'staff.timesheets.access_request',
@@ -59,6 +77,7 @@ export function AccessRequestButton({
         },
         mutationPayload: payload,
       })
+      if (!isCurrent()) return
       setSent(true)
       flash(
         t(
@@ -68,14 +87,15 @@ export function AccessRequestButton({
         'success',
       )
     } catch {
+      if (!isCurrent()) return
       flash(
         t('staff.time_tracking.access.request.error', 'Could not send the access request.'),
         'error',
       )
     } finally {
-      setSubmitting(false)
+      if (isCurrent()) setSubmitting(false)
     }
-  }, [retryLastMutation, runMutation, t, timeProjectId])
+  }, [isCurrentScope, retryLastMutation, runMutation, t, timeProjectId])
 
   return (
     <Button type="button" variant={variant} onClick={requestAccess} disabled={submitting || sent}>
@@ -87,6 +107,7 @@ export function AccessRequestButton({
 
 export type NoProjectAccessProps = {
   timeProjectId?: string | null
+  resolvedScope?: ResolvedProjectAccessScope | null
   /** Where the "Back to My work" action returns to. */
   myWorkHref?: string
 }
@@ -97,7 +118,7 @@ export type NoProjectAccessProps = {
  * access" and "access was revoked" (note 2); navigation stays untouched because
  * the caller still has other projects (note 3).
  */
-export function NoProjectAccess({ timeProjectId, myWorkHref = MY_WORK_HREF }: NoProjectAccessProps) {
+export function NoProjectAccess({ timeProjectId, resolvedScope, myWorkHref = MY_WORK_HREF }: NoProjectAccessProps) {
   const t = useT()
   return (
     <Page>
@@ -121,6 +142,7 @@ export function NoProjectAccess({ timeProjectId, myWorkHref = MY_WORK_HREF }: No
               </Button>
               <AccessRequestButton
                 timeProjectId={timeProjectId}
+                resolvedScope={resolvedScope}
                 label={t('staff.time_tracking.access.denied.request', 'Request access')}
                 sentLabel={t('staff.time_tracking.access.request.sent', 'Request sent')}
               />

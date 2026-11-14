@@ -31,6 +31,12 @@ import {
 } from './definition-error-body'
 import { collectUnresolvedContextRefWarnings } from './expression-refs'
 import { definitionToGraph, validateWorkflowGraph } from './graph-utils'
+import {
+  collectUnsafeMappingTargetIssues,
+  mappingTargetIssuesForApi,
+  UNSAFE_MAPPING_TARGET_MESSAGE,
+  UNSAFE_MAPPING_TARGET_MESSAGE_KEY,
+} from './mapping-target-validation'
 
 /**
  * Problems-panel copy for an unresolved `{{context.*}}` reference. Shared so
@@ -75,6 +81,7 @@ export interface EvaluateWorkflowDefinitionOptions {
    * those warnings are skipped (they are advisory and never blocking).
    */
   ledger?: ContextLedger | null
+  translate?: WorkflowIssueTranslator
 }
 
 export interface WorkflowDefinitionEvaluation {
@@ -128,7 +135,14 @@ export function evaluateWorkflowDefinition(
   const { nodes, edges } = definitionToGraph(definition, { autoLayout: false })
   const graphErrors = validateWorkflowGraph(nodes, edges)
   const parsed = workflowDefinitionDataSchema.safeParse(definition)
-  const zodIssues: ZodIssueLike[] = parsed.success ? [] : parsed.error.issues
+  const mappingMessage = options.translate
+    ? options.translate(UNSAFE_MAPPING_TARGET_MESSAGE_KEY, UNSAFE_MAPPING_TARGET_MESSAGE, {})
+    : UNSAFE_MAPPING_TARGET_MESSAGE
+  const mappingIssues = collectUnsafeMappingTargetIssues(definition, mappingMessage)
+  const zodIssues: ZodIssueLike[] = [
+    ...(parsed.success ? [] : parsed.error.issues),
+    ...mappingIssues,
+  ]
   const ledger = options.ledger ?? null
   const configWarnings: ZodIssueLike[] = [
     ...collectActivityConfigWarnings(definition),
@@ -150,7 +164,10 @@ export function evaluateWorkflowDefinition(
     valid: errors === 0,
     errorCount: errors,
     warningCount: warnings,
-    issues: parsed.success ? [] : normalizeDefinitionValidationIssues(parsed.error),
+    issues: [
+      ...(parsed.success ? [] : normalizeDefinitionValidationIssues(parsed.error)),
+      ...mappingTargetIssuesForApi(definition, [], mappingMessage),
+    ],
     problems,
   }
 }

@@ -5,6 +5,8 @@ import type { InjectionSpotId } from '@open-mercato/shared/modules/widgets/injec
 import {
   loadInjectionDataWidgetsForSpot,
   getInjectionRegistryVersion,
+  getInjectionRegistryError,
+  isInjectionRegistryReady,
   subscribeToInjectionRegistryChanges,
   type LoadedInjectionDataWidget,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
@@ -13,6 +15,7 @@ import { useBackendChrome } from '../BackendChromeProvider'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui').child({ component: 'useInjectionDataWidgets' })
+const EMPTY_WIDGETS: LoadedInjectionDataWidget[] = []
 
 export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   widgets: LoadedInjectionDataWidget[]
@@ -28,6 +31,9 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
     [payload?.grantedFeatures],
   )
   const hasBackendChromePayload = payload !== null
+  const disabled = spotId.startsWith('__disabled__:')
+  const registryReady = isInjectionRegistryReady()
+  const registryError = getInjectionRegistryError()
   // Re-load when the injection registry is (re-)populated. With the async
   // ClientBootstrap, registration can land after this hook first runs; the
   // version bump triggers a reload so injected menus/columns/fields appear
@@ -35,13 +41,22 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
 
   React.useEffect(() => {
-    return subscribeToInjectionRegistryChanges(() => {
+    const unsubscribe = subscribeToInjectionRegistryChanges(() => {
       setRegistryVersion(getInjectionRegistryVersion())
     })
+    setRegistryVersion(getInjectionRegistryVersion())
+    return unsubscribe
   }, [])
 
   React.useEffect(() => {
-    if (!backendChromeReady) {
+    if (disabled) return
+    if (registryError) {
+      setWidgets([])
+      setIsLoading(false)
+      setError(registryError)
+      return
+    }
+    if (!backendChromeReady || !registryReady) {
       setIsLoading(true)
       setError(null)
       return
@@ -73,7 +88,11 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
     return () => {
       mounted = false
     }
-  }, [spotId, registryVersion, backendChromeReady, grantedFeatureList, hasBackendChromePayload])
+  }, [spotId, registryVersion, backendChromeReady, registryReady, registryError, disabled, grantedFeatureList, hasBackendChromePayload])
 
-  return { widgets, isLoading, error }
+  return disabled
+    ? { widgets: EMPTY_WIDGETS, isLoading: false, error: null }
+    : registryError
+      ? { widgets: EMPTY_WIDGETS, isLoading: false, error: registryError }
+      : { widgets, isLoading: isLoading || !backendChromeReady || !registryReady, error }
 }

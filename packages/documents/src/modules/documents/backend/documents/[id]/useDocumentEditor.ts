@@ -1,4 +1,5 @@
 "use client"
+import { useContentSecurityPolicyNonce } from '@open-mercato/ui/theme/ContentSecurityPolicyProvider'
 
 import * as React from 'react'
 import type { Editor } from '@tiptap/core'
@@ -62,6 +63,7 @@ function documentCounts(editor: Editor | null): EditorWordCount {
 
 export function useDocumentEditor(input: UseDocumentEditorInput) {
   const t = useT()
+  const nonce = useContentSecurityPolicyNonce()
   const editorRef = React.useRef<Editor | null>(null)
   const countTimerRef = React.useRef<number | null>(null)
   const readOnlyRef = React.useRef(input.readOnly)
@@ -108,6 +110,7 @@ export function useDocumentEditor(input: UseDocumentEditorInput) {
   }, [input.collabResources, input.editorMode, t])
 
   const editor = useEditor({
+    injectNonce: nonce,
     extensions,
     content: input.editorMode === 'fallback' ? input.initialContentHtml : undefined,
     editable: !input.readOnly,

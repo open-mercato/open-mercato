@@ -294,7 +294,7 @@ test.describe('TC-UNDO-001 directory organizations', () => {
     }
   })
 
-  test.fixme('create → undo retains a soft-deleted row (I3) — https://github.com/open-mercato/open-mercato/issues/7663', async ({ directory }) => {
+  test('create → undo retains a soft-deleted row (I3)', async ({ directory }) => {
     const subject = await directory.create()
     await undoOk(directory.selectedRequest, directory.token, subject.operation.undoToken, 'undo create for tombstone assertion')
     const deleted = await lifecycle(directory.tenantId, subject.id)
@@ -302,12 +302,33 @@ test.describe('TC-UNDO-001 directory organizations', () => {
     expect(deleted?.deletedAt, 'create undo sets deleted_at').not.toBeNull()
   })
 
-  test.fixme('create → undo → redo preserves created_at — https://github.com/open-mercato/open-mercato/issues/7663', async ({ directory }) => {
+  test('create → undo → redo preserves created_at', async ({ directory }) => {
     const subject = await directory.create()
     const before = await lifecycle(directory.tenantId, subject.id)
     expect(before).not.toBeNull()
     await undoOk(directory.selectedRequest, directory.token, subject.operation.undoToken, 'undo create for timestamp assertion')
     await redoOk(directory.selectedRequest, directory.token, subject.operation.logId, 'redo create for timestamp assertion')
     expect((await lifecycle(directory.tenantId, subject.id))?.createdAt).toBe(before?.createdAt)
+  })
+
+  test('create → undo reserves the slug for redo while another same-name organization is created', async ({ directory }) => {
+    const name = `Reserved ${randomUUID()}`
+    const subject = await directory.create({ name })
+    const before = requiredOrganization(await directory.read([subject.id]), subject.id)
+    const originalLifecycle = await lifecycle(directory.tenantId, subject.id)
+
+    await undoOk(directory.selectedRequest, directory.token, subject.operation.undoToken, 'undo create before same-name creation')
+    const replacement = await directory.create({ name })
+    const replacementState = requiredOrganization(await directory.read([replacement.id]), replacement.id)
+    expect(replacement.id).not.toBe(subject.id)
+    expect(replacementState.slug).toBe(`${String(before.slug)}-1`)
+
+    await redoOk(directory.selectedRequest, directory.token, subject.operation.logId, 'redo create with reserved slug')
+    const restored = await directory.read([subject.id, replacement.id])
+    expect(requiredOrganization(restored, subject.id).slug).toBe(before.slug)
+    expect(requiredOrganization(restored, replacement.id).slug).toBe(replacementState.slug)
+    const restoredLifecycle = await lifecycle(directory.tenantId, subject.id)
+    expect(restoredLifecycle?.deletedAt).toBeNull()
+    expect(restoredLifecycle?.createdAt).toBe(originalLifecycle?.createdAt)
   })
 })

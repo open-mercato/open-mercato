@@ -1,8 +1,11 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { ScimTokenService } from '../../services/scimTokenService'
+import { ScimTokenError, ScimTokenService } from '../../services/scimTokenService'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { RATE_LIMIT_UNAVAILABLE_KEY, RATE_LIMIT_UNAVAILABLE_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { SsoConfig } from '../../data/entities'
 import { buildScimError, scimJson } from '../../lib/scim-response'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { checkScimRateLimit } from './rate-limit'
 
 export interface ScimScope {
   ssoConfigId: string
@@ -15,6 +18,9 @@ export async function resolveScimContext(req: Request): Promise<
   | { ok: true; scope: ScimScope }
   | { ok: false; response: Response }
 > {
+  const rateLimitError = await checkScimRateLimit(req)
+  if (rateLimitError) return { ok: false, response: rateLimitError }
+
   const authHeader = req.headers.get('authorization')
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return {
@@ -36,7 +42,17 @@ export async function resolveScimContext(req: Request): Promise<
 
   const container = await createRequestContainer()
   const scimTokenService = container.resolve<ScimTokenService>('scimTokenService')
-  const verified = await scimTokenService.verifyToken(rawToken)
+  let verified: Awaited<ReturnType<ScimTokenService['verifyToken']>>
+  try {
+    verified = await scimTokenService.verifyToken(rawToken)
+  } catch (error) {
+    if (!(error instanceof ScimTokenError) || error.statusCode !== 503) throw error
+    const { translate } = await resolveTranslations()
+    return {
+      ok: false,
+      response: scimJson(buildScimError(503, translate(RATE_LIMIT_UNAVAILABLE_KEY, RATE_LIMIT_UNAVAILABLE_FALLBACK)), 503),
+    }
+  }
 
   if (!verified) {
     return {

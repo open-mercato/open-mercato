@@ -4,7 +4,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 import {
   deleteCustomEntityIfExists,
   listCustomEntities,
-  rawRequest,
+  unauthenticatedRequestStatus,
   uniqueEntityId,
 } from './helpers/entitiesApi';
 
@@ -27,8 +27,8 @@ test.describe('TC-ENTITIES-002: Unauthorized access to entity management is reje
 
     try {
       // POST without authentication → 401
-      const unauthPost = await rawRequest(request, 'POST', '/api/entities/entities', body);
-      expect(unauthPost.status(), 'POST without auth → 401').toBe(401);
+      const unauthPostStatus = await unauthenticatedRequestStatus('POST', '/api/entities/entities', body);
+      expect(unauthPostStatus, 'POST without auth → 401').toBe(401);
 
       // POST as employee (missing entities.definitions.manage) → 403 with requiredFeatures
       const employeePost = await apiRequest(request, 'POST', '/api/entities/entities', { token: employeeToken, data: body });
@@ -37,8 +37,8 @@ test.describe('TC-ENTITIES-002: Unauthorized access to entity management is reje
       expect(forbiddenBody?.requiredFeatures ?? [], '403 body lists the required feature').toContain('entities.definitions.manage');
 
       // DELETE without authentication → 401
-      const unauthDelete = await rawRequest(request, 'DELETE', '/api/entities/entities', { entityId });
-      expect(unauthDelete.status(), 'DELETE without auth → 401').toBe(401);
+      const unauthDeleteStatus = await unauthenticatedRequestStatus('DELETE', '/api/entities/entities', { entityId });
+      expect(unauthDeleteStatus, 'DELETE without auth → 401').toBe(401);
 
       // DELETE as employee → 403
       const employeeDelete = await apiRequest(request, 'DELETE', '/api/entities/entities', { token: employeeToken, data: { entityId } });

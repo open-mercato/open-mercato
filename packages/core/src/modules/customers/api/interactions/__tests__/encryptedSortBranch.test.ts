@@ -108,3 +108,15 @@ describe('interactions list — encrypted-sort branch routing (#3386)', () => {
     expect(queries.some((q) => /order by/i.test(q.sql))).toBe(true)
   })
 })
+
+test('encrypted candidate scans retain grouped recurrence and search predicates (#8883)', async () => {
+  const response = await GET(makeRequest('sortField=title&search=needle&recurrenceMasters=true&from=2026-02-01&entityId=33333333-3333-4333-8333-333333333333'))
+  expect(response.status).toBe(200)
+  const queries = interactionQueries()
+  expect(queries.length).toBeGreaterThan(0)
+  for (const compiled of queries) {
+    expect(compiled.sql).toMatch(/and \(coalesce\(title, ''\) ilike \$\d+ or coalesce\(body, ''\) ilike \$\d+\)/)
+    expect(compiled.sql).toMatch(/and \(recurrence_end is null or recurrence_end >= \$\d+\)/)
+    expect(compiled.parameters).toEqual(expect.arrayContaining([tenantId, orgId, '33333333-3333-4333-8333-333333333333']))
+  }
+})

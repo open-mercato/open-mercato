@@ -6,6 +6,11 @@ import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SalesDocumentAddressesSection } from '../AddressesSection'
 
+type TabEmptyStateMockProps = Pick<
+  React.ComponentProps<typeof import('@open-mercato/ui/backend/detail').TabEmptyState>,
+  'action'
+>
+
 const mockApiCall = jest.fn()
 const mockApiCallOrThrow = jest.fn()
 const mockTranslate = (_key: string, fallback?: string) => fallback ?? _key
@@ -38,7 +43,12 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   ErrorMessage: () => null,
   LoadingMessage: () => null,
-  TabEmptyState: () => null,
+  TabEmptyState: ({ action }: TabEmptyStateMockProps) =>
+    action ? (
+      <button type="button" onClick={action.onClick} disabled={action.disabled}>
+        {action.label}
+      </button>
+    ) : null,
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
@@ -129,30 +139,34 @@ jest.mock('lucide-react', () => ({
   Trash2: () => null,
 }))
 
+function mockDefaultApi() {
+  mockApiCall.mockImplementation(async (url: string) => {
+    if (url.startsWith('/api/customers/addresses?')) {
+      return {
+        ok: true,
+        result: {
+          items: [{
+            id: 'customer-address-1',
+            name: 'Main warehouse',
+            address_line1: '12 Market Street',
+            city: 'London',
+            postal_code: 'SW1A 1AA',
+            country: 'GB',
+          }],
+        },
+      }
+    }
+    if (url === '/api/customers/settings/address-format') {
+      return { ok: true, result: { addressFormat: 'line_first' } }
+    }
+    return { ok: true, result: { items: [] } }
+  })
+}
+
 describe('SalesDocumentAddressesSection', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockApiCall.mockImplementation(async (url: string) => {
-      if (url.startsWith('/api/customers/addresses?')) {
-        return {
-          ok: true,
-          result: {
-            items: [{
-              id: 'customer-address-1',
-              name: 'Main warehouse',
-              address_line1: '12 Market Street',
-              city: 'London',
-              postal_code: 'SW1A 1AA',
-              country: 'GB',
-            }],
-          },
-        }
-      }
-      if (url === '/api/customers/settings/address-format') {
-        return { ok: true, result: { addressFormat: 'line_first' } }
-      }
-      return { ok: true, result: { items: [] } }
-    })
+    mockDefaultApi()
   })
 
   it('omits null snapshots for a saved address and adopts the server-resolved snapshot', async () => {
@@ -511,5 +525,62 @@ describe('SalesDocumentAddressesSection', () => {
     )
     await screen.findAllByRole('combobox')
     expect(screen.queryByText(/1234567890/)).toBeNull()
+  })
+})
+
+describe('SalesDocumentAddressesSection additional addresses (#6194)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockDefaultApi()
+  })
+
+  function renderSection() {
+    return render(
+      <SalesDocumentAddressesSection documentId="order-1" kind="order" customerId="customer-1" />,
+    )
+  }
+
+  // The empty state unmounts while the document addresses load and mounts again after, so the
+  // click is retried until the form title shows instead of targeting a node from the first paint.
+  async function openAdditionalForm() {
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add address' }))
+      expect(screen.getByText('Add a new address')).toBeInTheDocument()
+    })
+  }
+
+  it('opens straight on the address fields when the customer has no saved addresses', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/customers/settings/address-format') return { ok: true, result: { addressFormat: 'line_first' } }
+      return { ok: true, result: { items: [] } }
+    })
+    renderSection()
+
+    await openAdditionalForm()
+
+    expect(screen.getByTestId('address-editor-disabled')).toHaveTextContent('false')
+    expect(screen.queryByRole('radiogroup', { name: 'Address source' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save address' })).toBeInTheDocument()
+  })
+
+  it('offers saved or new with the saved address first when the customer has one', async () => {
+    renderSection()
+
+    await openAdditionalForm()
+
+    const source = await screen.findByRole('radiogroup', { name: 'Address source' })
+    expect(source).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Saved address' })).toBeChecked())
+    expect(screen.queryByTestId('address-editor-disabled')).toBeNull()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'New address' }))
+    expect(screen.getByTestId('address-editor-disabled')).toHaveTextContent('false')
+    expect(screen.getByRole('button', { name: 'Save address' })).toBeInTheDocument()
+  })
+
+  it('hides the header entry point while the empty state offers the only one', async () => {
+    renderSection()
+    await screen.findByRole('button', { name: 'Add address' })
+    expect(screen.getAllByRole('button', { name: 'Add address' })).toHaveLength(1)
   })
 })

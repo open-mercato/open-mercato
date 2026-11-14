@@ -14,6 +14,8 @@
   "notifications.delivery.settings.invalid": "Ungültige Zustelleinstellungen",
   "notifications.empty": "Keine Benachrichtigungen",
   "notifications.error.action": "Aktion konnte nicht ausgeführt werden",
+  "notifications.error.actionCommandNotAllowed": "Über die API erstellte Benachrichtigungsaktionen dürfen keine Befehle ausführen",
+  "notifications.error.actionForbidden": "Sie dürfen diese Benachrichtigungsaktion nicht ausführen",
   "notifications.error.load": "Benachrichtigungen konnten nicht geladen werden",
   "notifications.filters.actionRequired": "Aktion erforderlich",
   "notifications.filters.all": "Alle",

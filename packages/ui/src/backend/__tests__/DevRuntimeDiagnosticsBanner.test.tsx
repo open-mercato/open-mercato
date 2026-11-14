@@ -549,6 +549,42 @@ describe('DevRuntimeDiagnosticsBanner', () => {
     expect(init.headers).toMatchObject({ [DEV_RUNTIME_TOKEN_HEADER]: TOKEN })
   })
 
+  it('retries a stale runtime incident through supervisor recovery instead of only reloading the page', async () => {
+    enableBanner()
+    const issue = createIssue({ code: 'runtime_error', title: 'Runtime error detected', detail: 'The destination stream errored while writing data.', recovery: undefined })
+    mockStatusResponses(
+      createStatus({ issueSummary: issue }),
+      createStatus({ generation: 2, health: 'starting', ready: false, issueSummary: null, incidents: [] }),
+      createStatus({ generation: 2, health: 'ready', issueSummary: null, incidents: [] }),
+    )
+    renderBanner()
+
+    await screen.findByTestId('dev-runtime-diagnostics-banner')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() => expect(actionCalls()).toHaveLength(1))
+    expect(actionCalls()[0][0]).toBe('/api/dev-runtime/actions/restart')
+    expect(actionCalls()[0][1].headers).toMatchObject({ [DEV_RUNTIME_TOKEN_HEADER]: TOKEN })
+    expect(screen.getByText('The destination stream errored while writing data.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('dev-runtime-diagnostics-banner')).toBeNull(), { timeout: 5500 })
+  })
+
+  it('retains the runtime incident and explains when Retry is rejected', async () => {
+    enableBanner()
+    mockStatusResponses(createStatus())
+    actionResponse = () => new Response(
+      JSON.stringify({ error: { code: 'action_busy', message: 'Runtime restart is already running.' } }),
+      { status: 409, headers: { 'content-type': 'application/json' } },
+    )
+    renderBanner()
+
+    await screen.findByTestId('dev-runtime-diagnostics-banner')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText('Runtime restart is already running.')).toBeInTheDocument()
+    expect(screen.getByText('Relation `sandboxs` is missing')).toBeInTheDocument()
+  })
+
   it('requires confirmation before running migrations and can be cancelled', async () => {
     enableBanner()
     mockStatusResponses(createStatus())
