@@ -470,13 +470,15 @@ const getCartCommand: CommandHandler<CartGetInput, CartGetResult> = {
     ensureOrganizationScope(ctx, input.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const storeScope = input.freshContext ? { storeId: input.freshContext.storeId } : {}
     const where = isCartGetByIdInput(input)
-      ? { id: input.cartId, tenantId: input.tenantId, organizationId: input.organizationId, kind: 'basket' as const }
+      ? { id: input.cartId, tenantId: input.tenantId, organizationId: input.organizationId, kind: 'basket' as const, ...storeScope }
       : {
           tokenHash: hashCartToken(input.token),
           tenantId: input.tenantId,
           organizationId: input.organizationId,
           kind: 'basket' as const,
+          ...storeScope,
         }
 
     const cart = await findOneWithDecryption(
