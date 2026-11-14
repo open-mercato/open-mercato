@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -41,21 +42,25 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
     ensureTenantScope(ctx, parsed.tenantId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await loadExistingDevice(em, {
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId ?? null,
-      userId: parsed.userId,
-      deviceId: parsed.deviceId,
-    })
     const now = new Date()
     const hasPushToken = parsed.pushToken !== undefined && parsed.pushToken !== null
-    const wasActive = existing ? existing.deletedAt == null : false
 
-    let device!: UserDevice
+    let outcome: { existing: UserDevice | null; device: UserDevice; wasActive: boolean }
     try {
-      await withAtomicFlush(
-        em,
-        [
+      outcome = await em.transactional(async (transaction) => {
+        const existing = await loadExistingDevice(
+          transaction,
+          {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId ?? null,
+            userId: parsed.userId,
+            deviceId: parsed.deviceId,
+          },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+        )
+        const wasActive = existing ? existing.deletedAt == null : false
+        let device!: UserDevice
+        await withAtomicFlush(transaction, [
           () => {
             if (existing) {
               device = existing
@@ -72,7 +77,7 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
               device.lastSeenAt = now
               device.deletedAt = null
             } else {
-              device = em.create(UserDevice, {
+              device = transaction.create(UserDevice, {
                 tenantId: parsed.tenantId,
                 organizationId: parsed.organizationId ?? null,
                 userId: parsed.userId,
@@ -86,12 +91,12 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
                 pushTokenUpdatedAt: hasPushToken ? now : null,
                 lastSeenAt: now,
               })
-              em.persist(device)
+              transaction.persist(device)
             }
           },
-        ],
-        { transaction: true },
-      )
+        ])
+        return { existing, device, wasActive }
+      })
     } catch (err) {
       if (isDeviceUniqueViolation(err)) {
         // Default English message is a fallback; device routes translate by `code` (see route POST
@@ -103,6 +108,7 @@ const registerDeviceCommand: CommandHandler<RegisterDeviceCommandInput, { id: st
       }
       throw err
     }
+    const { existing, device, wasActive } = outcome
 
     const revived = Boolean(existing) && !wasActive
     const de = ctx.container.resolve('dataEngine') as DataEngine
