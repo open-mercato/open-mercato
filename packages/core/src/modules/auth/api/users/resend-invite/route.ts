@@ -181,6 +181,7 @@ export async function POST(req: Request) {
       react: InviteUserEmail({ inviteUrl, copy }),
       tenantId: user.tenantId ? String(user.tenantId) : auth.tenantId ?? undefined,
       organizationId: user.organizationId ? String(user.organizationId) : null,
+      delivery: 'sync',
     })
   } catch (err) {
     logger.error('Failed to send invitation email', { err })

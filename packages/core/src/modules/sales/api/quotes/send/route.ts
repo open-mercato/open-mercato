@@ -183,6 +183,7 @@ export async function POST(req: Request) {
       react: QuoteSentEmail({ url, copy }),
       tenantId: quote.tenantId,
       organizationId: quote.organizationId,
+      delivery: 'sync',
     })
 
     await guardResult.runAfterSuccess()

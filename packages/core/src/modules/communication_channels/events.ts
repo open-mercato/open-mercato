@@ -24,6 +24,12 @@ const events = [
     clientBroadcast: true,
   },
   {
+    id: 'communication_channels.system_email.delivery_failed',
+    label: 'System Email Delivery Failed',
+    entity: 'system_email_delivery',
+    category: 'custom',
+  },
+  {
     id: 'communication_channels.conversation.created',
     label: 'External Conversation Created',
     entity: 'external_conversation',
