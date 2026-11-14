@@ -63,6 +63,8 @@ describe('loadDealsSummaryQueryRows', () => {
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: stuckDealId }])
     const em = {
       getConnection: () => ({ execute: executeMock }),
@@ -78,11 +80,19 @@ describe('loadDealsSummaryQueryRows', () => {
       seriesStart: new Date('2025-09-01T00:00:00.000Z'),
     })
 
-    expect(executeMock).toHaveBeenCalledTimes(7)
-    for (const queryIndex of [0, 1, 6]) {
+    expect(executeMock).toHaveBeenCalledTimes(9)
+    for (const queryIndex of [0, 1, 8]) {
       expect(normalizedSql(executeMock.mock.calls[queryIndex])).toContain('status IN (?,?) AND closure_outcome IS NULL')
     }
-    expect(normalizedSql(executeMock.mock.calls[5])).toContain('status IN (?) AND closure_outcome IS NULL')
+    expect(normalizedSql(executeMock.mock.calls[7])).toContain('status IN (?) AND closure_outcome IS NULL')
+    // calls[5] / calls[6] are the monthly inflow and won series behind the metric tabs.
+    expect(normalizedSql(executeMock.mock.calls[5])).toContain("date_trunc('month', created_at")
+    // A deal closed later still belongs to the month it was created in.
+    expect(normalizedSql(executeMock.mock.calls[5])).not.toContain('closure_outcome')
+    expect(normalizedSql(executeMock.mock.calls[5])).not.toContain('status')
+    expect(executeMock.mock.calls[5][1]).toEqual([tenantId, organizationId, '2025-09-01T00:00:00.000Z'])
+    expect(normalizedSql(executeMock.mock.calls[6])).toContain("status = 'win' OR closure_outcome = 'won'")
+    expect(normalizedSql(executeMock.mock.calls[6])).toContain("date_trunc('month', updated_at")
     expect(normalizedSql(executeMock.mock.calls[2])).toContain("status = 'win' OR closure_outcome = 'won'")
     // calls[3] is winLossRows, the one statement carrying BOTH terminal predicates (calls[2]
     // above is wonRows, the currency-totals query, which carries only the won half).
@@ -97,7 +107,7 @@ describe('loadDealsSummaryQueryRows', () => {
       expect(normalizedSql(queryCall)).toContain('tenant_id = ? AND organization_id IN (?) AND deleted_at IS NULL')
     }
     expect(executeMock.mock.calls[0][1]).toEqual([tenantId, organizationId, 'open', 'in_progress'])
-    expect(executeMock.mock.calls[5][1]).toEqual([tenantId, organizationId, 'open'])
+    expect(executeMock.mock.calls[7][1]).toEqual([tenantId, organizationId, 'open'])
     expect(fetchStuckDealIdsMock).toHaveBeenCalledWith(em, organizationId, tenantId)
     expect(result.openStuckIds).toEqual([stuckDealId])
   })

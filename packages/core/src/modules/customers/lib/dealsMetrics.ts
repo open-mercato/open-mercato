@@ -67,6 +67,23 @@ export function getPreviousQuarterWindow(now: Date): PeriodWindow {
   return { start, end: current.start }
 }
 
+function startOfMonthUtc(year: number, monthIndex: number): Date {
+  return new Date(Date.UTC(year, monthIndex, 1, 0, 0, 0, 0))
+}
+
+/** Calendar window covering the current month and the `months - 1` before it. */
+export function getTrailingWindow(now: Date, months: number): PeriodWindow {
+  const year = now.getUTCFullYear()
+  const month = now.getUTCMonth()
+  return { start: startOfMonthUtc(year, month - (months - 1)), end: startOfMonthUtc(year, month + 1) }
+}
+
+/** The `months`-long window right before `getTrailingWindow(now, months)`. */
+export function getPreviousTrailingWindow(now: Date, months: number): PeriodWindow {
+  const current = getTrailingWindow(now, months)
+  return { start: startOfMonthUtc(current.start.getUTCFullYear(), current.start.getUTCMonth() - months), end: current.start }
+}
+
 function monthLabel(year: number, monthIndex: number): string {
   const month = monthIndex + 1
   return `${year}-${month < 10 ? `0${month}` : month}`
