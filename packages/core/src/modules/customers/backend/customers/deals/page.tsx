@@ -1152,9 +1152,9 @@ export default function CustomersDealsPage() {
         accessorKey: 'createdAt',
         header: t('customers.deals.list.columns.createdAt'),
         meta: {
-          columnChooserGroup: 'Dates',
+          columnChooserGroup: t('customers.columnGroups.dates', 'Dates'),
           filterKey: 'created_at',
-          filterGroup: 'Activity',
+          filterGroup: t('customers.columnGroups.activity', 'Activity'),
           filterIconName: 'calendar',
         },
         cell: ({ row }) => (
