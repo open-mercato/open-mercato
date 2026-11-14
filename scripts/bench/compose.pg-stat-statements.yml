@@ -1,0 +1,7 @@
+# Loads pg_stat_statements into the repo's Postgres so scripts/bench/request-cost.mjs can count the
+# statements each request runs. Adds negligible overhead; remove the override to go back.
+#
+#   docker compose -f docker-compose.yml -f scripts/bench/compose.pg-stat-statements.yml up -d postgres
+services:
+  postgres:
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=top"]

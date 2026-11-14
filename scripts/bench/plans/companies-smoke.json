@@ -1,0 +1,52 @@
+{
+  "name": "companies-smoke",
+  "seed": 20261103,
+  "description": "1,000 companies in the init organization. Builds in about a minute; use to check that the scripts run.",
+  "measuredTarget": "t1/main",
+  "tenants": [
+    {
+      "key": "t1",
+      "provision": "init",
+      "orgs": [
+        {
+          "key": "main",
+          "provision": "init",
+          "companies": 1000
+        }
+      ]
+    }
+  ],
+  "distribution": {
+    "status": {
+      "active": 55,
+      "pending": 15,
+      "inactive": 20,
+      "archived": 10
+    },
+    "lifecycleStage": {
+      "customer": 35,
+      "prospect": 25,
+      "lead": 25,
+      "churned": 10,
+      "other": 5
+    },
+    "source": {
+      "web_form": 25,
+      "partner_referral": 15,
+      "customer_referral": 15,
+      "linkedin": 15,
+      "event": 10,
+      "cold_outreach": 10,
+      "email": 10
+    },
+    "nullRates": {
+      "primaryEmail": 0.1,
+      "primaryPhone": 0.25,
+      "description": 0.4,
+      "legalName": 0.3,
+      "annualRevenue": 0.5,
+      "cf_executive_notes": 0.6
+    },
+    "names": "adjective + noun + suffix from fixed lists (25,600 combinations), so duplicate display names occur naturally"
+  }
+}
