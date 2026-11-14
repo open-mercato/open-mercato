@@ -10,6 +10,7 @@ import {
 import type { Message } from '@open-mercato/core/modules/messages/data/entities'
 import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from './ai-proposal-contract'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
+import { createDiscordProposalOriginKey } from './ai-proposal-origin'
 
 const logger = createLogger('channel_discord').child({ component: 'ai-proposal' })
 
@@ -147,10 +148,14 @@ export async function fileDiscordReplyProposal(params: {
     userId: botUserId,
   }
 
-  const composeResult = await commandBus.execute<typeof composeInput, { id: string }>(
+  const trustedComposeInput = {
+    ...composeInput,
+    idempotencyKey: createDiscordProposalOriginKey({ ...composeInput, senderUserId: botUserId }),
+  }
+  const composeResult = await commandBus.execute<typeof trustedComposeInput, { id: string }>(
     'messages.messages.compose',
     {
-      input: composeInput,
+      input: trustedComposeInput,
       ctx: containerCtx as never,
     },
   )

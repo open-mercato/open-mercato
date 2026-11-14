@@ -51,6 +51,30 @@ export function parseIdsParam(raw: unknown, maxIds: number = MAX_IDS_PER_REQUEST
   return parsed.slice(0, safeMax)
 }
 
+const UUID_SHAPE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Splits a comma-separated id list query param into its trimmed, non-empty entries.
+ */
+export function splitIdListParam(raw: unknown): string[] {
+  if (typeof raw !== 'string') return []
+  return raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+}
+
+/**
+ * Whether every entry of a comma-separated id list query param is UUID-shaped, so it can be
+ * bound to a uuid column without a database error. Use it to reject a malformed or mixed list
+ * with a 400 instead of dropping the bad entries and widening the result set (#7265).
+ */
+export function isUuidListParam(raw: unknown): boolean {
+  if (raw === undefined) return true
+  if (typeof raw !== 'string') return false
+  return splitIdListParam(raw).every((value) => UUID_SHAPE_REGEX.test(value))
+}
+
 /**
  * Whether an `?ids=` param was supplied at all (a non-empty string, or repeated
  * `?ids=` occurrences), regardless of whether any value survived UUID
@@ -87,11 +111,14 @@ export function mergeIdFilter<Fields extends Record<string, unknown>>(
     if (existingFilter === undefined || existingFilter === null) {
       return { ...existingFilters, id: { $in: parsedIds } }
     }
-    // Existing `id` filter is in a shape we do not recognise. Fail closed:
-    // preserve the existing filter instead of widening to `parsedIds`. Adding
-    // a new recognised shape to `readExistingIds` is preferable to silently
-    // dropping a narrowing that another caller put in place.
-    return existingFilters
+    // Existing `id` filter is in a shape we do not recognise. Fail closed by
+    // ANDing both constraints rather than dropping either: `parsedIds` may be
+    // server-supplied narrowing (an interceptor's `before` hook setting
+    // `query.ids`), so discarding it to "preserve" an unrecognised caller
+    // filter would silently disable that narrowing (#7641). Adding a new
+    // recognised shape to `readExistingIds` remains preferable when the
+    // shapes can be intersected directly.
+    return { $and: [existingFilters, { id: { $in: parsedIds } }] } as Where<Fields>
   }
 
   const allowed = new Set(parsedIds)

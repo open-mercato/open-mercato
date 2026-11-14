@@ -81,5 +81,5 @@ export const FULLAPP_DEV_COMPOSE_FILE = path.join('starters', 'docker', 'compose
 // image is the thin local build FROM it, tagged opencode-mvp. Keep the default
 // tag in sync with the compose files' OPENCODE_BASE_IMAGE default and the
 // docker/opencode/Dockerfile ARG.
-export const DEFAULT_OPENCODE_BASE_IMAGE = 'docker.io/openmercatocom/open-mercato-opencode:1.18.3'
+export const DEFAULT_OPENCODE_BASE_IMAGE = 'docker.io/openmercatocom/open-mercato-opencode:1.18.3@sha256:1ccc9d47dd46234dd6a4ad914662a226c96a21413c0d286e61bcc248745917f7'
 export const OPENCODE_SERVICE_IMAGE = 'opencode-mvp'

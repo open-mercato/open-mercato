@@ -1,17 +1,19 @@
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ContextHelp } from '@open-mercato/ui/backend/ContextHelp'
 import UserEntitiesTable from '@open-mercato/core/modules/entities/components/UserEntitiesTable'
 
-export default function UserEntitiesPage() {
+export default async function UserEntitiesPage() {
+  const { t } = await resolveTranslations()
   return (
     <Page>
       <PageBody>
-        <ContextHelp bulb title="Design your own user entities" className="mb-4">
-          <p className="mb-2">Create and manage user entities — your own data types, similar to custom database tables. Store records and work with them across the admin UI and APIs.</p>
+        <ContextHelp bulb title={t('entities.userEntities.help.title')} className="mb-4">
+          <p className="mb-2">{t('entities.userEntities.help.description')}</p>
           <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-            <li>Define fields and forms once; they are automatically used for filters and inputs.</li>
-            <li>Use <strong>Create</strong> to add a new entity and then attach custom fields.</li>
-            <li>Programmatic access is available — see the cURL examples in the entity records page.</li>
+            <li>{t('entities.userEntities.help.fields')}</li>
+            <li>{t('entities.userEntities.help.create')}</li>
+            <li>{t('entities.userEntities.help.api')}</li>
           </ul>
         </ContextHelp>
         <UserEntitiesTable />

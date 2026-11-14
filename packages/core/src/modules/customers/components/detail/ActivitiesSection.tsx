@@ -94,8 +94,12 @@ function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary
       return leftScheduled - rightScheduled
     }
 
-    const leftTime = left.occurredAt ?? left.createdAt
-    const rightTime = right.occurredAt ?? right.createdAt
+    const leftTime = left.occurredAt ?? left.scheduledAt ?? null
+    const rightTime = right.occurredAt ?? right.scheduledAt ?? null
+    if (!leftTime || !rightTime) {
+      if (leftTime !== rightTime) return leftTime ? -1 : 1
+      return right.id.localeCompare(left.id)
+    }
     const compare = rightTime.localeCompare(leftTime)
     if (compare !== 0) return compare
     return right.id.localeCompare(left.id)
@@ -109,6 +113,7 @@ export function ActivitiesSection({
   useCanonicalInteractions = false,
   onActionChange,
   onLoadingChange,
+  onDataRefresh,
   refreshKey = 0,
   onEditActivity,
   runGuardedMutation,
@@ -241,7 +246,8 @@ export function ActivitiesSection({
       }
       const legacyFiltered = legacyItems.filter((entry) => {
         if (filterTypes.length > 0 && !filterTypes.includes(entry.interactionType)) return false
-        const dateOnly = toDateOnly(entry.occurredAt ?? entry.createdAt)
+        const dateOnly = toDateOnly(entry.occurredAt ?? entry.scheduledAt)
+        if ((filterDateFrom || filterDateTo) && !dateOnly) return false
         if (filterDateFrom && dateOnly < filterDateFrom) return false
         if (filterDateTo && dateOnly > filterDateTo) return false
         return true
@@ -294,8 +300,14 @@ export function ActivitiesSection({
     } catch (err) {
       logger.warn('Mark done failed', { component: 'ActivitiesSection', activityId, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
+      return
     }
-  }, [loadActivities, runGuardedMutation, t])
+    try {
+      await Promise.resolve(onDataRefresh?.())
+    } catch (err) {
+      logger.warn('Parent refresh after mark done failed', { component: 'ActivitiesSection', activityId, err })
+    }
+  }, [loadActivities, onDataRefresh, runGuardedMutation, t])
 
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 

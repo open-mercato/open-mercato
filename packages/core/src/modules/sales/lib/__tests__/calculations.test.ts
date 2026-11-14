@@ -469,6 +469,45 @@ describe('calculateDocumentTotals', () => {
     expect(overCreditResult.totals.outstandingAmount).toBeCloseTo(0, 4)
   })
 
+  it('reduces the order tax total for a percentage promotion discount that carries its own tax metadata (issue #8425)', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 1,
+        currencyCode: 'USD',
+        unitPriceNet: 100,
+        taxRate: 23,
+      },
+    ]
+    const adjustments: SalesAdjustmentDraft[] = [
+      {
+        scope: 'order',
+        kind: 'discount',
+        amountNet: 10,
+        amountGross: 12.3,
+        currencyCode: 'USD',
+        metadata: { taxRate: 23 },
+      },
+    ]
+
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments,
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(90, 4)
+    expect(result.totals.subtotalGrossAmount).toBeCloseTo(110.7, 4)
+    // Before the fix, taxTotalAmount stayed at the full-price 23 even though the
+    // discount reduced both subtotals — net + tax no longer equalled gross.
+    expect(result.totals.taxTotalAmount).toBeCloseTo(20.7, 4)
+    expect(result.totals.subtotalNetAmount + result.totals.taxTotalAmount).toBeCloseTo(
+      result.totals.subtotalGrossAmount,
+      4
+    )
+  })
+
   it('derives line tax from the net/gross delta when the rate is missing but gross embeds tax (issue #2457)', async () => {
     const lines: SalesLineSnapshot[] = [
       {

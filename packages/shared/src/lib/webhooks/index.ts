@@ -4,6 +4,7 @@ export { generateWebhookSecret, parseWebhookSecret, isValidWebhookSecret } from 
 export {
   DEFAULT_WEBHOOK_BODY_LIMIT_BYTES,
   readBoundedRequestBody,
+  readBoundedRequestBytes,
   resolveWebhookBodyLimitBytes,
   WebhookBodyTooLargeError,
 } from './body'

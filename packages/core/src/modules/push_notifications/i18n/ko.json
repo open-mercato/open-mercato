@@ -1,4 +1,5 @@
 {
+  "notifications.categories.system": "시스템",
   "push_notifications.deliveries.columns.attempts": "시도 횟수",
   "push_notifications.deliveries.columns.created": "생성됨",
   "push_notifications.deliveries.columns.provider": "제공업체",

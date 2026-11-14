@@ -86,6 +86,12 @@ export const inviteUserSchema = z.object({
   displayName: displayNameField.optional(),
 })
 
+export const cancelInvitationSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export type CancelInvitationInput = z.infer<typeof cancelInvitationSchema>
+
 export const assignRolesSchema = z.object({
   roleIds: z.array(z.string().uuid()).min(1),
 })
@@ -96,6 +102,7 @@ export const adminCreateUserSchema = z.object({
   displayName: displayNameField,
   roleIds: z.array(z.string().uuid()).optional(),
   customerEntityId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
 })
 
 export const adminUpdateUserSchema = z.object({

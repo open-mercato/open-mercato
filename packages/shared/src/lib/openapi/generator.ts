@@ -15,6 +15,12 @@ type PathParamInfo = {
   optional?: boolean
 }
 
+type PathVariant = {
+  path: string
+  params: PathParamInfo[]
+  omittedParam?: string
+}
+
 type ParameterLocation = 'query' | 'path' | 'header'
 
 export type JsonSchema = Record<string, unknown>
@@ -117,6 +123,20 @@ function normalizePath(path: string): { path: string; params: PathParamInfo[] } 
     })
     .join('/')
   return { path: '/' + normalized, params }
+}
+
+function expandOptionalPathParams(normalized: { path: string; params: PathParamInfo[] }): PathVariant[] {
+  const required = normalized.params.filter((param) => !param.optional)
+  const optionalParam = normalized.params.find((param) => param.optional)
+  const fullVariant: PathVariant = {
+    path: normalized.path,
+    params: normalized.params.map((param) => ({ ...param, optional: false })),
+  }
+  if (!optionalParam) return [fullVariant]
+  const placeholder = `/{${optionalParam.name}}`
+  if (!normalized.path.endsWith(placeholder)) return [fullVariant]
+  const basePath = normalized.path.slice(0, -placeholder.length) || '/'
+  return [fullVariant, { path: basePath, params: required, omittedParam: optionalParam.name }]
 }
 
 function unwrap(schema?: ZodTypeAny): {
@@ -681,14 +701,14 @@ function buildParameters(
 
   if (location === 'path' && pathParamNames && pathParamNames.length) {
     const merged = mergePathParamSchemas(schema, pathParamNames)
-    for (const { name, schema: paramSchema, optional } of merged) {
+    for (const { name, schema: paramSchema } of merged) {
       const jsonSchema = zodToJsonSchema(paramSchema)
       const example = generateExample(paramSchema)
       const description = extractZodDescription(paramSchema)
       params.push({
         name,
         in: 'path',
-        required: !optional,
+        required: true,
         schema: jsonSchema ?? { type: 'string' },
         example,
         ...(description ? { description } : {}),
@@ -738,7 +758,7 @@ function buildParameters(
 }
 
 function mergePathParamSchemas(schema: ZodTypeAny | undefined, params: PathParamInfo[]) {
-  const merged: Array<{ name: string; schema: ZodTypeAny | undefined; optional: boolean }> = []
+  const merged: Array<{ name: string; schema: ZodTypeAny | undefined }> = []
   const map: Record<string, ZodTypeAny> = {}
   if (schema) {
     const { schema: unwrapped } = unwrap(schema)
@@ -753,7 +773,6 @@ function mergePathParamSchemas(schema: ZodTypeAny | undefined, params: PathParam
     merged.push({
       name: param.name,
       schema: map[param.name],
-      optional: !!param.optional,
     })
   }
   return merged
@@ -1051,6 +1070,7 @@ export function buildOpenApiDocument(modules: Module[], options: OpenApiDocument
 
   const includeAccessControlMetadata = options.includeAccessControlMetadata !== false
   const tags = new Map<string, string | undefined>()
+  const derivedOperations = new Set<string>()
 
   for (const moduleEntry of modules) {
     const defaultTag = moduleEntry.info?.title ?? toTitle(moduleEntry.id)
@@ -1060,85 +1080,94 @@ export function buildOpenApiDocument(modules: Module[], options: OpenApiDocument
     for (const api of apis) {
       const routeDoc = collectRouteDoc(api, moduleEntry.id)
       const moduleTag = routeDoc?.tag ?? defaultTag
-      const normalized = normalizePath((api as any).path ?? (api as any).path ?? '')
-      const pathKey = normalized.path
-      if (!doc.paths[pathKey]) doc.paths[pathKey] = {}
       const availableMethods: HttpMethod[] =
         'handlers' in api
           ? HTTP_METHODS.filter((method) => typeof (api as ModuleApiRouteFile).handlers?.[method] === 'function')
           : [api.method as HttpMethod]
 
-      for (const method of availableMethods) {
-        const methodLower = method.toLowerCase() as Lowercase<HttpMethod>
-        const existing = doc.paths[pathKey][methodLower]
-        if (existing) continue
+      for (const normalized of expandOptionalPathParams(normalizePath((api as any).path ?? ''))) {
+        const pathKey = normalized.path
+        if (!doc.paths[pathKey]) doc.paths[pathKey] = {}
 
-        const metadata = 'handlers' in api ? (api as ModuleApiRouteFile).metadata?.[method] : undefined
-        const methodDoc = routeDoc?.methods?.[method]
-        const summary = methodDoc?.summary ?? routeDoc?.summary ?? `${method} ${pathKey}`
-        const baseDescription = methodDoc?.description ?? routeDoc?.description
-        const meta = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>) : undefined
-        const requireFeatures = Array.isArray(meta?.['requireFeatures'])
-          ? (meta!['requireFeatures'] as string[])
-          : undefined
-        const requireRoles = Array.isArray(meta?.['requireRoles'])
-          ? (meta!['requireRoles'] as string[])
-          : undefined
-        const requireAuth = meta?.['requireAuth'] === true
-        const descriptionParts: string[] = []
-        if (baseDescription) descriptionParts.push(baseDescription)
-        if (includeAccessControlMetadata && Array.isArray(requireFeatures) && requireFeatures.length) {
-          descriptionParts.push(`Requires features: ${requireFeatures.join(', ')}`)
-        }
-        if (includeAccessControlMetadata && Array.isArray(requireRoles) && requireRoles.length) {
-          descriptionParts.push(`Requires roles: ${requireRoles.join(', ')}`)
-        }
+        for (const method of availableMethods) {
+          const methodLower = method.toLowerCase() as Lowercase<HttpMethod>
+          const operationKey = `${methodLower} ${pathKey}`
+          const existing = doc.paths[pathKey][methodLower]
+          if (existing && (normalized.omittedParam || !derivedOperations.has(operationKey))) continue
+          if (normalized.omittedParam) derivedOperations.add(operationKey)
+          else derivedOperations.delete(operationKey)
 
-        const querySchema = methodDoc?.query
-        const pathSchema = methodDoc?.pathParams ?? routeDoc?.pathParams
-        const headerSchema = methodDoc?.headers
-        const requestBody = methodDoc?.requestBody
-        const examples = collectExamples(querySchema, requestBody?.schema, pathSchema, headerSchema, metadata)
-        const curlSample = buildCurlSample(
-          method,
-          pathKey,
-          normalized.params,
-          examples,
-          options.baseUrlForExamples ?? 'https://api.open-mercato.local',
-          metadata,
-          requestBody
-        )
+          const metadata = 'handlers' in api ? (api as ModuleApiRouteFile).metadata?.[method] : undefined
+          const methodDoc = routeDoc?.methods?.[method]
+          const summary = methodDoc?.summary ?? routeDoc?.summary ?? `${method} ${pathKey}`
+          const baseDescription = methodDoc?.description ?? routeDoc?.description
+          const meta = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>) : undefined
+          const requireFeatures = Array.isArray(meta?.['requireFeatures'])
+            ? (meta!['requireFeatures'] as string[])
+            : undefined
+          const requireRoles = Array.isArray(meta?.['requireRoles'])
+            ? (meta!['requireRoles'] as string[])
+            : undefined
+          const requireAuth = meta?.['requireAuth'] === true
+          const descriptionParts: string[] = []
+          if (baseDescription) descriptionParts.push(baseDescription)
+          if (includeAccessControlMetadata && Array.isArray(requireFeatures) && requireFeatures.length) {
+            descriptionParts.push(`Requires features: ${requireFeatures.join(', ')}`)
+          }
+          if (includeAccessControlMetadata && Array.isArray(requireRoles) && requireRoles.length) {
+            descriptionParts.push(`Requires roles: ${requireRoles.join(', ')}`)
+          }
 
-        doc.paths[pathKey][methodLower] = {
-          operationId: methodDoc?.operationId ?? resolveOperationId(moduleEntry.id, pathKey, method),
-          summary,
-          description: descriptionParts.length ? descriptionParts.join('\n\n') : undefined,
-          tags: methodDoc?.tags ?? (moduleTag ? [moduleTag] : undefined),
-          deprecated: methodDoc?.deprecated,
-          externalDocs: methodDoc?.externalDocs,
-          parameters: [
-            ...buildParameters(pathSchema, 'path', normalized.params),
-            ...buildParameters(querySchema, 'query'),
-            ...buildParameters(headerSchema, 'header'),
-          ].filter(Boolean),
-          requestBody: buildRequestBody(requestBody),
-          responses: buildResponses(method, methodDoc?.responses, methodDoc?.errors, metadata),
-          security: buildSecurity(metadata, methodDoc, options.defaultSecurity),
-          'x-codeSamples': methodDoc?.codeSamples ?? [
-            {
-              lang: 'curl',
-              label: 'cURL',
-              source: curlSample,
-            },
-          ],
-          ...(includeAccessControlMetadata && Array.isArray(requireFeatures) && requireFeatures.length
-            ? { 'x-require-features': requireFeatures }
-            : {}),
-          ...(includeAccessControlMetadata && Array.isArray(requireRoles) && requireRoles.length
-            ? { 'x-require-roles': requireRoles }
-            : {}),
-          ...(requireAuth ? { 'x-require-auth': true } : {}),
-          ...(methodDoc?.extensions ?? {}),
+          const querySchema = methodDoc?.query
+          const pathSchema = methodDoc?.pathParams ?? routeDoc?.pathParams
+          const headerSchema = methodDoc?.headers
+          const requestBody = methodDoc?.requestBody
+          const examples = collectExamples(querySchema, requestBody?.schema, pathSchema, headerSchema, metadata)
+          const curlSample = buildCurlSample(
+            method,
+            pathKey,
+            normalized.params,
+            examples,
+            options.baseUrlForExamples ?? 'https://api.open-mercato.local',
+            metadata,
+            requestBody
+          )
+
+          doc.paths[pathKey][methodLower] = {
+            operationId: methodDoc?.operationId
+              ? normalized.omittedParam
+                ? `${methodDoc.operationId}_without_${normalizeOperationIdSegment(normalized.omittedParam)}`
+                : methodDoc.operationId
+              : resolveOperationId(moduleEntry.id, pathKey, method),
+            summary,
+            description: descriptionParts.length ? descriptionParts.join('\n\n') : undefined,
+            tags: methodDoc?.tags ?? (moduleTag ? [moduleTag] : undefined),
+            deprecated: methodDoc?.deprecated,
+            externalDocs: methodDoc?.externalDocs,
+            parameters: [
+              ...buildParameters(pathSchema, 'path', normalized.params),
+              ...buildParameters(querySchema, 'query'),
+              ...buildParameters(headerSchema, 'header'),
+            ].filter(Boolean),
+            requestBody: buildRequestBody(requestBody),
+            responses: buildResponses(method, methodDoc?.responses, methodDoc?.errors, metadata),
+            security: buildSecurity(metadata, methodDoc, options.defaultSecurity),
+            'x-codeSamples': methodDoc?.codeSamples ?? [
+              {
+                lang: 'curl',
+                label: 'cURL',
+                source: curlSample,
+              },
+            ],
+            ...(includeAccessControlMetadata && Array.isArray(requireFeatures) && requireFeatures.length
+              ? { 'x-require-features': requireFeatures }
+              : {}),
+            ...(includeAccessControlMetadata && Array.isArray(requireRoles) && requireRoles.length
+              ? { 'x-require-roles': requireRoles }
+              : {}),
+            ...(requireAuth ? { 'x-require-auth': true } : {}),
+            ...(methodDoc?.extensions ?? {}),
+          }
         }
       }
     }

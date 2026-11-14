@@ -21,8 +21,10 @@ import {
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isUuidListParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { expandCreatedAtDayRules } from '../../lib/createdAtDayFilter'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -60,7 +62,10 @@ const listSchema = z
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     id: z.string().uuid().optional(),
-    tagIds: z.string().optional(),
+    tagIds: z
+      .string()
+      .optional()
+      .refine(isUuidListParam, { message: 'tagIds must be a comma-separated list of UUIDs' }),
     tagIdsEmpty: z.string().optional(),
     excludeIds: z.string().optional(),
     excludeLinkedCompanyId: z.string().uuid().optional(),
@@ -124,7 +129,7 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query, ctx) => {
-      const advancedFilterTree = consumeAdvancedFilterState(query)
+      const advancedFilterTree = expandCreatedAtDayRules(consumeAdvancedFilterState(query), 'UTC')
       const filters: Record<string, unknown> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
@@ -205,11 +210,7 @@ const crud = makeCrudRoute({
       if (query.source) {
         filters.source = { $eq: query.source }
       }
-      const tagIdsRaw = typeof query.tagIds === 'string' ? query.tagIds : ''
-      const tagIds = tagIdsRaw
-        .split(',')
-        .map((value: string) => value.trim())
-        .filter((value: string) => value.length > 0)
+      const tagIds = splitIdListParam(query.tagIds)
       const tagIdsEmpty = parseBooleanToken(query.tagIdsEmpty) === true
       if (tagIdsEmpty) {
         filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }

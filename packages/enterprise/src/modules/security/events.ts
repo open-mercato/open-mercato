@@ -23,6 +23,7 @@ const events = [
   { id: 'security.mfa.verified', label: 'MFA Verified', category: 'lifecycle' },
   { id: 'security.mfa.otp.sent', label: 'MFA OTP Sent', category: 'lifecycle' },
   { id: 'security.mfa.reset', label: 'MFA Reset', category: 'lifecycle' },
+  { id: 'security.mfa.emergency_bypass_detected', label: 'MFA Emergency Bypass Active', category: 'system', excludeFromTriggers: true },
   { id: 'security.recovery.regenerated', label: 'Recovery Codes Regenerated', category: 'lifecycle' },
   { id: 'security.recovery.used', label: 'Recovery Code Used', category: 'lifecycle' },
   { id: 'security.enforcement.created', label: 'MFA Enforcement Created', category: 'lifecycle' },

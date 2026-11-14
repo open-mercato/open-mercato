@@ -201,8 +201,8 @@ function mockServiceContainer(input: {
   const rbacService = {
     userHasAllFeatures: jest.fn(async (userId: string, required: string[]) => (
       required.length === 1
-      && required[0] === 'documents.manage'
-      && manageUserIds.includes(userId)
+      && (required[0] === 'documents.view'
+        || (required[0] === 'documents.manage' && manageUserIds.includes(userId)))
     )),
   }
   return {

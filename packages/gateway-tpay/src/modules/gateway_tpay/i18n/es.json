@@ -1,0 +1,16 @@
+{
+  "gateway_tpay.description": "Acepte pagos alojados en PLN, BLIK, tarjetas y transferencias bancarias con Tpay.",
+  "gateway_tpay.description.fallback": "Pago con Tpay",
+  "gateway_tpay.errors.currencyNotSupported": "Tpay solo admite pagos en PLN.",
+  "gateway_tpay.errors.invalidAmount": "El importe del pago no es válido.",
+  "gateway_tpay.errors.invalidNotificationUrl": "La URL de notificación no es válida.",
+  "gateway_tpay.errors.payerEmailRequired": "Se requiere el correo electrónico del pagador.",
+  "gateway_tpay.errors.payerNameRequired": "Se requiere el nombre del pagador.",
+  "gateway_tpay.errors.providerUnavailable": "Tpay no está disponible temporalmente. Inténtelo de nuevo más tarde.",
+  "gateway_tpay.errors.unsupportedOperation": "Tpay no admite esta operación.",
+  "gateway_tpay.feature.configure": "Configurar ajustes de Tpay",
+  "gateway_tpay.feature.view": "Ver configuración de Tpay",
+  "gateway_tpay.health.healthy": "La conexión con Tpay funciona correctamente.",
+  "gateway_tpay.health.unhealthy": "Error de conexión con Tpay. Compruebe las credenciales.",
+  "gateway_tpay.title": "Tpay"
+}

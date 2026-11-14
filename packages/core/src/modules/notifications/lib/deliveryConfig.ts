@@ -106,8 +106,20 @@ export const STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryCo
   },
 }
 
+const parseDeliveryConfig = (input: unknown) => {
+  const parsed = notificationDeliveryConfigSchema.safeParse(input)
+  const onlyPanelPathInvalid = !parsed.success
+    && parsed.error.issues.every((issue) => issue.path[0] === 'panelPath')
+  if (!onlyPanelPathInvalid || typeof input !== 'object' || input === null) {
+    return parsed
+  }
+  const withoutPanelPath: Record<string, unknown> = { ...input }
+  delete withoutPanelPath.panelPath
+  return notificationDeliveryConfigSchema.safeParse(withoutPanelPath)
+}
+
 const normalizeDeliveryConfig = (input?: unknown | null): NotificationDeliveryConfig => {
-  const parsed = notificationDeliveryConfigSchema.safeParse(input ?? {})
+  const parsed = parseDeliveryConfig(input ?? {})
   if (!parsed.success) {
     return { ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG }
   }

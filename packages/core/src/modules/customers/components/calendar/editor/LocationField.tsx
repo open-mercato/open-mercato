@@ -14,9 +14,11 @@ import { fetchPeoplePhones, type ContactPhone } from './lookups'
 function PhoneSuggestions({
   contactIds,
   onPick,
+  disabled,
 }: {
   contactIds: string[]
   onPick(phone: string): void
+  disabled?: boolean
 }) {
   const t = useT()
   const [contacts, setContacts] = React.useState<ContactPhone[]>([])
@@ -47,6 +49,7 @@ function PhoneSuggestions({
           key={contact.id}
           type="button"
           onClick={() => onPick(contact.phone)}
+          disabled={disabled}
           title={t('customers.calendar.editor.phoneSuggestion.use', 'Use {name}’s number', { name: contact.name })}
           className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
@@ -65,12 +68,14 @@ export function LocationField({
   value,
   onChange,
   phoneContactIds,
+  disabled,
 }: {
   variant: 'location' | 'phoneLink'
   value: string
   onChange(next: string): void
   /** Person ids whose phone can be suggested (Call variant only). */
   phoneContactIds?: string[]
+  disabled?: boolean
 }) {
   const t = useT()
   const label = variant === 'phoneLink'
@@ -89,10 +94,11 @@ export function LocationField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={label}
+        disabled={disabled}
         leftIcon={variant === 'phoneLink' ? <Phone /> : <MapPin />}
       />
       {showSuggestions ? (
-        <PhoneSuggestions contactIds={phoneContactIds ?? []} onPick={(phone) => onChange(phone)} />
+        <PhoneSuggestions contactIds={phoneContactIds ?? []} onPick={(phone) => onChange(phone)} disabled={disabled} />
       ) : null}
     </Field>
   )

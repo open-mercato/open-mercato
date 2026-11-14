@@ -10,6 +10,7 @@ import { buildSafeRedirectResponse, resolveTrustedRedirectBase } from '@open-mer
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 import { z } from 'zod'
 
 const refreshRateLimitConfig = readEndpointRateLimitConfig('REFRESH', {
@@ -22,7 +23,12 @@ const refreshIpRateLimitConfig = readEndpointRateLimitConfig('REFRESH_IP', {
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
   const m = cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
-  return m ? decodeURIComponent(m[1]) : null
+  if (!m) return null
+  try {
+    return decodeURIComponent(m[1])
+  } catch {
+    return null
+  }
 }
 
 // Both handlers are `requireAuth: false`, so the dispatcher's MFA-pending gate never inspects
@@ -108,6 +114,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const { translate } = await resolveTranslations()
+  if (isCrossSiteBrowserRequest(req)) {
+    return NextResponse.json({ ok: false, error: translate('auth.login.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
+  }
   let token: string | null = null
 
   try {
@@ -220,6 +229,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Missing refresh token', schema: refreshErrorSchema },
         { status: 401, description: 'Invalid or expired token', schema: refreshErrorSchema },
+        { status: 403, description: 'Request was submitted cross-site', schema: refreshErrorSchema },
         { status: 429, description: 'Too many refresh attempts', schema: rateLimitErrorSchema },
       ],
     },

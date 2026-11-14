@@ -69,12 +69,13 @@ export function UppercaseBadge({ style, className, children }: { style?: React.C
   )
 }
 
-export function AllDayToggle({ checked, onCheckedChange, label }: { checked: boolean; onCheckedChange(next: boolean): void; label: string }) {
+export function AllDayToggle({ checked, onCheckedChange, label, disabled }: { checked: boolean; onCheckedChange(next: boolean): void; label: string; disabled?: boolean }) {
   return (
     <Switch
       checked={checked}
       aria-label={label}
       onCheckedChange={onCheckedChange}
+      disabled={disabled}
       className="h-6 w-10"
     />
   )
@@ -112,11 +113,13 @@ export function DateControl({
   onChange,
   ariaLabel,
   className,
+  disabled,
 }: {
   value: string
   onChange(next: string): void
   ariaLabel: string
   className?: string
+  disabled?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
   useCloseOnEditorScroll(setOpen)
@@ -128,6 +131,7 @@ export function DateControl({
       open={open}
       onOpenChange={setOpen}
       aria-label={ariaLabel}
+      disabled={disabled}
       className={cn('w-full', className)}
     />
   )
@@ -140,13 +144,18 @@ const TIME_OPTIONS: string[] = Array.from({ length: 48 }, (_, index) => {
   return `${String(hour).padStart(2, '0')}:${minute}`
 })
 
-export function TimeControl({ value, onChange, ariaLabel }: { value: string; onChange(next: string): void; ariaLabel: string }) {
+export function TimeControl({ value, onChange, ariaLabel, disabled }: { value: string; onChange(next: string): void; ariaLabel: string; disabled?: boolean }) {
   const [open, setOpen] = React.useState(false)
   useCloseOnEditorScroll(setOpen)
-  // Keep an off-grid value (e.g. an imported 22:15) selectable.
-  const options = value && !TIME_OPTIONS.includes(value) ? [value, ...TIME_OPTIONS] : TIME_OPTIONS
+  // Radix renders every item even while the list is closed, so a closed picker
+  // mounts only the selected time and the full grid is built on open. An
+  // off-grid value (e.g. an imported 22:15) stays selectable.
+  const options = React.useMemo(() => {
+    if (!open) return value ? [value] : []
+    return value && !TIME_OPTIONS.includes(value) ? [value, ...TIME_OPTIONS] : TIME_OPTIONS
+  }, [open, value])
   return (
-    <Select value={value} onValueChange={onChange} open={open} onOpenChange={setOpen}>
+    <Select value={value} onValueChange={onChange} open={open} onOpenChange={setOpen} disabled={disabled}>
       <SelectTrigger aria-label={ariaLabel} className="h-9 w-32 shrink-0">
         <SelectValue />
       </SelectTrigger>
@@ -165,12 +174,14 @@ export function PersonChip({
   compact,
   onRemove,
   removeLabel,
+  disabled,
 }: {
   name: string
   badge?: React.ReactNode
   compact?: boolean
   onRemove?: () => void
   removeLabel?: string
+  disabled?: boolean
 }) {
   return (
     <span
@@ -188,6 +199,7 @@ export function PersonChip({
           size="xs"
           onClick={(event) => { event.stopPropagation(); onRemove() }}
           aria-label={removeLabel}
+          disabled={disabled}
           className="size-5 shrink-0"
         >
           <Plus aria-hidden className="size-3.5 rotate-45 opacity-50" />

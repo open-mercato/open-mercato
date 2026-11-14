@@ -46,6 +46,16 @@ export function useConnectChannel(options: {
       })
       const body = response.result as InitiateResponse | undefined
       if (!response.ok || !body?.authorizeUrl) {
+        if (body?.code === 'missing_secret') {
+          flash(
+            t(
+              'communication_channels.profile.connect.notAvailable',
+              'Mailbox connection is not available. Ask an administrator to configure the OAuth state key.',
+            ),
+            'error',
+          )
+          return
+        }
         if (body?.code === 'oauth_client_not_configured') {
           flash(
             t(

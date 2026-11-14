@@ -3,15 +3,29 @@
 import * as React from 'react'
 import { z } from 'zod'
 import { FileText } from 'lucide-react'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { LookupMultiPicker } from '@open-mercato/ui/backend/inputs/LookupPickers'
+import type { LookupSource } from '@open-mercato/ui/backend/inputs/lookupSources'
+import {
+  categoryLookupSource,
+  productLookupSource,
+  tagLookupSource,
+} from '@open-mercato/core/modules/catalog/components/lookupSources'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CustomerGroupTermsPriceKindField } from './CustomerGroupTermsPriceKindField'
+import {
+  buildAssortmentScopePayload,
+  mapAssortmentScopeToFormValues,
+  type AssortmentScopeField,
+  type AssortmentScopeFormValues,
+  type GroupAssortmentScope,
+} from './customerGroupAssortmentScope'
 
 export type CustomerGroupTermsDTO = {
   id: string
@@ -25,10 +39,16 @@ export type CustomerGroupTermsDTO = {
   creditCurrencyCode: string | null
   approvalRequiredAbove: number | null
   minOrderValue: number | null
+  assortmentScope?: GroupAssortmentScope | null
   metadata: Record<string, unknown> | null
   createdAt: string
   updatedAt: string
 }
+
+// Lock token sent with the first save of a group that has no terms row yet. No real
+// row can carry this `updated_at`, so if another editor created the row meanwhile the
+// route's lock check against that row answers 409 instead of silently overwriting it.
+export const TERMS_NOT_YET_CREATED_LOCK_TOKEN = new Date(0).toISOString()
 
 // `inherit` maps to `null` on the wire: the field is left unset on this group and
 // resolves from the parent chain / tenant default, like the other terms fields.
@@ -47,7 +67,7 @@ function fromPurchaseOnAccountValue(value: string | undefined): boolean | null {
   return null
 }
 
-type CustomerGroupTermsFormValues = {
+type CustomerGroupTermsFormValues = AssortmentScopeFormValues & {
   priceKindId: string
   paymentTermsDays?: number
   allowPurchaseOnAccount: PurchaseOnAccountValue
@@ -66,6 +86,45 @@ function mapTermsToFormValues(terms: CustomerGroupTermsDTO | null): CustomerGrou
     creditCurrencyCode: terms?.creditCurrencyCode ?? '',
     approvalRequiredAbove: terms?.approvalRequiredAbove ?? undefined,
     minOrderValue: terms?.minOrderValue ?? undefined,
+    ...mapAssortmentScopeToFormValues(terms?.assortmentScope),
+  }
+}
+
+const TERMS_FIELD_IDS = [
+  'priceKindId',
+  'paymentTermsDays',
+  'allowPurchaseOnAccount',
+  'defaultCreditLimit',
+  'creditCurrencyCode',
+  'approvalRequiredAbove',
+  'minOrderValue',
+]
+
+function toIdList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+}
+
+function scopePickerField(
+  id: AssortmentScopeField,
+  label: string,
+  placeholder: string,
+  source: LookupSource,
+  readOnly: boolean,
+): CrudField {
+  return {
+    id,
+    type: 'custom',
+    label,
+    disabled: readOnly,
+    component: ({ value, setValue, disabled }) => (
+      <LookupMultiPicker
+        source={source}
+        value={toIdList(value)}
+        onChange={(next) => setValue(next)}
+        placeholder={placeholder}
+        disabled={disabled || readOnly}
+      />
+    ),
   }
 }
 
@@ -113,6 +172,11 @@ export function CustomerGroupTermsSection({
           .max(4, t('customer_groups.groups.form.terms.errors.currencyLength', 'Use up to 4 characters.')),
         approvalRequiredAbove: z.coerce.number().min(0, negativeMessage).optional(),
         minOrderValue: z.coerce.number().min(0, negativeMessage).optional(),
+        categoryIds: z.array(z.string()).default([]),
+        tagIds: z.array(z.string()).default([]),
+        excludeProductIds: z.array(z.string()).default([]),
+        excludeCategoryIds: z.array(z.string()).default([]),
+        excludeTagIds: z.array(z.string()).default([]),
       }),
     [negativeMessage, t],
   )
@@ -184,6 +248,66 @@ export function CustomerGroupTermsSection({
         type: 'number',
         layout: 'half',
       },
+      scopePickerField(
+        'categoryIds',
+        t('customer_groups.groups.form.terms.assortment.field.categoryIds', 'Categories'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.category', 'Search categories'),
+        categoryLookupSource,
+        !canManage,
+      ),
+      scopePickerField(
+        'tagIds',
+        t('customer_groups.groups.form.terms.assortment.field.tagIds', 'Tags'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.tag', 'Search tags'),
+        tagLookupSource,
+        !canManage,
+      ),
+      scopePickerField(
+        'excludeProductIds',
+        t('customer_groups.groups.form.terms.assortment.field.excludeProductIds', 'Products'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.product', 'Search products'),
+        productLookupSource,
+        !canManage,
+      ),
+      scopePickerField(
+        'excludeCategoryIds',
+        t('customer_groups.groups.form.terms.assortment.field.excludeCategoryIds', 'Categories'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.category', 'Search categories'),
+        categoryLookupSource,
+        !canManage,
+      ),
+      scopePickerField(
+        'excludeTagIds',
+        t('customer_groups.groups.form.terms.assortment.field.excludeTagIds', 'Tags'),
+        t('customer_groups.groups.form.terms.assortment.placeholder.tag', 'Search tags'),
+        tagLookupSource,
+        !canManage,
+      ),
+    ],
+    [canManage, t],
+  )
+
+  const groups = React.useMemo<CrudFormGroup[]>(
+    () => [
+      { id: 'terms', fields: TERMS_FIELD_IDS },
+      {
+        id: 'assortmentInclude',
+        title: t('customer_groups.groups.form.terms.assortment.includeTitle', 'Assortment scope: show only products in'),
+        description: t(
+          'customer_groups.groups.form.terms.assortment.includeHint',
+          "A product is visible to this group when it is in any of the chosen categories and carries any of the chosen tags. An empty picker does not filter, so leave both empty for no restriction; clearing a picker never hides everything. The storefront assortment a buyer sees is the channel's scope narrowed by this group's scope, and a buyer in several groups sees the union of their scopes.",
+        ),
+        fields: ['categoryIds', 'tagIds'],
+      },
+      {
+        id: 'assortmentExclude',
+        title: t('customer_groups.groups.form.terms.assortment.excludeTitle', 'Always hide from this group'),
+        description: t(
+          'customer_groups.groups.form.terms.assortment.excludeHint',
+          'Hidden products, categories and tags win over the selection above.',
+        ),
+        fields: ['excludeProductIds', 'excludeCategoryIds', 'excludeTagIds'],
+      },
     ],
     [t],
   )
@@ -204,11 +328,11 @@ export function CustomerGroupTermsSection({
         approvalRequiredAbove:
           typeof values.approvalRequiredAbove === 'number' ? values.approvalRequiredAbove : null,
         minOrderValue: typeof values.minOrderValue === 'number' ? values.minOrderValue : null,
+        assortmentScope: buildAssortmentScopePayload(values),
       }
       // `updateCrud` PUTs to `/api/customer_groups/customer-groups/{groupId}/terms`, matching the
-      // upsert route (Step 2.4). `optimisticLockUpdatedAt` below is `null` on the
-      // first save (no `terms` row yet), so CrudForm skips the lock header entirely —
-      // mirrors the route's own "no lock check on creation" behavior.
+      // upsert route (Step 2.4). `optimisticLockUpdatedAt` below is
+      // `TERMS_NOT_YET_CREATED_LOCK_TOKEN` on the first save (no `terms` row yet).
       const call = await updateCrud<{ terms: CustomerGroupTermsDTO }>(`customer_groups/customer-groups/${groupId}/terms`, payload, {
         errorMessage: t('customer_groups.groups.form.terms.errors.save', 'Failed to save commercial terms.'),
       })
@@ -249,10 +373,12 @@ export function CustomerGroupTermsSection({
         <CrudForm<CustomerGroupTermsFormValues>
           key={terms?.updatedAt ?? 'new'}
           embedded
+          disableInitialFocus
           schema={schema}
           fields={fields}
+          groups={groups}
           initialValues={initialValues}
-          optimisticLockUpdatedAt={terms?.updatedAt ?? null}
+          optimisticLockUpdatedAt={terms?.updatedAt ?? TERMS_NOT_YET_CREATED_LOCK_TOKEN}
           readOnly={!canManage}
           readOnlyOverlay={(
             <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 text-sm text-muted-foreground shadow-sm">

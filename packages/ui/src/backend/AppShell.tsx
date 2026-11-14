@@ -645,6 +645,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>
     Object.fromEntries(resolvedGroups.map((g) => [resolveGroupKey(g), true])) as Record<string, boolean>
   )
+  const [openGroupsLoaded, setOpenGroupsLoaded] = React.useState(false)
   const [headerTitle, setHeaderTitle] = React.useState<string | undefined>(currentTitle)
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const [navQuery, setNavQuery] = React.useState('')
@@ -809,6 +810,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }, [mobileOpen])
 
   React.useEffect(() => {
+    if (!isChromeReady && resolvedGroups.length === 0) return
     const parsed = readVersionedPreference<Record<string, boolean>>(
       SIDEBAR_OPEN_GROUPS_KEY,
       SIDEBAR_OPEN_GROUPS_VERSION,
@@ -816,6 +818,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       {},
       { legacyIsValid: isBooleanRecord },
     )
+    setOpenGroupsLoaded(true)
     if (Object.keys(parsed).length === 0) return
     setOpenGroups((prev) => {
       const next = { ...prev }
@@ -826,7 +829,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
       }
       return next
     })
-  }, [resolvedGroups])
+  }, [isChromeReady, resolvedGroups])
 
   const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: prev[groupId] === false }))
 
@@ -867,8 +870,9 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     previousSidebarModeRef.current = sidebarMode
   }, [sidebarMode, collapsed])
   React.useEffect(() => {
+    if (!openGroupsLoaded) return
     writeVersionedPreference(SIDEBAR_OPEN_GROUPS_KEY, SIDEBAR_OPEN_GROUPS_VERSION, openGroups)
-  }, [openGroups])
+  }, [openGroups, openGroupsLoaded])
 
   // Ensure current route's group is expanded on load
   React.useEffect(() => {
@@ -1256,6 +1260,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                         )}
                                       </span>
                                       {!compact && <span>{i.title}</span>}
+                                      <NavItemBadge href={i.href} compact={compact} />
                                     </Link>
                                     {showChildren ? (
                                       <div className={`relative flex flex-col ${compact ? 'items-center' : ''} gap-1`}>
@@ -1289,6 +1294,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                                 )}
                                               </span>
                                               {!compact && <span>{c.title}</span>}
+                                              <NavItemBadge href={c.href} compact={compact} />
                                             </Link>
                                           )
                                         })}
@@ -1622,7 +1628,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
             spotId={LEGACY_GLOBAL_MUTATION_INJECTION_SPOT_ID}
             context={injectionContext}
           />
-          <div id="om-top-banners" className="mb-3 space-y-2" />
+          <div id="om-top-banners" className="mb-3 space-y-2 empty:hidden" />
           <OrganizationScopeBoundary active={isOnSettingsPath}>
             <BackendRecordInjectionContextProvider setCurrentRecordInjectionContext={setCurrentRecordInjectionContext}>
               {children}

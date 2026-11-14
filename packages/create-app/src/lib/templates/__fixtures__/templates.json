@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-11-04T00:00:00.000Z",
+  "templates": [
+    {
+      "slug": "crm",
+      "github": "acme/crm-template",
+      "status": "active",
+      "reason": null,
+      "useCase": "crm",
+      "summary": "CRM starter with a demo pipeline module.",
+      "ref": "main",
+      "source": {
+        "sha": "1111111111111111111111111111111111111111",
+        "syncedAt": "2026-11-03T00:00:00.000Z",
+        "facts": {
+          "omLine": "0.10",
+          "omVersion": "0.10.1",
+          "linesBehind": 0,
+          "requiresEnterprise": false,
+          "engines": { "node": ">=24" },
+          "modules": [],
+          "env": []
+        }
+      },
+      "verified": {
+        "sha": "2222222222222222222222222222222222222222",
+        "at": "2026-11-02T00:00:00.000Z",
+        "omVersion": "0.10.0",
+        "importer": "create-mercato-app@0.10.0",
+        "facts": {
+          "omLine": "0.10",
+          "omVersion": "0.10.0",
+          "linesBehind": 0,
+          "requiresEnterprise": false,
+          "engines": { "node": ">=24" },
+          "modules": [],
+          "env": [{ "name": "OPENAI_API_KEY", "description": "Used by the AI assistant.", "link": "https://platform.openai.com/api-keys" }]
+        }
+      }
+    },
+    {
+      "slug": "b2b-portal",
+      "github": "acme/b2b-portal",
+      "status": "active",
+      "reason": null,
+      "useCase": "b2b-portal",
+      "summary": "B2B self-service portal with quotes and customer accounts.",
+      "ref": null,
+      "source": {
+        "sha": "3333333333333333333333333333333333333333",
+        "syncedAt": "2026-11-03T00:00:00.000Z",
+        "facts": {
+          "omLine": "0.9",
+          "omVersion": "0.9.4",
+          "linesBehind": 1,
+          "requiresEnterprise": true,
+          "engines": null,
+          "modules": [],
+          "env": []
+        }
+      },
+      "verified": null
+    },
+    {
+      "slug": "prm",
+      "github": "open-mercato/ready-app-oss-prm",
+      "status": "hold",
+      "reason": "The repository has no license yet.",
+      "useCase": "partner-portal",
+      "summary": "Partner relationship management.",
+      "ref": null,
+      "source": {
+        "sha": "4444444444444444444444444444444444444444",
+        "syncedAt": "2026-11-03T00:00:00.000Z",
+        "facts": null
+      },
+      "verified": null
+    },
+    {
+      "slug": null,
+      "github": "old-agency/field-service",
+      "status": "unmaintained",
+      "reason": "The author no longer updates it.",
+      "useCase": "field-service",
+      "summary": "Field service jobs and visits.",
+      "ref": "release",
+      "source": {
+        "sha": "5555555555555555555555555555555555555555",
+        "syncedAt": "2026-11-03T00:00:00.000Z",
+        "facts": null
+      },
+      "verified": null
+    },
+    {
+      "slug": "future",
+      "github": "acme/future-status",
+      "status": "quarantined",
+      "reason": "A status added after this release.",
+      "useCase": "starter",
+      "summary": "An entry with a status the CLI does not know.",
+      "ref": null,
+      "source": {
+        "sha": "6666666666666666666666666666666666666666",
+        "syncedAt": "2026-11-03T00:00:00.000Z",
+        "facts": null
+      },
+      "verified": null
+    },
+    {
+      "slug": null,
+      "github": "someone/no-slug-app",
+      "status": "active",
+      "reason": null,
+      "useCase": "internal-tools",
+      "summary": "An entry without a curator slug.",
+      "ref": "main",
+      "source": {
+        "sha": "7777777777777777777777777777777777777777",
+        "syncedAt": "2026-11-03T00:00:00.000Z",
+        "facts": null
+      },
+      "verified": null
+    }
+  ]
+}

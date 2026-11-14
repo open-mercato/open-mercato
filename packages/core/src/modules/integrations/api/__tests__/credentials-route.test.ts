@@ -319,3 +319,76 @@ describe('integrations credentials route — credentials sealed before the encry
     expect(saveMock).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * The `__oauth_grant` suffix is reserved for OAuth grant rows: the admin credentials route must never
+ * address one, even when an integration whose id ends in the suffix is registered.
+ */
+describe('integrations credentials route — reserved __oauth_grant ids', () => {
+  const saveMock = jest.fn()
+  const resolveMock = jest.fn()
+  const reservedIds = ['test_oauth_grant__oauth_grant', 'rogue__oauth_grant']
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    saveMock.mockReset()
+    resolveMock.mockReset()
+    resolveMock.mockResolvedValue(null)
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: 't1', orgId: 'o1', sub: 'u1' })
+    ;(getIntegration as jest.Mock).mockImplementation((id: string) => ({ id, title: 'Registered' }))
+    ;(runIntegrationMutationGuards as jest.Mock).mockResolvedValue({ ok: true })
+    ;(createRequestContainer as jest.Mock).mockResolvedValue({
+      resolve: (key: string) => {
+        if (key === 'integrationCredentialsService') {
+          return { getSchema: () => akeneoSchema, save: saveMock, resolve: resolveMock, resolveUpdatedAt: jest.fn().mockResolvedValue(null) }
+        }
+        throw new Error(`unexpected resolve(${key})`)
+      },
+    })
+  })
+
+  it.each(reservedIds)('GET answers 404 for %s, even when it is registered, without reading credentials', async (id) => {
+    const response = await GET(
+      new Request(`http://localhost/api/integrations/${id}/credentials`),
+      { params: { id } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Integration not found' })
+    expect(getIntegration).not.toHaveBeenCalled()
+    expect(createRequestContainer).not.toHaveBeenCalled()
+    expect(resolveMock).not.toHaveBeenCalled()
+  })
+
+  it.each(reservedIds)('PUT answers 404 for %s, even when it is registered, without guards or a write', async (id) => {
+    const response = await PUT(
+      buildRequest({ apiUrl: 'https://akeneo.example', clientId: 'abc' }),
+      { params: { id } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Integration not found' })
+    expect(getIntegration).not.toHaveBeenCalled()
+    expect(runIntegrationMutationGuards).not.toHaveBeenCalled()
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(emitIntegrationsEvent).not.toHaveBeenCalled()
+  })
+
+  it('keeps serving an id that only contains the suffix', async () => {
+    const id = 'x__oauth_grant_v2'
+    const getResponse = await GET(new Request(`http://localhost/api/integrations/${id}/credentials`), { params: { id } })
+    const putResponse = await PUT(buildRequest({ apiUrl: 'https://akeneo.example', clientId: 'abc' }), { params: { id } })
+
+    expect(getResponse.status).toBe(200)
+    expect(putResponse.status).toBe(200)
+    expect(getIntegration).toHaveBeenCalledWith(id)
+    expect(saveMock).toHaveBeenCalledWith(id, { apiUrl: 'https://akeneo.example', clientId: 'abc' }, { organizationId: 'o1', tenantId: 't1' })
+  })
+
+  it('exports no DELETE handler', async () => {
+    const routeModule: Record<string, unknown> = await import('../[id]/credentials/route')
+
+    expect(routeModule.DELETE).toBeUndefined()
+    expect(Object.keys(routeModule.metadata as Record<string, unknown>).sort()).toEqual(['GET', 'PUT'])
+  })
+})

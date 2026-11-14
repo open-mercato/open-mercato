@@ -25,10 +25,12 @@ import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerDealPersonLink,
   CustomerEntity,
+  CustomerLabelAssignment,
 } from '../../data/entities'
 
 const ORG_ID = 'org-p-1'
@@ -61,20 +63,32 @@ function makePersonEntity(): CustomerEntity {
   } as unknown as CustomerEntity
 }
 
-function makeEm(entity: CustomerEntity, dealLinks: number) {
+type OperationLog = Array<{ op: 'findOne' | 'count'; entity: unknown; options?: unknown }>
+
+function makeEm(entity: CustomerEntity, dealLinks: number, opLog: OperationLog = []) {
   const em: any = {
     fork: jest.fn(),
-    findOne: jest.fn(async (ctor: any) => (ctor === CustomerEntity ? entity : null)),
+    findOne: jest.fn(async (ctor: any, _where: any, options?: any) => {
+      opLog.push({ op: 'findOne', entity: ctor, options })
+      if (ctor === CustomerEntity) return entity
+      return null
+    }),
     find: jest.fn(async () => []),
-    count: jest.fn(async (ctor: any) => (ctor === CustomerDealPersonLink ? dealLinks : 0)),
+    count: jest.fn(async (ctor: any) => {
+      opLog.push({ op: 'count', entity: ctor })
+      return ctor === CustomerDealPersonLink ? dealLinks : 0
+    }),
     nativeDelete: jest.fn(async () => undefined),
     remove: jest.fn().mockReturnValue(undefined),
     flush: jest.fn().mockResolvedValue(undefined),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
     persist: jest.fn(),
     getReference: jest.fn((_ctor: any, id: string) => ({ id })),
   }
   em.fork.mockReturnValue(em)
-  return em as jest.Mocked<Pick<EntityManager, 'fork' | 'findOne' | 'find' | 'count' | 'nativeDelete' | 'remove' | 'flush'>>
+  return em as jest.Mocked<Pick<EntityManager, 'fork' | 'findOne' | 'find' | 'count' | 'nativeDelete' | 'remove' | 'flush' | 'begin' | 'commit' | 'rollback'>>
 }
 
 function makeCtx(em: any): CommandRuntimeContext {
@@ -101,7 +115,10 @@ function makeCtx(em: any): CommandRuntimeContext {
 }
 
 describe('customers.people.delete — dependent guard', () => {
-  afterEach(() => jest.clearAllMocks())
+  afterEach(() => {
+    jest.clearAllMocks()
+    mockFindWithDecryption.mockImplementation(async () => [])
+  })
 
   it('throws 422 with PERSON_HAS_DEPENDENTS when the person is referenced by deals', async () => {
     const entity = makePersonEntity()
@@ -146,5 +163,79 @@ describe('customers.people.delete — dependent guard', () => {
       expect(captured.body).not.toMatchObject({ code: 'PERSON_HAS_DEPENDENTS' })
     }
     expect(em.count).toHaveBeenCalledWith(CustomerDealPersonLink, { person: entity })
+  })
+
+  it('removes the person\'s label assignments with the person and returns them for undo', async () => {
+    const entity = makePersonEntity()
+    const em = makeEm(entity, 0)
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+    const createdAt = new Date('2026-01-01T00:00:00.000Z')
+    mockFindWithDecryption.mockImplementation((async (_em: unknown, ctor: unknown) =>
+      ctor === CustomerLabelAssignment
+        ? [{ id: 'la-1', label: { id: 'label-1' }, userId: 'user-2', createdAt }]
+        : []) as unknown as () => Promise<never[]>)
+
+    const result = await handler.execute({ body: { id: PERSON_ID } }, ctx)
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerLabelAssignment, {
+      id: { $in: ['la-1'] },
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+    })
+    expect(result).toEqual({
+      entityId: PERSON_ID,
+      labelAssignments: [{ id: 'la-1', labelId: 'label-1', userId: 'user-2', createdAt }],
+    })
+  })
+})
+
+describe('customers.people.delete — row lock (issue #7613)', () => {
+  afterEach(() => jest.clearAllMocks())
+
+  it('locks the entity row with PESSIMISTIC_WRITE before any dependent check or child cleanup', async () => {
+    const entity = makePersonEntity()
+    const opLog: OperationLog = []
+    const em = makeEm(entity, 0, opLog)
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+
+    await handler.execute({ body: { id: PERSON_ID } }, ctx)
+
+    // The transaction must open before any row is touched, so a concurrent
+    // insert of a child row (e.g. a label assignment) blocks on the lock
+    // instead of racing the final delete with a 409 FOREIGN_KEY_VIOLATION.
+    expect(em.begin).toHaveBeenCalledTimes(1)
+    const lockIndex = opLog.findIndex((entry) =>
+      entry.op === 'findOne' && entry.entity === CustomerEntity
+      && (entry.options as { lockMode?: LockMode } | undefined)?.lockMode === LockMode.PESSIMISTIC_WRITE)
+    expect(lockIndex).toBeGreaterThanOrEqual(0)
+    // The dependent-links count (and every later child read/cleanup) happens
+    // strictly after the lock is acquired.
+    const dealLinksIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerDealPersonLink)
+    expect(dealLinksIndex).toBeGreaterThan(lockIndex)
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(em.rollback).not.toHaveBeenCalled()
+  })
+
+  it('rolls back without deleting anything when a concurrent deal link already exists under the lock', async () => {
+    const entity = makePersonEntity()
+    const opLog: OperationLog = []
+    const em = makeEm(entity, 1, opLog)
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+
+    await expect(handler.execute({ body: { id: PERSON_ID } }, ctx)).rejects.toBeInstanceOf(CrudHttpError)
+
+    const lockIndex = opLog.findIndex((entry) =>
+      entry.op === 'findOne' && entry.entity === CustomerEntity
+      && (entry.options as { lockMode?: LockMode } | undefined)?.lockMode === LockMode.PESSIMISTIC_WRITE)
+    expect(lockIndex).toBeGreaterThanOrEqual(0)
+    const dealLinksIndex = opLog.findIndex((entry) => entry.op === 'count' && entry.entity === CustomerDealPersonLink)
+    expect(dealLinksIndex).toBeGreaterThan(lockIndex)
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
   })
 })

@@ -10,10 +10,13 @@ cd my-app
 yarn setup
 ```
 
-Official and external ready apps can also be bootstrapped directly:
+`yarn setup` needs Node 24, Yarn 4 (`corepack enable`) and a running Docker engine. It checks Docker, starts PostgreSQL, Redis and Meilisearch from the app's `docker-compose.yml`, waits until they are healthy, then installs dependencies, migrates and initializes the database and starts the dev server. It copies `.env.example` to `.env` only when `.env` is missing and never overwrites it, so re-running is safe. Running PostgreSQL, Redis and Meilisearch yourself? Point `.env` at them and use `yarn setup --no-infra` (no Docker calls at all).
+
+To start from a working app instead of the bare scaffold, create it from an [app template](https://modules.openmercato.com/templates) or from any GitHub repository that holds a standalone app:
 
 ```bash
-npx create-mercato-app my-prm --app prm
+npx create-mercato-app my-crm --template crm
+npx create-mercato-app my-portal --template some-agency/b2b-portal#v1.0.0
 npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
 ```
 
@@ -35,9 +38,14 @@ npx create-mercato-app <app-name> [options]
 |--------|-------------|
 | `--app <name>` | Bootstrap an official Open Mercato ready app from `open-mercato/ready-app-<name>` |
 | `--app-url <url>` | Bootstrap a ready app from a GitHub repository URL |
+| `--template <slug \| owner/repo>[#ref]` | Create the app from an app template: a slug listed at [modules.openmercato.com/templates](https://modules.openmercato.com/templates) or any GitHub repository. See [App Templates](#app-templates) |
+| `--keep-name` | With `--template`, keep the template's `package.json` `name` |
 | `--preset <id>` | Select the `classic`, `empty`, `crm`, or `wms` starter without prompting |
 | `--agents <list>` | Set up `claude-code`, `codex`, `cursor`, a comma-separated subset, `all`, or `none` without prompting |
 | `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
+| `--modules <list>` | Plan modules from the [Open Mercato Modules](https://modules.openmercato.com/) catalog, verified on this Open Mercato line. Prints the `yarn mercato module add` commands; installs nothing |
+| `--module-picker` | Pick catalog modules interactively, with origin, license, level and any catalog warning shown first. Offered by default in a terminal when neither `--preset` nor `--modules` is given |
+| `--no-module-picker` | Do not offer the catalog module picker |
 | `--init-git` | Initialize a local Git repository after scaffolding |
 | `--no-init-git` | Do not prompt for or initialize a local Git repository |
 | `--registry <url>` | Custom npm registry URL |
@@ -51,8 +59,11 @@ npx create-mercato-app <app-name> [options]
 # Create a new app using the public npm registry
 npx create-mercato-app my-store
 
-# Create an official Open Mercato ready app
-npx create-mercato-app my-prm --app prm
+# Create an app from a listed app template
+npx create-mercato-app my-crm --template crm
+
+# Create an app from a GitHub repository at a tag
+npx create-mercato-app my-portal --template some-agency/b2b-portal#v1.0.0
 
 # Create an app from an external GitHub-hosted ready app
 npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
@@ -82,16 +93,37 @@ npx create-mercato-app my-store --agents claude-code,codex --experimental-hooks-
 npx create-mercato-app my-store --init-git
 ```
 
+## App Templates
+
+An app template is a GitHub repository with a complete standalone app at its root. Listed templates are at [modules.openmercato.com/templates](https://modules.openmercato.com/templates). To save your own app as a template, use [create-mercato-template](https://github.com/open-mercato/create-mercato-template).
+
+```bash
+npx create-mercato-app <app-name> --template <slug | owner/repo>[#ref] [--keep-name]
+```
+
+- A slug is looked up in the template index (`templates.json`). `owner/repo` also works for a repository that is not listed, and for a private one when `GITHUB_TOKEN` is set. `#ref` is a branch, tag or commit.
+- The CLI picks one commit and prints it before anything is downloaded: `Template: owner/repo@<sha> (<state>)`. The state is `verified`, `not verified`, `not listed, not verified` or `catalog status unknown, not verified` (the index could not be read). A `#ref` that points to another commit than the listed one prints `not verified, no catalog facts for <sha>`.
+- A template on hold is refused with its reason, and there is no override. An unmaintained template works and prints its reason.
+- The CLI warns and continues when the template is built on another Open Mercato line than the latest stable one (both lines are shown), and when it registers `@open-mercato/enterprise` modules on every start, which need an Open Mercato Enterprise license. A dependency on that package with its modules behind a flag such as `OM_ENABLE_ENTERPRISE_MODULES` (as in the stock scaffold) prints nothing; when `src/modules.ts` cannot be read, the CLI says the license may be needed but could not be confirmed.
+- `--template` cannot be combined with `--app`, `--app-url`, `--modules`, `--module-picker`, `--agents`, `--experimental-hooks-validator` or a `--preset` other than `classic`. The module picker and the agentic setup wizard are not offered. `--registry` and `--verdaccio` do not apply: the app keeps the registry settings of its own `.yarnrc.yml`.
+- The app is copied as it is, with three changes: the `package.json` `name` becomes the app name (unless `--keep-name`), `package.json` gets an `openMercatoTemplate` field with the repository, ref and commit, and the root `mercato-template.json` is removed.
+- If the import fails, the CLI removes the directory it created.
+- The next steps depend on the scripts in the created app's `package.json`. With `setup` and `infra:up` (apps scaffolded since `yarn setup` starts Docker), they are `yarn setup` and the `yarn setup --no-infra` alternative for your own services, like a normal scaffold; `cp .env.example .env` and the env keys come first only when the template declares keys. With `setup` but no `infra:up`, they are `cp .env.example .env`, the env keys, `docker compose up -d` (or a note to start PostgreSQL, Redis and Meilisearch yourself) and `yarn setup`. With neither, they are `cp .env.example .env`, the env keys, `yarn install`, `yarn initialize` and `yarn dev`.
+
+Set `OM_TEMPLATES_URL` to read another index, for example a local copy. It must be an `https` URL, or `http` on `localhost`, `127.0.0.1` or `[::1]`.
+
 ## Ready App Behavior
 
 - `--app <name>` resolves to `open-mercato/ready-app-<name>` and fetches the exact tag `v<create-mercato-app version>`
 - `--app-url <url>` only supports GitHub repository URLs in v1 and honors `/tree/<ref>` when present
 - `--app` and `--app-url` are mutually exclusive
 - `--skip-agentic-setup` skips only the interactive agentic setup wizard
-- Imported ready apps are copied as raw source snapshots: the CLI does not rewrite dependency versions, package names, or application source files
+- Imported ready apps are copied as raw source snapshots: the CLI does not rewrite dependency versions, package names, or application source files. `--template` makes the three changes listed under [App Templates](#app-templates)
 - Imported ready apps skip the interactive agentic setup wizard; if you want agentic tooling later, run `yarn mercato agentic:init` inside the generated app
 - `--agents` is only supported for bare scaffolds; use `yarn mercato agentic:init` after importing a ready app
 - Imported ready apps must not contain `.template` files; the scaffold fails closed if template files are found
+- When `open-mercato/ready-app-<name>` does not exist, the `--app` error points to app templates
+- Every import (`--app`, `--app-url` and `--template`) is inspected before the app directory is created: the download is at most 64 MiB, the archive holds at most 10,000 entries and 128 MiB unpacked, and only files and directories are allowed. A link, a special file, an absolute path or a `..` segment stops the import and names the path
 
 ## Standalone AI Harness
 
@@ -152,7 +184,7 @@ yarn install-skills
 yarn harness:release --runner codex --prepare-targets /absolute/empty-release-targets --acknowledge-writes
 ```
 
-The target directory must be absolute, new or empty, and outside the controller app. Select one blocking primary runner with `--runner codex` or `--runner claude`; it owns all 237 routing cases and every writable/review lane, with no per-case fallback. Optionally add the different authenticated runner through `--portability-runner` for the exact 49-case representative read-only lane. Omitting it is valid and recorded as not requested; once requested, its failures are blocking. Use a fresh, sanitized controller: automatic preparation fails before copying `.env`/`.env.*` local configuration (safe example/sample/template files remain allowed), credential files, or private-key files. The complete gate requires Linux with trusted system Bubblewrap (`bwrap`) and user namespaces because its Playwright API/browser lanes need a loopback namespace isolated from the host. Preflight rejects untrusted/no-op/pass-through executables and proves isolated loopback plus a capability-free payload before target preparation, provider invocation, or writes; native macOS and Windows therefore fail closed. The command also fails closed when a required runner, browser, or test runtime is unavailable. The 237-case catalog includes 93 framework-neutral business prompts and 49 writable implementation/regression cases (20.7%). The release command runs live routing, writable trusted oracles, per-target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Foundation and target validation—including `yarn build`—receive a minimal environment with network access denied, and persisted diagnostics redact sensitive environment values and URL userinfo. Test-authoring coverage executes a Jest unit test plus Linux/Bubblewrap loopback-only Playwright API and browser tests through fixed controller-owned commands against a read-only target; runtime reports must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests. The suite then writes a schema-valid sanitized mode-`0600` report under `.ai/harness/results/` with the selected primary and optional portability runner policy.
+The target directory must be absolute, new or empty, and outside the controller app. Select one blocking primary runner with `--runner codex` or `--runner claude`; it owns all 241 routing cases and every writable/review lane, with no per-case fallback. Optionally add the different authenticated runner through `--portability-runner` for the exact 49-case representative read-only lane. Omitting it is valid and recorded as not requested; once requested, its failures are blocking. Use a fresh, sanitized controller: automatic preparation fails before copying `.env`/`.env.*` local configuration (safe example/sample/template files remain allowed), credential files, or private-key files. The complete gate requires Linux with trusted system Bubblewrap (`bwrap`) and user namespaces because its Playwright API/browser lanes need a loopback namespace isolated from the host. Preflight rejects untrusted/no-op/pass-through executables and proves isolated loopback plus a capability-free payload before target preparation, provider invocation, or writes; native macOS and Windows therefore fail closed. The command also fails closed when a required runner, browser, or test runtime is unavailable. The 241-case catalog includes 93 framework-neutral business prompts and 49 writable implementation/regression cases (20.3%). The release command runs live routing, writable trusted oracles, per-target `generate`/`typecheck`/`lint`/`build`, any declared generated test, and isolated generated-code review for every writable result. Foundation and target validation—including `yarn build`—receive a minimal environment with network access denied, and persisted diagnostics redact sensitive environment values and URL userinfo. Test-authoring coverage executes a Jest unit test plus Linux/Bubblewrap loopback-only Playwright API and browser tests through fixed controller-owned commands against a read-only target; runtime reports must attest at least one passed test and zero skipped, todo, focused, flaky, or expected-failure tests. The suite then writes a schema-valid sanitized mode-`0600` report under `.ai/harness/results/` with the selected primary and optional portability runner policy.
 
 Use the bundled `om-evolve-harness` skill to add a real case: reproduce failure first, select one smallest knowledge owner, run any generated unit/integration tests plus target checks, require code review, and finish with the full release suite. Open Mercato framework maintainers use the monorepo-only `$om-refresh-standalone-harness --from <ref> --to <ref>` workflow for every release range and retain its sanitized maintenance report.
 
@@ -197,7 +229,9 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
    ```bash
    yarn setup
    ```
-   If you need to reset and initialize from scratch instead:
+   It first checks the Docker CLI, the Compose v2 plugin and the engine, refuses ports that another process already holds (PostgreSQL `5432`, Redis `6379`, Meilisearch `7700`; change them with `POSTGRES_PORT`, `REDIS_PORT`, `MEILISEARCH_PORT` in `.env`, and keep the port in `DATABASE_URL` in step), starts the containers and waits for their healthchecks. Only then does it install dependencies, generate, migrate, initialize (the first run seeds data and prints the admin credentials; later runs keep the existing database) and start the dev server. When something is missing it stops before any database step and says what to fix. It never installs Docker or asks for sudo.
+
+   If you need to reset and initialize from scratch instead (deletes local data):
    ```bash
    yarn setup --reinstall
    ```
@@ -219,41 +253,40 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
    yarn dev --database-name=review_1720 --no-update-env
    ```
 
-3. Manual alternative if you want to edit the environment first:
+3. Using your own PostgreSQL, Redis and Meilisearch instead of Docker:
    ```bash
    cp .env.example .env
-   # Edit .env with your database credentials
+   # Point DATABASE_URL (and the Redis/Meilisearch settings) at your services
+   yarn setup --no-infra
    ```
+   `--no-infra` makes no Docker calls and keeps the URLs from your `.env`. It also works with `setup:classic`, `setup:reinstall` and `setup:reinstall:classic`.
 
-4. Install dependencies:
+4. Local infrastructure on its own:
    ```bash
-   yarn install
+   yarn infra:up                    # start the containers and wait until they are healthy
+   yarn infra:down                  # stop them; data volumes are kept
+   yarn infra:down --volumes --yes  # stop them and DELETE the local database and search data
    ```
 
-5. Generate required files:
-   ```bash
-   yarn generate
-   ```
-
-6. Run database migrations:
-   ```bash
-   yarn db:migrate
-   ```
-
-7. Initialize the application:
-   ```bash
-   yarn initialize
-   ```
-
-8. Start the development server:
+5. Day to day:
    ```bash
    yarn dev
    ```
-   On native local runs, `yarn dev` opens the standalone splash screen on `http://localhost:4000` by default, shows live startup progress, and keeps routine logs folded. Once the app is ready, the splash can also:
-   - launch supported coding tools from the `Start coding with AI` menu
+   Run `yarn infra:up` first if the containers were stopped. On native local runs, `yarn dev` opens the standalone splash screen on `http://localhost:4000` by default, shows live startup progress, and keeps routine logs folded. While the app is still starting, the `Start building with Cezar` button opens [Cezar](https://github.com/open-mercato/cezar) for the project by running `npx cezar-run` in a new terminal. Once the app is ready, the splash can also:
+   - launch supported coding tools by hovering `Start building with Cezar` or using its dropdown toggle
    - create or publish a GitHub repository through `gh` when `OM_DEV_CREATE_GIT_REPO_FLOW` is enabled and GitHub CLI is installed
 
-9. Docker alternatives:
+6. Manual alternative (the steps `yarn setup` runs for you, against services you started yourself):
+   ```bash
+   cp .env.example .env
+   yarn install
+   yarn generate
+   yarn db:migrate
+   yarn initialize
+   yarn dev
+   ```
+
+7. Full Docker stack (the app runs in a container too):
    ```bash
    cp .env.example .env
    yarn install
@@ -269,9 +302,11 @@ The standalone dev splash also exposes a GitHub publishing panel after `yarn dev
 
 ## After Importing A Ready App
 
+For an app created with `--template`, follow the next steps the CLI prints. They match the scripts the app has: `yarn setup` for an app with `setup` and `infra:up`, the services first and then `yarn setup` for an older `setup`, otherwise the steps below. The env keys the template declares are listed with them.
+
 1. Navigate to your app directory:
    ```bash
-   cd my-prm
+   cd my-app
    ```
 
 2. Install dependencies:
@@ -317,7 +352,7 @@ gh auth login
 
 ### Recommended AI coding tools
 
-- Codex CLI is the recommended OpenAI terminal workflow for the splash `Start coding with AI` menu.
+- Codex CLI is the recommended OpenAI terminal workflow for the splash agent dropdown.
   - Install guide: <https://developers.openai.com/codex/cli>
   - Install command:
 
@@ -325,7 +360,7 @@ gh auth login
 npm i -g @openai/codex
 ```
 
-- Claude Code is the recommended Anthropic terminal workflow for the splash `Start coding with AI` menu.
+- Claude Code is the recommended Anthropic terminal workflow for the splash agent dropdown.
   - Install guide: <https://code.claude.com/docs/en/setup>
   - Native installer:
 
@@ -348,7 +383,7 @@ The standalone compact dev runtime supports these splash-related environment var
 | `OM_DEV_SPLASH_PORT` | `4000` | Port used by the splash page. Use `random` or `0` for an ephemeral free port. |
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to keep the splash from opening automatically in a browser. |
 | `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Enables the standalone splash GitHub publish panel. Set to `false` to hide it. |
-| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Enables the `Start coding with AI` splash menu. Set to `false` to hide it. |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Enables the `Start coding with AI` splash menu and the `Start building` (Cezar) button. Set to `false` to hide both. |
 | `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI used by the splash coding menu. |
 | `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI used by the splash coding menu. |
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI used by the splash coding menu. |

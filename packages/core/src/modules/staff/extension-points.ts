@@ -152,6 +152,7 @@ export const extensionPoints = defineModuleExtensionPoints({
     myWorkAfterSections: pageHost('staff.my_work:after-sections', 'backend/staff/time-tracking/page.tsx'),
 
     timeTrackingSettingsSections: pageHost('staff.time_tracking.settings:sections', 'backend/staff/time-tracking/settings/page.tsx'),
+    timeTrackingSettingsTabs: pageHost('staff.time_tracking.settings:tabs', 'backend/staff/time-tracking/settings/page.tsx'),
 
     timerBarActions: pageHost('staff.timesheets.timer-bar:actions', 'lib/timesheets-ui/TimerBar.tsx'),
 

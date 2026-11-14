@@ -153,6 +153,7 @@ const todoItemSchema = z.object({
   todoSeverity: z.string().nullable().optional(),
   todoDescription: z.string().nullable().optional(),
   todoDueAt: z.string().nullable().optional(),
+  todoTimezone: z.string().nullable().optional(),
   todoCustomValues: z.record(z.string(), z.unknown()).nullable().optional(),
   todoOrganizationId: z.string().nullable(),
   organizationId: z.string(),

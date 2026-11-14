@@ -1,9 +1,9 @@
-import { getTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
+import { getTranslatableFieldExpander, getTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 import { getEntityFields } from '#generated/entity-fields-registry'
 import { isTranslatableField } from './translatable-fields'
 import { formatFieldLabel } from './helpers'
 
-export type ResolvedField = { key: string; label: string; multiline: boolean }
+export type ResolvedField = { key: string; label: string; multiline: boolean; baseValue?: string }
 
 function isMultiline(key: string): boolean {
   return key === 'description' || key.includes('description') || key.includes('content')
@@ -13,6 +13,7 @@ export function resolveFieldList(
   entityType: string,
   explicitFields: string[] | undefined,
   customFieldDefs: Array<{ key: string; kind: string; label?: string }>,
+  baseValues?: Record<string, unknown> | null,
 ): ResolvedField[] {
   if (explicitFields?.length) {
     return explicitFields.map((key) => ({
@@ -53,6 +54,19 @@ export function resolveFieldList(
           }
         }
       }
+    }
+  }
+
+  const expander = getTranslatableFieldExpander(entityType)
+  if (expander && baseValues) {
+    for (const expansion of expander(baseValues)) {
+      if (fields.some((f) => f.key === expansion.key)) continue
+      fields.push({
+        key: expansion.key,
+        label: expansion.label ?? formatFieldLabel(expansion.key),
+        multiline: isMultiline(expansion.key),
+        ...(expansion.baseValue !== undefined ? { baseValue: expansion.baseValue } : {}),
+      })
     }
   }
 

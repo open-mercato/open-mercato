@@ -7,6 +7,13 @@ import { reconcileAttachmentOrganizations } from '@open-mercato/core/modules/att
 
 const logger = createLogger('configs').child({ component: 'upgrade-actions' })
 
+type BaseCurrencyResolver = {
+  resolveBaseCurrency(scope: {
+    tenantId: string
+    organizationIds: string[]
+  }): Promise<{ status: 'resolved'; code: string } | { status: 'missing' | 'ambiguous' | 'unavailable' }>
+}
+
 export type UpgradeActionContext = {
   tenantId: string
   organizationId: string
@@ -85,7 +92,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
       const [{ default: devicesEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
         import('@open-mercato/core/modules/devices/encryption'),
-        import('@open-mercato/core/modules/entities/cli'),
+        import('@open-mercato/core/modules/entities/lib/encryption-maps'),
       ])
       const materializedScopes = await upsertEncryptionMapSpecs(
         em,
@@ -160,7 +167,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     run: async ({ container, em, tenantId, organizationId, deferAfterCommit }) => {
       const [{ default: phoneCallsEncryptionMaps }, { invalidateEncryptionMapScopes, upsertEncryptionMapSpecs }] = await Promise.all([
         import('@open-mercato/core/modules/phone_calls/encryption'),
-        import('@open-mercato/core/modules/entities/cli'),
+        import('@open-mercato/core/modules/entities/lib/encryption-maps'),
       ])
       const materializedScopes = await upsertEncryptionMapSpecs(
         em,
@@ -174,6 +181,62 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       }
       if (deferAfterCommit) deferAfterCommit(invalidate)
       else await invalidate()
+    },
+  },
+  {
+    id: 'ecommerce.seed-draft-store',
+    version: '0.9.1',
+    messageKey: 'configs.upgrades.ecommerceDraftStore.message',
+    ctaKey: 'configs.upgrades.ecommerceDraftStore.cta',
+    successKey: 'configs.upgrades.ecommerceDraftStore.success',
+    loadingKey: 'configs.upgrades.ecommerceDraftStore.loading',
+    requiredModules: ['ecommerce'],
+    run: async ({ container, em, tenantId, organizationId }) => {
+      const { seedDraftStore } = await import('@open-mercato/core/modules/ecommerce/lib/seedDraftStore')
+      const result = await seedDraftStore(
+        em,
+        { tenantId, organizationId },
+        {
+          resolveCurrencyCode: async () => {
+            try {
+              const resolver = container.resolve<BaseCurrencyResolver>('baseCurrencyService')
+              const resolution = await resolver.resolveBaseCurrency({ tenantId, organizationIds: [organizationId] })
+              return resolution.status === 'resolved' ? resolution.code : null
+            } catch {
+              return null
+            }
+          },
+        },
+      )
+      logger.info('ecommerce draft store seed completed', { tenantId, organizationId, status: result.status })
+    },
+  },
+  {
+    id: 'cart.register-sweeper-schedules',
+    version: '0.9.1',
+    messageKey: 'configs.upgrades.cartSweeperSchedules.message',
+    ctaKey: 'configs.upgrades.cartSweeperSchedules.cta',
+    successKey: 'configs.upgrades.cartSweeperSchedules.success',
+    loadingKey: 'configs.upgrades.cartSweeperSchedules.loading',
+    requiredModules: ['cart'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerCartSweeperSchedules } = await import('@open-mercato/core/modules/cart/lib/scheduling')
+      await registerCartSweeperSchedules(container, { tenantId, organizationId })
+    },
+  },
+  {
+    id: 'promotions.register-code-reservation-sweep-schedule',
+    version: '0.9.1',
+    messageKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.message',
+    ctaKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.cta',
+    successKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.success',
+    loadingKey: 'configs.upgrades.promotionsCodeReservationSweepSchedule.loading',
+    requiredModules: ['promotions'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerCodeReservationSweepSchedule } = await import(
+        '@open-mercato/core/modules/promotions/lib/scheduling'
+      )
+      await registerCodeReservationSweepSchedule(container, { tenantId, organizationId })
     },
   },
 ]

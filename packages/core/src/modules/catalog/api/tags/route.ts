@@ -10,6 +10,7 @@ import { CatalogProductTag } from '../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPagedListResponseSchema } from '../openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { isIdsParamProvided, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
@@ -20,6 +21,7 @@ export const metadata = routeMetadata
 const querySchema = z
   .object({
     search: z.string().optional(),
+    ids: z.string().optional().describe('Comma-separated tag ids to return; malformed ids match nothing.'),
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(200).default(50),
   })
@@ -34,6 +36,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const parsed = querySchema.safeParse({
     search: url.searchParams.get('search') ?? undefined,
+    ids: url.searchParams.get('ids') ?? undefined,
     page: url.searchParams.get('page') ?? undefined,
     pageSize: url.searchParams.get('pageSize') ?? undefined,
   })
@@ -67,6 +70,9 @@ export async function GET(req: Request) {
   const search = query.search?.trim()
   if (search) {
     where.label = { $ilike: `%${escapeLikePattern(search)}%` }
+  }
+  if (isIdsParamProvided(query.ids)) {
+    where.id = { $in: parseIdsParam(query.ids) }
   }
 
   const limit = query.pageSize
