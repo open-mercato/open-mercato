@@ -47,7 +47,7 @@ import { collectRunOutcomeEvidence } from './run-outcome-evidence'
 import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { resolveWorkflowDefinitionExecutionUserId } from './definition-grant'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { emitWorkflowsEvent } from '../events'
+import { emitInstanceLifecycleEvent, emitInstanceParkTransition } from './instance-lifecycle-events'
 import { DRY_RUN_EVENT_TYPES } from './dry-run'
 import {
   STEP_THROUGH_EVENT_TYPE,
@@ -1257,6 +1257,7 @@ async function pauseForStepThrough(
   instance: WorkflowInstance
 ): Promise<void> {
   const now = new Date()
+  const previousStatus = instance.status
   instance.status = 'PAUSED'
   instance.pausedAt = now
   instance.updatedAt = now
@@ -1269,6 +1270,7 @@ async function pauseForStepThrough(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+  await emitInstanceParkTransition(instance, previousStatus)
 }
 
 /**
@@ -1284,6 +1286,7 @@ async function parkInstanceForAttention(
   error: string
 ): Promise<void> {
   const now = new Date()
+  const previousStatus = instance.status
   instance.status = 'PAUSED'
   instance.pausedAt = now
   instance.errorMessage = error
@@ -1306,6 +1309,7 @@ async function parkInstanceForAttention(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+  await emitInstanceParkTransition(instance, previousStatus)
 }
 
 /**
@@ -2032,48 +2036,6 @@ export async function updateWorkflowContextScoped(
 }
 
 // findWorkflowDefinition is imported from ./find-definition
-
-type InstanceLifecycleEventId =
-  | 'workflows.instance.created'
-  | 'workflows.instance.started'
-  | 'workflows.instance.completed'
-  | 'workflows.instance.failed'
-  | 'workflows.instance.cancelled'
-
-/**
- * Publish a declared `workflows.instance.*` lifecycle event to the event bus,
- * alongside (never instead of) the internal `WorkflowEvent` audit row. Delivery
- * is at-least-once and consumers must be idempotent; a bus failure must never
- * break workflow execution, so this is strictly best-effort.
- */
-async function emitInstanceLifecycleEvent(
-  instance: WorkflowInstance,
-  eventId: InstanceLifecycleEventId,
-  extra?: Record<string, unknown>
-): Promise<void> {
-  try {
-    await emitWorkflowsEvent(
-      eventId,
-      {
-        id: instance.id,
-        tenantId: instance.tenantId,
-        organizationId: instance.organizationId,
-        workflowId: instance.workflowId,
-        version: instance.version,
-        status: instance.status,
-        stepId: instance.currentStepId ?? null,
-        ...extra,
-      },
-      { persistent: true }
-    )
-  } catch (error) {
-    logger.error('failed to emit workflow event', {
-      eventId,
-      instanceId: instance.id,
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
-}
 
 /**
  * Log workflow event to event sourcing table

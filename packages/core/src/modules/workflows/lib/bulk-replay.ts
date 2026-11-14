@@ -20,6 +20,7 @@ import { WorkflowInstance } from '../data/entities'
 import * as workflowExecutor from './workflow-executor'
 import { isRetryableRunOutcome, type WorkflowRunOutcome } from './run-outcome'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
+import { emitInstanceParkTransition } from './instance-lifecycle-events'
 
 const logger = createLogger('workflows')
 
@@ -102,12 +103,14 @@ async function retryInstance(
   if (instance.metadata?.attention) {
     instance.metadata = { ...instance.metadata, attention: null }
   }
+  const previousInstanceStatus = instance.status
   instance.status = 'RUNNING'
   instance.retryCount = (instance.retryCount || 0) + 1
   instance.errorMessage = null
   instance.errorDetails = null
   instance.updatedAt = new Date()
   await em.flush()
+  await emitInstanceParkTransition(instance, previousInstanceStatus)
 
   await workflowExecutor.executeWorkflow(em, container, instance.id)
 }

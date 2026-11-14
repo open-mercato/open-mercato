@@ -11,9 +11,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
 }))
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterAll } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import * as stepHandler from '../step-handler'
 import { fireTimer, TimerError } from '../timer-handler'
 import { enqueueTimerJob } from '../activity-executor'
@@ -491,6 +492,62 @@ describe('WAIT_FOR_TIMER step', () => {
         undefined,
         expect.objectContaining({ tenantId, organizationId }),
       )
+    })
+  })
+
+  describe('workflows.instance.resumed bus emission (#7186)', () => {
+    afterAll(() => {
+      setGlobalEventBus({ emit: async () => {} })
+    })
+
+    test('firing a timer emits resumed exactly once with an identity-only payload', async () => {
+      const busEmit = jest.fn(async () => {})
+      setGlobalEventBus({ emit: busEmit as never })
+      const instance = makeInstance({ status: 'PAUSED' })
+      const stepInstance = {
+        id: 'step-instance-1',
+        workflowInstanceId: instanceId,
+        stepId: 'timer_step',
+        status: 'ACTIVE',
+        tenantId,
+        organizationId,
+      } as any
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(instance as any)
+        .mockResolvedValueOnce(makeDefinition({ duration: 'PT5M' }) as any)
+        .mockResolvedValueOnce(stepInstance)
+
+      await fireTimer(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId: stepInstance.id,
+        tenantId,
+        organizationId,
+      })
+
+      const resumed = busEmit.mock.calls.filter((call: unknown[]) => call[0] === 'workflows.instance.resumed')
+      expect(resumed).toHaveLength(1)
+      expect(resumed[0][1]).toEqual({
+        id: instanceId,
+        tenantId,
+        organizationId,
+        workflowId: 'timer-workflow',
+        version: 1,
+        status: 'RUNNING',
+        stepId: 'timer_step',
+      })
+    })
+
+    test('parking on a future timer emits paused exactly once', async () => {
+      const busEmit = jest.fn(async () => {})
+      setGlobalEventBus({ emit: busEmit as never })
+      const instance = makeInstance()
+      mockEm.findOne.mockResolvedValue(makeDefinition({ duration: 'PT5M' }) as WorkflowDefinition)
+      mockEm.create.mockReturnValue({ id: 'step-instance-1', stepId: 'timer_step', status: 'ACTIVE' } as any)
+
+      await stepHandler.executeStep(mockEm, instance, 'timer_step', { workflowContext: {} }, mockContainer)
+
+      expect(instance.status).toBe('PAUSED')
+      expect(busEmit.mock.calls.filter((call: unknown[]) => call[0] === 'workflows.instance.paused')).toHaveLength(1)
     })
   })
 })

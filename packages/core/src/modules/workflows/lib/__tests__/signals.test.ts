@@ -16,6 +16,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
 }))
 
 import { isRaw } from '@mikro-orm/core'
+import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import {
   findOneWithDecryption,
   findWithDecryption,
@@ -1362,6 +1363,74 @@ describe('Workflow Signals - Phase 9.1', () => {
           organizationId,
         })
       )
+    })
+  })
+
+  describe('workflows.instance.resumed bus emission (#7186)', () => {
+    let busEmit: jest.Mock
+
+    beforeEach(() => {
+      busEmit = jest.fn(async () => {})
+      setGlobalEventBus({ emit: busEmit as never })
+    })
+
+    afterAll(() => {
+      setGlobalEventBus({ emit: async () => {} })
+    })
+
+    const resumedCalls = () => busEmit.mock.calls.filter((call) => call[0] === 'workflows.instance.resumed')
+
+    const deliver = () =>
+      sendSignal(mockEm, mockContainer, {
+        instanceId,
+        signalName: 'approval_granted',
+        payload: { approved: true },
+        userId,
+        tenantId,
+        organizationId,
+      })
+
+    it('emits resumed exactly once with an identity-only payload when the claim wins', async () => {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance } as any)
+
+      await deliver()
+
+      expect(resumedCalls()).toHaveLength(1)
+      expect(resumedCalls()[0][1]).toEqual({
+        id: instanceId,
+        tenantId,
+        organizationId,
+        workflowId: 'signal_workflow',
+        version: 1,
+        status: 'RUNNING',
+        stepId: 'wait_approval',
+      })
+      expect(busEmit.mock.calls.filter((call) => call[0] === 'workflows.instance.paused')).toHaveLength(0)
+    })
+
+    it('emits nothing when a concurrent delivery already won the claim', async () => {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+      mockEm.nativeUpdate.mockResolvedValueOnce(0)
+
+      await expect(deliver()).rejects.toMatchObject({ code: 'WORKFLOW_NOT_PAUSED' })
+
+      expect(resumedCalls()).toHaveLength(0)
+    })
+
+    it('emits nothing when the claimed delivery is handed back after a failure', async () => {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+      mockLogWorkflowEvent.mockRejectedValueOnce(new Error('audit write failed'))
+
+      await expect(deliver()).rejects.toThrow('audit write failed')
+
+      expect(resumedCalls()).toHaveLength(0)
     })
   })
 })
