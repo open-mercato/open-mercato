@@ -20,6 +20,9 @@ import {
 } from '../lib/ai-reply'
 import { DISCORD_CHANNEL_TYPE } from '../lib/channel-identity'
 import { fileDiscordReplyProposal } from '../lib/ai-proposal'
+import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../lib/ai-proposal-contract'
+import { DISCORD_PROPOSAL_ORIGIN_KEY_LIKE } from '../lib/ai-proposal-origin'
+import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
 import { resolveDiscordAiPrincipal, type DiscordAiPrincipal } from '../lib/ai-service-principal'
 import { recordDiscordAutoReplyOutcome } from '../lib/channel-state-store'
 import { describeAgentFailure } from '../lib/failure-reason'
@@ -68,6 +71,8 @@ export const metadata = {
  * is much higher than the cost of a human glancing at a proposal.
  */
 export const AUTO_SEND_MIN_CONFIDENCE = 0.6
+
+const CHANNEL_DISCORD_AUTO_REPLY_IDEMPOTENCY_PREFIX = 'channel_discord:ai-auto-reply:'
 
 type MessageReceivedPayload = {
   messageId?: string
@@ -212,6 +217,9 @@ async function draftAndRoute(args: {
 }): Promise<void> {
   const { ctx, em, message, channelId, conversationId, agentId, body, scope, tier, classificationReason } = args
 
+  const autoReplyKey = `${CHANNEL_DISCORD_AUTO_REPLY_IDEMPOTENCY_PREFIX}${message.id}`
+  if (await wasAlreadyHandled({ em, scope, inboundMessageId: message.id, autoReplyKey })) return
+
   const principal = await resolveDiscordAiPrincipal({ em, resolver: { resolve: (name) => resolveFromCtx(ctx, name) }, scope })
 
   const draft = await runAutoReplyAgent({ ctx, agentId, body, principal, sessionId: message.threadId ?? message.id })
@@ -279,9 +287,45 @@ async function draftAndRoute(args: {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       userId: botUserId,
+      idempotencyKey: autoReplyKey,
     },
     ctx: containerCtx as never,
   })
+}
+
+/**
+ * The events worker retries a job when ANY persistent subscriber on the event
+ * fails, re-running the ones that already succeeded. A retry must neither post
+ * the reply again nor file a second proposal, so an inbound message that already
+ * has this subscriber's reply or proposal is left alone. Soft-deleted rows count
+ * too: an undone reply was still posted, and a removed proposal must not come
+ * back on a retry. A proposal is recognised by the origin key it was filed with,
+ * not by its sender: the bot-user lookup falls back to the sentinel on a
+ * transient error, so the sender can differ between attempts. The message API
+ * cannot set an idempotency key, so a key with that prefix is never
+ * user-supplied.
+ */
+async function wasAlreadyHandled(params: {
+  em: EntityManager
+  scope: { tenantId: string; organizationId: string | null }
+  inboundMessageId: string
+  autoReplyKey: string
+}): Promise<boolean> {
+  const { em, scope, inboundMessageId, autoReplyKey } = params
+  const existing = await em.count(Message, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    $or: [
+      { idempotencyKey: autoReplyKey },
+      {
+        type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+        sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
+        sourceEntityId: inboundMessageId,
+        idempotencyKey: { $like: DISCORD_PROPOSAL_ORIGIN_KEY_LIKE },
+      },
+    ],
+  })
+  return existing > 0
 }
 
 async function runAutoReplyAgent(args: {
