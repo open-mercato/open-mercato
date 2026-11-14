@@ -312,6 +312,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Without a restart policy Redis stays down after a daemon/host reboot,
+    # taking the cache and queue strategies with it.
+    restart: unless-stopped
     volumes:
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data

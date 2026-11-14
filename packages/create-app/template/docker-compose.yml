@@ -80,6 +80,9 @@ services:
 
   redis:
     image: redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+    # Without a restart policy Redis stays down after a daemon/host reboot,
+    # taking the cache and queue strategies with it.
+    restart: unless-stopped
     ports:
       - "${INFRA_BIND_HOST:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     volumes:
