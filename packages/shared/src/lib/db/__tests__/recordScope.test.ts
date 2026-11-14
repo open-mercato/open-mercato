@@ -1,3 +1,5 @@
+jest.mock('../../telemetry/runtime', () => ({ getTelemetryRuntime: jest.fn() }))
+
 jest.mock('../../query/engine', () => ({
   resolveEntityTableName: jest.fn((_em: unknown, entityType: string) => entityType.split(':')[1] ?? entityType),
 }))
@@ -8,7 +10,9 @@ import {
   resolveEntityScopeColumns,
 } from '../recordScope'
 
-type Row = Record<string, string | null>
+import { getTelemetryRuntime } from '../../telemetry/runtime'
+
+type Row = Record<string, unknown>
 
 function buildEm(options: {
   metadata?: Array<{ tableName: string; properties: Record<string, { fieldNames: string[] }> }>
@@ -21,7 +25,12 @@ function buildEm(options: {
     selectFrom: jest.fn((table: string) => {
       const builder = {
         select: jest.fn((columns: unknown) => {
-          selects.push({ table, columns })
+          selects.push({
+            table,
+            columns: Array.isArray(columns) ? columns.map((column: unknown) => (
+              typeof column === 'string' ? column : (column as { toOperationNode: () => { alias: { name: string } } }).toOperationNode().alias.name
+            )) : columns,
+          })
           return builder
         }),
         where: jest.fn(() => builder),
@@ -48,7 +57,10 @@ const scopedProperties = {
 }
 
 describe('recordScope', () => {
-  beforeEach(() => resetEntityScopeColumnsCacheForTests())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    resetEntityScopeColumnsCacheForTests()
+  })
 
   it('does not query a global table that has no scope columns', async () => {
     const { em, db } = buildEm({
@@ -81,6 +93,22 @@ describe('recordScope', () => {
     expect(selects).toEqual([{ table: 'tenant_things', columns: ['tenant_id'] }])
   })
 
+  it('reads custom metadata scope column names through quoted SQL identifiers', async () => {
+    const { em, selects } = buildEm({
+      metadata: [{
+        tableName: 'custom_records',
+        properties: {
+          tenantId: { fieldNames: ['owning_tenant_id'] },
+          organizationId: { fieldNames: ['owning_organization_id'] },
+        },
+      }],
+      row: { owning_tenant_id: 'tenant-1', owning_organization_id: 'org-1' },
+    })
+    await expect(loadEntityRecordScope(em, 'mod:custom_records', 'r1'))
+      .resolves.toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(selects).toEqual([{ table: 'custom_records', columns: ['owning_organization_id', 'owning_tenant_id'] }])
+  })
+
   it('returns null when the row is missing', async () => {
     const { em } = buildEm({ metadata: [{ tableName: 'customer_people', properties: scopedProperties }] })
     await expect(loadEntityRecordScope(em, 'customers:customer_people', 'missing')).resolves.toBeNull()
@@ -95,12 +123,35 @@ describe('recordScope', () => {
   })
 
   it('skips the row lookup when the column probe fails', async () => {
-    const { em, selects } = buildEm({ probeError: new Error('boom') })
+    const error = new Error('boom')
+    const reportError = jest.fn()
+    jest.mocked(getTelemetryRuntime).mockReturnValue({ reportError } as never)
+    const { em, selects } = buildEm({ probeError: error })
 
     await expect(loadEntityRecordScope(em, 'mod:unregistered', 'r1')).resolves.toBeNull()
     expect(selects).toEqual([{ table: 'information_schema.columns', columns: ['column_name'] }])
+    expect(reportError).toHaveBeenCalledWith(error, {
+      module: 'shared', code: 'shared.scope_column_probe_failed', attributes: { table: 'unregistered' },
+    })
   })
 
+  it('keeps the safe probe fallback when the telemetry backend throws', async () => {
+    jest.mocked(getTelemetryRuntime).mockReturnValue({
+      reportError: () => { throw new Error('[internal] telemetry unavailable') },
+    } as never)
+    const { em, db } = buildEm({ probeError: new Error('[internal] catalog unavailable') })
+    await expect(loadEntityRecordScope(em, 'mod:unregistered', 'r1')).resolves.toBeNull()
+    expect(db.selectFrom).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects non-string scope values from the database boundary', async () => {
+    const { em } = buildEm({
+      metadata: [{ tableName: 'customer_people', properties: scopedProperties }],
+      row: { tenant_id: 123, organization_id: {} },
+    })
+    await expect(loadEntityRecordScope(em, 'customers:customer_people', 'p1'))
+      .resolves.toEqual({ tenantId: null, organizationId: null })
+  })
   it('keeps probed columns isolated between database clients', async () => {
     const first = buildEm({ probeColumns: ['tenant_id'] })
     const second = buildEm({ probeColumns: ['organization_id'] })

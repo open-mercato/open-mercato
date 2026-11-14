@@ -494,7 +494,7 @@ export function VectorSearchSection({
   const autoIndexingDisabled = embeddingLoading || embeddingSaving || Boolean(embeddingSettings?.autoIndexingLocked)
 
   return (
-    <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+    <div className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm">
       <h2 className="text-lg font-semibold mb-2">
         {t('search.settings.vector.sectionTitle', 'Vector Search')}
       </h2>
@@ -503,7 +503,7 @@ export function VectorSearchSection({
       </p>
 
       <Tabs defaultValue="configuration">
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 h-auto max-w-full flex-wrap">
           <TabsTrigger value="configuration">
             {t('search.settings.tabs.configuration', 'Configuration')}
           </TabsTrigger>
@@ -644,7 +644,7 @@ export function VectorSearchSection({
                                   {info.models.length} {t('search.settings.vector.modelsAvailable', 'models available')}
                                 </p>
                               ) : availability?.reason ? (
-                                <p className="mt-1 text-xs text-status-warning-text">
+                                <p className="mt-1 break-words text-xs text-status-warning-text">
                                   {availability.reason}
                                 </p>
                               ) : (
