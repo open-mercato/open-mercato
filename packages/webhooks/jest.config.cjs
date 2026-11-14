@@ -8,6 +8,8 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^#generated/entities\\.ids\\.generated$': '<rootDir>/../core/jest.mocks/entities.ids.generated.js',
+    '^#generated/(.*)$': '<rootDir>/../core/generated/$1',
     '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
     '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',
     '^@open-mercato/core$': '<rootDir>/../core/src/index.ts',
