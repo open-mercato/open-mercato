@@ -18,6 +18,8 @@ import { isRetryableRunOutcome } from '../../../../lib/run-outcome'
 import { workflowInstanceResponseSchema, workflowExecutionResultSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { WorkflowBusinessKeyHeldError, reopenWorkflowInstance } from '../../../../lib/business-key-ownership'
 
 const logger = createLogger('workflows')
 
@@ -121,13 +123,15 @@ export async function POST(
     const previousErrorMessage = instance.errorMessage
     const previousErrorDetails = instance.errorDetails
 
-    instance.status = 'RUNNING'
-    instance.retryCount = (instance.retryCount || 0) + 1
-    instance.errorMessage = null
-    instance.errorDetails = null
-    instance.updatedAt = new Date()
-
-    await em.flush()
+    await reopenWorkflowInstance(em, instance, {
+      reopen: () => {
+        instance.status = 'RUNNING'
+        instance.retryCount = (instance.retryCount || 0) + 1
+        instance.errorMessage = null
+        instance.errorDetails = null
+        instance.updatedAt = new Date()
+      },
+    })
 
     let result
     try {
@@ -152,6 +156,20 @@ export async function POST(
     })
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+    if (error instanceof WorkflowBusinessKeyHeldError) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate(
+            'workflows.instances.businessKey.errors.heldByOpenRun',
+            'Another open run holds this business key. Finish or cancel that run, then try again.',
+          ),
+          code: error.code,
+          holderInstanceId: error.holderInstanceId,
+        },
+        { status: 409 }
+      )
+    }
     logger.error('Error retrying workflow instance', { err: error })
 
     // Handle specific errors
@@ -209,6 +227,15 @@ export const openApi = {
           status: 404,
           description: 'Workflow instance not found',
           schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 409,
+          description: 'Another open run holds this instance\'s business key; finish or cancel it first',
+          schema: z.object({
+            error: z.string(),
+            code: z.literal('WORKFLOW_BUSINESS_KEY_HELD'),
+            holderInstanceId: z.string().uuid().nullable(),
+          }),
         },
         {
           status: 500,

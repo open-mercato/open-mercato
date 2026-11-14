@@ -53,8 +53,11 @@ import { isRunMilestoneEvent } from '../../../lib/run-event-tone'
 import type { Node } from '@xyflow/react'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isTerminalInstanceStatus } from '../../../lib/business-key'
 
 const logger = createLogger('workflows')
+
+class RetryRefusedError extends Error {}
 
 type RunTab = 'flow' | 'timeline' | 'context' | 'raw'
 
@@ -394,6 +397,10 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
         method: 'POST',
       })
       if (!response.ok) {
+        const body = await readJsonSafe<{ error?: string; code?: string }>(response, null)
+        if (body?.code === 'WORKFLOW_BUSINESS_KEY_HELD' && body.error) {
+          throw new RetryRefusedError(body.error)
+        }
         throw new Error(t('workflows.instances.retryFailed'))
       }
       return response.json()
@@ -404,7 +411,10 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     },
     onError: (mutationError) => {
       logger.error('Error retrying instance', { err: mutationError })
-      flash(t('workflows.instances.retryFailed'), 'error')
+      flash(
+        mutationError instanceof RetryRefusedError ? mutationError.message : t('workflows.instances.retryFailed'),
+        'error',
+      )
     },
   })
 
@@ -707,7 +717,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             </Alert>
           )}
 
-          {isStepping && (
+          {isStepping && !isTerminalInstanceStatus(instance.status) && (
             <Alert status="warning" icon={<Footprints aria-hidden="true" />}>
               <AlertTitle>{t('workflows.stepThrough.title')}</AlertTitle>
               <AlertDescription>

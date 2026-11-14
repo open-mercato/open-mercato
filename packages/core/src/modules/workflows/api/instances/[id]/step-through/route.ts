@@ -33,6 +33,8 @@ import {
 import { workflowsTag, workflowErrorSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isTerminalInstanceStatus } from '../../../../lib/business-key'
 
 const logger = createLogger('workflows')
 
@@ -108,6 +110,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { error: 'This instance is not running in step-through mode' },
         { status: 400 },
+      )
+    }
+
+    // The marker outlives a run that ended on the way, but only retry and
+    // rerun-step may bring an ended run back: they own its business key.
+    if (isTerminalInstanceStatus(instance.status)) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate(
+            'workflows.stepThrough.errors.runEnded',
+            'This run has ended. Retry it or rerun a step instead.',
+          ),
+        },
+        { status: 409 },
       )
     }
 

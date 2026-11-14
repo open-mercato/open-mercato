@@ -16,9 +16,11 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/core'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportErrorSafely } from './report-error-safely'
 import { WorkflowInstance } from '../data/entities'
 import * as workflowExecutor from './workflow-executor'
 import { isRetryableRunOutcome, type WorkflowRunOutcome } from './run-outcome'
+import { WorkflowBusinessKeyHeldError, reopenWorkflowInstance } from './business-key-ownership'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
 
 const logger = createLogger('workflows')
@@ -96,18 +98,21 @@ async function retryInstance(
   container: AwilixContainer,
   instance: WorkflowInstance
 ): Promise<void> {
-  // A parked instance carries an engine-owned attention marker; clearing it is
-  // what takes it out of the failure queue. It is deliberately cleared BEFORE
-  // execution so a replay that parks again re-marks it honestly.
-  if (instance.metadata?.attention) {
-    instance.metadata = { ...instance.metadata, attention: null }
-  }
-  instance.status = 'RUNNING'
-  instance.retryCount = (instance.retryCount || 0) + 1
-  instance.errorMessage = null
-  instance.errorDetails = null
-  instance.updatedAt = new Date()
-  await em.flush()
+  await reopenWorkflowInstance(em, instance, {
+    reopen: () => {
+      // A parked instance carries an engine-owned attention marker; clearing it
+      // is what takes it out of the failure queue. It is deliberately cleared
+      // BEFORE execution so a replay that parks again re-marks it honestly.
+      if (instance.metadata?.attention) {
+        instance.metadata = { ...instance.metadata, attention: null }
+      }
+      instance.status = 'RUNNING'
+      instance.retryCount = (instance.retryCount || 0) + 1
+      instance.errorMessage = null
+      instance.errorDetails = null
+      instance.updatedAt = new Date()
+    },
+  })
 
   await workflowExecutor.executeWorkflow(em, container, instance.id)
 }
@@ -160,9 +165,18 @@ export async function runBulkReplay(params: {
         affectedCount += 1
       }
     } catch (error) {
-      // One bad instance must not abort a triage batch.
-      failedCount += 1
-      logger.error('Bulk replay failed for instance', { instanceId, action, err: error })
+      if (error instanceof WorkflowBusinessKeyHeldError) {
+        skippedCount += 1
+        logger.info('Bulk replay skipped an instance whose business key another run holds', {
+          instanceId,
+          holderInstanceId: error.holderInstanceId,
+        })
+      } else {
+        // One bad instance must not abort a triage batch.
+        failedCount += 1
+        logger.error('Bulk replay failed for instance', { instanceId, action, err: error })
+        reportErrorSafely(error, { module: 'workflows', code: 'workflows.bulk_replay.instance_failed' })
+      }
     }
 
     await progressService.updateProgress(

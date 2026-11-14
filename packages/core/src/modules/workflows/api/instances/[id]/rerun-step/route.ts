@@ -30,6 +30,8 @@ import * as workflowExecutor from '../../../../lib/workflow-executor'
 import { workflowInstanceResponseSchema } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { WorkflowBusinessKeyHeldError, reopenWorkflowInstance } from '../../../../lib/business-key-ownership'
 
 const logger = createLogger('workflows')
 
@@ -126,38 +128,45 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const editedContextDiff = computeContextDiff(instance.context, parsed.data.contextPatch)
     const now = new Date()
 
-    // Every rerun logs a workflow event — the terminal StepInstance is never
-    // touched, so the event log is what links the two attempts.
-    await logWorkflowEvent(em, {
-      workflowInstanceId: instance.id,
-      eventType: WorkflowEventTypes.STEP_RERUN,
-      eventData: {
-        stepId: parsed.data.stepId,
-        editedContextDiff,
-        by: auth.sub,
-        supersededStepInstanceId: eligibility.supersededStepInstanceId,
-        previousStatus: instance.status,
-      },
-      userId: auth.sub,
-      tenantId,
-      organizationId,
-    })
+    const previousStatus = instance.status
 
-    if (parsed.data.contextPatch) {
-      instance.context = { ...(instance.context || {}), ...parsed.data.contextPatch }
-    }
-    // Leaving the failure queue is exactly the marker going away.
-    if (instance.metadata?.attention) {
-      instance.metadata = { ...instance.metadata, attention: null }
-    }
-    instance.pendingTransition = null
-    instance.currentStepId = parsed.data.stepId
-    instance.status = 'RUNNING'
-    instance.retryCount = (instance.retryCount || 0) + 1
-    instance.errorMessage = null
-    instance.errorDetails = null
-    instance.updatedAt = now
-    await em.flush()
+    await reopenWorkflowInstance(em, instance, {
+      reopen: () => {
+        if (parsed.data.contextPatch) {
+          instance.context = { ...(instance.context || {}), ...parsed.data.contextPatch }
+        }
+        // Leaving the failure queue is exactly the marker going away.
+        if (instance.metadata?.attention) {
+          instance.metadata = { ...instance.metadata, attention: null }
+        }
+        instance.pendingTransition = null
+        instance.currentStepId = parsed.data.stepId
+        instance.status = 'RUNNING'
+        instance.retryCount = (instance.retryCount || 0) + 1
+        instance.errorMessage = null
+        instance.errorDetails = null
+        instance.updatedAt = now
+      },
+      // Every rerun logs a workflow event — the terminal StepInstance is never
+      // touched, so the event log is what links the two attempts. It commits
+      // with the reopen, so the log never records a rerun that did not start.
+      audit: async (trx) => {
+        await logWorkflowEvent(trx, {
+          workflowInstanceId: instance.id,
+          eventType: WorkflowEventTypes.STEP_RERUN,
+          eventData: {
+            stepId: parsed.data.stepId,
+            editedContextDiff,
+            by: auth.sub,
+            supersededStepInstanceId: eligibility.supersededStepInstanceId,
+            previousStatus,
+          },
+          userId: auth.sub,
+          tenantId,
+          organizationId,
+        })
+      },
+    })
 
     const { executeStep } = await import('../../../../lib/step-handler')
     await executeStep(
@@ -179,6 +188,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
     })
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+    if (error instanceof WorkflowBusinessKeyHeldError) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate(
+            'workflows.instances.businessKey.errors.heldByOpenRun',
+            'Another open run holds this business key. Finish or cancel that run, then try again.',
+          ),
+          code: error.code,
+          holderInstanceId: error.holderInstanceId,
+        },
+        { status: 409 }
+      )
+    }
     logger.error('Error rerunning workflow step', { err: error })
     if (error instanceof workflowExecutor.WorkflowExecutionError) {
       return NextResponse.json({ error: error.message }, { status: 400 })
@@ -219,8 +242,8 @@ export const openApi = {
         { status: 404, description: 'Workflow instance not found', schema: z.object({ error: z.string() }) },
         {
           status: 409,
-          description: 'The step cannot be rerun (still parked, changed type, or the instance is not rerunnable)',
-          schema: z.object({ error: z.string(), code: z.string() }),
+          description: 'The step cannot be rerun (still parked, changed type, or the instance is not rerunnable), or another open run holds the instance\'s business key',
+          schema: z.object({ error: z.string(), code: z.string(), holderInstanceId: z.string().uuid().nullable().optional() }),
         },
         { status: 500, description: 'Internal server error', schema: z.object({ error: z.string() }) },
       ],

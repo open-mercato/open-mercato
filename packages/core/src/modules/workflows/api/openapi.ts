@@ -76,6 +76,8 @@ export const userTaskListQuerySchema = z.object({
   workflowInstanceId: z.string().uuid().optional().describe('Filter by workflow instance ID'),
   overdue: z.coerce.boolean().optional().describe('Filter overdue tasks (true/false)'),
   myTasks: z.coerce.boolean().optional().describe('Show only tasks assigned to or claimable by current user'),
+  entityType: z.string().optional().describe('Show only tasks bound to a record of this type (any spelling the Work Inbox accepts)'),
+  entityId: z.string().optional().describe('Show only tasks bound to this record id'),
   limit: z.coerce.number().min(1).max(100).optional().default(50).describe('Number of results (max 100)'),
   offset: z.coerce.number().min(0).optional().default(0).describe('Pagination offset'),
 })
@@ -495,6 +497,7 @@ export const workflowInstanceResponseSchema = z.object({
   currentStepId: z.string(),
   context: z.unknown(),
   correlationKey: z.string().nullable().optional(),
+  businessKey: z.string().nullable().optional(),
   metadata: z.unknown().nullable().optional(),
   startedAt: z.string(),
   completedAt: z.string().nullable().optional(),
