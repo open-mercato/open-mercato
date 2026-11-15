@@ -88,6 +88,11 @@ describeWithPostgres('webhook delivery list paging against PostgreSQL', () => {
       await em.flush()
       const seededIds = rows.map((row) => row.id).sort()
       await em.getConnection().execute('analyze webhook_deliveries')
+      const plan = await em.getConnection().execute<Array<{ 'QUERY PLAN': string }>>(
+        'explain select id from webhook_deliveries where tenant_id = ? and organization_id = ? order by created_at desc limit 5 offset 5',
+        [tenantId, organizationId],
+      )
+      expect(plan.map((row) => row['QUERY PLAN']).join('\n')).toMatch(/Sort Key: \S*created_at DESC/)
       mockGetAuth.mockResolvedValue({ sub: randomUUID(), tenantId, orgId: organizationId, roles: ['admin'] })
       mockResolve.mockImplementation((key: string) => {
         if (key === 'em') return activeOrm.em.fork({ clear: true })
