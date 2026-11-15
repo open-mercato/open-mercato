@@ -38,6 +38,9 @@ Independent final review 0fc50825 approved implementation head `6b35aa19d24a335f
 ## Full-suite completion evidence
 Implementation/tracking head `c9a50c6faccbdbeb5af4472c8a119c5cb57b2783` passed the complete [CI run 43691499763](https://github.com/open-mercato/open-mercato/actions/runs/43691499763). All 15 integration shards, merged coverage, complete units/scripts, typecheck, app/package builds, translations, template parity, repo-wide guards, lint/DS lint, Docker, timezone and multi-instance checks passed. Every exact-head workflow and reported check was complete and successful or intentionally skipped before readiness/automerge. Local production app build also passed at 07:47:55Z; the local-only prerequisite limitations above remain disclosed.
 
+## Publication and final follow-up
+PR #9588 was marked ready and labeled `automerge` only after the exact implementation head above passed every reported check/workflow. Verification, independent review and local limitations are published on the PR. This final tracking commit changes only this plan and receives another complete CI run because the stabilization branch always forces the suite. The driving run continues checking that final head before reporting task completion, switches its owned work claim to `ci-monitoring`, and releases the exact atomic lock. New failures require ownership verification and repair; no passing result is inferred from an earlier head. No merge or package publication is performed.
+
 ## Risks
 Registry propagation is external and cannot be deterministically reproduced with live npm. Use controlled command fixtures and exact observed failure logs. Snapshot publishing runs only on main; prove the repair without publishing from this PR. Additional failures may widen the necessary repair.
 
@@ -68,4 +71,4 @@ PR: #9588
 ### Phase 3: Review and hand off
 
 - [x] 3.1 Dispatch one final review and resolve actionable findings — 6b35aa19d2 (review 0fc50825: approve, zero findings)
-- [ ] 3.2 Publish evidence, promote the green reviewed PR and apply automerge
+- [x] 3.2 Publish evidence, promote the green reviewed PR and apply automerge — c9a50c6fac (ready/automerge applied after all-green CI; evidence comment6891076489)
