@@ -510,6 +510,14 @@ export async function handleDocumentsRouteError(error: unknown, label: string): 
   )
 }
 
+const documentIdSchema = z.string().uuid()
+
+export function assertDocumentId(id: string): void {
+  if (!documentIdSchema.safeParse(id).success) {
+    throw new CrudHttpError(404, { error: 'documents.documents.notFound' })
+  }
+}
+
 export async function loadScopedDocument(ctx: DocumentsRouteContext, id: string): Promise<Document> {
   const document = await findOneWithDecryption(ctx.em, Document, {
     id,
