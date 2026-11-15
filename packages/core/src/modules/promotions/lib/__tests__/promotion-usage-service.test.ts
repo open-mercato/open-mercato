@@ -330,6 +330,32 @@ describe('PromotionUsageService.registerUsage', () => {
     expect(tables.get(PromotionUsage)).toHaveLength(1)
   })
 
+  it('accepts the last wei of an exact budget and blocks the next one', async () => {
+    const { em, tables } = createFakeEm()
+    const promotion = seedPromotion(tables, { maxBudget: '1.000000000000000001', budgetCurrency: 'ETH' })
+    const service = new PromotionUsageService()
+    const register = (orderId: string, amount: string) =>
+      service.registerUsage(
+        asEm(em),
+        {
+          orderId,
+          orderType: 'order',
+          customerId: null,
+          currency: 'ETH',
+          appliedPromotions: [appliedPromotion(promotion.id as string, [lineDiscountEffect(amount)])],
+        },
+        SCOPE,
+      )
+
+    await expect(register('order-1', '-1.00')).resolves.toEqual({ ok: true, budgetExceeded: [] })
+    await expect(register('order-2', '-0.000000000000000001')).resolves.toEqual({ ok: true, budgetExceeded: [] })
+    await expect(register('order-3', '-0.000000000000000001')).resolves.toEqual({
+      ok: true,
+      budgetExceeded: [promotion.id],
+    })
+    expect(tables.get(PromotionUsage)).toHaveLength(2)
+  })
+
   it('skips budget enforcement when the order currency differs from the promotion budget_currency', async () => {
     const { em, tables } = createFakeEm()
     const promotion = seedPromotion(tables, { maxBudget: '5.00', budgetCurrency: 'EUR' })
