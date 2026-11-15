@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgresEntityManager } from '@mikro-orm/postgresql'
 import { MessageRecipient } from '../data/entities'
+import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { resolveChannelInboxPredicate } from './channelThreadWidening'
 import { channelInboxWideningClause } from './participantScope'
 import type { MessageScope } from './routeHelpers'
@@ -68,9 +69,11 @@ export async function ensureChannelInboxRecipient(
       }),
     )
     await writeEm.flush()
-  } catch {
+  } catch (err) {
     // A concurrent first open created the row (unique on message + user): fall
-    // through and read it back.
+    // through and read it back. Any other failure is a real write error and must
+    // not be reported to the caller as a missing recipient row.
+    if (!isUniqueViolation(err)) throw err
   }
 
   return em.findOne(MessageRecipient, {
