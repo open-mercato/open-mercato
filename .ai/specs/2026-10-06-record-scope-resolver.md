@@ -378,11 +378,11 @@ caller cannot weaken one, and request-path code cannot fabricate a `system` subj
 
 ### 4. Application rules (the part that makes this non-bypassable)
 
-1. The composed predicate is applied as the engine's **own top-level SQL term**, after caller
-   filters have been normalized — never merged into the caller's `Where` tree. The engine runs
-   `normalizeFilters` (`packages/shared/src/lib/query/join-utils.ts`) on the caller's filters and
-   then applies the scope terms as their own `WHERE` predicates / correlated `EXISTS` expressions
-   beside the normalized filters. This is deliberate. `normalizeFilters` collapses an unsatisfiable
+1. The composed predicate is applied as the engine's **own top-level SQL term** — never merged into
+   the caller's `Where` tree. Each read path applies the scope terms as their own `WHERE`
+   predicates / correlated `EXISTS` expressions beside the caller's filters, after that path has
+   normalized them (the basic/join path uses `normalizeFilters`,
+   `packages/shared/src/lib/query/join-utils.ts`). This is deliberate. `normalizeFilters` collapses an unsatisfiable
    caller conjunction to `[]` ("no constraint") and drops empty `$or` disjuncts, so composing
    `{ $and: [scope, caller] }` into one tree would let a caller filter of `{ $or: [] }` erase the
    scope and let a broad `{}` grant narrow the result instead of widening it. Applied as its own
@@ -503,8 +503,9 @@ Then, separately, the companion spec re-enables the three #5183 entities using P
    test creating same-organization permitted and denied rows, asserting denied ids never leave the
    API on list, export or by direct id fetch. Include the correlated `EXISTS` term in the matrix.
 9. Route every internal read worker (search indexer, reindex, export) through a `system` subject
-   with a named reason. *Test:* indexing a `required` entity completes and logs one reason per
-   call; a request-path handler cannot construct a `system` subject (type-level test).
+   with a named reason, and mint principal subjects only through a helper that takes `ctx.auth`.
+   *Test:* indexing a `required` entity completes and logs one reason per call; the request-path
+   helper has no parameter that produces a `system` subject (unit test on the helper).
 
 ### Phase 3 — remaining read paths
 
