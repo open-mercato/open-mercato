@@ -471,7 +471,7 @@
   "agent_orchestrator.evalAssertions.scorer.output_present": "Salida presente",
   "agent_orchestrator.evalAssertions.scorer.regex": "Coincide con la regex",
   "agent_orchestrator.evalAssertions.scorer.regex.field.pattern": "Patrón",
-  "agent_orchestrator.evalAssertions.scorer.regex.field.pattern.hint": "Expresión regular de JavaScript.",
+  "agent_orchestrator.evalAssertions.scorer.regex.field.pattern.hint": "Expresión regular compatible con RE2, de hasta 500 caracteres. No se admiten referencias inversas ni aserciones de anticipación o retrospección. Se omiten las entradas de más de 10.000 caracteres.",
   "agent_orchestrator.evalAssertions.scorer.required_keys": "Claves requeridas en la salida",
   "agent_orchestrator.evalAssertions.scorer.required_keys.field.requiredKeys": "Claves requeridas",
   "agent_orchestrator.evalAssertions.scorer.required_keys.field.requiredKeys.hint": "Todas las claves indicadas deben estar presentes en el objeto de salida.",

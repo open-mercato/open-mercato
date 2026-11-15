@@ -666,3 +666,18 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## Agent evaluation regex safety (2026-11-15, #9160)
+
+STABLE assertion-write validation, saved/preview regex semantics and tool-glob
+helper behavior now use the existing bounded RE2-compatible matcher. Regex writes
+over 500 UTF-16 code units return 422; unsupported/oversized stored regex configs or
+inputs skip, and rejected glob matches return false. Retaining synchronous tenant
+backtracking as a bridge preserves the shared-process denial of service path, so
+the emergency security exception is requested for steps 1–3 only. The two matcher
+call sites reuse existing limits without a legacy fallback. Client and operator
+migration, including skipped-gate aggregation risk and coordinated worker restart,
+is documented in [UPGRADE_NOTES.md](UPGRADE_NOTES.md#agent-evaluation-regex-safety-9160)
+and the [spec migration section](.ai/specs/enterprise/agent-orchestrator/next/2026-07-19-agent-eval-workbench-and-gate.md#migration--backward-compatibility).
+**Named human maintainer approval of the waiver is pending on PR #9581; this entry
+records the request and does not grant it. Merge remains blocked until approval.**

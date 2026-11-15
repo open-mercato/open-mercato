@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+import path from 'node:path'
 import { parseScorerConfig, runScorer } from '../lib/eval/registry'
 import { matchesNameOrPattern } from '../lib/eval/registry/shared'
 import { regex } from '../lib/eval/registry/text'
@@ -22,6 +24,30 @@ function runView(output: ScorerRunView['output']): ScorerRunView {
 }
 
 describe('regex scorer safety', () => {
+  it.each(['regex', 'glob'])('bounds adversarial %s matching in a disposable process', (matcher) => {
+    const result = spawnSync(process.execPath, [
+      path.join(__dirname, 'helpers/evalRegexWorker.cjs'),
+      JSON.stringify({
+        matcher,
+        compiler: require.resolve('typescript-js'),
+        zod: require.resolve('zod'),
+        re2js: require.resolve('re2js'),
+        linear: require.resolve('@open-mercato/shared/lib/regex/linear'),
+        text: require.resolve('../lib/eval/registry/text'),
+        shared: require.resolve('../lib/eval/registry/shared'),
+      }),
+    ], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      killSignal: 'SIGKILL',
+      windowsHide: true,
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.signal).toBeNull()
+    expect(result.status).toBe(0)
+    expect(result.stdout).toBe('false')
+  })
+
   it('accepts the pattern length boundary and rejects oversized patterns on save', () => {
     expect(parseScorerConfig('regex', { pattern: 'a'.repeat(500) }, 'write').ok).toBe(true)
     expect(parseScorerConfig('regex', { pattern: 'a'.repeat(501) }, 'write').ok).toBe(false)
@@ -43,12 +69,23 @@ describe('regex scorer safety', () => {
     })
   })
 
-  it.each(['[', '(a)\\1', '(?=a)a'])('skips invalid or unsupported pattern %s', (pattern) => {
+  it.each(['[', '(a)\\1', '(?=a)a', '^\\u0061$'])('skips invalid or unsupported pattern %s', (pattern) => {
     expect(runScorer('regex', runView('aa'), null, { pattern })).toMatchObject({
       passed: null,
       score: null,
       evidence: { reason: 'invalid_config' },
     })
+  })
+
+  it.each([
+    { pattern: '^\\s+$', output: '\u00a0', caseInsensitive: false, passed: false },
+    { pattern: '^a.$', output: 'a\r', caseInsensitive: false, passed: true },
+    { pattern: '^\\w+$', output: '\u212a', caseInsensitive: true, passed: true },
+    { pattern: '^[ \\t\\r\\n\\f\\v\\x{00A0}]+$', output: '\u00a0', caseInsensitive: false, passed: true },
+    { pattern: '^a[^\\r\\n\\x{2028}\\x{2029}]$', output: 'a\r', caseInsensitive: false, passed: false },
+    { pattern: '^[A-Za-z0-9_]+$', output: '\u212a', caseInsensitive: false, passed: false },
+  ])('uses RE2 semantics for $pattern and $output', ({ pattern, output, caseInsensitive, passed }) => {
+    expect(runScorer('regex', runView(output), null, { pattern, caseInsensitive }).passed).toBe(passed)
   })
 
   it('evaluates ambiguous alternation without backtracking', () => {

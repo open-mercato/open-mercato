@@ -1,5 +1,48 @@
 # Upgrade Notes
 
+## Agent evaluation regex safety (#9160)
+
+**Assertion authors and API clients:** regex assertions now use the existing
+RE2-compatible linear matcher. JavaScript backreferences, lookaround and `\uNNNN`
+escapes are unsupported and produce a skipped `invalid_config` verdict. Replace
+Unicode escapes with the intended literal character, rewrite unsupported
+constructs, and preview each assertion against both passing and failing examples.
+POST/PUT assertion writes reject patterns longer than 500 characters with 422;
+shorten patterns before saving. A stored oversized pattern is skipped when scored.
+The limit counts UTF-16 code units, before adding case-insensitive mode.
+
+RE2 character classes and case folding differ from JavaScript: `\s` excludes a
+non-breaking space, `.` matches a carriage return, and case-insensitive `\w` can
+match the Kelvin sign. Use explicit classes when the distinction matters (for
+example, `[ \t\r\n\f\v\x{00A0}]` to include a non-breaking space,
+`[^\r\n\x{2028}\x{2029}]` to exclude JavaScript line terminators, or an
+explicit case-sensitive alphabet instead of Unicode case folding).
+
+**Operators:** inventory enabled regex assertions, including gate-severity and
+case-level overrides, before deploying. Preview the inventory on representative
+and negative outputs using the new matcher, repair incompatible patterns through
+the scoped assertion UI/API, and rerun affected evaluation suites. Selected output
+longer than 10,000 UTF-16 code units now skips with `input_too_long`; select a
+smaller output `path`. Tool glob selectors use the same limits after escaping and
+anchoring (500 compiled characters, 10,000 input characters); shorten selectors or
+use exact tool names if they stop matching.
+
+Skipped gates are excluded from online and replay aggregation. A formerly failing
+assertion can therefore stop blocking a mixed set of gates; a successful aggregate
+is not proof that every old safety gate was evaluated. Keep downstream release or
+action approvals on hold until every required gate has been migrated and produces
+an evaluated verdict. Existing result rows remain historical evidence and are not
+rewritten. Restart request processes and workers together so preview and stored
+assertions use the same engine; no database migration is required. Rolling back
+restores the vulnerable backtracking path, so do not use rollback or a compatibility
+flag as a migration strategy.
+
+The removed synchronous backtracking behavior is itself the shared-process denial
+of service vulnerability. A bridge retaining that branch would leave it reachable.
+This narrow security change requires a named human maintainer's dated approval of
+the emergency waiver of compatibility steps 1–3 before merge; no approval is
+recorded by this automation. [Specification and migration](.ai/specs/enterprise/agent-orchestrator/next/2026-07-19-agent-eval-workbench-and-gate.md#migration--backward-compatibility).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

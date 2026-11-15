@@ -471,7 +471,7 @@
   "agent_orchestrator.evalAssertions.scorer.output_present": "출력 존재",
   "agent_orchestrator.evalAssertions.scorer.regex": "정규식 일치",
   "agent_orchestrator.evalAssertions.scorer.regex.field.pattern": "패턴",
-  "agent_orchestrator.evalAssertions.scorer.regex.field.pattern.hint": "JavaScript 정규 표현식입니다.",
+  "agent_orchestrator.evalAssertions.scorer.regex.field.pattern.hint": "최대 500자의 RE2 호환 정규 표현식입니다. 역참조와 전후방 탐색은 지원하지 않습니다. 10,000자를 초과하는 입력은 평가에서 건너뜁니다.",
   "agent_orchestrator.evalAssertions.scorer.required_keys": "필수 키",
   "agent_orchestrator.evalAssertions.scorer.required_keys.field.requiredKeys": "필수 키",
   "agent_orchestrator.evalAssertions.scorer.required_keys.field.requiredKeys.hint": "나열한 모든 키가 출력 객체에 있어야 합니다.",

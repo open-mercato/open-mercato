@@ -471,7 +471,7 @@
   "agent_orchestrator.evalAssertions.scorer.output_present": "Wynik obecny",
   "agent_orchestrator.evalAssertions.scorer.regex": "Pasuje do wyrażenia",
   "agent_orchestrator.evalAssertions.scorer.regex.field.pattern": "Wzorzec",
-  "agent_orchestrator.evalAssertions.scorer.regex.field.pattern.hint": "Wyrażenie regularne JavaScript.",
+  "agent_orchestrator.evalAssertions.scorer.regex.field.pattern.hint": "Wyrażenie regularne zgodne z RE2, do 500 znaków. Odwołania wsteczne i asercje wyprzedzające lub wsteczne nie są obsługiwane. Dane wejściowe powyżej 10 000 znaków są pomijane.",
   "agent_orchestrator.evalAssertions.scorer.required_keys": "Wymagane klucze",
   "agent_orchestrator.evalAssertions.scorer.required_keys.field.requiredKeys": "Wymagane klucze",
   "agent_orchestrator.evalAssertions.scorer.required_keys.field.requiredKeys.hint": "Każdy wymieniony klucz musi wystąpić w obiekcie wyniku.",
