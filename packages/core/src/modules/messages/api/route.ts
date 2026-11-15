@@ -495,10 +495,18 @@ export async function POST(req: Request) {
     sentAt: _clientSuppliedSentAt,
     ...clientBody
   } = (body ?? {}) as Record<string, unknown>
-  const input = composeMessageSchema.parse({
+  const parsed = composeMessageSchema.safeParse({
     ...clientBody,
     ...(sourceChannelType ? { sourceChannelType } : {}),
   })
+  if (!parsed.success) {
+    const { translate } = await resolveTranslations()
+    return Response.json(
+      { error: translate('messages.errors.invalidInput'), details: parsed.error.flatten() },
+      { status: 400 },
+    )
+  }
+  const input = parsed.data
 
   const isPublicVisibility = input.visibility === 'public'
   const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail

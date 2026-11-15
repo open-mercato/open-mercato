@@ -381,7 +381,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
-  const input = updateDraftSchema.parse(body)
+  const parsed = updateDraftSchema.safeParse(body)
+  if (!parsed.success) {
+    const { translate } = await resolveTranslations()
+    return Response.json(
+      { error: translate('messages.errors.invalidInput'), details: parsed.error.flatten() },
+      { status: 400 },
+    )
+  }
+  const input = parsed.data
 
   const message = await em.findOne(Message, {
     id: params.id,

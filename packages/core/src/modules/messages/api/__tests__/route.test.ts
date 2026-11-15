@@ -540,3 +540,24 @@ describe('messages /api/messages GET cache', () => {
     expect(findWithDecryptionMock).not.toHaveBeenCalled()
   })
 })
+
+
+describe('messages compose input validation', () => {
+  it('returns 400 without reserving budget or dispatching malformed email', async () => {
+    const execute = jest.fn()
+    resolveMessageContextMock.mockResolvedValue({
+      scope: { tenantId, organizationId, userId },
+      ctx: { container: { resolve: () => ({ execute }) } },
+    })
+    checkExternalEmailBudgetMock.mockClear()
+    const response = await POST(new Request('http://localhost/api/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'public', externalEmail: 'not-an-email', recipients: [], subject: 'Invalid email', body: 'Do not send.' }),
+    }))
+    expect(response.status).toBe(400)
+    expect((await response.json()).details.fieldErrors.externalEmail).toBeDefined()
+    expect(execute).not.toHaveBeenCalled()
+    expect(checkExternalEmailBudgetMock).not.toHaveBeenCalled()
+  })
+})

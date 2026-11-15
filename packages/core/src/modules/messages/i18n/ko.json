@@ -119,6 +119,7 @@
   "messages.errors.externalRecipientDailyLimit": "일일 외부 수신자 한도에 도달했습니다. 내일 다시 시도하세요.",
   "messages.errors.forwardPreviewFailed": "전달 미리보기를 불러오지 못했습니다.",
   "messages.errors.invalidContext": "메시지 컨텍스트가 없습니다.",
+  "messages.errors.invalidInput": "잘못된 메시지 입력입니다.",
   "messages.errors.loadAttachmentOptionsFailed": "첨부 파일을 불러오지 못했습니다.",
   "messages.errors.loadAttachmentsFailed": "첨부 파일을 불러오지 못했습니다.",
   "messages.errors.loadDetailFailed": "메시지 상세 정보를 불러오지 못했습니다.",

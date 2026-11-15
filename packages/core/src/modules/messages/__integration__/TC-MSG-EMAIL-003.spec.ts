@@ -115,6 +115,39 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
     }
   })
 
+  test('rejects malformed compose and draft input before quota or message writes', async ({ request }) => {
+    const draftId = await composeMessageWithToken(request, token, {
+      visibility: 'public',
+      externalEmail: `qa-validation-${stamp}@example.test`,
+      recipients: [],
+      subject: `QA validation ${stamp}`,
+      body: 'Preserve the complete draft.',
+      isDraft: true,
+      sendViaEmail: true,
+    })
+    createdMessageIds.push(draftId)
+    const snapshot = () => withClient(async (client) => ({
+      messages: (await client.query('select * from messages where tenant_id = $1 order by id', [tenantId])).rows,
+      recipients: (await client.query('select * from message_external_recipient_days where tenant_id = $1 order by id', [tenantId])).rows,
+      windows: (await client.query('select * from message_external_email_windows where tenant_id = $1 order by id', [tenantId])).rows,
+    }))
+    const before = await snapshot()
+    const compose = await apiRequest(request, 'POST', '/api/messages', {
+      token,
+      data: { visibility: 'public', externalEmail: 'not-an-email', recipients: [], subject: 'Invalid recipient', body: 'Do not send.' },
+    })
+    expect(compose.status()).toBe(400)
+    const update = await apiRequest(request, 'PATCH', `/api/messages/${draftId}`, {
+      token,
+      data: { isDraft: 'false' },
+    })
+    expect(update.status()).toBe(400)
+    expect(await snapshot()).toEqual(before)
+    await drainIntegrationQueue('events')
+    await drainIntegrationQueue('messages-email')
+    expect(await listCapturedSystemEmails(request, token)).toEqual([])
+  })
+
   test('rejects the second distinct compose recipient without creating a message or email', async ({ request }) => {
     const firstEmail = `qa-budget-first-${stamp}@example.test`
     const secondEmail = `qa-budget-second-${stamp}@example.test`

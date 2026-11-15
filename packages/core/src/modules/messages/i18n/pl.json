@@ -119,6 +119,7 @@
   "messages.errors.externalRecipientDailyLimit": "Osiągnięto dzienny limit zewnętrznych odbiorców. Spróbuj ponownie jutro.",
   "messages.errors.forwardPreviewFailed": "Nie udało się załadować podglądu przekazywanej wiadomości.",
   "messages.errors.invalidContext": "Brakuje kontekstu wiadomości.",
+  "messages.errors.invalidInput": "Nieprawidłowe dane wiadomości.",
   "messages.errors.loadAttachmentOptionsFailed": "Nie udało się załadować załączników.",
   "messages.errors.loadAttachmentsFailed": "Nie udało się załadować załączników.",
   "messages.errors.loadDetailFailed": "Nie udało się załadować szczegółów wiadomości.",

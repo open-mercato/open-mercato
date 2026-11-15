@@ -119,6 +119,7 @@
   "messages.errors.externalRecipientDailyLimit": "Se alcanzó el límite diario de destinatarios externos. Inténtalo de nuevo mañana.",
   "messages.errors.forwardPreviewFailed": "No se pudo cargar la vista previa de reenvío.",
   "messages.errors.invalidContext": "Falta el contexto del mensaje.",
+  "messages.errors.invalidInput": "Datos de mensaje no válidos.",
   "messages.errors.loadAttachmentOptionsFailed": "No se pudieron cargar los adjuntos.",
   "messages.errors.loadAttachmentsFailed": "No se pudieron cargar los adjuntos.",
   "messages.errors.loadDetailFailed": "No se pudieron cargar los detalles del mensaje.",

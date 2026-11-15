@@ -119,6 +119,7 @@
   "messages.errors.externalRecipientDailyLimit": "Daily external recipient limit reached. Try again tomorrow.",
   "messages.errors.forwardPreviewFailed": "Failed to load forward preview.",
   "messages.errors.invalidContext": "Message context is missing.",
+  "messages.errors.invalidInput": "Invalid message input.",
   "messages.errors.loadAttachmentOptionsFailed": "Failed to load attachments.",
   "messages.errors.loadAttachmentsFailed": "Failed to load attachments.",
   "messages.errors.loadDetailFailed": "Failed to load message details.",
