@@ -10,7 +10,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 // fullapp-compose-auth-defaults.test.mjs, the `.dev.yml` siblings are included here: a development
 // stack seeds the same demo accounts through the same `setupInitialTenant()` path, so an operator
 // who configures the account domain expects it to be honored there too.
+//
+// `starters/docker/` holds the canonical stacks; the repo-root `docker-compose.fullapp*.yml` files
+// are backwards-compatibility duplicates kept byte-identical by root-compose-backcompat.test.mjs.
+// Both are listed so a stack that only declares the new pairs in one of them fails here as well as
+// in the duplicate guard.
 const COMPOSE_FILES = [
+  'starters/docker/compose.fullapp.yml',
+  'starters/docker/compose.fullapp.dev.yml',
   'docker-compose.fullapp.yml',
   'docker-compose.fullapp.dev.yml',
   'packages/create-app/template/docker-compose.fullapp.yml',
