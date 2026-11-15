@@ -32,6 +32,7 @@ import * as React from 'react'
 import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
+import * as customFieldForms from '../utils/customFieldForms'
 
 const originalResponse = Object.getOwnPropertyDescriptor(globalThis, 'Response')
 beforeAll(() => {
@@ -246,6 +247,29 @@ describe('CrudForm injection-block scroll behavior', () => {
     await act(async () => { fireEvent.submit(container.querySelector('form') as HTMLFormElement) })
     await waitFor(() => expect(container.querySelector('[data-crud-form-error]')).toHaveFocus())
     expect(getByRole('alert')).toHaveTextContent('Please fix the highlighted errors.')
+  })
+
+  it.each([false, true])('keeps a rejected summary visible after delayed custom fields in embedded=%s', async (embedded) => {
+    let finishLoading: (value: Awaited<ReturnType<typeof customFieldForms.fetchCustomFieldFormStructure>>) => void = () => {}
+    const loading = new Promise<Awaited<ReturnType<typeof customFieldForms.fetchCustomFieldFormStructure>>>((resolve) => { finishLoading = resolve })
+    const fetchStructure = jest.spyOn(customFieldForms, 'fetchCustomFieldFormStructure').mockReturnValue(loading)
+    try {
+      const { container } = renderWithProviders(
+        <CrudForm fields={[{ id: 'name', label: 'Name', type: 'text', required: true }]} entityId="example:record" embedded={embedded} />,
+        { dict: { 'ui.forms.errors.required': 'Name is required.' } },
+      )
+      await waitFor(() => expect(fetchStructure).toHaveBeenCalled())
+      await act(async () => { fireEvent.submit(container.querySelector('form') as HTMLFormElement) })
+      await waitFor(() => expect(container.querySelector('[data-crud-form-error]')).toHaveFocus())
+      const summary = container.querySelector('[data-crud-form-error]') as HTMLElement
+      jest.spyOn(summary, 'getBoundingClientRect').mockReturnValue({ top: 1000 } as DOMRect)
+      expect(scrollSpy).toHaveBeenCalledTimes(1)
+      await act(async () => { finishLoading({ fields: [], definitions: [], metadata: { items: [] } }) })
+      await waitFor(() => expect(scrollSpy).toHaveBeenCalledTimes(2))
+      expect(summary).toHaveFocus()
+    } finally {
+      fetchStructure.mockRestore()
+    }
   })
 
 })
