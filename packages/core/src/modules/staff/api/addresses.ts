@@ -38,6 +38,7 @@ const crud = makeCrudRoute({
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
+    softDeleteField: null,
   },
   indexer: { entityType: E.staff.staff_team_member_address },
   list: {

@@ -18,7 +18,7 @@ import {
   WorkflowEvent,
   StepInstance,
 } from '../data/entities'
-import { executeWorkflow } from './workflow-executor'
+import { executeWorkflow, handleTransitionFailure } from './workflow-executor'
 import { findDefinitionForInstance } from './find-definition'
 import {
   findTaskDecision,
@@ -103,6 +103,14 @@ export class UserTaskError extends Error {
  * 3. Merges form data into workflow context
  * 4. Logs completion event
  * 5. Resumes workflow execution
+ *
+ * Closing the task is a COMPARE-AND-SET, like `claimUserTask`: the lookup only
+ * decides which error to report, while the row is closed with a conditional
+ * `UPDATE … WHERE status IN ('PENDING', 'IN_PROGRESS')`. Two submissions of the
+ * same task (the task page and a notification quick action, two tabs, a client
+ * retrying after a timeout) can both pass the lookup; only one closes the row,
+ * and the other gets the same `TASK_NOT_FOUND` a later submission would, before
+ * any event is logged or the run is advanced.
  *
  * @param em - Entity manager
  * @param container - DI container for workflow execution
@@ -197,8 +205,35 @@ export async function completeUserTask(
   // it once the payload is merged into the run context.
   const completionData = withRecordedDecision(formData, chosenDecision?.id)
 
-  // Update task
   const now = new Date()
+  const closed = await em.nativeUpdate(
+    UserTask,
+    {
+      id: taskId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: { $in: ['PENDING', 'IN_PROGRESS'] },
+      assignedTo: task.assignedTo ?? null,
+      claimedBy: task.claimedBy ?? null,
+    },
+    {
+      status: 'COMPLETED',
+      formData: completionData,
+      completedBy: userId,
+      completedAt: now,
+      comments: comments || null,
+      updatedAt: now,
+    },
+  )
+
+  if (closed === 0) {
+    throw new UserTaskError(
+      'Task not found or already completed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
   task.status = 'COMPLETED'
   task.formData = completionData
   task.completedBy = userId
@@ -384,9 +419,13 @@ export async function completeUserTask(
   )
 
   if (!transitionResult.success) {
-    logger.error('Transition failed', { component: 'task-handler', err: transitionResult.error })
-    // Don't throw, just leave workflow in current state
-    return
+    const failure = await handleTransitionFailure(em, container, instance, transitionResult, {
+      evalContext: transitionContext,
+      fromStepId: currentStepId,
+      toStepId: targetStepId,
+      source: 'task-completion',
+    })
+    if (failure.kind === 'failed' || failure.kind === 'parked') return
   }
 
   // Now continue workflow execution from the new step

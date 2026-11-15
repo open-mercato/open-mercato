@@ -12,6 +12,7 @@ import { ChannelMutationBlockedError, guardOutboundCreate } from './mutation-gua
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from './queue'
 import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 import { htmlToText } from './email-mime'
+import { buildOutboundConversationRef } from './outbound-conversation-ref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('communication_channels')
@@ -171,7 +172,7 @@ export async function sendAsUser(
 
   const messageId = result.result.id
   const messageThreadId = result.result.threadId ?? messageId
-  const externalThreadRef = `outbound:${messageThreadId}`
+  const externalThreadRef = buildOutboundConversationRef(messageThreadId)
 
   // Persist the conversation, thread mapping, and channel link as one unit. The
   // conversation's id is DB-generated (`gen_random_uuid()`), so it must be
@@ -180,18 +181,64 @@ export async function sendAsUser(
   // wraps the whole sequence so a mid-way failure rolls back all three writes
   // instead of leaving an orphaned conversation row.
   await em.transactional(async () => {
-    let conversation = await findOneWithDecryption(
-      em,
-      ExternalConversation,
-      {
-        channelId: channel.id,
-        externalConversationId: externalThreadRef,
-        tenantId,
-        organizationId,
-      },
-      undefined,
-      dscope,
-    )
+    // A reply belongs to the conversation its parent lives in on this channel.
+    // One logical thread can map to several provider conversations on the same
+    // channel, so the thread alone cannot pick the right one.
+    let conversation = input.parentMessageId
+      ? await findParentConversation(em, {
+          parentMessageId: input.parentMessageId,
+          messageThreadId,
+          channelId: channel.id,
+          scope: dscope,
+        })
+      : null
+    if (!conversation) {
+      conversation = await findOneWithDecryption(
+        em,
+        ExternalConversation,
+        {
+          channelId: channel.id,
+          externalConversationId: externalThreadRef,
+          tenantId,
+          organizationId,
+        },
+        undefined,
+        dscope,
+      )
+    }
+    if (!conversation) {
+      // The thread may already be mapped on this channel under the provider's own
+      // conversation id: an inbound thread, or an earlier send whose `outbound:`
+      // placeholder was re-keyed by the delivery command. Reuse that conversation
+      // so a follow-up send stays in it instead of opening a parallel one. When
+      // the thread spans several conversations here, the oldest one wins.
+      const threadMapping = await findOneWithDecryption(
+        em,
+        ChannelThreadMapping,
+        {
+          messageThreadId,
+          channelId: channel.id,
+          tenantId,
+          organizationId,
+        },
+        { orderBy: { createdAt: 'asc' } },
+        dscope,
+      )
+      if (threadMapping) {
+        conversation = await findOneWithDecryption(
+          em,
+          ExternalConversation,
+          {
+            id: threadMapping.externalConversationId,
+            channelId: channel.id,
+            tenantId,
+            organizationId,
+          },
+          undefined,
+          dscope,
+        )
+      }
+    }
     if (!conversation) {
       conversation = em.create(ExternalConversation, {
         channelId: channel.id,
@@ -285,6 +332,52 @@ export async function sendAsUser(
     channelId: channel.id,
     providerKey: channel.providerKey,
   }
+}
+
+/**
+ * The parent's conversation on this channel, but only when it is mapped to the
+ * reply's own thread there: delivery resolves the mapping by thread and
+ * conversation, so any other conversation would leave the reply undeliverable.
+ */
+async function findParentConversation(
+  em: EntityManager,
+  params: {
+    parentMessageId: string
+    messageThreadId: string
+    channelId: string
+    scope: { tenantId: string; organizationId: string | null }
+  },
+): Promise<ExternalConversation | null> {
+  const { tenantId, organizationId } = params.scope
+  const parentLink = await findOneWithDecryption(
+    em,
+    MessageChannelLink,
+    { messageId: params.parentMessageId, tenantId, organizationId },
+    undefined,
+    params.scope,
+  )
+  if (!parentLink) return null
+  const parentMapping = await findOneWithDecryption(
+    em,
+    ChannelThreadMapping,
+    {
+      externalConversationId: parentLink.externalConversationId,
+      messageThreadId: params.messageThreadId,
+      channelId: params.channelId,
+      tenantId,
+      organizationId,
+    },
+    undefined,
+    params.scope,
+  )
+  if (!parentMapping) return null
+  return findOneWithDecryption(
+    em,
+    ExternalConversation,
+    { id: parentMapping.externalConversationId, channelId: params.channelId, tenantId, organizationId },
+    undefined,
+    params.scope,
+  )
 }
 
 /** DI service type for cross-module callers (resolve `communicationChannelsSendAsUser`). */
