@@ -582,11 +582,15 @@ function appValueRegistrar(key: string, value: unknown): BootstrapData['diRegist
  * keeps working, but is reported at error level: a registry that silently
  * degrades to nothing is exactly how command interceptors stopped applying in
  * worker/CLI processes (#4327, #4491).
+ *
+ * `onLoadFailure` runs for a broken file; `onMissing` runs for an absent one, for
+ * registries whose absence must not read as "nothing registered".
  */
 async function loadOptionalGeneratedModule(
   tsPath: string,
   fallback: Record<string, unknown>,
   onLoadFailure?: (error: unknown) => void,
+  onMissing?: () => void,
 ): Promise<Record<string, unknown>> {
   try {
     return await compileAndImport(tsPath)
@@ -595,6 +599,7 @@ async function loadOptionalGeneratedModule(
       logger.debug('Optional generated registry not present, using empty fallback', {
         file: path.basename(tsPath),
       })
+      onMissing?.()
       return fallback
     }
 
@@ -611,6 +616,13 @@ async function loadOptionalGeneratedModule(
 function recordBootstrapRegistrationsFailure(error: unknown): void {
   markBootstrapRegistrationsFailed()
   getTelemetryRuntime()?.reportError(error, { module: 'shared', code: 'shared.bootstrap_registrations_load_failed' })
+}
+
+function recordBootstrapRegistrationsMissing(): void {
+  markBootstrapRegistrationsFailed()
+  logger.warn('Generated bootstrap registrations are missing; registries that protect data fail closed until `yarn generate` runs', {
+    file: 'bootstrap-registrations.generated.ts',
+  })
 }
 
 function resolveAppRootOrThrow(appRoot?: string): AppRoot {
@@ -884,6 +896,7 @@ export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapD
         path.join(resolved.generatedDir, 'bootstrap-registrations.generated.ts'),
         { runBootstrapRegistrations: () => undefined },
         recordBootstrapRegistrationsFailure,
+        recordBootstrapRegistrationsMissing,
       ),
     ])
     return {

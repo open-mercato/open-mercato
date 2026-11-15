@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { BOOTSTRAP_REGISTRATIONS_FAILED_KEY, markBootstrapRegistrationsFailed } from '@open-mercato/shared/lib/bootstrap/bootstrapRegistrations'
 import { registerAttachmentAccessResolvers } from '../access-registry'
 import { buildAttachmentAccessAuth, evaluateAttachmentRowAccess, requiresAttachmentOwnerAccess } from '../access-rows'
 import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../access-runner'
@@ -88,6 +89,22 @@ it('denies a protected row whose partition cannot be loaded but keeps an unprote
   const result = await evaluateAttachmentRowAccess({ container, auth, rows: [protectedRow, plainRow], action: 'read' })
   expect(result.allowed.map((row) => row.id)).toEqual(['plain'])
   expect(result.denied.map((row) => row.id)).toEqual(['protected'])
+})
+
+it('denies a resolver-only protected row when the process never loaded its bootstrap registrations', async () => {
+  registerAttachmentAccessResolvers([])
+  const { container } = setup(['documents.view'])
+  const withoutRegistrations = await evaluateAttachmentRowAccess({ container, auth, rows: [protectedRow], action: 'read' })
+  expect(withoutRegistrations.allowed.map((row) => row.id)).toEqual(['protected'])
+
+  markBootstrapRegistrationsFailed()
+  try {
+    const result = await evaluateAttachmentRowAccess({ container, auth, rows: [protectedRow], action: 'read' })
+    expect(result.allowed).toEqual([])
+    expect(result.denied.map((row) => row.id)).toEqual(['protected'])
+  } finally {
+    delete (globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATIONS_FAILED_KEY]
+  }
 })
 
 it('evaluates key-authenticated calls as the key, without the creator as a backing user', () => {

@@ -53,6 +53,7 @@ import { bootstrapFromAppRoot } from '../dynamicLoader'
 
 const mockedLogger = createLogger('shared') as unknown as {
   debug: jest.Mock
+  warn: jest.Mock
   error: jest.Mock
 }
 
@@ -171,6 +172,7 @@ describe('bootstrapFromAppRoot — app-level DI reaches worker/CLI processes', (
     createBootstrapMock.mockClear()
     mockedLogger.debug.mockClear()
     mockedLogger.error.mockClear()
+    mockedLogger.warn.mockClear()
     delete (globalThis as Record<string, unknown>)[APP_DI_CALL_COUNTER_KEY]
     delete (globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATION_CALL_COUNTER_KEY]
     delete (globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATIONS_FAILED_KEY]
@@ -196,14 +198,28 @@ describe('bootstrapFromAppRoot — app-level DI reaches worker/CLI processes', (
     )
   })
 
-  it('does not flag a failure when the file has not been generated', async () => {
+  it('flags missing generated registrations without reporting an error, and still bootstraps', async () => {
     const appRoot = createAppRoot(null)
     fs.rmSync(path.join(appRoot, '.mercato', 'generated', 'bootstrap-registrations.generated.ts'))
+
+    await expect(bootstrapFromAppRoot(appRoot)).resolves.toBeDefined()
+
+    expect(didBootstrapRegistrationsFail()).toBe(true)
+    expect(createBootstrapMock).toHaveBeenCalledTimes(1)
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('bootstrap registrations are missing'),
+      expect.objectContaining({ file: 'bootstrap-registrations.generated.ts' }),
+    )
+    expect(mockedLogger.error).not.toHaveBeenCalled()
+    expect(reportErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('does not flag a failure when the generated registrations load', async () => {
+    const appRoot = createAppRoot(null)
 
     await bootstrapFromAppRoot(appRoot)
 
     expect(didBootstrapRegistrationsFail()).toBe(false)
-    expect(mockedLogger.error).not.toHaveBeenCalled()
   })
 
   it('runs generated registrations for worker and CLI processes (#7980)', async () => {

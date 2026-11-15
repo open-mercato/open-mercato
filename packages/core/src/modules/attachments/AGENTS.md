@@ -66,7 +66,7 @@ write time.
 - A module that reads attachment rows by caller-supplied id outside the helper
   **MUST be listed in `KNOWN_DIRECT_ATTACHMENT_READER_MODULES`** (`lib/access-readers.ts`)
   until it is fixed; it then exports `enforcesOwnerAccessOnDirectReads = true` from its
-  `data/attachment-access.ts`. A CLI, worker or MCP process that cannot load the generated bootstrap registrations treats the access registry as invalid. Owner modules whose files must never reach such a reader
+  `data/attachment-access.ts`. A CLI, worker or MCP process whose generated bootstrap registrations are missing or fail to load treats the access registry as invalid. Owner modules whose files must never reach such a reader
   check `listUnguardedAttachmentReaders()` before storing them.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
