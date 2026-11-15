@@ -28,17 +28,55 @@ describe('resolveRequestApiKeyPrincipal', () => {
   })
 
   it('returns the key id alone for a regular key, ignoring its creator', async () => {
-    const key = { id: 'key-1' }
+    const key = { id: 'key-1', tenantId: 'tenant-1', organizationId: 'org-1' }
     findOneWithDecryption.mockResolvedValue(key)
     resolveVerifiedSessionKeyUserId.mockResolvedValue(null)
 
     await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ apiKeyId: 'key-1' })
-    expect(findOneWithDecryption).toHaveBeenCalledWith(em, expect.anything(), { id: 'key-1', deletedAt: null }, undefined, { tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(resolveVerifiedSessionKeyUserId).toHaveBeenCalledWith(em, key)
   })
 
+  it('scopes the key lookup to the authenticated tenant and organization in the query', async () => {
+    findOneWithDecryption.mockResolvedValue(null)
+
+    await resolveRequestApiKeyPrincipal(container, keyAuth)
+
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      { id: 'key-1', deletedAt: null, tenantId: 'tenant-1', organizationId: 'org-1' },
+      undefined,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+  })
+
+  it('scopes a tenant-wide key lookup to a null organization', async () => {
+    findOneWithDecryption.mockResolvedValue(null)
+
+    await resolveRequestApiKeyPrincipal(container, { ...keyAuth, orgId: null })
+
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      { id: 'key-1', deletedAt: null, tenantId: 'tenant-1', organizationId: null },
+      undefined,
+      { tenantId: 'tenant-1', organizationId: null },
+    )
+  })
+
+  it.each([
+    ['tenant', { tenantId: 'tenant-2', organizationId: 'org-1' }],
+    ['organization', { tenantId: 'tenant-1', organizationId: 'org-2' }],
+  ])('refuses a backing user when the key row belongs to another %s', async (_label, keyScope) => {
+    findOneWithDecryption.mockResolvedValue({ id: 'key-1', ...keyScope })
+    resolveVerifiedSessionKeyUserId.mockResolvedValue('user-1')
+
+    await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ apiKeyId: 'key-1' })
+    expect(resolveVerifiedSessionKeyUserId).not.toHaveBeenCalled()
+  })
+
   it('adds the verified user of a session-bound key', async () => {
-    findOneWithDecryption.mockResolvedValue({ id: 'key-1' })
+    findOneWithDecryption.mockResolvedValue({ id: 'key-1', tenantId: 'tenant-1', organizationId: 'org-1' })
     resolveVerifiedSessionKeyUserId.mockResolvedValue('user-1')
 
     await expect(resolveRequestApiKeyPrincipal(container, keyAuth)).resolves.toEqual({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' })

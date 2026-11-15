@@ -21,8 +21,18 @@ export async function resolveRequestApiKeyPrincipal(
 ): Promise<ApiKeyPrincipal> {
   if (!auth?.isApiKey || typeof auth.keyId !== 'string' || auth.keyId.length === 0) return {}
   const em = container.resolve<EntityManager>('em')
-  const scope = { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null }
-  const key = await findOneWithDecryption(em, ApiKey, { id: auth.keyId, deletedAt: null }, undefined, scope)
-  const apiKeyUserId = key ? await resolveVerifiedSessionKeyUserId(em, key) : null
+  const tenantId = auth.tenantId ?? null
+  const organizationId = auth.orgId ?? null
+  const key = await findOneWithDecryption(
+    em,
+    ApiKey,
+    { id: auth.keyId, deletedAt: null, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
+  const keyMatchesScope = key !== null
+    && (key.tenantId ?? null) === tenantId
+    && (key.organizationId ?? null) === organizationId
+  const apiKeyUserId = keyMatchesScope ? await resolveVerifiedSessionKeyUserId(em, key) : null
   return { apiKeyId: auth.keyId, ...(apiKeyUserId ? { apiKeyUserId } : {}) }
 }
