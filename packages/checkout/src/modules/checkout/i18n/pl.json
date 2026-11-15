@@ -397,6 +397,7 @@
   "checkout.payPage.validation.invalidEmail": "Podaj poprawny adres e-mail.",
   "checkout.payPage.validation.invalidPhone": "Podaj poprawny numer telefonu.",
   "checkout.payPage.validation.labels.option": "opcję płatności",
+  "checkout.payPage.validation.nameTooLong": "Imię lub nazwisko może mieć najwyżej 100 znaków.",
   "checkout.payPage.validation.priceSelectionRequired": "Wybierz opcję płatności, aby kontynuować.",
   "checkout.payPage.validation.requiredField": "Uzupełnij pole {field}.",
   "checkout.payPage.validation.thisField": "to pole",

@@ -397,6 +397,7 @@
   "checkout.payPage.validation.invalidEmail": "Enter a valid email address.",
   "checkout.payPage.validation.invalidPhone": "Enter a valid phone number.",
   "checkout.payPage.validation.labels.option": "payment option",
+  "checkout.payPage.validation.nameTooLong": "Use no more than 100 characters for a name.",
   "checkout.payPage.validation.priceSelectionRequired": "Choose a payment option to continue.",
   "checkout.payPage.validation.requiredField": "Enter {field}.",
   "checkout.payPage.validation.thisField": "this field",

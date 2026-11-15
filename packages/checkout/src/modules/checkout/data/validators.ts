@@ -275,7 +275,14 @@ export const publicPasswordVerifySchema = z.object({
 })
 
 export const publicSubmitSchema = z.object({
-  customerData: z.record(z.string(), z.unknown()),
+  customerData: z.object({
+    firstName: z.string().trim().max(100, 'checkout.payPage.validation.nameTooLong').nullish(),
+    lastName: z.string().trim().max(100, 'checkout.payPage.validation.nameTooLong').nullish(),
+    email: z.preprocess(
+      normalizeBlankString,
+      z.email('checkout.payPage.validation.invalidEmail').optional().nullable(),
+    ),
+  }).catchall(z.unknown()),
   acceptedLegalConsents: z.object({
     terms: z.boolean().optional(),
     privacyPolicy: z.boolean().optional(),

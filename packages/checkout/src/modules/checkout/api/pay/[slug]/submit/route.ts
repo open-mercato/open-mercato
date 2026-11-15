@@ -374,10 +374,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         fieldErrors: legalConsentErrors,
       })
     }
-    const collectedCustomerData = link.collectCustomerDetails === false ? {} : body.customerData
     const customerFields = Array.isArray(link.customerFieldsSchema)
       ? link.customerFieldsSchema as CheckoutCustomerFieldRequirement[]
       : []
+    const declaredKeys = new Set(customerFields.map((field) => field.key))
+    const collectedCustomerData = link.collectCustomerDetails === false
+      ? {}
+      : Object.fromEntries(Object.entries(body.customerData).filter(([key]) => declaredKeys.has(key)))
     if (link.collectCustomerDetails !== false) {
       const customerFieldErrors = validateCheckoutCustomerData(customerFields, collectedCustomerData)
       if (Object.keys(customerFieldErrors).length > 0) {

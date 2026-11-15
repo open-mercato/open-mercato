@@ -1,6 +1,7 @@
 import {
   createLinkSchema,
   createTemplateSchema,
+  publicSubmitSchema,
   updateLinkSchema,
   updateTemplateSchema,
 } from '../validators'
@@ -8,6 +9,21 @@ import {
 const TEMPLATE_ID = '020b29c5-db01-4ee3-8080-1d9b185c5e29'
 
 describe('checkout validators', () => {
+  test.each(['not-an-address', 'buyer@example.com\r\nBcc: victim@example.com', ['buyer@example.com'], 123])('rejects invalid submitted email %p even without a field schema', (email) => {
+    expect(publicSubmitSchema.safeParse({ customerData: { email } }).success).toBe(false)
+  })
+
+  test.each(['firstName', 'lastName'])('bounds submitted %s at 100 characters', (key) => {
+    expect(publicSubmitSchema.safeParse({ customerData: { [key]: 'a'.repeat(101) } }).success).toBe(false)
+    expect(publicSubmitSchema.safeParse({ customerData: { [key]: 'a'.repeat(100) } }).success).toBe(true)
+  })
+
+  test('normalizes payer details while retaining custom fields for the link-specific allowlist', () => {
+    expect(publicSubmitSchema.parse({ customerData: {
+      email: ' buyer@example.com ', firstName: ' Buyer ', custom: true,
+    } }).customerData).toEqual({ email: 'buyer@example.com', firstName: 'Buyer', custom: true })
+    expect(publicSubmitSchema.parse({ customerData: { email: ' ' } }).customerData.email).toBeNull()
+  })
   test('createTemplateSchema accepts payloads that omit optional normalized fields', () => {
     const result = createTemplateSchema.parse({
       name: 'QA template',
