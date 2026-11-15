@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -25,18 +25,6 @@ import { getTokenContext } from '@open-mercato/core/helpers/integration/generalF
 type CapturedEmail = { to?: string; links?: string[] }
 type InvitationState = { cancelled_at: Date | null; accepted_at: Date | null; email_hash: string }
 const endpoint = '/api/customer_accounts/admin/users-invite'
-
-async function openPortalAccountTab(page: Page): Promise<void> {
-  await expect(async () => {
-    const tab = page.getByRole('tab', { name: 'Portal account', exact: true })
-    if (await tab.isVisible()) {
-      await tab.click()
-      return
-    }
-    await page.getByTestId('detail-tabs-more').click({ timeout: 2_000 })
-    await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click({ timeout: 2_000 })
-  }).toPass({ timeout: 30_000 })
-}
 
 async function capturedToken(email: string, excludedToken?: string): Promise<string> {
   let token: string | undefined
@@ -148,7 +136,8 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
       invitationIds.push(invitation.id)
       await login(page, 'admin')
       await page.goto(`/backend/customers/people-v2/${personId}`)
-      await openPortalAccountTab(page)
+      await page.getByRole('main').getByRole('button', { name: 'More', exact: true }).first().click()
+      await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click()
       await expect(page.getByText('Invitation pending', { exact: true })).toBeVisible()
       await page.screenshot({ path: testInfo.outputPath('pending-invitation.png'), fullPage: true })
       await page.getByRole('button', { name: 'Cancel invitation', exact: true }).click()
@@ -226,7 +215,8 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
           { name: 'om_feedback_suppress', value: '1', url: baseUrl },
         ])
         await page.goto(`/backend/customers/people-v2/${personId}`)
-        await openPortalAccountTab(page)
+        await page.getByRole('main').getByRole('button', { name: 'More', exact: true }).first().click()
+        await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click()
         await expect(page.getByText('Invitation pending', { exact: true })).toBeVisible()
         const cancel = page.getByRole('button', { name: 'Cancel invitation', exact: true })
         if (grant === 'customer_accounts.view') {

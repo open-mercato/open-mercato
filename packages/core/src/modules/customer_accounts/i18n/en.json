@@ -372,6 +372,7 @@
   "customer_accounts.widgets.accountStatus": "Account status",
   "customer_accounts.widgets.accountStatus.description": "Shows customer portal account status on CRM person detail",
   "customer_accounts.widgets.emailVerified": "Email verified",
+  "customer_accounts.widgets.errorLoading": "Failed to load portal account status.",
   "customer_accounts.widgets.invitationExpires": "Invitation expires",
   "customer_accounts.widgets.invitationPending": "Invitation pending",
   "customer_accounts.widgets.invite.button": "Invite to Portal",
@@ -395,6 +396,7 @@
   "customer_accounts.widgets.noUsers": "No users linked",
   "customer_accounts.widgets.portalAccountTab": "Portal account",
   "customer_accounts.widgets.portalUsers": "Portal users",
+  "customer_accounts.widgets.retryLoading": "Retry",
   "customer_accounts.widgets.viewAccount": "View account",
   "notifications.categories.customer_accounts": "Customer accounts"
 }
