@@ -12,7 +12,7 @@ No speculative production changes, test suppression, weakened checks, deployment
 ## Implementation Plan
 ### Phase 1: Baseline and diagnosis
 1.1 Open draft PR from main and confirm all 15 integration shards, full typecheck and unit tests are selected.
-1.2 Independently inspect main CI history — c1537c359a (validated read-only investigation) and identify actionable failures.
+1.2 Independently inspect main CI history and identify actionable failures.
 ### Phase 2: Stabilization
 2.1 Fix demonstrated root causes with regression tests; run targeted checks and the configured validation gate.
 2.2 Verify the exact PR head has green CI, including all 15 integration shards.
@@ -22,7 +22,7 @@ No speculative production changes, test suppression, weakened checks, deployment
 
 ## Risks
 The date-only branch and plan belong to the earlier completed run (merged PR #9558); this scheduled occurrence uses the 1600 suffix to preserve its history.
-Main continues moving. Test this branch in its own PR concurrency group and inspect checks plus workflow runs for the exact head SHA. Current main runs are pending/in progress; completed recent runs passed. Do not invent fixes when none are demonstrated. User authorizes CI workflow/label changes and branch publishing for this run. Local resource or service limits will be recorded explicitly.
+Main continues moving. Test this branch in its own PR concurrency group and inspect checks plus workflow runs for the exact head SHA. At triage, the latest main runs were pending/in progress; completed recent runs passed. Do not invent fixes when none are demonstrated. User authorizes CI workflow/label changes and branch publishing for this run. Local resource or service limits will be recorded explicitly.
 
 ## Validation evidence
 Runner: local for docs-only validation (`git diff origin/main --check`, manual review); 40 existing CI orchestration tests passed. No markdown lint command is configured. Full application validation source: GitHub checks, avoiding a duplicate local install/build.
@@ -31,7 +31,9 @@ Runner: local for docs-only validation (`git diff origin/main --check`, manual r
 
 Independent investigation c2245c28 made no changes. Its main run evidence was checked directly: [43725929826](https://github.com/open-mercato/open-mercato/actions/runs/43725929826) succeeded on `f76558d6553dc5cc3400c9e18d6ecdfb0dfa42e8`, all 15 shards. No current root-cause fix is justified. Historical retry-recovered TC-WF-006 and intermittently invisible TC-SALES-6194 UI assertions were observed, with no established current deterministic regression. Earlier Combobox and snapshot propagation repairs are already merged.
 
-Every later documentation commit will rerun full stabilization CI; final readiness/automerge is gated on the exact final head and the independent final review. No application source or workflow was changed.
+[Evidence-head CI 43730533442](https://github.com/open-mercato/open-mercato/actions/runs/43730533442) also succeeded at `9418fd67b4a9acb9a9a81e8d3036fb7f7995fcf1`, all 15 shards and coverage aggregation. Parent read both checks and all workflows for this exact SHA: no pending or failing signal. Independent final-review task `33ebac4f` approved this documentation diff with no findings and directly verified the configured CI gates. Parent validated its findings and evidence. The same task will audit this final record before settling; its final reviewed SHA and verdict will be posted on the PR.
+
+Applied the requested `automerge` label after the evidence head was fully green. This final progress record necessarily creates another head: keep the PR draft until that head has completed full CI and the same review task has audited it. The PR's final verification/review comments are authoritative for the final SHA; no later evidence-only commit is required. No source code or workflow changed, no child branch was merged, and no base-branch merge is performed by this run.
 Engine: om-auto-create-pr (steps: 6, --loop: no)
 
 ## Progress
@@ -52,5 +54,5 @@ PR: #9605
 
 ### Phase 3: Review and handoff
 
-- [ ] 3.1 Obtain and validate final independent review
-- [ ] 3.2 Publish evidence and apply automerge after green CI
+- [x] 3.1 Obtain and validate final independent review — 9418fd67b4 (approve/no findings; final record audit retained in the same task)
+- [x] 3.2 Publish evidence and apply automerge after green CI — 9418fd67b4 (all checks/workflows green; label applied while draft; final-head readiness remains gated above)
