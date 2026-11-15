@@ -18,7 +18,7 @@ jest.mock('#generated/entities.ids.generated', () => ({
 }))
 
 jest.mock('../lib/portalAuthGuard', () => ({
-  resolveLinkedCustomerAuth: jest.fn(async () => ({
+  resolveAuthorizedLinkedCustomerAuth: jest.fn(async () => ({
     sub: 'customer-user-1',
     email: 'customer@example.com',
     tenantId: 'tenant-1',

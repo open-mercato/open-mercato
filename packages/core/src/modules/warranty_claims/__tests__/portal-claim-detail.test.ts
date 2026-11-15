@@ -24,7 +24,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindLines(...args),
 }))
 jest.mock('../lib/portalAuthGuard', () => ({
-  resolveLinkedCustomerAuth: (...args: unknown[]) => mockResolveAuth(...args),
+  resolveAuthorizedLinkedCustomerAuth: (...args: unknown[]) => mockResolveAuth(...args),
 }))
 jest.mock('../lib/portalClaimAccess', () => ({
   loadPortalOwnedClaim: (...args: unknown[]) => mockLoadClaim(...args),

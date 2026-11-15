@@ -8,7 +8,7 @@ import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_ac
 import { WarrantyClaim } from '../../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../../commands/shared'
 import { loadPortalOwnedClaim } from '../../../../lib/portalClaimAccess'
-import { resolveLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
 
 export type PortalClaimActionRouteContext = { params: Promise<{ id: string }> }
 
@@ -35,7 +35,7 @@ export async function resolvePortalClaimId(ctx: PortalClaimActionRouteContext): 
 
 export async function resolvePortalActionContext(req: Request): Promise<PortalClaimActionContext | Response> {
   const container = await createRequestContainer()
-  const authOrResponse = await resolveLinkedCustomerAuth(req, 'portal.warranty_claims.manage', container)
+  const authOrResponse = await resolveAuthorizedLinkedCustomerAuth(req, 'portal.warranty_claims.manage', container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
   const em = container.resolve('em') as EntityManager

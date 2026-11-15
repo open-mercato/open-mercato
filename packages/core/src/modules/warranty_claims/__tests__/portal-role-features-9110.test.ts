@@ -25,7 +25,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
 }))
 
-import { resolveLinkedCustomerAuth } from '../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth, resolveLinkedCustomerAuth } from '../lib/portalAuthGuard'
 import * as claims from '../api/portal/claims/route'
 import * as detail from '../api/portal/claims/[id]/route'
 import * as submit from '../api/portal/claims/[id]/submit/route'
@@ -48,7 +48,7 @@ const routeContext = { params: Promise.resolve({ id: claimId }) }
 const viewFeature = 'portal.warranty_claims.view'
 const manageFeature = 'portal.warranty_claims.manage'
 const request = new Request('http://localhost/api/warranty_claims/portal/claims')
-const container = { resolve: mockResolve } as unknown as Parameters<typeof resolveLinkedCustomerAuth>[2]
+const container = { resolve: mockResolve } as unknown as Parameters<typeof resolveAuthorizedLinkedCustomerAuth>[2]
 
 type Endpoint = { name: string; feature: string; invoke: () => Promise<Response> }
 const endpoints: Endpoint[] = [
@@ -102,45 +102,50 @@ describe('issue 9110: warranty portal customer-role features', () => {
 
   it.each([viewFeature, manageFeature, 'portal.orders.view'])('requires live RBAC even when the token claims %s', async (feature) => {
     mockGetAuth.mockResolvedValue({ ...auth, resolvedFeatures: [feature], isPortalAdmin: true })
-    const result = await resolveLinkedCustomerAuth(request, feature, container)
+    const result = await resolveAuthorizedLinkedCustomerAuth(request, feature, container)
     expect(result).toBeInstanceOf(Response)
     expect((result as Response).status).toBe(403)
   })
 
   it.each(['*', 'portal.*', 'portal.warranty_claims.*', viewFeature])('honors an authorized %s grant through the realm service', async (grant) => {
     mockHasFeatures.mockImplementation(async (_user: string, required: string[]) => authorizeFeatures(required, { grantedFeatures: [grant] }))
-    expect(await resolveLinkedCustomerAuth(request, viewFeature, container)).toEqual(auth)
+    expect(await resolveAuthorizedLinkedCustomerAuth(request, viewFeature, container)).toEqual(auth)
   })
 
   it.each([viewFeature, manageFeature])('keeps buyers authorized for %s', async (feature) => {
     mockHasFeatures.mockImplementation(async (_user: string, required: string[]) => authorizeFeatures(required, { grantedFeatures: setup.defaultCustomerRoleFeatures?.buyer ?? [] }))
-    expect(await resolveLinkedCustomerAuth(request, feature, container)).toEqual(auth)
+    expect(await resolveAuthorizedLinkedCustomerAuth(request, feature, container)).toEqual(auth)
   })
 
   it('keeps viewers authorized to read company claims', async () => {
     mockHasFeatures.mockImplementation(async (_user: string, required: string[]) => authorizeFeatures(required, { grantedFeatures: setup.defaultCustomerRoleFeatures?.viewer ?? [] }))
-    expect(await resolveLinkedCustomerAuth(request, viewFeature, container)).toEqual(auth)
+    expect(await resolveAuthorizedLinkedCustomerAuth(request, viewFeature, container)).toEqual(auth)
   })
 
   it('fails closed when the RBAC service is unavailable', async () => {
     mockResolve.mockImplementation(() => { throw new Error('[internal] RBAC unavailable') })
-    expect((await resolveLinkedCustomerAuth(request, viewFeature, container) as Response).status).toBe(403)
+    expect((await resolveAuthorizedLinkedCustomerAuth(request, viewFeature, container) as Response).status).toBe(403)
   })
 
   it('fails closed when the RBAC lookup rejects', async () => {
     mockHasFeatures.mockRejectedValueOnce(new Error('[internal] RBAC unavailable'))
-    expect((await resolveLinkedCustomerAuth(request, viewFeature, container) as Response).status).toBe(403)
+    expect((await resolveAuthorizedLinkedCustomerAuth(request, viewFeature, container) as Response).status).toBe(403)
   })
 
   it('preserves a feature guard response', async () => {
     const forbidden = NextResponse.json({ ok: false }, { status: 403 })
     mockHasFeatures.mockRejectedValueOnce(forbidden)
-    expect(await resolveLinkedCustomerAuth(request, viewFeature, container)).toBe(forbidden)
+    expect(await resolveAuthorizedLinkedCustomerAuth(request, viewFeature, container)).toBe(forbidden)
   })
 
   it('denies unlinked customer accounts before RBAC', async () => {
     mockGetAuth.mockResolvedValue({ ...auth, customerEntityId: null })
-    expect((await resolveLinkedCustomerAuth(request, viewFeature, container) as Response).status).toBe(403)
+    expect((await resolveAuthorizedLinkedCustomerAuth(request, viewFeature, container) as Response).status).toBe(403)
+    expect(mockHasFeatures).not.toHaveBeenCalled()
+  })
+
+  it('preserves the existing one-argument linked-customer authentication helper', async () => {
+    expect(await resolveLinkedCustomerAuth(request)).toEqual(auth)
     expect(mockHasFeatures).not.toHaveBeenCalled()
   })
 

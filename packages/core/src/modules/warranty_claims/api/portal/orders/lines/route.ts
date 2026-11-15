@@ -9,7 +9,7 @@ import { resolveEffectiveWarrantyClaimSettings } from '../../../../lib/settings'
 import { computeWarrantyEntitlementPreview } from '../../../../lib/warrantyPreview'
 import type { WarrantyClaimWarrantyStatus } from '../../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { resolveLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
 
 const logger = createLogger('warranty_claims')
 
@@ -98,7 +98,7 @@ function estimateWarrantyStatus(placedAt: string | null, defaultWarrantyMonths: 
 
 async function resolvePortalContext(req: Request): Promise<PortalOrderLinesContext | Response> {
   const container = await createRequestContainer()
-  const auth = await resolveLinkedCustomerAuth(req, 'portal.orders.view', container)
+  const auth = await resolveAuthorizedLinkedCustomerAuth(req, 'portal.orders.view', container)
   if (auth instanceof Response) return auth
   const em = (container.resolve('em') as EntityManager).fork()
   return {

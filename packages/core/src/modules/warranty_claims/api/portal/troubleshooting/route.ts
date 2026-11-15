@@ -13,7 +13,7 @@ import {
   type TroubleshootingNode,
 } from '../../../lib/troubleshooting'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 const logger = createLogger('warranty_claims')
 
@@ -68,7 +68,7 @@ export const metadata = {
 
 async function resolvePortalContext(req: Request): Promise<PortalTroubleshootingContext | Response> {
   const container = await createRequestContainer()
-  const auth = await resolveLinkedCustomerAuth(req, 'portal.warranty_claims.view', container)
+  const auth = await resolveAuthorizedLinkedCustomerAuth(req, 'portal.warranty_claims.view', container)
   if (auth instanceof Response) return auth
   return {
     auth,

@@ -8,7 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 const logger = createLogger('warranty_claims')
 
@@ -85,7 +85,7 @@ function toIso(value: unknown): string | null {
 
 async function resolvePortalContext(req: Request): Promise<PortalOrdersContext | Response> {
   const container = await createRequestContainer()
-  const auth = await resolveLinkedCustomerAuth(req, 'portal.orders.view', container)
+  const auth = await resolveAuthorizedLinkedCustomerAuth(req, 'portal.orders.view', container)
   if (auth instanceof Response) return auth
   const em = (container.resolve('em') as EntityManager).fork()
   return {

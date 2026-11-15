@@ -33,7 +33,7 @@ import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { CUSTOMER_VISIBLE_ATTACHMENT_TAG, isCustomerVisibleAttachment } from '../../../lib/attachmentVisibility'
 import { loadPortalOwnedClaim } from '../../../lib/portalClaimAccess'
 import { resolvePortalAttachmentUploadService } from '../../../lib/portalAttachmentUpload'
-import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 const CLAIM_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
 const logger = createLogger('warranty_claims').child({ route: 'portal-attachments' })
@@ -87,7 +87,7 @@ function toIso(value: Date | string | null | undefined): string | null {
 
 async function resolvePortalContext(req: Request, requiredFeature: string): Promise<PortalContext | Response> {
   const container = await createRequestContainer()
-  const authOrResponse = await resolveLinkedCustomerAuth(req, requiredFeature, container)
+  const authOrResponse = await resolveAuthorizedLinkedCustomerAuth(req, requiredFeature, container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
   const em = container.resolve('em') as EntityManager

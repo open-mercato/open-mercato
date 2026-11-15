@@ -1,5 +1,29 @@
 # Upgrade Notes
 
+## Warranty portal customer-role permissions (#9110)
+
+**Operators:** before enabling the updated portal for existing tenants, run
+`yarn mercato customer_accounts sync-customer-role-acls`. The command adds claim
+view/manage permissions to the built-in buyer role and claim view to the viewer
+role without removing customized grants. Review custom customer roles and grant
+`portal.warranty_claims.view` and, for writers, `portal.warranty_claims.manage`.
+Order and order-line selectors also require `portal.orders.view`. Existing users
+without these features now receive 403. No database migration or startup/environment
+configuration change is required.
+
+**Client and module authors:** keep the current endpoint URLs and response schemas;
+handle 403 for missing permissions. Viewers can read company claims but cannot create,
+submit, withdraw, comment or write attachments. Replacing/deleting evidence outside
+`draft`, `submitted` and `info_requested` now returns 400; request staff assistance
+for later evidence changes. New uploads retain existing behavior. The existing
+`resolveLinkedCustomerAuth(req)` identity helper remains compatible; core routes use
+the new explicit feature-authorizing helper. Historical claims and files are retained;
+this patch does not undo unauthorized actions already performed.
+
+This narrow security removal needs a named human maintainer's acknowledgment of
+the emergency compatibility exception before merge; automated review cannot grant it.
+See [the module specification](.ai/specs/2026-07-03-warranty-rma-claims-desk.md).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

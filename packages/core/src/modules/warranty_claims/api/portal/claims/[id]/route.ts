@@ -10,7 +10,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../../data/entities'
 import { loadWarrantyClaimDictionaryLabel } from '../../../../lib/dictionaries'
 import { loadPortalOwnedClaim } from '../../../../lib/portalClaimAccess'
-import { resolveLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -45,7 +45,7 @@ async function resolveClaimId(ctx: RouteContext): Promise<string | null> {
 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
   const container = await createRequestContainer()
-  const authOrResponse = await resolveLinkedCustomerAuth(req, 'portal.warranty_claims.view', container)
+  const authOrResponse = await resolveAuthorizedLinkedCustomerAuth(req, 'portal.warranty_claims.view', container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
   const em = container.resolve('em') as EntityManager

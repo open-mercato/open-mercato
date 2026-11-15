@@ -8,7 +8,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { loadWarrantyClaimDictionaryOptions } from '../../../lib/dictionaries'
 import type { WarrantyClaimDictionaryKind } from '../../../data/constants'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 const logger = createLogger('warranty_claims')
 
@@ -45,7 +45,7 @@ export const metadata = {
 
 async function resolvePortalOptionsContext(req: Request): Promise<PortalOptionsContext | Response> {
   const container = await createRequestContainer()
-  const auth = await resolveLinkedCustomerAuth(req, 'portal.warranty_claims.view', container)
+  const auth = await resolveAuthorizedLinkedCustomerAuth(req, 'portal.warranty_claims.view', container)
   if (auth instanceof Response) return auth
   return {
     auth,

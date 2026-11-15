@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
-import { resolveLinkedCustomerAuth } from '../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../lib/portalAuthGuard'
 
 const MAX_UPLOAD_MB = 1
 const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
@@ -15,7 +15,7 @@ const mockEm = {}
 const mockConsume = jest.fn()
 
 jest.mock('../lib/portalAuthGuard', () => ({
-  resolveLinkedCustomerAuth: jest.fn(async () => ({
+  resolveAuthorizedLinkedCustomerAuth: jest.fn(async () => ({
     sub: 'customer-user-1',
     email: 'customer@example.com',
     tenantId: 'tenant-1',
@@ -179,7 +179,7 @@ describe('warranty portal attachment upload size limit', () => {
     ['tenant-2', 'customer-user-1'],
     ['tenant-1', 'customer-user-2'],
   ])('isolates the throttle for %s and %s', async (tenantId, principal) => {
-    jest.mocked(resolveLinkedCustomerAuth).mockResolvedValueOnce({
+    jest.mocked(resolveAuthorizedLinkedCustomerAuth).mockResolvedValueOnce({
       sub: principal,
       email: 'customer@example.com',
       tenantId,

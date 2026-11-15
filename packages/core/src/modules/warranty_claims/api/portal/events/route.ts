@@ -15,7 +15,7 @@ import { WarrantyClaim, WarrantyClaimEvent } from '../../../data/entities'
 import type { CommentClaimInput } from '../../../data/validators'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { loadPortalOwnedClaim } from '../../../lib/portalClaimAccess'
-import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
+import { resolveAuthorizedLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -74,7 +74,7 @@ function serializeEvent(event: WarrantyClaimEvent) {
 
 async function resolvePortalContext(req: Request, requiredFeature: string): Promise<PortalContext | Response> {
   const container = await createRequestContainer()
-  const authOrResponse = await resolveLinkedCustomerAuth(req, requiredFeature, container)
+  const authOrResponse = await resolveAuthorizedLinkedCustomerAuth(req, requiredFeature, container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
   const em = container.resolve('em') as EntityManager

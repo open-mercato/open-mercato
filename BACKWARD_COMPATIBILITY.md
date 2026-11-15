@@ -666,3 +666,26 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+
+## Warranty portal authorization and evidence changes (2026-11-15, #9110)
+
+**Surface/classification:** STABLE portal HTTP behavior is narrowed to enforce live
+customer-role features and to refuse evidence replacement/deletion after claim review
+starts. URLs, HTTP methods, response fields and database schema stay unchanged; new
+ACL feature IDs are additive. The one-argument linked-auth helper is preserved.
+
+**Qualifying security argument:** retaining viewer writes or bypassing the required
+order-view feature would leave the reported authorization bypass exploitable. A
+compatibility flag preserving these paths would preserve the vulnerability. The
+restriction is limited to the affected module's portal routes and evidence writes.
+
+**Migration:** operators run `yarn mercato customer_accounts sync-customer-role-acls`
+and review custom-role grants; clients handle 403 for missing features and 400 for
+late evidence replacement/deletion. Existing records remain intact. Full client and
+operator instructions are in `UPGRADE_NOTES.md`; the module specification's
+"Migration & Backward Compatibility" section records the decision and tests.
+
+**Approval:** proposed emergency exception; named human maintainer acknowledgment is
+still pending. This entry and automated review do not grant the waiver. Merge stays
+blocked until that approval and the ordinary validation/QA gates are satisfied.
