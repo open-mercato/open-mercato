@@ -127,15 +127,19 @@ function makeEm(task: Row) {
   })
   const persist = jest.fn(() => ({ flush }))
   const create = jest.fn((_entity: unknown, data: Row) => ({ ...data }))
-  const forkEm = { findOne, flush: forkFlush, persist, create }
+  // `completeUserTask` closes the row with a conditional update (race guard),
+  // so the fake reports the row it just closed.
+  const nativeUpdate = jest.fn(async () => 1)
+  const forkEm = { findOne, flush: forkFlush, persist, create, nativeUpdate }
   const em = {
     findOne,
     flush,
     persist,
     create,
+    nativeUpdate,
     fork: jest.fn(() => forkEm),
   }
-  return { em: em as unknown as EntityManager, flush, forkFlush, persist, instance, stepInstance }
+  return { em: em as unknown as EntityManager, flush, forkFlush, persist, nativeUpdate, instance, stepInstance }
 }
 
 const container = { resolve: jest.fn(() => undefined) } as unknown as AwilixContainer
@@ -233,7 +237,7 @@ describe('registry', () => {
 describe('completeUserTask with completion guards', () => {
   test('a vetoing guard blocks the direct call with its own code and mutates nothing', async () => {
     const task = makeTask()
-    const { em, flush, persist } = makeEm(task)
+    const { em, flush, persist, nativeUpdate } = makeEm(task)
     registerTaskCompletionGuards([{ moduleId: 'host', guards: [vetoGuard()] }])
 
     const failure = await complete(em).catch((error: unknown) => error)
@@ -257,6 +261,7 @@ describe('completeUserTask with completion guards', () => {
     expect(task.completedBy).toBeUndefined()
     expect(flush).not.toHaveBeenCalled()
     expect(persist).not.toHaveBeenCalled()
+    expect(nativeUpdate).not.toHaveBeenCalled()
     expect(exitStep).not.toHaveBeenCalled()
   })
 
