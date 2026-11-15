@@ -7,7 +7,7 @@ Make browser live-refresh consumers survive event-bridge reconnect gaps: export 
 ## Scope
 
 - `@open-mercato/ui`: new constants `BRIDGE_RECONNECTED_EVENT_ID` (`backend/injection/useAppEvent.ts`) and `PORTAL_BRIDGE_RECONNECTED_EVENT_ID` (`portal/hooks/usePortalAppEvent.ts`); new hooks `backend/injection/useLiveRefetch.ts` and `portal/hooks/usePortalLiveRefetch.ts`; bridges import the constants.
-- Mechanical literal → constant swap in core, enterprise, search, sync-akeneo, ui (incl. unit tests).
+- Mechanical literal → constant swap in core, search, sync-akeneo, ui (incl. unit tests). `packages/enterprise/` is left untouched (enterprise contribution guard); its literals keep the unchanged wire id.
 - Behavior change limited to `warranty_claims` portal claim detail and `staff` portal support ticket detail pages (they now refetch on portal reconnect).
 - Docs: `useAppEvent` / `usePortalAppEvent` JSDoc, `apps/docs/docs/framework/events/overview.mdx`, `framework/widget-injection.md` docs, `packages/ui/AGENTS.md` portal hooks table.
 

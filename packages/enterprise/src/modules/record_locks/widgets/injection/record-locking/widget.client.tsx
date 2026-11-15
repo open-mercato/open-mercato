@@ -10,7 +10,6 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
-import { BRIDGE_RECONNECTED_EVENT_ID } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { registerRecordLockConflictHandler } from '@open-mercato/ui/backend/conflicts'
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
@@ -1018,7 +1017,7 @@ export default function RecordLockingWidget({
       const detail = isObjectRecord((event as CustomEvent<unknown>).detail)
         ? (event as CustomEvent<Record<string, unknown>>).detail
         : null
-      if (detail?.id !== BRIDGE_RECONNECTED_EVENT_ID) return
+      if (detail?.id !== 'om:bridge:reconnected') return
       void refreshPresence()
     }
     const onFocus = () => {
