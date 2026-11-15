@@ -1,5 +1,17 @@
 # Upgrade Notes
 
+## `ecommerce` treats `customer_groups` and `customer_accounts` as optional peers (#9196)
+
+`ecommerce` now declares `requires: ['catalog', 'sales']`. With `customer_groups` disabled,
+storefront buyer context falls back to channel-only pricing and assortment (no group terms,
+no purchase on account, no approval threshold); with `customer_accounts` disabled, a store
+domain binding that sets `domainMappingId` is rejected with the existing 400 validation
+error. Behavior is unchanged when both modules are enabled. Apps that pass `yarn generate`
+today are not newly rejected, and no action is needed unless your app relied on `ecommerce`
+to force these modules on; enable them explicitly in `src/modules.ts` in that case. No API,
+schema or configuration change. See
+[module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
+
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
 The deal detail page moved stage changes from a header dropdown to the clickable stage strip in
