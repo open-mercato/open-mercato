@@ -1769,7 +1769,10 @@ export function LineItemDialog({
           return;
         }
         const serverError = normalizeCrudServerError(err);
-        if (serverError.message === "uom.unit_not_found") {
+        if (
+          typeof serverError.message === "string" &&
+          serverError.message.startsWith("uom.")
+        ) {
           throw new Error(
             translateLineItemServerError(serverError.message, t),
             { cause: err },

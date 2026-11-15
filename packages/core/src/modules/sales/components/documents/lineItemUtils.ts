@@ -6,12 +6,30 @@ export function translateLineItemServerError(
   message: string,
   t: TranslateWithFallback,
 ): string {
-  if (message === "uom.unit_not_found") {
-    return t(
-      "sales.documents.items.errors.uom.unitNotFound",
-      "The specified unit code was not found.",
-    )
+  const translations: Record<string, { key: string; fallback: string }> = {
+    "uom.unit_not_found": {
+      key: "sales.documents.items.errors.uom.unitNotFound",
+      fallback: "The specified unit code was not found.",
+    },
+    "uom.conversion_not_found": {
+      key: "sales.documents.items.errors.uom.conversionNotFound",
+      fallback: "No unit conversion found for this product.",
+    },
+    "uom.default_unit_missing": {
+      key: "sales.documents.items.errors.uom.defaultUnitMissing",
+      fallback: "Product is missing a default base unit.",
+    },
+    "uom.invalid_factor": {
+      key: "sales.documents.items.errors.uom.invalidFactor",
+      fallback: "Conversion factor must be a positive number.",
+    },
+    "uom.precision_overflow": {
+      key: "sales.documents.items.errors.uom.precisionOverflow",
+      fallback: "Result exceeds the allowed decimal precision.",
+    },
   }
+  const translation = translations[message]
+  if (translation) return t(translation.key, translation.fallback)
   return message
 }
 

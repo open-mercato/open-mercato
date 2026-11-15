@@ -49,6 +49,10 @@ jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
   createCrudFormError: (message: string) => new Error(message),
+  normalizeCrudServerError: (err: unknown) => {
+    const error = err as { message?: string; error?: string }
+    return { message: error.error ?? error.message ?? '' }
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/customFieldValues', () => ({
@@ -118,7 +122,9 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => {
       setValues(initialValues)
     }, [initialValues])
 
-    capturedSubmit = onSubmit
+    ReactLib.useEffect(() => {
+      capturedSubmit = onSubmit
+    }, [onSubmit])
 
     const setFormValue = ReactLib.useCallback((id: string, next: unknown) => {
       setValues((current) => ({ ...current, [id]: next }))
@@ -287,5 +293,22 @@ describe('LineItemDialog locale decimal separator (issue #5552)', () => {
   it('keeps the "greater than 0" message for a genuinely zero or blank value', async () => {
     renderDialog()
     await expectRejection('0', '110,70', 'Quantity must be greater than 0.')
+  })
+
+  it('translates the createCrud UOM error in the dialog submit handler', async () => {
+    renderDialog()
+    mockCreateCrud.mockRejectedValue(
+      Object.assign(new Error('uom.unit_not_found'), {
+        error: 'uom.unit_not_found',
+        status: 400,
+      }),
+    )
+
+    await act(async () => {
+      await expect(
+        capturedSubmit?.(customLineValues('2', '110,70')),
+      ).rejects.toThrow('The specified unit code was not found.')
+    })
+    expect(mockCreateCrud).toHaveBeenCalledTimes(1)
   })
 })

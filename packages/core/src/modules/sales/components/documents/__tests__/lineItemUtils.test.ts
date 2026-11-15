@@ -5,14 +5,17 @@ import {
 } from '../lineItemUtils'
 
 describe('translateLineItemServerError', () => {
-  it('translates an unknown unit code using the sales unit error copy', () => {
-    const t = (key: string, fallback?: string) =>
-      key === 'sales.documents.items.errors.uom.unitNotFound'
-        ? 'Nie znaleziono jednostki.'
-        : fallback ?? key
+  it.each([
+    ['uom.unit_not_found', 'unitNotFound'],
+    ['uom.conversion_not_found', 'conversionNotFound'],
+    ['uom.default_unit_missing', 'defaultUnitMissing'],
+    ['uom.invalid_factor', 'invalidFactor'],
+    ['uom.precision_overflow', 'precisionOverflow'],
+  ])('translates %s using its sales UOM error copy', (message, errorKey) => {
+    const t = (key: string, fallback?: string) => `${key}:${fallback ?? ''}`
 
-    expect(translateLineItemServerError('uom.unit_not_found', t)).toBe(
-      'Nie znaleziono jednostki.',
+    expect(translateLineItemServerError(message, t)).toContain(
+      `sales.documents.items.errors.uom.${errorKey}:`,
     )
   })
 
