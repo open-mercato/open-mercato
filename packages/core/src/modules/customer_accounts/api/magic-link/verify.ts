@@ -12,6 +12,7 @@ import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_a
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -39,7 +40,10 @@ export async function POST(req: Request) {
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const result = await customerTokenService.verifyEmailToken(parsed.data.token, 'magic_link')
+  const result = await customerTokenService.verifyEmailToken(
+    parsed.data.token, 'magic_link', undefined,
+    (tenantId) => requireCustomerPortalEnabled(container, tenantId),
+  )
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
@@ -130,7 +134,7 @@ const methodDoc: OpenApiMethodDoc = {
   errors: [
     { status: 400, description: 'Invalid or expired token', schema: errorSchema },
     { status: 401, description: 'Account not found', schema: errorSchema },
-    { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
+    { status: 403, description: 'Customer portal is disabled or request was submitted cross-site', schema: errorSchema },
   ],
 }
 

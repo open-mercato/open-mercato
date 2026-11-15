@@ -666,3 +666,10 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## Portal APIs (2026-11-15, #9162)
+
+STABLE HTTP: disabled portals deny customer auth/APIs (403); a bridge preserves the
+bypass. Enable the portal for API access; clients handle 403.
+[Migration/spec](UPGRADE_NOTES.md#portal-api-access-9162).
+Named human waiver of steps 1–3 pending.

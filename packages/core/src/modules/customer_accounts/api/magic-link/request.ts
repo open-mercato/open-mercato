@@ -19,6 +19,7 @@ import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/c
 import { sendCustomerMagicLinkEmail } from '@open-mercato/core/modules/customer_accounts/lib/authLinkEmails'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 
 const logger = createLogger('customer_accounts').child({ component: 'magic-link-request' })
 
@@ -59,6 +60,7 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
+  await requireCustomerPortalEnabled(container, tenantId)
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
 
@@ -101,6 +103,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Request accepted', schema: successSchema },
   ],
   errors: [
+    { status: 403, description: 'Customer portal is disabled', schema: z.object({ ok: z.literal(false), error: z.string() }) },
     { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
   ],
 }
