@@ -1,4 +1,4 @@
-name: Develop Snapshot Release
+name: Main Snapshot Release
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -358,7 +358,9 @@ jobs:
 
       - name: Run integration tests
         env:
+          OM_INTEGRATION_TEST: 'true'
           OM_TEST_APP_ROOT: /tmp/standalone-app
+          AUTO_SPAWN_WORKERS: 'false'
           BASE_URL: http://localhost:3001
           DATABASE_URL: postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL: http://localhost:3001

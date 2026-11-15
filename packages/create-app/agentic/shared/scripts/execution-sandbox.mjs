@@ -307,6 +307,7 @@ function linuxInvocation({ command, args, cwd, writableRoots, readOnlyRoots, net
     sandboxArgs.push('--ro-bind', root, root)
   }
   for (const file of networkReadable) sandboxArgs.push('--ro-bind', file, file)
+  sandboxArgs.push('--remount-ro', '/', '--remount-ro', '/tmp')
   const realCwd = regularDirectory(cwd, 'sandbox cwd')
   sandboxArgs.push('--chdir', realCwd, '--', resolveExecutable(command, env), ...args)
   return { command: bubblewrap, args: sandboxArgs, cwd: realCwd, env }

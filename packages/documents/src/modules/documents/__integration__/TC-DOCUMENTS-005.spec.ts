@@ -267,41 +267,43 @@ async function resolveComment(
   throw new Error('[internal] comment resolve retry loop exhausted')
 }
 
+type DocumentsScenario = {
+  adminToken: string
+  documentId: string
+  createUser: (label: string, features?: string[]) => Promise<DocumentsTestUser>
+}
+
+async function withDocumentFixture(
+  request: APIRequestContext,
+  label: string,
+  run: (scenario: DocumentsScenario) => Promise<void>,
+): Promise<void> {
+  const adminToken = await getAuthToken(request, 'admin')
+  const users: DocumentsTestUser[] = []
+  let document: { id: string; updatedAt: string } | null = null
+  const createUser = async (userLabel: string, features = DOCUMENTS_USER_FEATURES) => {
+    const user = await createDocumentsUser(request, adminToken, userLabel, features)
+    users.push(user)
+    return user
+  }
+
+  try {
+    document = await createDocument(request, adminToken, `TC-DOCUMENTS-005 ${label} ${Date.now()}`)
+    await putContent(request, adminToken, document.id, '<p>v1 body</p>', 'v1 body')
+    await run({ adminToken, documentId: document.id, createUser })
+  } finally {
+    await deleteDocumentIfExists(request, adminToken, document?.id ?? null, document?.updatedAt ?? null)
+    await Promise.all(users.map((user) => deleteUserIfExists(request, adminToken, user.id)))
+    await Promise.all(users.map((user) => deleteRoleIfExists(request, adminToken, user.roleId)))
+  }
+}
+
 test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
-  test('covers threaded comments, mention notifications, version snapshots, and reversible restore', async ({ request }) => {
-    const stamp = Date.now()
-    let adminToken: string | null = null
-    let commenter: DocumentsTestUser | null = null
-    let viewer: DocumentsTestUser | null = null
-    let mentionTarget: DocumentsTestUser | null = null
-    let managerWithoutShare: DocumentsTestUser | null = null
-    let managerMentionTarget: DocumentsTestUser | null = null
-    let documentId: string | null = null
-    let documentUpdatedAt: string | null = null
-
-    try {
-      adminToken = await getAuthToken(request, 'admin')
-      const document = await createDocument(request, adminToken, `TC-DOCUMENTS-005 ${stamp}`)
-      documentId = document.id
-      documentUpdatedAt = document.updatedAt
-      await putContent(request, adminToken, documentId, '<p>v1 body</p>', 'v1 body')
-
-      commenter = await createDocumentsUser(request, adminToken, 'commenter', DOCUMENTS_USER_FEATURES)
-      viewer = await createDocumentsUser(request, adminToken, 'viewer', DOCUMENTS_VIEW_FEATURES)
-      mentionTarget = await createDocumentsUser(request, adminToken, 'mention-target', DOCUMENTS_VIEW_FEATURES)
-      managerWithoutShare = await createDocumentsUser(
-        request,
-        adminToken,
-        'manager-without-share',
-        ['documents.view', 'documents.edit', 'documents.manage'],
-      )
-      managerMentionTarget = await createDocumentsUser(
-        request,
-        adminToken,
-        'manager-mention-target',
-        DOCUMENTS_VIEW_FEATURES,
-      )
-
+  test('threads and resolves comments without granting mention access to a commenter', async ({ request }) => {
+    await withDocumentFixture(request, 'comments', async ({ adminToken, documentId, createUser }) => {
+      const commenter = await createUser('commenter')
+      const viewer = await createUser('viewer', DOCUMENTS_VIEW_FEATURES)
+      const mentionTarget = await createUser('mention-target', DOCUMENTS_VIEW_FEATURES)
       await shareWithUser(request, adminToken, documentId, commenter.id, 'commenter')
       await shareWithUser(request, adminToken, documentId, viewer.id, 'viewer')
 
@@ -419,6 +421,24 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
         'lower-tier documents.share must not satisfy the owner-tier side of canShare',
       ).toContain(mentionTarget.id)
 
+      const viewerNotificationsResponse = await apiRequest(request, 'GET', notificationPath, {
+        token: viewer.token,
+      })
+      const viewerNotificationsBody = await readJsonSafe<NotificationListBody>(viewerNotificationsResponse)
+      expect(viewerNotificationsResponse.status(), 'non-mentioned viewer should read notifications').toBe(200)
+      const viewerItems = Array.isArray(viewerNotificationsBody?.items) ? viewerNotificationsBody.items : []
+      expect(viewerItems.length, 'non-mentioned viewer should not receive the mention notification').toBe(0)
+    })
+  })
+
+  test('requires the share action feature and owner tier before granting mention access', async ({ request }) => {
+    await withDocumentFixture(request, 'mention-grants', async ({ adminToken, documentId, createUser }) => {
+      const managerWithoutShare = await createUser(
+        'manager-without-share',
+        ['documents.view', 'documents.edit', 'documents.manage'],
+      )
+      const mentionTarget = await createUser('mention-target', DOCUMENTS_VIEW_FEATURES)
+
       const managerGrantAttempt = await apiRequest(
         request,
         'POST',
@@ -426,10 +446,10 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
         {
           token: managerWithoutShare.token,
           data: {
-            body: `manager ping @[${managerMentionTarget.id}]`,
+            body: `manager ping @[${mentionTarget.id}]`,
             anchor: null,
             parentCommentId: null,
-            grantAccessTo: [managerMentionTarget.id],
+            grantAccessTo: [mentionTarget.id],
           },
         },
       )
@@ -438,9 +458,9 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
         'manager without documents.share must not grant mention access',
       ).toBe(403)
       expect(
-        await checkMentionAccess(request, adminToken, documentId, [managerMentionTarget.id]),
+        await checkMentionAccess(request, adminToken, documentId, [mentionTarget.id]),
         'documents.manage must not substitute for the documents.share action feature',
-      ).toContain(managerMentionTarget.id)
+      ).toContain(mentionTarget.id)
 
       const grantMentionCommentResponse = await apiRequest(
         request,
@@ -498,14 +518,15 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
         ),
         'mention notification should link to the source comment',
       ).toBe(true)
+    })
+  })
 
-      const viewerNotificationsResponse = await apiRequest(request, 'GET', notificationPath, {
-        token: viewer.token,
-      })
-      const viewerNotificationsBody = await readJsonSafe<NotificationListBody>(viewerNotificationsResponse)
-      expect(viewerNotificationsResponse.status(), 'non-mentioned viewer should read notifications').toBe(200)
-      const viewerItems = Array.isArray(viewerNotificationsBody?.items) ? viewerNotificationsBody.items : []
-      expect(viewerItems.length, 'non-mentioned viewer should not receive the mention notification').toBe(0)
+  test('snapshots and restores content reversibly for an editor while denying a viewer', async ({ request }) => {
+    await withDocumentFixture(request, 'versions', async ({ adminToken, documentId, createUser }) => {
+      const commenter = await createUser('commenter')
+      const viewer = await createUser('viewer', DOCUMENTS_VIEW_FEATURES)
+      await shareWithUser(request, adminToken, documentId, commenter.id, 'commenter')
+      await shareWithUser(request, adminToken, documentId, viewer.id, 'viewer')
 
       await shareWithUser(request, adminToken, documentId, commenter.id, 'editor')
 
@@ -583,18 +604,6 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
       const restoredContentBody = await readJsonSafe<ContentBody>(restoredContentResponse)
       expect(restoredContentResponse.status(), 'GET content after restore should return 200').toBe(200)
       expect(restoredContentBody?.contentHtml).toContain('v1 body')
-    } finally {
-      await deleteDocumentIfExists(request, adminToken, documentId, documentUpdatedAt)
-      await deleteUserIfExists(request, adminToken, commenter?.id ?? null)
-      await deleteRoleIfExists(request, adminToken, commenter?.roleId ?? null)
-      await deleteUserIfExists(request, adminToken, viewer?.id ?? null)
-      await deleteRoleIfExists(request, adminToken, viewer?.roleId ?? null)
-      await deleteUserIfExists(request, adminToken, mentionTarget?.id ?? null)
-      await deleteRoleIfExists(request, adminToken, mentionTarget?.roleId ?? null)
-      await deleteUserIfExists(request, adminToken, managerWithoutShare?.id ?? null)
-      await deleteRoleIfExists(request, adminToken, managerWithoutShare?.roleId ?? null)
-      await deleteUserIfExists(request, adminToken, managerMentionTarget?.id ?? null)
-      await deleteRoleIfExists(request, adminToken, managerMentionTarget?.roleId ?? null)
-    }
+    })
   })
 })

@@ -3,7 +3,23 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
-test('a long selected pipeline name fits a narrow viewport and retains its accessible name', async ({ page, request }) => {
+test('a long selected pipeline name fits a narrow viewport and retains its accessible name', async ({ page, request }, testInfo) => {
+  const progressName = 'Reassign selected deals to a new owner with a long operation description'
+  await page.route('**/api/progress/active', (route) => route.fulfill({
+    json: {
+      active: [{
+        id: 'responsive-progress-job',
+        jobType: 'customers.bulk_reassign',
+        name: progressName,
+        status: 'running',
+        progressPercent: 0,
+        processedCount: 0,
+        totalCount: 10,
+        cancellable: false,
+      }],
+      recentlyCompleted: [],
+    },
+  }))
   const token = await getAuthToken(request, 'admin')
   const name = `QA responsive pipeline ${Date.now()} ${'long descriptive name '.repeat(6)}`.trim()
   let pipelineId: string | null = null
@@ -33,7 +49,12 @@ test('a long selected pipeline name fits a narrow viewport and retains its acces
     await page.setViewportSize({ width: 390, height: 844 })
 
     await expect(page.getByRole('button', { name: `Pipeline: ${name}`, exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: new RegExp(progressName) })).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    await testInfo.attach('mobile-pipeline-with-active-progress', {
+      body: await page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    })
   } finally {
     const cleanupErrors: unknown[] = []
     for (const [path, entityId] of [

@@ -64,6 +64,7 @@ async function drainAndReadOutboundTotal(
   )
   expect(healthResponse.status(), 'channel health must be available after draining delivery jobs').toBe(200)
   const health = await readJsonSafe<{ totalsLast24h?: number }>(healthResponse)
+  expect(health?.totalsLast24h, 'channel health must include its delivery total').toEqual(expect.any(Number))
   return health?.totalsLast24h ?? 0
 }
 

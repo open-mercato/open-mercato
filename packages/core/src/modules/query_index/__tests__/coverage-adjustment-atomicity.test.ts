@@ -89,7 +89,7 @@ describe('applyCoverageAdjustments (#5604)', () => {
     expect(update).toContain('"base_count" +')
   })
 
-  it('serializes a missing null-tenant scope and retries the update before inserting', async () => {
+  it('serializes a null-tenant scope before taking row locks', async () => {
     const { db, statements } = createRecordingDb()
 
     await applyCoverageAdjustments(
@@ -102,10 +102,10 @@ describe('applyCoverageAdjustments (#5604)', () => {
     ))
     const lockIndex = statements.findIndex((statement) => statement.includes('pg_advisory_xact_lock'))
     const insertIndex = statements.findIndex((statement) => statement.startsWith('insert into "entity_index_coverage"'))
-    expect(updateIndexes).toHaveLength(2)
-    expect(lockIndex).toBeGreaterThan(updateIndexes[0]!)
-    expect(updateIndexes[1]).toBeGreaterThan(lockIndex)
-    expect(insertIndex).toBeGreaterThan(updateIndexes[1]!)
+    expect(updateIndexes).toHaveLength(1)
+    expect(lockIndex).toBeGreaterThanOrEqual(0)
+    expect(updateIndexes[0]).toBeGreaterThan(lockIndex)
+    expect(insertIndex).toBeGreaterThan(updateIndexes[0]!)
   })
 
   it('initializes multiple scopes in a stable order to avoid cross-transaction deadlocks', async () => {
@@ -154,7 +154,7 @@ describe('applyCoverageAdjustments (#5604)', () => {
     // The ambient transaction still scopes the advisory lock, so the initialization guard is
     // kept rather than traded away for the fix.
     expect(statements.filter((sql) => sql.includes('pg_advisory_xact_lock'))).toHaveLength(1)
-    expect(statements.filter((sql) => sql.startsWith('update "entity_index_coverage"'))).toHaveLength(2)
+    expect(statements.filter((sql) => sql.startsWith('update "entity_index_coverage"'))).toHaveLength(1)
   })
 
   it('does not read the coverage row before writing it', async () => {
