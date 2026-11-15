@@ -13,6 +13,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn(), child: jest.fn() }
+  logger.child.mockReturnValue(logger)
+  return { createLogger: jest.fn(() => logger) }
+})
+
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
   getTelemetryRuntime: jest.fn(() => ({ reportError: reportErrorMock })),
@@ -45,6 +51,11 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
     expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({
       module: 'checkout',
       code: 'checkout.gateway_status_sync_failed',
+      attributes: expect.objectContaining({
+        paymentId: 'payment-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      }),
     }))
   })
 
@@ -59,6 +70,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
 
     await expect(handle(payload)).resolves.toBeUndefined()
 
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
     expect(reportErrorMock).toHaveBeenCalledWith(refusal, expect.objectContaining({
       module: 'checkout',
       code: 'checkout.gateway_status_sync_failed',
@@ -77,6 +89,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
 
     await expect(handle(payload)).resolves.toBeUndefined()
 
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
     expect(reportErrorMock).toHaveBeenCalledWith(conflict, expect.objectContaining({
       code: 'checkout.gateway_status_sync_failed',
     }))
@@ -88,6 +101,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
 
     await expect(handle(payload)).resolves.toBeUndefined()
 
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
     expect(reportErrorMock).toHaveBeenCalledWith(missingLink, expect.objectContaining({
       code: 'checkout.gateway_status_sync_failed',
     }))

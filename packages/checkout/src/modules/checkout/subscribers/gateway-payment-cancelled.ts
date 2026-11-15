@@ -28,5 +28,10 @@ export default async function handle(payload: { paymentId?: string; organization
       selectedOrganizationId: payload.organizationId,
       organizationIds: [payload.organizationId],
     },
-  }).catch((error) => reportGatewayStatusSyncFailure(error, { event: metadata.event, paymentId: payload.paymentId }))
+  }).catch((error) => reportGatewayStatusSyncFailure(error, {
+    event: metadata.event,
+    paymentId: payload.paymentId,
+    organizationId: payload.organizationId,
+    tenantId: payload.tenantId,
+  }))
 }

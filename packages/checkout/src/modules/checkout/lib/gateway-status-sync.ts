@@ -7,18 +7,20 @@ const logger = createLogger('checkout').child({ component: 'gateway-status-sync'
 type GatewayStatusSyncContext = {
   event: string
   paymentId?: string
+  organizationId?: string
+  tenantId?: string
 }
 
-function readBodyString(body: Record<string, unknown> | undefined, key: string): string | undefined {
+type ErrorBody = Record<string, unknown> | undefined
+
+function readBodyString(body: ErrorBody, key: string): string | undefined {
   const value = body?.[key]
   return typeof value === 'string' ? value : undefined
 }
 
-function isExpectedRefusal(error: unknown): boolean {
-  if (!isCrudHttpError(error)) return false
-  const body = error.body as Record<string, unknown> | undefined
-  if (error.status === 404) return readBodyString(body, 'error') === 'Transaction not found'
-  if (error.status === 409) {
+function isExpectedRefusal(httpStatus: number | undefined, body: ErrorBody): boolean {
+  if (httpStatus === 404) return readBodyString(body, 'error') === 'Transaction not found'
+  if (httpStatus === 409) {
     const currentStatus = readBodyString(body, 'currentStatus')
     return currentStatus !== undefined && currentStatus === readBodyString(body, 'requestedStatus')
   }
@@ -26,15 +28,15 @@ function isExpectedRefusal(error: unknown): boolean {
 }
 
 export function reportGatewayStatusSyncFailure(error: unknown, context: GatewayStatusSyncContext): void {
-  if (isExpectedRefusal(error)) {
+  const httpStatus = isCrudHttpError(error) ? error.status : undefined
+  const body = isCrudHttpError(error) ? (error.body as ErrorBody) : undefined
+  if (isExpectedRefusal(httpStatus, body)) {
     logger.debug('Gateway payment status not applied to a checkout transaction', { ...context, err: error })
     return
   }
-  const body = isCrudHttpError(error) ? (error.body as Record<string, unknown> | undefined) : undefined
   const attributes = {
-    event: context.event,
-    paymentId: context.paymentId,
-    httpStatus: isCrudHttpError(error) ? error.status : undefined,
+    ...context,
+    httpStatus,
     errorCode: readBodyString(body, 'code'),
     currentStatus: readBodyString(body, 'currentStatus'),
     requestedStatus: readBodyString(body, 'requestedStatus'),
