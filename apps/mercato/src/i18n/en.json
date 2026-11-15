@@ -955,6 +955,7 @@
   "ui.filters.dateRange.to": "To",
   "ui.filters.select.placeholder": "Select an option",
   "ui.filters.title": "Filters",
+  "ui.flash.dismiss": "Dismiss notification",
   "ui.forms.actions.cancel": "Cancel",
   "ui.forms.actions.clear": "Clear",
   "ui.forms.actions.delete": "Delete",
