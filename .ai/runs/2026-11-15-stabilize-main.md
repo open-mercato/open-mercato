@@ -27,11 +27,18 @@ Independent audit 8496dade confirmed vertical overflow at 1280×720: Radix avail
 
 First PR full CI run 43652288099 passed all 15 shards, typecheck/unit checks, lint, build, Docker, timezone, and multi-instance checks at 811a56e637. Further cleanup and explicit viewport screenshots will be validated on the next head.
 
+## Final review and follow-up
+Final independent review f4c0b4e2 inspected cd58f8ded4: no actionable customers source, security, compatibility, scope or DS findings across all five consumers and cleanup routes. It requested changes solely for CI43655135872 unit-test failure in staff TaskBoardScreen. All15integration shards passed, including TC8020all3 and TC8576EUR/USD on first attempts.
+
+The staff test waited for the list wrapper before asserting rows, while DataTable intentionally renders a loading state until asynchronous injected columns initialize. Preserve both row assertions and wait for that rendered-row boundary — 69f0a4d57c. Focused staff+pipeline tests:12passed. No staff production behavior changes. This is the final reviewer finding fix; no third subtask is created.
+
+Local full test retry completed50successful tasks but create-app failed only because this host lacked Info-ZIP unzip. Supplied the executable from the pinned Node test container; all19affected session-share tests then passed. CI supplies its own prerequisite. Local app build and managed CRM integration remain in progress; final exact-head CI must pass.
+
 ## Risks
 Standalone-only UI failures may need a published-app reproduction; use existing local test-environment tooling without publishing or applying migrations without authorization. A main workflow can fail even when the regular CI suite passes. Additional CI failures may widen the necessary repair. No production or credential operations are authorized.
 
 ## Execution
-Runner: local (no running compose app found). Immutable install completed; native SQLite compilation needs a compiler unavailable on the host. Gate build/generate/rebuild, translation sync/usage, and typecheck passed. Focused filter tests: 14 passed; baseline reproduction: two new assertions fail. Workflow scope/concurrency regressions: 28 passed. Use a short TMPDIR for tsx IPC on this cockpit.
+Runner: local (no running compose app found). Immutable install completed; the installed SQLite prebuild passes an in-memory smoke test despite an install-time compiler warning. Gate build/generate/rebuild, translation sync/usage, and typecheck passed. Focused filter tests: 14 passed; baseline reproduction: two new assertions fail. Workflow scope/concurrency regressions: 28 passed. Use a short TMPDIR for tsx IPC on this cockpit.
 Branch: stabilize/main-2026-11-15 (operator-requested override of the skill's default prefix).
 Engine: om-auto-create-pr (steps: 6, --loop: no)
 Worktree: reuse the invoking isolated linked worktree; do not clean it up.
