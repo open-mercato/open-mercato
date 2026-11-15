@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
@@ -16,111 +15,104 @@ import {
   purgeSeededInboundMessage,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { composeMessageWithToken, decodeJwtSubject, deleteMessageIfExists } from './helpers'
+import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
+import { createEmailBudgetFixture } from './emailBudgetFixture'
 
 const DAILY_LIMIT_CONFIG = 'externalEmailDailyRecipientLimit'
 
 test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery', () => {
   let token = ''
   let tenantId = ''
-  let userId = ''
   let stamp = ''
-  let startedAt = new Date(0)
   let createdMessageIds: string[] = []
   let recipientHashes: string[] = []
-  let configInstalled = false
-  let previousConfigs: Record<string, unknown>[] = []
-  let configId = randomUUID()
+  let fixture: Awaited<ReturnType<typeof createEmailBudgetFixture>> | null = null
+  let systemChannelId: string | null = null
 
   test.beforeEach(async ({ request }) => {
-    token = await getAuthToken(request, 'admin')
-    const scope = getTokenScope(token)
-    tenantId = scope.tenantId
-    userId = decodeJwtSubject(token)
-    stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`
-    startedAt = new Date()
+    test.slow()
+    fixture = null
+    systemChannelId = null
     createdMessageIds = []
     recipientHashes = []
-    configInstalled = false
-    previousConfigs = []
-    configId = randomUUID()
+    fixture = await createEmailBudgetFixture(request)
+    ;({ token, tenantId } = fixture)
+    stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`
     const seedingAvailable = await isChannelSeedingAvailable(request, token)
     test.skip(!seedingAvailable, 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
-    await seedSystemEmailChannel(request, token)
+    systemChannelId = await seedSystemEmailChannel(request, token)
     await clearCapturedSystemEmails(request, token)
     await withClient(async (client) => {
-      await client.query('begin')
-      try {
-        const current = await client.query<{ count: string }>(
-          `select count(distinct recipient_hash)::text as count from message_external_recipient_days where tenant_id = $1`,
-          [tenantId],
-        )
-        const dailyLimit = Number(current.rows[0]?.count ?? '0') + 1
-        previousConfigs = (await client.query<{ snapshot: Record<string, unknown> }>(
-          `select to_jsonb(module_configs) as snapshot from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2 and organization_id is null`,
-          [tenantId, DAILY_LIMIT_CONFIG],
-        )).rows.map((row) => row.snapshot)
-        await client.query(
-          `delete from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2 and organization_id is null`,
-          [tenantId, DAILY_LIMIT_CONFIG],
-        )
-        await client.query(
-          `insert into module_configs (id, module_id, name, value_json, tenant_id, organization_id, created_at, updated_at)
-           values ($1, 'messages', $2, $3::jsonb, $4, null, now(), now())`,
-          [configId, DAILY_LIMIT_CONFIG, JSON.stringify(dailyLimit), tenantId],
-        )
-        await client.query('commit')
-      } catch (error) {
-        await client.query('rollback')
-        throw error
-      }
+      const previousDay = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      await client.query(
+        `insert into message_external_recipient_days (id, tenant_id, utc_day, recipient_hash, created_at)
+         values ($1, $2, $3, $4, now())`,
+        [randomUUID(), tenantId, previousDay, hashForLookup(`qa-historical-${stamp}@example.test`, 'messages.external_recipient')],
+      )
+      await client.query(
+        `insert into module_configs (id, module_id, name, value_json, tenant_id, organization_id, created_at, updated_at)
+         values ($1, 'messages', $2, '1'::jsonb, $3, null, now(), now())`,
+        [randomUUID(), DAILY_LIMIT_CONFIG, tenantId],
+      )
+      const current = await client.query<{ count: number }>(
+        `select count(*)::int as count from message_external_recipient_days where tenant_id = $1 and utc_day = $2`,
+        [tenantId, new Date().toISOString().slice(0, 10)],
+      )
+      expect(current.rows).toEqual([{ count: 0 }])
     })
-    configInstalled = true
-    const cachePurge = await apiRequest(request, 'POST', '/api/configs/cache', {
-      token,
-      data: { action: 'purgeAll' },
-    })
-    expect(cachePurge.status()).toBe(200)
   })
 
   test.afterEach(async ({ request }) => {
-    if (!tenantId || !userId || !configInstalled) return
-    for (const messageId of createdMessageIds) await deleteMessageIfExists(request, token, messageId)
-    await withClient(async (client) => {
-      await client.query('begin')
+    if (!fixture) return
+    try {
+      for (const messageId of createdMessageIds) await deleteMessageIfExists(request, token, messageId)
+      await drainIntegrationQueue('events')
+      await drainIntegrationQueue('messages-email')
+      if (systemChannelId) await clearCapturedSystemEmails(request, token)
+    } finally {
       try {
-        await client.query('delete from module_configs where id = $1 and tenant_id = $2', [configId, tenantId])
-        if (previousConfigs.length) {
-          await client.query('insert into module_configs select * from json_populate_recordset(null::module_configs, $1::json)', [JSON.stringify(previousConfigs)])
-        }
-        if (recipientHashes.length > 0) {
-          await client.query(
-            `delete from message_external_recipient_days where tenant_id = $1 and recipient_hash = any($2::text[]) and created_at >= $3`,
-            [tenantId, recipientHashes, startedAt],
-          )
-        }
-        await client.query(
-          `delete from message_external_email_windows where tenant_id = $1 and subject_id = $2 and created_at >= $3`,
-          [tenantId, userId, startedAt],
-        )
-        const restored = await client.query<{ snapshot: Record<string, unknown> }>(
-          `select to_jsonb(module_configs) as snapshot from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2 and organization_id is null`,
-          [tenantId, DAILY_LIMIT_CONFIG],
-        )
-        expect(restored.rows.map((row) => row.snapshot)).toEqual(previousConfigs)
-        await client.query('commit')
-      } catch (error) {
-        await client.query('rollback')
-        throw error
+        await deleteChannelIfExists(request, token, systemChannelId)
+      } finally {
+        await fixture.cleanup()
       }
-    })
-    await drainIntegrationQueue('events')
-    await drainIntegrationQueue('messages-email')
-    await clearCapturedSystemEmails(request, token)
-    await apiRequest(request, 'POST', '/api/configs/cache', {
-      token,
-      data: { action: 'purgeAll' },
-    })
+    }
+  })
+
+  test('cleans both pre-existing quota windows after repeated interrupted fixture use', async ({ request }) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const interruptedFixture = await createEmailBudgetFixture(request)
+      const interrupted = new Error('[internal] Simulated interruption after quota admission')
+      await expect((async () => {
+        try {
+          await withClient(async (client) => {
+            for (const [scope, subjectId] of [['user', interruptedFixture.userId], ['tenant', interruptedFixture.tenantId]]) {
+              await client.query(
+                `insert into message_external_email_windows (id, scope, tenant_id, subject_id, window_start, count, created_at, updated_at)
+                 values ($1, $2, $3, $4, 0, 7, now() - interval '1 day', now())`,
+                [randomUUID(), scope, interruptedFixture.tenantId, subjectId],
+              )
+            }
+            await client.query('update message_external_email_windows set count = count + 1 where tenant_id = $1', [interruptedFixture.tenantId])
+            await client.query(
+              `insert into message_external_recipient_days (id, tenant_id, utc_day, recipient_hash, created_at)
+               values ($1, $2, $3, $4, now())`,
+              [randomUUID(), interruptedFixture.tenantId, new Date().toISOString().slice(0, 10), `interrupted-${attempt}`],
+            )
+          })
+          throw interrupted
+        } finally {
+          await interruptedFixture.cleanup()
+        }
+      })()).rejects.toBe(interrupted)
+      await withClient(async (client) => {
+        const remaining = await client.query<{ count: number }>(
+          `select ((select count(*) from message_external_email_windows where tenant_id = $1)
+            + (select count(*) from message_external_recipient_days where tenant_id = $1))::int as count`,
+          [interruptedFixture.tenantId],
+        )
+        expect(remaining.rows).toEqual([{ count: 0 }])
+      })
+    }
   })
 
   test('rejects the second distinct compose recipient without creating a message or email', async ({ request }) => {
