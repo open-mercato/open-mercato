@@ -26,11 +26,7 @@ const logger = createLogger('ai_assistant')
 const REQUIRED_FEATURE = 'ai_assistant.view'
 
 const idParamSchema = z.object({
-  id: z
-    .string()
-    .trim()
-    .min(1, 'id must be a non-empty string')
-    .max(128, 'id exceeds the maximum length of 128 characters'),
+  id: z.string().trim().pipe(z.guid('id must be a UUID')),
 })
 
 export const openApi: OpenApiRouteDoc = {
@@ -56,6 +52,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 400, description: 'The `:id` path parameter is not a UUID.' },
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks the `ai_assistant.view` feature.' },
         { status: 404, description: 'No pending action with the given id is accessible to the caller.' },

@@ -5,7 +5,7 @@ description: Step-by-step checklist to run Open Mercato locally.
 
 ## Getting started tracks
 
-**Product teams** looking to build on Open Mercato should start with the [standalone app](#standalone-app-recommended-for-product-teams) — it gives you a clean project without cloning the full monorepo. **Core contributors** should follow the [develop branch](#develop-branch-recommended) track instead.
+**Product teams** looking to build on Open Mercato should start with the [standalone app](#standalone-app-recommended-for-product-teams) — it gives you a clean project without cloning the full monorepo. **Core contributors** should follow the [develop branch](#main-branch-recommended) track instead.
 
 :::tip Standalone app
 If you want to build a production app without cloning the monorepo, use [`create-mercato-app`](../customization/standalone-app) instead.
@@ -37,15 +37,14 @@ yarn test:create-app:integration
 
 See the [standalone app guide](/customization/standalone-app#test-create-mercato-app-locally-from-the-monorepo) for what each command does.
 
-### Develop branch (recommended)
+### Main branch (recommended)
 
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
-git checkout develop
 ```
 
-Continue with the develop setup steps below.
+`main` is where development happens; released minors live on `release/vX.Y.x` branches. Continue with the setup steps below.
 
 ### Docker-based setup (all platforms)
 
@@ -53,14 +52,14 @@ Use this track if you want to run the **entire stack inside Docker** with hot re
 
 See the [full Docker Development Setup](#docker-development-setup) section below for step-by-step instructions.
 
-## Develop setup steps (recommended)
+## Setup steps (recommended)
 
 Follow these steps after the [prerequisites](./prerequisites) are in place:
 
-1. **Use the develop branch**
+1. **Use the main branch**
    ```bash
    cd open-mercato
-   git checkout develop
+   git checkout main
    ```
 2. **Start Docker services**
    ```bash
@@ -76,7 +75,7 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn install-skills
    ```
-   `yarn install` does not install agent skills. This command installs the repo's committed local-tier skills together with the full shared [open-mercato/skills](https://github.com/open-mercato/skills) collection (`om-code-review`, `om-auto-review-pr`, `om-auto-fix-pr`, `om-merge-buddy`, and others) into the gitignored `.agents/skills/` directory. Run it once per clone/worktree if you plan to use Codex, Claude Code, Cursor, or another supported coding agent; re-run it any time to refresh the collection. See [`.ai/skills/README.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/skills/README.md) for the tier system and `--list`/`--clean` flags. A Docker equivalent, `yarn docker:install-skills`, is documented in [Docker Wrapper Commands](#docker-wrapper-commands).
+   `yarn install` does not install agent skills. This command installs the repo's committed local-tier skills together with the full shared [open-mercato/skills](https://github.com/open-mercato/skills) collection (`om-code-review`, `om-auto-review-pr`, `om-auto-fix-pr`, `om-merge-buddy`, and others) into the gitignored `.agents/skills/` directory. Run it once per clone/worktree if you plan to use Codex, Claude Code, Cursor, or another supported coding agent; re-run it any time to refresh the collection. See [`.ai/skills/README.md`](https://github.com/open-mercato/open-mercato/blob/main/.ai/skills/README.md) for the tier system and `--list`/`--clean` flags. A Docker equivalent, `yarn docker:install-skills`, is documented in [Docker Wrapper Commands](#docker-wrapper-commands).
 
    This step is intentionally manual and is deliberately **not** wired into `yarn install` or a `postinstall` hook: it downloads an external collection over the network, and contributors who do not use an AI coding agent should not pay that cost on every install.
 5. **Copy the environment template**
@@ -225,7 +224,8 @@ When you run `yarn dev` on the host, Open Mercato starts a compact development r
 - Browser auto-open happens on interactive local runs when supported by the OS
 - The terminal still prints both URLs, so you can open them manually if needed
 - Press `d` while `yarn dev` is running to toggle raw logs
-- Standalone apps can show a `Start coding with AI` menu for detected coding tools
+- The `Start building with Cezar` button opens [Cezar](https://github.com/open-mercato/cezar) for the current project by running plain `npx cezar-run` in a new terminal; it works while the app is still starting
+- Once the app is ready, hover `Start building with Cezar` to choose another detected coding tool; the dropdown toggle also supports keyboard and touch
 - Standalone apps can show a GitHub publish panel that creates or publishes the local project through `gh`
 
 For the standalone splash features, install these recommended tools up front:
@@ -260,7 +260,7 @@ To hide the standalone GitHub publish panel from the splash:
 OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev
 ```
 
-To hide the coding-tools menu from the splash:
+To hide the combined `Start building with Cezar` control from the splash:
 
 ```bash
 OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev
@@ -351,7 +351,6 @@ Run the entire Open Mercato stack inside Docker **with hot reload**. Source code
 # Clone the repository
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato
-git checkout develop
 
 # (Optional) Copy and customize environment
 cp apps/mercato/.env.example apps/mercato/.env
@@ -421,7 +420,7 @@ docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml 
 
 The repository also exposes root-level `yarn docker:*` commands that run the matching workflow inside the running `app` container. These wrappers exist so container-first contributors can use the same command surface without translating everything to `docker compose exec ...` manually.
 
-The wrappers are implemented by [`scripts/docker-exec.mjs`](https://github.com/open-mercato/open-mercato/blob/develop/scripts/docker-exec.mjs). The helper:
+The wrappers are implemented by [`scripts/docker-exec.mjs`](https://github.com/open-mercato/open-mercato/blob/main/scripts/docker-exec.mjs). The helper:
 
 - auto-detects the active compose profile
 - prefers `starters/docker/compose.fullapp.dev.yml`, then falls back to `starters/docker/compose.fullapp.yml`
@@ -521,7 +520,7 @@ Key variables you may want to override:
 | `OM_DEV_SPLASH_PORT` | `4000` | Host and container port for the dev splash progress page |
 | `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open for the splash on supported local runs |
 | `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Set to `false` to hide the standalone splash GitHub publish panel |
-| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the splash coding-tools menu |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the combined `Start building with Cezar` splash control |
 | `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI used by the splash coding menu |
 | `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI used by the splash coding menu |
 | `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI used by the splash coding menu |
@@ -677,20 +676,21 @@ docker compose --project-directory . -f starters/docker/compose.fullapp.yml rest
 
 ### Data Persistence
 
-Data is stored in named Docker volumes:
-- `mercato-postgres-data` - PostgreSQL database
-- `mercato-redis-data` - Redis cache and events
-- `mercato-meilisearch-data` - Meilisearch indexes
+Data is stored in named Docker volumes. Volume names end with your `DEPLOY_ENV` value (`local` by default):
+- `mercato-postgres-data-local` - PostgreSQL database
+- `mercato-redis-data-local` - Redis cache and events
+- `mercato-meilisearch-data-local` - Meilisearch indexes
+- `mercato-attachments-storage-local` - Uploaded attachments
 
 Volumes persist between container restarts unless explicitly removed with `docker compose down -v`.
 
 **Backup volumes:**
 ```bash
 # Backup PostgreSQL
-docker exec mercato-postgres pg_dump -U postgres open-mercato > backup.sql
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres pg_dump -U postgres open-mercato > backup.sql
 
 # Restore PostgreSQL
-cat backup.sql | docker exec -i mercato-postgres psql -U postgres -d open-mercato
+cat backup.sql | docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec -T postgres psql -U postgres -d open-mercato
 ```
 
 ### Production Deployment Tips
@@ -745,7 +745,7 @@ lsof -i :6379
 docker compose --project-directory . -f starters/docker/compose.fullapp.yml ps postgres
 
 # Check if database exists
-docker exec mercato-postgres psql -U postgres -c "\l"
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec postgres psql -U postgres -c "\l"
 
 # Verify DATABASE_URL matches container configuration
 grep DATABASE_URL apps/mercato/.env

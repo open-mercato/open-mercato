@@ -16,6 +16,7 @@ import {
   ensureGatewayProviderConfigured,
   type PaymentGatewayDescriptorService,
 } from '../lib/gatewayProviderAvailability'
+import { ensurePayerFieldsCollected } from '../lib/payerFieldRequirements'
 import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
@@ -34,6 +35,7 @@ import {
   captureLinkSnapshot,
   readCommandId,
   resolveCommandScope,
+  resolveUndoScope,
   restoreLinkFromSnapshot,
   restoreTemplateFromSnapshot,
   toCheckoutAuditSnapshot,
@@ -110,6 +112,7 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
     validateDescriptorCurrencies(parsed.gatewayProviderKey, deriveConfiguredCurrencies(parsed))
     const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
     await ensureGatewayProviderConfigured(parsed.gatewayProviderKey, descriptorService, scope)
+    ensurePayerFieldsCollected(parsed)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const template = em.create(CheckoutLinkTemplate, {
@@ -171,6 +174,7 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
   undo: async ({ logEntry, ctx }) => {
     const after = extractUndoPayload<CheckoutTemplateUndoPayload>(logEntry)?.after
     if (!after) return
+    const scope = resolveUndoScope(ctx, after)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const reset = buildCustomFieldResetMap(undefined, after.custom)
@@ -185,7 +189,7 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
         notify: false,
       })
     }
-    const template = await em.findOne(CheckoutLinkTemplate, { id: after.id })
+    const template = await em.findOne(CheckoutLinkTemplate, { id: after.id, ...scope })
     if (!template) return
     template.deletedAt = new Date()
     await em.flush()
@@ -193,15 +197,10 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
   redo: async ({ logEntry, ctx }) => {
     const after = resolveRedoSnapshot<CheckoutTemplateSnapshot>(logEntry)
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for checkout template create' })
+    const scope = resolveUndoScope(ctx, after)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    let template = await findOneWithDecryption(
-      em,
-      CheckoutLinkTemplate,
-      { id: after.id },
-      {},
-      { tenantId: after.tenantId, organizationId: after.organizationId },
-    )
+    let template = await findOneWithDecryption(em, CheckoutLinkTemplate, { id: after.id, ...scope }, {}, scope)
     if (template) {
       restoreTemplateFromSnapshot(template, after)
       template.deletedAt = null
@@ -282,6 +281,11 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       resourceId: template.id,
       current: template.updatedAt ?? null,
       request: ctx.request ?? null,
+    })
+    ensurePayerFieldsCollected({
+      gatewayProviderKey: parsed.gatewayProviderKey !== undefined ? parsed.gatewayProviderKey : template.gatewayProviderKey,
+      collectCustomerDetails: parsed.collectCustomerDetails ?? template.collectCustomerDetails,
+      customerFieldsSchema: parsed.customerFieldsSchema ?? template.customerFieldsSchema,
     })
     const beforeCustom = await loadCustomFieldSnapshot(em, {
       entityId: CHECKOUT_ENTITY_IDS.template,
@@ -370,9 +374,10 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
     const before = undo?.before
     const after = undo?.after
     if (!before) return
+    const scope = resolveUndoScope(ctx, before)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const template = await em.findOne(CheckoutLinkTemplate, { id: before.id, deletedAt: null })
+    const template = await em.findOne(CheckoutLinkTemplate, { id: before.id, ...scope, deletedAt: null })
     if (!template) return
     restoreTemplateFromSnapshot(template, before)
     await em.flush()
@@ -392,7 +397,7 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       await syncLinkedLinksWithTemplateSnapshot({
         em,
         dataEngine,
-        scope: { organizationId: before.organizationId, tenantId: before.tenantId },
+        scope,
         templateId: before.id,
         before: after,
         after: before,
@@ -477,9 +482,10 @@ const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
   undo: async ({ logEntry, ctx }) => {
     const before = extractUndoPayload<CheckoutTemplateUndoPayload>(logEntry)?.before
     if (!before) return
+    const scope = resolveUndoScope(ctx, before)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    let template = await em.findOne(CheckoutLinkTemplate, { id: before.id })
+    let template = await em.findOne(CheckoutLinkTemplate, { id: before.id, ...scope })
     if (template) {
       restoreTemplateFromSnapshot(template, before)
     } else {

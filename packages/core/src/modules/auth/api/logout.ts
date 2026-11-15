@@ -4,6 +4,7 @@ import { AuthService } from '@open-mercato/core/modules/auth/services/authServic
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { buildSafeRedirectResponse } from '@open-mercato/core/modules/auth/lib/requestRedirect'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 type AuthTokenClaims = {
   userId: string | null
@@ -22,7 +23,12 @@ const emptyAuthTokenClaims: AuthTokenClaims = Object.freeze({
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
   const m = cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'))
-  return m ? decodeURIComponent(m[1]) : null
+  if (!m) return null
+  try {
+    return decodeURIComponent(m[1])
+  } catch {
+    return null
+  }
 }
 
 function readStringClaim(payload: Record<string, unknown>, key: string): string | null {
@@ -34,7 +40,7 @@ function extractAuthTokenClaims(token: string | null): AuthTokenClaims {
   if (!token) return emptyAuthTokenClaims
   try {
     const payload = verifyJwt(token) as Record<string, unknown> | null
-    if (!payload) return emptyAuthTokenClaims
+    if (!payload || payload.type === 'customer') return emptyAuthTokenClaims
     return {
       userId: readStringClaim(payload, 'sub'),
       sessionId: readStringClaim(payload, 'sid'),
@@ -48,7 +54,12 @@ function extractAuthTokenClaims(token: string | null): AuthTokenClaims {
 
 export async function POST(req: Request) {
   const sessToken = parseCookie(req, 'session_token')
-  const authToken = parseCookie(req, 'auth_token')
+  const authorization = (req.headers.get('authorization') || '').trim()
+  const bearerToken = authorization.toLowerCase().startsWith('bearer ')
+    ? authorization.slice(7).trim()
+    : null
+  const authToken = bearerToken || parseCookie(req, 'auth_token')
+  if (!sessToken && !authToken) return buildSafeRedirectResponse(req, '/login', 303)
   const claims = extractAuthTokenClaims(authToken)
   let sessionRevoked = false
   if (sessToken || claims.sessionId) {
@@ -62,7 +73,9 @@ export async function POST(req: Request) {
         await auth.deleteSessionByToken(sessToken)
       }
       sessionRevoked = true
-    } catch {}
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.logout_revoke_failed' })
+    }
   }
   if (claims.userId) {
     void emitAuthEvent('auth.logout', {
@@ -74,14 +87,16 @@ export async function POST(req: Request) {
       at: new Date().toISOString(),
     }, { persistent: true }).catch(() => undefined)
   }
-  const res = buildSafeRedirectResponse(req, '/login')
+  const res = buildSafeRedirectResponse(req, '/login', 303)
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
   return res
 }
 
 export const metadata = {
-  POST: { requireAuth: true },
+  POST: { requireAuth: false },
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -90,9 +105,9 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Invalidate session and redirect',
-      description: 'Clears authentication cookies and redirects the browser to the login page.',
+      description: 'Revokes the session identified by the staff bearer JWT (preferred) or `auth_token` cookie sid claim and the `session_token` cookie, clears both cookies together with the organization-scope cookies (`om_selected_org`, `om_selected_tenant`), and redirects the browser to the login page. A valid access token is not required, so a logout submitted after the access token expired still revokes the remember-me refresh session. A request that carries neither bearer credentials nor a session cookie is only redirected.',
       responses: [
-        { status: 302, description: 'Redirect to login after successful logout', mediaType: 'text/html' },
+        { status: 303, description: 'See Other: navigate to login with GET after logout', mediaType: 'text/html' },
       ],
     },
   },

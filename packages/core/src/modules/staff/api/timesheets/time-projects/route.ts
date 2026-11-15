@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { staffTimeProjectCrudEvents } from '../../../lib/crud'
+import { PROJECT_SCOPE_TENANT_HEADER, PROJECT_SCOPE_ORGANIZATION_HEADER, type ResolvedProjectAccessScope } from '../../../lib/time-tracking-ui/projectAccessScopeHeaders'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -10,6 +11,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { isIdsParamProvided, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
@@ -46,6 +48,7 @@ const F = {
   budget_kind: 'budget_kind',
   budget_value: 'budget_value',
   budget_warn_at_percent: 'budget_warn_at_percent',
+  default_assignee_staff_member_id: 'default_assignee_staff_member_id',
   created_at: 'created_at',
   updated_at: 'updated_at',
   deleted_at: 'deleted_at',
@@ -337,6 +340,7 @@ export const timeProjectListFields = [
   F.budget_kind,
   F.budget_value,
   F.budget_warn_at_percent,
+  F.default_assignee_staff_member_id,
   F.created_at,
   F.updated_at,
 ] as const
@@ -376,9 +380,13 @@ const crud = makeCrudRoute({
           .filter((value) => value.length > 0)
       }
       if (parseBooleanFlag(query.mine) && ctx.auth) {
+        const tenantId = ctx.auth.tenantId ?? null
+        const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+        if (!tenantId || !organizationId) {
+          filters[F.id] = { $in: [IMPOSSIBLE_PROJECT_ID] }
+          return filters
+        }
         const em = ctx.container.resolve('em') as EntityManager
-        const tenantId = ctx.auth.tenantId ?? ''
-        const organizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? ''
         const assigned = await resolveCallerAssignedProjectIds(
           em,
           ctx.auth.sub,
@@ -493,24 +501,28 @@ async function buildAccessDenialResponse(): Promise<Response> {
  * `reason` discriminator carries only "you are not a member of this project",
  * never the project or customer it is refusing to describe.
  */
-async function resolveProjectAccessDenial(req: Request): Promise<Response | null> {
+async function resolveProjectAccessDenial(req: Request): Promise<{ denial: Response | null; scope: ResolvedProjectAccessScope | null }> {
+  const unresolved = { denial: null, scope: null }
   const url = new URL(req.url)
   const rawIds = url.searchParams.get('ids') ?? url.searchParams.get('id')
-  if (!isIdsParamProvided(rawIds)) return null
+  if (!isIdsParamProvided(rawIds)) return unresolved
   const requestedIds = parseIdsParam(rawIds)
   // Malformed ids match nothing on their own; the factory answers an empty list.
-  if (requestedIds.length === 0) return null
+  if (requestedIds.length === 0) return unresolved
 
   try {
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
     // Unauthenticated and unscoped requests are the factory's to reject.
-    if (!auth) return null
+    if (!auth) return unresolved
     const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const tenantId = orgScope?.tenantId ?? auth.tenantId ?? null
-    const organizationId = orgScope?.selectedId ?? auth.orgId ?? null
-    if (!tenantId || !organizationId) return null
+    const organizationId = resolveSingleOrganizationIdOrDeny(orgScope, auth) ?? null
+    if (!tenantId || !organizationId) return unresolved
 
+    const scope = orgScope?.tenantId && orgScope.selectedId && orgScope.selectionRejected !== true
+      ? { tenantId: orgScope.tenantId, organizationId: orgScope.selectedId }
+      : null
     const access = await resolveRequestProjectAccess(req, () =>
       loadProjectAccess(
         container,
@@ -519,20 +531,24 @@ async function resolveProjectAccessDenial(req: Request): Promise<Response | null
         organizationId,
       ),
     )
-    if (access.canManageAll) return null
-    if (requestedIds.some((id) => access.projectIds.includes(id))) return null
-    return await buildAccessDenialResponse()
+    if (access.canManageAll) return { denial: null, scope }
+    if (requestedIds.some((id) => access.projectIds.includes(id))) return { denial: null, scope }
+    return { denial: await buildAccessDenialResponse(), scope }
   } catch (err) {
     // Fail closed: an access decision that could not be made is a denial.
     logger.error('staff.timesheets.time-projects denial probe failed', { err })
-    return await buildAccessDenialResponse()
+    return { denial: await buildAccessDenialResponse(), scope: null }
   }
 }
 
 export async function GET(req: Request): Promise<Response> {
-  const denial = await resolveProjectAccessDenial(req)
-  if (denial) return denial
-  return crud.GET(req)
+  const { denial, scope } = await resolveProjectAccessDenial(req)
+  const response = denial ?? await crud.GET(req)
+  if (scope) {
+    response.headers.set(PROJECT_SCOPE_TENANT_HEADER, scope.tenantId)
+    response.headers.set(PROJECT_SCOPE_ORGANIZATION_HEADER, scope.organizationId)
+  }
+  return response
 }
 
 export const POST = crud.POST
@@ -562,6 +578,7 @@ export const timeProjectListItemSchema = z.object({
   budget_kind: z.string().nullable().optional(),
   budget_value: z.union([z.string(), z.number()]).nullable().optional(),
   budget_warn_at_percent: z.number().int().nullable().optional(),
+  default_assignee_staff_member_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
   entryCount: z.number().int().optional(),
@@ -603,7 +620,7 @@ export const openApi = {
       ? {
           GET: {
             ...baseOpenApi.methods.GET,
-            description: `${baseOpenApi.methods.GET.description ?? ''} Rows are intersected with the caller's project access: without staff.timesheets.projects.manage only projects the caller is an active member of are returned. Asking for a single id the caller may not see answers 404 with reason=${NO_PROJECT_ACCESS_REASON} and never names the project or its customer; the same 404 covers ids that do not exist, so the endpoint cannot be used to enumerate projects.`.trim(),
+            description: `${baseOpenApi.methods.GET.description ?? ''} Project-specific reads include optional x-om-project-scope-tenant-id and x-om-project-scope-organization-id response headers when the server resolves a scope. These identify the request scope for client hydration; a missing header provides no scope identity. Rows are intersected with the caller's project access: without staff.timesheets.projects.manage only projects the caller is an active member of are returned. Asking for a single id the caller may not see answers 404 with reason=${NO_PROJECT_ACCESS_REASON} and never names the project or its customer; the same 404 covers ids that do not exist, so the endpoint cannot be used to enumerate projects.`.trim(),
             responses: [
               ...(baseOpenApi.methods.GET.responses ?? []),
               {

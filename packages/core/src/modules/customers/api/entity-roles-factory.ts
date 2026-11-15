@@ -8,6 +8,7 @@ import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/l
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerEntity, CustomerEntityRole } from '../data/entities'
@@ -131,7 +132,7 @@ async function resolveEntityRouteScope(
     CustomerEntity,
     { id: entityId, kind: entityType, tenantId: auth.tenantId, deletedAt: null },
     undefined,
-    { tenantId: auth.tenantId, organizationId: scope?.selectedId ?? auth.orgId ?? null },
+    { tenantId: auth.tenantId, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null },
   )
   if (!entity || entity.tenantId !== auth.tenantId) {
     throw notFound(translate('customers.errors.customer_not_found', 'Customer not found'))
@@ -158,7 +159,7 @@ async function resolveRoleRouteScope(
     CustomerEntityRole,
     { id: roleId, tenantId: auth.tenantId, entityType, entityId, deletedAt: null },
     undefined,
-    { tenantId: auth.tenantId, organizationId: scope?.selectedId ?? auth.orgId ?? null },
+    { tenantId: auth.tenantId, organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null },
   )
   if (
     !role ||

@@ -98,7 +98,7 @@ describe('ai_assistant encryption maps applied by the tenant encryption service'
   })
 
   function createService() {
-    const connection = {
+    const em = {
       execute: async (_sql: string, params: unknown[]) => {
         const map = defaultEncryptionMaps.find((entry) => entry.entityId === params[0])
         return map ? [{ entity_id: map.entityId, fields_json: map.fields }] : []
@@ -109,7 +109,6 @@ describe('ai_assistant encryption maps applied by the tenant encryption service'
       getTenantDek: async (tenantId) => ({ tenantId, key: dekKey, fetchedAt: Date.now() }),
       createTenantDek: async (tenantId) => ({ tenantId, key: dekKey, fetchedAt: Date.now() }),
     }
-    const em = { getConnection: () => connection }
     return new TenantDataEncryptionService(em as never, { kms })
   }
 

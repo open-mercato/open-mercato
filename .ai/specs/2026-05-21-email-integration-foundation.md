@@ -769,8 +769,8 @@ Routes that mutate (everything except the OAuth callback, which is GET-with-side
 ### `GET /api/communication_channels/oauth/[provider]/callback`
 - No auth feature (state cookie carries identity)
 - Query: `code`, `state` (Google)
-- Response: 302 to `returnUrl` (default `/backend/profile/communication-channels?flash=connected`) or `?flash=error&code=...`
-- Errors: invalid state, expired state, userId mismatch, exchange failure — all redirect with `flash=error`.
+- Response: 302 to `returnUrl` (default `/backend/profile/communication-channels?oauth=connected`) or `?oauth=error&code=...`
+- Errors: invalid state, expired state, userId mismatch, exchange failure — all redirect with `oauth=error`.
 
 ### `POST /api/communication_channels/channels/connect/credentials`
 - Features: `communication_channels.connect_user_channel`
@@ -949,7 +949,7 @@ If any line above fails, return to the hub-foundation PR before continuing.
 17. Module-local integration tests (`packages/core/src/modules/communication_channels/__integration__/`):
     - `TC-CHANNEL-EMAIL-HUB-001` per-user channel isolation: User A cannot list User B's channels via API
     - `TC-CHANNEL-EMAIL-HUB-002` polling scheduler enqueues `poll-channel` jobs at correct cadence (uses time-mocking to advance the scheduler)
-    - `TC-CHANNEL-EMAIL-HUB-003` OAuth state-cookie userId mismatch rejected at callback (302 to flash=error)
+    - `TC-CHANNEL-EMAIL-HUB-003` OAuth state-cookie userId mismatch rejected at callback (302 to oauth=error)
     - `TC-CHANNEL-EMAIL-HUB-004` `send-as-user` requires `user_id` ownership (cannot send via someone else's channel)
     - `TC-CHANNEL-EMAIL-HUB-005` `messages.message.sent` subscriber re-fetches by ID, no payload-shape coupling (simulate by emitting with a minimal payload and asserting routing still works)
     - `TC-CHANNEL-EMAIL-HUB-006` `channel_requires_reauth` notification raised when `markRequiresReauth` command runs; UMES `useNotificationEffect` handler triggers reconnect dialog (rendered, not OAuth-completed)
@@ -1249,6 +1249,14 @@ None.
 
 ## Changelog
 
+### 2026-09-27 — OAuth connect result travels in `?oauth=`, not `?flash=` (#6402)
+
+- The callback redirected with `?flash=<connected|error>`, but the global `<FlashMessages>` host reads `?flash=` as the message text (the `ui/backend/utils/flash.ts` convention), so users saw a green toast reading `error`/`connected`, or nothing after a cross-origin return from the provider. The outcome now travels in `?oauth=` (plus the unchanged `code` / `provider` / `channelId`), and the profile page maps it to its translated message.
+- The page's `flash()` call runs from a mount effect. On a full page load hydration is split across Suspense boundaries, so that effect could commit before any `<FlashMessages>` host attached its listener, and the event was dropped. `flash()` now keeps the latest undelivered message for up to 5 s and the hosts that start listening in the same commit show it.
+- The page strips `oauth` / `code` / `provider` / `channelId` from the URL once it has shown the toast, so a reload or Back navigation does not show it again.
+- The toast never echoes `?code=` or `?provider=`: a link from another site can set both, and this toast is not behind the `?flash=` referrer check. Codes with a dedicated message (`oauth_client_not_configured`, `mailbox_already_connected`, `replay`, `state_store_unavailable`) keep it; every other code shows the generic "Failed to connect channel." The provider is shown only through its `communication_channels.channel.providers.<key>` label; an unknown key shows "Channel connected." (QA S1 on #6521, #7103).
+- A custom `returnUrl` page that parsed `flash=connected|error` must read `oauth` instead; no such consumer exists in the repository.
+
 ### 2026-09-17 — The per-user channel owner is the default assignee at ingest (#6106)
 
 - The rule "per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`" was never implemented: ingest created the conversation and the thread mapping without an assignee, and addressed the message only to `mapping.assignedUserId`. The first message of every thread (no mapping yet) and every message on an unassigned thread therefore had no `MessageRecipient`, and the participant-scoped inbox list showed it to nobody, the channel owner included.
@@ -1409,3 +1417,31 @@ The previous draft is superseded. This spec is the canonical email integration d
 - [x] `yarn build:packages` succeeds (20/20 packages); `yarn test` succeeds (21/21 packages)
 - [ ] Live IMAP/SMTP end-to-end test against a real server — covered manually by user when connecting a real account; not part of CI
 - [ ] Phase 4 widget injections (profile + integrations + data tables) — deferred to slice 3f when shared with the Gmail provider
+
+---
+
+## Amendment — Single-Use OAuth State (PR #6267, 2026-09-20)
+
+Adds a fourth security control to the state-cookie design described in § Hub Deltas → Delta 7 / § OSS Independence (§ OAuth State Cookie):
+
+| Control | Mechanism |
+|---|---|
+| Crypto integrity | AES-256-GCM AEAD (unchanged) |
+| Binding | userId + providerKey + state nonce in AEAD payload (unchanged) |
+| TTL | 5-minute `expiresAt` in payload (unchanged) |
+| **Single-use** | **Short-TTL cache marker keyed by `tenantId:state` (new)** |
+
+### New cache dependency
+
+`GET /communication_channels/oauth/[provider]/callback` now requires the `cache` DI binding to be a valid `CacheStrategy`. On startup it is always registered via `bootstrap.ts`, but if the resolved instance lacks `has`/`set` (e.g., all `createCacheService` attempts failed) the callback redirects with `code=state_store_unavailable` rather than proceeding.
+
+**Multi-replica requirement**: the single-use marker is written to the resolved cache instance. With `CACHE_STRATEGY=memory` (default) the marker is process-local — a replayed callback against a different replica will still succeed. Production multi-replica deployments MUST set `CACHE_STRATEGY=redis` to share the marker across all replicas.
+
+### New error codes on the callback flash redirect
+
+| Code | Meaning |
+|---|---|
+| `replay` | State nonce already consumed — user is replaying or refreshing the callback URL |
+| `state_store_unavailable` | Cache unavailable at callback time; fail-closed rather than skipping single-use protection |
+
+Both codes are i18n-mapped in the profile page (`communication_channels.profile.flash.replayedState`, `communication_channels.profile.flash.stateStoreUnavailable`).

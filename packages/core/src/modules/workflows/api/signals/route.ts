@@ -3,8 +3,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { z } from 'zod'
-import { sendSignalByCorrelationKey } from '../../lib/signal-handler'
+import { sendSignalByCorrelationKeyWithResults } from '../../lib/signal-handler'
 import {
   workflowsTag,
   sendSignalByCorrelationRequestSchema,
@@ -12,6 +13,7 @@ import {
   workflowErrorSchema,
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('workflows')
 
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
 
     if (!tenantId || !organizationId) {
       return NextResponse.json(
@@ -67,7 +69,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const input = sendSignalByKeySchema.parse(body)
 
-    const count = await sendSignalByCorrelationKey(em, container, {
+    const { count, failures } = await sendSignalByCorrelationKeyWithResults(em, container, {
       correlationKey: input.correlationKey,
       signalName: input.signalName,
       payload: input.payload,
@@ -80,8 +82,10 @@ export async function POST(request: NextRequest) {
       success: true,
       message: `Signal sent to ${count} workflow(s)`,
       count,
+      failures,
     })
   } catch (error: any) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Signal error', { err: error })
     return NextResponse.json(
       { error: error.message || 'Failed to send signal' },
@@ -96,7 +100,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Send signal to workflows by correlation key',
-      description: 'Sends a signal to all workflow instances waiting for the specified signal that match the correlation key. Returns the count of workflows that received the signal.',
+      description: 'Sends a signal to all workflow instances waiting for the specified signal that match the correlation key. Returns the count of workflows that received the signal and, per instance, every delivery that failed (for example `WORKFLOW_NOT_PAUSED` when a concurrent delivery already claimed the instance).',
       requestBody: {
         contentType: 'application/json',
         schema: sendSignalByCorrelationRequestSchema,

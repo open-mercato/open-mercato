@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { NotesSection, type NotesDataAdapter } from '../detail/NotesSection'
 import { dismissRecordConflict, getRecordConflictForTest } from '../conflicts'
@@ -258,6 +258,191 @@ describe('NotesSection', () => {
     })
     expect(screen.queryByRole('button', { name: 'Customize appearance' })).toBeNull()
     expect(container.querySelectorAll('svg.lucide-palette').length).toBe(0)
+  })
+
+  describe('host options', () => {
+    const twoNotesAdapter = (): NotesDataAdapter => ({
+      list: jest.fn(async () => [
+        {
+          id: 'note-own',
+          body: 'Own note',
+          createdAt: '2026-04-10T08:00:00.000Z',
+          authorUserId: 'user-1',
+        },
+        {
+          id: 'note-other',
+          body: 'Other note',
+          createdAt: '2026-04-09T08:00:00.000Z',
+          authorUserId: 'user-2',
+          authorName: 'Grace Hopper',
+        },
+      ]),
+      create: jest.fn(async () => ({ id: 'note-new' })),
+      update: jest.fn(async () => undefined),
+      delete: jest.fn(async () => undefined),
+    })
+
+    const noteCard = (text: string) => {
+      const card = screen.getByText(text).closest('.group')
+      if (!(card instanceof HTMLElement)) throw new Error(`card for ${text} not found`)
+      return card
+    }
+
+    it('renders edit, appearance and delete controls on every note by default', async () => {
+      renderWithProviders(<NotesSection {...baseProps(twoNotesAdapter())} />)
+
+      await screen.findByText('Other note')
+      for (const text of ['Own note', 'Other note']) {
+        const card = noteCard(text)
+        expect(card.querySelector('svg.lucide-pencil')).not.toBeNull()
+        expect(card.querySelector('svg.lucide-palette')).not.toBeNull()
+        expect(card.querySelector('svg.lucide-trash2, svg.lucide-trash-2')).not.toBeNull()
+        expect(card.querySelector('[role="button"]')).not.toBeNull()
+      }
+    })
+
+    it('hides per-note edit controls and click-to-edit when canEditNote returns false', async () => {
+      const { container } = renderWithProviders(
+        <NotesSection
+          {...baseProps(twoNotesAdapter())}
+          disableMarkdown
+          canEditNote={(note) => note.authorUserId === 'user-1'}
+        />,
+      )
+
+      await screen.findByText('Other note')
+      const own = noteCard('Own note')
+      const other = noteCard('Other note')
+      expect(own.querySelector('svg.lucide-pencil')).not.toBeNull()
+      expect(own.querySelector('svg.lucide-palette')).not.toBeNull()
+      expect(other.querySelector('svg.lucide-pencil')).toBeNull()
+      expect(other.querySelector('svg.lucide-palette')).toBeNull()
+      expect(other.querySelector('svg.lucide-trash2, svg.lucide-trash-2')).not.toBeNull()
+      expect(other.querySelector('[role="button"]')).toBeNull()
+
+      fireEvent.click(screen.getByText('Other note'))
+      expect(container.querySelector('textarea')).toBeNull()
+    })
+
+    it('hides the per-note delete control when canDeleteNote returns false', async () => {
+      renderWithProviders(
+        <NotesSection
+          {...baseProps(twoNotesAdapter())}
+          canDeleteNote={(note) => note.authorUserId === 'user-1'}
+        />,
+      )
+
+      await screen.findByText('Other note')
+      expect(noteCard('Own note').querySelector('svg.lucide-trash2, svg.lucide-trash-2')).not.toBeNull()
+      const other = noteCard('Other note')
+      expect(other.querySelector('svg.lucide-trash2, svg.lucide-trash-2')).toBeNull()
+      expect(other.querySelector('svg.lucide-pencil')).not.toBeNull()
+    })
+
+    it('hides the composer, add actions and every mutation control in readOnly mode', async () => {
+      const onActionChange = jest.fn()
+      const { container } = renderWithProviders(
+        <NotesSection {...baseProps(twoNotesAdapter())} readOnly onActionChange={onActionChange} />,
+      )
+
+      await screen.findByText('Other note')
+      expect(screen.getByText('Own note')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Add note' })).toBeNull()
+      expect(container.querySelector('svg.lucide-pencil')).toBeNull()
+      expect(container.querySelector('svg.lucide-palette')).toBeNull()
+      expect(container.querySelector('svg.lucide-trash2, svg.lucide-trash-2')).toBeNull()
+      expect(container.querySelector('[role="button"]')).toBeNull()
+      expect(container.querySelector('form')).toBeNull()
+      expect(onActionChange).not.toHaveBeenCalledWith(expect.objectContaining({ label: 'Add note' }))
+
+      fireEvent.click(screen.getByText('Own note'))
+      expect(container.querySelector('textarea')).toBeNull()
+    })
+
+    it('renders the empty state without an add action in readOnly mode', async () => {
+      const dataAdapter: NotesDataAdapter = { ...createDataAdapter(), list: jest.fn(async () => []) }
+      renderWithProviders(<NotesSection {...baseProps(dataAdapter)} readOnly />)
+
+      expect(await screen.findByText('No notes yet')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Add note' })).toBeNull()
+    })
+
+    it('renders the generic note context as a link or plain text', async () => {
+      const dataAdapter: NotesDataAdapter = {
+        ...createDataAdapter(),
+        list: jest.fn(async () => [
+          {
+            id: 'note-linked',
+            body: 'Linked note',
+            createdAt: '2026-04-10T08:00:00.000Z',
+            contextLabel: 'Order #1001',
+            contextHref: '/backend/sales/orders/order-1001',
+          },
+          {
+            id: 'note-plain',
+            body: 'Plain note',
+            createdAt: '2026-04-09T08:00:00.000Z',
+            contextLabel: 'Warehouse A',
+          },
+        ]),
+      }
+      renderWithProviders(<NotesSection {...baseProps(dataAdapter)} />)
+
+      await screen.findByText('Plain note')
+      expect(screen.getByRole('link', { name: 'Order #1001' })).toHaveAttribute(
+        'href',
+        '/backend/sales/orders/order-1001',
+      )
+      const plain = screen.getByText('Warehouse A')
+      expect(plain.closest('a')).toBeNull()
+    })
+  })
+
+  it.each(['optimistic_lock_conflict', 'record_lock_conflict'])('keeps %s out of the content editor after surfacing its banner', async (code) => {
+    const conflict = Object.assign(new Error('record_modified'), {
+      status: 409,
+      body: { code, error: 'record_modified', currentUpdatedAt: '2026-06-02T00:00:00.000Z', expectedUpdatedAt: '2026-06-01T00:00:00.000Z' },
+    })
+    const adapter = createDataAdapter()
+    adapter.update = jest.fn(async () => { throw conflict })
+    renderWithProviders(<NotesSection {...baseProps(adapter)} disableMarkdown />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing note' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited note' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(adapter.update).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getRecordConflictForTest()).not.toBeNull())
+    expect(screen.queryByText('record_modified')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveValue('Edited note')
+  })
+
+  it('keeps optimistic conflicts out of the appearance dialog after surfacing its banner', async () => {
+    const conflict = Object.assign(new Error('record_modified'), {
+      status: 409,
+      body: { code: OPTIMISTIC_LOCK_CONFLICT_CODE, error: 'record_modified', currentUpdatedAt: '2026-06-02T00:00:00.000Z', expectedUpdatedAt: '2026-06-01T00:00:00.000Z' },
+    })
+    const adapter = createDataAdapter()
+    adapter.update = jest.fn(async () => { throw conflict })
+    const { container } = renderWithProviders(<NotesSection {...baseProps(adapter)} disableMarkdown />)
+    await screen.findByText('Existing note')
+    const trigger = container.querySelector('svg.lucide-palette')?.closest('button')
+    expect(trigger).toBeInstanceOf(HTMLButtonElement)
+    fireEvent.click(trigger as HTMLButtonElement)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.keyDown(dialog, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(adapter.update).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getRecordConflictForTest()).not.toBeNull())
+    expect(within(dialog).queryByText('record_modified')).not.toBeInTheDocument()
+  })
+
+  it('preserves ordinary inline validation errors', async () => {
+    const adapter = createDataAdapter()
+    adapter.update = jest.fn(async () => { throw new Error('Validation refused') })
+    renderWithProviders(<NotesSection {...baseProps(adapter)} disableMarkdown />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing note' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited note' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ctrlKey: true })
+    expect(await screen.findByText('Validation refused')).toBeInTheDocument()
+    expect(getRecordConflictForTest()).toBeNull()
   })
 
   it('surfaces the unified conflict bar when a write fails with a 409', async () => {

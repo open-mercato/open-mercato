@@ -10,12 +10,28 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
+  resolveMessageReadAccess: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(),
+}))
+
 import { approveProposalCommand, dismissProposalCommand } from '../ai-reply-proposal'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { composeMessageSchema } from '@open-mercato/core/modules/messages/data/validators'
+import { resolveMessageReadAccess } from '@open-mercato/core/modules/messages/lib/routeHelpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createFallbackTranslator, createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import enTranslations from '../../i18n/en.json'
+import plTranslations from '../../i18n/pl.json'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
+import { createDiscordProposalOriginKey } from '../../lib/ai-proposal-origin'
+import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../../lib/ai-proposal-contract'
 
 const findOne = findOneWithDecryption as unknown as jest.Mock
+const readAccess = resolveMessageReadAccess as unknown as jest.Mock
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -41,13 +57,20 @@ function makeCtx() {
 }
 
 function proposalRow(overrides: Record<string, unknown> = {}) {
-  return {
+  const proposal = {
     id: PROPOSAL_ID,
     type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+    tenantId: TENANT,
+    organizationId: ORG,
+    senderUserId: '00000000-0000-0000-0000-000000000000',
+    visibility: 'internal' as const,
+    bodyFormat: 'markdown' as const,
     body: 'We open at 9 and close at 5.',
+    sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
     sourceEntityId: INBOUND_ID,
     ...overrides,
   }
+  return { ...proposal, idempotencyKey: createDiscordProposalOriginKey(proposal) }
 }
 
 function inboundRow() {
@@ -64,6 +87,11 @@ const actionInput = { messageId: PROPOSAL_ID, actionId: 'approve_send' }
 describe('channel_discord.ai_reply_proposal.approve', () => {
   beforeEach(() => {
     findOne.mockReset()
+    jest.mocked(resolveTranslations).mockResolvedValue({
+      locale: 'en', dict: enTranslations, t: createTranslator(enTranslations), translate: createFallbackTranslator(enTranslations),
+    })
+    readAccess.mockReset()
+    readAccess.mockResolvedValue({ recipient: null, isSender: false, hasChannelThreadAccess: true, canRead: true })
   })
 
   it('sends the proposed text into the original thread, attributed to the approver', async () => {
@@ -124,6 +152,41 @@ describe('channel_discord.ai_reply_proposal.approve', () => {
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
+  it('refuses a client-filed proposal even when the approver can read its target', async () => {
+    findOne.mockResolvedValueOnce({ ...proposalRow(), senderUserId: OPERATOR, idempotencyKey: null })
+    const { ctx, commandBus } = makeCtx()
+
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toThrow(/system origin/i)
+
+    expect(findOne).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { body: 'Forged public reply' },
+    { sourceEntityId: PROPOSAL_ID },
+    { senderUserId: OPERATOR },
+    { actionData: { actions: [{ id: 'approve_send', label: 'Approve', isTerminal: false }] } },
+  ])('refuses a tampered system proposal: %j', async (overrides) => {
+    findOne.mockResolvedValueOnce({ ...proposalRow(), ...overrides })
+    const { ctx, commandBus } = makeCtx()
+
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toThrow(/system origin/i)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('looks up the proposal and source in the acting organization', async () => {
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
+    const { ctx } = makeCtx()
+
+    await approveProposalCommand.execute(actionInput as never, ctx)
+
+    expect(findOne.mock.calls.map((call) => call[2])).toEqual([
+      { id: PROPOSAL_ID, tenantId: TENANT, organizationId: ORG, deletedAt: null },
+      { id: INBOUND_ID, tenantId: TENANT, organizationId: ORG, deletedAt: null },
+    ])
+  })
+
   it('refuses when the conversation it answers is gone', async () => {
     findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(null)
     const { ctx, commandBus } = makeCtx()
@@ -131,6 +194,67 @@ describe('channel_discord.ai_reply_proposal.approve', () => {
     await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toThrow(
       /no longer exists/i,
     )
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('looks the answered message up in the approver organization only', async () => {
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
+    const { ctx } = makeCtx()
+
+    await approveProposalCommand.execute(actionInput as never, ctx)
+
+    expect(findOne.mock.calls[1][2]).toEqual({
+      id: INBOUND_ID,
+      tenantId: TENANT,
+      organizationId: ORG,
+      deletedAt: null,
+    })
+  })
+
+  it('checks the approver can read the answered message before sending into its thread', async () => {
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
+    const { ctx, commandBus } = makeCtx()
+
+    await approveProposalCommand.execute(actionInput as never, ctx)
+
+    expect(readAccess).toHaveBeenCalledWith(
+      ctx,
+      { tenantId: TENANT, organizationId: ORG, userId: OPERATOR },
+      expect.objectContaining({ id: INBOUND_ID }),
+    )
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses to send when the approver can no longer read the answered message', async () => {
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
+    readAccess.mockResolvedValueOnce({ recipient: null, isSender: false, hasChannelThreadAccess: false, canRead: false })
+    const { ctx, commandBus } = makeCtx()
+
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toThrow(
+      /can no longer read the conversation this proposal answers/i,
+    )
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['en', enTranslations],
+    ['pl', plTranslations],
+  ] as const)('returns localized 403 and 404 refusals in %s without composing', async (locale, dict) => {
+    jest.mocked(resolveTranslations).mockResolvedValue({ locale, dict, t: createTranslator(dict), translate: createFallbackTranslator(dict) })
+    const { ctx, commandBus } = makeCtx()
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(inboundRow())
+    readAccess.mockResolvedValueOnce({ canRead: false })
+
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toMatchObject({
+      status: 403,
+      body: { error: dict['channel_discord.aiProposal.errors.sourceMessageUnreadable'] },
+    })
+
+    findOne.mockResolvedValueOnce(proposalRow()).mockResolvedValueOnce(null)
+    await expect(approveProposalCommand.execute(actionInput as never, ctx)).rejects.toMatchObject({
+      status: 404,
+      body: { error: dict['channel_discord.aiProposal.errors.sourceMessageNotFound'] },
+    })
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
@@ -181,5 +305,14 @@ describe('channel_discord.ai_reply_proposal.dismiss', () => {
     await expect(
       dismissProposalCommand.execute({ messageId: PROPOSAL_ID, actionId: 'dismiss' } as never, ctx),
     ).rejects.toThrow(/not a Discord AI reply proposal/i)
+  })
+
+  it('refuses to acknowledge a client-filed proposal', async () => {
+    findOne.mockResolvedValueOnce({ ...proposalRow(), idempotencyKey: null })
+    const { ctx } = makeCtx()
+
+    await expect(
+      dismissProposalCommand.execute({ messageId: PROPOSAL_ID, actionId: 'dismiss' } as never, ctx),
+    ).rejects.toThrow(/system origin/i)
   })
 })

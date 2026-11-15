@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { ImapCredentials } from './credentials'
 import { resolveSafeHostAddress } from './host-pinning'
 import { assertTransportAllowed } from './transport'
@@ -28,7 +29,7 @@ export interface SmtpMessage {
   subject?: string
   text?: string
   html?: string
-  /** RFC2822 Message-ID; if omitted nodemailer generates one. */
+  /** RFC2822 Message-ID; if omitted the client generates one from the sender domain. */
   messageId?: string
   /** RFC2822 In-Reply-To (single value). */
   inReplyTo?: string
@@ -76,6 +77,15 @@ async function loadMailComposer(): Promise<MailComposerCtor | undefined> {
   }
 }
 
+// send() composes the message twice (MailComposer for the Sent-folder bytes, then
+// transporter.sendMail), and each composition would generate its own Message-ID.
+// Pinning one up front keeps the Sent copy, the delivered message and the
+// returned id identical so replies thread with the Sent copy.
+export function generateMessageId(from: string): string {
+  const domain = /@([^\s<>@]+)>?\s*$/.exec(from)?.[1] ?? 'localhost'
+  return `<${randomUUID()}@${domain}>`
+}
+
 class NodemailerClient implements SmtpClient {
   async verify(options: SmtpConnectionOptions): Promise<void> {
     const { transporter } = await this.createTransporter(options)
@@ -99,7 +109,7 @@ class NodemailerClient implements SmtpClient {
         subject: message.subject,
         text: message.text,
         html: message.html,
-        messageId: message.messageId,
+        messageId: message.messageId ?? generateMessageId(message.from),
         inReplyTo: message.inReplyTo,
         references: message.references,
         attachments: message.attachments?.map((a) => ({

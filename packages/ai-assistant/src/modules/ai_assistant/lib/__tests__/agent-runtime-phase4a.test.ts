@@ -334,6 +334,58 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
         expect.objectContaining({ modelId: 'pinned-agent-model' }),
       )
     })
+
+    describe('stored tenant baseURL is re-checked against the current allowlist (issue #7228)', () => {
+      const originalAllowlist = process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+
+      afterEach(() => {
+        if (originalAllowlist === undefined) delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+        else process.env.AI_RUNTIME_BASEURL_ALLOWLIST = originalAllowlist
+      })
+
+      async function runWithStoredBaseUrl(baseUrl: string) {
+        getDefaultMock.mockResolvedValue({ providerId: null, modelId: null, baseUrl })
+        seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
+        await runAiAgentText({
+          agentId: 'customers.assistant',
+          messages: baseMessages as never,
+          authContext: baseAuth,
+          container: makeContainer(makeFakeEm()) as never,
+        })
+        const options = createModelMock.mock.calls.at(-1)?.[0] as { baseURL?: string } | undefined
+        return options?.baseURL
+      }
+
+      it('drops a stored http:// baseURL whose host is allowlisted host-only', async () => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+
+        expect(await runWithStoredBaseUrl('http://api.openai.com/v1')).toBeUndefined()
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Stored AI runtime baseURL is not allowed'),
+          { agentId: 'customers.assistant', tenantId: 'tenant-1', organizationId: 'org-1' },
+        )
+      })
+
+      it('drops a stored baseURL once the operator empties the allowlist', async () => {
+        delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+
+        expect(await runWithStoredBaseUrl('https://api.openai.com/v1')).toBeUndefined()
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Stored AI runtime baseURL is not allowed'),
+          expect.objectContaining({ agentId: 'customers.assistant' }),
+        )
+      })
+
+      it('keeps a stored https baseURL that still matches', async () => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+
+        expect(await runWithStoredBaseUrl('https://api.openai.com/v1')).toBe('https://api.openai.com/v1')
+        expect(warnSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining('Stored AI runtime baseURL is not allowed'),
+          expect.anything(),
+        )
+      })
+    })
   })
 
   describe('runAiAgentObject', () => {

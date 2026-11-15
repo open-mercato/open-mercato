@@ -58,6 +58,25 @@ describe('productForm locale decimal separator (issue #5828)', () => {
   })
 
   describe('buildLocaleAwareProductFormSchema', () => {
+    it.each([' ', '\u00a0', '\u202f'])('normalizes quantities grouped with %p on submission', (separator) => {
+      const schema = buildLocaleAwareProductFormSchema(TEST_LOCALE)
+      const groupedQuantity = `1${separator}234,56`
+      const parsed = schema.parse({
+        ...BASE_INITIAL_VALUES,
+        title: 'Test product',
+        defaultSalesUnitQuantity: groupedQuantity,
+        unitPriceEnabled: true,
+        unitPriceReferenceUnit: 'kg',
+        unitPriceBaseQuantity: groupedQuantity,
+        unitConversions: [
+          { id: null, unitCode: 'kg', toBaseFactor: groupedQuantity, sortOrder: '10', isActive: true },
+        ],
+      })
+      expect(parsed.defaultSalesUnitQuantity).toBe(1234.56)
+      expect(parsed.unitPriceBaseQuantity).toBe(1234.56)
+      expect(parsed.unitConversions?.[0]?.toBaseFactor).toBe(1234.56)
+    })
+
     it('accepts a comma-decimal UoM payload that the plain schema would reject', () => {
       const schema = buildLocaleAwareProductFormSchema(TEST_LOCALE)
       const parsed = schema.safeParse({
