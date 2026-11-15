@@ -1,5 +1,26 @@
 # Upgrade Notes
 
+## EUDR update undo conflicts (#9128)
+
+Update undos for EUDR plots, risk assessments, product mappings, mitigation actions,
+evidence submissions and statements now return HTTP 409 with code
+`eudr.errors.undoConflict` when the record changed or was soft-deleted after the
+logged update, or the action log has no `after` snapshot. Previously these undos
+could return 200 and overwrite later edits. Clients must treat this refusal as
+final: reload the record and re-apply the wanted change by hand. Do not retry the
+same stale undo automatically. Edits lost to earlier undos are not recovered.
+
+Undoing an evidence-submission update also recomputes its completeness score.
+Forward updates and update undos now keep entity and custom-field writes in the
+same parent-row transaction. Custom-field-only updates wait for an in-flight undo;
+a failed reset rolls back both the row and its custom values before retry.
+Own updates can still be undone newest first when their recorded content matches;
+create/delete undos and forward commands are unchanged. No database migration,
+configuration change, route, event or response-field migration is needed for this
+fix. Restart application and worker processes together when deploying.
+
+[Specification and coverage](.ai/specs/2026-07-06-eudr-compliance-module.md#migration--backward-compatibility).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app
@@ -1561,6 +1582,22 @@ That memory now lives in a `staff`-owned store shared by both surfaces:
 - **Write**: a successful start **from the dashboard widget** writes both stores, so rolling this change back leaves that member's widget default intact. A start from the timesheets-page `TimerBar` writes the shared store **only** — the legacy field belongs to the widget's own settings and the `TimerBar` has no access to them. A member who only ever starts timers from the timesheets page therefore has no legacy value to roll back to, and after a rollback the widget would fall back to whatever `lastProjectId` it last wrote itself (possibly nothing). That is a one-click cost, not data loss: the shared row survives the rollback and is read again on roll-forward.
 
 **Action for downstream:** none required during the deprecation window. Module authors reading `TimeReportingSettings.lastProjectId` directly should move to `GET /api/staff/timesheets/my-preferences` (or the `useTimesheetPreference` hook in `packages/core/src/modules/staff/lib/timesheets-ui/`) before the field is removed. Authors who *write* it should note that the shared preference now takes precedence on read, so a write to the legacy field alone will not change what the widget preselects for a member who already has a shared row.
+
+### Staff orphan-segment backfill is not reversible (#6409)
+
+Soft-deleting a time entry used to leave its work segments live, some of them still open. #6409 cascades every soft-delete to the segments and ships a one-off data migration, `Migration20260826193000_staff_segment_orphan_backfill`, that repairs the rows written before the fix: each segment of a soft-deleted entry takes the entry's `deleted_at`, and a still-open segment is closed at that same instant.
+
+The migration's `down()` is intentionally a no-op. A rollback cannot tell the rows the backfill stamped from the ones the runtime cascade has stamped since, so rolling the migration back leaves the repaired segments as they are. That is safe: every row it touches belongs to an entry that is already soft-deleted, so no scoped read returns it.
+
+**Action for operators:** none required. To size the repair before deploying, count the affected segments:
+
+```sql
+select count(*) from staff_time_entry_segments s
+join staff_time_entries e on e.id = s.time_entry_id
+where e.deleted_at is not null and s.deleted_at is null;
+```
+
+Take a backup first if you may need the pre-repair rows back; rolling the migration back will not restore them.
 
 ### Staff time-entries totals cover the whole filtered set and render inside the table (#6990)
 
@@ -5410,6 +5447,22 @@ With `NODE_ENV=production`, `mercato init` now rejects missing, blank, or built-
 Operators using starter or generated-app full-app Compose deployments must set a unique `OM_INIT_SUPERADMIN_PASSWORD` securely before first initialization or reinstall; the Compose `password` fallback is only usable outside production. Existing initialized databases still support `--skip-if-initialized` without bootstrap credentials. Bootstrap scripts must supply the secret via environment or `--password` and handle initialization failures. Do not store secrets in source control or logs.
 
 This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
+
+## Private next-interaction subjects (#8888)
+
+Shared customer projections now return a NULL name for explicitly private email
+interactions. The owner and temporarily authorized shared-mail readers still see
+the subject in authorized interaction views. Historical undo/redo also redacts a
+private or unresolved linked name. Clients should retain their unnamed-interaction
+fallback; public/legacy/non-email subjects and manual names remain supported.
+
+Apply the accompanying forward-only data migration and complete its declared
+customer entity/profile query-index rebuilds before reopening affected reads.
+Rebuild any configured fulltext/vector provider that previously indexed these
+fields and verify synthetic old subjects are gone before reopening search. The
+migration clears opaque encrypted values without decrypting them; rollback does
+not restore private subjects. No schema, startup or configuration-format change.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` for validation limits.
 
 ## Setup verifies encryption before database reuse (#8913)
 
