@@ -1,6 +1,8 @@
 /** @jest-environment node */
 
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import polish from '../../../../i18n/pl.json'
 import { GET, PUT, DELETE } from '../[id]'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
@@ -11,6 +13,11 @@ const CURRENT_VERSION = '2026-06-01T10:00:00.000Z'
 const STALE_VERSION = '2026-06-01T09:00:00.000Z'
 
 const mockGetAuthFromRequest = jest.fn()
+const mockTranslate = createFallbackTranslator(polish)
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: mockTranslate })),
+}))
 
 const mockEm = {
   findOne: jest.fn(),
@@ -131,6 +138,26 @@ describe('customer_accounts admin role optimistic locking', () => {
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.code).toBe('optimistic_lock_conflict')
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('DELETE localizes the default-role refusal without mutating the role', async () => {
+    mockEm.findOne.mockResolvedValueOnce({ id: ROLE_ID, isDefault: true })
+
+    const response = await DELETE(request('DELETE', null), params)
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe(polish['customer_accounts.admin.roles.error.deleteDefault'])
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('DELETE localizes the assigned-user refusal and interpolates its count', async () => {
+    mockEm.count.mockResolvedValueOnce(4)
+
+    const response = await DELETE(request('DELETE', null), params)
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toBe('Nie można usunąć roli z przypisanymi użytkownikami (4). Najpierw przypisz ich do innej roli.')
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })
 

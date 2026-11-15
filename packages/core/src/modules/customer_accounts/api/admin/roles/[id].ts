@@ -9,6 +9,7 @@ import { updateRoleSchema } from '@open-mercato/core/modules/customer_accounts/d
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {}
 
@@ -170,11 +171,13 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ ok: false, error: 'Role not found' }, { status: 404 })
   }
 
+  const { translate } = await resolveTranslations()
+
   // System roles are seed-provided defaults but may still be removed once they are no
   // longer needed (#3556). Only the default role is hard-protected here because signup
   // auto-assigns it to new portal users — reassign the default first, then delete.
   if (role.isDefault) {
-    return NextResponse.json({ ok: false, error: 'Cannot delete the default role. Set another role as default first.' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.admin.roles.error.deleteDefault', 'Cannot delete the default role. Set another role as default first.') }, { status: 400 })
   }
 
   // Optimistic lock: refuse a stale delete. Strictly additive.
@@ -195,7 +198,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     deletedAt: null,
   })
   if (assignedUsersCount > 0) {
-    return NextResponse.json({ ok: false, error: `Cannot delete role with ${assignedUsersCount} assigned user(s). Reassign users first.` }, { status: 400 })
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.admin.roles.error.deleteAssigned', 'Cannot delete role with {count} assigned user(s). Reassign users first.', { count: assignedUsersCount }) }, { status: 400 })
   }
 
   await em.nativeUpdate(CustomerRole, {

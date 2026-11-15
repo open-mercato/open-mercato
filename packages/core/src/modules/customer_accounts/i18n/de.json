@@ -209,6 +209,7 @@
   "customer_accounts.admin.roles.confirm.delete": "Rolle \"{{name}}\" löschen?",
   "customer_accounts.admin.roles.default": "Standard",
   "customer_accounts.admin.roles.error.delete": "Rolle konnte nicht gelöscht werden",
+  "customer_accounts.admin.roles.error.deleteAssigned": "Eine Rolle mit {count} zugewiesenen Benutzern kann nicht gelöscht werden. Weisen Sie die Benutzer zuerst einer anderen Rolle zu.",
   "customer_accounts.admin.roles.error.deleteDefault": "Die Standardrolle kann nicht gelöscht werden. Legen Sie zuerst eine andere Rolle als Standard fest.",
   "customer_accounts.admin.roles.error.load": "Rollen konnten nicht geladen werden",
   "customer_accounts.admin.roles.flash.deleted": "Rolle gelöscht",
