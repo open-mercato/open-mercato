@@ -363,10 +363,12 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     ) {
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
-        fs.copyFileSync(examplePath, envPath)
+        const { createEnvFileFromExample } = await import('./lib/env-example.js')
+        createEnvFileFromExample(examplePath, envPath)
         console.log('')
         console.log('⚠️  No .env was found, so one was created from .env.example.')
         console.log(`   ${envPath}`)
+        console.log('   A unique tenant encryption key was generated; keep it — data encrypted with it is unreadable without it.')
         console.log('   It carries the example placeholders — review DATABASE_URL and secrets before continuing.')
         console.log('')
       }

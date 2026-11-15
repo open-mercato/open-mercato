@@ -1185,6 +1185,7 @@
   "wms.errors.salesOrder.reRunReservationCancelled": "Un pedido cancelado no puede tener una reserva de stock.",
   "wms.errors.trackingRequired": "Se requieren datos de lote o serie para este producto.",
   "wms.errors.unauthorized": "No autorizado",
+  "wms.errors.validationFailed": "La validación falló",
   "wms.nav.group": "WMS",
   "wms.notifications.lowStock.body": "Alerta de stock bajo — disponible: {availableQuantity}, punto de reorden: {reorderPoint}, stock de seguridad: {safetyStock}",
   "wms.notifications.lowStock.renderer.available": "Disponible",

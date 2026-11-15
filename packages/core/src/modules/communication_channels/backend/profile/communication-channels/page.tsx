@@ -51,6 +51,10 @@ type ChannelRow = {
   lastPolledAt: string | null
   /** Spec C — push delivery state (null when provider doesn't support push). */
   pushStatus: 'active' | 'inactive' | 'failed' | null
+  /** When the provider-side push subscription lapses (Gmail watch expiry). */
+  pushExpiresAt: string | null
+  /** `true` when `pushStatus` is still 'active' but the subscription has expired. */
+  pushExpired: boolean
   lastPushError: { code: string | null; message: string | null; at: string | null } | null
   /**
    * `true` when the adapter declares real-time push, so the hub's poll worker
@@ -480,6 +484,13 @@ export default function ProfileCommunicationChannelsPage() {
               </Tag>
             )
           }
+          if (ps === 'active' && row.original.pushExpired) {
+            return (
+              <Tag variant="warning" dot>
+                {t('communication_channels.push.status.expired', 'Push expired — re-register to resume delivery')}
+              </Tag>
+            )
+          }
           if (ps === 'active') {
             return (
               <Tag variant="success" dot>
@@ -564,8 +575,9 @@ export default function ProfileCommunicationChannelsPage() {
       }
 
       // Offered only when the adapter can register push AND it is not already
-      // active — re-registering a healthy subscription is a no-op.
-      if (channel.supportsPushRegistration && channel.pushStatus !== 'active') {
+      // active — re-registering a healthy subscription is a no-op. An expired
+      // subscription still stores 'active', so it is offered there too (#8943).
+      if (channel.supportsPushRegistration && (channel.pushStatus !== 'active' || channel.pushExpired)) {
         items.push({
           id: 'register-push',
           label: t('communication_channels.push.button.reregister', 'Re-register push'),
