@@ -1,5 +1,6 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { reportGatewayStatusSyncFailure } from '../lib/gateway-status-sync'
 
 export const metadata = {
   event: 'payment_gateways.payment.authorized',
@@ -27,5 +28,5 @@ export default async function handle(payload: { paymentId?: string; organization
       selectedOrganizationId: payload.organizationId,
       organizationIds: [payload.organizationId],
     },
-  }).catch(() => null)
+  }).catch((error) => reportGatewayStatusSyncFailure(error, { event: metadata.event, paymentId: payload.paymentId }))
 }
