@@ -667,6 +667,6 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
-## Checkout email variables and customer fields (2026-11-15, #9159)
+## Checkout (#9159, 2026-11-15)
 
-STABLE public-submit schema and email-template behavior: undeclared payer fields, malformed email addresses, unbounded names, and Markdown interpretation of submitted variables permit merchant-branded email injection. A bridge retaining these branches retains the exploit. Only declared fields are collected, nonempty email addresses are validated, names are bounded at 100 characters, and interpolated values are single-line literal text. Start emails gain recipient/link send budgets. No route, response, database, event or signature changes. [Migration](UPGRADE_NOTES.md#checkout-email-variable-and-customer-data-hardening-9159) and the pay-links spec describe client/operator actions. **Named human maintainer approval of the emergency waiver of steps 1–3 is pending; automated review cannot clear this merge requirement.**
+STABLE submit schema/template values: undeclared data/Markdown permit email injection; bridges retain it. [Migration/spec](UPGRADE_NOTES.md#checkout-email-variable-and-customer-data-hardening-9159). **Named human maintainer waiver of steps 1–3 pending.**

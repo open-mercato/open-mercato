@@ -208,7 +208,7 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'Idempotency-Key': 'filtered-key-123456', origin: 'https://merchant.example' },
       body: JSON.stringify({ customerData: {
-        email: 'thirdparty@example.com', firstName: 'Injected', lastName: 'Name', phone: '+123456789', custom: 'kept', unexpected: true,
+        email: 'invalid', firstName: 'Injected'.repeat(20), lastName: 'Name', phone: '+123456789', custom: 'kept', unexpected: true,
       }, amount: 1 }),
     }), { params: { slug: 'donate' } })
     expect(response.status).toBe(201)
@@ -220,15 +220,24 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     }))
   })
 
-  it('rejects an invalid undeclared email before creating a transaction or gateway session', async () => {
+  it('returns all declared field errors with 422 before creating a transaction or gateway session', async () => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce({
+      ...createLink(), collectCustomerDetails: true, customerFieldsSchema: [
+        { key: 'email' }, { key: 'phone' }, { key: 'firstName' },
+      ],
+    })
     const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'Idempotency-Key': 'invalid-email-123456', origin: 'https://merchant.example' },
-      body: JSON.stringify({ customerData: { email: 'invalid' }, amount: 1 }),
+      body: JSON.stringify({ customerData: { email: 'invalid', phone: 'invalid', firstName: 'A'.repeat(101) }, amount: 1 }),
     }), { params: { slug: 'donate' } })
-    expect(response.status).toBe(400)
+    expect(response.status).toBe(422)
     expect(await response.json()).toEqual(expect.objectContaining({
-      fieldErrors: { 'customerData.email': 'checkout.payPage.validation.invalidEmail' },
+      fieldErrors: {
+        'customerData.email': 'checkout.payPage.validation.invalidEmail',
+        'customerData.phone': 'checkout.payPage.validation.invalidPhone',
+        'customerData.firstName': 'checkout.payPage.validation.nameTooLong',
+      },
     }))
     expect(mockCommandExecute).not.toHaveBeenCalled()
     expect(mockCreatePaymentSession).not.toHaveBeenCalled()
