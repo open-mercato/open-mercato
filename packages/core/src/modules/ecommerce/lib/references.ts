@@ -10,6 +10,14 @@ type DomainMappingReader = {
   findById(id: string, scope?: { tenantId?: string }): Promise<{ tenantId: string; organizationId: string } | null>
 }
 
+function resolveDomainMappingReader(container: CrudCtx['container']): DomainMappingReader | null {
+  try {
+    return container.resolve<DomainMappingReader>('domainMappingService') ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function assertStoreInScope(
   em: EntityManager,
   storeId: string,
@@ -35,8 +43,8 @@ export async function assertDomainMappingInScope(
   scope: EcommerceWriteScope,
   translate: Translate,
 ): Promise<void> {
-  const service = container.resolve<DomainMappingReader>('domainMappingService')
-  const mapping = await service.findById(domainMappingId, { tenantId: scope.tenantId })
+  const service = resolveDomainMappingReader(container)
+  const mapping = service ? await service.findById(domainMappingId, { tenantId: scope.tenantId }) : null
   if (mapping && mapping.tenantId === scope.tenantId && mapping.organizationId === scope.organizationId) return
   throw fieldError(400, {
     domainMappingId: translate(
