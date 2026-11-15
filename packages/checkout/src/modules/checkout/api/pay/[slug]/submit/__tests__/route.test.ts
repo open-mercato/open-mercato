@@ -269,7 +269,9 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     expect(mockCreatePaymentSession).not.toHaveBeenCalled()
   })
 
-  it.each([[], {}, { toString: null }])('rejects unsupported required custom field values: %p', async (company) => {
+  it.each([
+    { company: [] }, { company: {} }, { company: { toString: null } },
+  ])('rejects unsupported required custom field values: %p', async ({ company }) => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce({
       ...createLink(), collectCustomerDetails: true,
       customerFieldsSchema: [{ key: 'company', kind: 'text', required: true }],
