@@ -250,6 +250,7 @@ describe('CrudForm injection-block scroll behavior', () => {
   })
 
   it.each([false, true])('keeps a rejected summary visible after delayed custom fields in embedded=%s', async (embedded) => {
+    triggerEventMock.mockImplementation(async (_event: string, data: Record<string, unknown>) => ({ ok: true, data }))
     let finishLoading: (value: Awaited<ReturnType<typeof customFieldForms.fetchCustomFieldFormStructure>>) => void = () => {}
     const loading = new Promise<Awaited<ReturnType<typeof customFieldForms.fetchCustomFieldFormStructure>>>((resolve) => { finishLoading = resolve })
     const fetchStructure = jest.spyOn(customFieldForms, 'fetchCustomFieldFormStructure').mockReturnValue(loading)
