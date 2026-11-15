@@ -169,7 +169,7 @@ test.describe('TC-SEARCH-002: search endpoint merges duplicate strategy hits', (
 
       const links = getLinks(ensuredMergedResult)
       expect(
-        links.some((link) => link.href === expectedCompanyUrl),
+        links.some((link) => link.href === `${expectedCompanyUrl}/edit` && link.kind === 'secondary'),
       ).toBeTruthy()
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
