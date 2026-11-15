@@ -22,7 +22,7 @@ export const SECRET_CREDENTIAL_FIELD_TYPES: ReadonlySet<CredentialFieldType> = n
  */
 export const MASKED_SECRET_VALUE = '__om_secret_unchanged__'
 
-const DESTINATION_CREDENTIAL_KEYS = new Set(['host', 'hostname', 'port', 'apiurl', 'baseurl', 'endpoint', 'serverurl'])
+const DESTINATION_CREDENTIAL_KEYS = new Set(['host', 'hostname', 'port', 'apiurl', 'baseurl', 'endpoint', 'serverurl', 'url'])
 
 export class MaskedSecretDestinationChangedError extends Error {
   constructor(readonly fields: readonly string[]) {
@@ -38,7 +38,14 @@ function hasChangedDestination(
 ): boolean {
   const destinationKeys = new Set((schema?.fields ?? []).filter((field) => field.type === 'url').map((field) => field.key))
   for (const key of new Set([...Object.keys(existing), ...Object.keys(incoming)])) {
-    if (DESTINATION_CREDENTIAL_KEYS.has(key.replace(/[_-]/g, '').toLowerCase())) destinationKeys.add(key)
+    const normalizedKey = key
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .toLowerCase()
+    const lastSegment = normalizedKey.split(/[_-]/).at(-1) ?? ''
+    if (DESTINATION_CREDENTIAL_KEYS.has(normalizedKey.replace(/[_-]/g, '')) || DESTINATION_CREDENTIAL_KEYS.has(lastSegment)) {
+      destinationKeys.add(key)
+    }
   }
   return [...destinationKeys].some((key) => !Object.is(incoming[key], existing[key]))
 }

@@ -13,9 +13,11 @@ const MASKED_SECRET_VALUE = '__om_secret_unchanged__'
 test.describe('TC-INT-012: retained secrets stay bound to their destination (#9108)', () => {
   for (const provider of [
     { id: 'channel_smtp', secret: 'password', credentials: { host: 'smtp.example.com', port: '587' }, destination: 'host', replacement: 'other.example.com' },
+    { id: 'channel_imap', secret: 'imapPassword', credentials: { imapHost: 'imap.example.com', imapPort: '993', smtpHost: 'smtp.example.com', smtpPort: '465' }, destination: 'imapHost', replacement: 'other.example.com' },
+    { id: 'channel_imap', secret: 'smtpPassword', credentials: { imapHost: 'imap.example.com', imapPort: '993', smtpHost: 'smtp.example.com', smtpPort: '465' }, destination: 'smtpHost', replacement: 'other.example.com' },
     { id: 'sync_akeneo', secret: 'clientSecret', credentials: { apiUrl: 'https://akeneo.example.com' }, destination: 'apiUrl', replacement: 'https://other.example.com' },
   ]) {
-    test(`${provider.id}: rejects mask retargeting and keeps unrelated edits and replacement`, async ({ request }) => {
+    test(`${provider.id}/${provider.secret}: rejects mask retargeting and keeps unrelated edits and replacement`, async ({ request }) => {
       const token = await getAuthToken(request, 'superadmin')
       const available = await apiRequest(request, 'GET', `/api/integrations/${provider.id}/credentials`, { token })
       test.skip(available.status() === 404, `${provider.id} is not enabled in this build`)
@@ -43,6 +45,11 @@ test.describe('TC-INT-012: retained secrets stay bound to their destination (#91
         expect((await write(listed, [provider.secret])).status()).toBe(422)
         if (provider.id === 'channel_smtp') {
           expect((await write({ ...masked, port: '465' })).status()).toBe(422)
+        }
+
+        if (provider.id === 'channel_imap') {
+          const portField = provider.destination === 'imapHost' ? 'imapPort' : 'smtpPort'
+          expect((await write({ ...masked, [portField]: '1143' })).status()).toBe(422)
         }
 
         const afterDenied = await readJsonSafe<{ credentials: Record<string, unknown>; secretFieldsConfigured: Record<string, boolean> }>(await read())
