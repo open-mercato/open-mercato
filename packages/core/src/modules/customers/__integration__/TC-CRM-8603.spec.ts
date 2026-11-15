@@ -44,6 +44,22 @@ type CalendarContext = { card: Locator; dates: Locator; entityId: string; intera
 
 test.use({ locale: 'en-US', timezoneId: 'Europe/Warsaw', hasTouch: true })
 
+async function openActivityTab(page: Page, kind: CustomerKind): Promise<void> {
+  const name = kind === 'companies' ? /^Activity log(?: \d+)?$/ : 'Activity'
+  const tab = page.getByRole('tab', { name, exact: true })
+  if (kind === 'companies') {
+    const more = page.getByTestId('detail-tabs-more')
+    await expect(tab.or(more).first()).toBeVisible()
+    if (!(await tab.isVisible())) {
+      await more.click()
+      await page.getByRole('menu', { name: 'More' }).getByRole('menuitem', { name, exact: true }).click()
+      await expect(tab).toHaveAttribute('aria-selected', 'true')
+      return
+    }
+  }
+  await tab.click()
+}
+
 async function withCalendar(
   page: Page,
   account: CalendarAccount,
@@ -89,10 +105,8 @@ async function withCalendar(
     await page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     }))
-    const activityTab = page.getByRole('tab', { name: kind === 'companies' ? /^Activity log(?: \d+)?$/ : 'Activity', exact: true })
     if (kind === 'companies' || page.viewportSize()!.width === 390) {
-      await expect(activityTab).toBeVisible()
-      await activityTab.click()
+      await openActivityTab(page, kind)
     }
     const card = page.getByRole('heading', { name: 'Activities', level: 3, exact: true }).locator('../../..')
     const dates = card.getByRole('group', { name: calendarName })
@@ -314,7 +328,7 @@ for (const kind of ['companies', 'people'] as const) {
           expect(rejection.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(initial.updatedAt)
           expect(await readRecord()).toEqual(beforeSave)
           await page.reload()
-          await page.getByRole('tab', { name: kind === 'companies' ? /^Activity log(?: \d+)?$/ : 'Activity', exact: true }).click()
+          await openActivityTab(page, kind)
           await card.getByText('Concurrent title', { exact: true }).click()
           await dialog.getByPlaceholder('Add location or meeting link...').fill('Updated room')
         }
