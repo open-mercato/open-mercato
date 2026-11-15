@@ -261,6 +261,117 @@ describe('RateLimiterService', () => {
     })
   })
 
+  describe('requireShared', () => {
+    const sharedLimitConfig: RateLimitConfig = { ...defaultLimitConfig, requireShared: true }
+
+    beforeEach(() => {
+      jest.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    it('returns a degraded result instead of counting in memory when the shared store is not configured', async () => {
+      const memoryConsume = jest.spyOn(RateLimiterMemory.prototype, 'consume')
+      service = new RateLimiterService(createConfig())
+
+      const result = await service.consume('key1', sharedLimitConfig)
+
+      expect(service.sharedEnabled).toBe(false)
+      expect(result.degraded).toBe(true)
+      expect(memoryConsume).not.toHaveBeenCalled()
+    })
+
+    it('keeps the in-memory behaviour when the flag is not set', async () => {
+      service = new RateLimiterService(createConfig())
+
+      const result = await service.consume('key2', defaultLimitConfig)
+
+      expect(result.allowed).toBe(true)
+      expect(result.degraded).toBeFalsy()
+      expect(result.consumedPoints).toBe(1)
+    })
+
+    it('does not share a cached limiter between flagged and unflagged configs', async () => {
+      service = new RateLimiterService(createConfig())
+      const internals = service as unknown as {
+        getOrCreateLimiter: (config: RateLimitConfig) => unknown
+      }
+
+      expect(internals.getOrCreateLimiter(sharedLimitConfig))
+        .not.toBe(internals.getOrCreateLimiter(defaultLimitConfig))
+    })
+
+    // The redis branch is where the flag matters. The mocked ioredis client cannot run any
+    // command, which stands in for a Redis outage.
+    describe('redis strategy', () => {
+      async function createRedisService(): Promise<RateLimiterService> {
+        const redisService = new RateLimiterService(createConfig({
+          strategy: 'redis',
+          redisUrl: 'redis://localhost:6379',
+        }))
+        await redisService.initialize()
+        return redisService
+      }
+
+      function buildLimiter(redisService: RateLimiterService, config: RateLimitConfig): unknown {
+        const internals = redisService as unknown as {
+          getOrCreateLimiter: (config: RateLimitConfig) => unknown
+        }
+        return internals.getOrCreateLimiter(config)
+      }
+
+      it('builds a flagged limiter without the in-memory insurance limiter and rejecting when redis is not ready', async () => {
+        service = await createRedisService()
+
+        const flagged = buildLimiter(service, sharedLimitConfig) as {
+          insuranceLimiter?: unknown
+          _rejectIfRedisNotReady?: boolean
+        }
+
+        expect(service.sharedEnabled).toBe(true)
+        expect(flagged).toBeInstanceOf(RateLimiterRedis)
+        expect(flagged.insuranceLimiter).toBeUndefined()
+        expect(flagged._rejectIfRedisNotReady).toBe(true)
+      })
+
+      it('keeps the in-memory insurance limiter for an unflagged limiter', async () => {
+        service = await createRedisService()
+
+        const unflagged = buildLimiter(service, defaultLimitConfig) as {
+          insuranceLimiter?: unknown
+          _rejectIfRedisNotReady?: boolean
+        }
+
+        expect(unflagged).toBeInstanceOf(RateLimiterRedis)
+        expect(unflagged.insuranceLimiter).toBeInstanceOf(RateLimiterMemory)
+        expect(unflagged._rejectIfRedisNotReady).toBe(false)
+      })
+
+      it('returns a degraded result and never counts in memory when redis fails and the limiter is flagged', async () => {
+        service = await createRedisService()
+        const memoryConsume = jest.spyOn(RateLimiterMemory.prototype, 'consume')
+
+        const result = await service.consume('redis-key', sharedLimitConfig)
+
+        expect(result.degraded).toBe(true)
+        expect(memoryConsume).not.toHaveBeenCalled()
+      })
+
+      it('still falls back to the in-memory insurance limiter when redis fails and the limiter is not flagged', async () => {
+        service = await createRedisService()
+        const memoryConsume = jest.spyOn(RateLimiterMemory.prototype, 'consume')
+
+        const result = await service.consume('redis-key', defaultLimitConfig)
+
+        expect(result.degraded).toBeFalsy()
+        expect(result.consumedPoints).toBe(1)
+        expect(memoryConsume).toHaveBeenCalledTimes(1)
+      })
+    })
+  })
+
   describe('limiter caching', () => {
     it('reuses the same limiter for the same config', async () => {
       service = new RateLimiterService(createConfig())

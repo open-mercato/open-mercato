@@ -30,13 +30,12 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { StaffTimeTask, StaffTimeTaskTag } from '../../../data/entities'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { StaffSupportTicket, StaffTimeTask, StaffTimeTaskStatus, StaffTimeTaskTag } from '../../../data/entities'
 import { staffTimeTaskCreateSchema, staffTimeTaskUpdateSchema } from '../../../data/validators'
 import { staffTimeTaskCommandIds } from '../../../commands/timesheets-tasks'
-import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
-import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
-import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
+import { resolveListProjectAccess } from '../../../lib/time-tracking/listProjectAccess'
 import { sanitizeSearchTerm, parseBooleanFlag } from '../../helpers'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
 
@@ -57,6 +56,8 @@ const F = {
   position: 'position',
   created_by_user_id: 'created_by_user_id',
   closed_at: 'closed_at',
+  source: 'source',
+  customer_id: 'customer_id',
   created_at: 'created_at',
   updated_at: 'updated_at',
 } as const
@@ -87,6 +88,13 @@ const listSchema = z
     parentTaskId: z.string().uuid().optional(),
     tagIds: z.string().optional(),
     topLevelOnly: z.string().optional(),
+    unassigned: z.string().optional(),
+    source: z.enum(['internal', 'portal']).optional(),
+    customerId: z.string().uuid().optional(),
+    supportCategory: z.string().optional(),
+    supportReference: z.string().optional(),
+    portalStatus: z.enum(['received', 'in_progress', 'resolved']).optional(),
+    supportUnnotified: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -100,71 +108,30 @@ type TaskListQuery = z.infer<typeof listSchema>
  */
 const IMPOSSIBLE_ID = '00000000-0000-0000-0000-000000000000'
 
-const DENIED_ACCESS: ProjectAccess = { canManageAll: false, projectIds: [], staffMemberId: null }
+export { resolveListProjectAccess }
 
-type RbacServiceLike = {
-  getGrantedFeatures?: (
-    userId: string,
-    options: { tenantId: string | null; organizationId: string | null },
-  ) => Promise<string[]>
+/**
+ * Upper bound on the task ids the support filters materialize into the `id IN (...)`
+ * narrowing. The newest matching tickets win; an older match beyond the cap drops out
+ * of the filtered list instead of growing an unbounded parameter list.
+ */
+export const SUPPORT_FILTER_MAX_TASK_IDS = 1000
+
+/**
+ * Requests whose support-filter narrowing hit `SUPPORT_FILTER_MAX_TASK_IDS`. The list's
+ * `afterList` hook reports them as `totalIsCapped`, so a truncated support filter is
+ * never presented as the complete result.
+ */
+const supportFilterTruncatedRequests = new WeakSet<Request>()
+
+export function markTaskListTotalCapped(payload: Record<string, unknown>, ctx: { request?: Request }): void {
+  if (ctx.request && supportFilterTruncatedRequests.has(ctx.request)) payload.totalIsCapped = true
 }
 
-type ContainerLike = { resolve: (name: string) => unknown }
-
-/** One access decision per request, shared by every filter that needs it. */
-const accessByRequest = new WeakMap<Request, Promise<ProjectAccess>>()
-
-async function resolveAssignmentGraceDays(container: ContainerLike, tenantId: string): Promise<number | null> {
-  try {
-    const configService = container.resolve('moduleConfigService') as ModuleConfigService
-    const settings = await readTimeTrackingSettings(configService, { tenantId })
-    return settings.access.assignmentGraceDays
-  } catch {
-    // Fail safe to the documented default rather than widening the window.
-    return null
-  }
-}
-
-async function loadProjectAccess(
-  container: ContainerLike,
-  userId: string | null,
-  tenantId: string | null,
-  organizationId: string | null,
-): Promise<ProjectAccess> {
-  if (!tenantId || !organizationId) return { ...DENIED_ACCESS }
-  const scope = { tenantId, organizationId }
-  try {
-    // One lookup, one authority, and a failure that says so. The previous
-    // `catch → []` could not tell "denied" from "could not ask", so an RBAC
-    // hiccup silently demoted a manager to their own memberships.
-    const access = await resolveFeatureAccess(container, userId, [MANAGE_PROJECTS_FEATURE], scope)
-    const em = container.resolve('em') as EntityManager
-    return await resolveProjectAccess({
-      em: em.fork(),
-      userId,
-      tenantId,
-      organizationId,
-      canManageAll: access.allowed,
-      userFeatures: access.grantedFeatures,
-      assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
-    })
-  } catch (err) {
-    logger.error('staff.timesheets.tasks access resolution failed', { err })
-    return { ...DENIED_ACCESS }
-  }
-}
-
-export async function resolveListProjectAccess(ctx: CrudCtx): Promise<ProjectAccess> {
-  const tenantId = ctx.auth?.tenantId ?? null
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  const load = () => loadProjectAccess(ctx.container, ctx.auth?.sub ?? null, tenantId, organizationId)
-  const request = ctx.request
-  if (!request) return load()
-  const cached = accessByRequest.get(request)
-  if (cached) return cached
-  const pending = load()
-  accessByRequest.set(request, pending)
-  return pending
+function intersectIds(current: string[] | null, next: string[]): string[] {
+  if (current === null) return next
+  const allowed = new Set(next)
+  return current.filter((id) => allowed.has(id))
 }
 
 function splitIdList(value: unknown): string[] | null {
@@ -210,6 +177,65 @@ async function resolveTaskIdsForTags(ctx: CrudCtx, tagIds: string[]): Promise<st
     return [...seen.entries()].filter(([, tags]) => tags.size >= required).map(([taskId]) => taskId)
   } catch (err) {
     logger.error('staff.timesheets.tasks tag filter resolution failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_tag_filter_failed' })
+    return []
+  }
+}
+
+type SupportFilterCriteria = {
+  supportCategory?: string
+  supportReference?: string
+  supportUnnotified?: boolean
+}
+
+/**
+ * Task ids whose support ticket row matches the requested support criteria. Like the
+ * tag lookup, a failed lookup narrows to nothing rather than widening the page.
+ */
+async function resolveTaskIdsForSupport(ctx: CrudCtx, criteria: SupportFilterCriteria): Promise<string[]> {
+  const tenantId = ctx.auth?.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  if (!tenantId || !organizationId) return []
+  try {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const where: Record<string, unknown> = { tenantId, organizationId, deletedAt: null }
+    if (criteria.supportCategory) where.categoryValue = criteria.supportCategory
+    if (criteria.supportReference) where.supportReference = { $ilike: `${escapeLikePattern(criteria.supportReference)}%` }
+    if (criteria.supportUnnotified) where.unnotifiedAt = { $ne: null }
+    const rows = await findWithDecryption(
+      em,
+      StaffSupportTicket,
+      where,
+      { fields: ['taskId'], limit: SUPPORT_FILTER_MAX_TASK_IDS + 1, orderBy: { createdAt: 'desc' } },
+      { tenantId, organizationId },
+    )
+    if (rows.length > SUPPORT_FILTER_MAX_TASK_IDS && ctx.request) supportFilterTruncatedRequests.add(ctx.request)
+    return Array.from(new Set(rows.slice(0, SUPPORT_FILTER_MAX_TASK_IDS).map((row) => row.taskId)))
+  } catch (err) {
+    logger.error('staff.timesheets.tasks support filter resolution failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_support_filter_failed' })
+    return []
+  }
+}
+
+async function resolveStatusIdsForPortalStatus(
+  ctx: CrudCtx,
+  portalStatus: 'received' | 'in_progress' | 'resolved',
+): Promise<string[]> {
+  const tenantId = ctx.auth?.tenantId ?? null
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  if (!tenantId || !organizationId) return []
+  try {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const where: Record<string, unknown> = { tenantId, organizationId, deletedAt: null }
+    if (portalStatus === 'resolved') where.isDone = true
+    else if (portalStatus === 'received') Object.assign(where, { isDone: false, isDefault: true })
+    else Object.assign(where, { isDone: false, isDefault: false })
+    const rows = await em.find(StaffTimeTaskStatus, where, { fields: ['id'] })
+    return rows.map((row) => row.id)
+  } catch (err) {
+    logger.error('staff.timesheets.tasks portal status filter resolution failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.task_portal_status_filter_failed' })
     return []
   }
 }
@@ -228,13 +254,25 @@ export async function buildTaskListFilters(
   for (const raw of [query.ids, query.id]) {
     const parsed = splitIdList(raw)
     if (parsed === null) continue
-    narrowIds = narrowIds ? narrowIds.filter((id) => parsed.includes(id)) : parsed
+    narrowIds = intersectIds(narrowIds, parsed)
   }
 
   const requestedTagIds = splitIdList(query.tagIds)
   if (requestedTagIds !== null) {
     const tagged = requestedTagIds.length === 0 ? [] : await resolveTaskIdsForTags(ctx, requestedTagIds)
-    narrowIds = narrowIds ? narrowIds.filter((id) => tagged.includes(id)) : tagged
+    narrowIds = intersectIds(narrowIds, tagged)
+  }
+
+  const supportCategory = typeof query.supportCategory === 'string' ? query.supportCategory.trim() : ''
+  const supportReference = sanitizeSearchTerm(query.supportReference) ?? ''
+  const supportUnnotified = parseBooleanFlag(query.supportUnnotified)
+  if (supportCategory || supportReference || supportUnnotified) {
+    const supportTaskIds = await resolveTaskIdsForSupport(ctx, {
+      supportCategory: supportCategory || undefined,
+      supportReference: supportReference || undefined,
+      supportUnnotified,
+    })
+    narrowIds = intersectIds(narrowIds, supportTaskIds)
   }
 
   const access = await resolveListProjectAccess(ctx)
@@ -266,10 +304,17 @@ export async function buildTaskListFilters(
 
   if (typeof query.taskStatusId === 'string' && query.taskStatusId.trim().length > 0) {
     filters[F.task_status_id] = query.taskStatusId.trim()
+  } else if (query.portalStatus) {
+    const statusIds = await resolveStatusIdsForPortalStatus(ctx, query.portalStatus)
+    filters[F.task_status_id] = { $in: statusIds.length > 0 ? statusIds : [IMPOSSIBLE_ID] }
   }
   if (typeof query.assigneeStaffMemberId === 'string' && query.assigneeStaffMemberId.trim().length > 0) {
     filters[F.assignee_staff_member_id] = query.assigneeStaffMemberId.trim()
+  } else if (parseBooleanFlag(query.unassigned)) {
+    filters[F.assignee_staff_member_id] = { $eq: null }
   }
+  if (query.source) filters[F.source] = query.source
+  if (query.customerId) filters[F.customer_id] = query.customerId
   if (typeof query.parentTaskId === 'string' && query.parentTaskId.trim().length > 0) {
     // The drawer's checklist: one parent's children, in position order.
     filters[F.parent_task_id] = query.parentTaskId.trim()
@@ -320,6 +365,8 @@ export const taskListFields = [
   F.position,
   F.created_by_user_id,
   F.closed_at,
+  F.source,
+  F.customer_id,
   F.created_at,
   F.updated_at,
 ] as const
@@ -355,6 +402,9 @@ const crud = makeCrudRoute({
     buildFilters: buildTaskListFilters,
   },
   enrichers: { entityId: 'staff:staff_time_task' },
+  hooks: {
+    afterList: (payload, ctx) => markTaskListTotalCapped(payload, ctx),
+  },
   actions: {
     create: {
       commandId: staffTimeTaskCommandIds.create,
@@ -408,6 +458,8 @@ export const taskListItemSchema = z.object({
   position: z.number().int().nullable().optional(),
   created_by_user_id: z.string().uuid().nullable().optional(),
   closed_at: z.string().nullable().optional(),
+  source: z.enum(['internal', 'portal']).nullable().optional(),
+  customer_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
   /** This task's own entries, in raw minutes. */

@@ -11,12 +11,14 @@ import {
   useStaffMemberDirectory,
   useTagDirectory,
   useTagLabels,
+  useUnassignedTaskCount,
   type BoardSelf,
 } from './boardDirectory'
 import {
   countActiveBoardFilters,
   withAssigneeFilter,
   withStatusFilter,
+  withUnassignedFilter,
   withTagFilter,
   withoutTagFilter,
   type BoardFilters,
@@ -43,6 +45,7 @@ type BoardFilterSurfaceProps = {
   onChange: (next: BoardFilters) => void
   self: BoardSelf | null
   statuses: readonly BoardStatus[]
+  timeProjectId?: string | null
 }
 
 function chipClassName(dashed: boolean): string {
@@ -122,6 +125,7 @@ export function AddBoardFilterPopover({
   onChange,
   self,
   statuses,
+  timeProjectId,
   trigger,
   testId = 'board-filter-add',
 }: BoardFilterSurfaceProps & {
@@ -140,6 +144,11 @@ export function AddBoardFilterPopover({
   )
 
   const assignedToMeLabel = t('staff.time_tracking.board.filters.assignedToMe', 'Assigned to me')
+  const unassignedCount = useUnassignedTaskCount(timeProjectId)
+  const unassignedLabel =
+    typeof unassignedCount.data === 'number'
+      ? t('staff.time_tracking.board.filters.unassignedWithCount', 'Unassigned ({count})', { count: unassignedCount.data })
+      : t('staff.time_tracking.board.filters.unassigned', 'Unassigned')
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -163,6 +172,16 @@ export function AddBoardFilterPopover({
               }}
             />
           ) : null}
+
+          <PickerRow
+            label={unassignedLabel}
+            selected={filters.unassigned}
+            testId="board-filter-unassigned"
+            onSelect={() => {
+              onChange(withUnassignedFilter(filters, !filters.unassigned))
+              setOpen(false)
+            }}
+          />
 
           {otherMembers.length > 0 ? (
             <div className="mt-2 flex flex-col gap-0.5">
@@ -256,8 +275,10 @@ export function BoardFilterChips({
   onChange,
   self,
   statuses,
+  timeProjectId,
 }: BoardFilterSurfaceProps): React.ReactElement {
   const t = useT()
+  const unassignedCount = useUnassignedTaskCount(filters.unassigned ? timeProjectId : null)
 
   const assigneeIds = React.useMemo(
     () =>
@@ -300,6 +321,19 @@ export function BoardFilterChips({
         />
       ) : null}
 
+      {filters.unassigned ? (
+        <FilterChip
+          label={
+            typeof unassignedCount.data === 'number'
+              ? t('staff.time_tracking.board.filters.unassignedWithCount', 'Unassigned ({count})', { count: unassignedCount.data })
+              : t('staff.time_tracking.board.filters.unassigned', 'Unassigned')
+          }
+          removeLabel={removeLabel(t('staff.time_tracking.board.filters.unassigned', 'Unassigned'))}
+          testId="board-filter-chip-unassigned"
+          onRemove={() => onChange(withUnassignedFilter(filters, false))}
+        />
+      ) : null}
+
       {activeStatus ? (
         <FilterChip
           label={activeStatus.name}
@@ -327,6 +361,7 @@ export function BoardFilterChips({
         onChange={onChange}
         self={self}
         statuses={statuses}
+        timeProjectId={timeProjectId}
         trigger={
           <Button
             type="button"
@@ -346,7 +381,7 @@ export function BoardFilterChips({
           type="button"
           variant="link"
           size="2xs"
-          onClick={() => onChange({ assigneeStaffMemberId: null, taskStatusId: null, tagIds: [] })}
+          onClick={() => onChange({ assigneeStaffMemberId: null, taskStatusId: null, tagIds: [], unassigned: false })}
           data-testid="board-filter-clear"
           className="h-auto px-1 text-xs leading-normal text-muted-foreground hover:text-foreground"
         >

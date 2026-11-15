@@ -15,6 +15,7 @@ registerEntityIds({
 
 const execute = jest.fn()
 const find = jest.fn()
+const getAllMetadata = jest.fn()
 
 jest.mock('@open-mercato/core/modules/entities/lib/install-from-ce', () => ({
   installCustomEntitiesFromModules: jest.fn(async () => ({ processed: 0, synchronized: 0, fieldChanges: 0, skipped: 0 })),
@@ -46,38 +47,41 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: () => ({
       getConnection: () => ({ execute }),
+      transactional: async (callback: (transaction: { getConnection: () => { execute: typeof execute }; getTransactionContext: () => undefined; find: typeof find }) => Promise<void>) => callback({ getConnection: () => ({ execute }), getTransactionContext: () => undefined, find }),
       getMetadata: () => ({
-        getAll: () => ([{
-          className: 'AccessLog',
-          name: 'AccessLog',
-          tableName: 'access_logs',
-          primaryKeys: ['id'],
-          properties: {
-            id: {
-              name: 'id',
-              fieldNames: ['id'],
-              columnTypes: ['uuid'],
-              type: 'uuid',
-            },
-            resourceId: {
-              name: 'resourceId',
-              fieldNames: ['resource_id'],
-              columnTypes: ['text'],
-              type: 'text',
-            },
-            emailHash: {
-              name: 'emailHash',
-              fieldNames: ['email_hash'],
-              columnTypes: ['text'],
-              type: 'text',
-            },
-          },
-        }]),
+        getAll: () => getAllMetadata(),
       }),
       find: (...args: any[]) => find(...args),
     }),
   }),
 }))
+
+const accessLogMetadata = {
+  className: 'AccessLog',
+  name: 'AccessLog',
+  tableName: 'access_logs',
+  primaryKeys: ['id'],
+  properties: {
+    id: {
+      name: 'id',
+      fieldNames: ['id'],
+      columnTypes: ['uuid'],
+      type: 'uuid',
+    },
+    resourceId: {
+      name: 'resourceId',
+      fieldNames: ['resource_id'],
+      columnTypes: ['text'],
+      type: 'text',
+    },
+    emailHash: {
+      name: 'emailHash',
+      fieldNames: ['email_hash'],
+      columnTypes: ['text'],
+      type: 'text',
+    },
+  },
+}
 
 describe('entities decrypt-database CLI', () => {
   let cli: Array<{ command: string; run: (args: string[]) => Promise<void> }>
@@ -85,8 +89,11 @@ describe('entities decrypt-database CLI', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    execute.mockReset()
+    mockDecrypt.mockReset()
+    getAllMetadata.mockReturnValue([accessLogMetadata])
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
-    execute.mockResolvedValue([])
+    execute.mockImplementation(async (sql: string) => sql.includes('RETURNING') ? [{ id: 'row-1' }] : [])
     // Reset isTenantDataEncryptionEnabled to true so tests that mock it false don't pollute subsequent tests
     const togglesMock = require('@open-mercato/shared/lib/encryption/toggles')
     togglesMock.isTenantDataEncryptionEnabled.mockReturnValue(true)
@@ -97,6 +104,7 @@ describe('entities decrypt-database CLI', () => {
 
   function makeMap(overrides: any = {}): any {
     return {
+      id: 'map-1',
       entityId: 'audit_logs:access_log',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
@@ -115,10 +123,12 @@ describe('entities decrypt-database CLI', () => {
   }
 
   function setupScopesAndRows(rows: any[]) {
-    execute.mockImplementation(async (sql: string) => {
+    execute.mockImplementation(async (sql: string, parameters: unknown[] = []) => {
+      if (sql.includes('RETURNING')) return [{ id: 'row-1' }]
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return undefined
       if (sql.includes('DISTINCT organization_id')) return [{ organization_id: 'org-1' }]
       if (sql.includes('SELECT') && sql.includes('access_logs')) {
+        if (parameters[1] === null) return []
         const isKeysetQuery = sql.includes('"id" >')
         if (isKeysetQuery) return []
         return rows
@@ -128,41 +138,90 @@ describe('entities decrypt-database CLI', () => {
   }
 
   it('aborts when --tenant is missing', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--confirm', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--tenant'))
+    await expect(getCmd().run(['--confirm', 'tenant-1'])).rejects.toThrow('--tenant')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when --confirm is missing', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--confirm'))
+    await expect(getCmd().run(['--tenant', 'tenant-1'])).rejects.toThrow('--confirm')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when --confirm does not match --tenant', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'wrong-tenant'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('does not match'))
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'wrong-tenant']),
+    ).rejects.toThrow('does not match')
     expect(find).not.toHaveBeenCalled()
-    consoleSpy.mockRestore()
   })
 
   it('aborts when TENANT_DATA_ENCRYPTION is disabled', async () => {
     const { isTenantDataEncryptionEnabled } = require('@open-mercato/shared/lib/encryption/toggles')
     isTenantDataEncryptionEnabled.mockReturnValue(false)
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('disabled')
+  })
+
+  it('fails before querying mapped rows when entity metadata is missing', async () => {
+    setupDefaultMapFind()
+    getAllMetadata.mockReturnValue(new Map())
+
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('audit_logs:access_log')
+
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  // The operator has to clean up every offending map before the command can run at all, so
+  // naming only the first one would turn that into an N-run guessing game. Each line also
+  // carries the row id, because the remediation is a statement against that row.
+  it('names every unresolvable map, with its row id, in one failure', async () => {
+    setupDefaultMapFind([
+      makeMap({ id: 'map-1' }),
+      makeMap({ id: 'map-2', entityId: 'audit_logs:other_log' }),
+    ])
+    getAllMetadata.mockReturnValue(new Map())
+
+    const error = await getCmd()
+      .run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+      .then(() => null, (e: Error) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('2 encryption map(s)')
+    expect(error!.message).toContain('audit_logs:access_log (encryption_maps.id=map-1)')
+    expect(error!.message).toContain('audit_logs:other_log (encryption_maps.id=map-2)')
+    expect(error!.message).toContain('No rows were changed')
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  // `fields_json` is nullable, and a map that declares no encrypted fields cannot leave
+  // ciphertext behind — so it is a no-op to report, not a reason to refuse the whole run and
+  // strand the operator on the command that exists to get their data back.
+  it('skips a map that declares no encrypted fields instead of failing the run', async () => {
+    setupDefaultMapFind([
+      makeMap({ id: 'map-empty', entityId: 'audit_logs:other_log', fieldsJson: [] }),
+      makeMap({ id: 'map-1' }),
+    ])
+    setupScopesAndRows([{ id: 'row-1', resource_id: 'iv:cipher:tag:v1', email_hash: 'old-hash' }])
+    mockDecrypt.mockReturnValue('decrypted-value')
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    jest.spyOn(console, 'log').mockImplementation()
+
     await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('disabled'))
-    consoleSpy.mockRestore()
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('declares no encrypted fields'))
+    // The resolvable map was still processed rather than taken down with it.
+    const updateCalls = execute.mock.calls.filter(([sql]) => String(sql).match(/^update/i))
+    expect(updateCalls.length).toBeGreaterThan(0)
+    warnSpy.mockRestore()
   })
 
   it('--check mode: prints env value, map count, and sampling estimate without writes', async () => {
     setupDefaultMapFind()
     execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('RETURNING')) return [{ id: 'row-1' }]
       if (sql.includes('DISTINCT organization_id')) return [{ organization_id: 'org-1' }]
       if (sql.includes('SELECT') && sql.includes('access_logs')) {
         return [{ id: 'row-1', resource_id: 'iv:cipher:tag:v1' }]
@@ -186,6 +245,7 @@ describe('entities decrypt-database CLI', () => {
   it('--check mode: reports malformed payloads with warning when count > 0', async () => {
     setupDefaultMapFind()
     execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('RETURNING')) return [{ id: 'row-1' }]
       if (sql.includes('DISTINCT organization_id')) return [{ organization_id: 'org-1' }]
       if (sql.includes('SELECT') && sql.includes('access_logs')) {
         return [{ id: 'row-1', resource_id: 'bad:malformed:payload:v1' }]
@@ -201,6 +261,67 @@ describe('entities decrypt-database CLI', () => {
     await getCmd().run(['--tenant', 'tenant-1', '--check'])
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('malformed payloads (sampled): 1'))
     warnSpy.mockRestore()
+  })
+
+  // --check writes nothing, so an unreachable DEK is the diagnosis the operator is asking for.
+  // Aborting mid-inspection removes the diagnostic and buys no safety; finish the sweep, then
+  // make the incomplete run exit non-zero so automation cannot read it as a clean bill.
+  it('--check mode: finishes the sweep when a DEK is unavailable, then fails as incomplete', async () => {
+    setupDefaultMapFind()
+    const kmsModule = require('@open-mercato/shared/lib/encryption/kms')
+    ;(kmsModule.createKmsService as jest.Mock).mockReturnValueOnce({
+      isHealthy: () => true,
+      getTenantDek: jest.fn(async () => null),
+      createTenantDek: jest.fn(async () => null),
+    })
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const error = await getCmd()
+      .run(['--tenant', 'tenant-1', '--check'])
+      .then(() => null, (e: Error) => e)
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('No DEK available for tenant tenant-1'))
+    // It reached the closing summary rather than throwing out of the loop.
+    const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(output).toContain('estimated encrypted candidates')
+    expect(output).toContain('not a proof of absence')
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('Encryption check incomplete')
+    expect(error!.message).toContain('audit_logs:access_log')
+    expect(execute).not.toHaveBeenCalledWith('BEGIN')
+    warnSpy.mockRestore()
+    logSpy.mockRestore()
+  })
+
+  it('--check mode: reports sample-query failures and exits as incomplete', async () => {
+    setupDefaultMapFind()
+    execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('RETURNING')) return [{ id: 'row-1' }]
+      if (sql.includes('DISTINCT organization_id')) return [{ organization_id: 'org-1' }]
+      if (sql.includes('SELECT') && sql.includes('access_logs')) {
+        throw new Error('permission denied for table access_logs')
+      }
+      return []
+    })
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const error = await getCmd()
+      .run(['--tenant', 'tenant-1', '--check'])
+      .then(() => null, (caughtError: Error) => caughtError)
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Could not sample audit_logs:access_log'))
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('permission denied'))
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(output).toContain('estimated encrypted candidates')
+    expect(error).toBeInstanceOf(Error)
+    expect(error!.message).toContain('Sample queries failed for audit_logs:access_log')
+    expect(execute).not.toHaveBeenCalledWith('BEGIN')
+    warnSpy.mockRestore()
+    logSpy.mockRestore()
   })
 
   it('--dry-run: scans rows but does not execute UPDATE', async () => {
@@ -272,6 +393,18 @@ describe('entities decrypt-database CLI', () => {
     warnSpy.mockRestore()
   })
 
+  it.each([{ flags: [] }, { flags: ['--check'] }])('rejects real wrong-DEK envelopes with flags %j', async ({ flags }) => {
+    const actualAes = jest.requireActual<typeof import('@open-mercato/shared/lib/encryption/aes')>('@open-mercato/shared/lib/encryption/aes')
+    const ciphertext = actualAes.encryptWithAesGcm('secret', Buffer.alloc(32, 61).toString('base64')).value
+    setupDefaultMapFind()
+    setupScopesAndRows([{ id: 'row-1', resource_id: ciphertext, email_hash: 'original-hash' }])
+    mockDecrypt.mockImplementation((value) => actualAes.decryptWithAesGcmStrict(value, Buffer.alloc(32, 27).toString('base64')))
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+    await expect(getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', ...flags])).rejects.toMatchObject({ code: TenantDataEncryptionErrorCode.AUTH_FAILED })
+    expect(execute.mock.calls.filter(([sql]) => String(sql).startsWith('UPDATE'))).toHaveLength(0)
+    expect(logSpy.mock.calls.flat().join('\n')).not.toContain('Decryption complete')
+  })
+
   it('idempotency: AUTH_FAILED on all fields produces zero updates', async () => {
     setupDefaultMapFind()
     setupScopesAndRows([{ id: 'row-1', resource_id: 'already-plain', email_hash: null }])
@@ -286,7 +419,7 @@ describe('entities decrypt-database CLI', () => {
     expect(updateCalls).toHaveLength(0)
   })
 
-  it('MALFORMED_PAYLOAD: warns, increments counter, skips field without aborting run', async () => {
+  it('MALFORMED_PAYLOAD: reports the incomplete run and leaves encryption maps active', async () => {
     setupDefaultMapFind()
     setupScopesAndRows([{ id: 'row-1', resource_id: 'bad:b64:!!:v1', email_hash: null }])
     mockDecrypt.mockImplementationOnce(() => {
@@ -295,13 +428,19 @@ describe('entities decrypt-database CLI', () => {
 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
     const logSpy = jest.spyOn(console, 'log').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps', '--confirm-offline-maintenance', 'tenant-1']),
+    ).rejects.toThrow('ciphertext was malformed')
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MALFORMED_PAYLOAD'))
     const summaryText = warnSpy.mock.calls.map((c) => String(c[0])).join('\n')
     expect(summaryText).toContain('1 field value(s) returned MALFORMED_PAYLOAD')
     const updateCalls = execute.mock.calls.filter((c) => String(c[0]).startsWith('UPDATE'))
     expect(updateCalls).toHaveLength(0)
+    const deactivateCalls = execute.mock.calls.filter((c) =>
+      String(c[0]).includes('UPDATE encryption_maps'),
+    )
+    expect(deactivateCalls).toHaveLength(0)
     warnSpy.mockRestore()
     logSpy.mockRestore()
   })
@@ -336,20 +475,14 @@ describe('entities decrypt-database CLI', () => {
     expect(execute).toHaveBeenCalledWith('ROLLBACK')
   })
 
-  it('missing hashField column: warns and skips, lists in summary', async () => {
+  it('missing hashField column: fails before reading or updating rows', async () => {
     setupDefaultMapFind([makeMap({ fieldsJson: [{ field: 'resource_id', hashField: 'nonexistent_hash' }] })])
-    setupScopesAndRows([{ id: 'row-1', resource_id: 'iv:cipher:tag:v1' }])
-    mockDecrypt.mockReturnValueOnce('decrypted-value')
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
-    const logSpy = jest.spyOn(console, 'log').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+    await expect(
+      getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1']),
+    ).rejects.toThrow('hash field "nonexistent_hash" was not found')
 
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent_hash'))
-    const logText = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
-    expect(logText).toMatch(/skipped.*missing columns/)
-    warnSpy.mockRestore()
-    logSpy.mockRestore()
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('--deactivate-maps: deactivates maps after decryption', async () => {
@@ -358,7 +491,7 @@ describe('entities decrypt-database CLI', () => {
 
     jest.spyOn(console, 'log').mockImplementation()
     jest.spyOn(console, 'warn').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps'])
+    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps', '--confirm-offline-maintenance', 'tenant-1'])
 
     const deactivateCalls = execute.mock.calls.filter((c) =>
       String(c[0]).includes('UPDATE encryption_maps') && String(c[0]).includes('is_active = false'),
@@ -367,9 +500,10 @@ describe('entities decrypt-database CLI', () => {
     expect(deactivateCalls[0][1]).toContain('tenant-1')
   })
 
-  it('--deactivate-maps with --org: deactivates org maps AND global maps', async () => {
+  it('--deactivate-maps with --org: retires only the selected organization policy', async () => {
     setupDefaultMapFind([makeMap({ organizationId: 'org-1' })])
     execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('RETURNING')) return [{ id: 'row-1' }]
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return undefined
       if (sql.includes('SELECT') && sql.includes('access_logs')) return []
       return []
@@ -381,16 +515,17 @@ describe('entities decrypt-database CLI', () => {
       '--tenant', 'tenant-1',
       '--confirm', 'tenant-1',
       '--org', 'org-1',
-      '--deactivate-maps',
+      '--deactivate-maps', '--confirm-offline-maintenance', 'tenant-1',
     ])
 
     const deactivateCalls = execute.mock.calls.filter((c) =>
       String(c[0]).includes('UPDATE encryption_maps') && String(c[0]).includes('is_active = false'),
     )
     expect(deactivateCalls).toHaveLength(1)
-    const [deactivateSql] = deactivateCalls[0]
-    expect(deactivateSql).toMatch(/organization_id\s*=\s*\?/)
-    expect(deactivateSql).toMatch(/organization_id\s+IS\s+NULL/)
+    const [deactivateSql, parameters] = deactivateCalls[0]
+    expect(deactivateSql).toContain('id IN (?)')
+    expect(deactivateSql).not.toMatch(/organization_id\s+IS\s+NULL/)
+    expect(parameters).toEqual(['tenant-1', 'map-1'])
   })
 
   it('--deactivate-maps with --dry-run: does not execute deactivation SQL', async () => {
@@ -398,7 +533,7 @@ describe('entities decrypt-database CLI', () => {
     setupScopesAndRows([])
 
     jest.spyOn(console, 'log').mockImplementation()
-    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps', '--dry-run'])
+    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps', '--confirm-offline-maintenance', 'tenant-1', '--dry-run'])
 
     const deactivateCalls = execute.mock.calls.filter((c) =>
       String(c[0]).includes('UPDATE encryption_maps'),
@@ -406,10 +541,27 @@ describe('entities decrypt-database CLI', () => {
     expect(deactivateCalls).toHaveLength(0)
   })
 
+  it.each([
+    { exactPolicy: false, expectedCount: 0 },
+    { exactPolicy: true, expectedCount: 1 },
+  ])('previews only organization policies eligible for retirement (exactPolicy: $exactPolicy)', async ({ exactPolicy, expectedCount }) => {
+    const maps = [makeMap({ id: 'fallback-map', organizationId: null })]
+    if (exactPolicy) maps.push(makeMap({ id: 'exact-map', organizationId: 'org-1' }))
+    setupDefaultMapFind(maps)
+    setupScopesAndRows([])
+    const log = jest.spyOn(console, 'log').mockImplementation()
+
+    await getCmd().run(['--tenant', 'tenant-1', '--org', 'org-1', '--confirm', 'tenant-1', '--deactivate-maps', '--dry-run'])
+
+    expect(log).toHaveBeenCalledWith(`[dry-run] Would deactivate ${expectedCount} EncryptionMap record(s).`)
+    expect(execute.mock.calls.some(([sql]) => String(sql).includes('UPDATE encryption_maps'))).toBe(false)
+  })
+
   it('--batch-size: keyset pagination processes all rows across multiple batches', async () => {
     setupDefaultMapFind()
     let selectCallCount = 0
     execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('RETURNING')) return [{ id: 'row-1' }]
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return undefined
       if (sql.includes('DISTINCT organization_id')) return [{ organization_id: 'org-1' }]
       if (sql.includes('SELECT') && sql.includes('access_logs')) {
@@ -466,6 +618,7 @@ describe('entities decrypt-database CLI', () => {
       return []
     })
     execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('RETURNING')) return [{ id: 'row-1' }]
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return undefined
       if (sql.includes('SELECT') && sql.includes('access_logs')) return []
       return []
@@ -479,7 +632,7 @@ describe('entities decrypt-database CLI', () => {
     ])
 
     const findCalls = find.mock.calls.filter((c) => c[0] === EncryptionMap)
-    expect(findCalls[0][1]).toMatchObject({ organizationId: 'org-1' })
+    expect(findCalls[0][1]).toMatchObject({ $or: [{ organizationId: 'org-1' }, { organizationId: null }] })
     // No DISTINCT query since org is explicit
     const distinctCalls = execute.mock.calls.filter((c) => String(c[0]).includes('DISTINCT organization_id'))
     expect(distinctCalls).toHaveLength(0)
@@ -516,6 +669,7 @@ describe('entities decrypt-database CLI', () => {
   it('processes global (null org) records by including null scope', async () => {
     setupDefaultMapFind([makeMap({ organizationId: null })])
     execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('RETURNING')) return [{ id: 'row-1' }]
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return undefined
       if (sql.includes('DISTINCT organization_id')) return [{ organization_id: null }]
       if (sql.includes('SELECT') && sql.includes('access_logs')) return []
@@ -531,4 +685,60 @@ describe('entities decrypt-database CLI', () => {
     // Should have been called with null as the org scope parameter
     expect(selectCalls.some((c) => Array.isArray(c[1]) && c[1][1] === null)).toBe(true)
   })
+  it('discovers global-policy scopes from actual data even when organizations have no policy rows', async () => {
+    setupDefaultMapFind([makeMap({ organizationId: null })])
+    execute.mockImplementation(async (sql: string) => {
+      if (sql.includes('DISTINCT organization_id')) return [{ organization_id: 'org-unmapped' }, { organization_id: 'org-other' }]
+      return []
+    })
+    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps', '--confirm-offline-maintenance', 'tenant-1'])
+    const distinctCalls = execute.mock.calls.filter(([sql]) => String(sql).includes('DISTINCT organization_id'))
+    expect(distinctCalls.every(([sql]) => String(sql).includes('FROM "access_logs"'))).toBe(true)
+    const scopes = execute.mock.calls.filter(([sql]) => String(sql).includes('FROM "access_logs"') && !String(sql).includes('SELECT DISTINCT')).map(([, parameters]) => parameters[1])
+    expect(scopes).toEqual(expect.arrayContaining([null, 'org-unmapped', 'org-other']))
+    expect(execute.mock.calls.some(([sql]) => String(sql).startsWith('LOCK TABLE encryption_maps'))).toBe(true)
+  })
+
+  it('retains tenant-wide fallback maps after an organization-only sweep', async () => {
+    setupDefaultMapFind([makeMap({ organizationId: null })])
+    setupScopesAndRows([])
+    const warn = jest.spyOn(console, 'warn').mockImplementation()
+    await getCmd().run(['--tenant', 'tenant-1', '--org', 'org-1', '--confirm', 'tenant-1', '--deactivate-maps', '--confirm-offline-maintenance', 'tenant-1'])
+    expect(find.mock.calls[0][1]).toMatchObject({ $or: [{ organizationId: 'org-1' }, { organizationId: null }] })
+    expect(execute.mock.calls.some(([sql]) => String(sql).includes('UPDATE encryption_maps'))).toBe(false)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('fallback encryption maps remain active'))
+  })
+
+  it('fails the protected final sweep if a writer re-encrypted a row before locks were acquired', async () => {
+    setupDefaultMapFind()
+    const aes = jest.requireActual('@open-mercato/shared/lib/encryption/aes')
+    const ciphertext = aes.encryptWithAesGcm('changed', Buffer.alloc(32, 9).toString('base64')).value
+    let locked = false
+    execute.mockImplementation(async (sql: string) => {
+      if (sql.startsWith('LOCK TABLE')) locked = true
+      if (locked && sql.startsWith('SELECT')) return [{ resource_id: ciphertext }]
+      return []
+    })
+    await expect(getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps', '--confirm-offline-maintenance', 'tenant-1'])).rejects.toThrow('protected final sweep')
+    expect(execute.mock.calls.some(([sql]) => String(sql).includes('UPDATE encryption_maps'))).toBe(false)
+  })
+
+  it('does not overwrite a row changed between selection and decryption update', async () => {
+    setupDefaultMapFind()
+    setupScopesAndRows([{ id: 'row-1', resource_id: 'iv:cipher:tag:v1', email_hash: 'old-hash' }])
+    const normalExecute = execute.getMockImplementation()!
+    execute.mockImplementation(async (sql: string) => sql.includes('RETURNING') ? [] : normalExecute(sql))
+    mockDecrypt.mockReturnValue('plaintext')
+    await expect(getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])).rejects.toThrow('changed concurrently')
+    const [sql, parameters] = execute.mock.calls.find(([sql]) => String(sql).includes('RETURNING'))!
+    expect(sql).toContain('IS NOT DISTINCT FROM ?')
+    expect(parameters).toEqual(expect.arrayContaining(['iv:cipher:tag:v1', 'old-hash']))
+  })
+
+  it('refuses online policy retirement before reading or changing data', async () => {
+    await expect(getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', '--deactivate-maps'])).rejects.toThrow('--confirm-offline-maintenance')
+    expect(find).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
 })
