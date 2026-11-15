@@ -5,6 +5,7 @@ import type { StorageDriver } from './drivers/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOcrMaxConcurrency, resolveOcrMaxWaitQueue } from './ocrLimits'
 import { extractAttachmentContent } from './textExtraction'
+import { stripNulCharacters } from './extractedText'
 
 const logger = createLogger('attachments').child({ component: 'ocr' })
 
@@ -94,7 +95,7 @@ export async function processAttachmentOcr(
       return
     }
 
-    attachment.content = result.content
+    attachment.content = stripNulCharacters(result.content)
     await em.persist(attachment).flush()
 
     logger.info('Processing completed', {

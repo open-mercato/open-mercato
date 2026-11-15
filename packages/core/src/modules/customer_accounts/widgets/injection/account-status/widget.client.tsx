@@ -10,6 +10,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -33,6 +34,8 @@ interface AccountStatusProps {
   context?: {
     entityId?: string
     recordId?: string
+    resourceId?: string
+    personId?: string
   }
 }
 
@@ -54,7 +57,7 @@ interface PersonData {
 
 async function fetchPendingInvitation(filter: string): Promise<PendingInvitationData | null> {
   const result = await apiCall(`/api/customer_accounts/admin/users-invite?${filter}&pageSize=1`)
-  if (!result.ok) return null
+  if (!result.ok) throw new Error('[internal] Portal account status read failed')
   const json = result.result as Record<string, unknown> | null
   const items = json?.items as PendingInvitationData[] | undefined
   return items?.[0] || null
@@ -65,11 +68,13 @@ function InviteForm({
   personData,
   isLoadingPerson,
   onSuccess,
+  readsBlocked,
 }: {
   personEntityId: string
   personData: PersonData | null
   isLoadingPerson: boolean
   onSuccess: () => void
+  readsBlocked: boolean
 }) {
   const t = useT()
   const [email, setEmail] = React.useState('')
@@ -127,6 +132,7 @@ function InviteForm({
   }
 
   async function handleSubmit() {
+    if (readsBlocked) return
     const trimmedEmail = email.trim()
     if (!trimmedEmail) {
       flash(t('customer_accounts.widgets.invite.error.emailRequired', 'Email is required'), 'error')
@@ -197,7 +203,7 @@ function InviteForm({
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
-          disabled={isSubmitting}
+          disabled={isSubmitting || readsBlocked}
         />
       </div>
 
@@ -211,7 +217,7 @@ function InviteForm({
           size="sm"
           value={displayName}
           onChange={(event) => setDisplayName(event.target.value)}
-          disabled={isSubmitting}
+          disabled={isSubmitting || readsBlocked}
         />
       </div>
 
@@ -232,7 +238,7 @@ function InviteForm({
                 variant={selectedRoleIds.includes(role.id) ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => toggleRole(role.id)}
-                disabled={isSubmitting}
+                disabled={isSubmitting || readsBlocked}
                 className="text-xs h-7"
               >
                 {role.name}
@@ -247,7 +253,7 @@ function InviteForm({
           type="button"
           size="sm"
           onClick={handleSubmit}
-          disabled={isSubmitting || !email.trim() || selectedRoleIds.length === 0}
+          disabled={isSubmitting || readsBlocked || !email.trim() || selectedRoleIds.length === 0}
         >
           {isSubmitting
             ? t('common.loading', 'Loading...')
@@ -263,7 +269,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   const queryClient = useQueryClient()
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
   const canCancelInvitation = chromeReady && hasFeature(chromePayload?.grantedFeatures, 'customer_accounts.invite')
-  const personEntityId = context?.recordId
+  const personEntityId = context?.recordId ?? context?.resourceId ?? context?.personId
   const [showInviteForm, setShowInviteForm] = React.useState(false)
   const [isCancellingInvitation, setIsCancellingInvitation] = React.useState(false)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -273,12 +279,12 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     retryLastMutation: () => Promise<boolean>
   }>({ contextId: 'customer_accounts:account-status-cancel-invitation' })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: accountReadFailed } = useQuery({
     queryKey: ['customer-account-status', personEntityId],
     queryFn: async (): Promise<AccountStatusData | null> => {
       if (!personEntityId) return null
       const result = await apiCall(`/api/customer_accounts/admin/users?personEntityId=${personEntityId}&pageSize=1`)
-      if (!result.ok) return null
+      if (!result.ok) throw new Error('[internal] Portal account status read failed')
       const json = result.result as Record<string, unknown> | null
       const items = json?.items as AccountStatusData[] | undefined
       return items?.[0] || null
@@ -288,17 +294,17 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
 
   // The person record backs both the pending-invitation email fallback below and
   // the invite form defaults, so it is fetched once here and shared.
-  const { data: personData, isLoading: isLoadingPerson } = useQuery({
+  const { data: personData, isLoading: isLoadingPerson, isError: personReadFailed } = useQuery({
     queryKey: ['customer-account-person', personEntityId],
     queryFn: async (): Promise<PersonData | null> => {
       if (!personEntityId) return null
       const result = await apiCall<PersonData>(
         `/api/customers/people/${encodeURIComponent(personEntityId)}`,
       )
-      if (!result.ok) return null
+      if (!result.ok) throw new Error('[internal] Portal account status read failed')
       return (result.result as PersonData | null) || null
     },
-    enabled: !!personEntityId && !isLoading && !data,
+    enabled: !!personEntityId && !isLoading && !accountReadFailed && !data,
   })
 
   const personEmail = personData?.person?.primaryEmail?.trim() || null
@@ -307,7 +313,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   // query above stays empty right after a successful invite. Without this the
   // widget renders the identical "no account" state and the invite looks like a
   // no-op (#4950).
-  const { data: pendingInvitation, isLoading: isLoadingInvitation } = useQuery({
+  const { data: pendingInvitation, isLoading: isLoadingInvitation, isError: invitationReadFailed } = useQuery({
     queryKey: ['customer-account-pending-invitation', personEntityId, personEmail],
     queryFn: async (): Promise<PendingInvitationData | null> => {
       if (!personEntityId) return null
@@ -323,7 +329,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
       if (!personEmail) return null
       return fetchPendingInvitation(`email=${encodeURIComponent(personEmail)}`)
     },
-    enabled: !!personEntityId && !isLoading && !data && !isLoadingPerson,
+    enabled: !!personEntityId && !isLoading && !accountReadFailed && !data && !isLoadingPerson && !personReadFailed,
   })
 
   // A disabled React Query reports isLoading === false, so isLoadingInvitation is
@@ -378,18 +384,40 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     }
   }
 
+  const readFailed = accountReadFailed || personReadFailed || invitationReadFailed
+  const readsBlocked = readFailed || isLoading || isResolvingInvitation
+  const readError = readFailed ? (
+    <ErrorMessage
+      label={t('customer_accounts.widgets.errorLoading', 'Failed to load portal account status.')}
+      action={(
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void queryClient.invalidateQueries({ queryKey: ['customer-account-status', personEntityId] })
+            void queryClient.invalidateQueries({ queryKey: ['customer-account-person', personEntityId] })
+            void queryClient.invalidateQueries({ queryKey: ['customer-account-pending-invitation', personEntityId] })
+          }}
+        >
+          {t('customer_accounts.widgets.retryLoading', 'Retry')}
+        </Button>
+      )}
+    />
+  ) : null
+
   if (!personEntityId) return null
 
-  if (isLoading) {
+  if (isLoading && !showInviteForm) {
     return <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
   }
 
   if (!data) {
     return (
-      <div className="rounded-md border p-3">
+      <div className="max-w-xl rounded-lg border bg-card p-4">
         {ConfirmDialogElement}
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
-        {isResolvingInvitation ? (
+        {readFailed ? readError : isLoading || isResolvingInvitation ? (
           <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
         ) : pendingInvitation ? (
           <div className="space-y-1 text-sm">
@@ -411,7 +439,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
         ) : (
           <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
         )}
-        {!showInviteForm && personEntityId && !isResolvingInvitation && (
+        {!showInviteForm && personEntityId && !isResolvingInvitation && !readsBlocked && (
           <div className="mt-2 flex flex-wrap gap-2">
             <Button
               type="button"
@@ -443,6 +471,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
             personData={personData ?? null}
             isLoadingPerson={isLoadingPerson}
             onSuccess={handleInviteSuccess}
+            readsBlocked={readsBlocked}
           />
         )}
       </div>
@@ -450,8 +479,9 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   }
 
   return (
-    <div className="rounded-md border p-3">
+    <div className="max-w-xl rounded-lg border bg-card p-4">
       {ConfirmDialogElement}
+      {readError}
       <div className="text-sm font-medium mb-2">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">
