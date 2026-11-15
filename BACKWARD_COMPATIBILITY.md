@@ -666,3 +666,25 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## MCP HTTP tool calls require a per-user session token, no fallback (2026-11-14, #5173)
+
+**Classification.** `McpServerConfig.allowApiKeyFallback` and `mcp:serve-http --allow-api-key-fallback` — both new in this same unmerged change — are deleted rather than shipped. Keeping them would retain, as a flag-gated opt-in, the exact header-only auth branch that lets any tool call omitting `_sessionToken` run with the transport `x-api-key`'s ACL (typically superadmin-owned). Accepting that branch at all — opt-in or not — **is** the confused-deputy vulnerability #5173 reports; a bridge release that kept it reachable would leave the hole open for the whole deprecation window.
+
+**Qualifying condition.** The HTTP transport (`mcp:serve-http`) is the chat-facing surface — "the transport web chat and Code Mode go through" per the PR description. A model omission, prompt injection, or an existing-session turn that drops `_sessionToken` previously ran — and, with the opt-in, could still be made to run — a tool call under the transport key's identity. There is no way to make that branch reachable from this transport without reopening the bypass it exists to close.
+
+**Narrowest removal, no retained vulnerable branch.** Only the header-only fallback branch, its config field, and its CLI flag are removed — all three were introduced in this same unreleased change, so nothing previously shipped is being taken away. No unrelated tightening rides along. `createMcpServerForRequest` now has exactly one unauthenticated outcome: `UNAUTHORIZED`.
+
+**Steps 4 and 5.** [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173) carries client *and* operator migration instructions. Spec [`.ai/specs/2026-11-14-mcp-http-session-required-no-fallback.md`](.ai/specs/2026-11-14-mcp-http-session-required-no-fallback.md) § Migration & Backward Compatibility covers the same ground in full. This entry is the dated record (requirement 4).
+
+**Maintainer sign-off (requirement 5).** PR #9314 carries the `security` label. The waiver is called out here and in the PR body for a human maintainer's explicit approval — this automated run cannot supply it; GitHub also rejects a same-account approval on this PR, so a genuine second-account maintainer review is still required before merge.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| `McpServerConfig.allowApiKeyFallback` (`lib/types.ts`) | Field removed (never shipped — introduced and removed within the same unmerged PR) | ✓ n/a — no prior release exposed this |
+| `mcp:serve-http --allow-api-key-fallback` (`cli.ts`) | Flag removed (never shipped) | ✓ n/a |
+| `createMcpServerForRequest` (`lib/http-server.ts`) | Drops the now-unused third `apiKeyRecord` parameter; the header-only fallback branch and its `resolveApiKeyContext` helper are deleted | ✗ BREAKING for any caller of this exported function that still passes three args — deliberate, confined to this same unmerged PR |
+| HTTP tool-call auth outcome without `_sessionToken` | Was: `UNAUTHORIZED` by default, transport-key ACL opt-in. Now: always `UNAUTHORIZED`, no opt-in | ✗ BREAKING (deliberate) for any header-only `mcp:serve-http` caller — see migration path below |
+| Stdio `mcp:serve` / `mcp:dev`, DB schema, event IDs, ACL features, routes | No change | ✓ n/a |
+
+**Migration path.** A deployment that calls `mcp:serve-http` with only an `x-api-key` header and no `_sessionToken` must switch to the stdio transport (`mcp:serve --allow-unauthenticated-superadmin`, already shipped per the 2026-06-11 stdio fail-closed fix) for header-only operator/automation access — a structurally separate process that a chat turn can never select. Chat-facing deployments were already expected to mint and pass a per-user `_sessionToken`; nothing changes for them.

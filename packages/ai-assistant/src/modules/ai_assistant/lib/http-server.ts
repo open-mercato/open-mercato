@@ -11,11 +11,10 @@ import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
-import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
+import { redactSecretForLog } from './log-redaction'
 import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 
@@ -108,65 +107,13 @@ async function resolveSessionContext(
 }
 
 /**
- * Resolve user context from the server-level API key (header-based auth fallback).
- * Used when no session token is provided — loads the API key's ACL for RBAC.
- */
-async function resolveApiKeyContext(
-  apiKeyRecord: ApiKey,
-  baseContext: McpToolContext,
-  debug?: boolean
-): Promise<McpToolContext | null> {
-  try {
-    const rbacService = baseContext.container.resolve<RbacService>('rbacService')
-    const userId = apiKeyRecord.sessionUserId ?? apiKeyRecord.createdBy
-    if (!userId) {
-      if (debug) {
-        logger.debug('API key has no associated user')
-      }
-      return null
-    }
-
-    const acl = await rbacService.loadAcl(`api_key:${apiKeyRecord.id}`, {
-      tenantId: apiKeyRecord.tenantId ?? null,
-      organizationId: apiKeyRecord.organizationId ?? null,
-    })
-
-    if (debug) {
-      logger.debug('API key context resolved', {
-        userId,
-        tenantId: apiKeyRecord.tenantId,
-        organizationId: apiKeyRecord.organizationId,
-        features: acl.features.length,
-        isSuperAdmin: acl.isSuperAdmin,
-      })
-    }
-
-    return {
-      tenantId: apiKeyRecord.tenantId ?? null,
-      organizationId: apiKeyRecord.organizationId ?? null,
-      userId,
-      container: baseContext.container,
-      userFeatures: acl.features,
-      isSuperAdmin: acl.isSuperAdmin,
-      apiKeySecret: baseContext.apiKeySecret,
-    }
-  } catch (error) {
-    if (debug) {
-      logger.debug('Error resolving API key context', { err: error })
-    }
-    return null
-  }
-}
-
-/**
  * Create a stateless MCP server instance for a single request.
  * Tools are registered without pre-filtering - permission checks happen at execution time
  * based on the session token provided in each tool call.
  */
 export function createMcpServerForRequest(
   config: McpServerConfig,
-  toolContext: McpToolContext,
-  apiKeyRecord: ApiKey
+  toolContext: McpToolContext
 ): McpServer {
   const server = new McpServer(
     { name: config.name, version: config.version },
@@ -268,40 +215,13 @@ export function createMcpServerForRequest(
                 isError: true,
               }
             }
-          } else if (config.allowApiKeyFallback) {
-            // No session token — operator has explicitly opted into header API key auth (#5173).
-            // Never the default: the transport key is typically provisioned from the
-            // superadmin account, so an unconditional fallback here is a confused-deputy path
-            // for any chat-facing deployment.
-            const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext, config.debug)
-            if (apiKeyContext) {
-              effectiveContext = apiKeyContext
-            } else if (!effectiveContext.userId && effectiveContext.userFeatures.length === 0) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: 'Authentication failed: provide a session token (_sessionToken) or a valid API key with assigned roles',
-                      code: 'UNAUTHORIZED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
-            }
-
-            // Derive a fallback sessionId from the API key so all tool calls
-            // within the same MCP connection share a session memory cache
-            if (!effectiveContext.sessionId && effectiveContext.apiKeySecret) {
-              effectiveContext = {
-                ...effectiveContext,
-                sessionId: deriveApiKeySessionId(effectiveContext.apiKeySecret),
-              }
-            }
           } else {
-            // No session token and header-only fallback is not explicitly enabled — fail closed
-            // rather than silently authorizing this call with the transport key's ACL (#5173).
+            // No session token — fail closed rather than silently authorizing this call
+            // with the transport key's ACL. The HTTP transport is the chat-facing surface;
+            // it has no header-only operator mode. Operator/automation access that must
+            // bypass per-user session tokens uses the structurally separate stdio transport
+            // (`mcp:serve --allow-unauthenticated-superadmin`), which a chat turn can never
+            // reach (#5173).
             return {
               content: [
                 {
@@ -560,7 +480,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       })
 
       // Create new server for this request
-      const mcpServer = createMcpServerForRequest(config, toolContext, apiKeyRecord)
+      const mcpServer = createMcpServerForRequest(config, toolContext)
 
       if (config.debug) {
         // Check registered tools on the server
@@ -621,7 +541,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
   logger.info('Tools registered', { toolCount })
   logger.info('Mode: stateless (new server per request)')
   logger.info('Server auth: API key validated against database (x-api-key header)')
-  logger.info('User auth: session token (_sessionToken) preferred, falls back to API key roles')
+  logger.info('User auth: session token (_sessionToken) required for every tool call — no header-only fallback')
   if (!isLoopbackHost(host)) {
     logger.warn('Binding beyond loopback — ensure a firewall and a strong, rotated MCP_SERVER_API_KEY', { host })
   }

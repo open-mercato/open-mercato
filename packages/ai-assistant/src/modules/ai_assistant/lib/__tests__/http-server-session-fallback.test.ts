@@ -1,4 +1,3 @@
-import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import type { McpServerConfig, McpToolContext } from '../types'
 
 type RegisteredTool = {
@@ -75,16 +74,6 @@ function makeToolContext(): McpToolContext {
   }
 }
 
-function makeApiKeyRecord(): ApiKey {
-  return {
-    id: 'infra-key-1',
-    createdBy: 'superadmin-user-1',
-    sessionUserId: null,
-    tenantId: null,
-    organizationId: null,
-  } as unknown as ApiKey
-}
-
 async function callTool(args: Record<string, unknown>) {
   return registeredTools['test.tool']!.handler(args)
 }
@@ -97,10 +86,10 @@ describe('issue #5173 — MCP HTTP server must fail closed without a session tok
 
   function register(config: McpServerConfig) {
     for (const key of Object.keys(registeredTools)) delete registeredTools[key]
-    createMcpServerForRequest(config, makeToolContext(), makeApiKeyRecord())
+    createMcpServerForRequest(config, makeToolContext())
   }
 
-  it('returns UNAUTHORIZED and never grants the transport key ACL when _sessionToken is missing (default config)', async () => {
+  it('returns UNAUTHORIZED and never grants the transport key ACL when _sessionToken is missing', async () => {
     register({ name: 'test', version: '0.0.0' })
 
     const result = await callTool({})
@@ -111,8 +100,19 @@ describe('issue #5173 — MCP HTTP server must fail closed without a session tok
     expect(loadAcl).not.toHaveBeenCalled()
   })
 
-  it('still fails closed when allowApiKeyFallback is explicitly false', async () => {
-    register({ name: 'test', version: '0.0.0', allowApiKeyFallback: false })
+  it('returns UNAUTHORIZED for an empty-string session token rather than treating it as present', async () => {
+    register({ name: 'test', version: '0.0.0' })
+
+    const result = await callTool({ _sessionToken: '' })
+
+    expect(result.isError).toBe(true)
+    const payload = JSON.parse(result.content[0]!.text)
+    expect(payload.code).toBe('UNAUTHORIZED')
+    expect(loadAcl).not.toHaveBeenCalled()
+  })
+
+  it('has no config escape hatch back to the transport key ACL — McpServerConfig carries no such field', async () => {
+    register({ name: 'test', version: '0.0.0', ...({ allowApiKeyFallback: true } as unknown as McpServerConfig) })
 
     const result = await callTool({})
 
@@ -120,16 +120,7 @@ describe('issue #5173 — MCP HTTP server must fail closed without a session tok
     expect(loadAcl).not.toHaveBeenCalled()
   })
 
-  it('preserves the legacy fallback only when allowApiKeyFallback is explicitly enabled', async () => {
-    register({ name: 'test', version: '0.0.0', allowApiKeyFallback: true })
-
-    const result = await callTool({})
-
-    expect(result.isError).toBeUndefined()
-    expect(loadAcl).toHaveBeenCalledWith('api_key:infra-key-1', { tenantId: null, organizationId: null })
-  })
-
-  it('resolves per-user session identity normally regardless of allowApiKeyFallback', async () => {
+  it('resolves per-user session identity normally', async () => {
     findSessionApiKeyWithSecret.mockResolvedValue({
       key: { id: 'session-1', sessionUserId: 'employee-1', createdBy: 'employee-1', tenantId: 't1', organizationId: 'o1' },
       secret: 'sess_secret',

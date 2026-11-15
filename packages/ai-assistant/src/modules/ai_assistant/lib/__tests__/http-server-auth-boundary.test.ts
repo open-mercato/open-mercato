@@ -1,0 +1,237 @@
+import { createServer, type Server } from 'node:http'
+import { z } from 'zod'
+import type { AwilixContainer } from 'awilix'
+
+/**
+ * Boundary coverage for issue #5173: proves the HTTP MCP transport's per-tool-call
+ * auth decision over a *real* HTTP connection and the *real* MCP wire protocol —
+ * not the mocked SDK/executor/ACL-matcher the sibling unit test
+ * (`http-server-session-fallback.test.ts`) uses. Only the DB-backed lookups
+ * (`findApiKeyBySecret`, `findSessionApiKeyWithSecret`) and the RBAC role-grant
+ * read (`rbacService.loadAcl`) are stubbed — this package has no live-Postgres
+ * Jest lane (see `packages/core`'s `test:pg-integration` for the pattern this
+ * repo uses elsewhere; ai-assistant isn't wired into it). Everything else —
+ * `McpServer`/`StreamableHTTPServerTransport` (real SDK), `extractApiKeyFromHeaders`
+ * and `hasRequiredFeatures` (real `../auth`), the tool registry and `executeTool`
+ * (real `../tool-registry` / `../tool-executor`) — runs for real.
+ */
+
+jest.mock('../tool-loader', () => ({
+  loadAllModuleTools: jest.fn(async () => {}),
+  indexToolsForSearch: jest.fn(async () => {}),
+}))
+
+const findApiKeyBySecret = jest.fn()
+const findSessionApiKeyWithSecret = jest.fn()
+jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
+  findApiKeyBySecret: (...args: unknown[]) => findApiKeyBySecret(...args),
+  findSessionApiKeyWithSecret: (...args: unknown[]) => findSessionApiKeyWithSecret(...args),
+}))
+
+import { runMcpHttpServer } from '../http-server'
+import { registerMcpTool, unregisterMcpTool } from '../tool-registry'
+
+const TRANSPORT_KEY_SECRET = 'omk_test_transport_secret'
+const RESTRICTED_SESSION_TOKEN = 'sess_restricted_valid_token'
+const TRANSPORT_KEY_RECORD = {
+  id: 'infra-key-1',
+  keyPrefix: 'omk_test',
+  tenantId: null,
+  organizationId: null,
+  createdBy: 'superadmin-user-1',
+}
+const RESTRICTED_SESSION_RECORD = {
+  key: {
+    id: 'session-restricted-1',
+    sessionUserId: 'restricted-employee-1',
+    createdBy: 'restricted-employee-1',
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+  },
+  secret: 'sess_secret_for_restricted_employee',
+}
+
+const loadAcl = jest.fn(async (userId: string) => {
+  if (userId === 'api_key:session-restricted-1') {
+    return { isSuperAdmin: false, features: ['allowed.feature'], organizations: null }
+  }
+  throw new Error(`unexpected loadAcl call for ${userId} — the transport key must never reach RBAC`)
+})
+
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer()
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address()
+      probe.close(() => {
+        if (address && typeof address === 'object') resolve(address.port)
+        else reject(new Error('Could not determine a free port'))
+      })
+    })
+    probe.on('error', reject)
+  })
+}
+
+async function waitForHealth(port: number): Promise<void> {
+  const deadline = Date.now() + 5000
+  let lastError: unknown
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`)
+      if (res.ok) return
+    } catch (error) {
+      lastError = error
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error(`MCP HTTP server never became healthy on port ${port}: ${String(lastError)}`)
+}
+
+let allowedToolRuns = 0
+let restrictedToolRuns = 0
+let port: number
+let httpServerStartupError: unknown
+
+async function callTool(opts: { apiKey?: string; args: Record<string, unknown> }, toolName: string) {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js')
+
+  const client = new Client({ name: 'test-client', version: '0.0.0' })
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    requestInit: opts.apiKey ? { headers: { 'x-api-key': opts.apiKey } } : undefined,
+  })
+
+  try {
+    await client.connect(transport)
+    return await client.callTool({ name: toolName, arguments: opts.args })
+  } finally {
+    await client.close().catch(() => {})
+  }
+}
+
+describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real MCP protocol', () => {
+  beforeAll(async () => {
+    registerMcpTool(
+      {
+        name: 'allowed_tool',
+        description: 'A tool the restricted employee session is authorized to call',
+        inputSchema: z.object({}),
+        requiredFeatures: ['allowed.feature'],
+        handler: async () => {
+          allowedToolRuns += 1
+          return { ranAs: 'allowed' }
+        },
+      },
+      { moduleId: 'test-fixture' }
+    )
+    registerMcpTool(
+      {
+        name: 'restricted_tool',
+        description: 'A tool the restricted employee session is NOT authorized to call',
+        inputSchema: z.object({}),
+        requiredFeatures: ['restricted.feature'],
+        handler: async () => {
+          restrictedToolRuns += 1
+          return { ranAs: 'restricted' }
+        },
+      },
+      { moduleId: 'test-fixture' }
+    )
+
+    findApiKeyBySecret.mockImplementation(async (_em: unknown, secret: string) =>
+      secret === TRANSPORT_KEY_SECRET ? TRANSPORT_KEY_RECORD : null
+    )
+    findSessionApiKeyWithSecret.mockImplementation(async (_em: unknown, token: string) =>
+      token === RESTRICTED_SESSION_TOKEN ? RESTRICTED_SESSION_RECORD : null
+    )
+
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return {}
+        if (name === 'rbacService') return { loadAcl }
+        throw new Error(`test container has no dependency "${name}"`)
+      },
+    } as unknown as AwilixContainer
+
+    port = await getFreePort()
+    runMcpHttpServer({ config: { name: 'test-mcp', version: '0.0.0' }, container, port, host: '127.0.0.1' }).catch(
+      (error) => {
+        httpServerStartupError = error
+      }
+    )
+    await waitForHealth(port)
+  }, 15000)
+
+  beforeEach(() => {
+    allowedToolRuns = 0
+    restrictedToolRuns = 0
+    loadAcl.mockClear()
+  })
+
+  afterAll(() => {
+    unregisterMcpTool('allowed_tool')
+    unregisterMcpTool('restricted_tool')
+    expect(httpServerStartupError).toBeUndefined()
+  })
+
+  it('rejects a tool call with no x-api-key at the transport level, before any tool runs', async () => {
+    await expect(callTool({ args: {} }, 'restricted_tool')).rejects.toThrow()
+    expect(restrictedToolRuns).toBe(0)
+    expect(loadAcl).not.toHaveBeenCalled()
+  })
+
+  it('rejects a tool call from the superadmin-owned transport key alone — no header-only fallback exists', async () => {
+    const result = await callTool({ apiKey: TRANSPORT_KEY_SECRET, args: {} }, 'restricted_tool')
+
+    expect(result.isError).toBe(true)
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
+    expect(payload.code).toBe('UNAUTHORIZED')
+    expect(restrictedToolRuns).toBe(0)
+    // The transport key's identity must never reach RBAC — there is no code path left that asks for its ACL.
+    expect(loadAcl).not.toHaveBeenCalled()
+  })
+
+  it('rejects an invalid/expired _sessionToken without ever running the tool', async () => {
+    const result = await callTool(
+      { apiKey: TRANSPORT_KEY_SECRET, args: { _sessionToken: 'sess_does_not_exist' } },
+      'allowed_tool'
+    )
+
+    expect(result.isError).toBe(true)
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
+    expect(payload.code).toBe('SESSION_EXPIRED')
+    expect(allowedToolRuns).toBe(0)
+    expect(loadAcl).not.toHaveBeenCalled()
+  })
+
+  it('denies a restricted session a tool outside its granted scope — the tool never executes', async () => {
+    const result = await callTool(
+      { apiKey: TRANSPORT_KEY_SECRET, args: { _sessionToken: RESTRICTED_SESSION_TOKEN } },
+      'restricted_tool'
+    )
+
+    expect(result.isError).toBe(true)
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
+    expect(payload.code).toBe('UNAUTHORIZED')
+    expect(restrictedToolRuns).toBe(0)
+    expect(loadAcl).toHaveBeenCalledWith('api_key:session-restricted-1', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+  })
+
+  it('allows a restricted session to call a tool inside its granted scope, under its own identity', async () => {
+    const result = await callTool(
+      { apiKey: TRANSPORT_KEY_SECRET, args: { _sessionToken: RESTRICTED_SESSION_TOKEN } },
+      'allowed_tool'
+    )
+
+    expect(result.isError).toBeFalsy()
+    expect(allowedToolRuns).toBe(1)
+    expect(restrictedToolRuns).toBe(0)
+    expect(loadAcl).toHaveBeenCalledWith('api_key:session-restricted-1', {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+  })
+})
