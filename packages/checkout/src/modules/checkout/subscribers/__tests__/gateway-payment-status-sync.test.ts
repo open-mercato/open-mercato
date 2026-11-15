@@ -24,6 +24,9 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: jest.fn(() => ({ reportError: reportErrorMock })),
 }))
 
+type LoggerMock = Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+const logger = jest.requireMock<{ createLogger: () => LoggerMock }>('@open-mercato/shared/lib/logger').createLogger()
+
 const payload = {
   paymentId: 'payment-1',
   organizationId: 'org-1',
@@ -57,6 +60,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
         tenantId: 'tenant-1',
       }),
     }))
+    expect(logger.error).toHaveBeenCalledTimes(1)
   })
 
   it('reports a refused transition that leaves the transaction in another terminal state', async () => {
@@ -113,6 +117,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
     await expect(handle(payload)).resolves.toBeUndefined()
 
     expect(reportErrorMock).not.toHaveBeenCalled()
+    expect(logger.error).not.toHaveBeenCalled()
   })
 
   it('stays quiet when a concurrent writer already applied the same status', async () => {
