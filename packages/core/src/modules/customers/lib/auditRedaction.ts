@@ -152,17 +152,12 @@ function redactChanges(changes: unknown): unknown {
  * closed: redact every email row whose author is not the viewer and that has
  * no matching conversation-share grant, since "unknown" must not mean "visible".
  */
-function redactEmbeddedInteractions(
-  snapshot: unknown,
+function redactEmbeddedInteractionEntries(
+  interactions: unknown[],
   personEntityId: string | null,
   ctx: CustomerAuditRedactionContext,
-): unknown {
-  if (!snapshot || typeof snapshot !== 'object') return snapshot
-  const record = snapshot as Record<string, unknown>
-  const interactions = record.interactions
-  if (!Array.isArray(interactions)) return snapshot
-
-  const redacted = interactions.map((entry) => {
+): unknown[] {
+  return interactions.map((entry) => {
     if (!entry || typeof entry !== 'object') return entry
     const interaction = entry as Record<string, unknown>
     if (interaction.interactionType !== 'email') return entry
@@ -178,7 +173,50 @@ function redactEmbeddedInteractions(
     if (shared) return entry
     return redactRecordFields(interaction)
   })
-  return { ...record, interactions: redacted }
+}
+
+function redactEmbeddedInteractions(
+  snapshot: unknown,
+  personEntityId: string | null,
+  ctx: CustomerAuditRedactionContext,
+): unknown {
+  if (!snapshot || typeof snapshot !== 'object') return snapshot
+  const record = snapshot as Record<string, unknown>
+  const interactions = record.interactions
+  if (!Array.isArray(interactions)) return snapshot
+  return { ...record, interactions: redactEmbeddedInteractionEntries(interactions, personEntityId, ctx) }
+}
+
+/**
+ * The command bus diffs top-level snapshot keys wholesale (`buildRecordChangesDeep`
+ * never descends into arrays), so a changed `interactions` array on a
+ * `customers.person`/`customers.company` update lands in
+ * `changesJson.interactions.{from,to}` as full, unredacted entries — even
+ * though {@link redactEmbeddedInteractions} already hid them on the snapshots
+ * above. Apply the same per-entry rule to both sides of that diff.
+ */
+function redactInteractionsChange(
+  changes: unknown,
+  beforePersonEntityId: string | null,
+  afterPersonEntityId: string | null,
+  ctx: CustomerAuditRedactionContext,
+): unknown {
+  if (!changes || typeof changes !== 'object') return changes
+  const record = { ...(changes as Record<string, unknown>) }
+  const interactionsChange = record.interactions
+  if (!interactionsChange || typeof interactionsChange !== 'object') return record
+  const change = interactionsChange as { from?: unknown; to?: unknown }
+  if (!Array.isArray(change.from) && !Array.isArray(change.to)) return record
+  record.interactions = {
+    ...change,
+    from: Array.isArray(change.from)
+      ? redactEmbeddedInteractionEntries(change.from, beforePersonEntityId, ctx)
+      : change.from,
+    to: Array.isArray(change.to)
+      ? redactEmbeddedInteractionEntries(change.to, afterPersonEntityId, ctx)
+      : change.to,
+  }
+  return record
 }
 
 export type RedactableAuditEntry = {
@@ -222,6 +260,7 @@ export function redactCustomerAuditEntry<T extends RedactableAuditEntry>(
       ...entry,
       snapshotBefore: redactEmbeddedInteractions(entry.snapshotBefore, beforePersonEntityId, ctx),
       snapshotAfter: redactEmbeddedInteractions(entry.snapshotAfter, afterPersonEntityId, ctx),
+      changesJson: redactInteractionsChange(entry.changesJson, beforePersonEntityId, afterPersonEntityId, ctx),
     }
   }
   return entry

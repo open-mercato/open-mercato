@@ -463,6 +463,77 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
   })
 })
 
+describe('redactCustomerAuditEntry — customers.person / customers.company changesJson.interactions diff', () => {
+  function personUpdateEntry(overrides: Record<string, unknown> = {}) {
+    return {
+      resourceKind: 'customers.person',
+      snapshotBefore: { entity: { id: PERSON_ID } },
+      snapshotAfter: { entity: { id: PERSON_ID } },
+      changesJson: {
+        status: { from: 'lead', to: 'active' },
+        interactions: {
+          from: [{ interactionType: 'email', authorUserId: OWNER, title: 'Old secret', body: 'Old secret body' }],
+          to: [{ interactionType: 'email', authorUserId: OWNER, title: 'New secret', body: 'New secret body' }],
+        },
+      },
+      ...overrides,
+    }
+  }
+
+  it('redacts an embedded email diff the viewer cannot see on either side', () => {
+    const entry = personUpdateEntry()
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const changes = redacted.changesJson as {
+      status: unknown
+      interactions: { from: InteractionFields[]; to: InteractionFields[] }
+    }
+    expect(changes.interactions.from[0].title).toBeNull()
+    expect(changes.interactions.from[0].body).toBeNull()
+    expect(changes.interactions.to[0].title).toBeNull()
+    expect(changes.interactions.to[0].body).toBeNull()
+    // unrelated field diffs are left untouched
+    expect(changes.status).toEqual({ from: 'lead', to: 'active' })
+  })
+
+  it('leaves the embedded email diff visible to its own author', () => {
+    const entry = personUpdateEntry()
+    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const changes = redacted.changesJson as { interactions: { from: InteractionFields[]; to: InteractionFields[] } }
+    expect(changes.interactions.from[0].title).toBe('Old secret')
+    expect(changes.interactions.to[0].title).toBe('New secret')
+  })
+
+  it('applies the same redaction to customers.company update diffs', () => {
+    const entry = {
+      resourceKind: 'customers.company',
+      snapshotBefore: { entity: { id: PERSON_ID } },
+      snapshotAfter: { entity: { id: PERSON_ID } },
+      changesJson: {
+        interactions: {
+          from: [{ interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' }],
+          to: [{ interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' }],
+        },
+      },
+    }
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const changes = redacted.changesJson as { interactions: { from: InteractionFields[]; to: InteractionFields[] } }
+    expect(changes.interactions.from[0].title).toBeNull()
+    expect(changes.interactions.to[0].title).toBeNull()
+  })
+
+  it('leaves a changesJson with no interactions key untouched', () => {
+    const entry = personUpdateEntry({ changesJson: { status: { from: 'lead', to: 'active' } } })
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    expect(redacted.changesJson).toEqual({ status: { from: 'lead', to: 'active' } })
+  })
+
+  it('leaves a null changesJson untouched', () => {
+    const entry = personUpdateEntry({ changesJson: null })
+    const redacted = redactCustomerAuditEntry(entry, ctx())
+    expect(redacted.changesJson).toBeNull()
+  })
+})
+
 describe('loadCustomerAuditRedactionContext', () => {
   const scope = { tenantId: 'tenant-1', organizationId: null }
 
