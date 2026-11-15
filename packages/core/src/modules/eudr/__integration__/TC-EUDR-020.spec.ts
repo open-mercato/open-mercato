@@ -302,7 +302,7 @@ test.describe('TC-EUDR-020: EUDR undo never overwrites a later edit by another u
       const undoResponse = page.waitForResponse((response) => (
         response.url().includes('/api/audit_logs/audit-logs/actions/undo') && response.request().method() === 'POST'
       ))
-      await updateRow.getByRole('button', { name: 'Undo this action' }).click()
+      await updateRow.getByRole('button', { name: 'Undo last action', exact: true }).click()
       expect((await undoResponse).status(), 'UI undo must be refused').toBe(409)
       await expect(page.getByText(CONFLICT_MESSAGE).first()).toBeVisible({ timeout: 10_000 })
 
