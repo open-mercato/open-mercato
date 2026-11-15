@@ -5,15 +5,22 @@ import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/he
 import { createCustomerRoleFixture, deleteCustomerRoleFixture, uniqueSuffix } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 
 async function openInvitationForm(page: Page) {
-  const expandPanel = page.getByRole('button', { name: 'Expand form panel', exact: true })
-  const accountGroup = page.getByRole('button', { name: 'Account status', exact: true })
-  await expect(expandPanel.or(accountGroup).first()).toBeVisible()
-  if (await expandPanel.isVisible()) await expandPanel.click()
-  await expect(accountGroup).toBeVisible()
-  if (await accountGroup.getAttribute('aria-expanded') === 'false') await accountGroup.click()
+  const activityZone = page.getByRole('tab', { name: 'Activity', exact: true })
+  if (await activityZone.isVisible()) await activityZone.click()
+  const portalTab = page.getByRole('tab', { name: 'Portal account', exact: true })
+  const moreButton = page.getByRole('main').getByRole('button', { name: 'More', exact: true }).first()
+  await expect(portalTab.or(moreButton).first()).toBeVisible()
+  if (await portalTab.isVisible()) {
+    await portalTab.click()
+  } else {
+    await moreButton.click()
+    await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click()
+  }
   const inviteButton = page.getByRole('button', { name: 'Invite to Portal', exact: true })
-  await expect(inviteButton).toBeVisible()
-  await inviteButton.click()
+  const submitButton = page.getByRole('button', { name: 'Send Invitation', exact: true })
+  await expect(inviteButton.or(submitButton).first()).toBeVisible()
+  if (await inviteButton.isVisible()) await inviteButton.click()
+  await expect(submitButton).toBeVisible()
 }
 
 test.describe('TC-CACC-INVITE-UI-001: invitation role choices and mobile containment', () => {
