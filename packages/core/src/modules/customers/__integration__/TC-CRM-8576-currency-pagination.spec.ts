@@ -57,12 +57,19 @@ test.describe('TC-CRM-8576: currency-filtered Kanban pagination', () => {
   let pipelineName: string
   const stages: StageFixture[] = []
   const dealIds: string[] = []
+  const extraPipelineIds: string[] = []
 
   test.beforeAll(async ({ request, browser, baseURL }) => {
     token = await getAuthToken(request, 'admin')
     pipelineName = `TC-CRM-8576 ${randomUUID()}`
     const createdPipelineId = await createPipelineFixture(request, token, { name: pipelineName, isDefault: false })
     pipelineId = createdPipelineId
+    for (let index = 0; index < 14; index += 1) {
+      extraPipelineIds.push(await createPipelineFixture(request, token, {
+        name: `${pipelineName} overflow ${index + 1}`,
+        isDefault: false,
+      }))
+    }
     for (const [order, usdCount] of [1, 27].entries()) {
       const label = `${order === 0 ? 'Small' : 'Large'} ${createdPipelineId.slice(0, 8)}`
       const id = await createPipelineStageFixture(request, token, { pipelineId, label, order })
@@ -98,8 +105,9 @@ test.describe('TC-CRM-8576: currency-filtered Kanban pagination', () => {
     }
   })
 
-  test.beforeEach(async ({ context, page }) => {
+  test.beforeEach(async ({ context, page }, testInfo) => {
     await context.addCookies(authCookies)
+    await page.setViewportSize({ width: 1280, height: 720 })
     await page.goto('/backend/customers/deals/pipeline')
     await expect(page.getByRole('button', { name: 'New stage', exact: true }).first()).toBeEnabled()
     await page.getByRole('button', { name: /^Pipeline:/ }).click()
@@ -107,6 +115,9 @@ test.describe('TC-CRM-8576: currency-filtered Kanban pagination', () => {
       has: page.getByText('Filter: Pipeline', { exact: true }),
     })
     await pipelineDialog.getByRole('radio', { name: pipelineName, exact: true }).click()
+    await expect(pipelineDialog.getByRole('button', { name: 'Apply', exact: true })).toBeInViewport({ ratio: 1 })
+    await expect(pipelineDialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport({ ratio: 1 })
+    await testInfo.attach('pipeline-filter-actions', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' })
     await pipelineDialog.getByRole('button', { name: 'Apply', exact: true }).click()
     await expect(pipelineDialog).toBeHidden()
     await expect(page.getByRole('button', { name: 'Currency: All', exact: true })).toBeVisible()
@@ -117,7 +128,7 @@ test.describe('TC-CRM-8576: currency-filtered Kanban pagination', () => {
     for (const [path, ids] of [
       ['/api/customers/deals', dealIds],
       ['/api/customers/pipeline-stages', stages.map((stage) => stage.id)],
-      ['/api/customers/pipelines', pipelineId ? [pipelineId] : []],
+      ['/api/customers/pipelines', [...extraPipelineIds, ...(pipelineId ? [pipelineId] : [])]],
     ] as const) {
       const results = await Promise.allSettled(ids.map(async (id) => {
         const response = await apiRequest(request, 'DELETE', path, { token, data: { id } })

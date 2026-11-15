@@ -372,6 +372,7 @@
   "customer_accounts.widgets.accountStatus": "계정 상태",
   "customer_accounts.widgets.accountStatus.description": "CRM 담당자 세부정보에 고객 포털 계정 상태 표시",
   "customer_accounts.widgets.emailVerified": "이메일 확인됨",
+  "customer_accounts.widgets.errorLoading": "포털 계정 상태를 불러오지 못했습니다.",
   "customer_accounts.widgets.invitationExpires": "초대 만료",
   "customer_accounts.widgets.invitationPending": "초대 대기 중",
   "customer_accounts.widgets.invite.button": "포털로 초대",
@@ -395,6 +396,7 @@
   "customer_accounts.widgets.noUsers": "연결된 사용자 없음",
   "customer_accounts.widgets.portalAccountTab": "포털 계정",
   "customer_accounts.widgets.portalUsers": "포털 사용자",
+  "customer_accounts.widgets.retryLoading": "다시 시도",
   "customer_accounts.widgets.viewAccount": "계정 보기",
   "notifications.categories.customer_accounts": "고객 계정"
 }
