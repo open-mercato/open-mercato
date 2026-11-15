@@ -43,6 +43,27 @@ This narrow security change requires a named human maintainer's dated approval o
 the emergency waiver of compatibility steps 1–3 before merge; no approval is
 recorded by this automation. [Specification and migration](.ai/specs/enterprise/agent-orchestrator/next/2026-07-19-agent-eval-workbench-and-gate.md#migration--backward-compatibility).
 
+## EUDR update undo conflicts (#9128)
+
+Update undos for EUDR plots, risk assessments, product mappings, mitigation actions,
+evidence submissions and statements now return HTTP 409 with code
+`eudr.errors.undoConflict` when the record changed or was soft-deleted after the
+logged update, or the action log has no `after` snapshot. Previously these undos
+could return 200 and overwrite later edits. Clients must treat this refusal as
+final: reload the record and re-apply the wanted change by hand. Do not retry the
+same stale undo automatically. Edits lost to earlier undos are not recovered.
+
+Undoing an evidence-submission update also recomputes its completeness score.
+Forward updates and update undos now keep entity and custom-field writes in the
+same parent-row transaction. Custom-field-only updates wait for an in-flight undo;
+a failed reset rolls back both the row and its custom values before retry.
+Own updates can still be undone newest first when their recorded content matches;
+create/delete undos and forward commands are unchanged. No database migration,
+configuration change, route, event or response-field migration is needed for this
+fix. Restart application and worker processes together when deploying.
+
+[Specification and coverage](.ai/specs/2026-07-06-eudr-compliance-module.md#migration--backward-compatibility).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

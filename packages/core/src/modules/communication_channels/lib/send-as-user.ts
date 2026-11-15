@@ -14,6 +14,8 @@ import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
 import { htmlToText } from './email-mime'
 import { buildOutboundConversationRef } from './outbound-conversation-ref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const logger = createLogger('communication_channels')
 
@@ -63,7 +65,7 @@ export type SendAsUserResult =
       channelId: string
       providerKey: string
     }
-  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string> }
+  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; headers?: Record<string, string> }
 
 /**
  * In-process send-as-user facade.
@@ -137,6 +139,9 @@ export async function sendAsUser(
     sourceEntityType: 'communication_channels.send_as_user',
     sourceEntityId: channel.id,
     externalEmail: input.to[0],
+    ...(channel.channelType === 'email'
+      ? { externalEmailRecipients: [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])] }
+      : {}),
     externalName: input.subject,
     recipients: [],
     subject: input.subject,
@@ -166,7 +171,18 @@ export async function sendAsUser(
       },
     )
   } catch (err) {
+    if (isCrudHttpError(err)) {
+      return {
+        ok: false,
+        status: err.status,
+        error: typeof err.body.error === 'string' ? err.body.error : err.message,
+        ...('headers' in err && err.headers instanceof Headers
+          ? { headers: Object.fromEntries(err.headers.entries()) }
+          : {}),
+      }
+    }
     logger.error('communication_channels send-as-user compose failed', { err })
+    getTelemetryRuntime()?.reportError(err, { module: 'communication_channels', code: 'communication_channels.compose_failed' })
     return { ok: false, status: 500, error: '[internal] compose failed' }
   }
 
