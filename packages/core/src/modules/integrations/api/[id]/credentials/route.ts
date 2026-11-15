@@ -10,6 +10,7 @@ import { saveCredentialsSchema } from '../../../data/validators'
 import {
   isCredentialsEncryptionUnavailableError,
   isCredentialsSealedWhileDisabledError,
+  isReservedOAuthGrantId,
   type CredentialsService,
 } from '../../../lib/credentials-service'
 import { collectCredentialUrlValidationErrors } from '../../../lib/credentials-field-validation'
@@ -58,6 +59,15 @@ export const openApi = {
   summary: 'Get or save integration credentials',
 }
 
+/**
+ * Ids ending in the reserved `__oauth_grant` suffix address OAuth grant rows, which this admin route
+ * never reads or writes, even when an integration with such an id is registered.
+ */
+function resolveCredentialsIntegration(integrationId: string) {
+  if (isReservedOAuthGrantId(integrationId)) return undefined
+  return getIntegration(integrationId)
+}
+
 function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: string } }): Promise<{ id?: string } | undefined> | { id?: string } | undefined {
   if (!ctx.params) return undefined
   if (typeof (ctx.params as Promise<unknown>).then === 'function') {
@@ -82,7 +92,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Invalid integration id' }, { status: 400 })
   }
 
-  const integration = getIntegration(parsedParams.data.id)
+  const integration = resolveCredentialsIntegration(parsedParams.data.id)
   if (!integration) {
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
   }
@@ -136,7 +146,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Invalid integration id' }, { status: 400 })
   }
 
-  const integration = getIntegration(parsedParams.data.id)
+  const integration = resolveCredentialsIntegration(parsedParams.data.id)
   if (!integration) {
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
   }

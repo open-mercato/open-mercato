@@ -18,26 +18,25 @@ export class Migration20260825140000_customers extends Migration {
     // joins so a backfill can never attribute an interaction to another tenant's
     // channel.
     //
-    // Both chain tables belong to `communication_channels`, which `customers`
-    // does not require. Without that module there is no linked row to backfill,
-    // and naming its tables would fail the migration.
+    // Both source tables belong to the optional communication_channels module. Apps
+    // that do not enable it (e.g. the wms starter preset) have neither table and no
+    // email rows to backfill, so the backfill runs only when both tables exist.
     this.addSql(`
       do $$
       begin
-        if to_regclass('message_channel_links') is null
-          or to_regclass('external_conversations') is null then
-          return;
+        if to_regclass('message_channel_links') is not null
+           and to_regclass('external_conversations') is not null then
+          update "customer_interactions" ci
+          set "channel_id" = ec."channel_id"
+          from "message_channel_links" mcl
+          join "external_conversations" ec
+            on ec."id" = mcl."external_conversation_id"
+           and ec."tenant_id" = mcl."tenant_id"
+          where ci."external_message_id" = mcl."id"
+            and ci."tenant_id" = mcl."tenant_id"
+            and ci."interaction_type" = 'email'
+            and ci."channel_id" is null;
         end if;
-        update "customer_interactions" ci
-        set "channel_id" = ec."channel_id"
-        from "message_channel_links" mcl
-        join "external_conversations" ec
-          on ec."id" = mcl."external_conversation_id"
-         and ec."tenant_id" = mcl."tenant_id"
-        where ci."external_message_id" = mcl."id"
-          and ci."tenant_id" = mcl."tenant_id"
-          and ci."interaction_type" = 'email'
-          and ci."channel_id" is null;
       end
       $$;
     `);

@@ -30,7 +30,20 @@
       "om-auto-fix-pr",
       "om-close-fixed-issues",
       "om-verify-in-repo",
-      "om-pr-autopilot"
+      "om-pr-autopilot",
+      "om-create-skill",
+      "om-help",
+      "om-judge-agent-session",
+      "om-share-this-session",
+      "om-auto-sec-report",
+      "om-auto-sec-report-pr",
+      "om-auto-qa-scenarios",
+      "om-figma-design-with-ds",
+      "om-pre-implement-spec",
+      "om-smart-test",
+      "om-create-agents-md",
+      "om-app-spec-writing",
+      "om-gap-analysis"
     ]
   },
   "tiers": {
@@ -41,40 +54,23 @@
         "om-backend-ui-design",
         "om-mockup-prototype",
         "om-implement-spec",
-        "om-pre-implement-spec",
-        "om-smart-test",
-        "om-create-agents-md",
-        "om-skill-creator",
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
         "om-create-web-research-adapter",
-        "om-help",
-        "om-refresh-standalone-harness",
-        "om-judge-agent-session",
-        "om-share-this-session"
-      ]
-    },
-    "design": {
-      "description": "Figma-side design workflow skills. Opt-in \u2014 presumes Figma tooling.",
-      "skills": [
-        "om-figma-design-with-ds"
+        "om-refresh-standalone-harness"
       ]
     },
     "automation": {
-      "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
+      "description": "PR/issue automation and experiment operation skills. Opt-in; agent-driven workflows.",
       "skills": [
         "om-auto-publish-pr",
-        "om-auto-qa-scenarios"
+        "om-run-harness-evals"
       ]
     },
-    "security": {
-      "description": "Security audit skills. Opt-in.",
-      "skills": ["om-auto-sec-report", "om-auto-sec-report-pr"]
-    },
     "analysis": {
-      "description": "Business/engagement analysis skills (app specs, platform gap analysis). Opt-in.",
-      "skills": ["om-app-spec-writing", "om-gap-analysis"]
+      "description": "Draft accessibility review (WCAG 2.2 AA). Opt-in.",
+      "skills": ["om-wcag-guardian"]
     },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only when needed.",

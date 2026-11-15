@@ -30,7 +30,7 @@ function panelProps(key: string, setValue = jest.fn()): CalendarEventTypePanelPr
   return {
     definition: { ...definition, provenance: {}, historical: false },
     mode: 'create',
-    values: createDefaultFormState(null),
+    values: createDefaultFormState(null, new Date(2026, 0, 15, 8, 30)),
     errors: {},
     disabled: false,
     capabilities: { resourcesEnabled: true, staffEnabled: true },
@@ -68,6 +68,7 @@ describe('DefaultEventTypePanel', () => {
 
   it('re-renders only the fields whose own draft values changed', () => {
     const props = panelProps('meeting')
+    expect(props.values.startTime).toBe('09:00')
     const { rerender } = renderWithProviders(<DefaultEventTypePanel {...props} />)
     mockFieldRender.mockClear()
     const typed = { ...props.values, title: 'Planning', description: 'Bring the notes' }

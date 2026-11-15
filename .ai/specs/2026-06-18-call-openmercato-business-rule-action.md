@@ -120,16 +120,20 @@ Endpoint filtering:
 API key filtering:
 
 - Include only active, unexpired, non-deleted API keys in the current tenant and selected organization scope.
+- Exclude AI-chat session keys (any session marker) and reserved one-time keys (`__onetime__`, `__business_rule_…`, `__workflow_…`, `__session_…`).
+- Include only keys whose every role the caller can grant (`assertActorCanGrantRoles`).
 - Return metadata only; never return secrets, hashed secrets, or authorization headers.
 
 ### Business Rule Create/Update
 
 Create/update validation remains backward-compatible for existing action types. When `CALL_OPEN_MERCATO` is present, the route additionally verifies:
 
-- The caller can view API key profiles.
+- The caller holds `api_keys.create`.
 - The selected endpoint and method are currently available.
-- The selected API key profile exists in the current tenant/organization scope.
+- The selected API key profile exists in the current tenant/organization scope and is not a session or one-time key.
 - The selected API key profile has at least one role.
+- The caller can grant every role of the selected profile (`assertActorCanGrantRoles`). On update, stored `CALL_OPEN_MERCATO` actions that the payload does not replace get this grant check only (a stored profile that no longer resolves, or is a session or one-time key, is not reported at save time and fails at execution); a request that sets `enabled: false` and leaves every other submitted field unchanged skips it.
+- On update, the caller is recorded in `updatedBy`.
 
 `CALL_WEBHOOK` validation remains unchanged and continues to require `config.url`.
 
@@ -151,12 +155,14 @@ The action executor:
 
 1. Validates that the configured endpoint is a currently available relative `/api/...` path for the configured method.
 2. Resolves the selected API key profile in the execution tenant and organization scope.
-3. Rejects missing, deleted, expired, or role-less profiles.
-4. Creates a one-time API key with the selected profile's roles.
-5. Calls the selected internal endpoint using `Authorization: apikey ...`, tenant/org headers, and business-rule trace headers.
-6. Parses the response body as JSON when possible.
-7. Treats non-2xx responses as action failures and marks 5xx failures as retriable.
-8. Soft-deletes the one-time key after the call.
+3. Rejects missing, deleted, expired, role-less, session, or one-time profiles.
+4. Resolves the rule's author (`updatedBy`, else `createdBy`): a live user of the rule's tenant, a super administrator, or a live API key of that tenant; otherwise fails.
+5. Checks that the author can still grant every role of the profile (a role that no longer resolves fails the check); otherwise fails before any key is minted.
+6. Creates a one-time API key with the selected profile's roles.
+7. Calls the selected internal endpoint using `Authorization: apikey ...`, tenant/org headers, and business-rule trace headers.
+8. Parses the response body as JSON when possible.
+9. Treats non-2xx responses as action failures and marks 5xx failures as retriable.
+10. Soft-deletes the one-time key after the call.
 
 ## Security
 
@@ -166,6 +172,7 @@ The action executor:
 - Endpoint execution is allowlisted by current OpenAPI/route metadata and relative `/api/...` paths.
 - API key profile resolution is scoped by tenant and organization.
 - The options route requires both business-rule management and API-key minting permissions.
+- Every save and every execution enforces the author's role-grant ceiling on the selected profile (see Privilege Amplification Through API Key Profiles). The saving user is recorded in `updatedBy` on update.
 - The configurator gate is evaluated against the **stored** rule as well as the incoming payload. Because the update schema is partial, a request that omits `successActions` / `failureActions` leaves an existing `CALL_OPEN_MERCATO` action in place; without checking the stored rule, such a request could retarget when and on what that privileged call fires (entity type, event, condition, `enabled`) without holding `api_keys.create`.
 - The one-time key is minted with `createdBy: null`. It is a machine-to-machine credential whose identity is fully defined by its own tenant and organization, so `resolveApiKeyAuth` resolves it through the tenant/organization active-check branch. Binding it to the triggering principal would make runtime auth fail closed whenever the trigger comes from another organization or from a since-deleted user. This matches the `workflows` activity executor.
 - Rule execution logs persist only action type, success flag, and error summary for action results. Non-2xx failures record the status code only — the endpoint response body is never interpolated into the persisted error message.
@@ -193,6 +200,7 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 - Rule create/update route tests reject malformed configs and unknown or unavailable API key profiles.
 - Executor tests cover one-time key create/delete, request headers/body, non-2xx handling, and unsafe endpoint refusal.
 - Integration coverage creates a rule with `CALL_OPEN_MERCATO`, verifies no webhook URL validation error, reloads the config, executes a harmless internal endpoint, and cleans up fixtures.
+- Grant-ceiling coverage: route tests reject non-grantable profiles on create and on condition-only updates and session/one-time profiles on create, allow disable-only updates, record `updatedBy`, and do not re-validate a stored action's endpoint; options tests hide non-grantable, session and one-time keys; executor tests fail closed for missing, deleted, foreign-tenant (non-super-administrator) and non-grantable authors and accept a live API-key author; `TC-BR-015` covers options filtering, create and condition-only update rejection, disable-only acceptance and an author who loses a grant after saving, over HTTP.
 
 ## Risks & Impact Review
 
@@ -207,8 +215,11 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 
 - Severity: High
 - Scenario: A rule author selects a profile with broader roles than intended.
-- Mitigation: Configuring this action requires `business_rules.manage` and `api_keys.create`. The mint permission is deliberate: at execution the one-time key inherits every role of the selected profile, so gating on the read-only `api_keys.view` would let a user who cannot mint a key drive authenticated internal calls with roles beyond their own grants. A user who already holds `api_keys.create` can mint an arbitrary-role key directly and therefore gains no new privilege here. Runtime uses only roles already assigned to a scoped API key profile.
-- Residual risk: Administrators must manage API key profiles carefully.
+- Mitigation: Configuring this action requires `business_rules.manage` and `api_keys.create`. That permission alone is not a ceiling: `POST /api/api_keys/keys` also runs `assertActorCanGrantRoles`, so a holder of `api_keys.create` can only mint keys with roles they could grant themselves, while the one-time execution key inherits every role of the selected profile. The action therefore enforces the same grant ceiling on the rule's author:
+  - Saving a rule (`POST`/`PUT /api/business_rules/rules`) checks the saver against every role of each selected profile. On `PUT`, the grant check covers the stored `CALL_OPEN_MERCATO` actions too when the payload does not replace them (without re-validating their endpoint or key availability); only a request that sets `enabled: false` and leaves every other submitted field unchanged skips it.
+  - The options route lists only profiles whose roles the caller can grant. AI-chat session keys and one-time keys (`__onetime__`, `__business_rule_…`, `__workflow_…`, `__session_…`) are never offered or accepted as profiles.
+  - At execution the rule's author (`updatedBy`, else `createdBy`) must still exist (a live user of the rule's tenant, a super administrator, or a live API key of that tenant) and must still be able to grant every role of the profile; otherwise the action fails before a key is minted. A profile role that no longer resolves also fails the check.
+- Residual risk: Administrators must manage API key profiles carefully. A rule keeps working only while its last saver keeps the required grants.
 
 ### Secret Exposure in Logs
 
@@ -234,6 +245,14 @@ Rejected for the initial implementation. Parameterized routes need dedicated UI 
 - Spec, spec directory, changelog, unit tests, and integration coverage are included.
 
 ## Changelog
+
+### 2026-10-16
+
+- Review follow-ups for the grant ceiling: the execute routes and the CRUD trigger subscriber pass their container's `rbacService` to the engine; the two execution refusals are translated instead of `[internal]`; an edit-form save that only switches the rule off counts as a disable; the rules list shows the server's refusal reason; `TC-BR-016` covers the picker, edit form and list toggle in a browser (#7362).
+
+### 2026-10-13
+
+- Corrected the privilege-amplification argument: `api_keys.create` does not let a user mint arbitrary-role keys, because key creation is ceiling-checked. The action now applies the same `assertActorCanGrantRoles` ceiling when a rule is saved, when profile options are listed, and to the rule's author at execution (failing closed when the author is gone). Session and one-time keys are no longer selectable profiles, and `PUT` now records `updatedBy`.
 
 ### 2026-08-03
 

@@ -193,6 +193,7 @@
   "forms.errors.snapshot_missing": "Registro de instantánea no encontrado.",
   "forms.errors.snapshot_pending": "Se está generando la instantánea en PDF.",
   "forms.errors.snapshot_storage_unconfigured": "El almacenamiento de instantáneas aún no está configurado.",
+  "forms.errors.subject_forbidden": "Solo puede iniciar o enviar este formulario en su propio nombre.",
   "forms.errors.submission_not_found": "Envío no encontrado.",
   "forms.errors.tenant_required": "Se requiere el contexto del inquilino.",
   "forms.errors.unauthorized": "No autorizado.",

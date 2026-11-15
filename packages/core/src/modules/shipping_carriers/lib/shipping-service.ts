@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
@@ -200,7 +201,7 @@ export function createShippingCarrierService(deps: {
           trackingNumber: created.trackingNumber,
           organizationId: input.organizationId,
           tenantId: input.tenantId,
-        })
+        }, { tenantId: input.tenantId, organizationId: input.organizationId })
         return shipment
       } catch (error: unknown) {
         // Release the claim only when the carrier was NOT successfully called, so a retry can
@@ -256,24 +257,41 @@ export function createShippingCarrierService(deps: {
         trackingNumber: shipment.trackingNumber,
         credentials,
       })
-      const previousStatus = shipment.unifiedStatus
-      shipment.trackingEvents = tracking.events
-      shipment.lastPolledAt = new Date()
-      const transitionApplied = syncShipmentStatus(shipment, tracking.status)
-      await em.flush()
-      if (transitionApplied) {
+      const outcome = await em.transactional(async (tx) => {
+        const locked = await findOneWithDecryption(
+          tx,
+          CarrierShipment,
+          {
+            id: shipment.id,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+          },
+          { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+          scope,
+        )
+        if (!locked) return null
+        const previousStatus = locked.unifiedStatus
+        locked.trackingEvents = tracking.events
+        locked.lastPolledAt = new Date()
+        const applied = syncShipmentStatus(locked, tracking.status)
+        await tx.flush()
+        return { applied, previousStatus }
+      }, { clear: true })
+      if (outcome?.applied) {
         const eventPayload = {
           shipmentId: shipment.id,
           providerKey: input.providerKey,
-          previousStatus,
+          previousStatus: outcome.previousStatus,
           newStatus: tracking.status,
           organizationId: input.organizationId,
           tenantId: input.tenantId,
         }
-        await emitShippingEvent('shipping_carriers.shipment.status_changed', eventPayload)
+        const eventScope = { tenantId: input.tenantId, organizationId: input.organizationId }
+        await emitShippingEvent('shipping_carriers.shipment.status_changed', eventPayload, eventScope)
         if (TERMINAL_SHIPPING_STATUSES.has(tracking.status)) {
           const terminalEvent = getTerminalShippingEvent(tracking.status)
-          if (terminalEvent) await emitShippingEvent(terminalEvent, eventPayload)
+          if (terminalEvent) await emitShippingEvent(terminalEvent, eventPayload, eventScope)
         }
       }
       return tracking
@@ -307,7 +325,7 @@ export function createShippingCarrierService(deps: {
         providerKey: input.providerKey,
         organizationId: input.organizationId,
         tenantId: input.tenantId,
-      })
+      }, { tenantId: input.tenantId, organizationId: input.organizationId })
       return result
     },
 
