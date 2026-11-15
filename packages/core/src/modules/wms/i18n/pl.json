@@ -599,7 +599,7 @@
   "wms.backend.inventory.import.validation.location_required": "Lokalizacja jest wymagana",
   "wms.backend.inventory.import.validation.lot_not_found": "Nie znaleziono partii",
   "wms.backend.inventory.import.validation.overwriting_existing_balance": "Spowoduje nadpisanie istniejącego stanu",
-  "wms.backend.inventory.import.validation.quantity_invalid": "Ilość musi być liczbą równą zero lub większą, bez separatorów tysięcy",
+  "wms.backend.inventory.import.validation.quantity_invalid": "Ilość musi być liczbą równą zero lub większą, z kropką jako separatorem dziesiętnym i bez separatorów tysięcy",
   "wms.backend.inventory.import.validation.quantity_required": "Ilość jest wymagana",
   "wms.backend.inventory.import.validation.sku_ambiguous": "Wiele wariantów katalogowych ma ten sam SKU",
   "wms.backend.inventory.import.validation.sku_not_found": "Nie znaleziono SKU w katalogu",
