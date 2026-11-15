@@ -346,7 +346,7 @@ export function FulltextSearchSection({
                   {fulltextConfig?.optionalEnvVars && Object.entries(fulltextConfig.optionalEnvVars).map(([key, status]) => (
                     <div key={key} className="flex min-w-0 flex-col items-start gap-3 p-2 rounded-md bg-muted/30 sm:flex-row">
                       <code className="max-w-full break-all text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{key}</code>
-                      <div className="min-w-0 break-words text-xs text-muted-foreground sm:flex-1">
+                      <div className="min-w-0 max-w-full break-words text-xs text-muted-foreground sm:flex-1">
                         <span>{environmentHints[key] ? t(environmentHints[key].key, environmentHints[key].fallback) : status.hint}</span>
                         {status.set ? (
                           <span className="ml-2 text-status-success-text">

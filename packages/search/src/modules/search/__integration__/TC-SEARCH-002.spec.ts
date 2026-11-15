@@ -1,5 +1,6 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCompanyFixture,
   deleteEntityIfExists,
@@ -94,8 +95,11 @@ test.describe('TC-SEARCH-002: search endpoint merges duplicate strategy hits', (
     let mergedResult: SearchResultPayload | null = null
 
     try {
-      const authToken = await getAuthToken(request, 'superadmin')
+      const authToken = await getAuthToken(request, 'admin')
       token = authToken
+      const { organizationId, tenantId } = getTokenContext(authToken)
+      expect(organizationId).not.toBe('')
+      expect(tenantId).not.toBe('')
 
       const settingsResponse = await apiRequest(request, 'GET', '/api/search/settings', { token: authToken })
       expect(settingsResponse.ok()).toBeTruthy()
