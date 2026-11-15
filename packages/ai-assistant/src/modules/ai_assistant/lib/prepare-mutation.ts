@@ -222,6 +222,8 @@ function extractPatchFromArgs(
   const envelope = new Set([
     'id',
     'recordId',
+    'productId',
+    'mediaId',
     'records',
     'attachmentIds',
     '_sessionToken',
@@ -260,15 +262,6 @@ function matchBatchPatch(
     }
   }
   return {}
-}
-
-function fallbackPatchDiffKeys(
-  patch: Record<string, unknown>,
-  before: Record<string, unknown>,
-): string[] {
-  return Object.keys(patch ?? {}).filter((key) =>
-    Object.prototype.hasOwnProperty.call(before ?? {}, key),
-  )
 }
 
 function normalizeAttachmentIds(args: Record<string, unknown>): string[] {
@@ -319,7 +312,7 @@ async function buildSingleRecordDiff(
     before.before,
     patch,
     before.display,
-    hasExplicitAfter ? undefined : { keys: fallbackPatchDiffKeys(patch, before.before) },
+    hasExplicitAfter ? undefined : { keys: Object.keys(patch) },
   )
   return {
     fieldDiff,
@@ -371,7 +364,7 @@ async function buildBatchRecords(
         row.before,
         patch,
         row.display,
-        hasExplicitAfter ? undefined : { keys: fallbackPatchDiffKeys(patch, row.before) },
+        hasExplicitAfter ? undefined : { keys: Object.keys(patch) },
       ),
       recordVersion: row.recordVersion ?? null,
     }

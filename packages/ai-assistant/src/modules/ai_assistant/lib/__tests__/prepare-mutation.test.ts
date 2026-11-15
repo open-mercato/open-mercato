@@ -192,7 +192,6 @@ function makeAgent(
   overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id'>,
 ): AiAgentDefinition {
   return {
-    id: overrides.id,
     moduleId: 'catalog',
     label: `${overrides.id} label`,
     description: `${overrides.id} description`,
@@ -359,6 +358,62 @@ describe('prepareMutation', () => {
 
     expect(uiPart.props.fieldDiff).toEqual([
       { field: 'title', before: 'Old title', after: 'New title' },
+    ])
+  })
+
+  it.each([
+    { productId: 'p-1', mediaId: 'm-1', price: 25, categoryId: 'category-2' },
+    { productId: 'p-1', patch: { price: 25, categoryId: 'category-2' } },
+  ])('previews patch fields absent from the single-record snapshot: %j', async (toolCallArgs) => {
+    const tool = makeTool({
+      name: 'catalog.update_product',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: 'v-1',
+        before: { title: 'Unchanged title' },
+      }),
+    })
+    const { uiPart } = await prepareMutation(
+      { agent: makeAgent({ id: 'catalog.merch' }), tool, toolCallArgs },
+      { ...baseCtx, container: makeContainer(mockEm()) },
+    )
+
+    expect(uiPart.props.fieldDiff).toEqual([
+      { field: 'price', before: undefined, after: 25 },
+      { field: 'categoryId', before: undefined, after: 'category-2' },
+    ])
+  })
+
+  it.each([
+    { recordId: 'p-1', price: 25, categoryId: 'category-2' },
+    { id: 'p-1', patch: { price: 25, categoryId: 'category-2' } },
+  ])('previews patch fields absent from the batch snapshot: %j', async (record) => {
+    const tool = makeTool({
+      name: 'catalog.bulk_update_products',
+      isMutation: true,
+      isBulk: true,
+      loadBeforeRecords: async () => [{
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        label: 'Widget',
+        recordVersion: 'v-1',
+        before: { title: 'Unchanged title' },
+      }],
+    })
+    const { pendingAction } = await prepareMutation(
+      {
+        agent: makeAgent({ id: 'catalog.merch' }),
+        tool,
+        toolCallArgs: { records: [record] },
+      },
+      { ...baseCtx, container: makeContainer(mockEm()) },
+    )
+
+    expect(pendingAction.records?.[0].fieldDiff).toEqual([
+      { field: 'price', before: undefined, after: 25 },
+      { field: 'categoryId', before: undefined, after: 'category-2' },
     ])
   })
 
