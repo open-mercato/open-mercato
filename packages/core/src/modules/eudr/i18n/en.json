@@ -136,7 +136,7 @@
   "eudr.errors.statement_required": "Due diligence statement id is required",
   "eudr.errors.submission_required": "Evidence submission id is required.",
   "eudr.errors.unauthorized": "Unauthorized",
-  "eudr.errors.undoConflict": "This record changed after the action you are undoing. Undo was refused.",
+  "eudr.errors.undoConflict": "This record changed after the action you are undoing. The later version was kept and Undo was refused. Reopen the record to load the latest version, then re-apply your change manually if it is still needed.",
   "eudr.evidence.attachAfterCreateHint": "Evidence submission created. You can now attach evidence files.",
   "eudr.evidenceSubmissions.create.title": "Create evidence submission",
   "eudr.evidenceSubmissions.edit.title": "Edit evidence submission",

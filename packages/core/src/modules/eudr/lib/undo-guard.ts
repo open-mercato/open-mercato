@@ -53,7 +53,7 @@ export function isUnchangedSince(current: UndoSnapshot, expected: UndoSnapshot):
 export async function throwUndoConflict(): Promise<never> {
   const { translate } = await resolveTranslations()
   throw new CrudHttpError(409, {
-    error: translate(UNDO_CONFLICT_CODE, 'This record changed after the action you are undoing. Undo was refused.'),
+    error: translate(UNDO_CONFLICT_CODE, 'This record changed after the action you are undoing. The later version was kept and Undo was refused. Reopen the record to load the latest version, then re-apply your change manually if it is still needed.'),
     code: UNDO_CONFLICT_CODE,
   })
 }
