@@ -132,6 +132,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
     await expect(handle(payload)).resolves.toBeUndefined()
 
     expect(reportErrorMock).not.toHaveBeenCalled()
+    expect(logger.error).not.toHaveBeenCalled()
   })
 
   it('does not report a successful status update', async () => {
