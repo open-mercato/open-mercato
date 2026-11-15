@@ -253,6 +253,8 @@ test.describe('TC-API-MSG-ATTACH-OWNER-004: compose, reply and draft update hono
         })
         expect(allowed.status, 'the document editor attaches its file through a draft update').toBe(200)
         expect(await readAttachmentRowInDb(allowedFile)).toMatchObject({ entity_id: 'messages:message', record_id: allowedDraft })
+        const allowedDetail = await ownerPolicyRequest<{ subject?: string }>('GET', `/api/messages/${allowedDraft}`, recipientToken)
+        expect(allowedDetail.body?.subject, 'the allowed update saves the new subject').toBe(`${fixture.prefix}-draft-update-allowed-edited`)
       } finally {
         for (const draft of drafts) await deleteMessageIfExists(request, draft.token, draft.id)
       }

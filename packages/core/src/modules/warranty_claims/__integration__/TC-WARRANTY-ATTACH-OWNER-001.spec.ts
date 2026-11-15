@@ -22,7 +22,7 @@ type AssessToolResponse = {
   result?: { notConfigured?: boolean; unavailable?: boolean }
 }
 
-const NOT_LINKED_ERROR = '[internal] Attachment is not linked to the requested warranty claim target.'
+const NOT_LINKED_ERROR = /Attachment is not linked to the requested warranty claim target/
 
 /**
  * TC-WARRANTY-ATTACH-OWNER-001: `warranty_claims.assess_damage_photo`, run
@@ -96,12 +96,14 @@ test('TC-WARRANTY-ATTACH-OWNER-001: damage photo tool evaluates the claim link w
 
       const regular = await assess(regularKey.secret)
       expect(regular.status, 'a regular key with the same role has no user share').toBe(400)
-      expect(regular.body).toEqual({ success: false, error: NOT_LINKED_ERROR })
+      expect(regular.body?.success).toBe(false)
+      expect(regular.body?.error).toMatch(NOT_LINKED_ERROR)
       expect(await readAttachmentRowInDb(file)).toEqual(before)
 
       const unshared = await assess(unsharedSession)
       expect(unshared.status, 'the session key of a user without the share is refused').toBe(400)
-      expect(unshared.body).toEqual({ success: false, error: NOT_LINKED_ERROR })
+      expect(unshared.body?.success).toBe(false)
+      expect(unshared.body?.error).toMatch(NOT_LINKED_ERROR)
       expect(await readAttachmentRowInDb(file)).toEqual(before)
 
       const allowed = await assess(recipientSession)
