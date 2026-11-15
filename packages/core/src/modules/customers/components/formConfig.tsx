@@ -3,6 +3,7 @@
 import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import * as React from 'react'
 import { z } from 'zod'
+import { isWithinDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import Link from 'next/link'
 import { Check, Pencil, Plus, Settings } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -1580,7 +1581,7 @@ export function buildCompanyPayload(
   const rawRevenue = typeof values.annualRevenue === 'string' ? values.annualRevenue.trim() : ''
   if (rawRevenue.length) {
     const normalized = rawRevenue.replace(/,/g, '').replace(/\s+/g, '')
-    if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+    if (!/^\d+(\.\d+)?$/.test(normalized) || !isWithinDecimalCaps(normalized)) {
       throw new Error('ANNUAL_REVENUE_INVALID')
     }
     payload.annualRevenue = normalized
