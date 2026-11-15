@@ -5,11 +5,11 @@ import { SCHEDULER_JOBS_PATH, createScheduleJob, deleteScheduleJob } from './hel
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 
-async function readNextRunAt(
+async function readRunTimes(
   request: Parameters<typeof getAuthToken>[0],
   token: string,
   id: string,
-): Promise<number> {
+): Promise<{ nextRunAt: number; updatedAt: number }> {
   const response = await apiRequest(
     request,
     'GET',
@@ -17,10 +17,16 @@ async function readNextRunAt(
     { token },
   )
   expect(response.status()).toBe(200)
-  const body = await readJsonSafe<{ items?: Array<{ id: string; nextRunAt: string | null }> }>(response)
+  const body = await readJsonSafe<{
+    items?: Array<{ id: string; nextRunAt: string | null; updatedAt: string | null }>
+  }>(response)
   const item = (body?.items ?? []).find((entry) => entry.id === id)
   expect(item?.nextRunAt, 'schedule should expose nextRunAt').toBeTruthy()
-  return new Date(String(item?.nextRunAt)).getTime()
+  expect(item?.updatedAt, 'schedule should expose updatedAt').toBeTruthy()
+  return {
+    nextRunAt: new Date(String(item?.nextRunAt)).getTime(),
+    updatedAt: new Date(String(item?.updatedAt)).getTime(),
+  }
 }
 
 /**
@@ -35,7 +41,7 @@ test.describe('TC-SCHED-011: enabling a schedule recomputes nextRunAt', () => {
 
     try {
       scheduleId = await createScheduleJob(request, token, { scheduleValue: '1h', isEnabled: true })
-      const createdNextRunAt = await readNextRunAt(request, token, scheduleId)
+      const created = await readRunTimes(request, token, scheduleId)
 
       const disableResponse = await apiRequest(request, 'PUT', SCHEDULER_JOBS_PATH, {
         token,
@@ -45,16 +51,15 @@ test.describe('TC-SCHED-011: enabling a schedule recomputes nextRunAt', () => {
 
       await new Promise((resolve) => setTimeout(resolve, 2_000))
 
-      const enableStartedAt = Date.now()
       const enableResponse = await apiRequest(request, 'PUT', SCHEDULER_JOBS_PATH, {
         token,
         data: { id: scheduleId, isEnabled: true },
       })
       expect(enableResponse.status()).toBe(200)
 
-      const enabledNextRunAt = await readNextRunAt(request, token, scheduleId)
-      expect(enabledNextRunAt).toBeGreaterThan(createdNextRunAt)
-      expect(enabledNextRunAt).toBeGreaterThanOrEqual(enableStartedAt + ONE_HOUR_MS - 1_000)
+      const enabled = await readRunTimes(request, token, scheduleId)
+      expect(enabled.nextRunAt).toBeGreaterThan(created.nextRunAt)
+      expect(Math.abs(enabled.nextRunAt - (enabled.updatedAt + ONE_HOUR_MS))).toBeLessThan(1_000)
     } finally {
       await deleteScheduleJob(request, token, scheduleId)
     }
