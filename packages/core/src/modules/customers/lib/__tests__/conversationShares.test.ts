@@ -136,16 +136,16 @@ describe('loadLiveInteractionAuthority', () => {
     expect(find).not.toHaveBeenCalled()
   })
 
-  it('dedupes ids and maps the CURRENT visibility/author/channel by id', async () => {
+  it('dedupes ids and maps the CURRENT visibility/author/channel/parent by id', async () => {
     const find = jest.fn(async () => [
-      { id: 'int-1', visibility: 'private', authorUserId: 'owner-1', channelId: 'chan-1' },
-      { id: 'int-2', visibility: null, authorUserId: null, channelId: null },
+      { id: 'int-1', visibility: 'private', authorUserId: 'owner-1', channelId: 'chan-1', entity: 'person-1' },
+      { id: 'int-2', visibility: null, authorUserId: null, channelId: null, entity: null },
     ])
     const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1', 'int-1', 'int-2'])
     expect(result).toEqual(
       new Map([
-        ['int-1', { visibility: 'private', authorUserId: 'owner-1', channelId: 'chan-1' }],
-        ['int-2', { visibility: null, authorUserId: null, channelId: null }],
+        ['int-1', { visibility: 'private', authorUserId: 'owner-1', channelId: 'chan-1', entityId: 'person-1' }],
+        ['int-2', { visibility: null, authorUserId: null, channelId: null, entityId: null }],
       ]),
     )
     expect(find).toHaveBeenCalledWith(
@@ -155,11 +155,28 @@ describe('loadLiveInteractionAuthority', () => {
     )
   })
 
+  it('resolves the parent entity id from either a raw FK string or a Reference-shaped object', async () => {
+    const find = jest.fn(async () => [
+      { id: 'int-1', visibility: 'private', authorUserId: 'owner-1', channelId: null, entity: 'person-raw-fk' },
+      { id: 'int-2', visibility: 'private', authorUserId: 'owner-1', channelId: null, entity: { id: 'person-ref' } },
+    ])
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1', 'int-2'])
+    expect(result.get('int-1')?.entityId).toBe('person-raw-fk')
+    expect(result.get('int-2')?.entityId).toBe('person-ref')
+  })
+
   it('omits a deleted/missing interaction — the caller falls back to its own conservative default', async () => {
-    const find = jest.fn(async () => [{ id: 'int-1', visibility: 'shared', authorUserId: 'owner-1', channelId: null }])
+    const find = jest.fn(async () => [
+      { id: 'int-1', visibility: 'shared', authorUserId: 'owner-1', channelId: null, entity: 'person-1' },
+    ])
     const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1', 'int-deleted'])
     expect(result.has('int-deleted')).toBe(false)
-    expect(result.get('int-1')).toEqual({ visibility: 'shared', authorUserId: 'owner-1', channelId: null })
+    expect(result.get('int-1')).toEqual({
+      visibility: 'shared',
+      authorUserId: 'owner-1',
+      channelId: null,
+      entityId: 'person-1',
+    })
   })
 
   it('fails closed to an empty map when the lookup throws', async () => {

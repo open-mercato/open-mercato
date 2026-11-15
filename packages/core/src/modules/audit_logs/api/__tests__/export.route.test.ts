@@ -248,6 +248,182 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
     expect(csv).not.toContain('New private subject')
   })
 
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909076861,
+  // pullrequestreview-5909263810) — a stored `customers.interaction`
+  // snapshot's own `visibility` describes the state AT THE TIME that audit
+  // entry was recorded, which a later shared→private revocation can make
+  // stale. Covers the CSV export response boundary, not just the JSON route.
+  describe('live-authority revocation in the CSV export', () => {
+    afterEach(() => {
+      delete (mockEm as Record<string, unknown>).find
+    })
+
+    function mockLiveInteraction(row: Record<string, unknown> | null) {
+      const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        const idFilter = where?.id as { $in?: string[] } | undefined
+        if (row && idFilter?.$in?.includes(row.id as string)) return [row]
+        return []
+      })
+      ;(mockEm as Record<string, unknown>).find = find
+      return find
+    }
+
+    it('hides a shared-at-the-time email after it has been revoked to private', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      const find = mockLiveInteraction({
+        id: 'interaction-revoked',
+        visibility: 'private',
+        authorUserId: 'user-2',
+        channelId: null,
+        entity: 'person-1',
+      })
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          {
+            id: 'action-revoked',
+            commandId: 'cmd-revoked',
+            actionLabel: 'Update interaction',
+            actorUserId: 'user-2',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-revoked',
+            createdAt: new Date('2024-06-17T12:00:00.000Z'),
+            contextJson: null,
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-revoked',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Old shared subject',
+                body: 'Old shared body',
+              },
+            },
+            changesJson: { title: { from: 'Old shared subject', to: 'Newer shared subject' } },
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+      expect(res.status).toBe(200)
+      const csv = await res.text()
+      expect(csv).not.toContain('Old shared subject')
+      expect(csv).not.toContain('Newer shared subject')
+      expect(find).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: { $in: ['interaction-revoked'] }, tenantId: 'tenant-1', organizationId: 'org-1' }),
+        expect.anything(),
+      )
+    })
+
+    it('keeps the revoked email visible to its own author in the export', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      mockLiveInteraction({
+        id: 'interaction-revoked',
+        visibility: 'private',
+        authorUserId: 'user-2',
+        channelId: null,
+        entity: 'person-1',
+      })
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          {
+            id: 'action-revoked',
+            commandId: 'cmd-revoked',
+            actionLabel: 'Update interaction',
+            actorUserId: 'user-2',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-revoked',
+            createdAt: new Date('2024-06-17T12:00:00.000Z'),
+            contextJson: null,
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-revoked',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Old shared subject',
+              },
+            },
+            changesJson: { title: { from: 'Old shared subject', to: 'Newer shared subject' } },
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+      expect(res.status).toBe(200)
+      const csv = await res.text()
+      expect(csv).toContain('Old shared subject')
+    })
+
+    it('fails closed in the export when the live-authority lookup finds nothing (interaction deleted since)', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      mockLiveInteraction(null)
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          {
+            id: 'action-deleted',
+            commandId: 'cmd-deleted',
+            actionLabel: 'Update interaction',
+            actorUserId: 'user-2',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-deleted',
+            createdAt: new Date('2024-06-17T12:00:00.000Z'),
+            contextJson: null,
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-deleted',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Deleted-interaction subject',
+              },
+            },
+            changesJson: { title: { from: 'Deleted-interaction subject', to: 'Something newer' } },
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+      expect(res.status).toBe(200)
+      const csv = await res.text()
+      expect(csv).not.toContain('Deleted-interaction subject')
+      expect(csv).not.toContain('Something newer')
+    })
+  })
+
   // Regression for the follow-up security finding on #8978 — the CSV export only
   // stripped title/body, so a hidden private email's participant addresses and
   // linked-entity labels still rendered as "participants"/"linkedEntities" rows.

@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerEmailConversationShare, CustomerInteraction } from '../data/entities'
 
@@ -255,6 +256,13 @@ export type LiveInteractionAuthority = {
   visibility: string | null
   authorUserId: string | null
   channelId: string | null
+  /**
+   * The Person/Company this interaction CURRENTLY belongs to — an interaction
+   * can be re-linked to a different parent after the audit entry describing
+   * it was recorded, so this is the only `entityId` safe to use for matching
+   * a conversation-share grant against a historical representation.
+   */
+  entityId: string | null
 }
 
 /**
@@ -262,6 +270,20 @@ export type LiveInteractionAuthority = {
  * a single audit page cannot reference more rows than it lists.
  */
 export const LIVE_INTERACTION_ARM_MAX = 500
+
+/**
+ * `CustomerInteraction.entity` is a ManyToOne reference (`entity_id` FK) — MikroORM
+ * returns either the raw FK string or a `Reference`-shaped object exposing `.id`,
+ * depending on hydration. Mirrors the same ternary `loadInteractionSnapshot` uses.
+ */
+function resolveEntityId(entityRef: unknown): string | null {
+  if (typeof entityRef === 'string') return entityRef
+  if (entityRef && typeof entityRef === 'object' && 'id' in (entityRef as Record<string, unknown>)) {
+    const id = (entityRef as Record<string, unknown>).id
+    return typeof id === 'string' ? id : null
+  }
+  return null
+}
 
 /**
  * Batched CURRENT (live) visibility/author/channel for a set of interaction ids,
@@ -290,9 +312,19 @@ export async function loadLiveInteractionAuthority(
   try {
     const where: Record<string, unknown> = { id: { $in: ids }, tenantId: scope.tenantId, deletedAt: null }
     if (scope.organizationId) where.organizationId = scope.organizationId
-    const rows = (await em.find(CustomerInteraction, where as never, {
-      limit: LIVE_INTERACTION_ARM_MAX + 1,
-    })) as unknown as Array<{ id: string; visibility?: string | null; authorUserId?: string | null; channelId?: string | null }>
+    const rows = (await findWithDecryption(
+      em,
+      CustomerInteraction,
+      where as never,
+      { limit: LIVE_INTERACTION_ARM_MAX + 1 },
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    )) as unknown as Array<{
+      id: string
+      visibility?: string | null
+      authorUserId?: string | null
+      channelId?: string | null
+      entity?: unknown
+    }>
     if (!Array.isArray(rows)) return new Map()
 
     if (rows.length > LIVE_INTERACTION_ARM_MAX) {
@@ -311,6 +343,7 @@ export async function loadLiveInteractionAuthority(
         visibility: row.visibility ?? null,
         authorUserId: row.authorUserId ?? null,
         channelId: row.channelId ?? null,
+        entityId: resolveEntityId(row.entity),
       })
     }
     return map

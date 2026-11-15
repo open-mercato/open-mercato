@@ -70,42 +70,48 @@ export async function loadCustomerAuditRedactionContext(
 }
 
 /**
+ * Conservative historical fallback: the strictest possible authority. Used
+ * whenever a live row cannot be resolved — the stored snapshot's own
+ * `visibility`, `channelId`, and parent `entityId` may all be stale (a later
+ * revocation, a moved mailbox, a re-linked parent), so NONE of them may be
+ * trusted. `entityId: null` specifically means no conversation-share grant
+ * can ever apply here — "a historical parent grant existed" is not proof of
+ * CURRENT access (see `resolveInteractionAuthority`). Only the stored author
+ * id survives into the fallback: authorship never changes, so an author can
+ * always see their own historical content regardless of what else is
+ * unverifiable.
+ */
+function conservativeInteractionAuthority(storedAuthorUserId: string | null): LiveInteractionAuthority {
+  return { visibility: 'private', authorUserId: storedAuthorUserId, channelId: null, entityId: null }
+}
+
+/**
  * Resolves the authority to decide visibility for ONE historical interaction
- * representation: the CURRENT live row when the snapshot carries an id to
- * resolve it against, else the entry's own stored fields.
+ * representation: the CURRENT live row when it resolves, else the
+ * conservative fallback above.
  *
- * A stored snapshot's own `visibility` can be stale — the email may have been
- * `shared` when this audit entry was recorded and revoked to `private`
- * since — so whenever a live row CAN be resolved, only its CURRENT values may
- * be trusted for that decision. When the id resolves to no live row (deleted,
- * or the batch lookup failed), assume the strictest state (`private`, no
- * known shared channel) rather than trusting the now-unverifiable stored
- * visibility. When the snapshot carries no id at all — audit data written
- * before `customers.interaction` snapshots captured one — there is nothing to
- * resolve against, so the entry's own stored fields are the only signal
- * available and are used as-is, exactly as before this function existed. The
- * stored author id is kept in every case: authorship never changes, so an
- * author can always see their own historical content.
+ * `interactionId` is the snapshot's OWN id when present, falling back to the
+ * enclosing audit entry's `resourceId` (both name the same interaction) when
+ * the snapshot itself carries no id — there is no circumstance where neither
+ * identifies the interaction for a real `customers.interaction` audit entry,
+ * but defensively, if both are absent, the fallback still applies rather than
+ * trusting unverifiable stored data.
  */
 function resolveInteractionAuthority(
   interactionId: string | null,
   storedAuthorUserId: string | null,
-  storedVisibility: string | null,
-  storedChannelId: string | null,
   ctx: CustomerAuditRedactionContext,
 ): LiveInteractionAuthority {
-  if (!interactionId) {
-    return { visibility: storedVisibility, authorUserId: storedAuthorUserId, channelId: storedChannelId }
-  }
-  const live = ctx.liveInteractionsById.get(interactionId)
+  const live = interactionId ? ctx.liveInteractionsById.get(interactionId) : undefined
   if (live) {
     return {
       visibility: live.visibility,
       authorUserId: live.authorUserId ?? storedAuthorUserId,
       channelId: live.channelId,
+      entityId: live.entityId,
     }
   }
-  return { visibility: 'private', authorUserId: storedAuthorUserId, channelId: null }
+  return conservativeInteractionAuthority(storedAuthorUserId)
 }
 
 function redactRecordFields(record: Record<string, unknown>): Record<string, unknown> {
@@ -117,27 +123,24 @@ function redactRecordFields(record: Record<string, unknown>): Record<string, unk
 }
 
 function isHiddenEmailInteraction(
-  interaction: { id?: unknown; interactionType?: unknown; visibility?: unknown; authorUserId?: unknown; channelId?: unknown },
-  personEntityId: string | null,
+  interaction: { id?: unknown; interactionType?: unknown; authorUserId?: unknown },
+  fallbackInteractionId: string | null,
   ctx: CustomerAuditRedactionContext,
 ): boolean {
   const interactionType = typeof interaction.interactionType === 'string' ? interaction.interactionType : null
   if (interactionType !== 'email') return false
-  const interactionId = typeof interaction.id === 'string' ? interaction.id : null
+  const ownId = typeof interaction.id === 'string' && interaction.id ? interaction.id : null
+  const interactionId = ownId ?? fallbackInteractionId
   const storedAuthorUserId = typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null
-  const storedVisibility = typeof interaction.visibility === 'string' ? interaction.visibility : null
-  const storedChannelId = typeof interaction.channelId === 'string' ? interaction.channelId : null
-  // When the snapshot carries an id, its stored `visibility`/`channelId`
-  // describe the state AT THE TIME this audit entry was recorded, which a
-  // later shared→private revocation can make stale — resolve the CURRENT
-  // authority instead of trusting them. See `resolveInteractionAuthority`.
-  const authority = resolveInteractionAuthority(interactionId, storedAuthorUserId, storedVisibility, storedChannelId, ctx)
+  // The stored snapshot's `visibility`/`channelId`/parent never factor in here —
+  // only the resolved CURRENT authority does. See `resolveInteractionAuthority`.
+  const authority = resolveInteractionAuthority(interactionId, storedAuthorUserId, ctx)
   return isEmailHiddenFrom({
     interactionType,
     visibility: authority.visibility,
     authorUserId: authority.authorUserId,
     currentUserId: ctx.viewerUserId,
-    personEntityId,
+    personEntityId: authority.entityId,
     sharedConversations: ctx.sharedConversations,
     channelId: authority.channelId,
     sharedChannelIds: ctx.sharedChannelIds,
@@ -149,14 +152,16 @@ function isHiddenEmailInteraction(
  * `InteractionSnapshot`-shaped payload (`{ interaction: {...} }`) so callers can
  * check a before/after snapshot without unpacking it first.
  */
-function isInteractionSnapshotHidden(snapshot: unknown, ctx: CustomerAuditRedactionContext): boolean {
+function isInteractionSnapshotHidden(
+  snapshot: unknown,
+  fallbackInteractionId: string | null,
+  ctx: CustomerAuditRedactionContext,
+): boolean {
   if (!snapshot || typeof snapshot !== 'object') return false
   const record = snapshot as Record<string, unknown>
   const interaction = record.interaction
   if (!interaction || typeof interaction !== 'object') return false
-  const interactionRecord = interaction as Record<string, unknown>
-  const personEntityId = typeof interactionRecord.entityId === 'string' ? interactionRecord.entityId : null
-  return isHiddenEmailInteraction(interactionRecord, personEntityId, ctx)
+  return isHiddenEmailInteraction(interaction as Record<string, unknown>, fallbackInteractionId, ctx)
 }
 
 /**
@@ -166,8 +171,12 @@ function isInteractionSnapshotHidden(snapshot: unknown, ctx: CustomerAuditRedact
  * `interaction`, not nested inside it, so it needs its own clear alongside the
  * `redactRecordFields` pass over `interaction`.
  */
-function redactInteractionSnapshot(snapshot: unknown, ctx: CustomerAuditRedactionContext): unknown {
-  if (!isInteractionSnapshotHidden(snapshot, ctx)) return snapshot
+function redactInteractionSnapshot(
+  snapshot: unknown,
+  fallbackInteractionId: string | null,
+  ctx: CustomerAuditRedactionContext,
+): unknown {
+  if (!isInteractionSnapshotHidden(snapshot, fallbackInteractionId, ctx)) return snapshot
   const record = snapshot as Record<string, unknown>
   const interactionRecord = record.interaction as Record<string, unknown>
   const next = { ...record, interaction: redactRecordFields(interactionRecord) }
@@ -292,6 +301,12 @@ function redactInteractionsChange(
 
 export type RedactableAuditEntry = {
   resourceKind?: string | null
+  /**
+   * The audit row's own id for the resource it describes — the fallback
+   * identifier `isHiddenEmailInteraction` resolves live authority against
+   * when a `customers.interaction` snapshot's own `interaction.id` is absent.
+   */
+  resourceId?: string | null
   snapshotBefore?: unknown
   snapshotAfter?: unknown
   changesJson?: unknown
@@ -309,16 +324,17 @@ export function redactCustomerAuditEntry<T extends RedactableAuditEntry>(
   ctx: CustomerAuditRedactionContext,
 ): T {
   if (entry.resourceKind === 'customers.interaction') {
+    const fallbackInteractionId = typeof entry.resourceId === 'string' && entry.resourceId ? entry.resourceId : null
     // Apply the same before/after privacy decision to the diff: a hidden email on
     // either side of the change must not leak its content through `changesJson`,
     // but an authorized or non-email change history (a call-title edit, a shared
     // email edit, the author's own private email edit) keeps its real diff.
-    const hidden = isInteractionSnapshotHidden(entry.snapshotBefore, ctx)
-      || isInteractionSnapshotHidden(entry.snapshotAfter, ctx)
+    const hidden = isInteractionSnapshotHidden(entry.snapshotBefore, fallbackInteractionId, ctx)
+      || isInteractionSnapshotHidden(entry.snapshotAfter, fallbackInteractionId, ctx)
     return {
       ...entry,
-      snapshotBefore: redactInteractionSnapshot(entry.snapshotBefore, ctx),
-      snapshotAfter: redactInteractionSnapshot(entry.snapshotAfter, ctx),
+      snapshotBefore: redactInteractionSnapshot(entry.snapshotBefore, fallbackInteractionId, ctx),
+      snapshotAfter: redactInteractionSnapshot(entry.snapshotAfter, fallbackInteractionId, ctx),
       changesJson: hidden ? redactChanges(entry.changesJson) : entry.changesJson,
     }
   }

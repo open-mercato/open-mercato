@@ -48,11 +48,33 @@ function ctx(overrides: Partial<CustomerAuditRedactionContext> = {}): CustomerAu
 }
 
 describe('redactCustomerAuditEntry — customers.interaction', () => {
+  const INTERACTION_ID = 'interaction-1'
+
+  // Every test here exercises a live record found at `INTERACTION_ID` whose
+  // fields match whatever the snapshot stores (no revocation/move scenario in
+  // this block — those live in the dedicated describe blocks below), so the
+  // resolved CURRENT authority and the stored historical fields agree.
+  function liveCtx(
+    liveOverrides: Partial<conversationShares.LiveInteractionAuthority> = {},
+    ctxOverrides: Partial<CustomerAuditRedactionContext> = {},
+  ): CustomerAuditRedactionContext {
+    return ctx({
+      liveInteractionsById: new Map([
+        [
+          INTERACTION_ID,
+          { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID, ...liveOverrides },
+        ],
+      ]),
+      ...ctxOverrides,
+    })
+  }
+
   function interactionEntry(overrides: Record<string, unknown> = {}) {
     return {
       resourceKind: 'customers.interaction',
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: 'private',
@@ -68,7 +90,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
   }
 
   it('redacts title/body for a private email when the viewer is not the author', () => {
-    const redacted = redactCustomerAuditEntry(interactionEntry(), ctx())
+    const redacted = redactCustomerAuditEntry(interactionEntry(), liveCtx())
     const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBeNull()
     expect(interaction.body).toBeNull()
@@ -77,7 +99,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
   })
 
   it('leaves title/body visible to the email author', () => {
-    const redacted = redactCustomerAuditEntry(interactionEntry(), ctx({ viewerUserId: OWNER }))
+    const redacted = redactCustomerAuditEntry(interactionEntry(), liveCtx({}, { viewerUserId: OWNER }))
     const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBe('Private subject')
     expect(interaction.body).toBe('Private body')
@@ -86,7 +108,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
   it('leaves title/body visible when a conversation share grants the viewer access', () => {
     const redacted = redactCustomerAuditEntry(
       interactionEntry(),
-      ctx({ sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }] }),
+      liveCtx({}, { sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }] }),
     )
     const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBe('Private subject')
@@ -97,6 +119,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: null,
@@ -106,7 +129,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx({ visibility: null }))
     const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBe('Legacy subject')
     expect(interaction.body).toBe('Legacy body')
@@ -116,6 +139,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: 'private',
@@ -127,7 +151,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx())
     const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.participants).toBeNull()
     expect(interaction.linkedEntities).toBeNull()
@@ -137,6 +161,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: 'private',
@@ -148,7 +173,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const redacted = redactCustomerAuditEntry(entry, liveCtx({}, { viewerUserId: OWNER }))
     const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.participants).toEqual([{ userId: 'user-3', name: 'Third Party', email: 'third@example.com' }])
     expect(interaction.linkedEntities).toEqual([{ id: 'deal-1', type: 'deal', label: 'Confidential Deal' }])
@@ -162,7 +187,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         status: { from: 'planned', to: 'done' },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx())
     expect(redacted.changesJson).toEqual({ status: { from: 'planned', to: 'done' } })
   })
 
@@ -170,6 +195,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: 'private',
@@ -180,7 +206,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         custom: { privateEmail: 'ghost@example.com', note: 'internal' },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx())
     expect(interactionSnapshot(redacted.snapshotBefore).custom).toBeNull()
   })
 
@@ -188,6 +214,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: 'private',
@@ -198,7 +225,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         custom: { privateEmail: 'ghost@example.com', note: 'internal' },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const redacted = redactCustomerAuditEntry(entry, liveCtx({}, { viewerUserId: OWNER }))
     expect(interactionSnapshot(redacted.snapshotBefore).custom).toEqual({ privateEmail: 'ghost@example.com', note: 'internal' })
   })
 
@@ -206,6 +233,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'call',
           visibility: 'private',
@@ -215,7 +243,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx())
     const interaction = interactionSnapshot(redacted.snapshotBefore).interaction
     expect(interaction.title).toBe('Call notes')
     expect(interaction.body).toBe('Call body')
@@ -225,7 +253,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       changesJson: { title: { from: 'old', to: 'new' }, body: { from: 'a', to: 'b' }, status: { from: 'planned', to: 'done' } },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx())
     expect(redacted.changesJson).toEqual({ status: { from: 'planned', to: 'done' } })
   })
 
@@ -241,7 +269,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         status: { from: 'planned', to: 'done' },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx())
     expect(redacted.changesJson).toEqual({ status: { from: 'planned', to: 'done' } })
   })
 
@@ -252,7 +280,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         status: { from: 'planned', to: 'done' },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const redacted = redactCustomerAuditEntry(entry, liveCtx({}, { viewerUserId: OWNER }))
     expect(redacted.changesJson).toEqual({
       cf_privateEmail: { from: 'old@example.test', to: 'new@example.test' },
       status: { from: 'planned', to: 'done' },
@@ -267,6 +295,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'call',
           visibility: 'private',
@@ -275,7 +304,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
       changesJson: { title: { from: 'Old call title', to: 'New call title' }, status: { from: 'planned', to: 'done' } },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx())
     expect(redacted.changesJson).toEqual({
       title: { from: 'Old call title', to: 'New call title' },
       status: { from: 'planned', to: 'done' },
@@ -286,6 +315,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: 'private',
@@ -296,7 +326,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     })
     const redacted = redactCustomerAuditEntry(
       entry,
-      ctx({ sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }] }),
+      liveCtx({}, { sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }] }),
     )
     expect(redacted.changesJson).toEqual({ title: { from: 'Old subject', to: 'New subject' } })
   })
@@ -305,6 +335,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: 'private',
@@ -313,7 +344,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
       changesJson: { title: { from: 'Old subject', to: 'New subject' } },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const redacted = redactCustomerAuditEntry(entry, liveCtx({}, { viewerUserId: OWNER }))
     expect(redacted.changesJson).toEqual({ title: { from: 'Old subject', to: 'New subject' } })
   })
 
@@ -321,6 +352,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
     const entry = interactionEntry({
       snapshotBefore: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'call',
           visibility: 'private',
@@ -329,6 +361,7 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
       },
       snapshotAfter: {
         interaction: {
+          id: INTERACTION_ID,
           entityId: PERSON_ID,
           interactionType: 'email',
           visibility: 'private',
@@ -341,13 +374,13 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
         title: { from: null, to: 'New private subject' },
       },
     })
-    const redacted = redactCustomerAuditEntry(entry, ctx())
+    const redacted = redactCustomerAuditEntry(entry, liveCtx())
     expect(redacted.changesJson).toEqual({ interactionType: { from: 'call', to: 'email' } })
   })
 
   it('passes through entries for resource kinds it does not own', () => {
     const entry = { resourceKind: 'sales.order', snapshotBefore: { foo: 'bar' } }
-    expect(redactCustomerAuditEntry(entry, ctx())).toBe(entry)
+    expect(redactCustomerAuditEntry(entry, liveCtx())).toBe(entry)
   })
 })
 
@@ -400,7 +433,7 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
   it('hides both historical snapshots and the diff once the live record is private', () => {
     const contextWithLiveAuthority = ctx({
       liveInteractionsById: new Map([
-        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
       ]),
     })
     const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
@@ -417,7 +450,7 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
     const entry = revocationEntry({ snapshotAfter: null, changesJson: null })
     const contextWithLiveAuthority = ctx({
       liveInteractionsById: new Map([
-        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
       ]),
     })
     const redacted = redactCustomerAuditEntry(entry, contextWithLiveAuthority)
@@ -428,7 +461,7 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
     const contextWithLiveAuthority = ctx({
       viewerUserId: OWNER,
       liveInteractionsById: new Map([
-        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
       ]),
     })
     const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
@@ -442,7 +475,7 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
   it('keeps the historical content visible when a CURRENT conversation-share grant covers it', () => {
     const contextWithLiveAuthority = ctx({
       liveInteractionsById: new Map([
-        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
       ]),
       sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
     })
@@ -455,7 +488,7 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
     // the strict live-private rule applies with no widening.
     const contextWithLiveAuthority = ctx({
       liveInteractionsById: new Map([
-        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
       ]),
       sharedConversations: [],
     })
@@ -475,7 +508,7 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
   it('keeps a still-shared interaction visible end to end (no false-positive redaction)', () => {
     const contextWithLiveAuthority = ctx({
       liveInteractionsById: new Map([
-        [INTERACTION_ID, { visibility: 'shared', authorUserId: OWNER, channelId: null }],
+        [INTERACTION_ID, { visibility: 'shared', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
       ]),
     })
     const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
@@ -487,8 +520,15 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
     })
   })
 
-  it('trusts the stored snapshot fields when the snapshot carries no id at all (pre-existing legacy data)', () => {
+  // Regression for @pkarw's follow-up review (pullrequestreview-5909263810,
+  // finding 2): a snapshot missing its own `interaction.id` must NOT fall back
+  // to trusting the stored `visibility` — that is exactly the unverifiable
+  // historical signal this fix exists to stop trusting. With no id to resolve
+  // (and no `entry.resourceId` fallback either), the conservative fallback
+  // applies just like a deleted interaction would.
+  it('fails closed when the snapshot carries no id and the entry has no resourceId to fall back to', () => {
     const entry = revocationEntry({
+      resourceId: null,
       snapshotBefore: {
         interaction: {
           entityId: PERSON_ID,
@@ -501,11 +541,70 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
       snapshotAfter: null,
       changesJson: null,
     })
-    // No id on the snapshot to resolve a live row against, so this stays on
-    // the pre-existing "trust the entry's own stored visibility" path — the
-    // same behavior that shipped before this live-lookup fix existed.
     const redacted = redactCustomerAuditEntry(entry, ctx({ liveInteractionsById: new Map() }))
-    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBe('Legacy shared subject')
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+  })
+
+  // Regression for the same finding: the audit row's own `resourceId` names
+  // the exact same interaction the snapshot describes, so it is the correct
+  // fallback identifier when the snapshot predates the `interaction.id` field.
+  it("resolves live authority through the entry's resourceId when the snapshot itself has no id", () => {
+    const entry = revocationEntry({
+      resourceId: INTERACTION_ID,
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'shared',
+          authorUserId: OWNER,
+          title: 'Legacy shared subject',
+        },
+      },
+      snapshotAfter: null,
+      changesJson: null,
+    })
+    const liveAuthority = ctx({
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
+      ]),
+    })
+    const hiddenFromNonOwner = redactCustomerAuditEntry(entry, liveAuthority)
+    expect(interactionSnapshot(hiddenFromNonOwner.snapshotBefore).interaction.title).toBeNull()
+
+    const visibleToOwner = redactCustomerAuditEntry(entry, ctx({ ...liveAuthority, viewerUserId: OWNER }))
+    expect(interactionSnapshot(visibleToOwner.snapshotBefore).interaction.title).toBe('Legacy shared subject')
+  })
+
+  // Regression for finding 1 of the same review: a share grant for the OLD
+  // parent Person must not authorize a historical representation of an
+  // interaction that has since moved to a different Person — only a grant for
+  // the CURRENT (live) parent may widen access.
+  describe('conversation shares after the interaction moved to a different parent', () => {
+    const PERSON_B = 'person-2'
+
+    it('does not widen access using a grant for the historical (no-longer-current) parent', () => {
+      const liveAuthority = ctx({
+        liveInteractionsById: new Map([
+          [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_B }],
+        ]),
+        // The owner shared their conversation with the OLD parent (PERSON_ID),
+        // not the CURRENT one (PERSON_B) the interaction now belongs to.
+        sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
+      })
+      const redacted = redactCustomerAuditEntry(revocationEntry(), liveAuthority)
+      expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+    })
+
+    it('widens access using a grant for the CURRENT parent after the move', () => {
+      const liveAuthority = ctx({
+        liveInteractionsById: new Map([
+          [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_B }],
+        ]),
+        sharedConversations: [{ personEntityId: PERSON_B, ownerUserId: OWNER }],
+      })
+      const redacted = redactCustomerAuditEntry(revocationEntry(), liveAuthority)
+      expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBe('Old shared subject')
+    })
   })
 })
 
@@ -727,7 +826,7 @@ describe('loadCustomerAuditRedactionContext', () => {
     jest.spyOn(conversationShares, 'listSharedChannelIds').mockResolvedValue([])
     const loadLiveSpy = jest
       .spyOn(conversationShares, 'loadLiveInteractionAuthority')
-      .mockResolvedValue(new Map([['int-1', { visibility: 'private', authorUserId: OWNER, channelId: null }]]))
+      .mockResolvedValue(new Map([['int-1', { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: null }]]))
     const result = await loadCustomerAuditRedactionContext(mockEm, scope, VIEWER, [
       { resourceKind: 'customers.interaction', resourceId: 'int-1' },
       { resourceKind: 'customers.person', resourceId: 'person-9' },
@@ -738,6 +837,7 @@ describe('loadCustomerAuditRedactionContext', () => {
       visibility: 'private',
       authorUserId: OWNER,
       channelId: null,
+      entityId: null,
     })
   })
 })

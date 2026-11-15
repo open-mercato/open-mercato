@@ -307,6 +307,197 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     ])
   })
 
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909076861,
+  // pullrequestreview-5909263810) — a stored `customers.interaction` snapshot's
+  // own `visibility` describes the state AT THE TIME that audit entry was
+  // recorded, which a later shared→private revocation can make stale. These
+  // exercise the full response boundary (not just the helper) so a broken
+  // `ActionLog.resourceId` → provider → JSON wiring would be caught here too.
+  describe('live-authority revocation at the response boundary', () => {
+    afterEach(() => {
+      delete (mockEm as Record<string, unknown>).find
+    })
+
+    function mockLiveInteraction(row: Record<string, unknown> | null) {
+      const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        const idFilter = where?.id as { $in?: string[] } | undefined
+        if (row && idFilter?.$in?.includes(row.id as string)) return [row]
+        return []
+      })
+      ;(mockEm as Record<string, unknown>).find = find
+      return find
+    }
+
+    it('hides a shared-at-the-time email after it has been revoked to private', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      const find = mockLiveInteraction({
+        id: 'interaction-1',
+        visibility: 'private',
+        authorUserId: 'user-2',
+        channelId: null,
+        entity: 'person-1',
+      })
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-1',
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-1',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Old shared subject',
+                body: 'Old shared body',
+              },
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
+      expect(data.items[0].snapshotBefore.interaction.body).toBeNull()
+      // The batch query must be scoped to the caller's own tenant/organization.
+      expect(find).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: { $in: ['interaction-1'] }, tenantId: 'tenant-1', organizationId: 'org-1' }),
+        expect.anything(),
+      )
+    })
+
+    it('keeps the revoked email visible to its own author', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      mockLiveInteraction({
+        id: 'interaction-1',
+        visibility: 'private',
+        authorUserId: 'user-2',
+        channelId: null,
+        entity: 'person-1',
+      })
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-1',
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-1',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Old shared subject',
+              },
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interaction.title).toBe('Old shared subject')
+    })
+
+    it('fails closed when the live-authority lookup finds nothing (interaction deleted since)', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      mockLiveInteraction(null)
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-deleted',
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-deleted',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Deleted-interaction subject',
+              },
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
+    })
+
+    it('does not widen access with a conversation-share grant for the historical (no-longer-current) parent after the interaction moved', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      // The interaction now lives under person-2, but the grant was only ever
+      // made for the OLD parent, person-1.
+      const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        const idFilter = where?.id as { $in?: string[] } | undefined
+        if (idFilter?.$in?.includes('interaction-1')) {
+          return [{ id: 'interaction-1', visibility: 'private', authorUserId: 'user-2', channelId: null, entity: 'person-2' }]
+        }
+        if ('ownerUserId' in where) {
+          return [{ id: 'share-1', ownerUserId: 'user-2', personEntity: { id: 'person-1' } }]
+        }
+        return []
+      })
+      ;(mockEm as Record<string, unknown>).find = find
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.interaction',
+            resourceId: 'interaction-1',
+            snapshotBefore: {
+              interaction: {
+                id: 'interaction-1',
+                entityId: 'person-1',
+                interactionType: 'email',
+                visibility: 'shared',
+                authorUserId: 'user-2',
+                title: 'Moved interaction subject',
+              },
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
+    })
+  })
+
   // Regression for the maintainer review on #8978 — this generic route must not
   // statically import CRM business logic (`packages/core/AGENTS.md` § Cross-Module
   // Coupling). When the `customers` module is disabled (its DI service is never
