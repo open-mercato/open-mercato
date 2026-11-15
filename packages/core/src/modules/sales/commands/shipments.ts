@@ -464,19 +464,6 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       // recalculates the order's fulfilled quantities, so a stale parent must 409
       // before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
-<<<<<<< HEAD
-=======
-      if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
-        const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
-        if (isCancelledOrderStatus(requestedOrderStatus)) {
-          await assertOrderCanBeCancelled(tx, order, {
-            shipment: {
-              status: statusValue,
-            },
-          })
-        }
-      }
->>>>>>> d4b4032fb9 (fix(sales): reject foreign shipment and payment references (#9585))
       const { items: normalizedItems, lineMap } = await validateShipmentItems({
         em: tx,
         order,
@@ -755,23 +742,9 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       const resolvedShipmentStatus = input.statusEntryId !== undefined
         ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
         : undefined
-<<<<<<< HEAD
-=======
       if (input.statusEntryId && !resolvedShipmentStatus) {
         throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
       }
-      if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
-        const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: shipmentEntity.tenantId })
-        if (isCancelledOrderStatus(requestedOrderStatus)) {
-          await assertOrderCanBeCancelled(tx, order, {
-            shipment: {
-              id: shipmentEntity.id,
-              status: resolvedShipmentStatus !== undefined ? resolvedShipmentStatus : shipmentEntity.status ?? null,
-            },
-          })
-        }
-      }
->>>>>>> d4b4032fb9 (fix(sales): reject foreign shipment and payment references (#9585))
       if (input.shipmentNumber !== undefined) shipmentEntity.shipmentNumber = input.shipmentNumber ?? null
       if (input.shippingMethodId !== undefined) shipmentEntity.shippingMethodId = input.shippingMethodId ?? null
       if (input.statusEntryId !== undefined) {

@@ -346,41 +346,17 @@ const createPaymentCommand: CommandHandler<
         'sales.payments.order_not_found'
       )
       ensureSameScope(order, input.organizationId, input.tenantId)
-<<<<<<< HEAD
-=======
+      const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
       const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
       if (input.statusEntryId && !status) {
         throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
       }
-      const lockedOrders = await lockOrdersForPaymentProjection(
-        tx,
-        collectAffectedOrderIds(order.id, allocationInputs.map((allocation) => allocation.orderId)),
-        scope,
-        new Map(),
-      )
->>>>>>> d4b4032fb9 (fix(sales): reject foreign shipment and payment references (#9585))
       if (order.deletedAt) {
         throw notFound('sales.payments.order_not_found')
       }
       // Guard the parent order's aggregate version (Gap A): a payment mutation
       // recalculates the order totals, so a stale parent must 409 before we touch it.
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
-<<<<<<< HEAD
-=======
-      if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
-        const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: input.tenantId })
-        if (isCancelledOrderStatus(requestedOrderStatus)) {
-          await assertOrderCanBeCancelled(tx, order, {
-            payment: {
-              status,
-              amount: input.amount,
-              capturedAmount: input.capturedAmount,
-              refundedAmount: input.refundedAmount,
-            },
-          })
-        }
-      }
->>>>>>> d4b4032fb9 (fix(sales): reject foreign shipment and payment references (#9585))
       if (
         order.currencyCode &&
         input.currencyCode &&
@@ -777,28 +753,14 @@ const updatePaymentCommand: CommandHandler<
     // Apply payment scalar fields, order/line status changes and the
     // allocations rebuild in one transaction so a mid-write failure cannot
     // leave the payment and its allocations partially committed (#2336).
-<<<<<<< HEAD
+    const scope = { tenantId: payment.tenantId, organizationId: payment.organizationId }
     await em.transactional(async (tx) => {
-=======
-    const scope: PaymentScope = { tenantId: payment.tenantId, organizationId: payment.organizationId }
-    const { lockedOrders, orderTotals } = await em.transactional(async (tx) => {
       const status = input.statusEntryId !== undefined
         ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
         : undefined
       if (input.statusEntryId && !status) {
         throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
       }
-      const lockedOrders = await lockPaymentOrders(
-        tx,
-        payment,
-        [
-          previousOrder?.id,
-          input.orderId,
-          (input.allocations ?? []).map((allocation) => allocation.orderId),
-        ],
-        scope,
-      )
->>>>>>> d4b4032fb9 (fix(sales): reject foreign shipment and payment references (#9585))
       if (input.orderId !== undefined) {
         if (!input.orderId) {
           payment.order = null
