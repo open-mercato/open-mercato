@@ -17,9 +17,14 @@ import { LockMode } from '@mikro-orm/core'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import { lockRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import {
+  findApiKeyIdsReferencingRoles,
+  lockRoleWriterAuthorizationState,
+} from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { lockReplayAuthorizationState } from '@open-mercato/core/modules/auth/lib/commandReplay'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { registerEntityIds, getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import type { EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 function withTransactionMethods<T extends object>(em: T): T & {
   begin: jest.Mock
@@ -67,6 +72,23 @@ function isReferenceScan(entity: unknown, where: LockWhere, options?: LockQueryO
 }
 
 describe('authorization state lock ordering', () => {
+  // The api_keys module is optional (see module-decoupling.test.ts): its entity
+  // metadata is only registered with the ORM when the module is enabled. This
+  // suite exercises the API-key-referencing path, so it owns its own snapshot of
+  // the process-global entity id registry instead of relying on whatever the
+  // surrounding run happens to have registered.
+  let previousEntityIds: EntityIds | null = null
+
+  beforeEach(() => {
+    previousEntityIds = getEntityIds(false)
+    registerEntityIds({ api_keys: { api_key: 'api_keys:api_key' } })
+  })
+
+  afterEach(() => {
+    registerEntityIds(previousEntityIds ?? ({} as EntityIds))
+    previousEntityIds = null
+  })
+
   it('locks referencing API-key parents before role parents with one ordered query per kind', async () => {
     const lockOrder: string[] = []
     const em = withTransactionMethods({
@@ -160,6 +182,80 @@ describe('authorization state lock ordering', () => {
         refresh: true,
       },
     )
+  })
+
+  it('locks the delegated key owner and its ACL before replay authorization', async () => {
+    const lockOrder: string[] = []
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+          lockOrder.push(`${entityLabel(entity)}:${lockedIds(where)}`)
+        }
+        if (entity === ApiKey && typeof where.id === 'object') {
+          return [{ id: 'key-actor', rolesJson: ['role-a'], sessionUserId: 'owner-1' }]
+        }
+        return []
+      }),
+      findOne: jest.fn(async () => null),
+    })
+    await inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'api_key:key-actor', tenantId: null, orgId: null } },
+      {},
+    ))
+    expect(lockOrder).toEqual([
+      'key:key-actor', 'user:owner-1', 'role:role-a', 'user-role:', 'user-acl:', 'role-acl:',
+    ])
+    expect(em.find).toHaveBeenCalledWith(UserAcl, { user: { $in: ['owner-1'] } }, expect.objectContaining({
+      lockMode: LockMode.PESSIMISTIC_WRITE,
+    }))
+  })
+
+  it('rejects an owner binding changed during API-key lock acquisition', async () => {
+    let keyReads = 0
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: LockWhere) => {
+        if (entity === ApiKey && typeof where.id === 'object') {
+          keyReads += 1
+          return [{ id: 'key-actor', rolesJson: [], sessionUserId: keyReads === 1 ? 'owner-1' : 'owner-2' }]
+        }
+        return []
+      }),
+      findOne: jest.fn(async () => null),
+    })
+    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'api_key:key-actor', tenantId: null, orgId: null } },
+      {},
+    ))).rejects.toMatchObject({ status: 409 })
+  })
+
+  it.each(['owner', 'roles'] as const)('rejects %s drift when locking refreshes the same managed API key', async (changedField) => {
+    const managedApiKey = { id: 'key-actor', rolesJson: ['role-a'], sessionUserId: 'owner-1' }
+    const lockedUsers: string[] = []
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (entity === User && options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+          lockedUsers.push(lockedIds(where))
+        }
+        if (entity === ApiKey && typeof where.id === 'object') {
+          if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+            if (changedField === 'owner') managedApiKey.sessionUserId = 'owner-2'
+            else managedApiKey.rolesJson.splice(0, managedApiKey.rolesJson.length, 'role-b')
+          }
+          return [managedApiKey]
+        }
+        return []
+      }),
+      findOne: jest.fn(async () => null),
+    })
+
+    await expect(inTransaction(em, () => lockReplayAuthorizationState(
+      em as never,
+      { auth: { sub: 'api_key:key-actor', tenantId: null, orgId: null } },
+      {},
+    ))).rejects.toMatchObject({ status: 409 })
+    expect(lockedUsers).toEqual([])
   })
 
   it('rejects a membership phantom instead of appending earlier-rank locks', async () => {
@@ -359,5 +455,24 @@ describe('authorization state lock ordering', () => {
     expect(lockedUsers).toEqual(['user-a,user-b', 'user-a,user-b', 'user-a,user-c'])
     expect(em.rollback).toHaveBeenCalledTimes(1)
     expect(em.commit).toHaveBeenCalledTimes(2)
+  })
+
+  it('skips the API-key reference lookup when the api_keys module is disabled', async () => {
+    registerEntityIds({})
+    const em = withTransactionMethods({
+      find: jest.fn(async (entity: unknown, where: LockWhere, options?: LockQueryOptions) => {
+        if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+          const ids = typeof where.id === 'object' ? where.id.$in ?? [] : []
+          return ids.map((id) => ({ id }))
+        }
+        return []
+      }),
+      findOne: jest.fn(async () => null),
+    })
+
+    await expect(findApiKeyIdsReferencingRoles(em as never, ['role-a'])).resolves.toEqual([])
+    await expect(lockRoleWriterAuthorizationState(em as never, ['role-a'])).resolves.toBeUndefined()
+
+    expect(em.find).not.toHaveBeenCalledWith(ApiKey, expect.anything(), expect.anything())
   })
 })

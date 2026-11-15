@@ -1,10 +1,10 @@
 # Standalone Architecture and Discovery
 
-Use this guide to choose ownership, locate module surfaces, and keep generated discovery correct.
+Choose ownership, locate module surfaces, and keep generated discovery correct.
 
 ## Context Ownership and Scattering
 
-The harness is intentionally layered so an agent can assemble precise context without paying for the whole framework:
+Load precise context through these layers:
 
 | Layer | Owns | Loading rule |
 |---|---|---|
@@ -15,9 +15,9 @@ The harness is intentionally layered so an agent can assemble precise context wi
 | `om-framework-context` output | Exact installed instructions, source/types, and bounded search results | Last-mile escalation after app call sites, facts, and concept guides cannot answer the question. |
 | External `open-mercato/skills` | SDLC and delivery workflows | Select independently only when the requested lifecycle needs one. |
 
-Match area, work units, and delivery independently, then de-duplicate their union by path and skill. A business one-shot is not one giant context category: split it into units such as entity, command, API, admin UI, public capture, CRM extension, event, and provider, and give each unit only its owning area and contract. Do not preload all module facts, skill references, upstream guides, or installed package source.
+Match area, work units, and delivery independently; de-duplicate paths and skills. Split business tasks into entity, command, API, admin UI, public capture, CRM extension, event, and provider units; give each only its owning area and contract. Do not preload all module facts, skill references, upstream guides, or installed package source.
 
-Keep facts and source in different roles. Facts answer “what identifier or surface exists?”; exact installed source answers “how does this version implement or type the contract?” The latter is read-only evidence, never a writable escape hatch.
+Facts identify existing identifiers and surfaces; exact installed source shows how this version implements or types the contract. Source is read-only evidence, never a writable escape hatch.
 
 ## Ownership Decision
 
@@ -40,7 +40,7 @@ src/modules.ts                    enabled modules and supported overrides
 node_modules/@open-mercato/*/    exact installed packages, read-only
 ```
 
-Do not copy an installed module merely to learn it. Generated facts and the context resolver expose the exact installed source without widening the writable surface.
+Do not copy installed modules to learn them. Generated facts and the context resolver expose exact installed source without widening the writable surface.
 
 ## Canonical Module Shape
 
@@ -90,6 +90,10 @@ For the complete current convention-file catalog, load `om-module-scaffold` → 
 6. If duplicate packages, version skew, or conflicting rules remain, stop instead of combining contracts from different versions.
 
 The app root governs writable locations and safety. The compatibility snapshot governs stable public identifiers. The nearest installed package/module guide governs version-specific implementation details.
+
+For creation, publication, and continued repository development of one app module, read `.ai/guides/module-tool.md`.
+
+To save an app template or create an app from one, read `.ai/guides/template-tool.md`.
 
 ## Package and Bootstrap Boundaries
 

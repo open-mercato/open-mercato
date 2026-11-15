@@ -34,6 +34,7 @@ import { TagsInput } from "@open-mercato/ui/backend/inputs/TagsInput";
 import { Textarea } from "@open-mercato/ui/primitives/textarea";
 import { DataLoader } from "@open-mercato/ui/primitives/DataLoader";
 import { cn } from "@open-mercato/shared/lib/utils";
+import { formatLocaleNumberInput } from "@open-mercato/shared/lib/number";
 import { extractCustomFieldEntries } from "@open-mercato/shared/lib/crud/custom-fields-client";
 import { Spinner } from "@open-mercato/ui/primitives/spinner";
 import {
@@ -74,6 +75,7 @@ import {
   type ProductUnitRoundingMode,
   productFormSchema,
   withCanonicalUomFields,
+  withLocaleUomFields,
   BASE_INITIAL_VALUES,
   createLocalId,
   slugify,
@@ -120,6 +122,7 @@ import {
   toPositiveNumberOrNull,
   toIntegerInRangeOrDefault,
   normalizeProductConversionInputs,
+  pickEnrichmentNamespaces,
   type ProductUnitConversionInput,
 } from "@open-mercato/core/modules/catalog/components/products/productFormUtils";
 import {
@@ -278,6 +281,7 @@ function normalizeVariantOptionValues(
 
 function readProductConversionRows(
   items: Array<Record<string, unknown>> | undefined,
+  locale?: string,
 ): ProductUnitConversionDraft[] {
   const rows = Array.isArray(items) ? items : [];
   return rows
@@ -303,7 +307,7 @@ function readProductConversionRows(
       return {
         id: id ?? null,
         unitCode,
-        toBaseFactor: String(factor),
+        toBaseFactor: formatLocaleNumberInput(factor, locale),
         sortOrder: String(sortOrderRaw),
         isActive,
         updatedAt:
@@ -678,7 +682,7 @@ export default function EditCatalogProductPage({
           optionInputs = readOptionSchema(metadata);
         }
         const conversionRows = conversionsRes.ok
-          ? readProductConversionRows(conversionsRes.result?.items)
+          ? readProductConversionRows(conversionsRes.result?.items, locale)
           : [];
         initialConversionsRef.current = conversionRows;
         const customValues = extractCustomFieldEntries(record);
@@ -741,7 +745,10 @@ export default function EditCatalogProductPage({
           weight: sanitizeProductWeight(weight),
           defaultUnit: defaultUnit ?? null,
           defaultSalesUnit: defaultSalesUnit ?? defaultUnit ?? null,
-          defaultSalesUnitQuantity: String(defaultSalesUnitQuantity ?? 1),
+          defaultSalesUnitQuantity: formatLocaleNumberInput(
+            defaultSalesUnitQuantity ?? 1,
+            locale,
+          ),
           uomRoundingScale: String(roundingScale),
           uomRoundingMode: roundingMode,
           unitPriceEnabled,
@@ -753,7 +760,9 @@ export default function EditCatalogProductPage({
               ? (unitPriceReferenceUnit as ProductUnitPriceReferenceUnit)
               : null,
           unitPriceBaseQuantity:
-            unitPriceBaseQuantity === null ? "" : String(unitPriceBaseQuantity),
+            unitPriceBaseQuantity === null
+              ? ""
+              : formatLocaleNumberInput(unitPriceBaseQuantity, locale),
           unitConversions: conversionRows,
           customFieldsetCode:
             typeof record.custom_fieldset_code === "string"
@@ -773,7 +782,11 @@ export default function EditCatalogProductPage({
                 : null,
         };
         if (!cancelled) {
-          setInitialValues({ ...initial, ...customValues });
+          setInitialValues({
+            ...initial,
+            ...customValues,
+            ...pickEnrichmentNamespaces(record),
+          });
           setCategorizeOptions({
             categories: categoryOptions,
             channels: channelOptionEntries,
@@ -801,7 +814,7 @@ export default function EditCatalogProductPage({
     return () => {
       cancelled = true;
     };
-  }, [fetchAttachments, loadVariants, productId, t]);
+  }, [fetchAttachments, loadVariants, locale, productId, t]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1394,6 +1407,19 @@ export default function EditCatalogProductPage({
         typeof updateResult.result?.updatedAt === "string"
           ? updateResult.result.updatedAt
           : null;
+      // The update route does not echo response enrichments (`_wms`, …), so re-read
+      // them when the record carries any — otherwise CrudForm's post-save
+      // `transformDisplayData` resync restores the injected fields' pre-save values
+      // and the next save writes them back (#6142).
+      let refreshedEnrichments: Record<string, unknown> = {};
+      if (Object.keys(pickEnrichmentNamespaces(formValues as Record<string, unknown>)).length > 0) {
+        const refreshedProductRes = await apiCall<ProductResponse>(
+          `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
+        );
+        refreshedEnrichments = pickEnrichmentNamespaces(
+          refreshedProductRes.ok ? refreshedProductRes.result?.items?.[0] : undefined,
+        );
+      }
       // Merge the just-submitted `values` back into `initialValues` too, not only
       // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
       // whenever that prop's identity changes, so leaving the other fields at
@@ -1403,7 +1429,8 @@ export default function EditCatalogProductPage({
         prev
           ? {
               ...prev,
-              ...values,
+              ...withLocaleUomFields(values, locale),
+              ...refreshedEnrichments,
               updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
             }
           : prev,
@@ -1506,7 +1533,7 @@ export default function EditCatalogProductPage({
         );
       }
     },
-    [productId, t, taxRates, variants],
+    [locale, productId, t, taxRates, variants],
   );
 
   if (!productId) {
@@ -1581,6 +1608,7 @@ export default function EditCatalogProductPage({
           }}
           initialValues={initialValues ?? undefined}
           isLoading={loading}
+          disableInitialFocus
           loadingMessage={t("catalog.products.edit.loading", "Loading product")}
           submitLabel={t("catalog.products.edit.save", "Save changes")}
           cancelHref="/backend/catalog/products"

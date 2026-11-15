@@ -10,7 +10,7 @@ import { handleCheckoutRouteError, readCheckoutAccessCookie, requirePreviewConte
 import {
   isCheckoutLinkPublic,
   resolveLoadedCheckoutCustomFields,
-  serializeTemplateOrLink,
+  serializePublicPayLink,
   verifyCheckoutAccessToken,
 } from '../../../lib/utils'
 import { checkoutTag } from '../../openapi'
@@ -25,8 +25,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const resolvedParams = await params
     const url = new URL(req.url)
     const previewRequested = url.searchParams.get('preview') === 'true'
-    const container = await createRequestContainer()
-    if (previewRequested) await requirePreviewContext(req)
+    const previewContext = previewRequested ? await requirePreviewContext(req) : null
+    const container = previewContext?.container ?? await createRequestContainer()
     if (!previewRequested) {
       // Fail-open: this endpoint is read-only.
       const rateLimitResponse = await enforceCheckoutRateLimit({
@@ -40,10 +40,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       if (rateLimitResponse) return rateLimitResponse
     }
     const em = container.resolve('em')
+    const previewScope = previewContext ? {
+      tenantId: previewContext.auth.tenantId,
+      organizationId: previewContext.auth.orgId,
+    } : undefined
     const link = await findOneWithDecryption(em, CheckoutLink, {
       slug: resolvedParams.slug,
       deletedAt: null,
-    })
+      ...previewScope,
+    }, undefined, previewScope)
     if (!link || (!previewRequested && !isCheckoutLinkPublic(link.status))) {
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
     }
@@ -79,7 +84,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       displayCustomFieldsOnPage: link.displayCustomFieldsOnPage,
     })
     return NextResponse.json({
-      ...serializeTemplateOrLink(link),
+      ...serializePublicPayLink(link),
       publicCustomFields,
       available: previewRequested ? false : available,
       remainingUses: link.maxCompletions == null
@@ -87,7 +92,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
         : Math.max(0, link.maxCompletions - link.completionCount - link.activeReservationCount),
       requiresPassword: false,
       preview: previewRequested,
-      gatewaySettings: undefined,
     })
   } catch (error) {
     return handleCheckoutRouteError(error)

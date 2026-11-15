@@ -7,6 +7,7 @@ import { Switch } from '../../primitives/switch'
 import { Input } from '../../primitives/input'
 import { SearchInput } from '../../primitives/search-input'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { UNGROUPED_GROUP_ID, resolveGroupLabel } from '../utils/groupLabels'
 import {
   DndContext,
   closestCenter,
@@ -131,13 +132,13 @@ export function ColumnChooserSection({
 
     const groups = new Map<string, ColumnChooserField[]>()
     for (const col of filtered) {
-      const group = col.group || t('ui.columnChooser.ungrouped', 'Other')
+      const group = col.group || UNGROUPED_GROUP_ID
       const list = groups.get(group) ?? []
       list.push(col)
       groups.set(group, list)
     }
     return groups
-  }, [availableColumns, searchQuery, visibleSet, t])
+  }, [availableColumns, searchQuery, visibleSet])
 
   const toggleGroup = React.useCallback((group: string) => {
     setExpandedGroups((prev) => {
@@ -227,7 +228,7 @@ export function ColumnChooserSection({
                   onClick={() => toggleGroup(group)}
                 >
                   <ChevronRight className={`size-4 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} />
-                  <span>{group}</span>
+                  <span>{resolveGroupLabel(t, group, 'ui.columnChooser.ungrouped', 'Other')}</span>
                 </Button>
                 {!isCollapsed ? (
                   <div className="space-y-2 mt-2">

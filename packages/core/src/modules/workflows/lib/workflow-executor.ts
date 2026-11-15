@@ -13,8 +13,9 @@
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  UserTask,
   WorkflowDefinition,
   WorkflowInstance,
   WorkflowEvent,
@@ -22,10 +23,16 @@ import {
   type WorkflowInstanceErrorHandlerMetadata,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
+import {
+  ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES,
+  readPendingAsyncJobIds,
+  resolveAsyncActivityWait,
+} from './async-activity-wait'
 import { WORKFLOW_ENGINE_VERSION, isEngineVersionSupported } from './engine-version'
 import {
   WORKFLOW_ERROR_CONTEXT_KEY,
   buildErrorContextEntry,
+  resolveStepFailureHandling,
 } from './error-routing'
 import { excludeNonNormalTransitions } from './route-kinds'
 import {
@@ -53,6 +60,7 @@ import type {
   WorkflowActivityJob,
   WorkflowActivityJobResumeSubWorkflowParent,
 } from './activity-queue-types'
+import type { TransitionExecutionResult } from './transition-handler'
 
 const logger = createLogger('workflows')
 
@@ -667,74 +675,54 @@ export async function executeWorkflow(
           )
 
           if (!transitionResult.success) {
-            const rejectionMessage = transitionResult.error || 'Transition failed'
-
             // Error routing (spec 5.9): a wired error route is followed instead
             // of failing the instance; a failure-queue directive parks it. Both
             // are absent unless the definition opts in, so the legacy failure
-            // path below is byte-identical for every existing definition.
-            if (transitionResult.errorRoute && transitionResult.failedStepId) {
-              const routed = await followErrorRoute(
-                trx,
-                container,
-                currentInstance,
-                transitionResult.failedStepId,
-                transitionResult.errorRoute,
-                rejectionMessage,
-                evalContext
-              )
-              if (routed) {
-                events.push({
-                  eventType: 'ERROR_ROUTED',
-                  occurredAt: new Date(),
-                  data: {
-                    failedStepId: transitionResult.failedStepId,
-                    toStepId: transitionResult.errorRoute.toStepId,
-                    transitionId: transitionResult.errorRoute.transitionId,
-                  },
-                })
-                continue
+            // path is byte-identical for every existing definition.
+            const failure = await handleTransitionFailure(
+              trx,
+              container,
+              currentInstance,
+              transitionResult,
+              {
+                evalContext,
+                fromStepId: selectedTransition.fromStepId,
+                toStepId: selectedTransition.toStepId,
+                source: 'executor',
               }
-              errors.push(`Error route from ${transitionResult.failedStepId} could not be followed`)
+            )
+            errors.push(...failure.notes)
+
+            if (failure.kind === 'errorRouted') {
+              events.push({
+                eventType: 'ERROR_ROUTED',
+                occurredAt: new Date(),
+                data: {
+                  failedStepId: failure.failedStepId,
+                  toStepId: failure.toStepId,
+                  transitionId: failure.transitionId,
+                },
+              })
+              continue
             }
 
-            if (transitionResult.errorHandlerStepId && transitionResult.failedStepId) {
-              const entered = await enterErrorHandlerStep(
-                trx,
-                container,
-                currentInstance,
-                transitionResult.failedStepId,
-                transitionResult.errorHandlerStepId,
-                rejectionMessage,
-                executionUserId
-              )
-              if (entered) {
-                events.push({
-                  eventType: 'ERROR_HANDLER_STARTED',
-                  occurredAt: new Date(),
-                  data: {
-                    failedStepId: transitionResult.failedStepId,
-                    handlerStepId: transitionResult.errorHandlerStepId,
-                  },
-                })
-                continue
-              }
-              errors.push(
-                `Error handler step ${transitionResult.errorHandlerStepId} could not be entered`
-              )
+            if (failure.kind === 'errorHandlerStarted') {
+              events.push({
+                eventType: 'ERROR_HANDLER_STARTED',
+                occurredAt: new Date(),
+                data: {
+                  failedStepId: failure.failedStepId,
+                  handlerStepId: failure.handlerStepId,
+                },
+              })
+              continue
             }
 
-            if (transitionResult.parkForAttention && transitionResult.failedStepId) {
-              await parkInstanceForAttention(
-                trx,
-                currentInstance,
-                transitionResult.failedStepId,
-                rejectionMessage
-              )
+            if (failure.kind === 'parked') {
               events.push({
                 eventType: 'ERROR_PARKED',
                 occurredAt: new Date(),
-                data: { failedStepId: transitionResult.failedStepId },
+                data: { failedStepId: failure.failedStepId },
               })
               return {
                 status: 'RUNNING',
@@ -745,18 +733,7 @@ export async function executeWorkflow(
               }
             }
 
-            logger.error('Transition rejected', {
-              instanceId: currentInstance.id,
-              workflowId: currentInstance.workflowId,
-              fromStepId: currentInstance.currentStepId,
-              toStepId: selectedTransition.toStepId,
-              err: rejectionMessage,
-            })
-            errors.push(rejectionMessage)
-
-            await completeWorkflow(trx, container, instanceId, 'FAILED', {
-              error: rejectionMessage,
-            })
+            errors.push(failure.error)
             events.push({
               eventType: 'WORKFLOW_FAILED',
               occurredAt: new Date(),
@@ -1128,6 +1105,115 @@ async function dispatchAgentOutcome(
   return await failUnhandled(unhandled)
 }
 
+export type TransitionFailureInput = Pick<
+  TransitionExecutionResult,
+  'error' | 'failedStepId' | 'errorRoute' | 'errorHandlerStepId' | 'parkForAttention'
+>
+
+export type TransitionFailureOutcome =
+  | { kind: 'errorRouted'; failedStepId: string; toStepId: string; transitionId?: string; notes: string[] }
+  | { kind: 'errorHandlerStarted'; failedStepId: string; handlerStepId: string; notes: string[] }
+  | { kind: 'parked'; failedStepId: string; notes: string[] }
+  | { kind: 'failed'; error: string; notes: string[] }
+
+export interface TransitionFailureOptions {
+  evalContext: { workflowContext: Record<string, any>; userId?: string }
+  fromStepId?: string | null
+  toStepId?: string | null
+  source: string
+}
+
+/**
+ * Apply the engine's failure contract to a rejected transition (spec 5.9): a
+ * wired error route is followed, then the definition-level handler step is
+ * entered, then a failure-queue directive parks the run, and otherwise the
+ * instance completes FAILED with the step's error.
+ *
+ * The executor loop is not the only place a step gets entered — task
+ * completion, signal/timer/condition resumes, SLA-breach routes and the async
+ * activity resume all execute transitions out of band. Every one of them MUST
+ * route a `{ success: false }` through here, or the step instance ends FAILED
+ * while the run sits non-terminal with no error to act on (#8791).
+ *
+ * `errorRouted` / `errorHandlerStarted` mean the run moved on and the caller
+ * continues executing it; `parked` and `failed` are terminal for the call.
+ * `notes` carries the routing attempts that could not be completed.
+ */
+export async function handleTransitionFailure(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  transitionResult: TransitionFailureInput,
+  options: TransitionFailureOptions
+): Promise<TransitionFailureOutcome> {
+  const rejectionMessage = transitionResult.error || 'Transition failed'
+  const notes: string[] = []
+  const failedStepId = transitionResult.failedStepId
+
+  if (transitionResult.errorRoute && failedStepId) {
+    const routed = await followErrorRoute(
+      em,
+      container,
+      instance,
+      failedStepId,
+      transitionResult.errorRoute,
+      rejectionMessage,
+      options.evalContext
+    )
+    if (routed) {
+      return {
+        kind: 'errorRouted',
+        failedStepId,
+        toStepId: transitionResult.errorRoute.toStepId,
+        transitionId: transitionResult.errorRoute.transitionId,
+        notes,
+      }
+    }
+    notes.push(`Error route from ${failedStepId} could not be followed`)
+  }
+
+  if (transitionResult.errorHandlerStepId && failedStepId) {
+    const entered = await enterErrorHandlerStep(
+      em,
+      container,
+      instance,
+      failedStepId,
+      transitionResult.errorHandlerStepId,
+      rejectionMessage,
+      options.evalContext.userId
+    )
+    if (entered) {
+      return {
+        kind: 'errorHandlerStarted',
+        failedStepId,
+        handlerStepId: transitionResult.errorHandlerStepId,
+        notes,
+      }
+    }
+    notes.push(`Error handler step ${transitionResult.errorHandlerStepId} could not be entered`)
+  }
+
+  if (transitionResult.parkForAttention && failedStepId) {
+    await parkInstanceForAttention(em, instance, failedStepId, rejectionMessage)
+    return { kind: 'parked', failedStepId, notes }
+  }
+
+  logger.error('Transition rejected', {
+    instanceId: instance.id,
+    workflowId: instance.workflowId,
+    source: options.source,
+    fromStepId: options.fromStepId ?? instance.currentStepId,
+    toStepId: options.toStepId,
+    err: rejectionMessage,
+  })
+
+  await completeWorkflow(em, container, instance.id, 'FAILED', {
+    error: rejectionMessage,
+  })
+
+  return { kind: 'failed', error: rejectionMessage, notes }
+}
+
 /**
  * Follow a wired error route out of a failed step (spec 5.9). The failure is
  * published into the run context under `__error` so the handling branch can act
@@ -1482,6 +1568,28 @@ export async function completeWorkflow(
   }
 
   // Original completion logic (no compensation needed or status is COMPLETED/CANCELLED)
+
+  // A cancelled run has no recovery path, so its open tasks can never become
+  // actionable again: close them in the same flush as the status. CANCELLED
+  // only — a FAILED run parked on a task is retried against that same task.
+  // Loaded before the run is mutated so no read sits between a scalar change
+  // and the flush that persists it.
+  const cancelledTasks =
+    status === 'CANCELLED'
+      ? await findWithDecryption(
+          em as PostgreSqlEntityManager,
+          UserTask,
+          {
+            workflowInstanceId: instance.id,
+            tenantId: instance.tenantId,
+            organizationId: instance.organizationId,
+            status: { $in: ['PENDING', 'IN_PROGRESS'] },
+          },
+          undefined,
+          { tenantId: instance.tenantId, organizationId: instance.organizationId }
+        )
+      : []
+
   const now = new Date()
   instance.status = status
   instance.updatedAt = now
@@ -1509,7 +1617,26 @@ export async function completeWorkflow(
 
   await writeRunOutcome(em, instance, status)
 
+  for (const task of cancelledTasks) {
+    task.status = 'CANCELLED'
+    task.updatedAt = now
+  }
+
   await em.flush()
+
+  // Logged before the terminal event so WORKFLOW_CANCELLED stays last in the
+  // run's timeline.
+  for (const task of cancelledTasks) {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instanceId,
+      stepInstanceId: task.stepInstanceId,
+      ...(task.branchInstanceId ? { branchInstanceId: task.branchInstanceId } : {}),
+      eventType: 'USER_TASK_CANCELLED',
+      eventData: { taskId: task.id, taskName: task.taskName, reason: 'workflow-cancelled' },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+  }
 
   // Log completion event
   const eventType =
@@ -1635,33 +1762,31 @@ export async function resumeWorkflowAfterActivities(
       throw new Error('Workflow instance not waiting for activities')
     }
 
-    const pendingJobIds = (instance.context._pendingAsyncActivities as any[]) || []
+    const pendingJobIds = readPendingAsyncJobIds(instance.context._pendingAsyncActivities)
 
-    const completedActivities = await trx.count(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_COMPLETED',
-      eventData: { async: true },
-    })
+    const outcomeEvents = pendingJobIds.length === 0
+      ? []
+      : await trx.find(
+        WorkflowEvent,
+        {
+          workflowInstanceId: instanceId,
+          eventType: { $in: [...ASYNC_ACTIVITY_OUTCOME_EVENT_TYPES] },
+          eventData: { async: true, jobId: { $in: pendingJobIds } },
+        },
+        { orderBy: { occurredAt: 'asc', id: 'asc' } },
+      )
+    const wait = resolveAsyncActivityWait(pendingJobIds, outcomeEvents)
 
-    const failedActivities = await trx.count(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_FAILED',
-      eventData: { async: true },
-    })
-
-    const totalProcessed = completedActivities + failedActivities
-
-    if (totalProcessed < pendingJobIds.length) {
+    if (!wait.settled) {
       throw new Error('Activities still pending')
     }
 
-    if (failedActivities > 0) {
-      const failedEvents = await trx.find(WorkflowEvent, {
-        workflowInstanceId: instanceId,
-        eventType: 'ACTIVITY_FAILED',
-        eventData: { async: true },
-      })
+    const completedEvents = wait.completed
+    const failedEvents = wait.failed
+    const completedActivities = completedEvents.length
+    const failedActivities = failedEvents.length
 
+    if (failedActivities > 0) {
       instance.status = 'FAILED'
       instance.errorMessage = `${failedActivities} async activities failed`
       instance.errorDetails = {
@@ -1687,12 +1812,6 @@ export async function resumeWorkflowAfterActivities(
 
       return { continueExecution: false }
     }
-
-    const completedEvents = await trx.find(WorkflowEvent, {
-      workflowInstanceId: instanceId,
-      eventType: 'ACTIVITY_COMPLETED',
-      eventData: { async: true },
-    })
 
     for (const event of completedEvents) {
       if (event.eventData.output) {
@@ -1741,6 +1860,7 @@ export async function resumeWorkflowAfterActivities(
     }
 
     const step = definition.definition.steps.find(s => s.stepId === pendingTransition.toStepId)
+    const resumedFromStepId = instance.currentStepId
 
     instance.currentStepId = pendingTransition.toStepId
     instance.status = 'RUNNING'
@@ -1777,19 +1897,30 @@ export async function resumeWorkflowAfterActivities(
     // workflow would revert to the starting user's identity the moment one of
     // its activities went async.
     const resumeDefinition = await findDefinitionForInstance(trx, instance)
+    const resumeUserId = resumeDefinition
+      ? await resolveRunActorUserId(trx, resumeDefinition, undefined, instance)
+      : resolveWorkflowExecutionUserId(undefined, instance)
     const { executeStep } = await import('./step-handler')
-    await executeStep(
+    const stepResult = await executeStep(
       trx,
       instance,
       pendingTransition.toStepId,
       {
         workflowContext: instance.context || {},
-        userId: resumeDefinition
-          ? await resolveRunActorUserId(trx, resumeDefinition, undefined, instance)
-          : resolveWorkflowExecutionUserId(undefined, instance),
+        userId: resumeUserId,
       },
       container
     )
+
+    if (stepResult.status === 'FAILED') {
+      return await handleResumedStepFailure(trx, container, instance, {
+        failedStepId: pendingTransition.toStepId,
+        fromStepId: resumedFromStepId,
+        error: stepResult.error,
+        userId: resumeUserId,
+        definition,
+      })
+    }
 
     return { continueExecution: true }
   }
@@ -1800,6 +1931,70 @@ export async function resumeWorkflowAfterActivities(
 
   if (resumeResult.continueExecution) {
     await executeWorkflow(em, container, instanceId)
+  }
+}
+
+/**
+ * The async resume re-enters the pending step OUTSIDE `executeTransition`, so
+ * the step-failure handling the transition handler applies to a FAILED step
+ * has to be applied here: `continueWithFallback` advances with the fallback in
+ * context, every other directive goes through `handleTransitionFailure`.
+ */
+async function handleResumedStepFailure(
+  em: EntityManager,
+  container: AwilixContainer,
+  instance: WorkflowInstance,
+  failure: {
+    failedStepId: string
+    fromStepId: string | null
+    error?: string
+    userId?: string
+    definition: WorkflowDefinition
+  }
+): Promise<{ continueExecution: boolean }> {
+  const error = failure.error || 'Step execution failed'
+  const handling = resolveStepFailureHandling(failure.definition.definition, failure.failedStepId)
+
+  if (handling.kind === 'continue') {
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instance.id,
+      eventType: 'ERROR_DIRECTIVE_APPLIED',
+      eventData: {
+        stepId: failure.failedStepId,
+        directive: 'continueWithFallback',
+        source: 'asyncResume',
+        error,
+        hasFallbackValue: handling.fallbackValue !== undefined,
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+    if (handling.fallbackValue !== undefined) {
+      instance.context = {
+        ...(instance.context || {}),
+        [failure.failedStepId]: handling.fallbackValue,
+      }
+      instance.updatedAt = new Date()
+      await em.flush()
+    }
+    return { continueExecution: true }
+  }
+
+  const { buildFailureRouting } = await import('./transition-handler')
+  const outcome = await handleTransitionFailure(
+    em,
+    container,
+    instance,
+    { error, ...buildFailureRouting(handling, failure.failedStepId) },
+    {
+      evalContext: { workflowContext: instance.context || {}, userId: failure.userId },
+      fromStepId: failure.fromStepId,
+      toStepId: failure.failedStepId,
+      source: 'asyncResume',
+    }
+  )
+  return {
+    continueExecution: outcome.kind === 'errorRouted' || outcome.kind === 'errorHandlerStarted',
   }
 }
 
@@ -2047,6 +2242,7 @@ async function logWorkflowEvent(
   event: {
     workflowInstanceId: string
     stepInstanceId?: string
+    branchInstanceId?: string
     eventType: string
     eventData: any
     userId?: string

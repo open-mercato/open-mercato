@@ -4,7 +4,10 @@ import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
+import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { auditRecordName, auditChangeSummary, auditExecutionState } from '../lib/rowPresentation'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
@@ -15,6 +18,10 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('audit_logs').child({ component: 'AuditLogsActions' })
+
+function AuditLogRowActions({ children }: { items: RowActionItem[]; children: React.ReactNode }) {
+  return <div className="flex justify-end gap-1" data-actions-cell>{children}</div>
+}
 
 /**
  * `raiseCrudError` prefers the server's `error` body over the fallback message and stamps
@@ -150,33 +157,52 @@ export function AuditLogsActions({
     }
   }, [onRefresh, onRedoError, t])
 
-  const columns = React.useMemo<ColumnDef<ActionLogItem, any>[]>(() => [
+  const columns = React.useMemo<ColumnDef<ActionLogItem, unknown>[]>(() => [
     {
       accessorKey: 'actionLabel',
       header: t('audit_logs.actions.columns.action'),
-      cell: (info) => info.row.original.actionLabel || info.row.original.commandId,
+      cell: (info) => {
+        const item = info.row.original
+        const summary = auditChangeSummary(item, t)
+        return (
+          <div className="max-w-72">
+            <div>{item.actionLabel || item.commandId}</div>
+            <div className="truncate text-xs text-muted-foreground" title={summary}>{summary}</div>
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'resourceKind',
       header: t('audit_logs.actions.columns.resource'),
-      cell: (info) => formatResource(info.row.original, noneLabel),
+      cell: (info) => {
+        const item = info.row.original
+        const name = auditRecordName(item)
+        const resource = formatResource(item, noneLabel)
+        return (
+          <div className="max-w-72">
+            {name ? <div className="truncate font-medium" title={name}>{name}</div> : null}
+            <div className={name ? 'truncate text-xs text-muted-foreground' : 'truncate'} title={resource}>{resource}</div>
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'actorUserId',
       header: t('audit_logs.actions.columns.user'),
-      cell: (info) => info.row.original.actorUserName || info.getValue() || noneLabel,
+      cell: (info) => info.row.original.actorUserName || noneLabel,
       meta: { priority: 3 },
     },
     {
       accessorKey: 'tenantId',
       header: t('audit_logs.actions.columns.tenant'),
-      cell: (info) => info.row.original.tenantName || info.getValue() || noneLabel,
+      cell: (info) => info.row.original.tenantName || info.row.original.tenantId || noneLabel,
       meta: { priority: 4 },
     },
     {
       accessorKey: 'organizationId',
       header: t('audit_logs.actions.columns.organization'),
-      cell: (info) => info.row.original.organizationName || info.getValue() || noneLabel,
+      cell: (info) => info.row.original.organizationName || info.row.original.organizationId || noneLabel,
       meta: { priority: 4 },
     },
     {
@@ -187,52 +213,61 @@ export function AuditLogsActions({
     {
       accessorKey: 'executionState',
       header: t('audit_logs.actions.columns.status'),
+      cell: (info) => auditExecutionState(info.row.original.executionState, t),
     },
-    {
-      id: 'controls',
-      header: t('audit_logs.actions.columns.controls'),
-      enableSorting: false,
-      cell: (info) => {
-        const item = info.row.original
-        const itemCanUndo = canUndoEntry(permissions, item.actorUserId)
-        const itemCanRedo = canRedoEntry(permissions, item.actorUserId)
-        const canUndo = itemCanUndo && Boolean(item.undoToken) && item.executionState === 'done' && isLatestUndoableForItem(item)
-        const showRedo = itemCanRedo && item.executionState === 'undone'
-        const canRedo = showRedo && isRedoCandidate(item)
-        if (!canUndo && !showRedo) return null
-        return (
-          <div className="flex justify-end gap-1">
-            {canUndo ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={t('audit_logs.actions.undo')}
-                onClick={() => { void handleUndo(item.undoToken) }}
-                disabled={undoingToken === item.undoToken || Boolean(redoingId)}
-              >
-                <Undo2 className="size-4" aria-hidden="true" />
-              </Button>
-            ) : null}
-            {showRedo ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={t('audit_logs.actions.redo')}
-                onClick={() => { void handleRedo(item.id) }}
-                disabled={!canRedo || redoingId === item.id || Boolean(undoingToken)}
-              >
-                <RotateCcw className="size-4" aria-hidden="true" />
-              </Button>
-            ) : null}
-          </div>
-        )
-      },
-      meta: { align: 'right' },
-    },
-  ], [t, noneLabel, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId, permissions])
+  ], [t, noneLabel])
+
+  const rowActions = React.useCallback((item: ActionLogItem) => {
+    const itemCanUndo = canUndoEntry(permissions, item.actorUserId)
+    const itemCanRedo = canRedoEntry(permissions, item.actorUserId)
+    const canUndo = itemCanUndo && Boolean(item.undoToken) && item.executionState === 'done' && isLatestUndoableForItem(item)
+    const showRedo = itemCanRedo && item.executionState === 'undone'
+    const canRedo = showRedo && isRedoCandidate(item)
+    if (!canUndo && !showRedo) return null
+    const undoDisabled = undoingToken === item.undoToken || Boolean(redoingId)
+    const redoDisabled = !canRedo || redoingId === item.id || Boolean(undoingToken)
+    const undoLabel = t('audit_logs.actions.undo_this')
+    const redoLabel = t('audit_logs.actions.redo_this')
+    const onUndo = () => { void handleUndo(item.undoToken) }
+    const onRedo = () => { void handleRedo(item.id) }
+    const items: RowActionItem[] = []
+    if (canUndo && !undoDisabled) items.push({ id: 'undo', label: undoLabel, onSelect: onUndo })
+    if (canRedo && !redoDisabled) items.push({ id: 'redo', label: redoLabel, onSelect: onRedo })
+    return (
+      <AuditLogRowActions items={items}>
+        {canUndo ? (
+          <IconButton
+            variant="ghost"
+            size="lg"
+            type="button"
+            aria-label={undoLabel}
+            title={undoLabel}
+            onClick={onUndo}
+            disabled={undoDisabled}
+          >
+            <Undo2 className="size-4" aria-hidden="true" />
+          </IconButton>
+        ) : null}
+        {showRedo ? (
+          <IconButton
+            variant="ghost"
+            size="lg"
+            type="button"
+            aria-label={redoLabel}
+            title={redoLabel}
+            onClick={onRedo}
+            disabled={redoDisabled}
+          >
+            <RotateCcw className="size-4" aria-hidden="true" />
+          </IconButton>
+        ) : null}
+      </AuditLogRowActions>
+    )
+  }, [t, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId, permissions])
 
   const undoButton = latestUndoable?.undoToken && canUndoEntry(permissions, latestUndoable.actorUserId) ? (
     <Button
+      type="button"
       variant="secondary"
       size="sm"
       onClick={() => { void handleUndo(latestUndoable.undoToken) }}
@@ -262,6 +297,8 @@ export function AuditLogsActions({
         titleHeadingLevel={2}
         data={actionItems}
         columns={columns}
+        rowActions={rowActions}
+        stickyActionsColumn
         actions={combinedActions}
         perspective={{ tableId: extensionPoints.hosts.actionsTable.tableId }}
         isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}
@@ -295,6 +332,6 @@ function formatDate(value: string) {
   if (Number.isNaN(date.getTime())) return value
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
-    timeStyle: 'short',
+    timeStyle: 'medium',
   }).format(date)
 }

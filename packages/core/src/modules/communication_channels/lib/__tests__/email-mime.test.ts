@@ -169,6 +169,50 @@ describe('assembleRfc2822', () => {
     expect(raw).toContain('<p>rich</p>')
   })
 
+  it('separates the header block from a multipart/alternative body with an empty line (#7097)', () => {
+    const raw = assembleRfc2822({
+      from: 'alice@x.com',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Hi',
+      text: 'plain',
+      html: '<p>rich</p>',
+      inReplyTo: undefined,
+      references: undefined,
+      messageId: '<m@x.com>',
+    }).toString('utf-8')
+    const headerEnd = raw.indexOf('\r\n\r\n')
+    expect(headerEnd).toBeGreaterThan(-1)
+    expect(headerEnd).toBeLessThan(raw.indexOf('--omc_'))
+    const [headerBlock, ...bodyBlocks] = raw.split('\r\n\r\n')
+    const headerLines = headerBlock.split('\r\n')
+    expect(headerLines[headerLines.length - 1]).toMatch(/^Content-Type: multipart\/alternative; boundary="omc_[^"]+"$/)
+    expect(headerLines.some((line) => line.startsWith('--'))).toBe(false)
+    const boundary = headerLines[headerLines.length - 1].match(/boundary="([^"]+)"/)![1]
+    const body = bodyBlocks.join('\r\n\r\n')
+    expect(body.startsWith(`--${boundary}\r\n`)).toBe(true)
+    expect(body.endsWith(`--${boundary}--\r\n`)).toBe(true)
+  })
+
+  it('keeps the header/body empty line on single-part messages', () => {
+    const raw = assembleRfc2822({
+      from: 'alice@x.com',
+      to: ['bob@x.com'],
+      cc: [],
+      bcc: [],
+      subject: 'Hi',
+      text: undefined,
+      html: '<p>rich</p>',
+      inReplyTo: undefined,
+      references: undefined,
+      messageId: '<m@x.com>',
+    }).toString('utf-8')
+    const [headerBlock, body] = raw.split('\r\n\r\n')
+    expect(headerBlock.split('\r\n').pop()).toBe('Content-Transfer-Encoding: 7bit')
+    expect(body).toBe('<p>rich</p>')
+  })
+
   it('collapses CR/LF in headers so a caller cannot inject extra headers', () => {
     const raw = assembleRfc2822({
       from: 'alice@x.com',
@@ -439,6 +483,68 @@ describe('normalizeMimeInbound', () => {
     })
     expect(result.bodyFormat).toBe('html')
     expect(result.body).toContain('<p>rich</p>')
+  })
+
+  it('prefers a valid MIME date over the provider fallback', () => {
+    const fallbackDate = new Date('2026-05-29T10:00:00.000Z')
+    const result = normalizeMimeInbound({
+      parsed: { ...baseParsed, date: '2026-05-28T10:00:00.000Z' },
+      accountIdentifier: 'bob@x.com',
+      fallbackMessageId: 'fallback:1@bob@x.com',
+      resolveConversationId: ({ messageId }) => messageId,
+      fallbackDate,
+    })
+    expect(result.timestamp).toEqual(new Date('2026-05-28T10:00:00.000Z'))
+    expect(result.providerTimestamp).toEqual(fallbackDate)
+  })
+
+  it('uses the provider fallback when the MIME date is invalid', () => {
+    const fallbackDate = new Date('2026-05-29T10:00:00.000Z')
+    const result = normalizeMimeInbound({
+      parsed: { ...baseParsed, date: 'not-a-date' },
+      accountIdentifier: 'bob@x.com',
+      fallbackMessageId: 'fallback:1@bob@x.com',
+      resolveConversationId: ({ messageId }) => messageId,
+      fallbackDate,
+    })
+    expect(result.timestamp).toEqual(fallbackDate)
+    expect(result.providerTimestamp).toEqual(fallbackDate)
+  })
+
+  it('keeps provider receipt time as provenance when it wins over a forged MIME date', () => {
+    const receivedAt = new Date('2026-05-29T10:00:00.000Z')
+    const result = normalizeMimeInbound({
+      parsed: { ...baseParsed, date: '2099-01-01T00:00:00.000Z' },
+      accountIdentifier: 'bob@x.com',
+      fallbackMessageId: 'fallback:1@bob@x.com',
+      resolveConversationId: ({ messageId }) => messageId,
+      receivedAt,
+    })
+    expect(result.timestamp).toEqual(receivedAt)
+    expect(result.providerTimestamp).toEqual(receivedAt)
+  })
+
+  it('keeps a rejected future MIME date unknown when there is no provider date', () => {
+    const result = normalizeMimeInbound({
+      parsed: { ...baseParsed, date: '2099-01-01T00:00:00.000Z' },
+      accountIdentifier: 'bob@x.com',
+      fallbackMessageId: 'fallback:1@bob@x.com',
+      resolveConversationId: ({ messageId }) => messageId,
+    })
+    expect(result.timestamp).toBeNull()
+    expect(result.providerTimestamp).toBeNull()
+  })
+
+  it('returns null when neither MIME nor provider supplies a valid date', () => {
+    const result = normalizeMimeInbound({
+      parsed: { ...baseParsed, date: 'not-a-date' },
+      accountIdentifier: 'bob@x.com',
+      fallbackMessageId: 'fallback:1@bob@x.com',
+      resolveConversationId: ({ messageId }) => messageId,
+      fallbackDate: new Date(Number.NaN),
+    })
+    expect(result.timestamp).toBeNull()
+    expect(result.providerTimestamp).toBeNull()
   })
 })
 

@@ -86,6 +86,9 @@ describe('attachments OCR service hardening', () => {
     expect(mockGenerateText).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'mock-model',
+        maxRetries: 0,
+        maxOutputTokens: expect.any(Number),
+        abortSignal: expect.any(AbortSignal),
         messages: [
           expect.objectContaining({
             role: 'user',
@@ -124,5 +127,35 @@ describe('attachments OCR service hardening', () => {
         content: 'image OCR text',
       }),
     )
+  })
+
+  it('reports a provider timeout as a timeout, not as an API key problem', async () => {
+    const { OcrService } = await import('../ocrService')
+    mockGenerateText.mockRejectedValue(
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+    )
+
+    const service = new OcrService({ apiKey: 'test-key' })
+    const error = await service
+      .processImage({ filePath: '/tmp/scan.png', mimeType: 'image/png' })
+      .then(() => null, (err: Error) => err)
+
+    expect(error?.message).toMatch(/timed out/i)
+    expect(error?.message).not.toContain('OPENAI_API_KEY')
+  })
+
+  it('reports an aborted provider call as aborted, not as an API key problem', async () => {
+    const { OcrService } = await import('../ocrService')
+    const controller = new AbortController()
+    controller.abort()
+    mockGenerateText.mockRejectedValue(controller.signal.reason)
+
+    const service = new OcrService({ apiKey: 'test-key' })
+    const error = await service
+      .processImage({ filePath: '/tmp/scan.png', mimeType: 'image/png' })
+      .then(() => null, (err: Error) => err)
+
+    expect(error?.message).toMatch(/aborted/i)
+    expect(error?.message).not.toContain('OPENAI_API_KEY')
   })
 })

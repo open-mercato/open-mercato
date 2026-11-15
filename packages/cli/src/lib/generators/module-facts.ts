@@ -2512,7 +2512,7 @@ function renderEventsSection(
   const rows = events.map((event) => {
     const transports = [event.clientBroadcast ? 'client' : null, event.portalBroadcast ? 'portal' : null]
       .filter((value): value is string => value !== null)
-    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} | ${renderLookedUpSource(lookup, 'event', event.id, context)} |`
+    return `| ${event.id} |${event.category ?? '—'}|${event.entity ?? '—'}|${transports.join(', ') || '—'}|${renderLookedUpSource(lookup, 'event', event.id, context)}|`
   })
   return [heading, '', header, divider, ...rows].join('\n')
 }

@@ -10,6 +10,8 @@ import {
 import { User } from '../../auth/data/entities'
 import { Message } from '../data/entities'
 import { notificationTypes } from '../notifications'
+import { SYSTEM_SENDER_USER_ID } from '../lib/constants'
+import { resolveMessageChannelThreadAccess } from '../lib/channelThreadAccess'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   SEND_AS_USER_SOURCE_ENTITY_TYPE,
@@ -135,10 +137,19 @@ async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: Resolver
       },
     )
     if (!message) return false
-    return (
-      message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE ||
-      message.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+    if (message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE) return true
+    if (message.sourceEntityType !== EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE) return false
+
+    const channelThreadAccess = await resolveMessageChannelThreadAccess(
+      ctx,
+      {
+        tenantId: payload.tenantId,
+        organizationId: payload.organizationId ?? null,
+      },
+      { messageThreadId: message.threadId },
+      { userId: null, features: [] },
     )
+    return channelThreadAccess !== null
   } catch {
     return false
   }
@@ -146,6 +157,7 @@ async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: Resolver
 
 export default async function handle(payload: MessageSentPayload, ctx: ResolverContext): Promise<void> {
   const uniqueRecipientUserIds = Array.from(new Set(payload.recipientUserIds))
+    .filter((recipientUserId) => recipientUserId !== SYSTEM_SENDER_USER_ID)
 
   const typeDef = notificationTypes.find((type) => type.type === 'messages.new')
   if (typeDef && uniqueRecipientUserIds.length > 0) {

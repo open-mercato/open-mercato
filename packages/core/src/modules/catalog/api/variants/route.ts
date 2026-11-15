@@ -4,9 +4,11 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CatalogProduct, CatalogProductVariant } from '../../data/entities'
 import { variantCreateSchema, variantUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { commandScopeWhere } from '../../commands/shared'
 import { E } from '#generated/entities.ids.generated'
 import * as FV from '#generated/entities/catalog_product_variant'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
@@ -183,9 +185,10 @@ const crud = makeCrudRoute({
         if (productId) {
           try {
             const em = ctx.container.resolve('em') as EntityManager
-            const product = await em.findOne(
+            const product = await findOneWithDecryption(
+              em,
               CatalogProduct,
-              { id: productId, deletedAt: null },
+              { id: productId, deletedAt: null, ...commandScopeWhere(ctx) },
               { fields: ['id', 'organizationId', 'tenantId'] }
             )
             if (product) {
@@ -215,9 +218,10 @@ const crud = makeCrudRoute({
         if (variantId) {
           try {
             const em = ctx.container.resolve('em') as EntityManager
-            const variant = await em.findOne(
+            const variant = await findOneWithDecryption(
+              em,
               CatalogProductVariant,
-              { id: variantId, deletedAt: null },
+              { id: variantId, deletedAt: null, ...commandScopeWhere(ctx) },
               { fields: ['id', 'organizationId', 'tenantId'] }
             )
             if (variant) {

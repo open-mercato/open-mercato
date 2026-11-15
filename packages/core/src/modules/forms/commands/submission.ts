@@ -22,6 +22,7 @@ import {
   type CommandHandler,
   type CommandRuntimeContext,
 } from '@open-mercato/shared/lib/commands'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { AwilixContainer } from 'awilix'
 import type { SubmissionService } from '../services/submission-service'
 
@@ -85,8 +86,9 @@ const startHandler: CommandHandler<StartInput, { submissionId: string; revisionI
     return { submissionId: view.submission.id, revisionId: view.revision.id }
   },
   async buildLog({ input, result }) {
+    const { translate } = await resolveTranslations()
     return {
-      actionLabel: 'forms.submission.start',
+      actionLabel: translate('forms.submission.start', 'Start submission'),
       resourceKind: 'forms.submission',
       resourceId: result.submissionId,
       tenantId: input.tenantId,
@@ -109,8 +111,9 @@ const saveHandler: CommandHandler<SaveInput, { revisionId: string; coalesced: bo
     return { revisionId: outcome.revision.id, coalesced: outcome.coalesced }
   },
   async buildLog({ input, result }) {
+    const { translate } = await resolveTranslations()
     return {
-      actionLabel: 'forms.submission.save',
+      actionLabel: translate('forms.submission.save', 'Save submission'),
       resourceKind: 'forms.submission',
       resourceId: input.submissionId,
       tenantId: input.tenantId,
@@ -129,8 +132,9 @@ const submitHandler: CommandHandler<SubmitInput, { submissionId: string }> = {
     return { submissionId: submission.id }
   },
   async buildLog({ input }) {
+    const { translate } = await resolveTranslations()
     return {
-      actionLabel: 'forms.submission.submit',
+      actionLabel: translate('forms.submission.submit', 'Submit submission'),
       resourceKind: 'forms.submission',
       resourceId: input.submissionId,
       tenantId: input.tenantId,
@@ -148,8 +152,9 @@ const reopenHandler: CommandHandler<ReopenInput, { submissionId: string }> = {
     return { submissionId: submission.id }
   },
   async buildLog({ input }) {
+    const { translate } = await resolveTranslations()
     return {
-      actionLabel: 'forms.submission.reopen',
+      actionLabel: translate('forms.submission.reopen', 'Reopen submission'),
       resourceKind: 'forms.submission',
       resourceId: input.submissionId,
       tenantId: input.tenantId,
@@ -167,8 +172,9 @@ const assignActorHandler: CommandHandler<AssignActorInput, { actorId: string }> 
     return { actorId: actor.id }
   },
   async buildLog({ input, result }) {
+    const { translate } = await resolveTranslations()
     return {
-      actionLabel: 'forms.submission.assign_actor',
+      actionLabel: translate('forms.submission.assign_actor', 'Assign submission actor'),
       resourceKind: 'forms.submission',
       resourceId: input.submissionId,
       relatedResourceKind: 'forms.submission_actor',
@@ -189,8 +195,9 @@ const revokeActorHandler: CommandHandler<RevokeActorInput, { ok: true }> = {
     return { ok: true }
   },
   async buildLog({ input }) {
+    const { translate } = await resolveTranslations()
     return {
-      actionLabel: 'forms.submission.revoke_actor',
+      actionLabel: translate('forms.submission.revoke_actor', 'Revoke submission actor'),
       resourceKind: 'forms.submission',
       resourceId: input.submissionId,
       relatedResourceKind: 'forms.submission_actor',
