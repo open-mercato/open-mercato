@@ -1136,7 +1136,7 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
             action: 'ai_assessment_recorded',
             lineId: line.id,
           },
-          actorUserId: ctx.auth?.sub ?? null,
+          actorUserId: ctx.auth?.isApiKey ? null : (ctx.auth?.sub ?? null),
         })
       },
     ], { transaction: true, label: 'warranty_claims.claim_line.set_assessment' })

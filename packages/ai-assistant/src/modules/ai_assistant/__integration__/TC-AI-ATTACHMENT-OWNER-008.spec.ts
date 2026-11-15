@@ -103,12 +103,13 @@ test('TC-AI-ATTACHMENT-OWNER-008: chat and run-object send only attachments the 
       const messages = [{ id: randomUUID(), role: 'user' as const, content: 'Summarize the attached files.' }]
       const sentToModel = () => llm.requests.filter((entry) => entry.path.endsWith('/chat/completions')).map((entry) => entry.raw).join('\n')
       const expectModelSaw = (raw: string, canReadAllowed: boolean, surface: string) => {
+        const everything = llm.requests.map((entry) => entry.raw).join('\n')
         expect(raw, `${surface}: the model is called`).not.toBe('')
         expect(raw, `${surface}: the unprotected library file reaches the model`).toContain(`${label('library')}-content`)
         if (canReadAllowed) expect(raw, `${surface}: the shared document's file reaches the model`).toContain(`${label('allowed')}-content`)
-        else expect(raw, `${surface}: the shared document's file is withheld`).not.toContain(label('allowed'))
+        else expect(everything, `${surface}: the shared document's file is withheld`).not.toContain(label('allowed'))
         for (const denied of ['hidden', 'foreign-document', 'foreign-library']) {
-          expect(raw, `${surface}: ${denied} never reaches the model`).not.toContain(label(denied))
+          expect(everything, `${surface}: ${denied} never reaches the model`).not.toContain(label(denied))
         }
         for (const id of [hidden, ...foreign, ...(canReadAllowed ? [] : [allowed])]) {
           expect(raw, `${surface}: denied id ${id} never reaches the model`).not.toContain(id)

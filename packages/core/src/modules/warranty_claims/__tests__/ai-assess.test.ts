@@ -606,6 +606,27 @@ describe('warranty claim AI assessment packet', () => {
     ])
   })
 
+  test('set_assessment records no actor user for a key-authenticated call', async () => {
+    const em = makeEm()
+    const container = makeContainer(em)
+    const ctx: CommandRuntimeContext = {
+      ...makeCommandContext(container),
+      auth: { sub: 'api_key:88888888-8888-4888-8888-888888888888', isApiKey: true, tenantId: TENANT_ID, orgId: ORG_ID },
+    }
+
+    await expect(setClaimLineAssessmentCommand.execute({
+      id: LINE_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      assessmentPayload: { damage: { severity: 'minor', misuseSuspected: false }, generatedAt: '2026-07-05T10:00:00.000Z' },
+      updatedAt: LINE_UPDATED_AT,
+    }, ctx)).resolves.toEqual({ lineId: LINE_ID, claimId: CLAIM_ID })
+
+    expect(mockPersistedEvents).toEqual([
+      expect.objectContaining({ payload: { action: 'ai_assessment_recorded', lineId: LINE_ID }, actorUserId: null }),
+    ])
+  })
+
   test('set_assessment versions the line, not the parent claim', async () => {
     const em = makeEm()
     const container = makeContainer(em)

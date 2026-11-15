@@ -100,7 +100,11 @@ export async function startMcpHttpServer(): Promise<McpHttpServerHandle> {
   child.stdout?.on('data', capture)
   child.stderr?.on('data', capture)
 
+  const killOnWorkerExit = () => signalGroup(child, 'SIGKILL')
+  process.once('exit', killOnWorkerExit)
+
   const stop = async () => {
+    process.removeListener('exit', killOnWorkerExit)
     signalGroup(child, 'SIGTERM')
     if (!(await waitForExit(child, STOP_TIMEOUT_MS))) {
       signalGroup(child, 'SIGKILL')

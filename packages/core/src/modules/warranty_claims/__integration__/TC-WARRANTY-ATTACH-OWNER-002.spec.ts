@@ -64,10 +64,6 @@ async function loadAssessRoute(): Promise<AssessPost> {
  * share send the image; the session key of a user without the share and copies
  * of the PNG in another organization and in another tenant are refused as not
  * linked before any model call. The attachment rows are unchanged throughout.
- * Only the bearer call is followed past the model call: saving a key-authenticated
- * assessment records the key subject as the claim event actor, which the event
- * table rejects (a defect that predates this change and is tracked on its own), so
- * for keys the evidence is the request the model received.
  */
 test('TC-WARRANTY-ATTACH-OWNER-002: assess route sends the claim photo to the model only for principals that may read it', async ({ request }) => {
   test.setTimeout(180_000)
@@ -151,10 +147,6 @@ test('TC-WARRANTY-ATTACH-OWNER-002: assess route sends the claim photo to the mo
           expect(modelRequests(), `${principal}: one model call`).toHaveLength(1)
           expect(modelRequests()[0].raw, `${principal}: the model receives the photo`).toContain(photoBase64)
         }
-        const expectImageReachedModel = (principal: string) => {
-          expect(modelRequests(), `${principal}: one model call`).toHaveLength(1)
-          expect(modelRequests()[0].raw, `${principal}: the model receives the photo`).toContain(photoBase64)
-        }
         const expectNoModelCall = (principal: string) => {
           expect(llm.requests, `${principal}: the model is never called`).toHaveLength(0)
         }
@@ -178,13 +170,11 @@ test('TC-WARRANTY-ATTACH-OWNER-002: assess route sends the claim photo to the mo
               expectNoModelCall(`foreign copy ${foreignId}`)
             }
 
-            await assess(recipientSession, 'ApiKey')
-            expectImageReachedModel('session key with the share')
+            expectImageSent(await assess(recipientSession, 'ApiKey'), 'session key with the share')
             expectImageSent(await assess(await fixture.recipient.refreshToken(), 'Bearer'), 'bearer token with the share')
 
             await fixture.share(document, 'viewer', 'role', fixture.roleId)
-            await assess(regularKey.secret, 'ApiKey')
-            expectImageReachedModel('regular key once its role has the share')
+            expectImageSent(await assess(regularKey.secret, 'ApiKey'), 'regular key once its role has the share')
           })
         } finally {
           await deleteFakeLlmUsageInDb()

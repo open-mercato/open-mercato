@@ -89,9 +89,10 @@ test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment o
       expect(await read(file), 'the server key without a session token has no user share')
         .toEqual({ found: false, attachmentId: file })
       expect(await list('documents:document', document), 'the server key lists nothing').toEqual([])
+      expect((await read(libraryFile)).found, 'the server key still reads an unprotected library file').toBe(true)
 
       for (const session of [recipientSession, unsharedSession]) {
-        expect((await read(libraryFile, session)).found, 'the own library file stays readable').toBe(true)
+        expect((await read(libraryFile, session)).found, 'the unprotected library file stays readable').toBe(true)
         expect(await list('attachments:library', libraryRecordId, session)).toEqual([libraryFile])
         for (const row of foreign) {
           expect(await read(row.id, session), 'a foreign row is refused').toEqual({ found: false, attachmentId: row.id })

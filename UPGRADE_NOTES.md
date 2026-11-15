@@ -697,6 +697,8 @@ On the AI tool, AI chat, catalog tool and MCP server paths a key-authenticated c
 
 This intentional tightening ships under the Emergency Security Exception recorded in `BACKWARD_COMPATIBILITY.md` (Attachment owner access on direct readers); a named human maintainer acknowledgment is required before merge. Specification: [`2026-11-03-attachment-direct-reader-owner-access.md`](.ai/specs/2026-11-03-attachment-direct-reader-owner-access.md).
 
+**Warranty claim AI assist:** the damage-photo assessment and proof-of-purchase extraction (`POST /api/warranty_claims/ai/assess` and the `warranty_claims.assess_damage_photo` tool) now send the attached photo or document to the configured LLM provider. Before, the AI SDK rejected their prompt, so the attachment never reached the model and the request ended as unavailable. A key-authenticated assessment now records no actor user on its claim event.
+
 ### Customer interaction authors and owners must belong to the record's tenant (#7531)
 
 Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.
