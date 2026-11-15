@@ -564,3 +564,81 @@ describe('exports never cut a frozen amount (legacy 2-decimal rows in a 0-decima
     expect(sumReportRowAmounts(input.rows, 0)).toBe(2469.14)
   })
 })
+
+describe('XLSX money cells keep exact amounts', () => {
+  const EXACT_RATE = '123.123456789012345678'
+  const EXACT_AMOUNT = '184.685185183518518517'
+
+  function readSheetXml(body: Buffer): string {
+    let offset = 0
+    while (body.readUInt32LE(offset) === 0x04034b50) {
+      const compressedSize = body.readUInt32LE(offset + 18)
+      const nameLength = body.readUInt16LE(offset + 26)
+      const extraLength = body.readUInt16LE(offset + 28)
+      const name = body.subarray(offset + 30, offset + 30 + nameLength).toString('utf8')
+      const start = offset + 30 + nameLength + extraLength
+      if (name === 'xl/worksheets/sheet1.xml') {
+        return inflateRawSync(body.subarray(start, start + compressedSize)).toString('utf8')
+      }
+      offset = start + compressedSize
+    }
+    throw new Error('[internal] sheet1.xml not found')
+  }
+
+  function liveInput(amountDecimalPlaces: number, rateExact: string): ReportExportInput {
+    const liveEntries: ReportInputEntry[] = [
+      { ...entries[0], durationMinutes: 90, roundedMinutes: 90, rateOverrideAmount: null, rateOverrideAmountExact: rateExact },
+    ]
+    return makeExportInput({
+      currencyCode: 'ETH',
+      amountDecimalPlaces,
+      rows: buildReportRows({ entries: liveEntries, projects, directory, labels, amountDecimalPlaces }),
+    })
+  }
+
+  it('writes an 18-decimal live amount and rate as exact text cells', () => {
+    const sheet = readSheetXml(serializeReportExport('xlsx', liveInput(18, EXACT_RATE)).body)
+    expect(sheet).toContain(`<t xml:space="preserve">${EXACT_AMOUNT}</t>`)
+    expect(sheet).toContain(`<t xml:space="preserve">${EXACT_RATE}</t>`)
+    expect(sheet).not.toContain('184.68518518351853')
+  })
+
+  it('writes an 18-decimal frozen amount and rate as exact text cells', () => {
+    const frozenEntries: ReportInputEntry[] = [
+      {
+        ...entries[0],
+        id: 'frozen-eth',
+        durationMinutes: 90,
+        roundedMinutes: 90,
+        frozen: {
+          reportId: 'report-eth',
+          reference: 'RAP-ETH-1',
+          title: null,
+          rawMinutes: 90,
+          roundedMinutes: 90,
+          rateAmount: Number(EXACT_RATE),
+          rateAmountExact: EXACT_RATE,
+          currencyCode: 'ETH',
+          amount: Number(EXACT_AMOUNT),
+          amountExact: EXACT_AMOUNT,
+          isBillable: true,
+        },
+      },
+    ]
+    const input = makeExportInput({
+      currencyCode: 'ETH',
+      amountDecimalPlaces: 18,
+      rows: buildReportRows({ entries: frozenEntries, projects, directory, labels, amountDecimalPlaces: 18 }),
+    })
+    const sheet = readSheetXml(serializeReportExport('xlsx', input).body)
+    expect(sheet).toContain(`<t xml:space="preserve">${EXACT_AMOUNT}</t>`)
+    expect(sheet).toContain(`<t xml:space="preserve">${EXACT_RATE}</t>`)
+    expect(sheet).not.toContain('184.68518518351853')
+  })
+
+  it('keeps an amount a float holds exactly as a numeric cell', () => {
+    const sheet = readSheetXml(serializeReportExport('xlsx', liveInput(2, '123.4')).body)
+    expect(sheet).toContain('<v>185.1</v>')
+    expect(sheet).not.toContain('<t xml:space="preserve">185.10</t>')
+  })
+})

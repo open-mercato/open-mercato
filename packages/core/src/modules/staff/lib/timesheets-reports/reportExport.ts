@@ -24,7 +24,7 @@ import {
   reportExportFormatIds,
   type ReportExportFormat,
 } from './reportExportFormats'
-import { padDecimalPlaces, parseDecimal, roundDecimal } from '@open-mercato/shared/lib/decimal'
+import { decimalsEqual, padDecimalPlaces, parseDecimal, roundDecimal } from '@open-mercato/shared/lib/decimal'
 import { DEFAULT_STAFF_AMOUNT_DECIMAL_PLACES } from '../time-tracking/cost'
 
 const logger = createLogger('staff').child({ component: 'timesheets-reports/reportExport' })
@@ -329,6 +329,14 @@ export function buildReportTable(input: ReportExportInput): PreparedExport {
   return { columns, rows }
 }
 
+// A numeric cell keeps spreadsheet math working; one that a float cannot hold exactly is
+// written as text so the exported amount keeps every digit.
+function xlsxAmountCell(value: unknown): number | string {
+  if (typeof value !== 'string' || !parseDecimal(value)) return ''
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && decimalsEqual(numeric, value) ? numeric : value
+}
+
 function exportBaseName(input: ReportExportInput): string {
   return input.reference || 'report'
 }
@@ -374,10 +382,7 @@ registerBuiltInReportExportFormat({
       ...table.rows.map((row) =>
         table.columns.map((column) => {
           const value = row[column.field]
-          if (column.field === 'rate' || column.field === 'amount') {
-            const parsed = typeof value === 'string' && value.length > 0 ? Number.parseFloat(value) : null
-            return parsed !== null && Number.isFinite(parsed) ? parsed : ''
-          }
+          if (column.field === 'rate' || column.field === 'amount') return xlsxAmountCell(value)
           return typeof value === 'number' ? value : value === null || value === undefined ? '' : String(value)
         }),
       ),
