@@ -123,7 +123,6 @@
   "eudr.errors.plot_required": "Plot id is required",
   "eudr.errors.pointAreaRequired": "Point plots require a positive area.",
   "eudr.errors.polygonRequired": "Use polygon geometry for plots larger than 4 hectares.",
-  "eudr.errors.redoConflict": "This record changed after it was undone. Redo was refused and the current version was kept. Reload the record and re-apply your change manually.",
   "eudr.errors.referenceIssuedAtImmutable": "Reference issue date cannot be changed.",
   "eudr.errors.referenceIssuedAtInvalid": "Reference issue date cannot be in the future.",
   "eudr.errors.referenceNumbersRequired": "Reference and verification numbers are required.",

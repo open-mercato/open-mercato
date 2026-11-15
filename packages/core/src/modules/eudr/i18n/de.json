@@ -123,7 +123,6 @@
   "eudr.errors.plot_required": "Die Parzellen-ID ist erforderlich",
   "eudr.errors.pointAreaRequired": "Punktparzellen erfordern eine positive Fläche.",
   "eudr.errors.polygonRequired": "Verwenden Sie Polygongeometrie für Parzellen über 4 Hektar.",
-  "eudr.errors.redoConflict": "Dieser Datensatz wurde nach dem Rückgängigmachen geändert. Die Wiederholung wurde abgelehnt und die aktuelle Version beibehalten. Laden Sie den Datensatz neu und wenden Sie Ihre Änderung manuell an.",
   "eudr.errors.referenceIssuedAtImmutable": "Das Ausstellungsdatum der Referenz kann nicht geändert werden.",
   "eudr.errors.referenceIssuedAtInvalid": "Das Ausstellungsdatum der Referenz darf nicht in der Zukunft liegen.",
   "eudr.errors.referenceNumbersRequired": "Referenz- und Verifizierungsnummern sind erforderlich.",

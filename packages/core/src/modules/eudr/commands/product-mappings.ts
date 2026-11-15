@@ -1,4 +1,3 @@
-import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { RequiredEntityData } from '@mikro-orm/core'
@@ -372,7 +371,6 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
         },
       }),
       phases: [
-        () => guardUpdateRedo(ctx, entityManager, EudrProductMapping, record, loadProductMappingSnapshot),
         async () => {
           if (nextProductId === record.productId && nextCommodity === record.commodity) return
           await assertUniqueProductMapping(entityManager, {
@@ -402,7 +400,6 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
 
     return { entityId: record.id, updatedAt: record.updatedAt }
   },
-  redo: ({ input, ctx, logEntry }) => updateProductMappingCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     return loadProductMappingSnapshot(entityManager, result.entityId)

@@ -1,4 +1,3 @@
-import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { RequiredEntityData } from '@mikro-orm/core'
@@ -385,7 +384,6 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
         },
       }),
       phases: [
-        () => guardUpdateRedo(ctx, entityManager, EudrMitigationAction, record, loadMitigationActionSnapshot),
         async () => {
           const nextRiskAssessmentId = parsed.riskAssessmentId ?? record.riskAssessmentId
           await requireRiskAssessmentInScope(entityManager, nextRiskAssessmentId, scope)
@@ -420,7 +418,6 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
 
     return { entityId: record.id, updatedAt: record.updatedAt }
   },
-  redo: ({ input, ctx, logEntry }) => updateMitigationActionCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     return loadMitigationActionSnapshot(entityManager, result.entityId)

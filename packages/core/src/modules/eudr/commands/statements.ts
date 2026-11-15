@@ -1,4 +1,3 @@
-import { guardUpdateRedo, withUpdateRedoLog } from './updateRedo'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { RequiredEntityData } from '@mikro-orm/core'
@@ -777,7 +776,6 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
         },
       }),
       phases: [
-        () => guardUpdateRedo(ctx, entityManager, EudrDueDiligenceStatement, record, loadStatementSnapshot),
         async () => {
           const serverFields = await validateStatementUpdate(entityManager, record, parsed, custom)
           applyStatementUpdate(record, parsed)
@@ -808,7 +806,6 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
 
     return { entityId: record.id, updatedAt: record.updatedAt }
   },
-  redo: ({ input, ctx, logEntry }) => updateStatementCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     return loadStatementSnapshot(entityManager, result.entityId)
