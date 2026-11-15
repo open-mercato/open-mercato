@@ -35,6 +35,9 @@ The parent reviewed the post-review test-only delta: exact environment equality 
 ## Final review
 Independent final review 0fc50825 approved implementation head `6b35aa19d24a335f7a4f7ecc4de8db8c1eb85fed` with zero findings. [Authoritative evidence](https://github.com/open-mercato/open-mercato/pull/9588#issuecomment-6891137350). GitHub rejected native self-approval under the shared bot identity; no native approval is claimed. Reviewer source remained unchanged and the parent verified zero child diff. Final current-head CI still gates readiness and automerge.
 
+## Full-suite completion evidence
+Implementation/tracking head `c9a50c6faccbdbeb5af4472c8a119c5cb57b2783` passed the complete [CI run 43691499763](https://github.com/open-mercato/open-mercato/actions/runs/43691499763). All 15 integration shards, merged coverage, complete units/scripts, typecheck, app/package builds, translations, template parity, repo-wide guards, lint/DS lint, Docker, timezone and multi-instance checks passed. Every exact-head workflow and reported check was complete and successful or intentionally skipped before readiness/automerge. Local production app build also passed at 07:47:55Z; the local-only prerequisite limitations above remain disclosed.
+
 ## Risks
 Registry propagation is external and cannot be deterministically reproduced with live npm. Use controlled command fixtures and exact observed failure logs. Snapshot publishing runs only on main; prove the repair without publishing from this PR. Additional failures may widen the necessary repair.
 
@@ -60,7 +63,7 @@ PR: #9588
 ### Phase 2: Validate
 
 - [x] 2.1 Run focused checks and the configured ordered validation gate — 6b35aa19d2 (all eight configured commands passed in CI; additional scripts guard repaired in 575f954cb8)
-- [ ] 2.2 Run the PR full suite and repair demonstrated failures until current-head CI is green
+- [x] 2.2 Run the PR full suite and repair demonstrated failures until current-head CI is green — c9a50c6fac (CI43691499763: all15shards, coverage aggregate and every reported check/workflow passed or intentionally skipped)
 
 ### Phase 3: Review and hand off
 
