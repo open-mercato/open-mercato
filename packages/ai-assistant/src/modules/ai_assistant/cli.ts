@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
@@ -34,22 +35,7 @@ async function ensureBootstrap(): Promise<void> {
 }
 
 function parseArgs(rest: string[]): Record<string, string | boolean> {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i]
-    if (!arg?.startsWith('--')) continue
-
-    const [key, value] = arg.replace(/^--/, '').split('=')
-    if (value !== undefined) {
-      args[key] = value
-    } else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) {
-      args[key] = rest[i + 1]!
-      i++
-    } else {
-      args[key] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 const mcpServe: ModuleCli = {
