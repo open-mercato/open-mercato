@@ -9,6 +9,7 @@ type RecordedPart = { type: string; mediaType?: string; filename?: string; data?
 
 function recordingModel(calls: Array<Array<{ role: string; content: unknown }>>): MockLanguageModelV3 {
   return new MockLanguageModelV3({
+    supportedUrls: { '*/*': [/^https:\/\//] },
     doGenerate: async (options) => {
       calls.push(options.prompt as Array<{ role: string; content: unknown }>)
       return {
@@ -50,5 +51,28 @@ describe('toWarrantyModelMessages', () => {
     const filePart = parts.find((part) => part.type === 'file')
     expect(filePart).toMatchObject({ type: 'file', mediaType: 'image/png', filename: 'damage.png' })
     expect(filePart?.data).toEqual({ type: 'data', data: PNG_BASE64 })
+  })
+
+  it('carries a proof-of-purchase PDF and a signed https URL to the model', async () => {
+    const pdfBase64 = Buffer.from('%PDF-1.4 receipt').toString('base64')
+    const signedUrl = 'https://files.example.test/receipt.pdf?signature=abc'
+    const messages = await toWarrantyModelMessages('Extract the purchase date.', [
+      { type: 'file', mediaType: 'application/pdf', filename: 'receipt.pdf', url: `data:application/pdf;base64,${pdfBase64}` },
+      { type: 'file', mediaType: 'application/pdf', filename: 'signed.pdf', url: signedUrl },
+    ])
+    const calls: Array<Array<{ role: string; content: unknown }>> = []
+
+    await generateObject({
+      model: recordingModel(calls),
+      schema: z.object({ verdict: z.string() }),
+      messages,
+    })
+
+    const userMessage = calls[0]?.find((message) => message.role === 'user')
+    const fileParts = ((userMessage?.content ?? []) as RecordedPart[]).filter((part) => part.type === 'file')
+    expect(fileParts).toHaveLength(2)
+    expect(fileParts[0]).toMatchObject({ mediaType: 'application/pdf', filename: 'receipt.pdf', data: { type: 'data', data: pdfBase64 } })
+    expect(fileParts[1]).toMatchObject({ mediaType: 'application/pdf', filename: 'signed.pdf' })
+    expect(JSON.stringify(fileParts[1].data)).toContain(signedUrl)
   })
 })

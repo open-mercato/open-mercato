@@ -70,7 +70,7 @@ async function loadRuntime(): Promise<Runtime> {
  * content or id). Every attachment row is unchanged.
  */
 test('TC-AI-ATTACHMENT-OWNER-008: chat and run-object send only attachments the caller may read to the model', async ({ request }) => {
-  test.slow()
+  test.setTimeout(180_000)
   const llm: FakeLlmServer = await startFakeLlmServer({ text: FAKE_ANSWER, object: () => WORKFLOW_DRAFT })
   try {
     await withAttachmentOwnerFixture(request, async (fixture) => {

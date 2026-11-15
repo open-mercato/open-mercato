@@ -143,8 +143,28 @@ export async function withFakeLlmEnvironment<T>(server: FakeLlmServer, run: () =
   }
 }
 
-/** Removes the token-usage rows the in-process runtime recorded for the fake model. */
+async function countFakeLlmUsageInDb(): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: string }>(
+      'select count(*)::text as count from ai_token_usage_events where model_id = $1', [FAKE_MODEL_ID],
+    )
+    return Number(result.rows[0]?.count ?? 0)
+  })
+}
+
+/**
+ * Removes the token-usage rows the in-process runtime recorded for the fake model.
+ * Usage is written without awaiting the turn, so the count is polled until it stops
+ * changing before the rows are deleted.
+ */
 export async function deleteFakeLlmUsageInDb(): Promise<void> {
+  let previous = -1
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const current = await countFakeLlmUsageInDb()
+    if (current === previous) break
+    previous = current
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
   await withClient(async (client) => {
     await client.query('delete from ai_token_usage_events where model_id = $1', [FAKE_MODEL_ID])
     await client.query('delete from ai_token_usage_daily where model_id = $1', [FAKE_MODEL_ID])

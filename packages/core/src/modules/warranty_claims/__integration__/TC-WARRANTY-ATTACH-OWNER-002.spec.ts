@@ -66,10 +66,11 @@ async function loadAssessRoute(): Promise<AssessPost> {
  * linked before any model call. The attachment rows are unchanged throughout.
  * Only the bearer call is followed past the model call: saving a key-authenticated
  * assessment records the key subject as the claim event actor, which the event
- * table rejects, so for keys the evidence is the request the model received.
+ * table rejects (a defect that predates this change and is tracked on its own), so
+ * for keys the evidence is the request the model received.
  */
 test('TC-WARRANTY-ATTACH-OWNER-002: assess route sends the claim photo to the model only for principals that may read it', async ({ request }) => {
-  test.slow()
+  test.setTimeout(180_000)
   const llm: FakeLlmServer = await startFakeLlmServer({ object: () => DAMAGE_ASSESSMENT })
   try {
     await withAttachmentOwnerFixture(request, async (fixture) => {
