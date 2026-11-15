@@ -387,6 +387,12 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
       )
     })
   })
+})
+
+describe('updateTransactionStatusCommand — unknown transaction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
 
   it('fails with 404 Transaction not found when the id is not a checkout transaction', async () => {
     const em = makeMockEm(makeTransaction('processing'), 1)

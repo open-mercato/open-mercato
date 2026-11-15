@@ -35,13 +35,13 @@ const payload = {
 }
 
 const subscribers = [
-  { name: 'gateway-payment-authorized', handle: handleAuthorized, status: 'completed' },
-  { name: 'gateway-payment-captured', handle: handleCaptured, status: 'completed' },
-  { name: 'gateway-payment-cancelled', handle: handleCancelled, status: 'cancelled' },
-  { name: 'gateway-payment-failed', handle: handleFailed, status: 'failed' },
+  { name: 'gateway-payment-authorized', handle: handleAuthorized, status: 'completed', conflictingStatus: 'expired' },
+  { name: 'gateway-payment-captured', handle: handleCaptured, status: 'completed', conflictingStatus: 'expired' },
+  { name: 'gateway-payment-cancelled', handle: handleCancelled, status: 'cancelled', conflictingStatus: 'completed' },
+  { name: 'gateway-payment-failed', handle: handleFailed, status: 'failed', conflictingStatus: 'completed' },
 ]
 
-describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => {
+describe.each(subscribers)('checkout $name subscriber', ({ handle, status, conflictingStatus }) => {
   beforeEach(() => jest.clearAllMocks())
 
   it('reports an unexpected status-update failure without rethrowing', async () => {
@@ -63,11 +63,11 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
     expect(logger.error).toHaveBeenCalledTimes(1)
   })
 
-  it('reports a refused transition that leaves the transaction in another terminal state', async () => {
+  it('reports a refused transition between a paid and an unpaid end state', async () => {
     const refusal = new CrudHttpError(409, {
       error: '[internal] Cannot transition payment',
       code: 'invalid_status_transition',
-      currentStatus: 'expired',
+      currentStatus: conflictingStatus,
       requestedStatus: status,
     })
     executeMock.mockRejectedValueOnce(refusal)
@@ -81,12 +81,12 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
     }))
   })
 
-  it('reports a concurrent writer that left the transaction in a different status', async () => {
+  it('reports a concurrent writer whose status contradicts the gateway outcome', async () => {
     const conflict = new CrudHttpError(409, {
       error: '[internal] Transaction status was already updated by a concurrent process',
       code: 'concurrent_status_update',
       expectedStatus: 'processing',
-      currentStatus: 'expired',
+      currentStatus: conflictingStatus,
       requestedStatus: status,
     })
     executeMock.mockRejectedValueOnce(conflict)
@@ -146,3 +146,24 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status }) => 
     expect(reportErrorMock).not.toHaveBeenCalled()
   })
 })
+
+describe.each(subscribers.filter(({ status }) => status !== 'completed'))(
+  'checkout $name subscriber on an unpaid transaction',
+  ({ handle, status }) => {
+    beforeEach(() => jest.clearAllMocks())
+
+    it('stays quiet when the transaction already reached another unpaid end state', async () => {
+      executeMock.mockRejectedValueOnce(new CrudHttpError(409, {
+        error: '[internal] Cannot transition payment',
+        code: 'invalid_status_transition',
+        currentStatus: 'expired',
+        requestedStatus: status,
+      }))
+
+      await expect(handle(payload)).resolves.toBeUndefined()
+
+      expect(reportErrorMock).not.toHaveBeenCalled()
+      expect(logger.error).not.toHaveBeenCalled()
+    })
+  },
+)

@@ -13,6 +13,8 @@ type GatewayStatusSyncContext = {
 
 type ErrorBody = Record<string, unknown> | undefined
 
+const UNPAID_TERMINAL_STATUSES = new Set(['failed', 'cancelled', 'expired'])
+
 function readBodyString(body: ErrorBody, key: string): string | undefined {
   const value = body?.[key]
   return typeof value === 'string' ? value : undefined
@@ -22,7 +24,10 @@ function isExpectedRefusal(httpStatus: number | undefined, body: ErrorBody): boo
   if (httpStatus === 404) return readBodyString(body, 'error') === 'Transaction not found'
   if (httpStatus === 409) {
     const currentStatus = readBodyString(body, 'currentStatus')
-    return currentStatus !== undefined && currentStatus === readBodyString(body, 'requestedStatus')
+    const requestedStatus = readBodyString(body, 'requestedStatus')
+    if (currentStatus === undefined || requestedStatus === undefined) return false
+    if (currentStatus === requestedStatus) return true
+    return UNPAID_TERMINAL_STATUSES.has(currentStatus) && UNPAID_TERMINAL_STATUSES.has(requestedStatus)
   }
   return false
 }
