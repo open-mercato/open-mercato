@@ -171,6 +171,28 @@ describe('confirm-required mutation input validation', () => {
     expect(resolved.uiPartQueue.drain()).toEqual([])
   })
 
+  it('refuses schema-invalid input when a destructive-confirm-required predicate gates the call', async () => {
+    toolRegistry.clear()
+    registerMcpTool({
+      name: 'test.mutation',
+      description: 'Mutation fixture',
+      inputSchema,
+      isMutation: true,
+      isDestructive: () => true,
+      requiredFeatures: ['test.records.manage'],
+      handler,
+    }, { moduleId: 'test' })
+    seedAgent({ mutationPolicy: 'destructive-confirm-required' })
+    const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
+
+    await expect(
+      resolved.tools.test__mutation.execute?.({ personId: 'not-a-uuid', note: 'hello' }, executionOptions),
+    ).rejects.toThrow(/could not be prepared for confirmation: Invalid input: personId/)
+
+    expect(prepareMutationMock).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it('stages the same sanitized input direct execution would pass to the handler', async () => {
     const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
 
