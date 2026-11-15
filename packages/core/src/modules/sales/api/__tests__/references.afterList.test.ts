@@ -26,7 +26,7 @@ function setup(tenantId: string, organizationId: string, overrides: Partial<Crud
     const allowed = typeof organization === 'object' && organization !== null
       ? (organization as { $in: string[] }).$in.includes(organizationId)
       : organization === undefined || organization === organizationId
-    return where.tenantId === tenantId && allowed
+    return (where.tenantId === undefined || where.tenantId === tenantId) && allowed
       ? [{ id: 'reference', tenantId, organizationId, value: 'private-status', label: 'Private status', name: 'Private method', code: 'PRIVATE' }]
       : []
   })
