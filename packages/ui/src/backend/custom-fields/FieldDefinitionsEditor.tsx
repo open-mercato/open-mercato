@@ -74,6 +74,7 @@ export type FieldDefinitionsEditorProps = {
   onRestoreField?: (key: string) => void
   onReorder?: (from: number, to: number) => void
   onTranslate?: (definition: FieldDefinition, index: number) => void
+  renderFieldActions?: (definition: FieldDefinition, index: number) => React.ReactNode
   listRef?: React.Ref<HTMLDivElement>
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
@@ -182,6 +183,7 @@ export function FieldDefinitionsEditor({
   onRestoreField,
   onReorder,
   onTranslate,
+  renderFieldActions,
   listRef,
   listProps,
   translate,
@@ -506,6 +508,7 @@ export function FieldDefinitionsEditor({
             onRegisterGroup={registerGroup}
             onRemoveGroup={removeGroup}
             onTranslate={onTranslate ? () => onTranslate(definition, index) : undefined}
+            actions={renderFieldActions?.(definition, index)}
             translate={t}
           />
         </div>
@@ -555,6 +558,7 @@ type FieldDefinitionCardProps = {
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
   onTranslate?: () => void
+  actions?: React.ReactNode
   translate?: TranslateFn
 }
 
@@ -571,6 +575,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   onRegisterGroup,
   onRemoveGroup,
   onTranslate,
+  actions,
   translate,
 }: FieldDefinitionCardProps) {
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
@@ -802,6 +807,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             containerClassName="text-sm"
             contentClassName="gap-1 [&_label]:text-sm [&_label]:font-normal"
           />
+          {actions}
           {onTranslate && (
             <IconButton variant="outline" size="sm" onClick={onTranslate} aria-label={t('entities.customFields.editor.translateField', 'Translate field')}>
               <Languages className="h-4 w-4" />
