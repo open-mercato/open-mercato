@@ -6,15 +6,22 @@ import { createCustomerRoleFixture, deleteCustomerRoleFixture, uniqueSuffix } fr
 
 async function openInvitationForm(page: Page) {
   const activityZone = page.getByRole('tab', { name: 'Activity', exact: true })
-  if (await activityZone.isVisible()) await activityZone.click()
-  const portalTab = page.getByRole('tab', { name: 'Portal account', exact: true })
-  const moreButton = page.getByRole('main').getByRole('button', { name: 'More', exact: true }).first()
+  if ((page.viewportSize()?.width ?? 1440) < 768) {
+    await expect(activityZone).toBeVisible()
+    await activityZone.click()
+  }
+  const tabList = page.getByRole('tablist', { name: 'Person detail sections', exact: true })
+  const tabRow = page.getByTestId('detail-tabs-row').filter({ has: tabList })
+  await expect(tabList).toBeVisible()
+  await expect(tabRow).toHaveAttribute('aria-busy', 'false')
+  const portalTab = tabList.getByRole('tab', { name: 'Portal account', exact: true })
+  const moreButton = tabRow.getByTestId('detail-tabs-more')
   await expect(portalTab.or(moreButton).first()).toBeVisible()
   if (await portalTab.isVisible()) {
     await portalTab.click()
   } else {
     await moreButton.click()
-    await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click()
+    await page.getByRole('menu', { name: 'More', exact: true }).getByRole('menuitem', { name: 'Portal account', exact: true }).click()
   }
   const inviteButton = page.getByRole('button', { name: 'Invite to Portal', exact: true })
   const submitButton = page.getByRole('button', { name: 'Send Invitation', exact: true })
