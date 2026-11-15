@@ -3,6 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { withAdvisoryXactLock, AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -89,9 +91,12 @@ class FixedWindowLimitError extends Error {
   }
 }
 
-export class ExternalEmailBudgetError extends Error {
-  constructor(readonly response: NextResponse) {
-    super('[internal] External email budget rejected')
+export class ExternalEmailBudgetError extends CrudHttpError {
+  readonly headers: Headers
+
+  constructor(readonly response: NextResponse, body: Record<string, unknown> = { error: '[internal] External email budget rejected' }) {
+    super(response.status, body)
+    this.headers = response.headers
     this.name = 'ExternalEmailBudgetError'
   }
 }
@@ -195,21 +200,24 @@ async function reserveFixedWindow(
   await txEm.persist(window).flush()
 }
 
-async function reserveDailyRecipient(
+async function reserveDailyRecipients(
   txEm: EntityManager,
-  input: { tenantId: string; externalEmail: string; limit: number; now: Date },
+  input: { tenantId: string; externalEmails: readonly string[]; limit: number; now: Date },
 ): Promise<void> {
   const utcDay = utcDayAt(input.now)
-  const recipientHash = hashForLookup(input.externalEmail, 'messages.external_recipient')
+  const recipientHashes = Array.from(new Set(input.externalEmails.map((email) => hashForLookup(email, 'messages.external_recipient'))))
+  if (!recipientHashes.length) throw new ExternalEmailBudgetUnavailableError()
   const db = txEm.getKysely<ExternalEmailBudgetDatabase>()
   const existing = await db
     .selectFrom('message_external_recipient_days')
-    .select('id')
+    .select('recipient_hash')
     .where('tenant_id', '=', input.tenantId)
     .where('utc_day', '=', utcDay)
-    .where('recipient_hash', '=', recipientHash)
-    .executeTakeFirst()
-  if (existing) return
+    .where('recipient_hash', 'in', recipientHashes)
+    .execute()
+  const existingHashes = new Set(existing.map((row) => row.recipient_hash))
+  const missingHashes = recipientHashes.filter((hash) => !existingHashes.has(hash))
+  if (!missingHashes.length) return
 
   const countRow = await db
     .selectFrom('message_external_recipient_days')
@@ -219,22 +227,22 @@ async function reserveDailyRecipient(
     .executeTakeFirst()
   const count = Number(countRow?.count ?? 0)
   if (!Number.isSafeInteger(count) || count < 0) throw new ExternalEmailBudgetUnavailableError()
-  if (count >= input.limit) throw new DailyExternalRecipientLimitError()
+  if (count + missingHashes.length > input.limit) throw new DailyExternalRecipientLimitError()
 
-  const reservation = txEm.create(MessageExternalRecipientDay, {
+  const reservations = missingHashes.map((recipientHash) => txEm.create(MessageExternalRecipientDay, {
     id: randomUUID(),
     tenantId: input.tenantId,
     utcDay,
     recipientHash,
     createdAt: input.now,
-  })
-  await txEm.persist(reservation).flush()
+  }))
+  await txEm.persist(reservations).flush()
 }
 
 export async function checkExternalEmailBudget(
   container: ResolvableContainer,
   scope: ExternalEmailBudgetScope,
-  externalEmail: string,
+  externalEmail: string | readonly string[],
   options: ExternalEmailBudgetOptions = {},
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
@@ -265,9 +273,10 @@ export async function checkExternalEmailBudget(
           duration: tenantConfig.duration,
           now,
         })
-        await reserveDailyRecipient(txEm, {
+        const recipients = typeof externalEmail === 'string' ? [externalEmail] : externalEmail
+        await reserveDailyRecipients(txEm, {
           tenantId: scope.tenantId,
-          externalEmail,
+          externalEmails: recipients,
           limit: dailyLimit,
           now,
         })
@@ -313,10 +322,13 @@ export async function checkExternalEmailBudget(
 export async function assertExternalEmailBudget(
   container: ResolvableContainer,
   scope: ExternalEmailBudgetScope,
-  externalEmail: string,
+  externalEmail: string | readonly string[],
 ): Promise<void> {
   const response = await checkExternalEmailBudget(container, scope, externalEmail)
-  if (response) throw new ExternalEmailBudgetError(response)
+  if (response) {
+    const body = await readJsonSafe(response.clone(), {})
+    throw new ExternalEmailBudgetError(response, body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {})
+  }
 }
 
 export function getExternalEmailBudgetErrorResponse(error: unknown): NextResponse | null {

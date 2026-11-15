@@ -229,3 +229,25 @@ describe('messages.messages.compose idempotency', () => {
     expect(freshEntry.actionLabel).toBe('Compose message')
   })
 })
+
+describe('connected-mailbox budget boundary', () => {
+  beforeAll(() => { require('@open-mercato/core/modules/messages/commands/messages') })
+  beforeEach(() => { jest.clearAllMocks() })
+  it('reserves the complete recipient set even when platform email delivery is disabled', async () => {
+    const { command, emFork, ctx } = createHarness()
+    findOneWithDecryptionMock.mockResolvedValueOnce(null)
+    const rejected = new Error('budget rejected')
+    assertExternalEmailBudgetMock.mockRejectedValueOnce(rejected)
+    await expect(command.execute(composeInput({
+      idempotencyKey: undefined,
+      externalEmail: 'to@example.com',
+      externalEmailRecipients: ['to@example.com', 'cc@example.com', 'bcc@example.com'],
+      sendViaEmail: false,
+    }), ctx)).rejects.toBe(rejected)
+    expect(assertExternalEmailBudgetMock).toHaveBeenCalledWith(ctx.container,
+      { tenantId, userId: senderUserId },
+      ['to@example.com', 'to@example.com', 'cc@example.com', 'bcc@example.com'])
+    expect(emFork.transactional).not.toHaveBeenCalled()
+    expect(emFork.create).not.toHaveBeenCalled()
+  })
+})

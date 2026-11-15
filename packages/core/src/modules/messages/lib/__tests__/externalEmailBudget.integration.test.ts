@@ -202,4 +202,18 @@ describeWithPostgres('external email budgets against PostgreSQL', () => {
       else process.env.RATE_LIMIT_MESSAGES_EXTERNAL_USER_POINTS = previous
     }
   })
+  it('atomically refuses a multi-recipient overflow without charging hourly or daily ledgers', async () => {
+    dailyLimit = 2
+    const budget = budgetInput(randomUUID(), randomUUID())
+    const now = new Date('2026-11-11T12:00:00.000Z')
+    expect(await checkExternalEmailBudget(budget.container, budget.scope,
+      ['to@example.com', 'cc@example.com', 'bcc@example.com'], { now })).toHaveProperty('status', 429)
+    expect(await manager().getConnection().execute('select count(*)::int as count from message_external_recipient_days')).toEqual([{ count: 0 }])
+    expect(await manager().getConnection().execute('select count(*)::int as count from message_external_email_windows')).toEqual([{ count: 0 }])
+    expect(await checkExternalEmailBudget(budget.container, budget.scope,
+      ['TO@example.com', 'to@example.com', 'bcc@example.com'], { now })).toBeNull()
+    expect(await manager().getConnection().execute('select count(*)::int as count from message_external_recipient_days')).toEqual([{ count: 2 }])
+    expect(await manager().getConnection().execute('select scope, count from message_external_email_windows order by scope')).toEqual([{ scope: 'tenant', count: 1 }, { scope: 'user', count: 1 }])
+  })
+
 })

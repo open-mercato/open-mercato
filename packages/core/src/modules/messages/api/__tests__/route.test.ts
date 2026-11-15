@@ -343,9 +343,13 @@ describe('messages /api/messages POST', () => {
   })
 
   it('stops delegated composition when the external recipient budget rejects the message', async () => {
-    checkExternalEmailBudgetMock.mockResolvedValueOnce(
-      NextResponse.json({ error: 'Too many requests' }, { status: 429 }),
-    )
+    delegateComposeToSenderMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      error: 'Too many requests',
+      fieldErrors: { senderChannelId: 'Too many requests' },
+      headers: { 'retry-after': '60' },
+    })
 
     const response = await POST(new Request('http://localhost', {
       method: 'POST',
@@ -362,7 +366,9 @@ describe('messages /api/messages POST', () => {
 
     expect(response.status).toBe(429)
     expect(commandBus.execute).not.toHaveBeenCalled()
-    expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
+    expect(delegateComposeToSenderMock).toHaveBeenCalledTimes(1)
+    expect(response.headers.get('Retry-After')).toBe('60')
+    expect(checkExternalEmailBudgetMock).not.toHaveBeenCalled()
   })
 
   it('threads a delegated mailbox send onto the conversation thread the server resolved', async () => {
@@ -394,11 +400,7 @@ describe('messages /api/messages POST', () => {
     }))
 
     expect(response.status).toBe(201)
-    expect(checkExternalEmailBudgetMock).toHaveBeenCalledWith(
-      expect.anything(),
-      { tenantId, userId },
-      'client@example.com',
-    )
+    expect(checkExternalEmailBudgetMock).not.toHaveBeenCalled()
     expect(delegateComposeToSenderMock).toHaveBeenCalledTimes(1)
     expect(delegateComposeToSenderMock.mock.calls[0][2]).toMatchObject({
       senderChannelId,

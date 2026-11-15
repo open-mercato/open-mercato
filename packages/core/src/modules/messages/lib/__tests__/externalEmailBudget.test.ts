@@ -72,6 +72,11 @@ function createContext(options: {
           filters.set(column, value)
           return query
         },
+        execute: async () => rows.filter((row) =>
+          (!filters.has('tenant_id') || row.tenantId === filters.get('tenant_id')) &&
+          (!filters.has('utc_day') || row.utcDay === filters.get('utc_day')) &&
+          (!filters.has('recipient_hash') || (filters.get('recipient_hash') as string[]).includes(row.recipientHash)),
+        ).map((row) => ({ recipient_hash: row.recipientHash })),
         executeTakeFirst: async () => {
           if (table === 'tenants') {
             return filters.get('id') === scopedTenantId ? { created_at: tenantCreatedAt } : undefined
@@ -118,10 +123,12 @@ function createContext(options: {
   const em = {
     getKysely: () => db,
     create: (_entity: unknown, input: LedgerRow | WindowRow) => input,
-    persist: (row: LedgerRow | WindowRow) => ({
+    persist: (input: LedgerRow | WindowRow | LedgerRow[]) => ({
       flush: async () => {
-        if ('scope' in row) windowRows.push(row)
-        else rows.push(row)
+        for (const row of Array.isArray(input) ? input : [input]) {
+          if ('scope' in row) windowRows.push(row)
+          else rows.push(row)
+        }
       },
     }),
   }
@@ -140,7 +147,7 @@ function createContext(options: {
 
 async function check(
   context: ReturnType<typeof createContext>,
-  externalEmail = 'recipient@example.com',
+  externalEmail: string | readonly string[] = 'recipient@example.com',
   checkNow = now,
   scopeTenantId = tenantId,
 ) {
@@ -306,5 +313,27 @@ describe('checkExternalEmailBudget', () => {
 
     expect(response?.status).toBe(503)
     expect(context.rows).toHaveLength(0)
+  })
+})
+
+describe('connected-mailbox recipient batches', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    withAdvisoryXactLockMock.mockImplementation((em, _key, callback) => callback(em))
+  })
+  it('counts every distinct normalized address while charging each hourly budget once', async () => {
+    const context = createContext({ configuredLimit: 3 })
+    const response = await check(context, ['TO@example.com', 'to@example.com', 'cc@example.com', 'bcc@example.com'])
+    expect(response).toBeNull()
+    expect(context.rows).toHaveLength(3)
+    expect(context.windowRows.map((row) => row.count)).toEqual([1, 1])
+  })
+
+  it('rejects a batch that crosses the remaining daily recipient capacity', async () => {
+    const context = createContext({ configuredLimit: 2, existingRecipients: 1 })
+    const response = await check(context, ['to@example.com', 'bcc@example.com'])
+    expect(response?.status).toBe(429)
+    expect(Number(response?.headers.get('Retry-After'))).toBeGreaterThan(0)
+    expect(context.rows).toHaveLength(1)
   })
 })

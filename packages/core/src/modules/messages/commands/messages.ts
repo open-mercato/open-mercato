@@ -143,6 +143,7 @@ const composeCommandSchema = composeMessageSchema.safeExtend({
   // undefined). When set, a re-issued compose returns the first message instead
   // of creating a duplicate.
   idempotencyKey: z.string().min(1).max(255).optional(),
+  externalEmailRecipients: z.array(z.string().email()).min(1).optional(),
 })
 
 const updateDraftCommandSchema = updateDraftSchema.safeExtend({
@@ -301,11 +302,11 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       if (existing) return buildComposeResultFromExisting(em, existing)
     }
 
-    if (!input.isDraft && input.sendViaEmail && input.externalEmail) {
+    if (!input.isDraft && (input.sendViaEmail || input.externalEmailRecipients?.length) && input.externalEmail) {
       await assertExternalEmailBudget(
         ctx.container,
         { tenantId: input.tenantId, userId: input.userId },
-        input.externalEmail,
+        input.externalEmailRecipients ? [input.externalEmail, ...input.externalEmailRecipients] : input.externalEmail,
       )
     }
 

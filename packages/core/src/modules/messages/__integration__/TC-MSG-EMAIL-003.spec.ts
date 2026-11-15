@@ -10,7 +10,10 @@ import {
   isChannelSeedingAvailable,
   listCapturedSystemEmails,
   seedSystemEmailChannel,
+  seedConnectedChannel,
+  deleteChannelIfExists,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { composeMessageWithToken, decodeJwtSubject, deleteMessageIfExists } from './helpers'
 
 const DAILY_LIMIT_CONFIG = 'externalEmailDailyRecipientLimit'
@@ -179,4 +182,65 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
     const captured = await listCapturedSystemEmails(request, token)
     expect(captured.some((email) => email.metadata?.to === secondEmail)).toBe(false)
   })
+  for (const entrypoint of ['channel', 'customer'] as const) {
+    test(`rejects an over-cap ${entrypoint} email before message and channel writes`, async ({ request }) => {
+      const firstEmail = `qa-direct-budget-first-${stamp}@example.test`
+      const secondEmail = `qa-direct-budget-second-${stamp}@example.test`
+      const ccEmail = `qa-direct-budget-cc-${stamp}@example.test`
+      const bccEmail = `qa-direct-budget-bcc-${stamp}@example.test`
+      recipientHashes = [firstEmail, secondEmail, ccEmail, bccEmail]
+        .map((email) => hashForLookup(email, 'messages.external_recipient'))
+      let channelId: string | null = null
+      let personId: string | null = null
+      const subject = `QA direct budget rejected ${stamp}`
+      try {
+        channelId = await seedConnectedChannel(request, token, {
+          displayName: `QA direct budget ${stamp}`,
+          externalIdentifier: `qa-direct-budget-${stamp}@test-seed.local`,
+        })
+        if (entrypoint === 'customer') {
+          personId = await createPersonFixture(request, token, {
+            firstName: 'Budget', lastName: stamp, displayName: `Budget ${stamp}`,
+          })
+        }
+        createdMessageIds.push(await composeMessageWithToken(request, token, {
+          visibility: 'public', externalEmail: firstEmail, recipients: [],
+          subject: `QA direct budget first ${stamp}`, body: 'Reserve the last available recipient.', sendViaEmail: true,
+        }))
+        const path = entrypoint === 'channel'
+          ? '/api/communication_channels/send-as-user'
+          : `/api/customers/people/${personId}/emails`
+        const rejected = await apiRequest(request, 'POST', path, {
+          token,
+          data: {
+            userChannelId: channelId, to: [secondEmail], cc: [ccEmail], bcc: [bccEmail], subject,
+            body: entrypoint === 'channel' ? { plain: 'This send must be rejected.' } : 'This send must be rejected.',
+          },
+        })
+        expect(rejected.status()).toBe(429)
+        expect(Number(rejected.headers()['retry-after'])).toBeGreaterThan(0)
+        await withClient(async (client) => {
+          const messages = await client.query<{ count: string }>(
+            `select count(*)::text as count from messages where tenant_id = $1 and subject = $2`,
+            [tenantId, subject],
+          )
+          expect(messages.rows[0]?.count).toBe('0')
+          const conversations = await client.query<{ count: string }>(
+            `select count(*)::text as count from external_conversations where tenant_id = $1 and channel_id = $2`,
+            [tenantId, channelId],
+          )
+          expect(conversations.rows[0]?.count).toBe('0')
+          const recipients = await client.query<{ count: string }>(
+            `select count(*)::text as count from message_external_recipient_days where tenant_id = $1 and recipient_hash = any($2::text[])`,
+            [tenantId, recipientHashes.slice(1)],
+          )
+          expect(recipients.rows[0]?.count).toBe('0')
+        })
+      } finally {
+        await deleteChannelIfExists(request, token, channelId)
+        await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      }
+    })
+  }
+
 })

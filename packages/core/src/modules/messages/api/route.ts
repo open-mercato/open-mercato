@@ -23,7 +23,7 @@ import {
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
 import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
-import { checkExternalEmailBudget, getExternalEmailBudgetErrorResponse } from '../lib/externalEmailBudget'
+import { getExternalEmailBudgetErrorResponse } from '../lib/externalEmailBudget'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
@@ -654,14 +654,6 @@ export async function POST(req: Request) {
   // and outbound channel link the inbound thread matcher needs. Without the
   // field this stays the platform-sender path, unchanged.
   if (requiresSenderDelegation(input)) {
-    if (!input.isDraft && sendViaEmail && input.externalEmail) {
-      const budgetResponse = await checkExternalEmailBudget(
-        ctx.container,
-        { tenantId: scope.tenantId, userId: scope.userId },
-        input.externalEmail,
-      )
-      if (budgetResponse) return budgetResponse
-    }
     const delegated = await delegateComposeToSender(
       ctx.container,
       {
@@ -675,7 +667,7 @@ export async function POST(req: Request) {
     if (!delegated.ok) {
       return Response.json(
         { error: delegated.error, fieldErrors: delegated.fieldErrors },
-        { status: delegated.status },
+        { status: delegated.status, headers: delegated.headers },
       )
     }
     const delegatedResponse = Response.json(
