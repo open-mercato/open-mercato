@@ -1379,3 +1379,25 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
     })
   })
 })
+
+
+describe('messages draft input validation', () => {
+  it('returns 400 before reading or mutating a draft for an invalid state', async () => {
+    const findOne = jest.fn()
+    const execute = jest.fn()
+    const em = { fork: () => ({ findOne }) }
+    resolveMessageContextMock.mockResolvedValue({
+      scope: { tenantId: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222', userId: '33333333-3333-4333-8333-333333333333' },
+      ctx: { container: { resolve: (name: string) => name === 'em' ? em : { execute } } },
+    })
+    const response = await PATCH(new Request('http://localhost/api/messages/44444444-4444-4444-8444-444444444444', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ isDraft: 'false' }),
+    }), { params: { id: '44444444-4444-4444-8444-444444444444' } })
+    expect(response.status).toBe(400)
+    expect((await response.json()).details.fieldErrors.isDraft).toBeDefined()
+    expect(findOne).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
+})

@@ -97,6 +97,49 @@ describe('communication_channels test-seed gate', () => {
       expect((normalized as { subject?: string }).subject).toBeUndefined()
     })
 
+    it('the email stub normalizes an email-shaped frame whose sender is an address (#6089)', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)
+
+      const normalized = await adapter!.normalizeInbound({
+        raw: {
+          externalMessageId: '<inbound-1@example.test>',
+          externalConversationId: 'inbound-conversation-1',
+          senderIdentifier: 'inbound-sender@example.test',
+          senderDisplayName: 'Inbound Sender',
+          subject: 'Inbound subject',
+          body: 'hello from an inbox',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+
+      expect(normalized.senderIdentifier).toBe('inbound-sender@example.test')
+      expect(normalized.subject).toBe('Inbound subject')
+      expect(normalized.body).toBe('hello from an inbox')
+      expect(normalized.channelPayload.from).toEqual({
+        address: 'inbound-sender@example.test',
+        name: 'Inbound Sender',
+      })
+    })
+
+    it('the email stub rejects a frame whose sender is not an address', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)
+
+      await expect(
+        adapter!.normalizeInbound({
+          raw: { externalMessageId: 'x', externalConversationId: 'y', senderIdentifier: '1499156851487539260' },
+          eventType: 'message',
+          metadata: {},
+        }),
+      ).rejects.toThrow('email-shaped senderIdentifier')
+    })
+
     it('registers a network-free email stub adapter when the gate is on', () => {
       process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
       clearChannelAdapters()

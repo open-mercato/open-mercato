@@ -1,11 +1,12 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
-import { expectId, readJsonSafe } from './generalFixtures';
+import { withClient } from './dbFixtures';
+import { expectId, getTokenContext, readJsonSafe } from './generalFixtures';
 
 /**
  * Communication-channels integration fixtures.
  *
- * These drive the TEST-ONLY seed endpoint `POST /api/communication_channels/test-seed`,
+ * Seeding drives the TEST-ONLY seed endpoint `POST /api/communication_channels/test-seed`,
  * which is gated by `OM_ENABLE_TEST_CHANNEL_SEEDING` (inert/404 in production). Use
  * {@link isChannelSeedingAvailable} to skip tests when the gate is off rather than
  * failing them.
@@ -380,4 +381,80 @@ export async function deleteChannelIfExists(
     `/api/communication_channels/channels/${encodeURIComponent(channelId)}`,
     { token },
   ).catch(() => undefined);
+}
+
+export async function ingestInboundEmailMessage(
+  request: APIRequestContext,
+  token: string,
+  input: {
+    channelId: string;
+    senderAddress: string;
+    senderDisplayName?: string;
+    subject?: string;
+    body?: string;
+    externalMessageId: string;
+    externalConversationId: string;
+  },
+): Promise<{
+  status: string;
+  messageId: string | null;
+  conversationId: string | null;
+  channelLinkId: string | null;
+  channelType: string | null;
+}> {
+  const { senderAddress, ...rest } = input;
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'ingest-inbound', senderIdentifier: senderAddress, ...rest },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (ingest-inbound, email) should return 201',
+  ).toBe(201);
+  const body = await readJsonSafe<{
+    status?: string;
+    messageId?: string | null;
+    conversationId?: string | null;
+    channelLinkId?: string | null;
+    channelType?: string | null;
+  }>(response);
+  return {
+    status: body?.status ?? 'unknown',
+    messageId: body?.messageId ?? null,
+    conversationId: body?.conversationId ?? null,
+    channelLinkId: body?.channelLinkId ?? null,
+    channelType: body?.channelType ?? null,
+  };
+}
+
+
+export async function purgeSeededInboundMessage(
+  _request: APIRequestContext,
+  token: string | null,
+  channelId: string | null,
+  seeded: { channelLinkId: string; messageId: string; conversationId: string } | null,
+): Promise<void> {
+  if (!token || !channelId || !seeded) return;
+  const { tenantId, organizationId } = getTokenContext(token);
+  if (!tenantId || !organizationId) throw new Error('[internal] Inbound fixture cleanup requires tenant and organization scope');
+  await withClient(async (client) => {
+    const scope = [tenantId, organizationId, channelId, seeded.conversationId];
+    await client.query('begin');
+    try {
+      const conversation = await client.query(
+        'select id from external_conversations where tenant_id = $1 and organization_id = $2 and channel_id = $3 and id = $4', scope,
+      );
+      if (conversation.rows.length) {
+        await client.query('delete from channel_thread_mappings where tenant_id = $1 and organization_id = $2 and channel_id = $3 and external_conversation_id = $4', scope);
+        await client.query('delete from message_channel_links where tenant_id = $1 and organization_id = $2 and external_conversation_id = $3 and id = $4', [tenantId, organizationId, seeded.conversationId, seeded.channelLinkId]);
+        await client.query('delete from external_messages where tenant_id = $1 and organization_id = $2 and channel_id = $3 and conversation_id = $4', scope);
+        await client.query("delete from messages where tenant_id = $1 and organization_id = $2 and source_entity_type = 'communication_channels.external_conversation' and source_entity_id = $3 and id = $4", [tenantId, organizationId, seeded.conversationId, seeded.messageId]);
+        await client.query('delete from external_conversations where tenant_id = $1 and organization_id = $2 and channel_id = $3 and id = $4', scope);
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    }
+  });
 }
