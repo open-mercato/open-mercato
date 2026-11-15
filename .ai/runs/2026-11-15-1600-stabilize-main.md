@@ -12,7 +12,7 @@ No speculative production changes, test suppression, weakened checks, deployment
 ## Implementation Plan
 ### Phase 1: Baseline and diagnosis
 1.1 Open draft PR from main and confirm all 15 integration shards, full typecheck and unit tests are selected.
-1.2 Independently inspect main CI history and identify actionable failures.
+1.2 Independently inspect main CI history — c1537c359a (validated read-only investigation) and identify actionable failures.
 ### Phase 2: Stabilization
 2.1 Fix demonstrated root causes with regression tests; run targeted checks and the configured validation gate.
 2.2 Verify the exact PR head has green CI, including all 15 integration shards.
@@ -24,22 +24,31 @@ No speculative production changes, test suppression, weakened checks, deployment
 The date-only branch and plan belong to the earlier completed run (merged PR #9558); this scheduled occurrence uses the 1600 suffix to preserve its history.
 Main continues moving. Test this branch in its own PR concurrency group and inspect checks plus workflow runs for the exact head SHA. Current main runs are pending/in progress; completed recent runs passed. Do not invent fixes when none are demonstrated. User authorizes CI workflow/label changes and branch publishing for this run. Local resource or service limits will be recorded explicitly.
 
-Runner: to be selected once for the local gate.
+## Validation evidence
+Runner: local for docs-only validation (`git diff origin/main --check`, manual review); 40 existing CI orchestration tests passed. No markdown lint command is configured. Full application validation source: GitHub checks, avoiding a duplicate local install/build.
+
+[Full PR CI 43727725703](https://github.com/open-mercato/open-mercato/actions/runs/43727725703) succeeded on head `c1537c359a1d03f1961bd872241aa95d33dc9ae1`: all 15 integration shards, coverage aggregation, full typecheck/unit/scripts/template parity, package/app builds, i18n checks, lint, Docker build, timezone and document collaboration checks passed. The unchanged-dependency audit is intentionally skipped for this docs-only PR.
+
+Independent investigation c2245c28 made no changes. Its main run evidence was checked directly: [43725929826](https://github.com/open-mercato/open-mercato/actions/runs/43725929826) succeeded on `f76558d6553dc5cc3400c9e18d6ecdfb0dfa42e8`, all 15 shards. No current root-cause fix is justified. Historical retry-recovered TC-WF-006 and intermittently invisible TC-SALES-6194 UI assertions were observed, with no established current deterministic regression. Earlier Combobox and snapshot propagation repairs are already merged.
+
+Every later documentation commit will rerun full stabilization CI; final readiness/automerge is gated on the exact final head and the independent final review. No application source or workflow was changed.
 Engine: om-auto-create-pr (steps: 6, --loop: no)
 
 ## Progress
+
+PR: #9605
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Baseline and diagnosis
 
-- [ ] 1.1 Open draft PR and confirm full-suite selection
-- [ ] 1.2 Independently inspect main CI history
+- [x] 1.1 Open draft PR and confirm full-suite selection — c1537c359a
+- [x] 1.2 Independently inspect main CI history — c1537c359a (validated read-only investigation)
 
 ### Phase 2: Stabilization
 
-- [ ] 2.1 Fix demonstrated root causes and validate
-- [ ] 2.2 Verify green CI on the exact PR head
+- [x] 2.1 Fix demonstrated root causes and validate — c1537c359a (no current failure; no speculative changes)
+- [x] 2.2 Verify green CI on the exact PR head — c1537c359a (run 43727725703; later heads require fresh CI)
 
 ### Phase 3: Review and handoff
 
