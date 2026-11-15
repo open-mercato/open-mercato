@@ -26,6 +26,14 @@ log cleanup does not revoke factors already restored through the old undo path.
 The security exception to the compatibility bridge requires named human
 maintainer approval acknowledging the waiver before merge.
 
+The encrypted-history selector assumes the default audit map leaves
+`resource_kind` plaintext and that only MFA removal uses
+`security.mfa_method`. Before upgrading a customized installation, review its
+maps and audit producers: encrypting that resource kind prevents selection,
+while another encrypted command sharing it has its JSONB/undo data scrubbed.
+Such deployments need an adapted, key-aware cleanup before audit access resumes.
+See the [migration specification](.ai/specs/enterprise/implemented/SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md#mfa-removal-audit-hardening-9144).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

@@ -1933,6 +1933,13 @@ payloads and changes are cleared completely because SQL cannot redact their
 contents without tenant keys; resource identifiers and unrelated encrypted
 history remain intact. Mixed plaintext/encrypted column states are covered too.
 
+This repair assumes the default map leaves the dedicated resource kind plaintext
+and no custom command reuses it. Custom maps encrypting both selectors are not
+covered; a custom encrypted command sharing that resource kind is also scrubbed.
+Operators must inspect such customizations and adapt the cleanup using tenant
+keys before treating it as complete. The ciphertext envelope check is structural,
+not authenticated command identification.
+
 Operators must stop old application/worker writers, deploy the fix everywhere,
 and apply the migration through their normal upgrade process before resuming
 audit access. Copies in backups, exports and replicas need separate retention

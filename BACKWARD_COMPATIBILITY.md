@@ -667,18 +667,8 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
-## MFA removal audit history (2026-11-15, #9144)
+## MFA audit (2026-11-15, #9144)
 
-STABLE audit response and command replay behavior: credential fields and undo for
-`security.mfa.method.remove` are removed. Retaining either as a bridge preserves
-seed disclosure or restoration of a deliberately removed factor. This is the
-narrow security exception to steps 1–3; named human maintainer acknowledgment
-of the waiver is **pending**, so automated approval cannot clear the merge gate.
-Consumers tolerate absent secret/provider metadata and enroll replacement factors.
-Operators stop old writers, deploy all replicas, run irreversible historical
-redaction, handle backups/exports separately and replace suspect credentials.
-Encrypted credential-bearing JSONB columns are erased as a whole; plaintext
-audit resource identifiers remain available.
-Routes, command IDs, success responses and database schema remain unchanged.
-[Migration](UPGRADE_NOTES.md#mfa-removal-audit-history-9144);
-[spec](.ai/specs/enterprise/implemented/SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md#mfa-removal-audit-hardening-9144).
+STABLE `security.mfa.method.remove`: bridging retains seed disclosure and factor restoration.
+Steps 1–3 waiver awaits named human approval. Clients re-enroll; operators purge
+history and rotate factors: [migration](UPGRADE_NOTES.md#mfa-removal-audit-history-9144).
