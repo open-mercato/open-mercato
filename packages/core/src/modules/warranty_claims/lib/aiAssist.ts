@@ -1,4 +1,4 @@
-import { generateObject, generateText } from 'ai'
+import { convertToModelMessages, generateObject, generateText, type UIMessage } from 'ai'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
@@ -394,15 +394,19 @@ async function buildAttachmentMessages(input: {
   if (fileParts.length === 0) {
     throw new WarrantyAiUnavailableError('[internal] warranty ai attachment content unavailable')
   }
-  return [
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: input.prompt },
-        ...fileParts,
-      ],
-    },
-  ] as GenerateObjectMessages
+  return toWarrantyModelMessages(input.prompt, fileParts)
+}
+
+export async function toWarrantyModelMessages(
+  prompt: string,
+  fileParts: ReturnType<typeof attachmentPartsToUiFileParts>,
+): Promise<GenerateObjectMessages> {
+  const message: UIMessage = {
+    id: 'warranty-ai-attachment',
+    role: 'user',
+    parts: [{ type: 'text', text: prompt }, ...fileParts],
+  }
+  return convertToModelMessages([message])
 }
 
 async function generateWarrantyObject<T extends Record<string, unknown>>(input: {
