@@ -41,6 +41,9 @@ type SerializedChannel = {
   providerKey: string
   supportsRealtimePush: boolean
   supportsPushRegistration: boolean
+  pushStatus: string | null
+  pushExpiresAt: string | null
+  pushExpired: boolean
 }
 
 function channel(providerKey: string, capabilities: Record<string, unknown> | null) {
@@ -126,6 +129,71 @@ describe('communication_channels me/channels route', () => {
     const [row] = await invoke()
 
     expect(row.supportsPushRegistration).toBe(false)
+  })
+
+  // Regression for https://github.com/open-mercato/open-mercato/issues/8943 — a
+  // Gmail watch lapses after ~7 days, but `pushStatus` stays 'active' until a
+  // register/renew call rewrites it, so the stored value alone hid the expiry.
+  describe('push watch expiry', () => {
+    const now = Date.parse('2026-11-06T12:00:00.000Z')
+    const dayMs = 24 * 60 * 60 * 1000
+
+    beforeEach(() => {
+      jest.spyOn(Date, 'now').mockReturnValue(now)
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    function gmailWithState(channelState: Record<string, unknown> | null) {
+      return { ...channel('gmail', { realtimePush: false }), channelState }
+    }
+
+    it('flags an active watch whose expiration has passed as expired', async () => {
+      const watchExpirationMs = now - 70 * dayMs
+      findWithDecryptionMock.mockResolvedValue([
+        gmailWithState({ pushStatus: 'active', watchExpirationMs }),
+      ])
+
+      const [row] = await invoke()
+
+      expect(row.pushStatus).toBe('active')
+      expect(row.pushExpired).toBe(true)
+      expect(row.pushExpiresAt).toBe(new Date(watchExpirationMs).toISOString())
+    })
+
+    it('keeps an active watch that has not expired yet as live', async () => {
+      const watchExpirationMs = now + 3 * dayMs
+      findWithDecryptionMock.mockResolvedValue([
+        gmailWithState({ pushStatus: 'active', watchExpirationMs }),
+      ])
+
+      const [row] = await invoke()
+
+      expect(row.pushExpired).toBe(false)
+      expect(row.pushExpiresAt).toBe(new Date(watchExpirationMs).toISOString())
+    })
+
+    it('does not flag expiry when no expiration is stored', async () => {
+      findWithDecryptionMock.mockResolvedValue([gmailWithState({ pushStatus: 'active' })])
+
+      const [row] = await invoke()
+
+      expect(row.pushExpired).toBe(false)
+      expect(row.pushExpiresAt).toBeNull()
+    })
+
+    it('leaves a failed registration to the failed state rather than calling it expired', async () => {
+      findWithDecryptionMock.mockResolvedValue([
+        gmailWithState({ pushStatus: 'failed', watchExpirationMs: now - dayMs }),
+      ])
+
+      const [row] = await invoke()
+
+      expect(row.pushStatus).toBe('failed')
+      expect(row.pushExpired).toBe(false)
+    })
   })
 
   it('rejects an unauthenticated caller', async () => {
