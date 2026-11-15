@@ -164,12 +164,12 @@ test.describe('TC-SEARCH-002: search endpoint merges duplicate strategy hits', (
 
       expect(ensuredMergedResult.entityId).toBe('customers:customer_company_profile')
 
-      expect(typeof ensuredMergedResult.url).toBe('string')
-      expect(ensuredMergedResult.url).toContain('/backend/customers/companies/')
+      const expectedCompanyUrl = `/backend/customers/companies-v2/${encodeURIComponent(requireValue(companyId, 'Expected the created company id'))}`
+      expect(ensuredMergedResult.url).toBe(expectedCompanyUrl)
 
       const links = getLinks(ensuredMergedResult)
       expect(
-        links.some((link) => typeof link.href === 'string' && link.href.includes('/backend/customers/companies/')),
+        links.some((link) => link.href === expectedCompanyUrl),
       ).toBeTruthy()
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
