@@ -33,6 +33,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () => ({
+  requireCustomerFeature: jest.fn(async () => undefined),
   getCustomerAuthFromRequest: (...args: unknown[]) => mockGetCustomerAuth(...args),
 }))
 

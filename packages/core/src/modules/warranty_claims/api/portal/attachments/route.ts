@@ -85,11 +85,11 @@ function toIso(value: Date | string | null | undefined): string | null {
   return Number.isNaN(date.getTime()) ? value : date.toISOString()
 }
 
-async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
-  const authOrResponse = await resolveLinkedCustomerAuth(req)
+async function resolvePortalContext(req: Request, requiredFeature: string): Promise<PortalContext | Response> {
+  const container = await createRequestContainer()
+  const authOrResponse = await resolveLinkedCustomerAuth(req, requiredFeature, container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   return {
     auth,
@@ -289,7 +289,7 @@ async function streamOwnedAttachment(
 }
 
 export async function GET(req: Request) {
-  const contextOrResponse = await resolvePortalContext(req)
+  const contextOrResponse = await resolvePortalContext(req, 'portal.warranty_claims.view')
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const { translate } = await resolveTranslations()
@@ -365,7 +365,7 @@ function uploadTooLargeResponse(t: Awaited<ReturnType<typeof resolveTranslations
 }
 
 async function handleUpload(req: Request, replacement: boolean): Promise<Response> {
-  const contextOrResponse = await resolvePortalContext(req)
+  const contextOrResponse = await resolvePortalContext(req, 'portal.warranty_claims.manage')
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const { t, translate } = await resolveTranslations()
@@ -408,6 +408,12 @@ async function handleUpload(req: Request, replacement: boolean): Promise<Respons
   const claim = await loadOwnedClaim(context, parsed.data.claimId)
   if (!claim) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
+  }
+  if (replacement && !['draft', 'submitted', 'info_requested'].includes(claim.status)) {
+    return NextResponse.json(
+      { ok: false, error: translate('warranty_claims.errors.invalidTransition', 'That status change is not allowed.') },
+      { status: 400 },
+    )
   }
   const file = form.get('file')
   if (!(file instanceof File)) {
@@ -491,7 +497,7 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const contextOrResponse = await resolvePortalContext(req)
+  const contextOrResponse = await resolvePortalContext(req, 'portal.warranty_claims.manage')
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const { translate } = await resolveTranslations()
@@ -505,6 +511,12 @@ export async function DELETE(req: Request) {
   const owned = await loadOwnedVisibleAttachment(context, parsed.data.attachmentId)
   if (!owned) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
+  }
+  if (!['draft', 'submitted', 'info_requested'].includes(owned.claim.status)) {
+    return NextResponse.json(
+      { ok: false, error: translate('warranty_claims.errors.invalidTransition', 'That status change is not allowed.') },
+      { status: 400 },
+    )
   }
   const guarded = await runPortalAttachmentGuard(req, context, owned.claim.id, 'delete', {
     claimId: owned.claim.id,

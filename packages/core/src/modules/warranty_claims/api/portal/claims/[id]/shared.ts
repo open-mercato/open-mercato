@@ -34,10 +34,10 @@ export async function resolvePortalClaimId(ctx: PortalClaimActionRouteContext): 
 }
 
 export async function resolvePortalActionContext(req: Request): Promise<PortalClaimActionContext | Response> {
-  const authOrResponse = await resolveLinkedCustomerAuth(req)
+  const container = await createRequestContainer()
+  const authOrResponse = await resolveLinkedCustomerAuth(req, 'portal.warranty_claims.manage', container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const commandAuth: NonNullable<AuthContext> = {
     sub: auth.sub,

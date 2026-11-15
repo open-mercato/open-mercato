@@ -12,7 +12,6 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
-import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../data/entities'
 import {
@@ -24,6 +23,7 @@ import {
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { portalClaimStatusesForStateGroup } from '../../../lib/listSegments'
 import { buildPortalOwnedClaimWhere } from '../../../lib/portalClaimAccess'
+import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -154,11 +154,11 @@ function serializePortalClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) 
   }
 }
 
-async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
-  const authOrResponse = await resolveLinkedCustomerAuth(req)
+async function resolvePortalContext(req: Request, requiredFeature: string): Promise<PortalContext | Response> {
+  const container = await createRequestContainer()
+  const authOrResponse = await resolveLinkedCustomerAuth(req, requiredFeature, container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const commandAuth: NonNullable<AuthContext> = {
     sub: auth.sub,
@@ -322,7 +322,7 @@ async function runPortalCreateGuard(
 }
 
 export async function GET(req: Request) {
-  const contextOrResponse = await resolvePortalContext(req)
+  const contextOrResponse = await resolvePortalContext(req, 'portal.warranty_claims.view')
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const url = new URL(req.url)
@@ -411,7 +411,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const contextOrResponse = await resolvePortalContext(req)
+  const contextOrResponse = await resolvePortalContext(req, 'portal.warranty_claims.manage')
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
   const { translate } = await resolveTranslations()

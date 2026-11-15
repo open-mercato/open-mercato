@@ -80,7 +80,7 @@ describe('warranty portal attachments when the attachments module is disabled', 
     jest.clearAllMocks()
     previousEntityIds = getEntityIds(false)
     registerEntityIds({ warranty_claims: { warranty_claim: 'warranty_claims:warranty_claim' } })
-    mockLoadPortalOwnedClaim.mockResolvedValue({ id: CLAIM_ID })
+    mockLoadPortalOwnedClaim.mockResolvedValue({ id: CLAIM_ID, status: 'submitted' })
     mockFindWithDecryption.mockRejectedValue(new Error(MISSING_METADATA))
     mockFindOneWithDecryption.mockRejectedValue(new Error(MISSING_METADATA))
     mockEmFind.mockRejectedValue(new Error(MISSING_METADATA))

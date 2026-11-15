@@ -144,7 +144,7 @@ async function withPortalSession(
 
   try {
     roleId = (await createCustomerRoleFixture(request, adminToken, {
-      features: ['portal.account.manage'],
+      features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'],
     })).id
     companyId = await createCustomerCompanyFixture(request, adminToken, `QA WC Stream Limit ${stamp}`)
     const user = await createCustomerUserFixture(request, adminToken, {

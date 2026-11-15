@@ -44,10 +44,10 @@ async function resolveClaimId(ctx: RouteContext): Promise<string | null> {
 }
 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
-  const authOrResponse = await resolveLinkedCustomerAuth(req)
+  const container = await createRequestContainer()
+  const authOrResponse = await resolveLinkedCustomerAuth(req, 'portal.warranty_claims.view', container)
   if (authOrResponse instanceof Response) return authOrResponse
   const auth = authOrResponse
-  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   return {
     auth,

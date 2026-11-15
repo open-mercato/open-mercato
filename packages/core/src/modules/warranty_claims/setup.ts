@@ -114,6 +114,10 @@ async function ensureSlaSweepSchedule(ctx: {
 }
 
 export const setup: ModuleSetupConfig = {
+  defaultCustomerRoleFeatures: {
+    buyer: ['portal.warranty_claims.view', 'portal.warranty_claims.manage'],
+    viewer: ['portal.warranty_claims.view'],
+  },
   defaultRoleFeatures: {
     admin: adminFeatures,
     owner: ownerFeatures,

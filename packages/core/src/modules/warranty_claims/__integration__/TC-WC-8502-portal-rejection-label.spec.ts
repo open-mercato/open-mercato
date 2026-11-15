@@ -95,7 +95,7 @@ test.describe('TC-WC-8502: portal rejection reason dictionary labels', () => {
     expect(entryId).toBeTruthy()
     expect(entryUpdatedAt).toBeTruthy()
 
-    roleId = (await createCustomerRoleFixture(staff, adminToken, { features: ['portal.account.manage'] })).id
+    roleId = (await createCustomerRoleFixture(staff, adminToken, { features: ['portal.account.manage', 'portal.warranty_claims.view', 'portal.warranty_claims.manage', 'portal.orders.view'] })).id
     for (const owner of ['A', 'B']) {
       const companyId = await createCustomerCompanyFixture(staff, adminToken, `QA Rejection ${owner} ${stamp}`)
       companyIds.push(companyId)

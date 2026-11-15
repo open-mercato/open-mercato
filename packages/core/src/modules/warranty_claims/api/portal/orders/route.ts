@@ -5,9 +5,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 
 const logger = createLogger('warranty_claims')
 
@@ -83,15 +84,9 @@ function toIso(value: unknown): string | null {
 }
 
 async function resolvePortalContext(req: Request): Promise<PortalOrdersContext | Response> {
-  const auth = await getCustomerAuthFromRequest(req)
-  const { translate } = await resolveTranslations()
-  if (!auth) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') }, { status: 401 })
-  }
-  if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.customerAccountNotLinked', 'Customer account is not linked to a customer record') }, { status: 403 })
-  }
   const container = await createRequestContainer()
+  const auth = await resolveLinkedCustomerAuth(req, 'portal.orders.view', container)
+  if (auth instanceof Response) return auth
   const em = (container.resolve('em') as EntityManager).fork()
   return {
     auth,
