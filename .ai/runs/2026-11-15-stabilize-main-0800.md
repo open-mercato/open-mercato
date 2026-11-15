@@ -27,6 +27,11 @@ Non-goals: publish packages, change production, merge to main, weaken assertions
 ## Audit evidence
 Independent audit f71bf489 verified successful core publication at 05:06:56Z, metadata readiness at 05:20:36Z, and exact tarball HTTP404 at 05:20:49Z. A later actual GET returns the published SHA1 `942aaaa7db1f9f88717b16c78df3dc7d903d224a`, proving eventual availability. Public evidence cannot distinguish npm scanning from CDN propagation internally. Parent independently verified publish logs and later HTTP200. No child diff exists against its baseline; nothing was merged. Expanded focused checks: 51 pass, including exact-version/registry restrictions, mixed HTTP errors and bounded retries.
 
+## Validation follow-up
+CI run 43690039717 passed all eight configured gate commands, including the complete unit suite, but its additional Test scripts step found an outdated credential-isolation expectation requiring no consumer job environment. Preserve its exact allowlist while permitting only the non-secret published-version context — 575f954cb8. Preview/retry checks: 29 passed. Full local scripts: 1,681 passed, two Docker-copy tests cannot invoke this host’s missing Docker build plugin (exit125); GitHub had passed those same tests. Local full unit retry: 50 successful tasks, create-app failed only for missing Info-ZIP unzip. Supplied the prerequisite locally and reran all 19 affected session-share checks successfully. No app source changes.
+
+The parent reviewed the post-review test-only delta: exact environment equality still rejects extra keys, and all secret-reference and publishing-environment assertions remain intact. The independent review covers unchanged runtime/workflow implementation; its native-approval limitation remains disclosed. The two-task limit precludes another dispatched task. Final CI is still required.
+
 ## Final review
 Independent final review 0fc50825 approved implementation head `6b35aa19d24a335f7a4f7ecc4de8db8c1eb85fed` with zero findings. [Authoritative evidence](https://github.com/open-mercato/open-mercato/pull/9588#issuecomment-6891137350). GitHub rejected native self-approval under the shared bot identity; no native approval is claimed. Reviewer source remained unchanged and the parent verified zero child diff. Final current-head CI still gates readiness and automerge.
 
@@ -54,7 +59,7 @@ PR: #9588
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Run focused checks and the configured ordered validation gate
+- [x] 2.1 Run focused checks and the configured ordered validation gate — 6b35aa19d2 (all eight configured commands passed in CI; additional scripts guard repaired in 575f954cb8)
 - [ ] 2.2 Run the PR full suite and repair demonstrated failures until current-head CI is green
 
 ### Phase 3: Review and hand off
