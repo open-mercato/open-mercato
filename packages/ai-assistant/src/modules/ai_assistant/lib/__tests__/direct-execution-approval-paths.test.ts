@@ -136,14 +136,15 @@ describe('confirm-required mutation input validation', () => {
     resetAgentRegistryForTests()
     toolRegistry.clear()
     handler = jest.fn(async () => ({ written: true }))
-    registerMcpTool({
+    const tool: AiToolDefinition = {
       name: 'test.mutation',
       description: 'Mutation fixture',
       inputSchema,
       isMutation: true,
       requiredFeatures: ['test.records.manage'],
       handler,
-    }, { moduleId: 'test' })
+    }
+    registerMcpTool(tool, { moduleId: 'test' })
     prepareMutationMock.mockResolvedValue({
       uiPart: { type: 'mutation-preview-card', data: { pendingActionId: 'action-1' } },
       pendingAction: { id: 'action-1', expiresAt: new Date('2099-01-01'), status: 'pending' },
@@ -173,7 +174,7 @@ describe('confirm-required mutation input validation', () => {
 
   it('refuses schema-invalid input when a destructive-confirm-required predicate gates the call', async () => {
     toolRegistry.clear()
-    registerMcpTool({
+    const tool: AiToolDefinition = {
       name: 'test.mutation',
       description: 'Mutation fixture',
       inputSchema,
@@ -181,7 +182,8 @@ describe('confirm-required mutation input validation', () => {
       isDestructive: () => true,
       requiredFeatures: ['test.records.manage'],
       handler,
-    }, { moduleId: 'test' })
+    }
+    registerMcpTool(tool, { moduleId: 'test' })
     seedAgent({ mutationPolicy: 'destructive-confirm-required' })
     const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
 
