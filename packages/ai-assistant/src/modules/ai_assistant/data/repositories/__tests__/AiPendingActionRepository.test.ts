@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import { AiPendingActionRepository } from '../AiPendingActionRepository'
 import { AiPendingAction } from '../../entities'
 import {
@@ -175,6 +176,23 @@ function baseInput(overrides: Partial<any> = {}) {
 }
 
 describe('AiPendingActionRepository', () => {
+  it('rejects a second expected-pending claim rather than treating confirmed as a successful claim', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ctx = { tenantId: tenantAlpha, organizationId: 'org-a', userId: userOne }
+    const { row } = await repo.create(baseInput(), ctx)
+    const claim = { expectedStatus: 'pending' as const, resolvedByUserId: userOne }
+    const findOne = jest.spyOn(em, 'findOne')
+    await repo.setStatus(row.id, 'confirmed', ctx, claim)
+    expect(findOne).toHaveBeenCalledWith(
+      AiPendingAction,
+      expect.objectContaining({ id: row.id, tenantId: tenantAlpha, organizationId: 'org-a', createdByUserId: userOne }),
+      expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }),
+    )
+    await expect(repo.setStatus(row.id, 'confirmed', ctx, claim)).rejects.toBeInstanceOf(AiPendingActionStateError)
+    expect((await repo.getById(row.id, ctx))?.status).toBe('confirmed')
+  })
+
   it('creates a row in status=pending with TTL-derived expiresAt and empty attachmentIds default', async () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
