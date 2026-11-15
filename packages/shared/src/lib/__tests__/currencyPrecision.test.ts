@@ -1,4 +1,17 @@
 import { findCurrencyAmountPrecisionError, resolveCurrencyAmountDecimalPlaces, resolveCurrencyDecimalPlaces } from '../currencyPrecision'
+import { registerTelemetryRuntime, resetTelemetryRuntime, type TelemetryRuntime } from '../telemetry/runtime'
+
+function registerReporter(reportError: jest.Mock) {
+  const runtime: TelemetryRuntime = {
+    canUseGlobalTracePropagation: () => false,
+    captureTraceContext: () => ({}),
+    continueTrace: (_carrier, _name, fn) => fn(),
+    recordHttpDuration: () => {},
+    reportError,
+    shutdown: async () => {},
+  }
+  registerTelemetryRuntime(runtime)
+}
 
 function containerWith(service: unknown) {
   return {
@@ -11,6 +24,36 @@ function containerWith(service: unknown) {
 
 describe('resolveCurrencyAmountDecimalPlaces', () => {
   const lookup = { code: 'ETH', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+  afterEach(() => resetTelemetryRuntime())
+
+  it('reports a failed precision lookup and keeps the ISO fallback', async () => {
+    const reportError = jest.fn()
+    registerReporter(reportError)
+    const failure = new Error('[internal] db down')
+    const failing = { getDecimalPlaces: async () => { throw failure } }
+
+    await expect(resolveCurrencyDecimalPlaces(containerWith(failing), { ...lookup, code: 'USD' })).resolves.toBe(2)
+    expect(reportError).toHaveBeenCalledWith(failure, {
+      module: 'currencies',
+      code: 'currencies.precision_lookup_failed',
+    })
+  })
+
+  it('keeps the fallback when reporting itself throws', async () => {
+    registerReporter(jest.fn(() => { throw new Error('[internal] telemetry down') }))
+    const failing = { getDecimalPlaces: async () => { throw new Error('[internal] db down') } }
+
+    await expect(resolveCurrencyDecimalPlaces(containerWith(failing), { ...lookup, code: 'USD' })).resolves.toBe(2)
+  })
+
+  it('does not report when the optional precision service is absent', async () => {
+    const reportError = jest.fn()
+    registerReporter(reportError)
+
+    await expect(resolveCurrencyDecimalPlaces(containerWith(null), { ...lookup, code: 'USD' })).resolves.toBe(2)
+    expect(reportError).not.toHaveBeenCalled()
+  })
 
   it('uses the tenant currency precision when it is higher than the floor', async () => {
     const service = { getDecimalPlaces: jest.fn(async () => 18) }

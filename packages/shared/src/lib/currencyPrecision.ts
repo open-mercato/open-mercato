@@ -5,6 +5,7 @@ import {
   resolveAmountDecimalPlaces,
   resolveIsoCurrencyDecimalPlaces,
 } from './decimal'
+import { getTelemetryRuntime } from './telemetry/runtime'
 
 export function findCurrencyAmountPrecisionError(input: {
   amount: number | string | null | undefined
@@ -55,7 +56,13 @@ export async function resolveCurrencyDecimalPlaces(
   if (resolver) {
     try {
       decimalPlaces = await resolver.getDecimalPlaces(lookup)
-    } catch {
+    } catch (error) {
+      try {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'currencies',
+          code: 'currencies.precision_lookup_failed',
+        })
+      } catch {}
       decimalPlaces = null
     }
   }
