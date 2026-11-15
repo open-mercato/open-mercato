@@ -147,6 +147,7 @@ describe('channel-import-history worker', () => {
     await handler(buildJob(), ctx as never)
 
     expect(importHistory).toHaveBeenCalledTimes(2)
+    expect(importHistory.mock.calls[0][0].conversationId).toBe('me@example.com')
     expect(importHistory.mock.calls[1][0].cursor).toBe('page2')
     expect(commandBus.execute).toHaveBeenCalledTimes(3)
     expect(progressService.completeJob).toHaveBeenCalledWith(
@@ -157,6 +158,20 @@ describe('channel-import-history worker', () => {
       expect.any(Object),
     )
     expect(progressService.failJob).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the channel id when the channel has no external identifier', async () => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue({
+      ...buildChannel(),
+      externalIdentifier: null,
+    })
+    const importHistory = jest.fn().mockResolvedValueOnce({
+      messages: [],
+      hasMore: false,
+    })
+    const { ctx } = buildCtx({ importHistory })
+    await handler(buildJob(), ctx as never)
+    expect(importHistory.mock.calls[0][0].conversationId).toBe(CHANNEL)
   })
 
   it('uses totalCandidates from the first page as ProgressJob.totalCount', async () => {

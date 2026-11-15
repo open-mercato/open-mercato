@@ -4,6 +4,7 @@ import { CLAIM_TYPES } from './data/validators'
 import { WarrantyClaimSequence } from './data/entities'
 import { seedWarrantyClaimDictionaries } from './lib/dictionaries'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 const logger = createLogger('warranty_claims')
 
@@ -152,7 +153,11 @@ export const setup: ModuleSetupConfig = {
   },
 
   async seedDefaults({ em, tenantId, organizationId, container }) {
-    await seedWarrantyClaimDictionaries(em, { tenantId, organizationId })
+    if (getEntityIds(false).dictionaries?.dictionary) {
+      await seedWarrantyClaimDictionaries(em, { tenantId, organizationId })
+    } else {
+      logger.info('[warranty_claims] dictionaries module disabled; skipping claim dictionaries seed')
+    }
     await ensureSlaSweepSchedule({ container, tenantId, organizationId })
   },
 
