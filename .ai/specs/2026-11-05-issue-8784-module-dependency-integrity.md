@@ -426,6 +426,8 @@ All changes are additive. Per `BACKWARD_COMPATIBILITY.md`:
 
 **Behavior that moves.** The resolution table moves the seeding of one dictionary from `sales` to `customers` and moves sales-specific dashboard widgets to `sales`. Widget ids, dictionary keys and stored data are unchanged. In an app with all modules enabled nothing visible changes.
 
+**Schedule link types (#8802).** The additive, frozen host `schedule:customers.link-types` uses the `customers.schedule.link-types.v1` data contract, exported as `ScheduleLinkTypeDefinition` and `ScheduleLinkTypeWidget` from `customers/components/detail/schedule/linkTypes`. Definitions provide an existing schedule link id (`company`, `deal`, or `offer`), translated label, optional icon, search URL builder, and result-label resolver. This is a headless registry contribution host; visual widgets are not rendered. Adding a new persisted link kind remains a separate API-contract change. Company and Deal remain built in; `sales.injection.schedule-offer-link` contributes Offer with the existing `sales.quotes.view` permission. The injection loader filters disabled modules and the UI hook applies wildcard-aware grants. Providers load asynchronously while built-in types remain available. `LinkedEntity.type`, stored `company`, `deal`, and `offer` values, and saved labels are unchanged. Historical links remain visible and removable without their provider. No API, schema, event, or ACL id changes.
+
 **Monorepo and template.** No file under `apps/mercato/src/app/**` or `apps/mercato/src/i18n/**` changes, so the template sync checklist in `packages/create-app/AGENTS.md` is not triggered. `packages/create-app/template/AGENTS.md` and the standalone harness are refreshed with the `module doctor` command through `om-refresh-standalone-harness`.
 
 ## Implementation Plan
@@ -643,6 +645,10 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 - **Fully compliant**: Approved for specification review. Both flagged decisions (Q1 and Q10) are made. Phase 2 waits for the `optionalRequires` outcome in Q2.
 
 ## Changelog
+
+### 2026-11-15 — Schedule link ownership (#8802)
+- Implemented resolution-table row E2 independently: customers declares `schedule:customers.link-types`; sales owns the Offer endpoint, label resolution, and translations.
+- Added regression coverage for absent and asynchronously loaded providers, quote labels/search, pagination, and historical links, plus module-aware customers integration and all-modules sales coverage.
 
 ### 2026-11-05
 - Initial specification for #8784. Open Questions Q1 to Q10 resolved with autonomous defaults; Q1 and Q10 are flagged for the maintainer.

@@ -12,7 +12,7 @@
 import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
@@ -125,6 +125,53 @@ test.describe('TC-SALES-6194: additional address discovery', () => {
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
       await deleteEntityIfExists(request, token, '/api/customers/addresses', addressId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+
+  test('Offer remains searchable and selectable in the activity scheduler when sales is enabled (#8802)', async ({ page, request }, testInfo) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    const quoteNumber = `QA-OFFER-${stamp}`
+    let companyId: string | null = null
+    let quoteId: string | null = null
+
+    try {
+      companyId = await createCompanyFixture(request, token, `QA Offer Customer ${stamp}`)
+      const created = await apiRequest(request, 'POST', '/api/sales/quotes', {
+        token,
+        data: { currencyCode: 'USD', customerEntityId: companyId, quoteNumber },
+      })
+      expect(created.status()).toBe(201)
+      quoteId = (await readJsonSafe<{ id?: string }>(created))?.id ?? null
+      expect(quoteId).toBeTruthy()
+
+      await login(page, 'admin')
+      await page.goto(`/backend/customers/companies-v2/${companyId}`)
+      await page.getByRole('tab', { name: 'Activity log', exact: true }).click()
+      await page.getByRole('button', { name: 'Add new', exact: true }).click()
+      await page.getByRole('button', { name: 'New task', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: 'New task', exact: true })
+      await expect(dialog.locator('[data-schedule-link-types-loading]')).toHaveAttribute('data-schedule-link-types-loading', 'false')
+      await dialog.getByRole('button', { name: '+ Add link', exact: true }).click()
+      const picker = page.getByRole('dialog').filter({ has: page.locator('[data-schedule-link-type="company"]') })
+      await picker.getByRole('button', { name: 'Offer', exact: true }).click()
+      const searchResponse = page.waitForResponse((candidate) => {
+        const url = new URL(candidate.url())
+        return url.pathname === '/api/sales/quotes' && url.searchParams.get('search') === quoteNumber && candidate.request().method() === 'GET'
+      })
+      await picker.getByPlaceholder('Search...', { exact: true }).fill(quoteNumber)
+      expect((await searchResponse).status()).toBe(200)
+      const result = picker.getByRole('button', { name: quoteNumber, exact: true })
+      await expect(result).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('offer-picker.png'), fullPage: true })
+      await result.click()
+      await expect(picker).toBeHidden()
+      await expect(dialog.getByText(quoteNumber, { exact: true })).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Remove link', exact: true })).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('offer-linked.png'), fullPage: true })
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })
 })
