@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { MetadataStorage } from '@mikro-orm/core'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DefaultCatalogPricingService } from '../catalogPricingService'
 import { DefaultCatalogBuyerPricingService, type BuyerPricingContext } from '../catalogBuyerPricingService'
@@ -34,7 +35,7 @@ const findMock = findWithDecryption as jest.MockedFunction<typeof findWithDecryp
 
 const TENANT = 'tenant-1'
 const ORG = 'org-1'
-const em = {} as EntityManager
+const em = { getMetadata: () => ({ has: () => true }) } as unknown as EntityManager
 const scope = { tenantId: TENANT, organizationId: ORG }
 
 function baseRow(overrides: Partial<PriceRow> = {}): PriceRow {
@@ -110,6 +111,20 @@ describe('DefaultCatalogBuyerPricingService.resolveLinePrice', () => {
     expect(result.amountGross).toBe(12)
     expect(result.taxRatePercent).toBe(20)
     expect(result.priceIsPromotional).toBe(false)
+  })
+
+  it('returns only the known side without querying tax rates when the sales module is disabled', async () => {
+    addTaxRate({ rate: '20.0000' })
+    const emWithoutSales = { getMetadata: () => new MetadataStorage() } as unknown as EntityManager
+    const rows = [baseRow({ id: 'gross-only', unitPriceNet: null, unitPriceGross: '12.00' })]
+
+    const result = await buildService().resolveLinePrice(emWithoutSales, rows, baseContext(), scope)
+
+    expect(result.priceRow?.id).toBe('gross-only')
+    expect(result.amountNet).toBeNull()
+    expect(result.amountGross).toBe(12)
+    expect(result.taxRatePercent).toBeNull()
+    expect(findMock).not.toHaveBeenCalled()
   })
 
   it('uses the row-carried tax rate instead of querying for a fallback when present', async () => {
