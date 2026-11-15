@@ -477,6 +477,23 @@ describe('admin /api/customer_accounts/admin/users — POST role validation', ()
     mockEmFind.mockResolvedValue([])
   })
 
+  it('rejects oversized role input before looking up or creating a user', async () => {
+    const response = await POST(buildRequest(undefined, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'new@example.com', password: 'Secret123!', displayName: 'New User',
+        roleIds: Array(101).fill(roleAlpha.id),
+      }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(mockFindByEmail).not.toHaveBeenCalled()
+    expect(mockCreateUser).not.toHaveBeenCalled()
+    expect(mockEmFind).not.toHaveBeenCalled()
+    expect(mockEmFindOne).not.toHaveBeenCalled()
+  })
+
   it('validates all requested roles via a single $in query scoped to tenant AND organization', async () => {
     mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
       if (entity === CustomerRole) {

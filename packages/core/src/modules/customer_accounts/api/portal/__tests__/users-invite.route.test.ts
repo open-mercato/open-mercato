@@ -92,6 +92,16 @@ describe('portal customer account user invite route', () => {
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
   })
 
+  it('rejects oversized role input before querying or creating invitations', async () => {
+    const { POST } = await import('../users-invite')
+    const response = await POST(makeInviteRequest(Array(101).fill(roleId)))
+
+    expect(response.status).toBe(400)
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
+  })
+
   it('creates a portal-admin invitation and sends the invitation email', async () => {
     const { POST } = await import('../users-invite')
 

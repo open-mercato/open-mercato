@@ -42,6 +42,7 @@ interface AccountStatusProps {
 interface RoleOption {
   id: string
   name: string
+  customerAssignable: boolean
 }
 
 interface PersonData {
@@ -113,7 +114,7 @@ function InviteForm({
         if (cancelled) return
         if (call.ok && call.result) {
           const items = Array.isArray(call.result.items) ? call.result.items : []
-          setAvailableRoles(items.map((role) => ({ id: role.id, name: role.name })))
+          setAvailableRoles(items.filter((role) => role.customerAssignable === true))
         }
       } catch {
         /* ignore */
@@ -192,7 +193,7 @@ function InviteForm({
   }
 
   return (
-    <div className="space-y-3 mt-2">
+    <div className="min-w-0 space-y-3 mt-2">
       <div>
         <label htmlFor="invite-email" className="block text-xs font-medium text-muted-foreground mb-1">
           {t('common.email', 'Email')}
@@ -230,7 +231,7 @@ function InviteForm({
             {t('customer_accounts.widgets.invite.noRoles', 'No roles available')}
           </div>
         ) : (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex min-w-0 flex-wrap gap-1.5">
             {availableRoles.map((role) => (
               <Button
                 key={role.id}
@@ -239,7 +240,7 @@ function InviteForm({
                 size="sm"
                 onClick={() => toggleRole(role.id)}
                 disabled={isSubmitting || readsBlocked}
-                className="text-xs h-7"
+                className="min-h-7 h-auto min-w-0 max-w-full whitespace-normal break-all text-xs"
               >
                 {role.name}
               </Button>
@@ -414,7 +415,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
 
   if (!data) {
     return (
-      <div className="max-w-xl rounded-lg border bg-card p-4">
+      <div className="min-w-0 max-w-xl rounded-lg border bg-card p-4">
         {ConfirmDialogElement}
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
         {readFailed ? readError : isLoading || isResolvingInvitation ? (
@@ -479,7 +480,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   }
 
   return (
-    <div className="max-w-xl rounded-lg border bg-card p-4">
+    <div className="min-w-0 max-w-xl rounded-lg border bg-card p-4">
       {ConfirmDialogElement}
       {readError}
       <div className="text-sm font-medium mb-2">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>

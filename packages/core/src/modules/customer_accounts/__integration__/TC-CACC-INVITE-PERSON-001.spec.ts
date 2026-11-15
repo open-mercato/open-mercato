@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createCustomerRoleFixture, deleteCustomerRoleFixture } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 /**
@@ -22,6 +24,8 @@ test.describe('TC-CACC-INVITE-PERSON-001: person invite resolves the company lin
   test('an invite carrying only personEntityId stores the person company', async ({ request }) => {
     const stamp = Date.now()
     let adminToken: string | null = null
+    let roleId: string | null = null
+    let invitationId: string | null = null
     let companyId: string | null = null
     let personId: string | null = null
 
@@ -37,13 +41,7 @@ test.describe('TC-CACC-INVITE-PERSON-001: person invite resolves the company lin
         companyEntityId: companyId,
       })
 
-      const rolesRes = await apiRequest(request, 'GET', '/api/customer_accounts/admin/roles?pageSize=10', {
-        token: adminToken,
-      })
-      expect(rolesRes.ok(), 'roles list should succeed').toBeTruthy()
-      const rolesBody = (await rolesRes.json()) as { items: Array<{ id: string }> }
-      expect(rolesBody.items.length, 'tenant should have at least one customer role').toBeGreaterThan(0)
-      const roleId = rolesBody.items[0].id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
 
       const inviteRes = await apiRequest(request, 'POST', '/api/customer_accounts/admin/users-invite', {
         token: adminToken,
@@ -56,8 +54,9 @@ test.describe('TC-CACC-INVITE-PERSON-001: person invite resolves the company lin
       })
       expect(inviteRes.status(), 'person invite should return 201').toBe(201)
       const inviteBody = (await inviteRes.json()) as {
-        invitation: { personEntityId: string | null; customerEntityId: string | null }
+        invitation: { id: string; personEntityId: string | null; customerEntityId: string | null }
       }
+      invitationId = inviteBody.invitation.id
       expect(inviteBody.invitation.personEntityId).toBe(personId)
       expect(
         inviteBody.invitation.customerEntityId,
@@ -79,7 +78,10 @@ test.describe('TC-CACC-INVITE-PERSON-001: person invite resolves the company lin
       expect(badBody.ok).toBe(false)
       expect(badBody.error).toBe('Person not found')
     } finally {
-      // Invitations have no delete endpoint; the CRM fixtures are removed instead.
+      if (invitationId) await withClient(async (client) => {
+        await client.query('delete from customer_user_invitations where id = $1', [invitationId])
+      })
+      await deleteCustomerRoleFixture(request, adminToken, roleId)
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
       await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId)
     }
