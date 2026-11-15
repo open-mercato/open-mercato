@@ -987,6 +987,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           }
 
           existing.quantity = String(sumCheck.quantity)
+          if (assortmentScope !== undefined && existing.flagState === 'product_unavailable') existing.flagState = null
           applyPriceSnapshot(existing, resolved, now)
           existing.lineTotals = await computeLineTotals(ctx.container, cart, {
             productId: existing.productId,
@@ -1284,6 +1285,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     await withAtomicFlush(em, [
       async () => {
         line.quantity = String(finalQuantity)
+        if (assortmentScope !== undefined && line.flagState === 'product_unavailable') line.flagState = null
       },
       ...buildCartPromotionsAndTotalsPhases({
         currencyDecimalPlaces,
@@ -1600,6 +1602,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
           return
         }
         existingLine.quantity = String(sumCheck.quantity)
+        if (assortmentScope !== undefined && existingLine.flagState === 'product_unavailable') existingLine.flagState = null
         applyPriceSnapshot(existingLine, resolved, now)
         existingLine.lineTotals = await computeLineTotals(ctx.container, cart, {
           productId: existingLine.productId,
