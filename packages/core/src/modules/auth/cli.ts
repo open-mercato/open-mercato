@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { OM_LOG_LEVEL_ENV, resetLogLevelCache } from '@open-mercato/shared/lib/logger'
@@ -99,21 +100,7 @@ const addUser: ModuleCli = {
 }
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]
-    if (!a) continue
-    if (a.startsWith('--')) {
-      const option = a.replace(/^--/, '')
-      const separator = option.indexOf('=')
-      const k = separator === -1 ? option : option.slice(0, separator)
-      const v = separator === -1 ? undefined : option.slice(separator + 1)
-      if (v !== undefined) args[k] = v
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
-      else args[k] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 function normalizeKeyInput(value: string): string {
