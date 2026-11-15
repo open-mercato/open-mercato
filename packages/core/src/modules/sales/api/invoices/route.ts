@@ -169,7 +169,7 @@ export const openApi = createSalesCrudOpenApi({
   create: {
     schema: invoiceCreateRequestSchema,
     description:
-      'Create a new invoice. Amounts are stored as sent.',
+      'Create a new invoice. Amounts are stored as sent. Line unit prices, tax and totals, and the header taxTotalAmount, subtotalNetAmount and grandTotalNetAmount may be negative; a line with a negative amount must send totalNetAmount and totalGrossAmount.',
   },
   update: {
     schema: invoiceUpdateRequestSchema,

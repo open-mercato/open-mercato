@@ -1273,6 +1273,8 @@
   "sales.errors.tag_required": "Tag is required.",
   "sales.errors.tenant_required": "Tenant context is required",
   "sales.errors.unauthorized": "Unauthorized",
+  "sales.invoices.errors.negativeLineTotalsRequired": "An invoice line with a negative amount must include both its net and gross totals.",
+  "sales.invoices.errors.negativeNetPositiveGross": "An invoice line with a negative amount cannot have a net total of zero or less with a positive gross total.",
   "sales.messageObjects.notFound": "Not found",
   "sales.messageObjects.order.title": "Sales order",
   "sales.messageObjects.quote.title": "Sales quote",

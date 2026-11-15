@@ -551,7 +551,7 @@ describe('sales invoice write path (#7336)', () => {
       const state = baseState()
       customFieldStore.set(INVOICE_ID, { company: 'c-1' })
       const undo = await updateAndCapture(state, {
-        grandTotalNetAmount: 50,
+        grandTotalNetAmount: -5,
         customFields: { company: 'c-2', added: 'new' },
       })
       const em = makeFakeEm(state)

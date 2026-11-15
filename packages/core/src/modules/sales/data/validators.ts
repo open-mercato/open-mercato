@@ -980,6 +980,23 @@ export const returnDeleteSchema = scoped.extend({
   orderId: uuid(),
 })
 
+export const INVOICE_NEGATIVE_LINE_TOTALS_REQUIRED_MESSAGE_KEY = 'sales.invoices.errors.negativeLineTotalsRequired'
+export const INVOICE_NEGATIVE_NET_POSITIVE_GROSS_MESSAGE_KEY = 'sales.invoices.errors.negativeNetPositiveGross'
+
+/**
+ * Invoice line amounts that may be negative. Invoices are caller-asserted records:
+ * an accounting integration stores a discount, deposit or correction line as the
+ * source system reports it, on any line `kind`. `quantity` and `discountAmount`
+ * stay non-negative.
+ */
+const INVOICE_LINE_SIGNED_AMOUNT_KEYS = [
+  'unitPriceNet',
+  'unitPriceGross',
+  'taxAmount',
+  'totalNetAmount',
+  'totalGrossAmount',
+] as const
+
 const invoiceLineInputSchema = z
   .object({
     orderLineId: uuid().optional(),
@@ -994,16 +1011,48 @@ const invoiceLineInputSchema = z
     normalizedUnit: z.string().trim().max(25).nullable().optional(),
     uomSnapshot: uomSnapshotSchema,
     currencyCode,
-    unitPriceNet: decimal({ min: 0 }).optional(),
-    unitPriceGross: decimal({ min: 0 }).optional(),
+    unitPriceNet: decimal().optional(),
+    unitPriceGross: decimal().optional(),
     discountAmount: decimal({ min: 0 }).optional(),
     discountPercent: percentage().optional(),
     taxRate: percentage().optional(),
-    taxAmount: decimal({ min: 0 }).optional(),
-    totalNetAmount: decimal({ min: 0 }).optional(),
-    totalGrossAmount: decimal({ min: 0 }).optional(),
+    taxAmount: decimal().optional(),
+    totalNetAmount: decimal().optional(),
+    totalGrossAmount: decimal().optional(),
     metadata,
   })
+
+/**
+ * The negative-line rule sits on the array, not on the line object, so the line
+ * object stays unrefined and `.partial()` / `.pick()` on it keep working.
+ */
+const invoiceLinesInputSchema = z.array(invoiceLineInputSchema).superRefine((lines, ctx) => {
+  lines.forEach((line, index) => {
+    const hasNegativeAmount = INVOICE_LINE_SIGNED_AMOUNT_KEYS.some((key) => {
+      const value = line[key]
+      return typeof value === 'number' && value < 0
+    })
+    if (!hasNegativeAmount) return
+    if (line.totalNetAmount === undefined || line.totalGrossAmount === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: INVOICE_NEGATIVE_LINE_TOTALS_REQUIRED_MESSAGE_KEY,
+        path: [index, line.totalNetAmount === undefined ? 'totalNetAmount' : 'totalGrossAmount'],
+      })
+      return
+    }
+    // `deriveLineNetFromGross` rewrites a net <= 0 under a positive gross, so the
+    // stored line would not match what the caller sent. Lines with a negative
+    // amount were rejected before, so refusing this state narrows nothing.
+    if (line.totalNetAmount <= 0 && line.totalGrossAmount > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: INVOICE_NEGATIVE_NET_POSITIVE_GROSS_MESSAGE_KEY,
+        path: [index, 'totalNetAmount'],
+      })
+    }
+  })
+})
 
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
@@ -1016,12 +1065,12 @@ export const invoiceCreateSchema = scoped.extend({
   customFieldSetId: uuid().optional(),
   // `null` and non-object values keep passing and store nothing, as before.
   customFields: z.unknown().optional(),
-  lines: z.array(invoiceLineInputSchema).optional(),
-  subtotalNetAmount: decimal({ min: 0 }).optional(),
+  lines: invoiceLinesInputSchema.optional(),
+  subtotalNetAmount: decimal().optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
   discountTotalAmount: decimal({ min: 0 }).optional(),
-  taxTotalAmount: decimal({ min: 0 }).optional(),
-  grandTotalNetAmount: decimal({ min: 0 }).optional(),
+  taxTotalAmount: decimal().optional(),
+  grandTotalNetAmount: decimal().optional(),
   grandTotalGrossAmount: decimal({ min: 0 }).optional(),
   paidTotalAmount: decimal({ min: 0 }).optional(),
   outstandingAmount: decimal().optional(),
