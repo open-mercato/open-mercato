@@ -1,5 +1,17 @@
 # Upgrade Notes
 
+## Payment gateway scoped not-found responses (#9441)
+
+Capture, refund and cancel now return HTTP 404 when the transaction is missing,
+deleted or outside the caller's tenant/organization scope. Previously the scoped
+lookup failure was reported as a provider 502. Missing and foreign records share
+the same localized not-found response, before provider calls or operation writes.
+Treat this 404 as a final invalid transaction/scope request rather than retrying it
+as a provider outage; genuine provider errors remain 502. Status refresh also
+preserves a typed 404 if the transaction disappears after its first read.
+No schema, configuration, route or successful-payment migration is required.
+The separate capture/cancel concurrency decision and protected QA remain open.
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

@@ -151,6 +151,58 @@ function refundWithOperation(
   return refund(transactionId, amount, reason, scope, operationId)
 }
 
+describe('payment gateway service — scoped missing transactions', () => {
+  beforeEach(() => {
+    clearGatewayAdapters()
+    findOneMock.mockReset()
+  })
+
+  afterEach(() => {
+    clearGatewayAdapters()
+  })
+
+  it.each(['capture', 'refund', 'cancel'] as const)(
+    'returns not found for missing and foreign-scope %s without invoking a provider',
+    async (action) => {
+      const transaction = makeTransaction('authorized')
+      const { service, captureFn, refundFn, cancelFn, flush, em } = buildService(transaction, {})
+      const lookup = findOneMock.getMockImplementation()
+      findOneMock.mockImplementation(async (...args) => {
+        const where = args[2] as Record<string, unknown>
+        if (where.id !== transaction.id || where.organizationId !== scope.organizationId || where.tenantId !== scope.tenantId) {
+          return null
+        }
+        return lookup ? lookup(...args) : null
+      })
+
+      const cases = [
+        { transactionId: 'missing', requestScope: scope },
+        { transactionId: transaction.id, requestScope: { ...scope, organizationId: 'other-org' } },
+        { transactionId: transaction.id, requestScope: { ...scope, tenantId: 'other-tenant' } },
+      ]
+      for (const { transactionId, requestScope } of cases) {
+        const operation = action === 'capture'
+          ? service.capturePayment(transactionId, undefined, requestScope)
+          : action === 'refund'
+            ? service.refundPayment(transactionId, undefined, undefined, requestScope)
+            : service.cancelPayment(transactionId, undefined, requestScope)
+        await expect(operation).rejects.toMatchObject({
+          status: 404,
+          body: { error: 'Transaction not found' },
+        })
+      }
+
+      expect(captureFn).not.toHaveBeenCalled()
+      expect(refundFn).not.toHaveBeenCalled()
+      expect(cancelFn).not.toHaveBeenCalled()
+      expect(em.persist).not.toHaveBeenCalled()
+      expect(flush).not.toHaveBeenCalled()
+      expect(transaction.unifiedStatus).toBe('authorized')
+      expect(transaction.capturedAmount).toBe('0.0000')
+    },
+  )
+})
+
 describe('payment gateway service — status-machine guard (#3271)', () => {
   beforeAll(() => {
     setGlobalEventBus({ emit: async () => {} })

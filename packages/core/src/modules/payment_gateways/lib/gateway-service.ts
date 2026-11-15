@@ -140,7 +140,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       scope,
     )
     if (!transaction) {
-      throw new Error('Transaction not found')
+      const translate = await resolveConflictTranslator()
+      throw new CrudHttpError(404, {
+        error: translate('payment_gateways.errors.transactionNotFound', 'Transaction not found'),
+      })
     }
     return transaction
   }

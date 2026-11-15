@@ -93,6 +93,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Payment refunded' },
+        { status: 404, description: 'Transaction not found in the current scope' },
         { status: 409, description: 'Invalid payment status transition' },
         { status: 422, description: 'Invalid payload' },
         { status: 502, description: 'Gateway provider error' },

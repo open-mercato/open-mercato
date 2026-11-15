@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { GET, POST } from '../status/route'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const mockResolve = jest.fn()
 const mockGetAuth = jest.fn()
@@ -84,6 +85,16 @@ describe('payment_gateways status route', () => {
     })
     mockValidateGuard.mockResolvedValue(null)
     mockRunGuardAfter.mockResolvedValue(undefined)
+  })
+
+  it('preserves a not-found refusal if the transaction disappears during refresh', async () => {
+    service.getPaymentStatus.mockRejectedValue(new CrudHttpError(404, { error: 'Transaction not found' }))
+
+    const response = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Transaction not found' })
+    expect(mockRunGuardAfter).not.toHaveBeenCalled()
   })
 
   describe('GET (read-only)', () => {

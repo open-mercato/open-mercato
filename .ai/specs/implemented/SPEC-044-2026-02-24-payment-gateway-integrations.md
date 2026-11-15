@@ -653,6 +653,9 @@ Integration coverage: `TC-PGWY-021` verifies completed replay, payload-conflict 
 
 Migration and backward compatibility of the cancel guard: `payment_cancel_captured_funds` is an additive `code` on the 409 the cancel route already documented. There is no bridge, because the previous behaviour moved captured funds into a terminal status with no refund path. Adapters for multi-capture providers can no longer release the uncaptured remainder of a partially captured authorization through cancel; that needs its own contract. Transactions that were already cancelled with a captured amount are not repaired and are refunded in the provider's dashboard.
 
+Scoped transaction refusal: capture, refund and cancel report `404` with the same localized not-found body for absent, deleted and foreign-scope transaction IDs, rather than misclassifying a failed scoped lookup as provider `502`. Refusal precedes adapter calls and operation writes; genuine provider failures remain `502`. Status refresh preserves a typed `404` when the record disappears after its initial read. No route, field, permission grant, schema or successful payment behavior changes. Consumers should stop retrying invalid-scope `404` responses as provider outages. Coverage: scoped missing/wrong-organization/wrong-tenant service tests, route error-preservation tests, and TC-PGWY-016 with two authorized organizations, same-body unknown-ID refusal and unchanged owner-state assertions. This is an error-classification repair; it does not resolve the separate protected capture/cancel serialization decision.
+
+
 ### 6.5 Events
 
 ```typescript
@@ -1953,7 +1956,8 @@ Generate a typed manifest of all extension points during `yarn generate` for IDE
 | Refund (partial) | POST | `/api/payment-gateways/refund` | refundedAmount updated, status → partially_refunded |
 | Refund (full) | POST | `/api/payment-gateways/refund` | status → refunded |
 | Cancel | POST | `/api/payment-gateways/cancel` | status → cancelled |
-| Cancel with captured funds (TC-PGWY-026) | POST | `/api/payment-gateways/cancel` on a partially captured payment | 409 `payment_cancel_captured_funds`, status unchanged, refund still succeeds |
+| Cancel with captured funds (TC-PGWY-026) | POST | `/api/payment_gateways/cancel` on a partially captured payment | 409 `payment_cancel_captured_funds`, status unchanged, refund still succeeds |
+| Scoped missing transaction (TC-PGWY-016) | POST | `/api/payment_gateways/capture`, `/refund`, `/cancel` with another organization's or an unknown transaction ID | 404 with the same not-found body, no provider call, owner-visible transaction unchanged |
 | Invalid transition | POST | `/api/payment-gateways/capture` on captured payment | 422 |
 | Webhook — valid signature | POST | `/api/payment-gateways/webhook/mock` | Status synced |
 | Webhook — invalid signature | POST | `/api/payment-gateways/webhook/mock` | 401 |
@@ -1996,3 +2000,4 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-07-25 | Added §16.5 Amount Integrity: payment-session amounts are reconciled against the authoritative order amount due through the optional `PaymentOrderTotalResolver` contract (#4488), alongside the existing capture-amount guard (#4486). |
 | 2026-10-03 | `GatewayAdapter.mapStatus` receives the verified `WebhookEvent` as an optional third argument, `WebhookEvent` gains optional `apiVersion`, and webhook sync treats a refund status on a `pending`/`authorized` transaction as proof of capture. See `.ai/specs/2026-10-03-stripe-charge-webhook-refund-reconciliation.md`. |
 | 2026-10-29 | Cancel refuses a transaction with captured funds (`409 payment_cancel_captured_funds`, §6.4.1) instead of moving it to the terminal `cancelled` status with no refund path. It no longer releases the uncaptured remainder of a partially captured authorization. |
+| 2026-11-15 | Scoped missing capture/refund/cancel transactions return localized 404 instead of provider 502; status refresh preserves a typed concurrent-disappearance refusal. Added scoped service/route regressions and strengthened TC-PGWY-016, retaining the separate protected capture/cancel decision. |

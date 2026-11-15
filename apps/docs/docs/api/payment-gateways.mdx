@@ -287,6 +287,11 @@ curl -X POST "$BASE_URL/payment_gateways/refund" \
 }
 ```
 
+Capture, refund and cancel return `404` when the transaction is missing, deleted,
+or outside the caller's tenant/organization scope. They use the same localized
+not-found response for missing and foreign records, before invoking the provider.
+A real provider failure remains `502`; do not retry a scoped `404` as a provider outage.
+
 ## Cancel payment — `POST /payment_gateways/cancel`
 
 **Feature:** `payment_gateways.manage`
