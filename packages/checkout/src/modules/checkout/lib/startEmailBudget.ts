@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { readEndpointRateLimitConfig, readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 
 const recipientBudget = readEndpointRateLimitConfig('CHECKOUT_START_EMAIL_RECIPIENT', {
@@ -21,11 +21,13 @@ export async function consumeStartEmailBudget(
   const rateLimiter = container.resolve<RateLimiterService>('rateLimiterService')
   const recipientHash = createHash('sha256').update(scope.email.trim().toLowerCase()).digest('hex')
   const scopeKey = `${scope.tenantId}:${scope.organizationId}`
+  const globalConfig = readRateLimitConfig()
+  const requireShared = globalConfig.enabled && globalConfig.strategy === 'redis'
   for (const [key, config] of [
     [`${scopeKey}:${recipientHash}`, recipientBudget],
     [`${scopeKey}:${scope.linkId}`, linkBudget],
   ] as const) {
-    const result = await rateLimiter.consume(key, config)
+    const result = await rateLimiter.consume(key, { ...config, requireShared })
     if (result.degraded) throw new Error('[internal] Checkout start email budget is unavailable')
     if (!result.allowed) return false
   }
