@@ -305,6 +305,8 @@ Unit tests cover completeness (including plot and attachment-count paths), geome
 ### Data integrity
 Submission writes and completeness recompute happen in one command flush. Snapshot resolution failures degrade to null and never abort the write. Concurrent edits are covered by optimistic locking on all six entities via `updated_at` plus the CrudForm auto-header, surfacing a 409 conflict bar instead of a lost update. Dangling FK-ids are by design (FK-id + snapshot convention): readiness skips missing or inactive plots and reports the gap; no cascade. The attachment recompute is projection-only, idempotent, and fails open.
 
+Forward updates capture immutable audit before/after snapshots, including custom fields, while holding the same scoped parent-row lock. Result-keyed weak maps pass the captured snapshots to audit logging without extending the public command result. PostgreSQL regressions explicitly interleave a colleague write after prepare/before the forward lock and after commit/before audit capture; undo preserves that write or refuses with 409.
+
 ### Tenant & data isolation
 Every query and write is scoped by tenant and organization through the CRUD factory and scoped payload helpers. Hand-written routes (export, import, suggestions, dashboard, annual report, supplier aggregate) resolve `resolveOrganizationScopeForRequest` and filter both tenant and org. Enricher and AI tools scope through the request context. Notification fan-out is authorized per candidate before any row is written, and fails closed.
 
@@ -340,6 +342,9 @@ FK-ids plus snapshots only, no cross-module ORM relations · tenant and organiza
 Implemented on `feat/eudr-compliance-module` across five delivery batches (see Changelog). Full validation gate green (`build:packages`, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `test`, `build:app`). Unit suites green across eudr and the touched notifications module. Integration specs TC-EUDR-001…017 pass against fresh ephemeral environments (017 added in Batch 5; run against a live environment before merge).
 
 ## Changelog
+
+### 2026-11-15 — Fix: capture update audit snapshots under the row lock (#9562)
+All six update handlers retain detached before/after snapshots from their existing write transaction and pass them to audit logging through result-keyed weak maps. They no longer log an early prepare snapshot or reload the after state following commit. Two real PostgreSQL regressions cover writes in those exact gaps; both fail on the prior head and pass with the repair. Public command result fields remain unchanged.
 
 ### 2026-11-15 — Fix: serialize update custom fields with undo (#9562, #9131)
 The six forward-update/undo pairs now keep row and custom-field writes under a shared parent-row transaction boundary. Real PostgreSQL regressions pause an undo reset against a custom-field-only contender and verify complete rollback/retry after a custom reset failure. Both new cases fail on the prior implementation; all eight PostgreSQL cases pass with the repair. API shapes, schema, identifiers and create/delete undo behavior are unchanged.

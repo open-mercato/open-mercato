@@ -415,6 +415,8 @@ const createPlotCommand: CommandHandler<ScopedPlotCreateInput, PlotCommandResult
   }),
 }
 
+const updatePlotSnapshots = new WeakMap<PlotCommandResult, { before: PlotSnapshot; after: PlotSnapshot }>()
+
 const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult> = {
   id: 'eudr.plots.update',
   async prepare(rawInput, ctx) {
@@ -437,6 +439,7 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
       ensureOrganizationScope(ctx, unlockedRecord.organizationId)
       const record = await lockForUndo(entityManager, EudrPlot, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.plotNotFound' })
+      const before = structuredClone(await buildPlotSnapshot(entityManager, record))
 
       await runCrudCommandWrite({
         ctx,
@@ -477,16 +480,17 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
         ],
       })
 
-      return { entityId: record.id, updatedAt: record.updatedAt }
+      const result = { entityId: record.id, updatedAt: record.updatedAt }
+      const after = structuredClone(await buildPlotSnapshot(entityManager, record))
+      updatePlotSnapshots.set(result, { before, after })
+      return result
     })
   },
-  captureAfter: async (_rawInput, result, ctx) => {
-    const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadPlotSnapshot(entityManager, result.entityId)
-  },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as PlotSnapshot | undefined
-    const after = snapshots.after as PlotSnapshot | undefined
+  captureAfter: async (_rawInput, result) => updatePlotSnapshots.get(result)?.after,
+  buildLog: async ({ result }) => {
+    const lockedSnapshots = updatePlotSnapshots.get(result)
+    const before = lockedSnapshots?.before
+    const after = lockedSnapshots?.after
     if (!before) return null
     if (after && snapshotsEqual(before, after)) return { skipLog: true }
     const { translate } = await resolveTranslations()

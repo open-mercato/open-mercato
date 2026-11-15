@@ -742,6 +742,8 @@ const createStatementCommand: CommandHandler<ScopedStatementCreateInput, Stateme
   }),
 }
 
+const updateStatementSnapshots = new WeakMap<StatementCommandResult, { before: StatementSnapshot; after: StatementSnapshot }>()
+
 const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, StatementCommandResult> = {
   id: 'eudr.statements.update',
   async prepare(rawInput, ctx) {
@@ -764,6 +766,7 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
       ensureOrganizationScope(ctx, unlockedRecord.organizationId)
       const record = await lockForUndo(entityManager, EudrDueDiligenceStatement, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
+      const before = structuredClone(await buildStatementSnapshot(entityManager, record))
       const previousStatus = record.status
 
       await runCrudCommandWrite({
@@ -812,16 +815,17 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
         })
       }
 
-      return { entityId: record.id, updatedAt: record.updatedAt }
+      const result = { entityId: record.id, updatedAt: record.updatedAt }
+      const after = structuredClone(await buildStatementSnapshot(entityManager, record))
+      updateStatementSnapshots.set(result, { before, after })
+      return result
     })
   },
-  captureAfter: async (_rawInput, result, ctx) => {
-    const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadStatementSnapshot(entityManager, result.entityId)
-  },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as StatementSnapshot | undefined
-    const after = snapshots.after as StatementSnapshot | undefined
+  captureAfter: async (_rawInput, result) => updateStatementSnapshots.get(result)?.after,
+  buildLog: async ({ result }) => {
+    const lockedSnapshots = updateStatementSnapshots.get(result)
+    const before = lockedSnapshots?.before
+    const after = lockedSnapshots?.after
     if (!before) return null
     if (after && snapshotsEqual(before, after)) return { skipLog: true }
     const { translate } = await resolveTranslations()

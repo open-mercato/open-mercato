@@ -335,6 +335,8 @@ const createProductMappingCommand: CommandHandler<ScopedProductMappingCreateInpu
   }),
 }
 
+const updateProductMappingSnapshots = new WeakMap<ProductMappingCommandResult, { before: ProductMappingSnapshot; after: ProductMappingSnapshot }>()
+
 const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInput, ProductMappingCommandResult> = {
   id: 'eudr.product_mappings.update',
   async prepare(rawInput, ctx) {
@@ -357,6 +359,7 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
       ensureOrganizationScope(ctx, unlockedRecord.organizationId)
       const record = await lockForUndo(entityManager, EudrProductMapping, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'EUDR product mapping not found' })
+      const before = structuredClone(await buildProductMappingSnapshot(entityManager, record))
 
       const nextProductId = parsed.productId ?? record.productId
       const nextCommodity = parsed.commodity ?? record.commodity
@@ -406,16 +409,17 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
         ],
       })
 
-      return { entityId: record.id, updatedAt: record.updatedAt }
+      const result = { entityId: record.id, updatedAt: record.updatedAt }
+      const after = structuredClone(await buildProductMappingSnapshot(entityManager, record))
+      updateProductMappingSnapshots.set(result, { before, after })
+      return result
     })
   },
-  captureAfter: async (_rawInput, result, ctx) => {
-    const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadProductMappingSnapshot(entityManager, result.entityId)
-  },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as ProductMappingSnapshot | undefined
-    const after = snapshots.after as ProductMappingSnapshot | undefined
+  captureAfter: async (_rawInput, result) => updateProductMappingSnapshots.get(result)?.after,
+  buildLog: async ({ result }) => {
+    const lockedSnapshots = updateProductMappingSnapshots.get(result)
+    const before = lockedSnapshots?.before
+    const after = lockedSnapshots?.after
     if (!before) return null
     if (after && snapshotsEqual(before, after)) return { skipLog: true }
     const { translate } = await resolveTranslations()

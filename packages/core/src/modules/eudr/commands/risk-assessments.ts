@@ -494,6 +494,8 @@ const createRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentCreateInpu
   }),
 }
 
+const updateRiskAssessmentSnapshots = new WeakMap<RiskAssessmentCommandResult, { before: RiskAssessmentSnapshot; after: RiskAssessmentSnapshot }>()
+
 const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInput, RiskAssessmentCommandResult> = {
   id: 'eudr.risk_assessments.update',
   async prepare(rawInput, ctx) {
@@ -516,6 +518,7 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
       ensureOrganizationScope(ctx, unlockedRecord.organizationId)
       const record = await lockForUndo(entityManager, EudrRiskAssessment, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.riskAssessmentNotFound' })
+      const before = structuredClone(await buildRiskAssessmentSnapshot(entityManager, record))
       const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
       const previousConclusion = record.conclusion
       let statementTitle = ''
@@ -578,16 +581,17 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
         })
       }
 
-      return { entityId: record.id, updatedAt: record.updatedAt }
+      const result = { entityId: record.id, updatedAt: record.updatedAt }
+      const after = structuredClone(await buildRiskAssessmentSnapshot(entityManager, record))
+      updateRiskAssessmentSnapshots.set(result, { before, after })
+      return result
     })
   },
-  captureAfter: async (_rawInput, result, ctx) => {
-    const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadRiskAssessmentSnapshot(entityManager, result.entityId)
-  },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as RiskAssessmentSnapshot | undefined
-    const after = snapshots.after as RiskAssessmentSnapshot | undefined
+  captureAfter: async (_rawInput, result) => updateRiskAssessmentSnapshots.get(result)?.after,
+  buildLog: async ({ result }) => {
+    const lockedSnapshots = updateRiskAssessmentSnapshots.get(result)
+    const before = lockedSnapshots?.before
+    const after = lockedSnapshots?.after
     if (!before) return null
     if (after && snapshotsEqual(before, after)) return { skipLog: true }
     const { translate } = await resolveTranslations()

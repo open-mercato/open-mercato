@@ -290,6 +290,50 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
     expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: null })
   }, CASE_TIMEOUT_MS)
 
+  it('captures the actual before state when a colleague writes after prepare but before the forward lock', async () => {
+    const scope = await newScope()
+    const plotId = await createPlot(scope)
+    const command = handler('eudr.plots.update')
+    const ctx = plotCtx(scope)
+    const input = { id: plotId, tenantId: scope.tenantId, organizationId: scope.organizationId, name: 'Surveyed field' }
+    const prepared = await command.prepare!(input, ctx)
+
+    await updatePlot(scope, plotId, { customFields: { grade: 'Colleague grade' } })
+    const result = await command.execute(input, ctx)
+    const after = await command.captureAfter!(input, result, ctx)
+    const log = await command.buildLog!({ snapshots: { ...prepared, after }, result, ctx })
+    const undone = await undo('eudr.plots.update', scope, serialize(log?.payload))
+
+    expect(undone.ok).toBe(true)
+    expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: 'Colleague grade' })
+  }, CASE_TIMEOUT_MS)
+
+  it('does not adopt a colleague write that lands after commit but before audit capture', async () => {
+    const scope = await newScope()
+    const plotId = await createPlot(scope)
+    const command = handler('eudr.plots.update')
+    const ctx = plotCtx(scope)
+    const input = {
+      id: plotId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: 'Surveyed field',
+      customFields: { grade: 'Survey grade' },
+    }
+    const prepared = await command.prepare!(input, ctx)
+    const result = await command.execute(input, ctx)
+
+    await updatePlot(scope, plotId, { name: 'Colleague field', customFields: { grade: 'Colleague grade' } })
+    const after = await command.captureAfter!(input, result, ctx)
+    const log = await command.buildLog!({ snapshots: { ...prepared, after }, result, ctx })
+    const undone = await undo('eudr.plots.update', scope, serialize(log?.payload))
+
+    expect(Object.keys(result as object).sort()).toEqual(['entityId', 'updatedAt'])
+    expect(after).toMatchObject({ name: 'Surveyed field', custom: { grade: 'Survey grade' } })
+    expectConflict(undone)
+    expect(await readState(plotId)).toEqual({ name: 'Colleague field', deleted: false, grade: 'Colleague grade' })
+  }, CASE_TIMEOUT_MS)
+
   it('refuses the undo of an older update once another user renamed the plot', async () => {
     const scope = await newScope()
     const plotId = await createPlot(scope)

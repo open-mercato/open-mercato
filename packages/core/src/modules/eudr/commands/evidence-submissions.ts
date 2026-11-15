@@ -491,6 +491,8 @@ const createEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionCr
   }),
 }
 
+const updateEvidenceSubmissionSnapshots = new WeakMap<EvidenceSubmissionCommandResult, { before: EvidenceSubmissionSnapshot; after: EvidenceSubmissionSnapshot }>()
+
 const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUpdateInput, EvidenceSubmissionCommandResult> = {
   id: 'eudr.evidence_submissions.update',
   async prepare(rawInput, ctx) {
@@ -513,6 +515,7 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
       ensureOrganizationScope(ctx, unlockedRecord.organizationId)
       const record = await lockForUndo(entityManager, EudrEvidenceSubmission, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
+      const before = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, record))
       const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
 
       await runCrudCommandWrite({
@@ -553,16 +556,17 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
         ],
       })
 
-      return { entityId: record.id, updatedAt: record.updatedAt }
+      const result = { entityId: record.id, updatedAt: record.updatedAt }
+      const after = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, record))
+      updateEvidenceSubmissionSnapshots.set(result, { before, after })
+      return result
     })
   },
-  captureAfter: async (_rawInput, result, ctx) => {
-    const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadEvidenceSubmissionSnapshot(entityManager, result.entityId)
-  },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as EvidenceSubmissionSnapshot | undefined
-    const after = snapshots.after as EvidenceSubmissionSnapshot | undefined
+  captureAfter: async (_rawInput, result) => updateEvidenceSubmissionSnapshots.get(result)?.after,
+  buildLog: async ({ result }) => {
+    const lockedSnapshots = updateEvidenceSubmissionSnapshots.get(result)
+    const before = lockedSnapshots?.before
+    const after = lockedSnapshots?.after
     if (!before) return null
     if (after && snapshotsEqual(before, after)) return { skipLog: true }
     const { translate } = await resolveTranslations()

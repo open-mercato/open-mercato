@@ -349,6 +349,8 @@ const createMitigationActionCommand: CommandHandler<ScopedMitigationActionCreate
   }),
 }
 
+const updateMitigationActionSnapshots = new WeakMap<MitigationActionCommandResult, { before: MitigationActionSnapshot; after: MitigationActionSnapshot }>()
+
 const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdateInput, MitigationActionCommandResult> = {
   id: 'eudr.mitigation_actions.update',
   async prepare(rawInput, ctx) {
@@ -371,6 +373,7 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
       ensureOrganizationScope(ctx, unlockedRecord.organizationId)
       const record = await lockForUndo(entityManager, EudrMitigationAction, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.mitigationActionNotFound' })
+      const before = structuredClone(await buildMitigationActionSnapshot(entityManager, record))
       const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
       const wasCompleted = record.status === 'completed'
 
@@ -424,16 +427,17 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
         })
       }
 
-      return { entityId: record.id, updatedAt: record.updatedAt }
+      const result = { entityId: record.id, updatedAt: record.updatedAt }
+      const after = structuredClone(await buildMitigationActionSnapshot(entityManager, record))
+      updateMitigationActionSnapshots.set(result, { before, after })
+      return result
     })
   },
-  captureAfter: async (_rawInput, result, ctx) => {
-    const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadMitigationActionSnapshot(entityManager, result.entityId)
-  },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as MitigationActionSnapshot | undefined
-    const after = snapshots.after as MitigationActionSnapshot | undefined
+  captureAfter: async (_rawInput, result) => updateMitigationActionSnapshots.get(result)?.after,
+  buildLog: async ({ result }) => {
+    const lockedSnapshots = updateMitigationActionSnapshots.get(result)
+    const before = lockedSnapshots?.before
+    const after = lockedSnapshots?.after
     if (!before) return null
     if (after && snapshotsEqual(before, after)) return { skipLog: true }
     const { translate } = await resolveTranslations()
