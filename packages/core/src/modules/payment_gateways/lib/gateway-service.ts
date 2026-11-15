@@ -771,6 +771,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         return status
       }
 
+      // Use a fresh identity map so the locked reread cannot reuse the pre-poll transaction.
       const outcome = await em.fork().transactional(async (tx) => {
         const locked = await findTransactionOrThrow(transactionId, scope, tx, { lockMode: LockMode.PESSIMISTIC_WRITE })
         const lockedStatus = locked.unifiedStatus as UnifiedPaymentStatus
