@@ -2,16 +2,23 @@ jest.mock('../workflow-executor', () => ({
   startWorkflow: jest.fn(),
   executeWorkflow: jest.fn().mockResolvedValue(undefined),
 }))
+jest.mock('../../../api_keys/services/apiKeyService', () => ({
+  withOnetimeApiKey: jest.fn().mockResolvedValue({ status: 200 }),
+}))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
+  findOneWithDecryption: jest.fn(),
 }))
 
+import { withOnetimeApiKey } from '../../../api_keys/services/apiKeyService'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
 import { clearCodeWorkflowRegistry, registerCodeWorkflowEntries } from '@open-mercato/shared/modules/workflows/code-registry'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { WorkflowDefinition, WorkflowEventTrigger } from '../../data/entities'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { WorkflowDefinition, WorkflowEventTrigger, WorkflowInstance } from '../../data/entities'
+import { executeCallApi, executeUpdateEntity } from '../activity-executor'
+import { clearWorkflowSafeCommandsForTests, registerWorkflowSafeCommands } from '../workflow-safe-commands'
 import { startWorkflow, executeWorkflow } from '../workflow-executor'
 import { invalidateTriggerCache, processEventTriggers, resetTriggerDebounceState } from '../event-trigger-service'
 
@@ -93,5 +100,77 @@ describe.each(['legacy', 'embedded', 'code'] as const)('%s trigger identity', (s
     expect(startOptions.metadata?.initiatedBy).toBe(`trigger:${result.instances[0].triggerId}`)
     expect(startOptions.initialContext?.__trigger).toEqual(expect.objectContaining({ eventPayload: payload, source }))
     expect(mockExecute).toHaveBeenCalledWith(em, container, 'instance-identity', undefined)
+  })
+})
+
+
+describe('trigger-to-activity authorization boundary', () => {
+  test.each(['CALL_API', 'UPDATE_ENTITY'] as const)('%s refuses a payload actor without a definition grant', async (activityType) => {
+    const commandBus = { execute: jest.fn().mockResolvedValue({ result: {} }) }
+    const rbacService = { userHasAllFeatures: jest.fn().mockResolvedValue(true) }
+    const definition = {
+      id: 'definition-boundary', workflowId: 'boundary-regression', version: 1,
+      enabled: true, lifecycle: 'published', tenantId, organizationId,
+      createdBy: 'definition-author', grantedFeatures: null,
+      definition: {
+        triggers: [{ triggerId: 'on-person', name: 'On person', eventPattern: eventName, enabled: true, priority: 0 }],
+      },
+    }
+    mockFind.mockImplementation((async (_em: unknown, entity: unknown) => {
+      if (entity === WorkflowDefinition) return [definition]
+      if (typeof entity === 'function' && entity.name === 'UserRole') return [{ role: { id: 'victim-role' } }]
+      if (typeof entity === 'function' && entity.name === 'Role') return [{ id: 'victim-role' }]
+      return []
+    }) as typeof findWithDecryption)
+    jest.mocked(findOneWithDecryption).mockImplementation((async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === WorkflowDefinition) return definition
+      if (typeof entity === 'function' && entity.name === 'User' && where.id === 'victim-user') return { id: 'victim-user' }
+      return null
+    }) as typeof findOneWithDecryption)
+    const em = { fork: jest.fn() }
+    em.fork.mockReturnValue(em)
+    const container = {
+      resolve: (name: string): unknown => {
+        if (name === 'em') return em
+        if (name === 'commandBus') return commandBus
+        if (name === 'rbacService') return rbacService
+        if (name === 'moduleConfigService') return { getValue: jest.fn().mockResolvedValue(null) }
+        throw new Error('[internal] Unexpected authorization boundary dependency')
+      },
+    } as AwilixContainer
+    registerWorkflowSafeCommands([
+      { commandId: 'customers.people.update', requiredFeatures: ['customers.people.edit'], defaultEnabled: true },
+    ])
+    mockStart.mockImplementation(async (_em, options) => ({
+      id: 'instance-boundary', definitionId: definition.id, workflowId: definition.workflowId,
+      tenantId, organizationId, metadata: options.metadata, context: options.initialContext,
+    }) as WorkflowInstance)
+
+    try {
+      const result = await processEventTriggers(em as unknown as EntityManager, container, {
+        eventName, tenantId, organizationId,
+        payload: { userId: 'victim-user', actorUserId: 'victim-user', id: 'person-boundary' },
+      })
+      expect(result.triggered).toBe(1)
+      const instance = await mockStart.mock.results[0].value as WorkflowInstance
+      const executionContext = mockExecute.mock.calls[0][3]
+      const activityContext = {
+        workflowInstance: instance, workflowContext: instance.context, userId: executionContext?.userId,
+      }
+      if (activityType === 'UPDATE_ENTITY') {
+        await expect(executeUpdateEntity(em as unknown as EntityManager, {
+          commandId: 'customers.people.update', input: { id: 'person-boundary', displayName: 'Unauthorized change' },
+        }, activityContext, container)).rejects.toThrow('requires an authenticated workflow user')
+      } else {
+        await expect(executeCallApi(em as unknown as EntityManager, {
+          endpoint: '/api/auth/users',
+        }, activityContext, container)).rejects.toThrow('no traceable user roles')
+      }
+      expect(commandBus.execute).not.toHaveBeenCalled()
+      expect(rbacService.userHasAllFeatures).not.toHaveBeenCalled()
+      expect(withOnetimeApiKey).not.toHaveBeenCalled()
+    } finally {
+      clearWorkflowSafeCommandsForTests()
+    }
   })
 })
