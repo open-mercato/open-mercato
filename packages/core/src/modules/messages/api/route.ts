@@ -23,6 +23,7 @@ import {
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
 import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
+import { getExternalEmailBudgetErrorResponse } from '../lib/externalEmailBudget'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveMessageChannelThreadAccess,
@@ -42,6 +43,7 @@ import {
 import { applyMessageParticipantScope } from '../lib/participantScope'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { MessageCommandExecuteResult } from '../commands/shared'
 import {
   composeMessageRequestSchema as composeSchema,
@@ -621,7 +623,7 @@ export async function POST(req: Request) {
     if (!delegated.ok) {
       return Response.json(
         { error: delegated.error, fieldErrors: delegated.fieldErrors },
-        { status: delegated.status },
+        { status: delegated.status, headers: delegated.headers },
       )
     }
     const delegatedResponse = Response.json(
@@ -641,24 +643,36 @@ export async function POST(req: Request) {
     return delegatedResponse
   }
 
-  const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
-    input: {
-      ...input,
-      parentMessageId: composeParentMessageId,
-      sendViaEmail,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      userId: scope.userId,
-    },
-    ctx: {
-      container: ctx.container,
-      auth: ctx.auth ?? null,
-      organizationScope: null,
-      selectedOrganizationId: scope.organizationId,
-      organizationIds: scope.organizationId ? [scope.organizationId] : null,
-      request: req,
-    },
-  })
+  let execution: Awaited<ReturnType<CommandBus['execute']>>
+  try {
+    execution = await commandBus.execute('messages.messages.compose', {
+      input: {
+        ...input,
+        parentMessageId: composeParentMessageId,
+        sendViaEmail,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+      },
+      ctx: {
+        container: ctx.container,
+        auth: ctx.auth ?? null,
+        organizationScope: null,
+        selectedOrganizationId: scope.organizationId,
+        organizationIds: scope.organizationId ? [scope.organizationId] : null,
+        request: req,
+      },
+    })
+  } catch (error) {
+    const budgetResponse = getExternalEmailBudgetErrorResponse(error)
+    if (budgetResponse) return budgetResponse
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
+    throw error
+  }
+  const { result, logEntry } = execution
   const { id: messageId, threadId: responseThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
 
   const response = Response.json({ id: messageId, threadId: responseThreadId }, { status: 201 })
@@ -711,6 +725,16 @@ export const openApi: OpenApiRouteDoc = {
           schema: composeResponseSchema,
         },
       ],
+<<<<<<< HEAD
+=======
+      errors: [
+        { status: 400, description: 'Compose payload failed validation', schema: errorResponseSchema },
+        { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
+        { status: 404, description: 'parentMessageId is unknown, deleted, or outside the caller organization', schema: errorResponseSchema },
+        { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
+        { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
+      ],
+>>>>>>> dcda6dd95d (fix(messages): enforce external email budgets across mailboxes (#9161) (#9598))
     },
   },
 }

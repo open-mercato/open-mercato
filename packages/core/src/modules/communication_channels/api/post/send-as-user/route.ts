@@ -88,7 +88,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!result.ok) {
     return NextResponse.json(
       result.fieldErrors ? { error: result.error, fieldErrors: result.fieldErrors } : { error: result.error },
-      { status: result.status },
+      { status: result.status, headers: result.headers },
     )
   }
   await guard.afterSuccess()
