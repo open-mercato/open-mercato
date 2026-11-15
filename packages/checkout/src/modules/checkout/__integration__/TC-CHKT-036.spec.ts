@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   createCustomerData,
   createCheckoutClientHeaders,
@@ -37,8 +37,10 @@ test.describe('TC-CHKT-036: Submit payment rejects invalid customer email and ph
         'customerData.phone': 'checkout.payPage.validation.invalidPhone',
       })
 
-      const structuredResponse = await apiRequest(request, 'POST', `/api/checkout/pay/${link.slug}/submit`, {
-        headers: createCheckoutClientHeaders({ 'Idempotency-Key': `structured-${link.id}` }),
+      const structuredResponse = await request.post(`/api/checkout/pay/${link.slug}/submit`, {
+        headers: createCheckoutClientHeaders({
+          'Content-Type': 'application/json', 'Idempotency-Key': `structured-${link.id}`,
+        }),
         data: {
           customerData: { ...createCustomerData(), email: { toString: null }, phone: 'invalid' },
           acceptedLegalConsents: {},
