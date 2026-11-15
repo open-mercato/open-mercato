@@ -1,5 +1,28 @@
 # Upgrade Notes
 
+## MFA removal audit history (#9144)
+
+**Users and clients:** removing an MFA method can no longer be undone through
+audit history, including entries created before this upgrade. Enroll a new factor
+to replace a removed one. Audit snapshots no longer expose `secret` or
+`providerMetadata`; consumers must not depend on these fields or undo payloads.
+The removal endpoint and its success response are unchanged.
+
+**Operators:** stop old application and worker writers and deploy the fixed code
+to every replica. Apply `Migration20261115120000_mfa_removal_audit_redaction`
+through the normal upgrade process before restoring audit access. It scrubs
+credential snapshots, nested undo payloads and recorded credential changes from
+`security.mfa.method.remove` history, drops stored replay input, and clears undo
+tokens across all tenants, including deleted logs and undo traces. No schema
+change is required. Redaction is irreversible; rollback cannot recover secrets.
+Secure or expire historical exports, replicas and backups separately, and rerun
+redaction before exposing a restored backup. Treat any previously exposed MFA
+credentials as compromised and have affected users remove/re-enroll factors;
+log cleanup does not revoke factors already restored through the old undo path.
+
+The security exception to the compatibility bridge requires named human
+maintainer approval acknowledging the waiver before merge.
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

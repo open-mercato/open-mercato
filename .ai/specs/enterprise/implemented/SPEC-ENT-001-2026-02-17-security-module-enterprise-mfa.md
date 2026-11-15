@@ -831,7 +831,7 @@ The following endpoints MUST execute through command handlers (not direct servic
 | Endpoint | Required command id (proposed) | Undo policy |
 |---|---|---|
 | `PUT /api/security/profile/password` | `security.password.change` | Non-undoable (credential mutation) |
-| `DELETE /api/security/mfa/methods/:id` | `security.mfa.method.remove` | Undoable (restore soft-deleted method) where possible |
+| `DELETE /api/security/mfa/methods/:id` | `security.mfa.method.remove` | Non-undoable; re-enroll the factor to replace it |
 | `POST /api/security/mfa/recovery-codes/regenerate` | `security.mfa.recovery_codes.regenerate` | Non-undoable (old codes invalidated) |
 | `POST /api/security/enforcement` | `security.enforcement.create` | Undoable (delete created policy) |
 | `PUT /api/security/enforcement/:id` | `security.enforcement.update` | Undoable (revert previous policy snapshot) |
@@ -1909,6 +1909,41 @@ Integration tests for this module must be implemented under the existing QA harn
 
 ## Migration & Backward Compatibility
 
+### MFA removal audit hardening (#9144)
+
+MFA removal no longer records `secret` or `providerMetadata` in audit snapshots,
+and `security.mfa.method.remove` cannot be undone. New logs omit replay input.
+The stable command ID, DELETE route, removal authorization, and success response
+remain unchanged. Audit consumers must tolerate absent credential/undo data;
+users replace a removed factor by enrolling a new one.
+
+The data-only `Migration20261115120000_mfa_removal_audit_redaction` removes
+credential keys from existing before/after snapshots and recorded changes, drops
+nested undo and redo input payloads, and clears undo tokens for this command
+across tenants, including deleted rows and undo traces. It preserves unrelated
+commands and non-sensitive audit identifiers, tolerates absent audit tables,
+and is idempotent. Its down migration cannot recover erased credentials.
+No entity schema or schema snapshot changes.
+
+Operators must stop old application/worker writers, deploy the fix everywhere,
+and apply the migration through their normal upgrade process before resuming
+audit access. Copies in backups, exports and replicas need separate retention
+handling; previously exposed factors must be treated as compromised and replaced.
+Purging logs does not revoke an already restored active factor.
+
+This narrows STABLE audit response/command replay behavior. A bridge would keep
+credential disclosure and factor resurrection available, so the emergency
+security exception is required for steps 1–3 of the deprecation protocol.
+Named human maintainer approval acknowledging that waiver is pending; automated
+review cannot provide it. Client/operator migration is recorded in
+[UPGRADE_NOTES.md](../../../../UPGRADE_NOTES.md#mfa-removal-audit-history-9144).
+
+Regression coverage: command-bus execution persists a sanitized audit record,
+legacy undo tokens fail before any claim or mutation for both owner and another
+tenant actor, and disposable PostgreSQL tests exercise historical cleanup,
+tenant/deleted-row/undo-trace coverage, unrelated rows, malformed/null JSON,
+idempotency, irreversible rollback and absent audit tables.
+
 The emergency-bypass notification change (#5523) corrects shared enabled-module ownership
 for nested ACL wildcards such as `security.mfa.*`. Existing stored role and per-user grants
 can therefore authorize matching features previously discarded by the initialized registry
@@ -1957,7 +1992,7 @@ security/
 │
 ├── commands/
 │   ├── changePassword.ts                       # security.password.change (non-undoable)
-│   ├── removeMfaMethod.ts                      # security.mfa.method.remove (undoable where possible)
+│   ├── removeMfaMethod.ts                      # security.mfa.method.remove (non-undoable)
 │   ├── regenerateRecoveryCodes.ts              # security.mfa.recovery_codes.regenerate (non-undoable)
 │   ├── createEnforcementPolicy.ts              # security.enforcement.create (undoable)
 │   ├── updateEnforcementPolicy.ts              # security.enforcement.update (undoable)
@@ -2147,3 +2182,9 @@ Existing login, enrollment-redirect and sudo bypass branches also request a pers
 ### 2026-10-25 — Address emergency-bypass notification review
 
 Page middleware requests persistent notification delivery without awaiting the enqueue, including unavailable-service and failed-compliance paths. Login and sudo retain their two-second fail-open enqueue bound; the helper still reports enqueue failures and the durable subscriber still owns daily deduplication. The nested-wildcard effective-permission correction and operator ACL audit are documented in Migration & Backward Compatibility and UPGRADE_NOTES. Unrelated CI workflow and workflow UI test corrections are excluded from this feature PR.
+
+### 2026-11-15 — Remove MFA credential audit copies and undo (#9144)
+
+Removed credential fields and replay support from MFA removal auditing; added
+irreversible historical redaction and regression coverage through the command bus
+and PostgreSQL. Security compatibility waiver awaits named human approval.

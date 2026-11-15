@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { UserMfaMethod } from '../data/entities'
 import { removeMfaMethodSchema } from '../data/validators'
@@ -15,16 +16,9 @@ type MfaMethodSnapshot = {
   organizationId: string | null
   type: string
   label: string | null
-  secret: string | null
-  providerMetadata: Record<string, unknown> | null
   isActive: boolean
   lastUsedAt: string | null
   deletedAt: string | null
-}
-
-type RemoveMfaMethodUndoPayload = {
-  before: MfaMethodSnapshot | null
-  after?: MfaMethodSnapshot | null
 }
 
 type MfaServiceErrorLike = Error & {
@@ -49,26 +43,15 @@ function captureMethodSnapshot(method: UserMfaMethod): MfaMethodSnapshot {
     organizationId: method.organizationId ?? null,
     type: method.type,
     label: method.label ?? null,
-    secret: method.secret ?? null,
-    providerMetadata: method.providerMetadata ?? null,
     isActive: method.isActive,
     lastUsedAt: toOptionalIso(method.lastUsedAt),
     deletedAt: toOptionalIso(method.deletedAt),
   }
 }
 
-function readUndoPayload(logEntry: unknown): RemoveMfaMethodUndoPayload | null {
-  if (!logEntry || typeof logEntry !== 'object') return null
-  const record = logEntry as {
-    payload?: { undo?: RemoveMfaMethodUndoPayload }
-    commandPayload?: { undo?: RemoveMfaMethodUndoPayload }
-  }
-  return record.commandPayload?.undo ?? record.payload?.undo ?? null
-}
-
 registerCommand({
   id: commandId,
-  isUndoable: true,
+  isUndoable: false,
   async prepare(rawInput, ctx) {
     const parsed = removeMfaMethodSchema.safeParse(rawInput)
     if (!parsed.success) {
@@ -79,11 +62,11 @@ registerCommand({
     }
 
     const em = ctx.container.resolve<EntityManager>('em')
-    const method = await em.findOne(UserMfaMethod, {
+    const method = await findOneWithDecryption(em, UserMfaMethod, {
       id: parsed.data.id,
       userId: ctx.auth.sub,
       deletedAt: null,
-    })
+    }, undefined, { tenantId: ctx.auth.tenantId, organizationId: ctx.auth.orgId })
     return { before: method ? captureMethodSnapshot(method) : null }
   },
   async execute(rawInput, ctx) {
@@ -109,68 +92,19 @@ registerCommand({
   },
   async buildLog({ input, snapshots, ctx }) {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const payload = removeMfaMethodSchema.parse(input)
-    const method = await em.findOne(UserMfaMethod, { id: payload.id })
-    const before = (snapshots.before as RemoveMfaMethodUndoPayload['before']) ?? null
-    const after = method ? captureMethodSnapshot(method) : null
+    const before = (snapshots.before as MfaMethodSnapshot | null) ?? null
     return {
+      replayable: false,
       actionLabel: translate('security.audit.mfa.method.remove', 'Remove MFA method'),
       resourceKind: 'security.mfa_method',
       resourceId: payload.id,
       actorUserId: ctx.auth?.sub ?? null,
       tenantId: before?.tenantId ?? null,
       organizationId: before?.organizationId ?? null,
-      payload: {
-        methodType: before?.type ?? after?.type ?? null,
-        undo: {
-          before,
-          after,
-        } satisfies RemoveMfaMethodUndoPayload,
-      },
       context: {
         source: 'security.mfa.methods',
       },
     }
-  },
-  undo: async ({ logEntry, ctx }) => {
-    const before = readUndoPayload(logEntry)?.before
-    if (!before) return
-
-    const em = ctx.container.resolve<EntityManager>('em')
-    const method = await em.findOne(UserMfaMethod, { id: before.id })
-    if (!method) {
-      const restored = em.create(UserMfaMethod, {
-        id: before.id,
-        userId: before.userId,
-        tenantId: before.tenantId,
-        organizationId: before.organizationId,
-        type: before.type,
-        label: before.label,
-        secret: before.secret,
-        providerMetadata: before.providerMetadata,
-        isActive: before.isActive,
-        lastUsedAt: before.lastUsedAt ? new Date(before.lastUsedAt) : null,
-        deletedAt: before.deletedAt ? new Date(before.deletedAt) : null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(restored)
-      await em.flush()
-      return
-    }
-
-    method.userId = before.userId
-    method.tenantId = before.tenantId
-    method.organizationId = before.organizationId
-    method.type = before.type
-    method.label = before.label
-    method.secret = before.secret
-    method.providerMetadata = before.providerMetadata
-    method.isActive = before.isActive
-    method.lastUsedAt = before.lastUsedAt ? new Date(before.lastUsedAt) : null
-    method.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
-    method.updatedAt = new Date()
-    await em.flush()
   },
 })
