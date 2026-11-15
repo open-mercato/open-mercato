@@ -15,6 +15,8 @@ export type EmailAttachment = {
   contentType?: string
 }
 
+export type EmailDeliveryMode = 'sync' | 'queued'
+
 export type SendEmailOptions = {
   to: string
   subject: string
@@ -26,6 +28,8 @@ export type SendEmailOptions = {
   attachments?: EmailAttachment[]
   tenantId?: string
   organizationId?: string | null
+  /** Overrides the instance-wide `OM_SYSTEM_EMAIL_DELIVERY` mode for this send. */
+  delivery?: EmailDeliveryMode
 }
 
 export type ResolvedEmailPayload = {
@@ -46,6 +50,7 @@ export type ResolvedEmailPayload = {
   attachments?: EmailAttachment[]
   tenantId?: string
   organizationId?: string | null
+  delivery?: EmailDeliveryMode
 }
 
 type CapturedEmail = {
@@ -147,5 +152,6 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
     attachments: options.attachments,
     tenantId: options.tenantId,
     organizationId: options.organizationId,
+    delivery: options.delivery,
   })
 }

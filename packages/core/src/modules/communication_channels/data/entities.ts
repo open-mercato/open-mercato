@@ -575,3 +575,90 @@ export class ChannelIngestDeadLetter {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
+
+// ── SystemEmailDelivery ───────────────────────────────────────
+
+export type SystemEmailDeliveryStatus = 'pending' | 'sent' | 'failed'
+
+/**
+ * A system email accepted in `OM_SYSTEM_EMAIL_DELIVERY=queued` mode. The queue job carries only this
+ * row's id, so one-time links in the rendered body never reach the queue backend. Content columns are
+ * encrypted at rest (`encryption.ts`) and purged once the row reaches `sent` or `failed`.
+ *
+ * See `.ai/specs/2026-10-29-queued-system-email-delivery.md`.
+ */
+@Entity({ tableName: 'system_email_deliveries' })
+@Index({ name: 'system_email_deliveries_status_idx', properties: ['tenantId', 'status', 'createdAt'] })
+export class SystemEmailDelivery {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'organizationId'
+    | 'status'
+    | 'attempts'
+    | 'recipient'
+    | 'subject'
+    | 'htmlBody'
+    | 'textBody'
+    | 'attachments'
+    | 'replyTo'
+    | 'fromIsInstanceDefault'
+    | 'providerKey'
+    | 'lastError'
+    | 'sentAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'status', type: 'text', default: 'pending' })
+  status: SystemEmailDeliveryStatus = 'pending'
+
+  @Property({ name: 'attempts', type: 'int', default: 0 })
+  attempts: number = 0
+
+  @Property({ name: 'recipient', type: 'text', nullable: true })
+  recipient?: string | null
+
+  @Property({ name: 'subject', type: 'text', nullable: true })
+  subject?: string | null
+
+  @Property({ name: 'html_body', type: 'text', nullable: true })
+  htmlBody?: string | null
+
+  @Property({ name: 'text_body', type: 'text', nullable: true })
+  textBody?: string | null
+
+  /** JSON-serialized `EmailAttachment[]`; stored as text so the whole value is encrypted. */
+  @Property({ name: 'attachments', type: 'text', nullable: true })
+  attachments?: string | null
+
+  @Property({ name: 'from_address', type: 'text' })
+  fromAddress!: string
+
+  @Property({ name: 'from_is_instance_default', type: 'boolean', default: false })
+  fromIsInstanceDefault: boolean = false
+
+  @Property({ name: 'reply_to', type: 'text', nullable: true })
+  replyTo?: string | null
+
+  @Property({ name: 'provider_key', type: 'text', nullable: true })
+  providerKey?: string | null
+
+  @Property({ name: 'last_error', type: 'text', nullable: true })
+  lastError?: string | null
+
+  @Property({ name: 'sent_at', type: Date, nullable: true })
+  sentAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}

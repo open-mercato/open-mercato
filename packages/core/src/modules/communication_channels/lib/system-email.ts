@@ -14,6 +14,8 @@ import {
 import { isTestChannelSeedingEnabled, TEST_SEED_PROVIDER_KEY } from './test-seed'
 import { ensureSystemEmailChannel } from './ensure-system-email-channel'
 import { CommunicationChannel } from '../data/entities'
+import { resolveSystemEmailDeliveryMode } from './system-email-delivery-mode'
+import { enqueueSystemEmailDelivery } from './system-email-queue'
 
 export { DEFAULT_SYSTEM_EMAIL_PROVIDER }
 
@@ -54,12 +56,14 @@ async function renderReactEmail(react: ResolvedEmailPayload['react']): Promise<s
     : `<!doctype html>${markup}`
 }
 
-async function resolveEmailBody(payload: ResolvedEmailPayload): Promise<{
+export type SystemEmailBody = {
   html?: string
   text?: string
   body: string
   bodyFormat: 'text' | 'html'
-}> {
+}
+
+export async function prepareSystemEmailBody(payload: ResolvedEmailPayload): Promise<SystemEmailBody> {
   const html = payload.html ?? (await renderReactEmail(payload.react))
   const text = payload.text ?? (html ? htmlToText(html) : undefined)
   if (html) return { html, text, body: html, bodyFormat: 'html' }
@@ -269,10 +273,15 @@ function resolveOutboundFromAddress(
   return typeof configured === 'string' && configured.trim().length > 0 ? configured : payload.from
 }
 
-export async function sendSystemEmail(
+/**
+ * Send one system email now through the resolved provider. `body` is passed when the email was
+ * rendered earlier (queued delivery); otherwise it is rendered here, after channel resolution.
+ */
+export async function deliverSystemEmail(
   container: AppContainer,
   payload: ResolvedEmailPayload,
-): Promise<void> {
+  preparedBody?: SystemEmailBody,
+): Promise<{ providerKey: string }> {
   const em = (container.resolve('em') as EntityManager).fork()
   const { channel, hasTenantChannel } = await resolveSystemEmailChannel(em, payload)
   const registry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
@@ -287,7 +296,7 @@ export async function sendSystemEmail(
     ? await resolveTenantCredentials(container, em, payload, channel, hasTenantChannel)
     : resolveEnvCredentials(channel.providerKey, payload.from)
 
-  const body = await resolveEmailBody(payload)
+  const body = preparedBody ?? (await prepareSystemEmailBody(payload))
   const converted = await adapter.convertOutbound({
     body: body.body,
     bodyFormat: body.bodyFormat,
@@ -313,4 +322,17 @@ export async function sendSystemEmail(
   if (sendResult.status === 'failed') {
     throw new Error(sendResult.error ?? `SYSTEM_EMAIL_SEND_FAILED: ${channel.providerKey}`)
   }
+  return { providerKey: channel.providerKey }
+}
+
+export async function sendSystemEmail(
+  container: AppContainer,
+  payload: ResolvedEmailPayload,
+): Promise<void> {
+  if (resolveSystemEmailDeliveryMode(payload) === 'queued') {
+    const body = await prepareSystemEmailBody(payload)
+    await enqueueSystemEmailDelivery(container, payload, body)
+    return
+  }
+  await deliverSystemEmail(container, payload)
 }
