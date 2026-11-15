@@ -29,7 +29,6 @@ import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserI
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import {
   DictionaryValue,
-  createEmptyCustomerDictionaryMaps,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
@@ -50,7 +49,7 @@ import { ActiveFilterChips } from '@open-mercato/ui/backend/filters/ActiveFilter
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterPreset } from '@open-mercato/ui/backend/filters/QuickFilters'
 import { useQueryClient } from '@tanstack/react-query'
-import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
+import { usePeopleDictionaryMaps } from '../../hooks/usePeopleDictionaryMaps'
 import {
   ensureCurrentUserFilterOption,
   fetchAssignableStaffMembers,
@@ -259,9 +258,9 @@ export default function CustomersPeoplePage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
-  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyCustomerDictionaryMaps())
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
+  const dictionaryMaps = usePeopleDictionaryMaps(queryClient, scopeVersion, reloadToken)
   const t = useT()
   const router = useRouter()
   const handlePageSizeChange = React.useCallback((newSize: number) => {
@@ -293,18 +292,6 @@ export default function CustomersPeoplePage() {
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
 
-  const fetchDictionaryEntries = React.useCallback(async (kind: DictionaryKindKey) => {
-    try {
-      const data = await ensureCustomerDictionary(queryClient, kind, scopeVersion)
-      setDictionaryMaps((prev) => ({
-        ...prev,
-        [kind]: data.map,
-      }))
-      return data.entries
-    } catch {
-      return []
-    }
-  }, [queryClient, scopeVersion])
   const dictionaryOptions = React.useMemo(() => {
     const toOptions = (map?: DictionaryMap | null): DictionaryOptionWithTone[] =>
       Object.values(map ?? {})
@@ -321,23 +308,6 @@ export default function CustomersPeoplePage() {
       lifecycleStages: toOptions(dictionaryMaps['lifecycle-stages']),
     }
   }, [dictionaryMaps])
-
-  React.useEffect(() => {
-    let cancelled = false
-    async function loadAll() {
-      if (cancelled) return
-      setDictionaryMaps(createEmptyCustomerDictionaryMaps())
-      await Promise.all([
-        fetchDictionaryEntries('statuses'),
-        fetchDictionaryEntries('sources'),
-        fetchDictionaryEntries('lifecycle-stages'),
-      ])
-    }
-    loadAll().catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [fetchDictionaryEntries, scopeVersion, reloadToken])
 
   const { data: customFieldDefs = [], isLoading: customFieldDefsLoading, refetch: refetchCustomFieldDefs } = useCustomFieldDefs(
     [E.customers.customer_entity, E.customers.customer_person_profile],
