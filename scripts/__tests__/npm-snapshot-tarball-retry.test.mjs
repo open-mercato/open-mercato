@@ -66,14 +66,31 @@ test('snapshot tarball propagation retries remain bounded and preserve the comma
   assert.match(result.stderr, /after 3 attempts/)
 })
 
+test('a successful install runs only once', () => {
+  const result = runRetry('', { succeedOn: 1 })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.attempts, 1)
+})
+
+test('retries create-mercato-app tarballs at the exact snapshot version', () => {
+  const result = runRetry(yarnFailure(`https://registry.npmjs.org/create-mercato-app/-/create-mercato-app-${version}.tgz`))
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.attempts, 2)
+})
+
 for (const [name, message, options] of [
   ['without a published version', yarnFailure(), { propagationVersion: '' }],
   ['another version', yarnFailure(tarball.replace(version, '0.10.1-develop.1.unknown')), {}],
   ['a third-party package', yarnFailure(tarball.replace('@open-mercato/core/-/core-', 'other-package/-/other-package-')), {}],
   ['a different registry', yarnFailure(tarball.replace('registry.npmjs.org', 'example.com')), {}],
   ['an authentication error', yarnFailure(tarball, '403 (Forbidden)'), {}],
+  ['a metadata 404', yarnFailure(`https://registry.npmjs.org/@open-mercato/core/${version}`), {}],
+  ['a tarball with extra version suffix', yarnFailure(tarball.replace('.tgz', '.other.tgz')), {}],
+  ['mixed tarball 404 and authentication errors', `${yarnFailure()}\n${yarnFailure(tarball, '403 (Forbidden)')}`, {}],
+  ['an unrelated missing package alongside a snapshot 404', `${yarnFailure()}\n${yarnFailure('https://registry.npmjs.org/other/-/other-1.0.0.tgz')}`, {}],
   ['an unrelated install failure', 'YN0028: The lockfile would have been modified', {}],
   ['a client release age gate', 'YN0016: Package version is quarantined', {}],
+  ['a colored client release age gate', '\u001b[91mYN0016: Package version is quarantined\u001b[39m', {}],
 ]) {
   test(`fails immediately for ${name}`, () => {
     const result = runRetry(message, options)

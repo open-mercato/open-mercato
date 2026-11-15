@@ -18,6 +18,7 @@
 #
 # Usage: npm-retry-on-quarantine.sh <command> [args...]
 # Tunables (env): QUARANTINE_MAX_ATTEMPTS (default 20), QUARANTINE_RETRY_SLEEP (default 60s)
+# NPM_PROPAGATION_VERSION enables tarball retries for that published version.
 set -uo pipefail
 
 MAX_ATTEMPTS="${QUARANTINE_MAX_ATTEMPTS:-20}"
@@ -57,9 +58,10 @@ while :; do
         suffix = "-" version ".tgz"
         if (missing && url ~ /^https:\/\/registry\.npmjs\.org\/(@open-mercato\/[^/]+\/-\/[^/]+|create-mercato-app\/-\/create-mercato-app)-/ &&
             length(url) >= length(suffix) && substr(url, length(url) - length(suffix) + 1) == suffix) pending = 1
+        else unrelated = 1
         missing = 0
       }
-      END { print pending ? "true" : "false" }
+      END { print pending && !unrelated ? "true" : "false" }
     ' "$log")
   fi
 
