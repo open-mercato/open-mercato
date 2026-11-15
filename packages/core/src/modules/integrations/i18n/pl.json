@@ -3,6 +3,7 @@
   "integrations.bundle.integrationToggles": "Integracje",
   "integrations.bundle.sharedCredentials": "Współdzielone dane",
   "integrations.bundle.title": "Pakiet",
+  "integrations.credentials.errors.destinationChanged": "Po zmianie adresu docelowego połączenia wprowadź ponownie zapisane dane tajne.",
   "integrations.detail.analytics.errorRate": "Wskaźnik błędów (30 dni): {rate}",
   "integrations.detail.analytics.lastActivity": "Ostatnia aktywność",
   "integrations.detail.analytics.never": "Brak aktywności w ciągu 30 dni",
