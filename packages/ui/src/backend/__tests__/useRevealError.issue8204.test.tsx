@@ -3,10 +3,10 @@ import * as React from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { useRevealError } from '../utils/useRevealError'
 
-function ErrorSurface({ rejection }: { rejection: object | null }) {
+function ErrorSurface({ rejection, loading = false, layoutKey }: { rejection: object | null; loading?: boolean; layoutKey?: string }) {
   const targetRef = React.useRef<HTMLDivElement>(null)
-  useRevealError(targetRef, rejection)
-  return rejection ? <div ref={targetRef} tabIndex={-1} role="alert">Save rejected</div> : null
+  useRevealError(targetRef, rejection, loading, layoutKey)
+  return <><button>Other field</button>{rejection ? <div ref={targetRef} tabIndex={-1} role="alert">Save rejected</div> : null}</>
 }
 
 describe('useRevealError', () => {
@@ -64,4 +64,81 @@ describe('useRevealError', () => {
     flushFrames()
     expect(scrollIntoView).not.toHaveBeenCalled()
   })
+  it('reveals a still-focused rejection displaced by completed loading without refocusing it', () => {
+    const rejection = {}
+    const { rerender } = render(<ErrorSurface rejection={rejection} loading />)
+    flushFrames()
+    const target = screen.getByRole('alert')
+    const focus = jest.spyOn(target, 'focus')
+    jest.spyOn(target, 'getBoundingClientRect').mockReturnValue({ top: 1000 } as DOMRect)
+    rerender(<ErrorSurface rejection={rejection} loading={false} />)
+    flushFrames()
+    expect(target).toHaveFocus()
+    expect(focus).not.toHaveBeenCalled()
+    expect(scrollIntoView).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not scroll again when the focused message remains visible after loading', () => {
+    const rejection = {}
+    const { rerender } = render(<ErrorSurface rejection={rejection} loading />)
+    flushFrames()
+    jest.spyOn(screen.getByRole('alert'), 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+    rerender(<ErrorSurface rejection={rejection} />)
+    flushFrames()
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not resume an old reveal after focus moves away and returns', () => {
+    const rejection = {}
+    const { rerender } = render(<ErrorSurface rejection={rejection} loading />)
+    flushFrames()
+    const target = screen.getByRole('alert')
+    jest.spyOn(target, 'getBoundingClientRect').mockReturnValue({ top: 1000 } as DOMRect)
+    screen.getByRole('button').focus()
+    target.focus()
+    rerender(<ErrorSurface rejection={rejection} />)
+    flushFrames()
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels a pending layout reveal when a rejection clears, changes, or unmounts', () => {
+    const first = {}
+    const { rerender, unmount } = render(<ErrorSurface rejection={first} loading />)
+    flushFrames()
+    rerender(<ErrorSurface rejection={null} />)
+    flushFrames()
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    rerender(<ErrorSurface rejection={{}} loading />)
+    flushFrames()
+    rerender(<ErrorSurface rejection={{}} loading />)
+    flushFrames()
+    unmount()
+    flushFrames()
+    expect(scrollIntoView).toHaveBeenCalledTimes(3)
+  })
+
+  it('detects a summary clipped by a nested scroll container', () => {
+    const rejection = {}
+    const { rerender } = render(<div data-testid="dialog" style={{ overflowY: 'auto' }}><ErrorSurface rejection={rejection} loading /></div>)
+    flushFrames()
+    const dialog = screen.getByTestId('dialog')
+    Object.defineProperty(dialog, 'clientHeight', { value: 100 })
+    jest.spyOn(dialog, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+    jest.spyOn(screen.getByRole('alert'), 'getBoundingClientRect').mockReturnValue({ top: 250 } as DOMRect)
+    rerender(<div data-testid="dialog" style={{ overflowY: 'auto' }}><ErrorSurface rejection={rejection} /></div>)
+    flushFrames()
+    expect(scrollIntoView).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancels the old rejection when definitions reload while still pending', () => {
+    const rejection = {}
+    const { rerender } = render(<ErrorSurface rejection={rejection} loading layoutKey="first" />)
+    flushFrames()
+    jest.spyOn(screen.getByRole('alert'), 'getBoundingClientRect').mockReturnValue({ top: 1000 } as DOMRect)
+    rerender(<ErrorSurface rejection={rejection} loading layoutKey="second" />)
+    rerender(<ErrorSurface rejection={rejection} layoutKey="second" />)
+    flushFrames()
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+
 })

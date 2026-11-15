@@ -72,3 +72,57 @@ test('long CrudForm reveals required and repeated oversized server errors, then 
     await page.unroute('**/api/staff/team-members').catch(() => undefined)
   }
 })
+test('keeps the focused rejection visible when custom field definitions arrive late', async ({ page }) => {
+  let releaseDefinitions: () => void = () => {}
+  let signalDefinitions: () => void = () => {}
+  const definitionsRequested = new Promise<void>((resolve) => { signalDefinitions = resolve })
+  const definitionsReleased = new Promise<void>((resolve) => { releaseDefinitions = resolve })
+  try {
+    await page.setViewportSize({ width: 1280, height: 600 })
+    await login(page, 'admin')
+    await page.route('**/api/entities/definitions?*', async (route) => {
+      const url = new URL(route.request().url())
+      if (!url.searchParams.getAll('entityId').includes('staff:staff_team_member')) return route.continue()
+      const response = await route.fetch()
+      const payload = await response.json() as { items?: Array<Record<string, unknown>> }
+      signalDefinitions()
+      await definitionsReleased
+      await route.fulfill({
+        response,
+        json: {
+          ...payload,
+          items: [
+            ...(payload.items ?? []),
+            ...Array.from({ length: 12 }, (_, index) => ({
+              entityId: 'staff:staff_team_member',
+              key: `qa_delayed_${index}`,
+              kind: 'text',
+              label: `QA delayed field ${index}`,
+              formEditable: true,
+            })),
+          ],
+        },
+      })
+    })
+    await page.goto('/backend/staff/team-members/create', { waitUntil: 'domcontentloaded' })
+    await definitionsRequested
+    const summary = page.locator('[data-crud-form-error]')
+    const submit = page.getByRole('button', { name: 'Create', exact: true }).last()
+    await submit.click()
+    await expect(summary.getByRole('alert')).toHaveText('This field is required')
+    await expect(summary).toBeFocused()
+    await expect.poll(async () => (await summary.boundingBox())!.y).toBeGreaterThanOrEqual(0)
+    expect((await summary.boundingBox())!.y).toBeLessThan(600)
+
+    releaseDefinitions()
+    await expect(page.getByText('QA delayed field 11', { exact: true })).toBeVisible()
+    await expect(summary).toBeFocused()
+    await expect.poll(async () => {
+      const bounds = await summary.boundingBox()
+      return bounds !== null && bounds.y >= 0 && bounds.y < 600
+    }).toBe(true)
+  } finally {
+    releaseDefinitions()
+    await page.unroute('**/api/entities/definitions?*').catch(() => undefined)
+  }
+})

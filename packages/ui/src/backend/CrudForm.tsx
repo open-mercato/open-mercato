@@ -929,7 +929,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   const [formError, setFormError] = React.useState<string | null>(null)
   const [rejectedSubmit, setRejectedSubmit] = React.useState(0)
   const rejectionRef = React.useRef<HTMLDivElement>(null)
-  useRevealError(rejectionRef, rejectedSubmit || null)
+  const [activeRejection, setActiveRejection] = React.useState(false)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfDefinitions, setCfDefinitions] = React.useState<CustomFieldDefDto[]>([])
   const [cfMetadata, setCfMetadata] = React.useState<CustomFieldDefinitionsPayload | null>(null)
@@ -956,6 +956,8 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     () => (resolvedEntityIdsKey ? resolvedEntityIdsKey.split('\0') : []),
     [resolvedEntityIdsKey],
   )
+  useRevealError(rejectionRef, activeRejection ? rejectedSubmit : null, isLoadingCustomFields,
+    JSON.stringify([resolvedEntityIdsKey, customEntity, customFieldDefsVersion]))
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
 
   // Injection spot events for widget lifecycle management
@@ -3056,6 +3058,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     if (submittingRef.current) return
     submittingRef.current = true
+    setActiveRejection(false)
     let saved = false
     let redirectNavigationStarted = false
     try {
@@ -3415,7 +3418,10 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     }
     } finally {
       if (!redirectNavigationStarted) submittingRef.current = false
-      if (!saved) setRejectedSubmit((attempt) => attempt + 1)
+      if (!saved) {
+        setRejectedSubmit((attempt) => attempt + 1)
+        setActiveRejection(true)
+      }
     }
   }
 
