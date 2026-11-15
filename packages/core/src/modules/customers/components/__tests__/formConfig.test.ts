@@ -9,6 +9,7 @@ jest.mock('../detail/RolesSection', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  useOptionalLocale: () => undefined,
 }))
 
 import React from 'react'
@@ -358,5 +359,18 @@ describe('PhoneNumberField defaultCountryIso2 forwarding', () => {
 
     const html = renderToStaticMarkup(React.createElement(phoneField!.component as any, mockRenderProps))
     expect(html).toContain('+1')
+  })
+})
+
+
+describe('CRM contributed form data', () => {
+  it('hydrates person/company namespaces and excludes them from native payloads', () => {
+    const namespace = { priority: 'high', priorityId: 'priority-1', priorityUpdatedAt: '2026-10-01T10:00:00.000Z' }
+    const person = mapPersonOverviewToFormValues({ person: { id: PERSON_ID, displayName: 'Ada', _example: namespace }, profile: null, customFields: {} } as unknown as Parameters<typeof mapPersonOverviewToFormValues>[0])
+    const company = mapCompanyOverviewToFormValues({ company: { id: COMPANY_ID, displayName: 'Acme', _example: namespace }, profile: null, customFields: {} } as unknown as Parameters<typeof mapCompanyOverviewToFormValues>[0])
+    expect(person._example).toEqual(namespace)
+    expect(company._example).toEqual(namespace)
+    expect(buildPersonPayload({ ...person, displayName: 'Ada', '_example.priority': 'critical' })).not.toHaveProperty('_example')
+    expect(buildCompanyPayload({ ...company, displayName: 'Acme', '_example.priority': 'critical' })).not.toHaveProperty('_example')
   })
 })

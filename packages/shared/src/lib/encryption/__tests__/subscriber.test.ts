@@ -192,11 +192,14 @@ describe('tenant-less entity encryption delegation', () => {
       changeSet,
     } as never)
 
+    // The flushing EntityManager is handed through so the policy lookup runs on
+    // this transaction's connection instead of acquiring a second pooled one.
     expect(encryptEntityPayload).toHaveBeenCalledWith(
       'onboarding:onboarding_request',
       expect.any(Object),
       null,
       null,
+      { em: {} },
     )
     expect(entity.secret).toBe('encrypted')
     expect(changeSet.payload.secret).toBe('encrypted')

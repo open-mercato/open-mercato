@@ -8,7 +8,12 @@ import {
   type OptimisticLockConfig,
 } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import { readRecordLockHeaders, type RecordLockService } from './recordLockService'
+import { canonicalizeResourceTag } from '@open-mercato/shared/lib/crud/cache'
+import {
+  readRecordLockHeaders,
+  type ParsedRecordLockHeaders,
+  type RecordLockService,
+} from './recordLockService'
 import { isRecordLockingEnabledForResource } from './config'
 
 export type RecordLockCrudMutationGuardService = {
@@ -29,6 +34,39 @@ function resolveRecordLockMutationMethod(operation: CrudMutationGuardValidateInp
 
 function resolveConfig(envValue: string | null | undefined): OptimisticLockConfig {
   return parseOptimisticLockEnv(envValue !== undefined ? envValue : process.env[OPTIMISTIC_LOCK_ENV_VAR])
+}
+
+/**
+ * Drop record-lock headers that describe a **different** record than the one
+ * being mutated.
+ *
+ * The `record_locks` injection widget returns its headers from `onBeforeSave`,
+ * and `CrudForm` keeps them on the scoped header stack for the whole `onSubmit`
+ * — so every nested write a form performs on a *child* entity inherits the
+ * parent's `x-om-record-lock-kind` / `-resource-id` / `-base-log-id`. The guard
+ * then compared the parent's base action-log id against the child's own latest
+ * action log; those ids can never match, so the child write 409'd with a bogus
+ * "record was changed by another user" conflict (#5985 — variant form saving its
+ * `catalog.price` rows). This is the record-lock counterpart of the per-child
+ * `updated_at` override the OSS floor already requires (#2055).
+ *
+ * Headers that declare no scope at all (API/CLI clients sending only a token)
+ * keep their previous meaning, so this is behaviour-compatible for every caller
+ * whose headers actually belong to the record being written. Kinds are compared
+ * canonicalized (`canonicalizeResourceTag`) because pages publish the injection
+ * context kind verbatim (`resources.resourceType`) while `makeCrudRoute` derives
+ * the canonical form (`resources.resource.type`) — the same record, spelled two
+ * ways, must not count as a mismatch.
+ */
+export function scopeRecordLockHeadersToResource(
+  headers: ParsedRecordLockHeaders,
+  resource: { resourceKind: string; resourceId: string },
+): ParsedRecordLockHeaders {
+  const declaresOtherKind = typeof headers.resourceKind === 'string'
+    && canonicalizeResourceTag(headers.resourceKind) !== canonicalizeResourceTag(resource.resourceKind)
+  const declaresOtherId = typeof headers.resourceId === 'string'
+    && headers.resourceId !== resource.resourceId
+  return declaresOtherKind || declaresOtherId ? {} : headers
 }
 
 export type CreateRecordLockCrudMutationGuardServiceOptions = {
@@ -95,7 +133,10 @@ export function createRecordLockCrudMutationGuardService(
           resourceKind: input.resourceKind,
           resourceId: input.resourceId,
           method: resolveRecordLockMutationMethod(input.operation),
-          headers: readRecordLockHeaders(input.requestHeaders),
+          headers: scopeRecordLockHeadersToResource(readRecordLockHeaders(input.requestHeaders), {
+            resourceKind: input.resourceKind,
+            resourceId: input.resourceId,
+          }),
           mutationPayload: input.mutationPayload ?? null,
         })
       } catch {
@@ -124,7 +165,10 @@ export function createRecordLockCrudMutationGuardService(
 
     async afterMutationSuccess(input) {
       const method = resolveRecordLockMutationMethod(input.operation)
-      const headers = readRecordLockHeaders(input.requestHeaders)
+      const headers = scopeRecordLockHeadersToResource(readRecordLockHeaders(input.requestHeaders), {
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+      })
 
       await recordLockService.releaseAfterMutation({
         tenantId: input.tenantId,

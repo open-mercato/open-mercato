@@ -51,6 +51,7 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { PUT, DELETE } from '../route'
 
 const makePutRequest = () =>
@@ -175,5 +176,30 @@ describe('translations entity write routes mutation guard', () => {
     expect(response.status).toBe(409)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
     expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+  it('surfaces the status and body of an interceptor rejection that carries one (PUT)', async () => {
+    commandBusExecuteMock.mockRejectedValueOnce(
+      new CommandInterceptorError('Translation blocked by policy', {
+        status: 422,
+        body: { error: 'Translation blocked by policy', locale: 'de' },
+      }),
+    )
+
+    const response = await PUT(makePutRequest(), routeParams)
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Translation blocked by policy',
+      locale: 'de',
+    })
+  })
+
+  it('keeps the generic 500 when an interceptor rejection carries no status (PUT)', async () => {
+    commandBusExecuteMock.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const response = await PUT(makePutRequest(), routeParams)
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: 'Internal server error' })
   })
 })

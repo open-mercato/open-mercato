@@ -40,10 +40,19 @@ export async function expectDialogHasNoFieldErrors(dialog: Locator) {
   await expect(dialog.getByRole('alert')).toHaveCount(0, { timeout: 5_000 })
 }
 
-export async function waitForDialogSubmitReady(dialog: Locator, submitTestId: string) {
+export async function waitForDialogSubmitReady(
+  page: Page,
+  dialog: Locator,
+  submitTestId: string,
+) {
   const submit = dialog.getByTestId(submitTestId)
   await expect(submit).toBeVisible({ timeout: 10_000 })
   await expect(submit).toBeEnabled({ timeout: 10_000 })
+  // Combobox suggestion status lives in the portaled Popover (document body),
+  // not inside the dialog tree — scope the wait to the page.
+  await expect(page.getByRole('status', { name: /Loading suggestions/i })).toHaveCount(0, {
+    timeout: 10_000,
+  })
   await expectDialogHasNoFieldErrors(dialog)
 }
 
@@ -67,7 +76,7 @@ export async function submitInventoryDialog(
     timeoutMs?: number
   },
 ) {
-  await waitForDialogSubmitReady(dialog, options.submitTestId)
+  await waitForDialogSubmitReady(page, dialog, options.submitTestId)
   const submit = dialog.getByTestId(options.submitTestId)
   const responsePromise = page.waitForResponse(
     (response) =>
@@ -105,6 +114,10 @@ export async function fillCombobox(
   await expect(input).toBeEnabled({ timeout: 10_000 })
   await input.click()
 
+  // Focusing an empty combobox already fires an unfiltered `loadSuggestions('')`, so a
+  // `waitForResponse` armed here would resolve on that call and say nothing about the query
+  // we are about to type. Keep it only as a first-paint hint; the option wait below is what
+  // the selection actually depends on.
   const suggestionsResponse = options?.suggestionsApiPath
     ? page
         .waitForResponse(
@@ -123,36 +136,28 @@ export async function fillCombobox(
   }
 
   const suggestionPattern = new RegExp(escapeForRegex(value), 'i')
-  const suggestionInDropdown = input
-    .locator('xpath=ancestor::div[contains(@class,"relative")][1]')
-    .locator('div.absolute')
-    .getByRole('button', { name: suggestionPattern })
-    .first()
+  // The suggestion list is portaled to <body>, so it is a descendant of neither the
+  // field wrapper nor the dialog -- query it from the page. Options carry
+  // `role="option"`, so a `role="button"` lookup never matches them.
+  const suggestionInDropdown = page.getByRole('option', { name: suggestionPattern }).first()
 
-  const hasDropdownSuggestion = await suggestionInDropdown
-    .isVisible({ timeout: 2_000 })
-    .catch(() => false)
+  // Wait for the option assertively instead of probing with a swallowed timeout. A slow
+  // suggestions round trip on a loaded runner must fail here, naming this field, rather than
+  // fall through to a best-effort keyboard path that can leave the field uncommitted and
+  // surface as an unrelated missing-flash assertion much later in the spec.
+  // No reopen guard: typing keeps the list open (`ComboboxInput` renders it whenever the field
+  // is touched and non-empty), and nothing between the fill and this wait closes it. A guard
+  // for a state that cannot occur is the same false reassurance this fix removes.
+  await expect(suggestionInDropdown).toBeVisible({ timeout: 15_000 })
+  await suggestionInDropdown.click()
 
-  if (hasDropdownSuggestion) {
-    await suggestionInDropdown.click()
-  } else {
-    await input.press('ArrowDown')
-    const selectedWithKeyboard = await input
-      .inputValue()
-      .then((current) => current.trim().toLowerCase() === value.trim().toLowerCase())
-      .catch(() => false)
-    if (!selectedWithKeyboard) {
-      await input.press('Enter')
-    }
-    const resolvedValue = await input.inputValue()
-    if (resolvedValue.trim().toLowerCase() !== value.trim().toLowerCase()) {
-      const fallbackSuggestion = root.getByRole('button', { name: suggestionPattern }).first()
-      await expect(fallbackSuggestion).toBeVisible({ timeout: 10_000 })
-      await fallbackSuggestion.click()
-    }
-  }
-
+  // Only meaningful because it follows a real option click: a combobox renders the picked
+  // option's label, so display text matching the typed query proves nothing on its own --
+  // typed-but-unselected text reads identically until blur discards it.
   await expect(input).toHaveValue(value, { timeout: 5_000 })
+  if ((await input.getAttribute('aria-expanded')) === 'true') {
+    await input.press('Escape')
+  }
   await input.press('Tab')
 
   if (options?.scope) {
@@ -191,19 +196,40 @@ export async function selectLocationComboboxOption(
 
   await input.fill(locationCode)
   await locationsResponse
-  await page.waitForTimeout(350)
+  // Status + options render in the portaled Popover on <body>, not under the dialog.
+  await expect(page.getByRole('status', { name: /Loading suggestions/i })).toHaveCount(0, {
+    timeout: 15_000,
+  })
 
-  const dropdown = input
-    .locator('xpath=ancestor::div[contains(@class,"relative")][1]')
-    .locator('div.absolute')
-  const option = dropdown.getByRole('button', { name: locationCode, exact: true })
-  if (await option.isVisible().catch(() => false)) {
+  const suggestionPattern = new RegExp(escapeForRegex(locationCode), 'i')
+  const option = page.getByRole('option', { name: suggestionPattern }).first()
+  const hasOption = await option.isVisible({ timeout: 2_000 }).catch(() => false)
+  if (hasOption) {
     await option.click()
   } else {
-    await page.getByRole('button', { name: locationCode, exact: true }).click()
+    // Match fillCombobox: keyboard commit, then reopen if Enter closed an empty list.
+    await input.press('ArrowDown')
+    const selectedWithKeyboard = await input
+      .inputValue()
+      .then((current) => current.trim().toLowerCase() === locationCode.trim().toLowerCase())
+      .catch(() => false)
+    if (!selectedWithKeyboard) {
+      await input.press('Enter')
+    }
+    const resolvedValue = await input.inputValue()
+    if (resolvedValue.trim().toLowerCase() !== locationCode.trim().toLowerCase()) {
+      await input.press('ArrowDown')
+      const fallback = page.getByRole('option', { name: suggestionPattern }).first()
+      await expect(fallback).toBeVisible({ timeout: 10_000 })
+      await fallback.click()
+    }
   }
 
   await expect(input).toHaveValue(locationCode, { timeout: 5_000 })
+  if ((await input.getAttribute('aria-expanded')) === 'true') {
+    await input.press('Escape')
+  }
+  await expect(input).toHaveAttribute('aria-expanded', 'false', { timeout: 5_000 })
   await expectDialogHasNoFieldErrors(dialog)
 }
 
@@ -272,6 +298,12 @@ export const WMS_INVENTORY_ROW_ACTION_LABELS = {
 export function inventoryConsoleSection(page: Page, table: WmsInventoryConsoleTable) {
   return page.locator('section').filter({
     has: page.getByRole('heading', { level: 2, name: INVENTORY_CONSOLE_SECTION_HEADING[table] }),
+  })
+}
+
+export function inventoryOperationsSection(page: Page) {
+  return page.locator('section').filter({
+    has: page.getByRole('heading', { level: 2, name: /Inventory operations|Operacje magazynowe/i }),
   })
 }
 

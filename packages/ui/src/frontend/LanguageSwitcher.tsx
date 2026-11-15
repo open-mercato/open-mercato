@@ -1,8 +1,9 @@
 "use client"
 import { useId, useTransition } from 'react'
-import { useLocale, useLocaleLocked, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useLocaleLocked, useSupportedLocales, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useRouter } from 'next/navigation'
-import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
+import type { Locale } from '@open-mercato/shared/lib/i18n/config'
+import { resolveLocaleLabel } from '@open-mercato/shared/lib/i18n/locale-label'
 import {
   Select,
   SelectContent,
@@ -14,18 +15,11 @@ import {
 export function LanguageSwitcher() {
   const current = useLocale()
   const localeLocked = useLocaleLocked()
+  const supportedLocales = useSupportedLocales()
   const t = useT()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const selectId = useId()
-
-  const languageLabels: Record<Locale, string> = {
-    en: t('common.languages.english', 'English'),
-    pl: t('common.languages.polish', 'Polski'),
-    es: t('common.languages.spanish', 'Español'),
-    de: t('common.languages.german', 'Deutsch'),
-    ko: t('common.languages.korean', '한국어'),
-  }
 
   async function setLocale(locale: Locale) {
     if (locale === current) return
@@ -62,9 +56,9 @@ export function LanguageSwitcher() {
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {locales.map((locale) => (
+          {supportedLocales.map((locale) => (
             <SelectItem key={locale} value={locale}>
-              {languageLabels[locale]}
+              {resolveLocaleLabel(locale, t)}
             </SelectItem>
           ))}
         </SelectContent>

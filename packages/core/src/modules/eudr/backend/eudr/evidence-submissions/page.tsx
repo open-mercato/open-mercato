@@ -295,7 +295,8 @@ export default function EudrEvidenceSubmissionsPage() {
     <Page>
       <PageBody>
         <DataTable<EvidenceSubmissionRow>
-          title={translate('eudr.evidenceSubmissions.list.title')}
+        title={translate('eudr.evidenceSubmissions.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}

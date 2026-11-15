@@ -246,33 +246,6 @@ export async function resolveFirstChannelId(ctx: ExecutionHelperContext): Promis
   }
 }
 
-export async function resolveChannelCurrency(
-  ctx: ExecutionHelperContext,
-  channelId: string | null,
-): Promise<string | null> {
-  const SalesChannelClass = resolveEntityClass(ctx, 'SalesChannel')
-  if (!SalesChannelClass) return null
-
-  try {
-    const where: Record<string, unknown> = {
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      deletedAt: null,
-    }
-    if (channelId) where.id = channelId
-    const channel = await findOneWithDecryption(
-      ctx.em,
-      SalesChannelClass,
-      where,
-      channelId ? undefined : { orderBy: { name: 'ASC' } },
-      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-    )
-    return channel?.currencyCode ?? null
-  } catch {
-    return null
-  }
-}
-
 export async function resolveEffectiveDocumentKind(
   ctx: ExecutionHelperContext,
   channelId: string,

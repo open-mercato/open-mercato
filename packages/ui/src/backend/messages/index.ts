@@ -3,6 +3,7 @@ export type {
   MessageComposerContextObject,
   MessageComposerProps,
   MessageComposerVariant,
+  MessageSenderOption,
   MessageTypeItem,
 } from './MessageComposer'
 

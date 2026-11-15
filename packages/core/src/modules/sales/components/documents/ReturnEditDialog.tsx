@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -36,13 +37,6 @@ type ReturnEditDialogProps = {
   onSaved: () => Promise<void>
 }
 
-function toDateInputValue(value: string | null | undefined): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toISOString().slice(0, 10)
-}
-
 export function ReturnEditDialog({
   open,
   returnRecord,
@@ -62,7 +56,7 @@ export function ReturnEditDialog({
       updatedAt: returnRecord?.updatedAt ?? null,
       reason: returnRecord?.reason ?? '',
       notes: returnRecord?.notes ?? '',
-      returnedAt: toDateInputValue(returnRecord?.returnedAt),
+      returnedAt: toUtcDateInputValue(returnRecord?.returnedAt) ?? '',
     }),
     [returnRecord],
   )

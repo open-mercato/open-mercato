@@ -94,6 +94,7 @@ export default function StaffProfileCreatePage() {
       <PageBody>
         <CrudForm<SelfProfileValues>
           title={t('staff.teamMembers.self.createTitle', 'Create my profile')}
+          titleHeadingLevel={1}
           submitLabel={t('staff.teamMembers.form.actions.create', 'Create')}
           backHref="/backend/staff/my-leave-requests"
           cancelHref="/backend/staff/my-leave-requests"

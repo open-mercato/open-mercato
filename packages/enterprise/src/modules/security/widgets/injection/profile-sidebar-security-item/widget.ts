@@ -15,7 +15,7 @@ const widgetModule: InjectionMenuItemWidget = {
       icon: 'ShieldCheck',
       href: '/backend/profile/security',
       features: ['security.profile.view'],
-      groupId: 'account',
+      groupId: 'profile.sections.account',
     },
   ],
 }

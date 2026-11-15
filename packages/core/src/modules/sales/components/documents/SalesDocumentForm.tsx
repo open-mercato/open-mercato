@@ -5,6 +5,9 @@ import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFor
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -57,11 +60,21 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
+import { extensionPoints as customersExtensionPoints } from '@open-mercato/core/modules/customers/extension-points'
+import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
+import { normalizeAddressDraft } from './normalizeAddressDraft'
 
 const logger = createLogger('sales')
+
+// Before this change, `CrudForm` auto-derived its injection spot id from
+// `entityIds[0]` (`E.customers.customer_entity`), which resolves to this id.
+// Declaring `injectionSpotId` below on the two quick-create dialogs replaces
+// that auto-derived id with the customers module's declared host — bridge the
+// legacy one for one minor version per BACKWARD_COMPATIBILITY.md §6.
+const CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 type DocumentKind = 'quote' | 'order'
 
@@ -331,7 +344,6 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
     <div className="relative" ref={menuRef}>
       <Button
         type="button"
-        size="sm"
         variant="outline"
         className="gap-2"
         onClick={() => setMenuOpen((open) => !open)}
@@ -369,6 +381,8 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
                 submitLabel={t('common.save', 'Save')}
                 cancelHref={undefined}
                 onSubmit={(values) => handlePersonCreate(values)}
+                injectionSpotId={customersExtensionPoints.hosts.personForm.spotId}
+                legacyInjectionSpotId={CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID}
                 entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
               />
             </div>
@@ -403,6 +417,8 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
                 submitLabel={t('common.save', 'Save')}
                 cancelHref={undefined}
                 onSubmit={(values) => handleCompanyCreate(values)}
+                injectionSpotId={customersExtensionPoints.hosts.companyForm.spotId}
+                legacyInjectionSpotId={CUSTOMER_QUICK_CREATE_LEGACY_INJECTION_SPOT_ID}
                 entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
               />
             </div>
@@ -433,29 +449,6 @@ function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): Cus
     parsed.push({ id, label: `${label}`, subtitle, kind, primaryEmail: email })
   }
   return parsed
-}
-
-function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unknown> | null {
-  if (!draft) return null
-  const normalized: Record<string, unknown> = {}
-  const assign = (key: keyof AddressDraft, target: string) => {
-    const value = draft[key]
-    if (typeof value === 'string' && value.trim().length) normalized[target] = value.trim()
-    if (typeof value === 'boolean') normalized[target] = value
-  }
-  assign('name', 'name')
-  assign('purpose', 'purpose')
-  assign('companyName', 'companyName')
-  assign('addressLine1', 'addressLine1')
-  assign('addressLine2', 'addressLine2')
-  assign('buildingNumber', 'buildingNumber')
-  assign('flatNumber', 'flatNumber')
-  assign('city', 'city')
-  assign('region', 'region')
-  assign('postalCode', 'postalCode')
-  assign('country', 'country')
-  assign('isPrimary', 'isPrimary')
-  return Object.keys(normalized).length ? normalized : null
 }
 
 type DocumentNumberFieldProps = CrudCustomFieldRenderProps & { t: Translator }
@@ -655,6 +648,8 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
                 t={t}
                 onChange={(next) => updateValue('billingAddressDraft', next)}
                 hidePrimaryToggle
+                showPhoneField
+                showTaxIdField
               />
               <SwitchField
                 containerClassName="col-span-2"
@@ -673,6 +668,10 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
 
 function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, customerQuerySetter, loadAddresses, loadCustomers, fetchCustomerEmail, resetAddressFormState }: CustomerGroupComponentProps) {
   const emailValue = typeof values.customerEmail === 'string' ? values.customerEmail : ''
+  const emailFieldId = React.useId()
+  // The e-mail the form filled in from the picked customer. Clearing that customer takes
+  // it away again, so the duplicate check does not offer the customer the user just removed.
+  const autoFilledEmailRef = React.useRef<string | null>(null)
   const { duplicate, checking } = useEmailDuplicateCheck(emailValue, {
     disabled: false,
     debounceMs: 400,
@@ -688,6 +687,12 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
               resetAddressFormState(setValue)
             }
             setValue('customerEntityId', next)
+            if (!next) {
+              if (autoFilledEmailRef.current && autoFilledEmailRef.current === values.customerEmail) {
+                setValue('customerEmail', '')
+              }
+              autoFilledEmailRef.current = null
+            }
             loadAddresses(next).then((addrs) => {
               const primary = addrs.find((addr) => addr.isPrimary)
               if (primary) {
@@ -701,11 +706,15 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
                   ? match.primaryEmail
                   : null
               if (possibleEmail) {
+                autoFilledEmailRef.current = possibleEmail
                 setValue('customerEmail', possibleEmail)
               } else {
                 fetchCustomerEmail(next, match?.kind)
                   .then((email) => {
-                    if (email) setValue('customerEmail', email)
+                    if (email) {
+                      autoFilledEmailRef.current = email
+                      setValue('customerEmail', email)
+                    }
                   })
                   .catch(() => {})
               }
@@ -752,6 +761,7 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
                   }
                 }).catch((err) => { logger.error('sales.documents.autoSelectAddress', { err }) })
                 if (email && !values.customerEmail) {
+                  autoFilledEmailRef.current = email
                   setValue('customerEmail', email)
                 }
               }}
@@ -767,37 +777,36 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
         />
       </div>
       <div className="space-y-2">
+        <Label htmlFor={emailFieldId}>{t('sales.documents.form.email.label', 'Send to')}</Label>
         <EmailInput
+          id={emailFieldId}
           value={emailValue}
           onChange={(event) => setValue('customerEmail', event.target.value)}
           placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}
           spellCheck={false}
         />
-        {duplicate ? (
-          <div className="flex items-center justify-between rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
-            <span>
-              {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}
-            </span>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="px-4"
-              type="button"
-              disabled={values.customerEntityId === duplicate.id}
-              aria-disabled={values.customerEntityId === duplicate.id}
-              onClick={() => {
-                setValue('customerEntityId', duplicate.id)
-                resetAddressFormState(setValue)
-                loadAddresses(duplicate.id)
-              }}
-            >
-              {values.customerEntityId === duplicate.id
-                ? t('sales.documents.form.email.alreadySelected', 'Selected customer')
-                : t('sales.documents.form.email.selectCustomer', 'Select customer')}
-            </Button>
-          </div>
+        {duplicate && !values.customerEntityId ? (
+          <Alert
+            status="information"
+            style="lighter"
+            size="sm"
+            action={
+              <LinkButton
+                type="button"
+                onClick={() => {
+                  setValue('customerEntityId', duplicate.id)
+                  resetAddressFormState(setValue)
+                  loadAddresses(duplicate.id)
+                }}
+              >
+                {t('sales.documents.form.email.useCustomer', 'Use this customer')}
+              </LinkButton>
+            }
+          >
+            {t('sales.documents.form.email.knownCustomer', 'This e-mail belongs to {{name}}.', { name: duplicate.displayName })}
+          </Alert>
         ) : null}
-        {!duplicate && checking ? (
+        {!duplicate && checking && !values.customerEntityId ? (
           <p className="text-xs text-muted-foreground">{t('customers.people.form.emailChecking')}</p>
         ) : null}
       </div>
@@ -1118,6 +1127,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     [],
   )
 
+  // The order lines card only exists for orders; CrudForm cannot read the live
+  // document kind from its own values, so the toggle mirrors it here.
+  const [documentKindState, setDocumentKindState] = React.useState<DocumentKind>(initialKind === 'order' ? 'order' : 'quote')
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'documentKind',
@@ -1137,7 +1150,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     key={kind}
                     type="button"
                     variant={current === kind ? 'default' : 'ghost'}
-                    onClick={() => setValue(kind)}
+                    onClick={() => {
+                      setValue(kind)
+                      setDocumentKindState(kind)
+                    }}
                   >
                     {t(`sales.documents.form.kind.${kind}`, kind.charAt(0).toUpperCase() + kind.slice(1))}
                   </Button>
@@ -1267,6 +1283,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   t={t}
                   onChange={(next) => updateValue('shippingAddressDraft', next)}
                   hidePrimaryToggle
+                  showPhoneField
+                  showTaxIdField
                 />
                 <SwitchField
                   containerClassName="col-span-2"
@@ -1533,6 +1551,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   return (
     <CrudForm<SalesDocumentFormValues>
       title={t('sales.documents.form.title', 'Create sales document')}
+      titleHeadingLevel={1}
       backHref={cancelHref}
       fields={fields}
       groups={groups}
@@ -1541,6 +1560,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       submitLabel={t('sales.documents.form.submit', 'Create')}
       cancelHref={cancelHref}
       onSubmit={handleSubmit}
+      hiddenGroupIds={documentKindState === 'order' ? undefined : ['lines']}
     />
   )
 }

@@ -1,3 +1,4 @@
+import { z, ZodError } from 'zod'
 import { describeAgentFailure, redactSecrets } from '../failure-reason'
 
 /**
@@ -64,5 +65,84 @@ describe('describeAgentFailure', () => {
   it('redacts a credential the upstream error echoed back', () => {
     const err = new Error('POST /channels/1/messages failed: Bearer sk-0123456789abcdefghij')
     expect(describeAgentFailure('a.b', err)).not.toContain('0123456789abcdefghij')
+  })
+
+  /**
+   * #5603. A `ZodError` is what the compose validator throws, so it is the most
+   * likely failure on this path — and `ZodError.message` is pretty-printed JSON,
+   * whose first line is a bare `[`. The banner this feature added to explain a
+   * silent channel read `agent channel_discord.auto_reply: [`.
+   */
+  describe('a validation error', () => {
+    it('names the field and the rule instead of the opening bracket', () => {
+      const err = new ZodError([
+        {
+          code: z.ZodIssueCode.custom,
+          path: ['externalEmail'],
+          message: 'externalEmail is required when visibility is public',
+        },
+      ])
+
+      expect(describeAgentFailure('channel_discord.auto_reply', err)).toBe(
+        'agent channel_discord.auto_reply: externalEmail: externalEmail is required when visibility is public',
+      )
+    })
+
+    it('reports several issues and says how many it left out', () => {
+      const err = new ZodError(
+        ['a', 'b', 'c', 'd', 'e'].map((field) => ({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} is invalid`,
+        })),
+      )
+
+      expect(describeAgentFailure('a.b', err)).toBe(
+        'agent a.b: a: a is invalid; b: b is invalid; c: c is invalid (+2 more)',
+      )
+    })
+
+    it('describes an issue carrying no path', () => {
+      const err = new ZodError([
+        { code: z.ZodIssueCode.custom, path: [], message: 'the object as a whole is wrong' },
+      ])
+
+      expect(describeAgentFailure('a.b', err)).toBe('agent a.b: the object as a whole is wrong')
+    })
+
+    it('redacts a credential quoted inside a validation message', () => {
+      const err = new ZodError([
+        {
+          code: z.ZodIssueCode.custom,
+          path: ['botToken'],
+          message: `rejected ${fakeBotToken}`,
+        },
+      ])
+
+      const described = describeAgentFailure('a.b', err)
+      expect(described).not.toContain(fakeBotToken)
+      expect(described).toContain('[redacted]')
+    })
+  })
+
+  it('keeps the informative later lines of a multi-line message', () => {
+    const err = new Error('Request failed\nstatus: 503\nupstream: model gateway unavailable')
+
+    expect(describeAgentFailure('a.b', err)).toBe(
+      'agent a.b: Request failed status: 503 upstream: model gateway unavailable',
+    )
+  })
+
+  it('drops bracket-only lines rather than reporting one as the reason', () => {
+    const err = new Error('[\n  {\n    "detail": "nothing matched"\n  }\n]')
+
+    expect(describeAgentFailure('a.b', err)).toBe('agent a.b: "detail": "nothing matched"')
+  })
+
+  it('bounds the persisted reason so a verbose provider cannot bloat the column', () => {
+    const described = describeAgentFailure('a.b', new Error('x'.repeat(1000)))
+
+    expect(described.length).toBeLessThanOrEqual('agent a.b: '.length + 300)
+    expect(described.endsWith('…')).toBe(true)
   })
 })

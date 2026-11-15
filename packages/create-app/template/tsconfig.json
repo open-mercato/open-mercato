@@ -53,6 +53,8 @@
     ".mercato/next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "src/modules/**/agents/**/scripts/**",
+    "src/modules/**/agents/**/tools/**"
   ]
 }

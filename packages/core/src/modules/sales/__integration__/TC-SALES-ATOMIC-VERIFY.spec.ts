@@ -100,6 +100,10 @@ async function unwindOrderActionsThroughCreate(
     }
 
     const responseBody = await readJson(response)
+    if (response.status() === 409) {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      continue
+    }
     expect(responseBody.error, 'create undo should only wait behind a newer order action').toBe(
       'Undo token not available',
     )

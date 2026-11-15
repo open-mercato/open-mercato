@@ -8,19 +8,21 @@ type ProviderOptions = {
   locale?: string
   dict?: Record<string, unknown>
   queryClient?: QueryClient
+  /** Narrow the served locale set, as the server does for a tenant selection. */
+  supportedLocales?: readonly string[]
 }
 
 export function renderWithProviders(
   ui: React.ReactElement,
   options?: RenderOptions & ProviderOptions,
 ) {
-  const { locale = 'en', dict = {}, queryClient = new QueryClient(), ...rest } = options ?? {}
+  const { locale = 'en', dict = {}, queryClient = new QueryClient(), supportedLocales, ...rest } = options ?? {}
 
   function Wrapper({ children }: { children: React.ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
         {/* @ts-expect-error shared provider accepts loose dict shape */}
-        <I18nProvider locale={locale} dict={dict}>
+        <I18nProvider locale={locale} dict={dict} supportedLocales={supportedLocales}>
           {children}
         </I18nProvider>
       </QueryClientProvider>

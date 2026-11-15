@@ -1,4 +1,4 @@
-import { parseDuration, toTimeoutMs } from '../duration'
+import { calculateDueDate, parseDuration, parseIso8601Duration, toTimeoutMs } from '../duration'
 
 describe('parseDuration', () => {
   describe('ISO 8601 format', () => {
@@ -66,7 +66,81 @@ describe('parseDuration', () => {
     test('throws on random text', () => {
       expect(() => parseDuration('abc')).toThrow('Invalid duration format')
     })
+
+    test('throws on years and months, which have no fixed millisecond length', () => {
+      expect(() => parseDuration('P1Y')).toThrow('no fixed length in milliseconds')
+      expect(() => parseDuration('P2M')).toThrow('no fixed length in milliseconds')
+    })
   })
+
+  describe('weeks', () => {
+    test('P1W → 1 week', () => {
+      expect(parseDuration('P1W')).toBe(7 * 24 * 60 * 60 * 1000)
+    })
+
+    test('P2W3D → weeks and days combine', () => {
+      expect(parseDuration('P2W3D')).toBe(17 * 24 * 60 * 60 * 1000)
+    })
+  })
+})
+
+describe('parseIso8601Duration', () => {
+  test('distinguishes months from minutes by position around T', () => {
+    expect(parseIso8601Duration('P1M')?.months).toBe(1)
+    expect(parseIso8601Duration('P1M')?.minutes).toBe(0)
+    expect(parseIso8601Duration('PT1M')?.minutes).toBe(1)
+    expect(parseIso8601Duration('PT1M')?.months).toBe(0)
+  })
+
+  test('returns null for designator-only and malformed values', () => {
+    expect(parseIso8601Duration('P')).toBeNull()
+    expect(parseIso8601Duration('PT')).toBeNull()
+    expect(parseIso8601Duration('P1DT')).toBeNull()
+    expect(parseIso8601Duration('P1H')).toBeNull()
+    expect(parseIso8601Duration('1 day')).toBeNull()
+    expect(parseIso8601Duration('')).toBeNull()
+  })
+})
+
+describe('calculateDueDate', () => {
+  const anchor = new Date('2026-06-10T08:00:00.000Z')
+
+  const cases: Array<[string, string]> = [
+    ['PT30M', '2026-06-10T08:30:00.000Z'],
+    ['PT2H', '2026-06-10T10:00:00.000Z'],
+    ['P3D', '2026-06-13T08:00:00.000Z'],
+    ['P1W', '2026-06-17T08:00:00.000Z'],
+    ['P1DT12H', '2026-06-11T20:00:00.000Z'],
+    ['PT45S', '2026-06-10T08:00:45.000Z'],
+    ['30m', '2026-06-10T08:30:00.000Z'],
+  ]
+
+  test.each(cases)('%s resolves to %s', (duration, expected) => {
+    expect(calculateDueDate(duration, anchor).toISOString()).toBe(expected)
+  })
+
+  test('PT30M is 30 minutes, not the one-day default the old parser fell back to', () => {
+    const oneDayLater = new Date(anchor.getTime() + 24 * 60 * 60 * 1000)
+    expect(calculateDueDate('PT30M', anchor).getTime()).not.toBe(oneDayLater.getTime())
+    expect(calculateDueDate('PT30M', anchor).getTime() - anchor.getTime()).toBe(30 * 60 * 1000)
+  })
+
+  test('applies months as calendar arithmetic', () => {
+    expect(calculateDueDate('P1M', new Date('2026-01-31T08:00:00.000Z')).getMonth()).not.toBe(0)
+  })
+
+  test('never mutates the anchor date', () => {
+    const anchorCopy = new Date(anchor.getTime())
+    calculateDueDate('P3D', anchorCopy)
+    expect(anchorCopy.toISOString()).toBe(anchor.toISOString())
+  })
+
+  test.each(['', 'P', 'PT', 'P1H', 'tomorrow', '{{context.deadline}}'])(
+    'throws on malformed duration %p instead of silently defaulting to one day',
+    (duration) => {
+      expect(() => calculateDueDate(duration, anchor)).toThrow('Invalid duration format')
+    }
+  )
 })
 
 describe('toTimeoutMs', () => {

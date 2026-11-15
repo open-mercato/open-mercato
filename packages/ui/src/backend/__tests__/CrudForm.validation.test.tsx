@@ -191,7 +191,7 @@ describe('CrudForm validation state', () => {
       },
     )
 
-    const priorityInput = container.querySelector('[data-crud-field-id="cf_priority"] input[type="number"]')
+    const priorityInput = container.querySelector('[data-crud-field-id="cf_priority"] input')
     expect(priorityInput).not.toBeNull()
 
     // Blurring an untouched field must NOT flag the required error — tabbing

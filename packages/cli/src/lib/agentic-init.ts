@@ -21,6 +21,10 @@ const TOOL_EXISTING_FILES: Record<string, string[]> = {
   'cursor': [
     '.cursor/hooks.json',
   ],
+  'github-copilot': [
+    '.github/copilot-instructions.md',
+    '.vscode/mcp.json.example',
+  ],
 }
 
 function parseArgs(args: string[]): AgenticInitOptions {

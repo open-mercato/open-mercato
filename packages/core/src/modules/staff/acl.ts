@@ -19,6 +19,15 @@ export const features = [
   // Timesheets (Phase 2)
   { id: 'staff.timesheets.approve', title: 'Approve reportee time', module: 'staff' },
   { id: 'staff.timesheets.lock', title: 'Lock time periods', module: 'staff' },
+
+  // Time tracking (Phase 2)
+  { id: 'staff.timesheets.tasks.view', title: 'View tasks', module: 'staff' },
+  { id: 'staff.timesheets.tasks.manage', title: 'Create/edit tasks', module: 'staff' },
+  { id: 'staff.timesheets.reports.view', title: 'View customer reports', module: 'staff' },
+  { id: 'staff.timesheets.reports.manage', title: 'Create/edit customer reports', module: 'staff' },
+  { id: 'staff.timesheets.reports.unlock', title: 'Unlock reported entries', module: 'staff' },
+  { id: 'staff.timesheets.settings.manage', title: 'Manage time tracking settings', module: 'staff' },
+  { id: 'staff.timesheets.rates.view', title: 'View rates and cost', module: 'staff' },
 ]
 
 export default features

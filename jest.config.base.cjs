@@ -13,6 +13,21 @@
 // `test` script; the worker count and recycling threshold are pinned here.
 //
 // Every package's jest.config.cjs spreads this first, then overrides specifics.
+
+// Pin the suite's timezone so tests do not depend on where they run. A whole class of date bug
+// — a calendar day stored as UTC midnight, read back in the local frame — renders the PREVIOUS
+// day west of UTC and is INVISIBLE anywhere at or east of it, including the UTC runners on CI.
+// Pinning west of UTC makes those cases fail in the one place that matters, and makes every
+// other date assertion reproduce identically on a laptop and on CI.
+//
+// This has to happen here, in the config, rather than in a test file: jest hands each test file a
+// sandboxed copy of `process.env`, so assigning `TZ` there never reaches V8's timezone cache. The
+// config is evaluated in the real main process before workers fork, so workers boot in this zone.
+//
+// `||=`, not `=`: `TZ=Asia/Tokyo yarn test` stays available for checking the mirror direction
+// (an instant read back in UTC, which names the NEXT day east of UTC).
+process.env.TZ ||= 'America/New_York'
+
 module.exports = {
   // TEMPORARY (TypeScript 7 migration): redirect `import ts from 'typescript'`
   // in test code to the JS-based `typescript-js` alias — native TS 7 drops the
@@ -25,4 +40,12 @@ module.exports = {
   // Recycle a worker once its heap bloats past this, instead of letting it
   // grow toward V8's default ceiling for the whole run.
   workerIdleMemoryLimit: '512MB',
+  // Jest's 5s default measures scheduler contention here, not the code under
+  // test. The fan-out above deliberately keeps (turbo concurrency × maxWorkers)
+  // processes busy, so on a loaded CI runner a logically instant test can sit
+  // unscheduled for seconds — and the victim is whichever suite happens to be
+  // running, which is why this surfaced in a different package on each CI pass.
+  // `core` and `ui` already pinned this value for the same reason; the base is
+  // where it belongs so every package inherits it.
+  testTimeout: 30000,
 }

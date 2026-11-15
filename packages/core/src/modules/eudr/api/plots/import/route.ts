@@ -3,6 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -107,7 +108,7 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('eudr.errors.organization_required', 'Organization context is required'),
@@ -323,6 +324,13 @@ export async function POST(req: Request) {
     if (isCrudHttpError(error)) {
       return Response.json(error.body, { status: error.status })
     }
+    // No command-interceptor mapping here (issue #5097): every `commandBus.execute`
+    // in this route runs inside the per-item loop above, whose catch records the
+    // failure in `failed[]` and continues, so an interceptor rejection can never
+    // reach this handler. The batch contract — HTTP 200 with a per-item failure
+    // list — is deliberately unchanged; the route is listed in
+    // `ROUTES_WITH_BATCH_ITEM_ERROR_HANDLING` in
+    // `packages/core/src/__tests__/command-interceptor-http-coverage.test.ts`.
     const { translate } = await resolveTranslations()
     if (error instanceof z.ZodError) {
       return Response.json(

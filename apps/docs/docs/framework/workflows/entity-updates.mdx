@@ -1,0 +1,189 @@
+---
+title: Entity Updates (UPDATE_ENTITY)
+sidebar_position: 8
+---
+
+# Entity Updates — which commands a workflow may run
+
+The `UPDATE_ENTITY` activity is how a workflow changes business data. It runs a
+registered **command** through the command bus, so every mutation keeps its
+audit log, undo entry, cache invalidation, events and index updates.
+
+Which commands it may run is decided by **three gates**, all of which must pass.
+
+| Gate | Owner | Answer to |
+|------|-------|-----------|
+| 1. Catalogue | The module that owns the command, in code | *Is this command safe to run unattended at all?* |
+| 2. Tenant enablement | An administrator, in Settings → Workflow Commands | *Has this customer switched it on?* |
+| 3. Actor features | RBAC, at execution time | *May the user this run acts as do it?* |
+
+Removing any one of them collapses the model, so none of them is optional.
+In particular, there is deliberately **no way to type an arbitrary command id**
+into the settings page: that would reach commands nobody designed for unattended
+execution, and a command that declares no permission would have no gate left.
+The tick-box list over a code-declared catalogue *is* the safety.
+
+## Gate 1 — declaring a candidate (module authors)
+
+A module declares its candidates from a module-root `workflows.ts`, which the
+generator auto-discovers. See
+`packages/core/src/modules/customers/workflows.ts` for the reference.
+
+```ts
+import { createWorkflowsModuleConfig } from '@open-mercato/shared/modules/workflows'
+import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
+
+registerWorkflowSafeCommands([
+  {
+    commandId: 'customers.deals.update',
+    requiredFeatures: ['customers.deals.manage'],
+    labelKey: 'customers.workflows.commands.deals.update',
+  },
+])
+
+export const workflowsConfig = createWorkflowsModuleConfig({
+  moduleId: 'customers',
+  workflows: [],
+})
+
+export default workflowsConfig
+```
+
+Rules:
+
+- **`requiredFeatures` MUST stay in code.** Only the owning module can state it
+  correctly, and it is checked with the wildcard-aware matcher against the
+  acting user's granted features. A declaration naming a feature that does not
+  exist in that module's `acl.ts` is **permanently unusable** — the command
+  shows up everywhere and is refused at runtime with an error naming a grant no
+  role can hold. `workflow-safe-command-catalogue.test.ts` guards against it.
+- **A declaration is a CANDIDATE, not a grant.** It ships switched off.
+- **`labelKey`** points at the *owning* module's own locale files, so no module
+  needs to know another module's copy.
+- **Declaring a candidate needs `yarn generate`** when the `workflows.ts` file is
+  new — the module registry imports it for its side effect.
+
+### Deciding what is safe to run unattended
+
+"Is a user allowed to do this?" and "is this safe fired by a trigger" are
+different questions. `UPDATE_ENTITY` carries **no idempotency key**, activities
+are **retried** on failure (`retryPolicy`), and a trigger can fire the same
+workflow repeatedly. So:
+
+- **Updates converge.** Setting a field to a literal value twice leaves the same
+  record, which is the same idempotence rule every workflow activity handler
+  must satisfy.
+- **Creates do not.** A retry after a partial failure, or a trigger storm, turns
+  one business event into N records with no bulk remedy.
+- **Deletes do not survive stale context.** A run parked on a 24h approval task
+  holds a `{{context.id}}` captured before it paused; the delete lands on
+  whatever holds that id when the run wakes, irreversibly. The reversible
+  expression of the same intent is a status update.
+
+The shipped catalogue therefore declares updates only:
+
+| Command | Requires |
+|---|---|
+| `sales.orders.update` | `sales.orders.manage` |
+| `customers.deals.update` | `customers.deals.manage` |
+| `customers.people.update` | `customers.people.manage` |
+| `customers.companies.update` | `customers.companies.manage` |
+| `catalog.products.update` | `catalog.products.manage` |
+
+Adding a create, a delete, or a sub-resource command (catalog variants, prices,
+offers) needs its own argument. A candidate in the catalogue is an invitation
+even when it ships switched off.
+
+## Gate 2 — the tenant setting (administrators)
+
+**Settings → Module Configs → Workflow Commands** lists every candidate, grouped
+by the module that declared it, showing the command id and the permission it
+requires. Ticking one lets *any* workflow in that tenant execute it; the acting
+user's own permission is still checked at run time.
+
+Storage is one tenant-scoped `module_configs` row: module `workflows`, key
+`update_entity_enabled_commands`, value a JSON array of command ids. It is read
+through `ModuleConfigService`, so it inherits that service's tenant-keyed cache
+(60s TTL, invalidated on write) — the enablement lib deliberately adds **no
+second cache**, which is what keeps the settings page and the runtime from ever
+disagreeing.
+
+API: `GET`/`PUT /api/workflows/command-settings`, gated on
+`workflows.definitions.view` and `workflows.manage` respectively. A `PUT`
+carrying an id outside the catalogue is a `400`
+(`WORKFLOW_COMMAND_NOT_IN_CATALOGUE`), never a stored row.
+
+### What an absent setting means
+
+**Exactly the set that was reachable before this gate existed.**
+
+A declaration may carry `defaultEnabled: true` — the *grandfather clause* — and
+a tenant that has never saved the setting resolves to exactly those
+declarations. In the shipped product that is `sales.orders.update` alone, which
+is what the `sales.order-approval` workflow and its gallery template run on. Any
+candidate declared afterwards omits the flag and is off until a human ticks it.
+
+Shipping is therefore byte-identical for every existing tenant, and fail-closed
+for every new capability. An unreadable or malformed stored value resolves the
+same way — it can never widen the reachable set, and can never break a workflow
+that already ran.
+
+:::warning For module authors
+`defaultEnabled` is reserved for commands that were already reachable before the
+gate existed. A module setting it on a **new** declaration is handing itself the
+tenant's decision. `workflow-safe-command-catalogue.test.ts` asserts that only
+`sales.orders.update` carries it.
+:::
+
+## Gate 3 — the actor's own permissions
+
+Unchanged, and deliberately still last. `executeUpdateEntity` resolves the
+granted features of the user the run acts as and requires all of the command's
+declared `requiredFeatures`. Enabling a command for a tenant is not a grant of
+it to everybody in that tenant.
+
+## Authoring: what the picker shows
+
+The `UPDATE_ENTITY` command field offers only the commands the tenant has
+enabled. Disabled candidates are still listed beneath it, with the remedy,
+because the field accepts free text — a command that simply vanished would turn
+a runtime failure into an unanswerable absence. An authored value that is
+disabled, or absent from the catalogue entirely, is called out with a warning
+that says the run will fail.
+
+## Typed context: what an update contributes downstream
+
+What lands in the run context is the **activity handler's** return, not the
+command's:
+
+```json
+{ "executed": true, "commandId": "customers.deals.update", "result": { … }, "logEntryId": "…" }
+```
+
+So a command's `outputSchema` describes what sits under `result`, and the
+context ledger nests it there — `Update Deal.result.dealId`, not
+`Update Deal.dealId`. Declaring a command workflow-safe is what makes its
+`outputSchema` reach an author at all: before `customers.deals.update` was
+declared, it was the only command in the repo carrying an `outputSchema` and no
+workflow could run it.
+
+## Troubleshooting
+
+| Run error | Cause | Remedy |
+|---|---|---|
+| `UPDATE_ENTITY command is not allowed` | Gate 1 — the command is not in the catalogue. | The owning module must declare it in its `workflows.ts`. |
+| `UPDATE_ENTITY command is not enabled for this tenant` | Gate 2 — catalogued but not ticked. | Settings → Workflow Commands. |
+| `UPDATE_ENTITY command is not authorized` | Gate 3 — the acting user lacks `requiredFeatures`. | Grant the feature, or change the workflow's execution identity. Check the feature actually exists in the owning module's `acl.ts`. |
+| `UPDATE_ENTITY requires an authenticated workflow user` | The run has no acting user. | Start the instance with a user, or give the definition an execution identity. |
+
+## Source map
+
+| Concern | File |
+|---|---|
+| Catalogue registry (tier 1) | `packages/core/src/modules/workflows/lib/workflow-safe-commands.ts` |
+| Enablement decision (PURE) | `packages/core/src/modules/workflows/lib/workflow-command-enablement.ts` |
+| Per-request read/write | `packages/core/src/modules/workflows/lib/workflow-command-settings.ts` |
+| Runtime gate | `packages/core/src/modules/workflows/lib/activity-executor.ts` → `executeUpdateEntity` |
+| Settings API | `packages/core/src/modules/workflows/api/command-settings/route.ts` |
+| Picker feed | `packages/core/src/modules/workflows/api/commands/route.ts` |
+| Settings page | `packages/core/src/modules/workflows/backend/config/workflows/` |
