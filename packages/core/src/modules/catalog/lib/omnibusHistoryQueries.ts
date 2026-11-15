@@ -51,6 +51,17 @@ const SCOPE_LEVEL_CLAUSES: Record<OmnibusScopeColumn, RawBuilder<unknown>> = {
 const OBSERVATION_CLAUSE = sql`AND h.change_type <> 'delete'
         AND NOT (h.change_type = 'undo' AND h.metadata->>'undoneCommand' = ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND})`
 
+const NOT_CREATE_UNDONE_CLAUSE = sql`AND NOT EXISTS (
+          SELECT 1 FROM catalog_price_history_entries undone
+          WHERE undone.tenant_id = h.tenant_id
+            AND undone.organization_id = h.organization_id
+            AND undone.price_id = h.price_id
+            AND undone.recorded_at > h.recorded_at
+            AND undone.recorded_at <= w.window_end
+            AND undone.change_type = 'undo'
+            AND undone.metadata->>'undoneCommand' = ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND}
+        )`
+
 const NOT_ENDED_BEFORE_WINDOW_CLAUSE = sql`AND NOT EXISTS (
           SELECT 1 FROM catalog_price_history_entries ended
           WHERE ended.tenant_id = h.tenant_id
@@ -114,6 +125,7 @@ async function runWindowGroup(
         AND h.price_kind_id = w.price_kind_id
         AND h.currency_code = w.currency_code
         ${OBSERVATION_CLAUSE}
+        ${NOT_CREATE_UNDONE_CLAUSE}
         AND h.recorded_at <= w.window_start
         ${NOT_ENDED_BEFORE_WINDOW_CLAUSE}
       ORDER BY h.recorded_at DESC, h.id DESC
@@ -132,6 +144,7 @@ async function runWindowGroup(
         AND h.price_kind_id = w.price_kind_id
         AND h.currency_code = w.currency_code
         ${OBSERVATION_CLAUSE}
+        ${NOT_CREATE_UNDONE_CLAUSE}
         AND h.recorded_at > w.window_start
         AND h.recorded_at <= w.window_end
       ORDER BY h.recorded_at DESC, h.id DESC
