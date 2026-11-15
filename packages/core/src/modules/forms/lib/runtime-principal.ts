@@ -9,12 +9,16 @@
  * the org/tenant are NEVER trusted from the token body — they are re-derived
  * from the persisted `forms_form_submission` row. The token only authorizes a
  * single `(submissionId, invitationId, role)` triple; it asserts the token's
- * submission matches the route's submission before trusting anything.
+ * submission matches the route's submission before trusting anything. The
+ * token is also only honoured while its invitation is live (not revoked or
+ * expired) and its actor row on the submission is active; the role comes from
+ * that actor row, never from the token.
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
-import { FormSubmission, FormSubmissionActor } from '../data/entities'
+import { FormInvitation, FormSubmission, FormSubmissionActor } from '../data/entities'
+import { INVITATION_ACCESS_CLOSED_STATUSES } from '../services/distribution-service'
 import { verifyAccessToken } from '../services/distribution-token'
 
 export type RuntimePrincipal = {
@@ -54,15 +58,35 @@ export async function resolveRuntimePrincipal(
         id: submissionId,
         deletedAt: null,
       })
-      if (submission) {
-        return {
-          source: 'token',
-          principal: verified.invitationId,
-          role: verified.role ?? null,
-          organizationId: submission.organizationId,
-          tenantId: submission.tenantId,
-          submissionId,
-        }
+      if (!submission) return null
+      const invitation = await em.findOne(FormInvitation, {
+        id: verified.invitationId,
+        organizationId: submission.organizationId,
+        tenantId: submission.tenantId,
+        deletedAt: null,
+      })
+      if (
+        !invitation ||
+        invitation.submissionId !== submissionId ||
+        INVITATION_ACCESS_CLOSED_STATUSES.has(invitation.status)
+      ) {
+        return null
+      }
+      const actor = await em.findOne(FormSubmissionActor, {
+        submissionId,
+        organizationId: submission.organizationId,
+        userId: invitation.id,
+        revokedAt: null,
+        deletedAt: null,
+      })
+      if (!actor) return null
+      return {
+        source: 'token',
+        principal: verified.invitationId,
+        role: actor.role,
+        organizationId: submission.organizationId,
+        tenantId: submission.tenantId,
+        submissionId,
       }
     }
     // A present-but-invalid bearer token does not fall through to customer

@@ -1,5 +1,6 @@
 "use client"
 
+import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import * as React from 'react'
 import { z } from 'zod'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -1226,6 +1227,7 @@ export function DealForm({
     }
 
     return {
+      ...extractResponseEnricherNamespaces(initialValues ?? {}),
       id: typeof initialValues?.id === 'string' ? initialValues.id : undefined,
       title: initialValues?.title ?? '',
       status: initialValues?.status ?? '',
@@ -1289,8 +1291,12 @@ export function DealForm({
           ownerUserId: parsed.data.ownerUserId && parsed.data.ownerUserId.length
             ? parsed.data.ownerUserId
             : null,
-          personIds,
-          companyIds,
+          // Only submit the link lists when this form is actually showing them. The deal
+          // detail page hides the associations group and manages links from its People and
+          // Companies tabs instead, so a Details save there would otherwise write back the
+          // ids this form captured when it mounted — re-linking whoever the user has since
+          // unlinked, and re-dating every surviving link row on the way through.
+          ...(showAssociationsGroup ? { personIds, companyIds } : {}),
         }
         const customEntries = collectCustomFieldValues(values, {
           transform: (value) => normalizeCustomFieldSubmitValue(value),
@@ -1300,7 +1306,7 @@ export function DealForm({
         setPending(false)
       }
     },
-    [isSubmitting, onSubmit, pending, t],
+    [isSubmitting, onSubmit, pending, showAssociationsGroup, t],
   )
 
   return (
@@ -1322,6 +1328,9 @@ export function DealForm({
       schema={schema}
       fields={baseFields}
       groups={groups}
+      entityId="customers.deal"
+      resourceKind="customers.deal"
+      resourceId={typeof initialValues?.id === 'string' ? initialValues.id : undefined}
       entityIds={DEAL_ENTITY_IDS}
       initialValues={embeddedInitialValues}
       onSubmit={handleSubmit}

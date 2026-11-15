@@ -60,7 +60,7 @@ jest.mock('../../lib/routeHelpers', () => {
   return { ...actual, canUseMessageEmailFeature: jest.fn(async () => true) }
 })
 
-import { POST as composeMessage } from '../route'
+import { GET as listMessages, POST as composeMessage } from '../route'
 
 function publicComposeBody(extra: Record<string, unknown> = {}) {
   return {
@@ -80,6 +80,15 @@ function composeRequest(body: Record<string, unknown>) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+/** A parent the caller sent, so the reply-parent read gate lets it through. */
+function givenOwnParent(threadId: string = messageId) {
+  em.findOne.mockImplementation(async (entity: { name?: string }) =>
+    entity?.name === 'Message'
+      ? { id: messageId, threadId, senderUserId: userId, visibility: 'public', organizationId, tenantId }
+      : null,
+  )
 }
 
 function composeInput(): Record<string, unknown> {
@@ -130,25 +139,29 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
     // claiming the message came from a chat channel.
     resolveChannelTypeMock.mockResolvedValue(null)
 
-    await expect(
-      composeMessage(composeRequest(publicComposeBody({ sourceChannelType: 'discord' }))),
-    ).rejects.toThrow()
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ sourceChannelType: 'discord' })),
+    )
+    // #7503: a validator refusal answers 400 with a message, not a bare 500.
+    expect(response.status).toBe(400)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
   it('does not let a client-supplied type override the resolved one', async () => {
     resolveChannelTypeMock.mockResolvedValue('email')
 
-    await expect(
-      composeMessage(composeRequest(publicComposeBody({ sourceChannelType: 'discord' }))),
-    ).rejects.toThrow()
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ sourceChannelType: 'discord' })),
+    )
+    expect(response.status).toBe(400)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
   it('keeps requiring an external email when the source resolves to an email channel', async () => {
     resolveChannelTypeMock.mockResolvedValue('email')
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    const rejected = await composeMessage(composeRequest(publicComposeBody()))
+    expect(rejected.status).toBe(400)
 
     resolveChannelTypeMock.mockResolvedValue('email')
     const response = await composeMessage(
@@ -160,7 +173,8 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
   it('fails closed when the source cannot be resolved to a channel', async () => {
     resolveChannelTypeMock.mockResolvedValue(null)
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    const response = await composeMessage(composeRequest(publicComposeBody()))
+    expect(response.status).toBe(400)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
@@ -168,6 +182,7 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
     // The mirror of the conversation hop, and the one the route actually reads
     // off an untrusted body for every threaded reply.
     resolveChannelTypeMock.mockResolvedValue('discord')
+    givenOwnParent()
 
     const response = await composeMessage(
       composeRequest({
@@ -226,17 +241,16 @@ describe('POST /api/messages — server-only compose fields', () => {
     // waive the recipients rule by asserting it.
     resolveChannelTypeMock.mockResolvedValue('email')
 
-    await expect(
-      composeMessage(
-        composeRequest(
-          publicComposeBody({
-            externalEmail: 'jane@example.com',
-            inboundFromChannel: true,
-            recipients: [{ userId, type: 'to' }],
-          }),
-        ),
+    const response = await composeMessage(
+      composeRequest(
+        publicComposeBody({
+          externalEmail: 'jane@example.com',
+          inboundFromChannel: true,
+          recipients: [{ userId, type: 'to' }],
+        }),
       ),
-    ).rejects.toThrow()
+    )
+    expect(response.status).toBe(400)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 })
@@ -246,6 +260,7 @@ describe('POST /api/messages — the channel-type lookup stays off the compose h
   // compose below carries a channel-ish hint and would have paid for a DI
   // resolve plus a `MessageChannelLink` query whose answer nothing could read.
   it('skips resolution for an internal threaded reply', async () => {
+    givenOwnParent()
     const response = await composeMessage(
       composeRequest({
         visibility: 'internal',
@@ -281,7 +296,8 @@ describe('POST /api/messages — the channel-type lookup stays off the compose h
     // keeps getting it, and an unresolvable source keeps the pre-#4975 rule.
     resolveChannelTypeMock.mockResolvedValue(null)
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    const response = await composeMessage(composeRequest(publicComposeBody()))
+    expect(response.status).toBe(400)
     expect(resolveChannelTypeMock).toHaveBeenCalledTimes(1)
   })
 })
@@ -340,6 +356,7 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
 
   it('leaves a caller-supplied parent message alone when the caller may act on its channel', async () => {
     resolveChannelTypeMock.mockResolvedValue('discord')
+    givenOwnParent(CHANNEL_THREAD_ID)
 
     const response = await composeMessage(
       composeRequest(publicComposeBody({ parentMessageId: messageId })),
@@ -415,6 +432,7 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
 
     it('still lets a compose onto an internal thread through', async () => {
       resolveChannelThreadAccessMock.mockResolvedValue(null)
+      givenOwnParent()
 
       const response = await composeMessage(
         composeRequest(publicComposeBody({ parentMessageId: messageId })),
@@ -427,6 +445,7 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
   it('leaves a caller-supplied parent on an internal thread alone', async () => {
     resolveChannelTypeMock.mockResolvedValue('discord')
     resolveChannelThreadAccessMock.mockResolvedValue(null)
+    givenOwnParent()
 
     const response = await composeMessage(
       composeRequest(publicComposeBody({ parentMessageId: messageId })),
@@ -452,5 +471,96 @@ describe('POST /api/messages — channel conversation deliverability (#5535)', (
     )
     expect(internalNote.status).toBe(201)
     expect(resolveChannelThreadAccessMock).not.toHaveBeenCalled()
+  })
+})
+
+// #7503 — a compose/list payload the validator rejects used to escape the
+// handler as an uncaught ZodError, which Next.js answered as a bare 500 with
+// an empty body. The caller got no reason and the UI fell back to a generic
+// "could not send" toast. These must answer 400 with the repo-standard
+// `{ error, details }` shape (#7508 review): `error` is a stable, translated
+// label — never the raw Zod validator message — and `details` carries the
+// Zod issues for callers that want field-level detail.
+describe('POST /api/messages — validator rejections answer 400, not a bare 500 (#7503)', () => {
+  it('answers 400 with the stable error label when required fields are missing, instead of throwing', async () => {
+    const response = await composeMessage(composeRequest({}))
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid message payload')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(body.details.length).toBeGreaterThan(0)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 when the subject exceeds the 500-character limit', async () => {
+    const response = await composeMessage(
+      composeRequest({
+        visibility: 'internal',
+        recipients: [{ userId, type: 'to' }],
+        subject: 'x'.repeat(501),
+        body: 'x',
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid message payload')
+    expect(body.details.some((issue: { path: unknown[] }) => issue.path.includes('subject'))).toBe(true)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 when a recipient userId is not a UUID', async () => {
+    const response = await composeMessage(
+      composeRequest({
+        visibility: 'internal',
+        recipients: [{ userId: 'not-a-uuid', type: 'to' }],
+        subject: 'x',
+        body: 'x',
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid message payload')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(body.details.length).toBeGreaterThan(0)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 400 for an action link the href refine rejects', async () => {
+    const response = await composeMessage(
+      composeRequest({
+        visibility: 'internal',
+        recipients: [{ userId, type: 'to' }],
+        subject: 'x',
+        body: 'x',
+        actionData: {
+          actions: [{ id: 'go', label: 'Open', href: '//evil.example.com/x', isTerminal: true }],
+        },
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid message payload')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(body.details.length).toBeGreaterThan(0)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/messages — validator rejections answer 400, not a bare 500 (#7503)', () => {
+  it('answers 400 with the stable error label for an unknown folder value, instead of throwing', async () => {
+    const response = await listMessages(
+      new Request('http://localhost/api/messages?folder=not-a-real-folder'),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid request parameters')
+    expect(Array.isArray(body.details)).toBe(true)
+    expect(body.details.length).toBeGreaterThan(0)
+    expect(body.details.some((issue: { path: unknown[] }) => issue.path.includes('folder'))).toBe(true)
   })
 })

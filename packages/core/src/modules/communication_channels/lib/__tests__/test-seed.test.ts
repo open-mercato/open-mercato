@@ -1,6 +1,7 @@
 import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   TEST_CHANNEL_SEEDING_ENV,
   TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV,
@@ -8,6 +9,7 @@ import {
   TEST_SEED_CHAT_PROVIDER_KEY,
   TEST_SEED_PROVIDER_KEY,
   clearTestSeedCapturedMessages,
+  deleteTestSeedPlatformMessage,
   ensureTestSeedAdapterRegistered,
   isTestChannelSeedingEnabled,
   isTestEmailCaptureAccessAuthorized,
@@ -97,6 +99,49 @@ describe('communication_channels test-seed gate', () => {
       expect((normalized as { subject?: string }).subject).toBeUndefined()
     })
 
+    it('the email stub normalizes an email-shaped frame whose sender is an address (#6089)', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)
+
+      const normalized = await adapter!.normalizeInbound({
+        raw: {
+          externalMessageId: '<inbound-1@example.test>',
+          externalConversationId: 'inbound-conversation-1',
+          senderIdentifier: 'inbound-sender@example.test',
+          senderDisplayName: 'Inbound Sender',
+          subject: 'Inbound subject',
+          body: 'hello from an inbox',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+
+      expect(normalized.senderIdentifier).toBe('inbound-sender@example.test')
+      expect(normalized.subject).toBe('Inbound subject')
+      expect(normalized.body).toBe('hello from an inbox')
+      expect(normalized.channelPayload.from).toEqual({
+        address: 'inbound-sender@example.test',
+        name: 'Inbound Sender',
+      })
+    })
+
+    it('the email stub rejects a frame whose sender is not an address', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_PROVIDER_KEY)
+
+      await expect(
+        adapter!.normalizeInbound({
+          raw: { externalMessageId: 'x', externalConversationId: 'y', senderIdentifier: '1499156851487539260' },
+          eventType: 'message',
+          metadata: {},
+        }),
+      ).rejects.toThrow('email-shaped senderIdentifier')
+    })
+
     it('registers a network-free email stub adapter when the gate is on', () => {
       process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
       clearChannelAdapters()
@@ -152,6 +197,28 @@ describe('communication_channels test-seed gate', () => {
       process.env[TEST_EMAIL_CAPTURE_ACCESS_TOKEN_ENV] = 'too-short'
       expect(isTestEmailCaptureAccessAuthorized('too-short')).toBe(false)
     })
+  })
+})
+
+describe('deleteTestSeedPlatformMessage', () => {
+  it('scopes deletion to a test-seed stamp or the verified external conversation', async () => {
+    const execute = jest.fn().mockResolvedValue(undefined)
+    const em = {
+      getConnection: () => ({ execute }),
+    } as unknown as EntityManager
+
+    await deleteTestSeedPlatformMessage(em, {
+      messageId: 'message-1',
+      channelId: 'channel-1',
+      conversationId: 'conversation-1',
+      tenantId: 'tenant-1',
+      organizationId: 'organization-1',
+    })
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.stringContaining("source_entity_type = 'communication_channels.external_conversation'"),
+      ['message-1', 'channel-1', 'conversation-1', 'tenant-1', 'organization-1'],
+    )
   })
 })
 

@@ -1,0 +1,89 @@
+import * as cp from 'node:child_process'
+import { exec, execFile, execSync, spawn } from 'node:child_process'
+import { NextResponse, type NextRequest } from 'next/server'
+import { redirect } from 'next/navigation'
+import { sql } from 'kysely'
+
+const ORDERS_TABLE = 'orders'
+const THEME_SCRIPT = 'document.documentElement.dataset.theme = "dark"'
+
+export async function GET(req: NextRequest, em: any, db: any, cookies: any) {
+  const input = req.nextUrl.searchParams.get('q') ?? ''
+
+  // ruleid: om-dynamic-code-execution
+  eval(input)
+  // ruleid: om-dynamic-code-execution
+  const compiled = new Function('a', input)
+  // ok: om-dynamic-code-execution
+  eval('1 + 1')
+
+  // ruleid: om-dynamic-shell-command
+  exec('ls ' + input)
+  // ruleid: om-dynamic-shell-command
+  execSync(`git log ${input}`)
+  // ruleid: om-dynamic-shell-command
+  spawn('sh', ['-c', input], { shell: true })
+  // ok: om-dynamic-shell-command
+  execFile('git', ['log', input])
+  // ok: om-dynamic-shell-command
+  exec('ls -la')
+  // ruleid: om-dynamic-shell-command
+  cp.exec(input)
+  // ok: om-dynamic-shell-command
+  new RegExp('a(b)').exec(input)
+  const matcher = /a(b)/
+  // ok: om-dynamic-shell-command
+  matcher.exec(input)
+
+  // ruleid: om-raw-sql-interpolation
+  await sql.raw(`select * from users where name = '${input}'`).execute(db)
+  // ruleid: om-raw-sql-interpolation
+  await em.execute(`delete from orders where id = ${input}`)
+  // ruleid: om-raw-sql-interpolation
+  await db.query('select * from t where a = ' + input)
+  // ok: om-raw-sql-interpolation
+  await sql`select * from users where name = ${input}`.execute(db)
+  // ok: om-raw-sql-interpolation
+  await em.execute('delete from orders where id = ?', [input])
+  const placeholders = [input].map(() => '?').join(', ')
+  // ok: om-raw-sql-interpolation
+  await em.execute(`select id from orders where id in (${placeholders})`, [input])
+  // ok: om-raw-sql-interpolation
+  await db.execute(`select 1 from ${ORDERS_TABLE} where id = ?`, [input])
+  const owned = { sql: 'owner_id = ?', params: [input] }
+  // ok: om-raw-sql-interpolation
+  await db.execute(`select * from reports where ${owned.sql}`, owned.params)
+  const orgClause = ' and organization_id = ?'
+  // ok: om-raw-sql-interpolation
+  await db.execute(`select * from reports where id = ?${orgClause}`, [input, input])
+  // ruleid: om-raw-sql-interpolation
+  await db.execute(`select * from reports order by ${input}`)
+
+  // ruleid: om-cookie-without-httponly
+  cookies.set('session', input, { httpOnly: false, secure: true })
+  // ok: om-cookie-without-httponly
+  cookies.set('session', input, { httpOnly: true, secure: true })
+
+  if (input === 'a') {
+    // ruleid: om-open-redirect
+    return NextResponse.redirect(new URL(req.nextUrl.searchParams.get('next') ?? '/', req.url))
+  }
+  // ruleid: om-open-redirect
+  redirect(req.nextUrl.searchParams.get('next') ?? '/')
+  // ok: om-open-redirect
+  redirect('/backend')
+  return compiled
+}
+
+export function Page({ html }: { html: string }) {
+  return (
+    <>
+      {/* ruleid: om-dangerously-set-inner-html */}
+      <div dangerouslySetInnerHTML={{ __html: html }} />
+      {/* ok: om-dangerously-set-inner-html */}
+      <div dangerouslySetInnerHTML={{ __html: '<b>static</b>' }} />
+      {/* ok: om-dangerously-set-inner-html */}
+      <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+    </>
+  )
+}

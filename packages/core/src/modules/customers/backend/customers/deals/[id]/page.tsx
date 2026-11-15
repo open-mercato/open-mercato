@@ -3,13 +3,14 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
-import { Building2, FileText, Hash, UserSearch, Users } from 'lucide-react'
+import { Building2, FileText, Hash, UserSearch } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { CustomerDetailSidebar } from '../../../../components/detail/CustomerDetailSidebar'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
@@ -24,6 +25,7 @@ import { DealDetailHeader } from '../../../../components/detail/DealDetailHeader
 import { DealDetailTabs, resolveLegacyTab, type DealTabId } from '../../../../components/detail/DealDetailTabs'
 import { DealForm, useDealAssociationLookups } from '../../../../components/detail/DealForm'
 import { DealLinkedEntitiesTab } from '../../../../components/detail/DealLinkedEntitiesTab'
+import { DealPeopleSection } from '../../../../components/detail/DealPeopleSection'
 import { ConfirmDealLostDialog } from '../../../../components/detail/ConfirmDealLostDialog'
 import { DealLostSummaryDialog } from '../../../../components/detail/DealLostSummaryDialog'
 import { DealWonPopup } from '../../../../components/detail/DealWonPopup'
@@ -99,7 +101,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     [detailTranslator, runMutationWithContext],
   )
 
-  const { injectedTabs, injectedTabMap } = useDealInjectedTabs({
+  const { injectedTabs, injectedTabMap, loading: injectedTabsLoading } = useDealInjectedTabs({
     injectionContext,
     data,
     setData,
@@ -116,7 +118,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setActiveTab(initialTab)
   }, [initialTab])
 
-  const { searchPeoplePage, fetchPeopleByIds, searchCompaniesPage, fetchCompaniesByIds } = useDealAssociationLookups({
+  const { searchCompaniesPage, fetchCompaniesByIds } = useDealAssociationLookups({
     excludeLinkedDealId: data?.deal.id ?? null,
   })
 
@@ -191,7 +193,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     companiesSaving,
     handlePeopleAssociationsChange,
     handleCompaniesAssociationsChange,
-    loadLinkedPeoplePage,
     loadLinkedCompaniesPage,
   } = useDealAssociations({
     currentDealId,
@@ -425,11 +426,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     </div>
   )
 
-  const zone2Content = (
+  const injectedTabContent = injectedTabMap.get(activeTab)
+  const zone2Content = injectedTabContent ? (
+    <div>{injectedTabContent()}</div>
+  ) : (
     <div className="rounded-[10px] border border-border bg-card px-5 py-5">
       {(() => {
-        const injected = injectedTabMap.get(activeTab)
-        if (injected) return injected()
 
         if (activeTab === 'activities') {
           const activityEntitySelection = activityEntities.length > 1 ? (
@@ -534,22 +536,20 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
         if (activeTab === 'people') {
           return (
-            <DealLinkedEntitiesTab
-              entityLabel={t('customers.deals.detail.tabs.peopleSingular', 'Person')}
-              entityLabelPlural={t('customers.deals.detail.tabs.people', 'People')}
-              manageLabel={t('customers.deals.detail.peopleEditorTitle', 'Manage linked people')}
-              searchPlaceholder={t('customers.deals.detail.peopleSearch', 'Search linked people…')}
-              linkedItems={data.people}
-              linkedCount={data.counts.people}
+            <DealPeopleSection
+              dealId={data.deal.id}
+              dealName={dealName}
               selectedIds={peopleEditorIds}
-              disabled={peopleSaving || isSaving}
-              savePending={peopleSaving}
-              hrefBuilder={(personId) => `/backend/customers/people-v2/${encodeURIComponent(personId)}`}
               onSaveSelection={(next) => handlePeopleAssociationsChange(next)}
-              loadLinkedPage={loadLinkedPeoplePage}
-              searchEntities={searchPeoplePage}
-              fetchEntitiesByIds={fetchPeopleByIds}
-              icon={<Users className="size-4" />}
+              addActionLabel={t('customers.deals.detail.peopleAdd', 'Add person')}
+              disabled={peopleSaving || isSaving}
+              emptyLabel={t('customers.deals.detail.peopleEmpty', 'No people linked to this deal yet.')}
+              emptyState={{
+                title: t('customers.deals.detail.peopleEmptyTitle', 'Link the people involved'),
+                actionLabel: t('customers.deals.detail.peopleEmptyAction', 'Add person'),
+              }}
+              translator={detailTranslator}
+              runGuardedMutation={runMutationWithContext}
             />
           )
         }
@@ -620,6 +620,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
         return null
       })()}
+      {injectedTabMap.get(activeTab)?.()}
     </div>
   )
 
@@ -630,6 +631,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           <InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />
 
           <DealDetailHeader
+            actions={<InjectionSpot spotId={extensionPoints.hosts.dealHeaderActions.spotId} context={{ ...injectionContext, isDirty, isSaving }} data={data} disabled={isSaving} />}
             deal={data.deal}
             owner={data.owner}
             people={data.people}
@@ -663,10 +665,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             )}
           />
 
+          <CustomerDetailSidebar spotId={extensionPoints.hosts.dealSidebar.spotId} context={injectionContext} data={data} onDataChange={setData} disabled={isSaving}>
           <DealDetailTabs
+            isLoadingInjectedTabs={injectedTabsLoading}
             activeTab={activeTab}
             onTabChange={handleTabChange}
-            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
             peopleCount={data.counts.people}
             companiesCount={data.counts.companies}
           >
@@ -680,6 +684,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               zone2={zone2Content}
             />
           </DealDetailTabs>
+          </CustomerDetailSidebar>
 
           <InjectionSpot spotId={extensionPoints.hosts.dealFooter.spotId} context={injectionContext} data={data} />
         </div>

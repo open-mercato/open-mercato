@@ -35,6 +35,7 @@
   "availability.policies.errors.duplicateTarget": "Polityka dla tej kombinacji sklep/produkt/wariant już istnieje.",
   "availability.policies.errors.integerTooLarge": "Ta wartość jest za duża. Wpisz liczbę nie większą niż 2147483647.",
   "availability.policies.errors.maxBelowMin": "Maksymalna ilość zamówienia nie może być mniejsza niż minimalna ilość zamówienia",
+  "availability.policies.errors.organizationRequired": "Wybierz konkretną organizację w nagłówku, zanim utworzysz politykę.",
   "availability.policies.errors.variantRequiresProduct": "Polityka na poziomie wariantu wymaga produktu",
   "availability.policies.flash.created": "Utworzono politykę dostępności",
   "availability.policies.flash.deleted": "Usunięto politykę dostępności",

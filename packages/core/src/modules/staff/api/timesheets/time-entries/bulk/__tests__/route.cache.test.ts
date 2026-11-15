@@ -74,6 +74,11 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   flushCrudSideEffects: jest.fn((...args: unknown[]) => mockFlushCrudSideEffects(...args)),
 }))
 
+jest.mock('../../../../../lib/time-tracking/access', () => ({
+  ...jest.requireActual('../../../../../lib/time-tracking/access'),
+  resolveProjectAccess: jest.fn(async () => ({ canManageAll: true, projectIds: [], staffMemberId: null })),
+}))
+
 jest.mock('../../../../guards', () => ({
   ...jest.requireActual('../../../../guards'),
   resolveUserFeatures: jest.fn(() => ['staff.timesheets.manage_own']),

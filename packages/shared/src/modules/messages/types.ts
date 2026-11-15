@@ -29,6 +29,7 @@ export type MessageListItemProps = {
     bodyFormat: 'text' | 'markdown'
     priority: 'low' | 'normal' | 'high' | 'urgent'
     sentAt: Date | null
+    isDraft?: boolean
     senderName?: string
     senderAvatar?: string
     hasObjects: boolean

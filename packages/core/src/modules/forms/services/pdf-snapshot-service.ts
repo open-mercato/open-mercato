@@ -11,6 +11,11 @@
  * attachment is returned and NO regeneration occurs (submissions are immutable
  * post-submit).
  *
+ * Participant copy: `readSnapshotForViewer` serves the canonical snapshot only
+ * when the viewer's role reads every rendered field. Otherwise it renders an
+ * uncached copy limited to the role-readable answers (same set as the JSON
+ * read) and never stores, links or emits it.
+ *
  * Encryption-at-rest: snapshot bytes are wrapped with the per-tenant
  * `EncryptionService` — identical posture to user uploads (DP-1). The stored
  * `content_type` / `filename` / `size_bytes` are recorded verbatim.
@@ -42,6 +47,8 @@ import {
   FormVersion,
 } from '../data/entities'
 import type { EncryptionService } from './encryption-service'
+import { FormVersionCompiler } from './form-version-compiler'
+import { resolveVisibleFieldKeys, type VisibilitySchemaNode } from './visibility-resolver'
 import {
   defaultFieldTypeRegistry,
   type FieldTypeRegistry,
@@ -122,10 +129,20 @@ export type StoredSnapshot = {
   bytes: Buffer
 }
 
+/** Snapshot served to a request principal; `attachmentId` is null for an uncached role-filtered copy. */
+export type ViewerSnapshot = Omit<StoredSnapshot, 'attachmentId'> & { attachmentId: string | null }
+
+type RenderInputs = {
+  form: Form | null
+  formVersion: FormVersion
+  answers: Record<string, unknown>
+}
+
 export type PdfSnapshotServiceOptions = {
   emFactory: () => EntityManager
   encryptionService: EncryptionService
   registry?: FieldTypeRegistry
+  formVersionCompiler?: FormVersionCompiler
   emitEvent?: (
     eventId: 'forms.attachment.uploaded',
     payload: { attachmentId: string; submissionId: string },
@@ -139,12 +156,14 @@ export class PdfSnapshotService {
   private readonly emFactory: () => EntityManager
   private readonly encryption: EncryptionService
   private readonly registry: FieldTypeRegistry
+  private readonly compiler: FormVersionCompiler
   private readonly emitEvent?: PdfSnapshotServiceOptions['emitEvent']
 
   constructor(options: PdfSnapshotServiceOptions) {
     this.emFactory = options.emFactory
     this.encryption = options.encryptionService
     this.registry = options.registry ?? defaultFieldTypeRegistry
+    this.compiler = options.formVersionCompiler ?? new FormVersionCompiler({ registry: this.registry })
     this.emitEvent = options.emitEvent
   }
 
@@ -157,27 +176,56 @@ export class PdfSnapshotService {
    */
   async ensureSnapshot(args: Scope & { submissionId: string }): Promise<StoredSnapshot> {
     const em = this.emFactory()
-    const submission = await em.findOne(FormSubmission, {
-      id: args.submissionId,
-      organizationId: args.organizationId,
-      tenantId: args.tenantId,
-      deletedAt: null,
+    const submission = await this.loadSubmittedSubmission(em, args)
+    return this.resolveCanonicalSnapshot(em, args, submission)
+  }
+
+  /**
+   * Snapshot for a request principal (participant via access token or portal).
+   * Returns the canonical snapshot (as `ensureSnapshot` would) only when `viewerRole`
+   * reads every rendered field; otherwise renders an uncached copy restricted
+   * to the role-readable answers. A null role reads no answers.
+   */
+  async readSnapshotForViewer(
+    args: Scope & { submissionId: string; viewerRole: string | null },
+  ): Promise<ViewerSnapshot> {
+    const em = this.emFactory()
+    const submission = await this.loadSubmittedSubmission(em, args)
+    const inputs = await this.loadRenderInputs(em, args, submission)
+    const schema = (inputs.formVersion.schema ?? {}) as Record<string, unknown>
+    const readable = args.viewerRole === null
+      ? new Set<string>()
+      : resolveVisibleFieldKeys({
+          compiled: this.compiler.compile({
+            id: inputs.formVersion.id,
+            updatedAt: inputs.formVersion.updatedAt,
+            schema: inputs.formVersion.schema,
+            uiSchema: inputs.formVersion.uiSchema,
+          }),
+          schema: schema as { properties?: Record<string, VisibilitySchemaNode> },
+          role: args.viewerRole,
+          data: inputs.answers,
+        })
+
+    const renderedKeys = listSnapshotFieldKeys(schema, this.registry)
+    if (renderedKeys.every((key) => readable.has(key))) {
+      return this.resolveCanonicalSnapshot(em, args, submission, inputs)
+    }
+
+    const document = buildSnapshotDocument({
+      ...inputs,
+      submission,
+      registry: this.registry,
+      visibleFieldKeys: readable,
     })
-    if (!submission) {
-      throw new PdfSnapshotServiceError('NOT_FOUND', 'Submission not found.', 404)
+    const bytes = await renderDocumentToPdf(document)
+    return {
+      attachmentId: null,
+      filename: `submission-${submission.id}-v${inputs.formVersion.versionNumber}-participant.pdf`,
+      contentType: SNAPSHOT_CONTENT_TYPE,
+      sizeBytes: bytes.length,
+      bytes,
     }
-    if (submission.status !== 'submitted') {
-      throw new PdfSnapshotServiceError('NOT_SUBMITTED', 'Submission is not submitted.', 409)
-    }
-
-    if (submission.pdfSnapshotAttachmentId) {
-      const existing = await this.readStored(em, args, submission.pdfSnapshotAttachmentId)
-      if (existing) return existing
-      // Linked attachment row vanished — treat as unset and regenerate.
-    }
-
-    const built = await this.buildAndStore(em, args, submission)
-    return built
   }
 
   /**
@@ -195,6 +243,40 @@ export class PdfSnapshotService {
     })
     if (!submission || !submission.pdfSnapshotAttachmentId) return null
     return this.readStored(em, args, submission.pdfSnapshotAttachmentId)
+  }
+
+  private async loadSubmittedSubmission(
+    em: EntityManager,
+    args: Scope & { submissionId: string },
+  ): Promise<FormSubmission> {
+    const submission = await em.findOne(FormSubmission, {
+      id: args.submissionId,
+      organizationId: args.organizationId,
+      tenantId: args.tenantId,
+      deletedAt: null,
+    })
+    if (!submission) {
+      throw new PdfSnapshotServiceError('NOT_FOUND', 'Submission not found.', 404)
+    }
+    if (submission.status !== 'submitted') {
+      throw new PdfSnapshotServiceError('NOT_SUBMITTED', 'Submission is not submitted.', 409)
+    }
+    return submission
+  }
+
+  /** Stored canonical snapshot, or a freshly built one; reuses `inputs` when the caller already loaded them. */
+  private async resolveCanonicalSnapshot(
+    em: EntityManager,
+    args: Scope,
+    submission: FormSubmission,
+    inputs?: RenderInputs,
+  ): Promise<StoredSnapshot> {
+    if (submission.pdfSnapshotAttachmentId) {
+      const existing = await this.readStored(em, args, submission.pdfSnapshotAttachmentId)
+      if (existing) return existing
+      // Linked attachment row vanished — treat as unset and regenerate.
+    }
+    return this.buildAndStore(em, args, submission, inputs ?? (await this.loadRenderInputs(em, args, submission)))
   }
 
   private async readStored(
@@ -222,11 +304,11 @@ export class PdfSnapshotService {
     }
   }
 
-  private async buildAndStore(
+  private async loadRenderInputs(
     em: EntityManager,
-    args: Scope & { submissionId: string },
+    args: Scope,
     submission: FormSubmission,
-  ): Promise<StoredSnapshot> {
+  ): Promise<RenderInputs> {
     const formVersion = await em.findOne(FormVersion, {
       id: submission.formVersionId,
       organizationId: args.organizationId,
@@ -251,6 +333,16 @@ export class PdfSnapshotService {
       throw new PdfSnapshotServiceError('NOT_FOUND', 'Current revision not found.', 404)
     }
     const answers = await this.decodeRevision(args.organizationId, revision)
+    return { form, formVersion, answers }
+  }
+
+  private async buildAndStore(
+    em: EntityManager,
+    args: Scope,
+    submission: FormSubmission,
+    inputs: RenderInputs,
+  ): Promise<StoredSnapshot> {
+    const { form, formVersion, answers } = inputs
 
     const document = buildSnapshotDocument({
       form,
@@ -328,6 +420,8 @@ export type BuildSnapshotDocumentArgs = {
   submission: FormSubmission
   answers: Record<string, unknown>
   registry?: FieldTypeRegistry
+  /** When set, only these field keys are rendered (participant copy). */
+  visibleFieldKeys?: ReadonlySet<string>
 }
 
 type SchemaSection = {
@@ -349,6 +443,7 @@ export function buildSnapshotDocument(args: BuildSnapshotDocumentArgs): Snapshot
   const locale = resolveDefaultLocale(args.form, schema)
   const properties = isRecord(schema.properties) ? schema.properties : {}
   const sections = readSchemaSections(schema)
+  const visible = args.visibleFieldKeys
 
   const seen = new Set<string>()
   const renderedSections: SnapshotSection[] = []
@@ -357,6 +452,7 @@ export function buildSnapshotDocument(args: BuildSnapshotDocumentArgs): Snapshot
     const fields: SnapshotField[] = []
     for (const fieldKey of section.fieldKeys) {
       seen.add(fieldKey)
+      if (visible && !visible.has(fieldKey)) continue
       const node = isRecord(properties[fieldKey]) ? (properties[fieldKey] as FieldNode) : null
       if (!node) continue
       const field = buildSnapshotField(fieldKey, node, answers[fieldKey], locale, registry)
@@ -374,6 +470,7 @@ export function buildSnapshotDocument(args: BuildSnapshotDocumentArgs): Snapshot
   const leftover: SnapshotField[] = []
   for (const fieldKey of Object.keys(properties)) {
     if (seen.has(fieldKey)) continue
+    if (visible && !visible.has(fieldKey)) continue
     const node = isRecord(properties[fieldKey]) ? (properties[fieldKey] as FieldNode) : null
     if (!node) continue
     const field = buildSnapshotField(fieldKey, node, answers[fieldKey], locale, registry)
@@ -392,6 +489,25 @@ export function buildSnapshotDocument(args: BuildSnapshotDocumentArgs): Snapshot
   }
 }
 
+/** True when the snapshot renders this schema property (record-valued, not a layout type). */
+export function isRenderedSnapshotField(node: unknown, registry: FieldTypeRegistry): node is FieldNode {
+  if (!isRecord(node)) return false
+  return registry.get(resolveFieldType(node))?.category !== 'layout'
+}
+
+/** Keys of every field the canonical snapshot document renders. */
+export function listSnapshotFieldKeys(
+  schema: Record<string, unknown>,
+  registry: FieldTypeRegistry = defaultFieldTypeRegistry,
+): string[] {
+  const properties = isRecord(schema.properties) ? schema.properties : {}
+  return Object.keys(properties).filter((key) => isRenderedSnapshotField(properties[key], registry))
+}
+
+function resolveFieldType(node: FieldNode): string {
+  return typeof node['x-om-type'] === 'string' ? (node['x-om-type'] as string) : 'text'
+}
+
 function buildSnapshotField(
   fieldKey: string,
   node: FieldNode,
@@ -399,9 +515,9 @@ function buildSnapshotField(
   locale: string,
   registry: FieldTypeRegistry,
 ): SnapshotField | null {
-  const type = typeof node['x-om-type'] === 'string' ? (node['x-om-type'] as string) : 'text'
+  if (!isRenderedSnapshotField(node, registry)) return null
+  const type = resolveFieldType(node)
   const spec = registry.get(type)
-  if (spec?.category === 'layout') return null
   const label = resolveLocalized(node['x-om-label'] as Record<string, string> | undefined, locale) || fieldKey
 
   if (type === SIGNATURE_TYPE_KEY) {
@@ -713,7 +829,6 @@ function splitWideToken(token: string, font: PDFFont, size: number, maxWidth: nu
  * with `?` so a snapshot can never fail to render on exotic answer text.
  */
 function sanitizeForWinAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
   return text.replace(/[^ -ÿ]/g, '?')
 }
 

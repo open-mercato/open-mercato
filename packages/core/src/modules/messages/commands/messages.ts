@@ -18,7 +18,7 @@ import {
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
-import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID } from '../lib/constants'
+import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -266,6 +266,13 @@ async function buildComposeResultFromExisting(
   }
 }
 
+/**
+ * `parentMessageId` is trusted: the thread is derived from it without a read
+ * check, because the acting `userId` is itself an input and server-side callers
+ * (channel ingest) pass parents the actor is not a participant of. Every surface
+ * that accepts a parent from a caller MUST resolve it against its own read rule
+ * first (`resolveReplyParentMessage` for the messages API).
+ */
 const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: string | null; externalEmail: string | null; isDraft: boolean; recipientUserIds: string[]; deduplicated?: boolean }> = {
   id: 'messages.messages.compose',
   async execute(rawInput, ctx) {
@@ -315,14 +322,14 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         )?.threadId ?? input.parentMessageId
         : undefined
 
-      const isPublicVisibility = input.visibility === 'public'
-      // #6093: a channel-ingested message was RECEIVED, not sent. Ingest passes
-      // `sendViaEmail: false` on purpose; forcing it for public visibility would
-      // mail the assignee a copy and echo the message to its external sender
-      // (#6089) the moment the recipients waiver lets it compose. #6090 removes
-      // the forcing for every caller; until then it is skipped here for the
-      // ingest path only.
-      const sendViaEmail = isPublicVisibility && !input.inboundFromChannel ? true : input.sendViaEmail
+      // Honor the caller's explicit `sendViaEmail` (#6089, #6090). The messages API
+      // route forces email delivery for public messages a user composes; internal
+      // callers (communication_channels inbound ingest, send-as-user) compose
+      // `visibility: 'public'` with `sendViaEmail: false` on purpose. Forcing it
+      // here echoed every inbound email back to its sender through the tenant
+      // system email channel and made send-as-user deliver twice.
+      const sendViaEmail = input.sendViaEmail
+      const sentAt = input.sentAt === undefined ? new Date() : input.sentAt
       const message = trx.create(Message, {
         type: input.type,
         visibility: input.visibility ?? null,
@@ -341,7 +348,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         isDraft: input.isDraft ?? false,
         // #6095: channel ingest passes the provider's timestamp so an imported
         // mailbox sorts by when the mail was received, not when it was imported.
-        sentAt: input.isDraft ? null : input.sentAt ?? new Date(),
+        sentAt: input.isDraft ? null : sentAt,
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,
@@ -428,8 +435,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         messageId,
         senderUserId: input.userId,
         recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-        sendViaEmail:
-          input.visibility === 'public' && !input.inboundFromChannel ? true : input.sendViaEmail,
+        sendViaEmail: input.sendViaEmail,
         inboundFromChannel: input.inboundFromChannel === true,
         externalEmail: responseExternalEmail,
         tenantId: input.tenantId,
@@ -779,24 +785,25 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowReply === false) throw new Error('Reply is not allowed for this message type')
 
+    const isReplyRecipient = (userId: string) => userId !== input.userId && userId !== SYSTEM_SENDER_USER_ID
     const recipientIds = new Set(
       (input.recipients ?? [])
         .map((recipient) => recipient.userId)
-        .filter((recipientUserId) => recipientUserId !== input.userId),
+        .filter(isReplyRecipient),
     )
 
     if (recipientIds.size === 0) {
       const originalRecipients = await em.find(MessageRecipient, { messageId: original.id, deletedAt: null })
       if (input.replyAll) {
-        if (original.senderUserId !== input.userId) recipientIds.add(original.senderUserId)
+        if (isReplyRecipient(original.senderUserId)) recipientIds.add(original.senderUserId)
         for (const recipient of originalRecipients) {
-          if (recipient.recipientUserId !== input.userId) recipientIds.add(recipient.recipientUserId)
+          if (isReplyRecipient(recipient.recipientUserId)) recipientIds.add(recipient.recipientUserId)
         }
       } else if (original.senderUserId !== input.userId) {
-        recipientIds.add(original.senderUserId)
+        if (isReplyRecipient(original.senderUserId)) recipientIds.add(original.senderUserId)
       } else {
         for (const recipient of originalRecipients) {
-          if (recipient.recipientUserId !== input.userId) {
+          if (isReplyRecipient(recipient.recipientUserId)) {
             recipientIds.add(recipient.recipientUserId)
             break
           }
@@ -807,7 +814,9 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
         recipientIds.add(input.userId)
       }
     }
-    if (recipientIds.size === 0) throw new Error('No recipients available for reply')
+    if (recipientIds.size === 0 && original.senderUserId !== SYSTEM_SENDER_USER_ID) {
+      throw new Error('No recipients available for reply')
+    }
 
     let messageId = ''
     let responseExternalEmail: string | null = null
@@ -1094,40 +1103,39 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
   },
 }
 
-const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
+const DELETE_RECIPIENT_CLAIM_ATTEMPTS = 3
+
+async function claimRecipientDelete(
+  em: EntityManager,
+  messageId: string,
+  userId: string,
+): Promise<{ id: string; status: MessageRecipient['status'] } | null> {
+  for (let attempt = 0; attempt < DELETE_RECIPIENT_CLAIM_ATTEMPTS; attempt += 1) {
+    const recipient = await em.findOne(
+      MessageRecipient,
+      { messageId, recipientUserId: userId, deletedAt: null },
+      { refresh: true },
+    )
+    if (!recipient) return null
+    const claimed = { id: recipient.id, status: recipient.status }
+    const claimedRows = await em.nativeUpdate(
+      MessageRecipient,
+      { id: claimed.id, deletedAt: null, status: claimed.status },
+      { status: 'deleted', deletedAt: new Date() },
+    )
+    if (claimedRows > 0) return claimed
+  }
+  throw new Error('[internal] Message recipient changed concurrently during delete')
+}
+
+const deleteForActorCommand: CommandHandler<unknown, { ok: true; executed: MessageDeleteUndoState }> = {
   id: 'messages.messages.delete_for_actor',
-  async prepare(rawInput, ctx) {
-    const input = deleteForActorCommandSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const message = await requireMessageById(em, input, input.messageId)
-    const recipient = await em.findOne(MessageRecipient, {
-      messageId: input.messageId,
-      recipientUserId: input.userId,
-      deletedAt: null,
-    })
-    return {
-      before: {
-        messageId: message.id,
-        messageDeletedAt: toIso(message.deletedAt),
-        recipientId: recipient?.id ?? null,
-        recipientStatus: recipient?.status ?? null,
-        recipientDeletedAt: toIso(recipient?.deletedAt),
-      } satisfies MessageDeleteUndoState,
-    }
-  },
   async execute(rawInput, ctx) {
     const input = deleteForActorCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const message = await requireMessageById(em, input, input.messageId)
-    const recipient = await em.findOne(MessageRecipient, {
-      messageId: input.messageId,
-      recipientUserId: input.userId,
-      deletedAt: null,
-    })
+    const recipient = await claimRecipientDelete(em, input.messageId, input.userId)
     if (recipient) {
-      recipient.status = 'deleted'
-      recipient.deletedAt = new Date()
-      await em.flush()
       await emitMessageDeletedEvent(ctx.container, {
         messageId: input.messageId,
         actorUserId: input.userId,
@@ -1135,10 +1143,20 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      return { ok: true }
+      return {
+        ok: true,
+        executed: {
+          messageId: message.id,
+          messageDeletedAt: toIso(message.deletedAt),
+          recipientId: recipient.id,
+          recipientStatus: recipient.status,
+          recipientDeletedAt: null,
+        },
+      }
     }
     if (message.senderUserId === input.userId) {
       const recipientRows = await em.find(MessageRecipient, { messageId: input.messageId })
+      const messageDeletedAtBefore = toIso(message.deletedAt)
       message.deletedAt = new Date()
       await em.flush()
       const recipientUserIds = recipientRows
@@ -1151,7 +1169,16 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
-      return { ok: true }
+      return {
+        ok: true,
+        executed: {
+          messageId: message.id,
+          messageDeletedAt: messageDeletedAtBefore,
+          recipientId: null,
+          recipientStatus: null,
+          recipientDeletedAt: null,
+        },
+      }
     }
     throw new Error('Access denied')
   },
@@ -1171,8 +1198,9 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       recipientDeletedAt: toIso(recipient?.deletedAt),
     } satisfies MessageDeleteUndoState
   },
-  buildLog: async ({ input, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const parsed = deleteForActorCommandSchema.parse(input)
+    const before = result?.executed ?? null
     return {
       actionLabel: 'Delete message for actor',
       resourceKind: 'messages.message',
@@ -1181,11 +1209,11 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
       organizationId: parsed.organizationId,
       payload: {
         undo: {
-          before: (snapshots.before as MessageDeleteUndoState | undefined) ?? null,
+          before,
           after: (snapshots.after as MessageDeleteUndoState | undefined) ?? null,
         } satisfies UndoPayload<MessageDeleteUndoState>,
       },
-      snapshotBefore: snapshots.before ?? null,
+      snapshotBefore: before,
       snapshotAfter: snapshots.after ?? null,
     }
   },
@@ -1194,15 +1222,24 @@ const deleteForActorCommand: CommandHandler<unknown, { ok: true }> = {
     const before = undo?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const message = await em.findOne(Message, { id: before.messageId })
-    if (message) {
-      message.deletedAt = toDate(before.messageDeletedAt)
-    }
     if (before.recipientId) {
       const recipient = await em.findOne(MessageRecipient, { id: before.recipientId })
       if (recipient) {
         recipient.status = (before.recipientStatus ?? 'unread') as MessageRecipient['status']
         recipient.deletedAt = toDate(before.recipientDeletedAt)
+      }
+    } else {
+      const tenantId = logEntry.tenantId ?? null
+      const organizationId = logEntry.organizationId ?? null
+      const message = await findOneWithDecryption(
+        em,
+        Message,
+        { id: before.messageId, tenantId, organizationId },
+        undefined,
+        { tenantId, organizationId },
+      )
+      if (message) {
+        message.deletedAt = toDate(before.messageDeletedAt)
       }
     }
     await em.flush()

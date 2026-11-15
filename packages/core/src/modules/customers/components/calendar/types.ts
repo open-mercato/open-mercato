@@ -33,6 +33,7 @@ export const calendarInteractionPayloadSchema = z
     scheduledAt: z.string().nullable().optional(),
     occurredAt: z.string().nullable().optional(),
     durationMinutes: z.number().nullable().optional(),
+    timezone: z.string().nullable().optional(),
     allDay: z.boolean().nullable().optional(),
     location: z.string().nullable().optional(),
     participants: z.array(calendarParticipantSchema).nullable().optional(),
