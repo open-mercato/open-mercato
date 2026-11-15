@@ -211,6 +211,110 @@ describe('customers api utils - findMatchingEntityIdsBySearchTokensAcrossSources
   })
 })
 
+describe('customers api utils - search organization scope (#9007)', () => {
+  type RecordedQuery = { table: string; conditions: Record<string, unknown> }
+
+  function createRecordingDb(rows: Record<string, Array<Record<string, unknown>>>) {
+    const queries: RecordedQuery[] = []
+    const db = {
+      selectFrom(table: string) {
+        const recorded: RecordedQuery = { table, conditions: {} }
+        queries.push(recorded)
+        const builder: Record<string, unknown> = {
+          select: () => builder,
+          groupBy: () => builder,
+          having: () => builder,
+          where(column: unknown, _op?: unknown, value?: unknown) {
+            if (typeof column === 'string') recorded.conditions[column] = value
+            return builder
+          },
+          async execute() {
+            return rows[table] ?? []
+          },
+        }
+        return builder
+      },
+    }
+    return { db, queries }
+  }
+
+  function createScopedCtx(db: unknown, scope: { selectedOrganizationId: string | null; organizationIds: string[] | null }) {
+    const em = { getKysely: () => db }
+    return {
+      auth: { tenantId: 'tenant-1' },
+      ...scope,
+      container: { resolve: (key: string) => (key === 'em' ? em : undefined) },
+    } as any
+  }
+
+  const personSources = [
+    { entityType: 'customers:customer_entity', fields: ['display_name'] },
+    {
+      entityType: 'customers:customer_person_profile',
+      fields: ['first_name'],
+      mapToEntityIds: { table: 'customer_people', targetColumn: 'entity_id' },
+    },
+  ]
+
+  it('searches the selected organization and its descendants when a parent is selected', async () => {
+    const { db, queries } = createRecordingDb({
+      search_tokens: [{ entity_id: 'record-in-child' }],
+      customer_people: [{ entity_id: 'person-in-child' }],
+    })
+    const ctx = createScopedCtx(db, {
+      selectedOrganizationId: 'org-parent',
+      organizationIds: ['org-parent', 'org-child'],
+    })
+
+    const result = await findMatchingEntityIdsBySearchTokensAcrossSources({ ctx, query: 'alpha', sources: personSources })
+
+    expect(new Set(result as string[])).toEqual(new Set(['record-in-child', 'person-in-child']))
+    const tokenQueries = queries.filter((query) => query.table === 'search_tokens')
+    expect(tokenQueries).toHaveLength(2)
+    for (const query of tokenQueries) {
+      expect(query.conditions.organization_id).toEqual(['org-parent', 'org-child'])
+    }
+    const mapQuery = queries.find((query) => query.table === 'customer_people')
+    expect(mapQuery?.conditions.organization_id).toEqual(['org-parent', 'org-child'])
+  })
+
+  it('falls back to the selected organization when no organization list is resolved', async () => {
+    const { db, queries } = createRecordingDb({ search_tokens: [{ entity_id: 'record-1' }] })
+    const ctx = createScopedCtx(db, { selectedOrganizationId: 'org-1', organizationIds: null })
+
+    await findMatchingEntityIdsBySearchTokensAcrossSources({ ctx, query: 'alpha', sources: [personSources[0]] })
+
+    const tokenQuery = queries.find((query) => query.table === 'search_tokens')
+    expect(tokenQuery?.conditions.organization_id).toEqual(['org-1'])
+  })
+
+  it('leaves organization unrestricted only for an unrestricted ("All organizations") scope', async () => {
+    const { db, queries } = createRecordingDb({ search_tokens: [{ entity_id: 'record-1' }] })
+    const ctx = createScopedCtx(db, { selectedOrganizationId: null, organizationIds: null })
+
+    const result = await findMatchingEntityIdsBySearchTokensAcrossSources({ ctx, query: 'alpha', sources: [personSources[0]] })
+
+    expect(result).toEqual(['record-1'])
+    const tokenQuery = queries.find((query) => query.table === 'search_tokens')
+    expect(tokenQuery).toBeDefined()
+    expect(tokenQuery?.conditions).not.toHaveProperty('organization_id')
+  })
+
+  it('matches nothing for an explicitly empty organization scope instead of searching tenant-wide', async () => {
+    const { db, queries } = createRecordingDb({
+      search_tokens: [{ entity_id: 'record-elsewhere' }],
+      customer_people: [{ entity_id: 'person-elsewhere' }],
+    })
+    const ctx = createScopedCtx(db, { selectedOrganizationId: null, organizationIds: [] })
+
+    const result = await findMatchingEntityIdsBySearchTokensAcrossSources({ ctx, query: 'alpha', sources: personSources })
+
+    expect(result).toEqual([])
+    expect(queries.some((query) => query.table === 'search_tokens')).toBe(false)
+    expect(queries.some((query) => query.table === 'customer_people')).toBe(false)
+  })
+})
+
 describe('customers api utils - findMatchingEntityIdsWithQueryEngine', () => {
   const PAGE_SIZE = 100
 
