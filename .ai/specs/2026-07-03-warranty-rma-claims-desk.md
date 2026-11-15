@@ -508,7 +508,7 @@ Number allocation, explicit renumbering, and line undo validation serialize on t
 ## Changelog
 
 ### 2026-11-15 — Portal customer-role enforcement (#9110)
-- Add portal claim view/manage features with buyer/viewer defaults and live feature checks on all 15 portal endpoint methods plus page metadata.
+- Add portal claim view/manage features with buyer/viewer defaults, localized central permission labels, and live feature checks on all 15 portal endpoint methods plus page metadata.
 - Require order-view permission for order/line lookups and refuse evidence replacement/deletion after review begins.
 - Preserve the linked-auth helper contract, add endpoint/role regression coverage, and document the existing-deployment permission sync and pending human compatibility acknowledgment.
 

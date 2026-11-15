@@ -164,7 +164,7 @@ test.describe('TC-WC-025: warranty claim troubleshooting guides', () => {
 
       customerRoleId = (await createCustomerRoleFixture(request, adminToken, {
         name: `QA WC Troubleshooting Portal ${stamp}`,
-        features: [],
+        features: ['portal.warranty_claims.view'],
       })).id
       customerId = await createCustomerCompanyFixture(request, adminToken, `QA WC Troubleshooting Customer ${stamp}`)
       const customerUser = await createCustomerUserFixture(request, adminToken, {

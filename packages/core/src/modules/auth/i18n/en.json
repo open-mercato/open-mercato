@@ -279,6 +279,8 @@
   "auth.acl.features.phone_calls.view": "View phone calls",
   "auth.acl.features.planner.manage_availability": "Manage availability",
   "auth.acl.features.planner.view": "View schedules",
+  "auth.acl.features.portal.warranty_claims.manage": "Manage warranty claims in the portal",
+  "auth.acl.features.portal.warranty_claims.view": "View warranty claims in the portal",
   "auth.acl.features.progress.cancel": "Cancel progress jobs",
   "auth.acl.features.progress.create": "Create progress jobs",
   "auth.acl.features.progress.manage": "Manage all progress jobs",

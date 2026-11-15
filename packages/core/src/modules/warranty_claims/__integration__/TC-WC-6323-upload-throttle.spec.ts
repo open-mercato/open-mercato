@@ -3,8 +3,10 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   createCustomerCompanyFixture,
+  createCustomerRoleFixture,
   createCustomerUserFixture,
   deleteCustomerCompanyFixture,
+  deleteCustomerRoleFixture,
   deleteCustomerUserFixture,
   portalCookieHeaders,
   portalLogin,
@@ -17,10 +19,14 @@ test('TC-WC-6323: portal upload and replacement share a customer-scoped throttle
   const { tenantId } = getTokenContext(token)
   const companyId = await createCustomerCompanyFixture(request, token)
   const userIds: string[] = []
+  let roleId: string | null = null
   try {
-    const owner = await createCustomerUserFixture(request, token, { customerEntityId: companyId })
+    roleId = (await createCustomerRoleFixture(request, token, {
+      features: ['portal.warranty_claims.view', 'portal.warranty_claims.manage'],
+    })).id
+    const owner = await createCustomerUserFixture(request, token, { customerEntityId: companyId, roleIds: [roleId] })
     userIds.push(owner.id)
-    const peer = await createCustomerUserFixture(request, token, { customerEntityId: companyId })
+    const peer = await createCustomerUserFixture(request, token, { customerEntityId: companyId, roleIds: [roleId] })
     userIds.push(peer.id)
     const ownerSession = await portalLogin(request, { ...owner, tenantId })
     const peerSession = await portalLogin(request, { ...peer, tenantId })
@@ -48,6 +54,7 @@ test('TC-WC-6323: portal upload and replacement share a customer-scoped throttle
     expect(peerResponse.status()).toBe(400)
   } finally {
     for (const userId of userIds.reverse()) await deleteCustomerUserFixture(request, token, userId)
+    if (roleId) await deleteCustomerRoleFixture(request, token, roleId)
     await deleteCustomerCompanyFixture(request, token, companyId)
   }
 })
