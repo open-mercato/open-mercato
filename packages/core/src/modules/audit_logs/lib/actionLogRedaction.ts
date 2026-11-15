@@ -45,12 +45,19 @@ export type ActionLogRedactionProvider = {
     em: EntityManager,
     scope: { tenantId: string; organizationId: string | null },
     viewerUserId: string | null,
-    // The entries about to be redacted, reduced to the two generic fields a
+    // The entries about to be redacted, reduced to the generic fields a
     // provider may need to batch-load live state (e.g. the CURRENT authority
-    // of a resource a stored snapshot only describes historically) — kept
-    // generic (no `ActionLog` import) so a provider never has to depend on
-    // this module's entity shape.
-    entries: ReadonlyArray<{ resourceKind?: string | null; resourceId?: string | null }>,
+    // of a resource — or of a resource embedded in a snapshot/diff — that a
+    // stored snapshot only describes historically) — kept generic (no
+    // `ActionLog` import) so a provider never has to depend on this module's
+    // entity shape.
+    entries: ReadonlyArray<{
+      resourceKind?: string | null
+      resourceId?: string | null
+      snapshotBefore?: unknown
+      snapshotAfter?: unknown
+      changesJson?: unknown
+    }>,
   ) => Promise<ActionLogRedactionContext>
   redactEntry: (entry: ActionLog, ctx: ActionLogRedactionContext) => ActionLog
 }

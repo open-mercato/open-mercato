@@ -639,16 +639,60 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
     expect(interactions[0].body).toBe('Secret body')
   })
 
-  it('keeps the embedded email visible when a conversation share covers it', () => {
+  it('keeps the embedded email visible when a conversation share covers its CURRENT (live) parent', () => {
     const entry = personDeleteEntry([
-      { interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
+      { id: 'embedded-interaction-1', interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
     ])
     const redacted = redactCustomerAuditEntry(
       entry,
-      ctx({ sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }] }),
+      ctx({
+        sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
+        liveInteractionsById: new Map([
+          ['embedded-interaction-1', { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
+        ]),
+      }),
     )
     const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].title).toBe('Secret')
+  })
+
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909481...) —
+  // an interaction embedded in a Person/Company snapshot can move to a
+  // DIFFERENT parent after this audit entry was recorded. A grant for the
+  // historical (snapshot) parent must not authorize it; only a grant for the
+  // interaction's CURRENT (live) parent may.
+  it('does not widen access using a grant for the historical parent once the embedded interaction has moved', () => {
+    const MOVED_TO = 'person-2'
+    const entry = personDeleteEntry([
+      { id: 'embedded-interaction-1', interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
+    ])
+    const redacted = redactCustomerAuditEntry(
+      entry,
+      ctx({
+        // Grant covers the OLD parent (PERSON_ID) only.
+        sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
+        liveInteractionsById: new Map([
+          ['embedded-interaction-1', { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: MOVED_TO }],
+        ]),
+      }),
+    )
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+    expect(interactions[0].title).toBeNull()
+  })
+
+  it('fails closed (no widening) when the embedded interaction has no live record to resolve its current parent', () => {
+    const entry = personDeleteEntry([
+      { id: 'embedded-interaction-deleted', interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
+    ])
+    const redacted = redactCustomerAuditEntry(
+      entry,
+      ctx({
+        sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
+        liveInteractionsById: new Map(),
+      }),
+    )
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+    expect(interactions[0].title).toBeNull()
   })
 
   it('leaves non-email embedded rows (calls, meetings) untouched', () => {

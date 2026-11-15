@@ -16,6 +16,8 @@ const logger = createLogger('customers')
 const REDACTED_INTERACTION_FIELDS: readonly string[] = ['title', 'body', 'participants', 'linkedEntities', 'custom']
 
 const INTERACTION_RESOURCE_KIND = 'customers.interaction'
+const PERSON_RESOURCE_KIND = 'customers.person'
+const COMPANY_RESOURCE_KIND = 'customers.company'
 
 export type CustomerAuditRedactionContext = {
   viewerUserId: string | null
@@ -33,14 +35,73 @@ export type CustomerAuditRedactionContext = {
 export type RedactableAuditEntryRef = {
   resourceKind?: string | null
   resourceId?: string | null
+  snapshotBefore?: unknown
+  snapshotAfter?: unknown
+  changesJson?: unknown
+}
+
+/**
+ * The embedded interaction ids a `customers.person`/`customers.company`
+ * snapshot's `interactions[]` array names (delete snapshots, and the
+ * `interactions` key of a normal update's `before`/`after` payload alike).
+ */
+function collectEmbeddedInteractionIds(snapshot: unknown): string[] {
+  if (!snapshot || typeof snapshot !== 'object') return []
+  const interactions = (snapshot as Record<string, unknown>).interactions
+  if (!Array.isArray(interactions)) return []
+  const ids: string[] = []
+  for (const entry of interactions) {
+    if (!entry || typeof entry !== 'object') continue
+    const id = (entry as Record<string, unknown>).id
+    if (typeof id === 'string' && id) ids.push(id)
+  }
+  return ids
+}
+
+/**
+ * The same ids, but read from `changesJson.interactions.{from,to}` — the
+ * wholesale array diff `redactInteractionsChange` also has to redact.
+ */
+function collectInteractionIdsFromChanges(changes: unknown): string[] {
+  if (!changes || typeof changes !== 'object') return []
+  const interactionsChange = (changes as Record<string, unknown>).interactions
+  if (!interactionsChange || typeof interactionsChange !== 'object') return []
+  const change = interactionsChange as { from?: unknown; to?: unknown }
+  return [...collectEmbeddedInteractionIds({ interactions: change.from }), ...collectEmbeddedInteractionIds({ interactions: change.to })]
+}
+
+/**
+ * Every interaction id a redaction pass over `entries` will need live
+ * authority for: the `resourceId` of a standalone `customers.interaction`
+ * entry, or the embedded interaction ids a `customers.person`/
+ * `customers.company` entry's snapshots and diff name.
+ */
+function collectInteractionIds(entries: ReadonlyArray<RedactableAuditEntryRef>): string[] {
+  const ids: string[] = []
+  for (const entry of entries) {
+    if (entry.resourceKind === INTERACTION_RESOURCE_KIND) {
+      if (typeof entry.resourceId === 'string' && entry.resourceId) ids.push(entry.resourceId)
+      continue
+    }
+    if (entry.resourceKind === PERSON_RESOURCE_KIND || entry.resourceKind === COMPANY_RESOURCE_KIND) {
+      ids.push(
+        ...collectEmbeddedInteractionIds(entry.snapshotBefore),
+        ...collectEmbeddedInteractionIds(entry.snapshotAfter),
+        ...collectInteractionIdsFromChanges(entry.changesJson),
+      )
+    }
+  }
+  return ids
 }
 
 /**
  * Resolves the widening grants, plus the CURRENT live authority of every
- * `customers.interaction` entry about to be redacted, for one audit-log read.
- * Fails CLOSED on any error: an empty context (and an empty live-authority
- * map) yields the strict owner-only, "no live record" redaction, never a
- * leak, so a DB hiccup here can only over-redact.
+ * interaction id (standalone `customers.interaction` entries AND the
+ * embedded interactions a `customers.person`/`customers.company` entry
+ * names) about to be redacted, for one audit-log read. Fails CLOSED on any
+ * error: an empty context (and an empty live-authority map) yields the
+ * strict owner-only, "no live record" redaction, never a leak, so a DB
+ * hiccup here can only over-redact.
  */
 export async function loadCustomerAuditRedactionContext(
   em: EntityManager,
@@ -49,10 +110,7 @@ export async function loadCustomerAuditRedactionContext(
   entries: ReadonlyArray<RedactableAuditEntryRef> = [],
 ): Promise<CustomerAuditRedactionContext> {
   try {
-    const interactionIds = entries
-      .filter((entry) => entry.resourceKind === INTERACTION_RESOURCE_KIND)
-      .map((entry) => entry.resourceId)
-      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    const interactionIds = collectInteractionIds(entries)
     const [sharedConversations, sharedChannelIds, liveInteractionsById] = await Promise.all([
       listGrantsForViewer(em, scope, viewerUserId),
       listSharedChannelIds(em, scope, viewerUserId),
@@ -229,12 +287,19 @@ function redactChanges(changes: unknown): unknown {
  * `channelId`, ...) from `interactions[]` before storage — see
  * `commands/interactionRestoreDetails.ts:omitInteractionRestoreDetails` — so the
  * stored audit row cannot tell whether an embedded email was shared. Fail
- * closed: redact every email row whose author is not the viewer and that has
- * no matching conversation-share grant, since "unknown" must not mean "visible".
+ * closed: redact every email row whose author is not the viewer and whose
+ * CURRENT (live) parent has no matching conversation-share grant, since
+ * "unknown" must not mean "visible".
+ *
+ * Each entry resolves its OWN live authority by its `id` — never the
+ * snapshot's historical container parent — because an interaction can move
+ * to a different Person/Company after this audit entry was recorded; a grant
+ * for the OLD parent must not authorize a representation that now belongs to
+ * a different, unshared one. See `resolveInteractionAuthority` for the same
+ * rule on standalone `customers.interaction` entries.
  */
 function redactEmbeddedInteractionEntries(
   interactions: unknown[],
-  personEntityId: string | null,
   ctx: CustomerAuditRedactionContext,
 ): unknown[] {
   return interactions.map((entry) => {
@@ -243,11 +308,13 @@ function redactEmbeddedInteractionEntries(
     if (interaction.interactionType !== 'email') return entry
     const authorUserId = typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null
     if (ctx.viewerUserId && authorUserId && authorUserId === ctx.viewerUserId) return entry
+    const interactionId = typeof interaction.id === 'string' ? interaction.id : null
+    const currentPersonEntityId = interactionId ? ctx.liveInteractionsById.get(interactionId)?.entityId ?? null : null
     const shared = Boolean(
-      personEntityId &&
+      currentPersonEntityId &&
         authorUserId &&
         ctx.sharedConversations.some(
-          (grant) => grant.personEntityId === personEntityId && grant.ownerUserId === authorUserId,
+          (grant) => grant.personEntityId === currentPersonEntityId && grant.ownerUserId === authorUserId,
         ),
     )
     if (shared) return entry
@@ -255,16 +322,12 @@ function redactEmbeddedInteractionEntries(
   })
 }
 
-function redactEmbeddedInteractions(
-  snapshot: unknown,
-  personEntityId: string | null,
-  ctx: CustomerAuditRedactionContext,
-): unknown {
+function redactEmbeddedInteractions(snapshot: unknown, ctx: CustomerAuditRedactionContext): unknown {
   if (!snapshot || typeof snapshot !== 'object') return snapshot
   const record = snapshot as Record<string, unknown>
   const interactions = record.interactions
   if (!Array.isArray(interactions)) return snapshot
-  return { ...record, interactions: redactEmbeddedInteractionEntries(interactions, personEntityId, ctx) }
+  return { ...record, interactions: redactEmbeddedInteractionEntries(interactions, ctx) }
 }
 
 /**
@@ -275,12 +338,7 @@ function redactEmbeddedInteractions(
  * though {@link redactEmbeddedInteractions} already hid them on the snapshots
  * above. Apply the same per-entry rule to both sides of that diff.
  */
-function redactInteractionsChange(
-  changes: unknown,
-  beforePersonEntityId: string | null,
-  afterPersonEntityId: string | null,
-  ctx: CustomerAuditRedactionContext,
-): unknown {
+function redactInteractionsChange(changes: unknown, ctx: CustomerAuditRedactionContext): unknown {
   if (!changes || typeof changes !== 'object') return changes
   const record = { ...(changes as Record<string, unknown>) }
   const interactionsChange = record.interactions
@@ -289,12 +347,8 @@ function redactInteractionsChange(
   if (!Array.isArray(change.from) && !Array.isArray(change.to)) return record
   record.interactions = {
     ...change,
-    from: Array.isArray(change.from)
-      ? redactEmbeddedInteractionEntries(change.from, beforePersonEntityId, ctx)
-      : change.from,
-    to: Array.isArray(change.to)
-      ? redactEmbeddedInteractionEntries(change.to, afterPersonEntityId, ctx)
-      : change.to,
+    from: Array.isArray(change.from) ? redactEmbeddedInteractionEntries(change.from, ctx) : change.from,
+    to: Array.isArray(change.to) ? redactEmbeddedInteractionEntries(change.to, ctx) : change.to,
   }
   return record
 }
@@ -323,7 +377,7 @@ export function redactCustomerAuditEntry<T extends RedactableAuditEntry>(
   entry: T,
   ctx: CustomerAuditRedactionContext,
 ): T {
-  if (entry.resourceKind === 'customers.interaction') {
+  if (entry.resourceKind === INTERACTION_RESOURCE_KIND) {
     const fallbackInteractionId = typeof entry.resourceId === 'string' && entry.resourceId ? entry.resourceId : null
     // Apply the same before/after privacy decision to the diff: a hidden email on
     // either side of the change must not leak its content through `changesJson`,
@@ -338,16 +392,12 @@ export function redactCustomerAuditEntry<T extends RedactableAuditEntry>(
       changesJson: hidden ? redactChanges(entry.changesJson) : entry.changesJson,
     }
   }
-  if (entry.resourceKind === 'customers.person' || entry.resourceKind === 'customers.company') {
-    const beforeEntity = entry.snapshotBefore as { entity?: { id?: unknown } } | undefined
-    const afterEntity = entry.snapshotAfter as { entity?: { id?: unknown } } | undefined
-    const beforePersonEntityId = typeof beforeEntity?.entity?.id === 'string' ? beforeEntity.entity.id : null
-    const afterPersonEntityId = typeof afterEntity?.entity?.id === 'string' ? afterEntity.entity.id : null
+  if (entry.resourceKind === PERSON_RESOURCE_KIND || entry.resourceKind === COMPANY_RESOURCE_KIND) {
     return {
       ...entry,
-      snapshotBefore: redactEmbeddedInteractions(entry.snapshotBefore, beforePersonEntityId, ctx),
-      snapshotAfter: redactEmbeddedInteractions(entry.snapshotAfter, afterPersonEntityId, ctx),
-      changesJson: redactInteractionsChange(entry.changesJson, beforePersonEntityId, afterPersonEntityId, ctx),
+      snapshotBefore: redactEmbeddedInteractions(entry.snapshotBefore, ctx),
+      snapshotAfter: redactEmbeddedInteractions(entry.snapshotAfter, ctx),
+      changesJson: redactInteractionsChange(entry.changesJson, ctx),
     }
   }
   return entry
