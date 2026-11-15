@@ -237,9 +237,9 @@ const listTools: ModuleCli = {
     // Sort modules alphabetically
     const sortedModules = Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
-    for (const module of sortedModules) {
-      const tools = byModule.get(module)!
-      console.log(`${module} (${tools.length} tools):`)
+    for (const moduleName of sortedModules) {
+      const tools = byModule.get(moduleName)!
+      console.log(`${moduleName} (${tools.length} tools):`)
 
       for (const name of tools.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
         const tool = registry.getTool(name)
@@ -266,7 +266,7 @@ const entityGraph: ModuleCli = {
     const args = parseArgs(rest)
     const format = String(args.format ?? 'triples') as 'json' | 'triples'
     const entity = args.entity ? String(args.entity) : undefined
-    const module = args.module ? String(args.module) : undefined
+    const moduleName = args.module ? String(args.module) : undefined
 
     await ensureBootstrap()
 
@@ -288,10 +288,10 @@ const entityGraph: ModuleCli = {
       console.log(`[Entity Graph] Filtered by entity: ${entity}`)
     }
 
-    if (module) {
+    if (moduleName) {
       const filteredGraph = { ...graph, edges }
-      edges = filterGraphByModule(filteredGraph, module)
-      console.log(`[Entity Graph] Filtered by module: ${module}`)
+      edges = filterGraphByModule(filteredGraph, moduleName)
+      console.log(`[Entity Graph] Filtered by module: ${moduleName}`)
     }
 
     const filteredGraph = { ...graph, edges }
