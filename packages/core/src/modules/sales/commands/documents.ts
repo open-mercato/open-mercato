@@ -3399,6 +3399,7 @@ function convertLineCalculationToEntityInput(
             null,
             exactAmountString(line.unitPriceGrossExact, line.unitPriceGross),
             line.taxRate,
+            lineResult.amountDecimalPlaces,
           )
         : deriveUnitAmount(lineResult.netAmountExact, lineResult.netAmount, line.quantity, lineResult.amountDecimalPlaces)),
     unitPriceGross:

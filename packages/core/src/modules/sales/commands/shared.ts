@@ -176,13 +176,14 @@ export function deriveExactLineNetFromGross(
   net: number | string | null | undefined,
   gross: number | string | null | undefined,
   taxRate: number | string | null | undefined,
+  amountDecimalPlaces?: number,
 ): string {
   const netValue = toDecimal(parseLineAmount(net))
   const grossText = parseLineAmount(gross)
   const grossValue = toDecimal(grossText)
   if (grossValue.gt(0) && netValue.lte(0)) {
     const rate = toDecimal(parseLineAmount(taxRate))
-    const decimalPlaces = Math.max(LINE_AMOUNT_SCALE, countDecimalPlaces(grossText))
+    const decimalPlaces = Math.max(amountDecimalPlaces ?? LINE_AMOUNT_SCALE, countDecimalPlaces(grossText))
     const derived = rate.gt(0)
       ? divideDecimals(grossValue, divideDecimals(rate, 100, FX_DECIMAL_PLACES).plus(1), FX_DECIMAL_PLACES)
       : grossValue

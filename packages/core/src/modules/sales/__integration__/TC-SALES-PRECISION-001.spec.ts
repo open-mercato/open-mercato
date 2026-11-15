@@ -137,4 +137,63 @@ test.describe('TC-SALES-PRECISION-001: 18-decimal currency order totals', () => 
       await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId)
     }
   })
+
+  test('a gross-only line keeps its 18-decimal net unit price through a quantity update', async ({ request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    let currencyId: string | null = null
+    let orderId: string | null = null
+
+    const readLine = async (): Promise<JsonRecord> => {
+      const response = await apiRequest(
+        request,
+        'GET',
+        `/api/sales/order-lines?orderId=${encodeURIComponent(orderId as string)}&pageSize=10`,
+        { token },
+      )
+      expect(response.status()).toBe(200)
+      const items = ((await readJson(response)).items ?? []) as JsonRecord[]
+      expect(items).toHaveLength(1)
+      return items[0]
+    }
+    const amount = (line: JsonRecord, snake: string, camel: string) => String(line[snake] ?? line[camel])
+
+    try {
+      const currency = await createRandomCurrencyFixture(request, token, {
+        name: 'QA TC-SALES-PRECISION-001 gross',
+        decimalPlaces: 18,
+      })
+      currencyId = currency.id
+
+      const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token,
+        data: {
+          currencyCode: currency.code,
+          customerReference: `PRECISION-GROSS-${Date.now()}`,
+          lines: [
+            { currencyCode: currency.code, quantity: 1, name: 'QA gross-only line', unitPriceGross: '1', taxRate: 23 },
+          ],
+        },
+      })
+      expect(orderResponse.status(), 'POST /api/sales/orders should be 201').toBe(201)
+      orderId = (await readJson(orderResponse)).id as string
+
+      const created = await readLine()
+      expect(amount(created, 'unit_price_net', 'unitPriceNet')).toBe('0.813008130081300813')
+      expect(amount(created, 'total_gross_amount', 'totalGrossAmount')).toBe('1')
+
+      const update = await apiRequest(request, 'PUT', '/api/sales/order-lines', {
+        token,
+        data: { id: created.id, orderId, quantity: 2, currencyCode: currency.code },
+      })
+      expect(update.ok(), `PUT /api/sales/order-lines should succeed: ${update.status()}`).toBeTruthy()
+
+      const updated = await readLine()
+      expect(amount(updated, 'unit_price_net', 'unitPriceNet')).toBe('0.813008130081300813')
+      expect(amount(updated, 'total_gross_amount', 'totalGrossAmount')).toBe('2')
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+      await deleteCurrenciesEntityIfExists(request, token, '/api/currencies/currencies', currencyId)
+    }
+  })
 })
