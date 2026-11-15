@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { testLinearRegex } from '@open-mercato/shared/lib/regex/linear'
 import type { Json, ScorerVerdict } from '../types'
 
 /** Every threshold-bearing scorer states its direction explicitly — never per-type folklore. */
@@ -204,5 +205,6 @@ export function matchesNameOrPattern(candidate: string, name?: string, pattern?:
   // Glob-style: `*` matches any run of characters. Anchored so `search*` does not
   // accidentally match `research_tool`.
   const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
-  return new RegExp(`^${escaped}$`).test(candidate)
+  const result = testLinearRegex(`^${escaped}$`, candidate)
+  return result.ok && result.matched
 }
