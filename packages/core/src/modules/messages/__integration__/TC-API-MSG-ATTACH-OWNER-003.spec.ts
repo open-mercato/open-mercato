@@ -15,6 +15,7 @@ export const integrationMeta = { dependsOnModules: ['documents'] }
 type MessageAttachments = { attachments?: Array<{ id: string }> }
 type Contender = { token: string; draft: string }
 
+const ATTACHMENT_ACCESS_DENIED = 'You cannot attach one or more of these files.'
 const MESSAGE_FEATURES = ['messages.view', 'messages.compose', 'messages.attach_files']
 
 async function draftFor(
@@ -76,6 +77,7 @@ test.describe('TC-API-MSG-ATTACH-OWNER-003: concurrent message links of a protec
         const [editorLink, deniedLink] = await Promise.all([link(editor, file), link(denied, file)])
         expect(editorLink.status, 'the editor links the file').toBe(200)
         expect(deniedLink.status, 'the user who cannot edit the document is refused').toBe(403)
+        expect(deniedLink.body?.error, 'the refusal names the attachment owner policy').toBe(ATTACHMENT_ACCESS_DENIED)
         expect(await readAttachmentRowInDb(file), 'the file moved only onto the editor draft').toEqual(movedTo(before, editor.draft))
         expect(await linkedIds(editor)).toEqual([file])
         expect(await linkedIds(denied)).toEqual([])
@@ -83,6 +85,7 @@ test.describe('TC-API-MSG-ATTACH-OWNER-003: concurrent message links of a protec
         const [editorRetry, deniedRetry] = await Promise.all([link(editor, file), link(denied, file)])
         expect(editorRetry.status, 'relinking an already linked file is a no-op').toBe(200)
         expect(deniedRetry.status, 'the refusal repeats').toBe(403)
+        expect(deniedRetry.body?.error, 'the refusal names the attachment owner policy').toBe(ATTACHMENT_ACCESS_DENIED)
         expect(await readAttachmentRowInDb(file)).toEqual(movedTo(before, editor.draft))
         expect(await linkedIds(editor)).toEqual([file])
         expect(await linkedIds(denied)).toEqual([])

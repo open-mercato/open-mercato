@@ -13,6 +13,7 @@ export const integrationMeta = { dependsOnModules: ['documents'] }
 
 type MessageAttachments = { attachments?: Array<{ id: string }> }
 
+const ATTACHMENT_ACCESS_DENIED = 'You cannot attach one or more of these files.'
 const MESSAGE_FEATURES = ['messages.view', 'messages.compose', 'messages.attach_files']
 
 /**
@@ -120,6 +121,7 @@ test.describe('TC-API-MSG-ATTACH-OWNER-002: message linking across scopes and af
           attachmentIds: [keptFile],
         })
         expect(denied.status, 'the revoked editor cannot link the next file').toBe(403)
+        expect(denied.body?.error, 'the refusal names the attachment owner policy').toBe(ATTACHMENT_ACCESS_DENIED)
         expect(await readAttachmentRowInDb(keptFile), 'the refused file stays on the document unchanged').toEqual(keptBefore)
         const draftAttachments = await ownerPolicyRequest<MessageAttachments>('GET', `/api/messages/${draft}/attachments`, recipientToken)
         expect(draftAttachments.body?.attachments?.map((item) => item.id)).toEqual([linkedFile])

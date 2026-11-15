@@ -14,6 +14,7 @@ export const integrationMeta = { dependsOnModules: ['documents'] }
 
 type MessageAttachments = { attachments?: Array<{ id: string }> }
 
+const ATTACHMENT_ACCESS_DENIED = 'You cannot attach one or more of these files.'
 const MESSAGE_FEATURES = ['messages.view', 'messages.compose', 'messages.attach_files']
 
 async function countRepliesInDb(parentMessageId: string): Promise<number> {
@@ -55,7 +56,7 @@ test.describe('TC-API-MSG-ATTACH-OWNER-004: compose, reply and draft update hono
 
       try {
         const subject = `${fixture.prefix}-compose-refused`
-        const denied = await ownerPolicyRequest<{ id?: string }>('POST', '/api/messages', unsharedToken, {
+        const denied = await ownerPolicyRequest<{ id?: string; error?: string }>('POST', '/api/messages', unsharedToken, {
           recipients: [{ userId: fixture.recipient.id, type: 'to' }],
           subject,
           body: 'Message with a protected file',
@@ -64,6 +65,7 @@ test.describe('TC-API-MSG-ATTACH-OWNER-004: compose, reply and draft update hono
         })
         if (denied.body?.id) messages.push({ id: denied.body.id, token: unsharedToken })
         expect(denied.status, 'composing with a file the caller cannot open is refused').toBe(403)
+        expect(denied.body?.error, 'the refusal names the attachment owner policy').toBe(ATTACHMENT_ACCESS_DENIED)
         const created = await withClient(async (client) => (
           await client.query<{ count: string }>('select count(*)::text as count from messages where sender_user_id = $1', [fixture.unshared.id])
         ).rows[0]?.count)
@@ -127,6 +129,7 @@ test.describe('TC-API-MSG-ATTACH-OWNER-004: compose, reply and draft update hono
           attachmentRecordId: refusedRecordId,
         })
         expect(denied.status, 'a reply linking a library record with a protected file is refused').toBe(403)
+        expect(denied.body?.error, 'the refusal names the attachment owner policy').toBe(ATTACHMENT_ACCESS_DENIED)
         expect(await countRepliesInDb(original), 'the refused reply is not created').toBe(0)
         expect(await readAttachmentRowInDb(refusedFile), 'the refused file stays in the library unchanged').toEqual(refusedBefore)
 
@@ -178,6 +181,7 @@ test.describe('TC-API-MSG-ATTACH-OWNER-004: compose, reply and draft update hono
           attachmentIds: [refusedFile],
         })
         expect(denied.status, 'a reply carrying a file the caller cannot open is refused').toBe(403)
+        expect(denied.body?.error, 'the refusal names the attachment owner policy').toBe(ATTACHMENT_ACCESS_DENIED)
         expect(await countRepliesInDb(original), 'the refused reply is not created').toBe(0)
         expect(await readAttachmentRowInDb(refusedFile), 'the refused file stays on the document unchanged').toEqual(refusedBefore)
 
@@ -233,6 +237,7 @@ test.describe('TC-API-MSG-ATTACH-OWNER-004: compose, reply and draft update hono
           attachmentIds: [refusedFile],
         })
         expect(denied.status, 'a draft update carrying a file the caller cannot open is refused').toBe(403)
+        expect(denied.body?.error, 'the refusal names the attachment owner policy').toBe(ATTACHMENT_ACCESS_DENIED)
         const deniedDetail = await ownerPolicyRequest<{ subject?: string }>('GET', `/api/messages/${deniedDraft}`, unsharedToken)
         expect(deniedDetail.body?.subject, 'the refused update leaves the subject as it was').toBe(`${fixture.prefix}-draft-update-denied`)
         const deniedAttachments = await ownerPolicyRequest<MessageAttachments>('GET', `/api/messages/${deniedDraft}/attachments`, unsharedToken)

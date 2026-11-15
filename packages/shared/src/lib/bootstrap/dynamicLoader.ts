@@ -577,7 +577,7 @@ function appValueRegistrar(key: string, value: unknown): BootstrapData['diRegist
  * Load a generated registry that older apps may not have generated yet.
  *
  * An absent source file is the supported compatibility case and resolves to
- * `fallback` quietly. Any other failure — a compile error, a broken import, a
+ * `fallback` with a debug log. Any other failure — a compile error, a broken import, a
  * runtime throw at module scope — still resolves to `fallback` so bootstrap
  * keeps working, but is reported at error level: a registry that silently
  * degrades to nothing is exactly how command interceptors stopped applying in
