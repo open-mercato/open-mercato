@@ -12,6 +12,17 @@ type MessageScope = {
   userId?: string | null
 }
 
+/**
+ * `includePublicThreadMessages` widens the participant filter to every
+ * explicitly public message in the slice. Set it only for a caller who reached
+ * the thread through channel-thread access (#6355): on a channel conversation
+ * the inbound messages have no platform participant, so the participant filter
+ * alone would forward an empty body.
+ */
+type ForwardThreadSliceOptions = {
+  includePublicThreadMessages?: boolean
+}
+
 type ForwardMessageBlock = {
   id: string
   senderUserId: string
@@ -56,6 +67,7 @@ export async function buildForwardThreadSlice(
   em: EntityManager,
   scope: MessageScope,
   selectedMessage: Message,
+  options: ForwardThreadSliceOptions = {},
 ): Promise<ForwardMessageBlock[]> {
   const decryptedThreadMessages = await findWithDecryption(
     em,
@@ -121,6 +133,8 @@ export async function buildForwardThreadSlice(
   }
 
   const orderedThreadMessages = Array.from(messagesById.values()).sort((a, b) => {
+    if (a.sentAt && !b.sentAt) return -1
+    if (!a.sentAt && b.sentAt) return 1
     const aTime = a.sentAt?.getTime() ?? 0
     const bTime = b.sentAt?.getTime() ?? 0
     if (aTime !== bTime) return aTime - bTime
@@ -146,7 +160,9 @@ export async function buildForwardThreadSlice(
       : []
     const recipientMessageIds = new Set(recipientRows.map((row) => row.messageId))
     const visibleSlice = threadSlice.filter(
-      (item) => item.senderUserId === scope.userId || recipientMessageIds.has(item.id),
+      (item) => item.senderUserId === scope.userId
+        || recipientMessageIds.has(item.id)
+        || (options.includePublicThreadMessages === true && item.visibility === 'public'),
     )
     return visibleSlice.map((item) => ({
       id: item.id,
@@ -216,7 +232,7 @@ export async function buildForwardPreviewFromThreadSlice(
     return [
       FORWARD_MARKER,
       `From: ${formatUserLabel(sender, item.senderUserId)}`,
-      `Date: ${formatDateLabel(item.sentAt ?? item.createdAt)}`,
+      `Date: ${formatDateLabel(item.sentAt)}`,
       `Subject: ${normalizeSubject(item.subject)}`,
       `To: ${toLabel}`,
       '',
@@ -236,8 +252,9 @@ export async function buildForwardPreview(
   em: EntityManager,
   scope: MessageScope,
   selectedMessage: Message,
+  options: ForwardThreadSliceOptions = {},
 ): Promise<{ subject: string; body: string }> {
-  const threadSlice = await buildForwardThreadSlice(em, scope, selectedMessage)
+  const threadSlice = await buildForwardThreadSlice(em, scope, selectedMessage, options)
   return buildForwardPreviewFromThreadSlice(em, scope, selectedMessage, threadSlice)
 }
 

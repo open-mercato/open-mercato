@@ -24,13 +24,26 @@ The server runs in one of two modes depending on how you intend to use it:
 | Alias for | `mercato ai_assistant mcp:dev` | `mercato ai_assistant mcp:serve-http` |
 | Use for | Claude Code / local testing | In-app web chat |
 | Port | **3001** (override with `MCP_DEV_PORT`) | — |
+| Bind address | **`127.0.0.1`** (loopback) — override with `MCP_DEV_HOST` | **`127.0.0.1`** (loopback) — override with `MCP_HTTP_HOST` env var or `--host` flag |
 | Endpoint | `http://localhost:3001/mcp` | — |
 | Health | `http://localhost:3001/health` | — |
 | Auth | A single API key, read **once** at startup | Two-tier: server key + per-user session tokens, checked per tool call |
 | Key source | `.mcp.json` → `mcpServers.open-mercato.headers.x-api-key` (no env fallback) | `MCP_SERVER_API_KEY` env var + session tokens |
 
+:::caution Loopback by default — think before widening it
+Both servers bind to `127.0.0.1` unless you explicitly override the host. The one exception is `yarn dev` on native Linux, which binds `0.0.0.0` so the OpenCode container can reach the host over the bridge IP (Docker Desktop keeps loopback); `MCP_HTTP_HOST` overrides either way. The dev server especially: it authenticates a single API key **once** at startup and reuses that same superadmin-equivalent context for every request afterward, with no per-request ACL re-check. Exposing either server beyond loopback (a LAN, a misconfigured firewall, a cloud security group) turns a leaked or brute-forced key into admin-equivalent access to tenant data. Only widen the bind address for a deployment topology that genuinely needs it (e.g. a Docker bridge address), and pair it with a firewall and a strong, rotated `MCP_SERVER_API_KEY`.
+:::
+
 :::note
 You do **not** need `MCP_SERVER_API_KEY` for `mcp:dev`. The `MCP_SERVER_API_KEY not set` message on the in-app AI Assistant **Settings page** is only a status badge for the production/web-chat path — it does **not** block Claude Code connecting via `mcp:dev`.
+:::
+
+:::note Managed MCP during `yarn dev`
+The root and standalone `yarn dev` launchers manage `mcp:serve-http` separately from the direct commands above. `MCP_PORT` is their preferred port: when another process already owns it, the launcher selects a free port and prints the resulting endpoint. That endpoint is propagated to the managed app and to a running OpenCode compose service. Explicit external `MCP_URL` and `OPENCODE_MCP_URL` values are never replaced.
+:::
+
+:::info Route modules outside Next.js
+Both servers run in plain Node, and a tool call imports the API route module behind it. Route modules say `from 'next/server'`, a bare subpath only a bundler resolves (`next` ships no `exports` map). The `mercato` CLI (and with it every `mercato ai_assistant` command) therefore installs a small resolve hook at startup that retries `next/<subpath>.js` when Node cannot resolve `next/<subpath>`. If you embed the operation runner in your own Node process instead of these commands, call `installNextSubpathResolveHook()` from `@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook` (also re-exported from `@open-mercato/ai-assistant/modules/ai_assistant/lib/next-subpath-resolve-hook`) before the first tool call, or tools backed by such routes fail with `Failed to load route module: Cannot find module '…/next/server'`.
 :::
 
 ### How ACL gates which tools appear
@@ -182,6 +195,8 @@ To reach **any** endpoint from MCP, use the two Code Mode meta-tools — `search
    ```
 
 `execute` runs in a `node:vm` sandbox: `fetch`, `require`, `process`, and `fs` are blocked, there is a 30-second timeout, and a maximum of 50 API calls per execution. Between `search` and `execute`, the entire documented API surface is reachable from MCP — via code, not via one-tool-per-route.
+
+Code Mode's `api.request({ method, path, query, body })` does not follow HTTP redirects, including redirects within the application. A redirect returns `{ success: false, statusCode: 307, error: "API redirect 307 blocked" }` with the actual 3xx status. Redirect headers and bodies are omitted so credentials, request bodies, and sensitive redirect URLs cannot reach another endpoint or the model. Call the intended documented API path directly; browser flows such as SSO login must run in the browser.
 
 :::note Tools vs agents
 

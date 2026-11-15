@@ -1,6 +1,8 @@
 import { createServer } from 'node:http'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parseEnv } from 'node:util'
 import spawn from 'cross-spawn'
 import {
@@ -11,6 +13,7 @@ import {
   noteCommandStart,
 } from './dev-log-files.mjs'
 import {
+  extractInitSummaryLines,
   isIgnorableFailureLine,
   isIgnorableTurboLine,
 } from './dev-orchestration-log-policy.mjs'
@@ -24,18 +27,63 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
-import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
+import { createEnvFileFromExample } from './dev-env-file.mjs'
+import { readAppEnvFileValues, resolveAppPortPreflight } from './dev-port-preflight.mjs'
+import {
+  ensureDevInotifyLimits,
+  resolveDevBundlerDecision,
+  resolveRequestedDevBundler,
+} from './dev-inotify-limits.mjs'
+import { DOCKER_PROBE_TIMEOUT_MS, classifyDockerProbe } from './dev-docker-availability.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
-import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
+import {
+  MCP_DEFAULT_PORT,
+  MCP_HEALTH_POLL_INTERVAL_MS,
+  MCP_HEALTH_TIMEOUT_MS,
+  MCP_MAX_FAST_CRASHES,
+  MCP_MAX_PORT_SELECTION_ATTEMPTS,
+  buildManagedMcpAppEnv,
+  buildMcpCliArgs,
+  createLazyMcpProxy,
+  deriveMcpHealthUrl,
+  isFastMcpCrash,
+  isManagedMcpReadiness,
+  isKeyRotationOutput,
+  looksLikeMcpPortCollision,
+  looksLikeMcpServerListening,
+  looksLikeMissingKeyOwner,
+  looksLikePermissionError,
+  looksLikeUninitializedDatabase,
+  nextMcpKeyRetryDelayMs,
+  nextMcpRestartDelayMs,
+  resolveDevMcpHost,
+  resolveMcpKeyFilePath,
+  resolveMcpPort,
+  selectAvailableMcpPort,
+  shouldRetryMcpProvisioning,
+  shouldStartMcp,
+  shouldStartMcpLazily,
+} from './dev-mcp.mjs'
+import { resolveMercatoInvocation, resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
-import { resolveSplashBindHost } from './dev-splash-shared.mjs'
+import { assertLocalSplashRequest, resolveSplashBindHost } from './dev-splash-shared.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
+import { DevRuntimeConfigError, resolveDevRuntimeConfig, resolveDevRuntimeMode } from './dev-runtime-config.mjs'
+import { createDevRuntimeSupervisor } from './dev-runtime-supervisor.mjs'
+import { selectRuntimeProbeBaseUrl } from './dev-runtime-probe.mjs'
+import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
+import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
+import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
 import {
-  resolveDevBaseUrl,
+  mergeDevUrlEnv,
+  resolveDevPublicAppBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
+import { assertEncryptionCompatible } from './dev-encryption-preflight.mjs'
+import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
@@ -43,6 +91,14 @@ import {
   isEnabledEnvFlag as isEnabledMemoryTraceFlag,
   resolveMemoryTraceIntervalMs,
 } from './dev-memory-sampler.mjs'
+
+function readAppDotEnv(appDir) {
+  try {
+    return parseEnv(fs.readFileSync(path.join(appDir, '.env'), 'utf8'))
+  } catch {
+    return {}
+  }
+}
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -199,6 +255,16 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// `--no-infra` (forwarded by `yarn setup --no-infra` and the starter) promises
+// zero Docker calls, so the OpenCode container refresh is skipped entirely.
+const noInfra = args.includes('--no-infra')
+const withMcp = shouldStartMcp({ args, env: process.env, appOnly })
+const mcpLazy = withMcp && shouldStartMcpLazily(process.env)
+let mcpPort = resolveMcpPort(process.env)
+const preferredMcpPort = mcpPort
+const mcpKeyFilePath = resolveMcpKeyFilePath(process.env, process.cwd())
+let mcpProxy = null
+let mcpChildPort = null
 // Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
 // translated into env vars and forwarded to the spawned package watcher, which
 // reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
@@ -211,10 +277,30 @@ const standaloneStageTotal = setupMode ? 5 : 4
 const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = resolveSplashBindHost(process.env)
+await settleAppPort()
+const appDotEnv = readAppDotEnv(isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd())
+const publicAppBaseUrl = resolveDevPublicAppBaseUrl(process.env, appDotEnv)
+const publicAppPort = publicAppBaseUrl.port ?? 3000
+const devRuntimeConfig = (() => {
+  try {
+    return resolveDevRuntimeConfig(process.env, { splashEnabled, publicPort: publicAppPort })
+  } catch (error) {
+    if (error instanceof DevRuntimeConfigError) {
+      console.error(`❌ ${error.message}`)
+      process.exit(1)
+    }
+    throw error
+  }
+})()
+// The gateway owns the public port only when explicitly opted in; `direct` mode
+// keeps the historical topology where Next.js binds it.
+const gatewayMode = devRuntimeConfig.mode === 'proxy'
+const expectedAppBaseUrl = publicAppBaseUrl.url
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 const monorepoPackageWatchScript = path.join(process.cwd(), 'scripts', 'watch-packages.mjs')
 const monorepoAppDir = path.join(process.cwd(), 'apps', 'mercato')
 const monorepoAppDevScript = path.join(monorepoAppDir, 'scripts', 'dev.mjs')
+const mcpCliCwd = isMonorepo ? monorepoAppDir : process.cwd()
 const warmupReadyFilePath = path.join(
   process.cwd(),
   isMonorepo ? 'apps/mercato/.mercato/dev-warmup-ready.json' : '.mercato/dev-warmup-ready.json',
@@ -275,10 +361,11 @@ async function finalizeDevProcess(exitCode) {
   try {
     await memoryTrace?.stop()
   } catch (error) {
-    console.warn(`⚠️ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn(`❗ Failed to write memory trace summary: ${error instanceof Error ? error.message : String(error)}`)
   }
   closeSplashServer()
   closeDevLogSession()
+  devSession?.release()
   process.exit(exitCode)
 }
 
@@ -286,6 +373,16 @@ const children = new Set()
 let shuttingDown = false
 let splashServer = null
 let splashUrl = null
+let devGateway = null
+let devUpstreamPort = null
+let managedAppChild = null
+let devSession = null
+let restartRequestedReason = null
+// Gateway mode answers a startup-stage failure by keeping the supervisor alive
+// instead of shutting down, so the startup pipeline has to stop itself. Without
+// this latch the remaining stages — and the app launch — would run against a
+// tree that already failed to build.
+let startupAborted = false
 let splashChildStateFile = null
 let splashLogoSvg = null
 let splashHtmlTemplate = null
@@ -319,10 +416,43 @@ const splashState = {
     : (setupMode ? 'Preparing project setup' : 'Preparing app runtime'),
   activities: [],
 }
+const devRuntime = createDevRuntimeSupervisor({
+  enabled: devRuntimeConfig.diagnosticsEnabled,
+  config: devRuntimeConfig,
+  stateDirectory: path.join(process.cwd(), '.mercato'),
+  publicUrl: expectedAppBaseUrl,
+  configuredPort: publicAppPort,
+  resolveBaseUrl: () => resolveRuntimeProbeBaseUrl(),
+  readChildState: () => readSplashChildState(),
+  // Drains recovery requests queued by the dev-only app route (in-app banner).
+  runAction: (action) => devRuntimeActions.run(action),
+})
+// Recovery actions map a fixed enum onto lifecycle steps the supervisor already
+// owns. They never build a command from request input.
+const devRuntimeActions = createDevRuntimeActionRunner({
+  state: devRuntime,
+  handlers: {
+    generate: async () => {
+      const exitCode = await runRecoveryCommand('Regenerating module artifacts', ['generate'])
+      if (exitCode === 0) restartManagedRuntime('generate action')
+      return exitCode
+    },
+    migrate: async () => {
+      const exitCode = await runRecoveryCommand('Applying database migrations', ['db:migrate'])
+      if (exitCode === 0) restartManagedRuntime('migrate action')
+      return exitCode
+    },
+    restart: async () => {
+      restartManagedRuntime('restart action')
+      return 0
+    },
+  },
+})
 const codingFlow = createDevSplashCodingFlow({
   env: process.env,
   platform: process.platform,
   launchDir: process.cwd(),
+  projectDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
   agenticSetupDir: !isMonorepo && fs.existsSync(path.join(process.cwd(), 'src', 'modules.ts')) ? process.cwd() : null,
 })
 const gitRepoFlow = createDevSplashGitRepoFlow({
@@ -340,7 +470,15 @@ function formatProgressLine(label, current, total, percent) {
 }
 
 function resolveExpectedAppBaseUrl() {
-  return resolveDevBaseUrl(process.env).url
+  return expectedAppBaseUrl
+}
+
+function resolveRuntimeProbeBaseUrl() {
+  return selectRuntimeProbeBaseUrl({
+    upstreamPort: gatewayMode ? devUpstreamPort : null,
+    runtimeUrl: readSplashChildState()?.readyUrl,
+    configuredUrl: resolveExpectedAppBaseUrl(),
+  })
 }
 
 function resolveExpectedBackendUrl() {
@@ -361,12 +499,31 @@ function printDevLogLocation() {
 }
 
 function ensureDevFileWatchLimits() {
+  const requestedBundler = resolveRequestedDevBundler()
+  const requestedDecision = resolveDevBundlerDecision({ requestedBundler })
+  if (!requestedDecision.shouldCheckInotify) {
+    console.log('💡 Using Next.js Webpack dev server; Linux inotify limits are not required')
+    return true
+  }
+
   const result = ensureDevInotifyLimits()
   if (result.fixed) {
     console.log('🔧 Raised Linux inotify file-watch limits for Turbopack')
     return true
   }
   if (result.ok) {
+    return true
+  }
+
+  const decision = resolveDevBundlerDecision({ requestedBundler, inotifyResult: result })
+  if (decision.fallback) {
+    process.env.OM_DEV_BUNDLER = 'webpack'
+    console.warn('❗ Linux inotify limits could not be raised; continuing with Next.js Webpack')
+    console.warn(`   Current values: ${JSON.stringify(result.current)}`)
+    console.warn('   To restore Turbopack, run `yarn dev:fix-wsl-watchers` or apply:')
+    for (const command of result.manualCommands ?? []) {
+      console.warn(`     ${command}`)
+    }
     return true
   }
 
@@ -391,7 +548,8 @@ function spawnCommand(command, commandArgs, options = {}) {
   const teeRequested = options.mirrorOutput === true
   const teeActive = teeRequested && !devLogTeeDisabled
   const logFile = devLogTeeDisabled ? null : (options.logFile ?? null)
-  const needsLoggedPipe = teeActive || logFile != null
+  const captureRequested = typeof options.onLine === 'function'
+  const needsLoggedPipe = teeActive || logFile != null || captureRequested
 
   let stdio
   if (needsLoggedPipe) {
@@ -426,9 +584,17 @@ function spawnCommand(command, commandArgs, options = {}) {
       : undefined)
   } else if (teeActive) {
     attachLoggedProcessStreams(child, null, { stdout: process.stdout, stderr: process.stderr })
+  } else if (teeRequested && captureRequested) {
+    attachLoggedProcessStreams(child, null, { stdout: process.stdout, stderr: process.stderr })
+  }
+
+  if (captureRequested && child.stdout && child.stderr) {
+    connectLineStream(child.stdout, options.onLine)
+    connectLineStream(child.stderr, options.onLine)
   }
 
   children.add(child)
+  devSession?.registerChild(child, options.sessionRole ?? label)
 
   child.on('close', (code, signal) => {
     children.delete(child)
@@ -439,6 +605,7 @@ function spawnCommand(command, commandArgs, options = {}) {
 
   child.on('error', (error) => {
     console.error(error)
+    if (options.nonFatal) return
     shutdown(1)
   })
 
@@ -570,9 +737,12 @@ function buildSplashChildEnv(options = {}) {
         OM_DEV_LOG_ANNOUNCED: '1',
       }
 
+  Object.assign(childEnv, devSession?.childEnv ?? {})
+
   if (!splashChildStateFile) {
     const env = {
       ...childEnv,
+      ...devRuntime.childEnv(),
       OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent',
     }
     return Object.keys(env).length > 0 ? env : undefined
@@ -580,6 +750,9 @@ function buildSplashChildEnv(options = {}) {
 
   return {
     ...childEnv,
+    ...devRuntime.childEnv(),
+    // Lets the in-app banner link "View logs" back to the standalone splash.
+    ...(splashUrl ? { OM_DEV_RUNTIME_SPLASH_URL: splashUrl } : {}),
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
     OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath,
     OM_DEV_SPLASH_MODE: splashMode,
@@ -654,7 +827,7 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
       || isEnabledEnvFlag(lazyWorkersRaw)
     if (lazyWorkersCanRun && !localDevLazyWorkerModeDefaultLogged) {
       localDevLazyWorkerModeDefaultLogged = true
-      console.warn('⚠️ OM_AUTO_SPAWN_WORKERS_LAZY_MODE is not set; defaulting to "shared" for local dev.')
+      console.warn('❗ OM_AUTO_SPAWN_WORKERS_LAZY_MODE is not set; defaulting to "shared" for local dev.')
     }
   }
   if (
@@ -672,28 +845,46 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
   return env
 }
 
+function buildMcpAppEnv() {
+  return buildManagedMcpAppEnv({
+    enabled: withMcp,
+    port: mcpPort,
+    keyFilePath: mcpKeyFilePath,
+    env: process.env,
+  })
+}
+
 function buildAppDevEnv(options = {}) {
   const env = applyLocalDevBackgroundServiceDefaults({
     ...(buildSplashChildEnv(options) ?? {}),
     ...(memoryTraceEnabled ? { OM_DEV_MEMORY_TRACE_OWNER: 'parent' } : {}),
+    ...buildMcpAppEnv(),
+    // In gateway mode the managed runtime binds the internal loopback port and
+    // the gateway keeps the public one.
+    ...(gatewayMode && devUpstreamPort ? { PORT: String(devUpstreamPort) } : {}),
   })
-  if (isMonorepo) {
-    // `yarn workspace ... dev` used to inject the workspace binaries into PATH.
-    // Preserve that contract for the direct Node child so nested `mercato`
-    // generator/server spawns still resolve without retaining a Yarn process.
-    env.PATH = [path.join(process.cwd(), 'node_modules', '.bin'), process.env.PATH]
-      .filter(Boolean)
-      .join(path.delimiter)
-  }
+  if (isMonorepo) env.PATH = buildWorkspaceBinPath()
   return env
 }
 
+// `yarn workspace ... <bin>` used to inject the workspace binaries into PATH.
+// Preserve that contract for direct Node children so nested `mercato`
+// generator/server spawns still resolve without retaining a Yarn process.
+function buildWorkspaceBinPath() {
+  return [path.join(process.cwd(), 'node_modules', '.bin'), process.env.PATH]
+    .filter(Boolean)
+    .join(path.delimiter)
+}
+
 function launchStandaloneDev(options = {}) {
+  if (startupAborted) return
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
     shutdown(1)
     return
   }
+
+  startMcpRuntime()
 
   const runtimeArgs = [standaloneRuntimeScript]
   if (classic) {
@@ -720,21 +911,66 @@ function launchStandaloneDev(options = {}) {
     activity,
   })
 
+  writeSplashChildStateFileClear()
+  devRuntime.beginGeneration('standalone app runtime launch')
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
     env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
+  managedAppChild = app
 
   app.on('close', (code) => {
-    if (!shuttingDown) {
-      shutdown(code ?? 0)
-    }
+    if (shuttingDown) return
+    if (consumeRequestedRestart()) return
+    recordManagedRuntimeExit(code ?? 0, null)
+    if (keepSupervisorAliveAfterFailure()) return
+    shutdown(code ?? 0)
+  })
+}
+
+// A restart requested through a recovery action is an expected exit, so it
+// relaunches instead of tearing the supervisor down.
+function consumeRequestedRestart() {
+  if (!restartRequestedReason) return false
+  const reason = restartRequestedReason
+  restartRequestedReason = null
+  managedAppChild = null
+  relaunchManagedRuntime(reason)
+  return true
+}
+
+// Only the gateway can keep serving feedback once the managed runtime is gone,
+// so only gateway mode survives a failure. Direct mode keeps its existing
+// shutdown behavior.
+function keepSupervisorAliveAfterFailure() {
+  if (!gatewayMode || shuttingDown) return false
+  managedAppChild = null
+  console.error('❗ The app runtime stopped. The dev gateway stays available for diagnostics and recovery actions.')
+  return true
+}
+
+// A managed runtime that dies on its own is the strongest possible signal that
+// the public URL cannot serve anything, so it always produces a blocking
+// incident regardless of how far startup had progressed.
+function recordManagedRuntimeExit(exitCode, signal) {
+  if (!devRuntime.enabled) return
+  if (exitCode === 0 && !signal) return
+  const cause = signal ? `signal ${signal}` : `exit code ${exitCode}`
+  devRuntime.recordSignal({
+    source: 'process',
+    code: 'runtime_process_exited',
+    title: 'App runtime stopped',
+    detail: `The managed app runtime terminated with ${cause}`,
+    message: `app runtime terminated with ${cause}`,
+    failureCommand: 'yarn dev',
+    failureStage: 'App runtime',
+    blocking: true,
   })
 }
 
 function ensureStandaloneEnvFile() {
   if (!fs.existsSync('.env') && fs.existsSync('.env.example')) {
-    fs.copyFileSync('.env.example', '.env')
+    createEnvFileFromExample('.env.example', '.env')
     const message = '[setup] Copied .env.example to .env'
     console.log(message)
     updateSplashState({
@@ -757,6 +993,24 @@ function resolveDatabaseEnvFilePath() {
   return isMonorepo
     ? path.join(process.cwd(), 'apps', 'mercato', '.env')
     : path.join(process.cwd(), '.env')
+}
+
+async function guardDatabaseMutation(commandArgs, env = {}) {
+  if (!['db:migrate', 'initialize', 'mcp:ensure-api-key'].includes(commandArgs?.[0])) return
+  const result = await assertDatabaseWriteAllowed({
+    projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
+    env: { ...process.env, ...env },
+    argv: args,
+  })
+  if (result?.connectionEnv) { Object.assign(process.env, result.connectionEnv); Object.assign(env, result.connectionEnv) }
+  if (result?.argument && !args.includes(result.argument)) args.push(result.argument)
+  const compatibility = await assertEncryptionCompatible({
+    projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
+    env: { ...process.env, ...env },
+  })
+  console.log(`[setup] encryption preflight: ${compatibility.status}`)
+  Object.assign(process.env, compatibility.settings)
+  Object.assign(env, compatibility.settings)
 }
 
 async function applyDatabaseNameOverrideIfRequested() {
@@ -953,6 +1207,15 @@ async function reportStageFailure(label, commandArgs, capturedLines, code, optio
   const failureLines = extractFailureLines(capturedLines)
   const detail = resolveFailureDetail(label, capturedLines)
 
+  devRuntime.recordSignal({
+    source: 'process',
+    message: failureLines.join('\n') || detail,
+    detail,
+    failureLines,
+    failureCommand: Array.isArray(commandArgs) ? commandArgs.join(' ') : undefined,
+    failureStage: label,
+  })
+
   updateSplashState({
     phase: `${label} failed`,
     detail,
@@ -975,7 +1238,18 @@ async function reportStageFailure(label, commandArgs, capturedLines, code, optio
   }
 
   await waitForSplashFailureRender()
+  if (keepSupervisorAliveAfterStageFailure(label)) return
   shutdown(code ?? 1)
+}
+
+// Gateway mode keeps the supervisor alive after a startup-stage failure so the
+// developer can run an allowlisted recovery action without restarting the
+// terminal process. Direct mode preserves its existing shutdown behavior.
+function keepSupervisorAliveAfterStageFailure(label) {
+  if (!gatewayMode || shuttingDown) return false
+  startupAborted = true
+  console.error(`❗ "${label}" failed. The dev gateway stays available on ${resolveExpectedAppBaseUrl()} for diagnostics and recovery actions.`)
+  return true
 }
 
 function readSplashChildState() {
@@ -989,11 +1263,23 @@ function readSplashChildState() {
 
 function getMergedSplashState() {
   const childState = readSplashChildState()
-  const mergedState = childState ? normalizeSplashDisplayState({
+  devRuntime.ingestChildState(childState)
+  const runtimeStatus = devRuntime.enabled ? devRuntime.getStatus() : null
+
+  // `runtimeSignals` is the child's raw hand-off channel; it is consumed by the
+  // collector and must never reach the splash payload.
+  const { runtimeSignals: _ignoredChildSignals, ...childDisplayState } = childState ?? {}
+
+  const mergedState = normalizeSplashDisplayState({
     ...splashState,
-    ...childState,
-    activities: mergeActivities(splashState.activities, childState.activities),
-  }) : normalizeSplashDisplayState({ ...splashState })
+    ...childDisplayState,
+    ...(childState ? { activities: mergeActivities(splashState.activities, childState.activities) } : {}),
+    // The structured runtime state is the authority for ready/failed once the
+    // collector is active, so a post-ready incident is no longer normalized away.
+    ...(runtimeStatus
+      ? { runtime: runtimeStatus, ready: runtimeStatus.ready, failed: runtimeStatus.failed }
+      : {}),
+  })
 
   mergedState.codingFlow = codingFlow.getSnapshot({
     ready: mergedState.ready,
@@ -1020,6 +1306,9 @@ function renderSplashHtml(req) {
     localeLabels,
     codingFlow: codingFlow.getBootstrapPayload(),
     gitRepoFlow: gitRepoFlow.getBootstrapPayload(),
+    // Per-run token for the additive recovery endpoint. It never leaves the
+    // local dev browser and is regenerated on every supervisor start.
+    runtimeToken: devRuntime.enabled ? devRuntime.token : null,
   })
   return loadSplashHtmlTemplate()
     .replace('__SPLASH_INITIAL_LOCALE__', initialLocale)
@@ -1067,6 +1356,69 @@ async function startSplashServer() {
       return
     }
 
+    if (req.url === '/runtime/status') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const guard = assertLocalSplashRequest(req, process.env)
+      if (!guard.ok) {
+        res.statusCode = guard.status
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: guard.error } }))
+        return
+      }
+      res.end(JSON.stringify(devRuntime.enabled ? devRuntime.getStatus() : { error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
+      return
+    }
+
+    // Additive recovery endpoint for the default direct topology. Existing
+    // splash routes and their response shapes are untouched.
+    if (req.method === 'POST' && req.url.startsWith('/runtime/actions/')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const guard = assertLocalSplashRequest(req, process.env)
+      if (!guard.ok) {
+        res.statusCode = guard.status
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: guard.error } }))
+        return
+      }
+      if (!devRuntime.enabled) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
+        return
+      }
+      if (!isMatchingDevRuntimeToken(devRuntime.token, req.headers['x-om-dev-runtime-token'])) {
+        res.statusCode = 403
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: 'Invalid dev runtime token.' } }))
+        return
+      }
+
+      const action = req.url.slice('/runtime/actions/'.length).split('?')[0]
+      const result = await devRuntimeActions.run(action)
+      if (!result.ok) {
+        res.statusCode = result.status
+        res.end(JSON.stringify({ error: { code: result.code, message: result.message } }))
+        return
+      }
+      res.statusCode = 202
+      res.end(JSON.stringify({ accepted: true, actionId: result.actionId, generation: result.generation }))
+      return
+    }
+
+    if (req.url.startsWith('/runtime/logs')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const guard = assertLocalSplashRequest(req, process.env)
+      if (!guard.ok) {
+        res.statusCode = guard.status
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: guard.error } }))
+        return
+      }
+      if (!devRuntime.enabled) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
+        return
+      }
+      const cursor = Number.parseInt(new URL(req.url, 'http://localhost').searchParams.get('cursor') ?? '', 10)
+      res.end(JSON.stringify(devRuntime.getDiagnosticLines(Number.isInteger(cursor) ? cursor : 0)))
+      return
+    }
+
     if (req.url === '/' || req.url.startsWith('/?')) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
       res.end(renderSplashHtml(req))
@@ -1102,7 +1454,7 @@ async function startSplashServer() {
     await listenSplashServer(splashPortConfig.port)
   } catch (error) {
     if (shouldRetrySplashServerWithRandomPort(error)) {
-      console.warn(`⚠️ Dev splash port ${splashPortConfig.port} is already in use. Switching to a random free port.`)
+      console.warn(`❗ Dev splash port ${splashPortConfig.port} is already in use. Switching to a random free port.`)
       splashServer.close()
       splashServer = createSplashHttpServer()
       try {
@@ -1131,7 +1483,7 @@ async function startSplashServer() {
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
-  splashUrl = resolveSplashAccessUrl(process.env, address.port)
+  splashUrl = resolveSplashAccessUrl(mergeDevUrlEnv(process.env, appDotEnv), address.port)
   if (splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
     console.log(`🪟 Dev splash moved to ${splashUrl}`)
   }
@@ -1147,7 +1499,188 @@ async function startSplashServer() {
     return
   }
 
-  console.log('ℹ️ Open either URL manually while the runtime is starting.')
+  console.log('💡 Open either URL manually while the runtime is starting.')
+}
+
+// Runs one allowlisted lifecycle command for a recovery action. Unlike
+// `runStage` it never shuts the supervisor down: a failed recovery becomes an
+// incident so the developer can try another action.
+// `waitForClose` only settles on 'close', which needs every stdio pipe to drain.
+// A recovery child that fails to spawn — or leaves a grandchild holding the
+// pipes — would therefore never settle, wedging the single-action latch until
+// the action timeout. Settling on 'exit'/'error' too keeps the latch honest.
+function waitForRecoveryChildExit(child) {
+  return new Promise((resolve) => {
+    let settled = false
+    const settle = (result) => {
+      if (settled) return
+      settled = true
+      resolve(result)
+    }
+    child.on('close', (code, signal) => settle({ code, signal }))
+    child.on('exit', (code, signal) => settle({ code, signal }))
+    child.on('error', () => settle({ code: 1, signal: null }))
+  })
+}
+
+async function runRecoveryCommand(label, commandArgs) {
+  await guardDatabaseMutation(commandArgs)
+  console.log(`🔨 ${label}...`)
+  updateSplashState({ phase: label, detail: 'Recovery action in progress', activity: `${label} started` })
+
+  const child = spawnCommand(yarnCommand, commandArgs, { label, logFile: getDevRunnerLog() })
+  const capturedLines = []
+  const capture = (line) => {
+    const normalized = normalizeCapturedLine(line)
+    devRuntime.appendDiagnosticLine(normalized, { source: 'process' })
+    capturedLines.push(normalized)
+    if (capturedLines.length > 200) capturedLines.shift()
+  }
+  connectLineStream(child.stdout, capture)
+  connectLineStream(child.stderr, capture)
+
+  const exitCode = resolveChildExitCode(await waitForRecoveryChildExit(child))
+  if (exitCode !== 0) {
+    devRuntime.recordSignal({
+      source: 'process',
+      message: extractFailureLines(capturedLines).join('\n') || `${label} failed`,
+      detail: resolveFailureDetail(label, capturedLines),
+      failureLines: extractFailureLines(capturedLines),
+      failureCommand: `${yarnCommand} ${commandArgs.join(' ')}`,
+      failureStage: label,
+    })
+    console.error(`❌ ${label} failed with exit code ${exitCode}`)
+    return exitCode
+  }
+
+  console.log(`✅ ${label} completed`)
+  return 0
+}
+
+// Restarts the managed runtime through the existing launcher so stage ordering
+// and process ownership stay in one place. The child's close handler relaunches
+// it, which also opens a fresh generation.
+function restartManagedRuntime(reason) {
+  if (!managedAppChild || managedAppChild.killed) {
+    relaunchManagedRuntime(reason)
+    return
+  }
+  restartRequestedReason = reason
+  killProcessTree(managedAppChild, 'SIGTERM')
+}
+
+function relaunchManagedRuntime(reason) {
+  // A recovery action is the deliberate answer to the failure that latched the
+  // pipeline, so relaunching clears it.
+  startupAborted = false
+  console.log(`🔁 Restarting the app runtime (${reason})`)
+  if (isMonorepo) {
+    launchMonorepoAppDev()
+    return
+  }
+  launchStandaloneDev()
+}
+
+// Picks an ephemeral loopback port for the managed runtime by letting the OS
+// assign one and releasing it immediately. The window between release and the
+// child's bind is small and local; a collision surfaces as a clear child error.
+// The gateway checks the public port itself; in direct mode `next dev` binds it
+// and would silently fall back to the next port while the splash, the readiness
+// probe and APP_URL keep pointing at whatever already answers on the old one.
+async function settleAppPort() {
+  if (isGatewayModeRequested()) return
+  const appDir = isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd()
+  const configuredPort = resolveDevPublicAppBaseUrl(process.env, readAppDotEnv(appDir)).port ?? 3000
+  const preflight = await resolveAppPortPreflight({
+    port: configuredPort,
+    env: process.env,
+    appEnvFileValues: readAppEnvFileValues(appDir, ['APP_URL', 'NEXT_PUBLIC_APP_URL']),
+  })
+  if (preflight.status === 'busy') {
+    console.error(`❌ Port ${configuredPort} is already in use by another process.`)
+    console.error('   Stop that process, or set PORT and APP_URL to a free port.')
+    process.exit(1)
+  }
+  if (preflight.status === 'moved') {
+    Object.assign(process.env, preflight.envOverrides)
+    console.log(`❗ Port ${configuredPort} is already in use; this run serves the app on ${preflight.envOverrides.APP_URL}`)
+  }
+}
+
+function isGatewayModeRequested() {
+  try {
+    return resolveDevRuntimeMode(process.env) === 'proxy'
+  } catch {
+    return false
+  }
+}
+
+function reserveLoopbackPort() {
+  return new Promise((resolve, reject) => {
+    const probe = createServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address()
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
+async function startDevRuntimeGateway() {
+  if (!gatewayMode) return true
+
+  try {
+    devUpstreamPort = devRuntimeConfig.upstreamPort ?? await reserveLoopbackPort()
+  } catch (error) {
+    console.error(`❌ Unable to reserve an internal port for the dev runtime gateway: ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
+    return false
+  }
+
+  devGateway = createDevRuntimeGateway({
+    token: devRuntime.token,
+    env: process.env,
+    logger: console,
+    getStatus: () => (devRuntime.enabled ? devRuntime.getStatus() : null),
+    getDiagnosticLines: (cursor) => devRuntime.getDiagnosticLines(cursor),
+    recordBrowserReport: (report) => {
+      devRuntime.recordSignal({
+        source: 'browser',
+        severity: 'error',
+        message: report.message,
+        digest: report.digest,
+        path: report.path,
+        blocking: false,
+      })
+      return devRuntime.getStatus().issueSummary?.id ?? null
+    },
+    runAction: (action) => devRuntimeActions.run(action),
+    resolveUpstream: () => (devUpstreamPort ? { host: '127.0.0.1', port: devUpstreamPort } : null),
+    renderSplashHtml: (req) => renderSplashHtml(req),
+  })
+
+  try {
+    await devGateway.listen(publicAppPort, splashBindHost)
+  } catch (error) {
+    const reason = error?.code === 'EADDRINUSE'
+      ? `port ${publicAppPort} is already in use`
+      : (error instanceof Error ? error.message : String(error))
+    console.error(`❌ Unable to start the dev runtime gateway: ${reason}`)
+    console.error('   Free the port, choose another PORT, or set OM_DEV_RUNTIME_MODE=direct.')
+    devGateway = null
+    shutdown(1)
+    return false
+  }
+
+  devRuntime.setUpstream({ configuredPort: publicAppPort, actualPort: devUpstreamPort })
+  console.log(`🔒 Dev runtime gateway on ${resolveExpectedAppBaseUrl()} → managed runtime on 127.0.0.1:${devUpstreamPort}`)
+  return true
+}
+
+function closeDevRuntimeGateway() {
+  if (!devGateway) return
+  void devGateway.close()
+  devGateway = null
 }
 
 function closeSplashServer() {
@@ -1155,6 +1688,8 @@ function closeSplashServer() {
     splashServer.close()
     splashServer = null
   }
+  closeDevRuntimeGateway()
+  devRuntime.stop()
   writeSplashChildStateFileClear()
 }
 
@@ -1162,7 +1697,9 @@ function announceShutdown() {
   const message = 'Shutting down services...'
   updateSplashState({
     phase: message,
-    detail: 'Stopping app runtime, watchers, workers, and scheduler',
+    detail: withMcp
+      ? 'Stopping app runtime, watchers, workers, scheduler, and MCP server'
+      : 'Stopping app runtime, watchers, workers, and scheduler',
     ready: false,
     progressLabel: message,
     activity: message,
@@ -1190,7 +1727,7 @@ function shutdown(exitCode = 0) {
   shuttingDown = true
   announceShutdown()
 
-  const alive = Array.from(children).filter((child) => !child.killed)
+  const alive = Array.from(children).filter((child) => child.exitCode == null && child.signalCode == null)
   if (alive.length === 0) {
     void finalizeDevProcess(exitCode)
     return
@@ -1201,10 +1738,8 @@ function shutdown(exitCode = 0) {
   }
 
   setTimeout(() => {
-    for (const child of children) {
-      if (!child.killed) {
-        killProcessTree(child, 'SIGKILL')
-      }
+    for (const child of alive) {
+      killProcessTree(child, 'SIGKILL')
     }
     void finalizeDevProcess(exitCode)
   }, 3000)
@@ -1239,11 +1774,21 @@ function resolveChildExitCode(result, fallback = 1) {
   return fallback
 }
 
-async function runRawYarnCommand(commandArgs) {
+// `mercato init` prints "Start the dev server: yarn dev" unless told that this
+// runner launches the dev server right after it.
+const INIT_DEV_AUTOSTART_ENV = {
+  OM_INIT_DEV_AUTOSTART: '1',
+  OM_INIT_SUMMARY_COLUMNS: String(process.stdout.columns || 80),
+  OM_INIT_SUMMARY_COLOR: process.stdout.isTTY && process.env.NO_COLOR === undefined ? '1' : '0',
+}
+
+async function runRawYarnCommand(commandArgs, options = {}) {
+  await guardDatabaseMutation(commandArgs, options.env)
   const child = spawnCommand(yarnCommand, commandArgs, {
     label: commandArgs.join(' '),
     logFile: getDevRunnerLog(),
     mirrorOutput: true,
+    env: options.env,
   })
   const result = await waitForClose(child)
   if (isGracefulShutdownResult(result)) {
@@ -1514,6 +2059,7 @@ function classifyStageMarker(commandArgs) {
 }
 
 async function runStage(label, commandArgs, options = {}) {
+  if (startupAborted) return
   const startedAt = Date.now()
   const stageTotal = options.stageTotal ?? (greenfield ? 5 : 3)
   const stageCurrent = options.stageCurrent
@@ -1606,6 +2152,8 @@ async function runStage(label, commandArgs, options = {}) {
 }
 
 async function runPassthroughStage(label, commandArgs, options = {}) {
+  if (startupAborted) return
+  await guardDatabaseMutation(commandArgs, options.env)
   const startedAt = Date.now()
   const stageOrder = {
     'build:packages': 1,
@@ -1637,6 +2185,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
       label,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: options.env,
     })
     const result = await waitForClose(child)
     if (isGracefulShutdownResult(result)) {
@@ -1652,6 +2201,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     const child = spawnCommand(yarnCommand, commandArgs, {
       label,
       logFile: getDevRunnerLog(),
+      env: options.env,
     })
     const capturedLines = []
     const capture = (line) => {
@@ -1677,6 +2227,9 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
         stageTotal,
       })
       return
+    }
+    if (options.echoSummaryBox) {
+      for (const line of extractInitSummaryLines(capturedLines)) console.log(line)
     }
   }
 
@@ -1715,6 +2268,7 @@ function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
 }
 
 function startPackageWatch() {
+  if (startupAborted) return
   const watchScript = resolveWatchPackagesScript()
   const watchCommand = watchScript === 'watch:packages'
     ? { command: process.execPath, args: [monorepoPackageWatchScript] }
@@ -1822,7 +2376,390 @@ function startPackageWatch() {
   return child
 }
 
-function launchMonorepoAppDev() {
+function sleepUnlessShuttingDown(ms) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+    const timer = setInterval(() => {
+      if (shuttingDown || Date.now() - startedAt >= ms) {
+        clearInterval(timer)
+        resolve()
+      }
+    }, 250)
+    timer.unref?.()
+  })
+}
+
+function spawnMcpCommand(subcommandArgs, label, onLine) {
+  const invocation = resolveMercatoInvocation({ cwd: mcpCliCwd })
+  return spawnCommand(invocation.command, [...invocation.args, ...buildMcpCliArgs(subcommandArgs)], {
+    cwd: mcpCliCwd,
+    env: isMonorepo ? { PATH: buildWorkspaceBinPath() } : undefined,
+    label,
+    logFile: getDevRunnerLog(),
+    mirrorOutput: verbose,
+    nonFatal: true,
+    onLine,
+    sessionRole: label,
+  })
+}
+
+async function provisionMcpApiKey() {
+  await guardDatabaseMutation(['mcp:ensure-api-key'])
+  try {
+    fs.mkdirSync(path.dirname(mcpKeyFilePath), { recursive: true })
+  } catch (error) {
+    console.warn(`❗ Could not create ${path.dirname(mcpKeyFilePath)}: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn('   ↳ if Docker created the directory as root, fix it with: sudo chown -R "$(id -u)" .mercato/mcp-shared')
+  }
+
+  for (let attempt = 0; !shuttingDown; attempt++) {
+    const capturedLines = []
+    const child = spawnMcpCommand(['mcp:ensure-api-key', '--file', mcpKeyFilePath], 'MCP API key provisioning', (line) => {
+      capturedLines.push(line)
+      if (capturedLines.length > 200) capturedLines.shift()
+    })
+    const result = await waitForClose(child)
+    if (shuttingDown || isGracefulShutdownResult(result)) return false
+
+    if (resolveChildExitCode(result) === 0) {
+      if (isKeyRotationOutput(capturedLines)) {
+        opencodeKeyRefreshNeeded = true
+        const rotationHint = 'MCP API key rotated — OpenCode restarts automatically once the MCP server is up'
+        console.log(`🔑 ${rotationHint}`)
+        updateSplashState({ activity: rotationHint })
+      }
+      return true
+    }
+
+    if (!shouldRetryMcpProvisioning(capturedLines)) {
+      console.warn('❗ MCP is disabled — the ai_assistant module is not enabled in this app.')
+      console.warn('   ↳ enable ai_assistant (or pick a preset that includes it) to use MCP, then restart the dev runner (MCP startup is not re-armed in a running session), or silence this with --no-mcp / OM_DEV_WITH_MCP=0. The app keeps running without MCP.')
+      return false
+    }
+
+    if (looksLikePermissionError(capturedLines)) {
+      console.warn(`❗ MCP key provisioning hit a permission error writing ${mcpKeyFilePath}.`)
+      console.warn('   ↳ if Docker created .mercato/mcp-shared as root, fix it with: sudo chown -R "$(id -u)" .mercato/mcp-shared')
+    } else if (looksLikeMissingKeyOwner(capturedLines)) {
+      console.warn('❗ MCP API key provisioning failed — the key owner (superadmin) could not be resolved.')
+      console.warn('   ↳ set OM_INIT_SUPERADMIN_EMAIL in apps/mercato/.env to the email you sign into /backend with, then restart.')
+      console.warn('   ↳ if it still fails with the right email, the database was seeded under different secrets (LOOKUP_HASH_PEPPER); reseed with `yarn om reset` then `yarn om`.')
+    } else if (looksLikeUninitializedDatabase(capturedLines)) {
+      console.warn('❗ MCP API key provisioning failed — is the database initialized and reachable? Run `yarn infra:up`, then `yarn db:migrate && yarn initialize`.')
+    } else {
+      console.warn('❗ MCP API key provisioning failed:')
+      for (const line of extractFailureLines(capturedLines, 4)) {
+        console.warn(`   ${line}`)
+      }
+      console.warn('   ↳ full output in the dev runner log.')
+    }
+    const delay = nextMcpKeyRetryDelayMs(attempt)
+    console.warn(`   ↳ retrying in ${Math.round(delay / 1000)}s (the app keeps running without MCP in the meantime)`)
+    await sleepUnlessShuttingDown(delay)
+  }
+  return false
+}
+
+async function waitForMcpHealthy(child, port, isListening) {
+  const healthUrl = deriveMcpHealthUrl(port)
+  const deadline = Date.now() + MCP_HEALTH_TIMEOUT_MS
+  while (!shuttingDown && Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) return false
+    if (!isListening()) {
+      await sleepUnlessShuttingDown(MCP_HEALTH_POLL_INTERVAL_MS)
+      continue
+    }
+    try {
+      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(2000) })
+      if (isManagedMcpReadiness({
+        childListening: isListening(),
+        childExitCode: child.exitCode,
+        childSignalCode: child.signalCode,
+        attemptedPort: port,
+        currentPort: mcpChildPort,
+        responseOk: response.ok,
+      })) return true
+    } catch {
+      // Not listening yet — keep polling until the deadline.
+    }
+    await sleepUnlessShuttingDown(MCP_HEALTH_POLL_INTERVAL_MS)
+  }
+  return false
+}
+
+async function fetchOpencodeMcpStatus() {
+  const baseUrl = (process.env.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  try {
+    const response = await fetch(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(3000) })
+    if (!response.ok) return null
+    const body = await response.json().catch(() => null)
+    const status = body?.['open-mercato']?.status
+    return typeof status === 'string' ? status : null
+  } catch {
+    // OpenCode container not running (or mid-restart) — a legitimate state.
+    return null
+  }
+}
+
+// The OpenCode entrypoint reads the MCP key ONCE at container start. When the
+// key appears or rotates after that (headerless start on a slow first run, a
+// reseeded database), the container holds a stale binding until recreated —
+// do it automatically, once per endpoint transition so a broken hop can't loop it.
+let opencodeKeyRefreshNeeded = false
+let opencodeEndpointRefreshNeeded = false
+let opencodeLastRestartEndpoint = null
+
+// The monorepo keeps its compose files under starters/docker/; a standalone app
+// scaffolded by create-app keeps them at its own root and gates the OpenCode
+// service behind the `agents` profile. Print the command that actually exists
+// for the layout we are running in.
+function resolveOpencodeComposeArgs() {
+  const infraCompose = path.join(process.cwd(), 'starters', 'docker', 'compose.infra.yml')
+  if (fs.existsSync(infraCompose)) {
+    return ['compose', '--project-directory', '.', '-f', 'starters/docker/compose.infra.yml']
+  }
+  const standaloneCompose = path.join(process.cwd(), 'docker-compose.yml')
+  if (fs.existsSync(standaloneCompose)) {
+    return ['compose', '--project-directory', '.', '--profile', 'agents', '-f', 'docker-compose.yml']
+  }
+  return null
+}
+
+function opencodeRestartCommand() {
+  const composeArgs = resolveOpencodeComposeArgs()
+  if (!composeArgs) return 'restart the OpenCode container with its compose project'
+  return `docker ${[...composeArgs, 'up', '-d', '--no-deps', '--force-recreate', 'opencode'].join(' ')}`
+}
+
+// Docker is optional. Explain the skip once per dev session so a developer who
+// does not run Docker is not left wondering why OpenCode was never refreshed.
+let dockerUnavailableNoticeShown = false
+
+function noteDockerUnavailable(detail) {
+  if (dockerUnavailableNoticeShown) return
+  dockerUnavailableNoticeShown = true
+  console.warn(`💡 Skipping the OpenCode container refresh — ${detail}.`)
+  console.warn('   ↳ Docker is optional: it is only used to recreate the containerized OpenCode agent.')
+  console.warn('   ↳ The app, the dev server and the MCP server are unaffected.')
+}
+
+function isOpencodeContainerRunning(composeArgs) {
+  const probe = classifyDockerProbe(
+    spawnSync('docker', [...composeArgs, 'ps', '-q', 'opencode'], { encoding: 'utf8', timeout: DOCKER_PROBE_TIMEOUT_MS }),
+  )
+  if (!probe.available) {
+    noteDockerUnavailable(probe.detail)
+    return false
+  }
+  return probe.names.length > 0
+}
+
+function restartOpencodeContainer(reason) {
+  const endpoint = process.env.OPENCODE_MCP_URL || `http://host.docker.internal:${mcpPort}/mcp`
+  if (shuttingDown || opencodeLastRestartEndpoint === endpoint) return false
+  opencodeLastRestartEndpoint = endpoint
+  if (noInfra) {
+    noteDockerUnavailable('--no-infra was passed, so Docker is never called')
+    return false
+  }
+  const composeArgs = resolveOpencodeComposeArgs()
+  if (!composeArgs || !isOpencodeContainerRunning(composeArgs)) return false
+  console.log(`🔄 ${reason} — recreating the OpenCode container with the current MCP endpoint...`)
+  updateSplashState({ activity: 'Recreating OpenCode with the current MCP endpoint' })
+  const environment = { ...process.env, OPENCODE_MCP_URL: endpoint }
+  const restart = spawnSync(
+    'docker',
+    [...composeArgs, 'up', '-d', '--no-deps', '--force-recreate', 'opencode'],
+    { encoding: 'utf8', timeout: 120_000, env: environment },
+  )
+  if (restart.error || restart.status !== 0) {
+    console.warn('❗ Could not recreate the OpenCode container automatically.')
+    console.warn(`   ↳ recreate it manually: ${opencodeRestartCommand()}`)
+    return false
+  }
+  return true
+}
+
+async function checkOpencodeMcpWiring() {
+  const status = await fetchOpencodeMcpStatus()
+  if (status === null || status === 'connected') return
+  if (!restartOpencodeContainer('OpenCode is not connected to the MCP server')) {
+    console.warn('❗ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
+    // Without Docker the compose hint is not actionable; the stale-key warning
+    // above still is, however OpenCode happens to be running.
+    if (!dockerUnavailableNoticeShown) console.warn(`   ↳ restart it with: ${opencodeRestartCommand()}`)
+    return
+  }
+  await sleepUnlessShuttingDown(30_000)
+  const rechecked = await fetchOpencodeMcpStatus()
+  if (rechecked === 'connected') {
+    console.log('🔌 OpenCode reconnected to the MCP server.')
+  } else if (rechecked !== null) {
+    console.warn('❗ OpenCode is still not connected after a restart — check `docker logs mercato-opencode` and the container→host hop (yarn om doctor).')
+  }
+}
+
+async function refreshOpencodeMcpBinding() {
+  if (opencodeKeyRefreshNeeded || opencodeEndpointRefreshNeeded) {
+    const refreshReason = opencodeKeyRefreshNeeded && opencodeEndpointRefreshNeeded
+      ? 'MCP API key and endpoint changed'
+      : opencodeKeyRefreshNeeded
+        ? 'MCP API key was rotated'
+        : `MCP selected port ${mcpPort}`
+    opencodeKeyRefreshNeeded = false
+    opencodeEndpointRefreshNeeded = false
+    if (restartOpencodeContainer(refreshReason)) {
+      await sleepUnlessShuttingDown(30_000)
+    }
+  }
+  void checkOpencodeMcpWiring()
+}
+
+function readKnownMcpApiKeys() {
+  let provisioned = ''
+  try {
+    provisioned = fs.readFileSync(mcpKeyFilePath, 'utf8').trim()
+  } catch {}
+  return [provisioned, (process.env.MCP_SERVER_API_KEY ?? appDotEnv.MCP_SERVER_API_KEY)?.trim() ?? '']
+}
+
+// The armed proxy is what clients see as the ready endpoint (the key file is
+// final and requests are held until the server is up), so OpenCode is
+// refreshed here rather than when the server first becomes healthy.
+async function armLazyMcpEndpoint() {
+  mcpProxy.arm(readKnownMcpApiKeys())
+  const armedMessage = `MCP armed on http://localhost:${mcpPort}/mcp — the server starts on first request (OM_DEV_MCP_LAZY=0 starts it eagerly)`
+  console.log(`🔌 ${armedMessage}`)
+  updateSplashState({ activity: armedMessage })
+  void refreshOpencodeMcpBinding()
+  await mcpProxy.firstUse
+  if (shuttingDown) return
+  const startMessage = 'MCP first request received — starting the MCP server'
+  console.log(`🔌 ${startMessage}`)
+  updateSplashState({ activity: startMessage })
+}
+
+async function runMcpLifecycle() {
+  let fastCrashes = 0
+  let bindRaceAttempts = 0
+  let awaitingFirstUse = mcpProxy !== null
+  while (!shuttingDown) {
+    const provisioned = await provisionMcpApiKey()
+    if (!provisioned || shuttingDown) return
+
+    const lazyFirstStart = awaitingFirstUse
+    if (awaitingFirstUse) {
+      awaitingFirstUse = false
+      await armLazyMcpEndpoint()
+      if (shuttingDown) return
+    }
+
+    const startedAt = Date.now()
+    const capturedLines = []
+    const attemptedPort = mcpProxy ? await reserveLoopbackPort() : mcpPort
+    mcpChildPort = attemptedPort
+    let childListening = false
+    const devMcpHost = mcpProxy ? '127.0.0.1' : resolveDevMcpHost({ env: process.env })
+    const mcpArgs = ['mcp:serve-http', '--port', String(attemptedPort), ...(devMcpHost ? ['--host', devMcpHost] : [])]
+    const child = spawnMcpCommand(mcpArgs, 'MCP server', (line) => {
+      capturedLines.push(line)
+      if (capturedLines.length > 200) capturedLines.shift()
+      if (looksLikeMcpServerListening([line])) childListening = true
+    })
+
+    void waitForMcpHealthy(child, attemptedPort, () => childListening).then(async (healthy) => {
+      if (!healthy || shuttingDown) return
+      if (child.exitCode !== null || attemptedPort !== mcpChildPort) return
+      mcpProxy?.setUpstream({ host: '127.0.0.1', port: attemptedPort })
+      const readyMessage = `MCP server ready on http://localhost:${mcpPort}/mcp`
+      console.log(`🔌 ${readyMessage}`)
+      updateSplashState({ activity: readyMessage })
+      if (!lazyFirstStart) await refreshOpencodeMcpBinding()
+    })
+
+    const result = await waitForClose(child)
+    mcpProxy?.setUpstream(null)
+    if (shuttingDown || isGracefulShutdownResult(result)) return
+
+    const exitCode = resolveChildExitCode(result)
+    if (looksLikeMcpPortCollision(capturedLines)) {
+      bindRaceAttempts += 1
+      if (bindRaceAttempts >= MCP_MAX_PORT_SELECTION_ATTEMPTS) {
+        console.error(`❌ MCP could not bind after ${bindRaceAttempts} port-selection attempts.`)
+        console.error('   ↳ stop the process racing for local ports, set MCP_PORT to an available port, or restart the dev runner.')
+        return
+      }
+      if (mcpProxy) {
+        console.warn(`❗ MCP internal port ${attemptedPort} was claimed before startup completed; retrying on another port.`)
+        continue
+      }
+      const previousPort = attemptedPort
+      mcpPort = await selectAvailableMcpPort(0)
+      opencodeEndpointRefreshNeeded = !process.env.OPENCODE_MCP_URL
+      console.warn(`❗ MCP port ${previousPort} was claimed before startup completed; retrying on ${mcpPort}.`)
+      if (!process.env.MCP_URL && managedAppChild && !managedAppChild.killed) {
+        restartManagedRuntime(`MCP endpoint moved to http://localhost:${mcpPort}`)
+      }
+      continue
+    }
+    bindRaceAttempts = 0
+    fastCrashes = isFastMcpCrash(Date.now() - startedAt) ? fastCrashes + 1 : 0
+    if (fastCrashes >= MCP_MAX_FAST_CRASHES) {
+      console.error(`❌ MCP server keeps crashing (exit ${exitCode}) — giving up on restarts. The app keeps running without MCP.`)
+      for (const line of extractFailureLines(capturedLines, 5)) {
+        console.error(`   ${line}`)
+      }
+      return
+    }
+    const delay = nextMcpRestartDelayMs(fastCrashes)
+    console.warn(`❗ MCP server exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s`)
+    await sleepUnlessShuttingDown(delay)
+  }
+}
+
+let mcpRuntimeStarted = false
+function startMcpRuntime() {
+  if (!withMcp || mcpRuntimeStarted || shuttingDown) return
+  mcpRuntimeStarted = true
+  void runMcpLifecycle().catch((error) => {
+    console.warn(`❗ MCP runtime stopped unexpectedly: ${error instanceof Error ? error.message : String(error)}`)
+  }).finally(() => {
+    void mcpProxy?.close()
+  })
+}
+
+async function applyPendingMigrationsBestEffort() {
+  try {
+  if (!shouldAutoMigrateOnDev()) return
+  await guardDatabaseMutation(['db:migrate'])
+  console.log('💾 Applying database migrations...')
+  const child = spawnCommand(yarnCommand, ['db:migrate'], {
+    label: 'Applying database migrations',
+    logFile: getDevRunnerLog(),
+    mirrorOutput: verbose,
+    nonFatal: true,
+  })
+  const result = await waitForClose(child)
+  if (shuttingDown || isGracefulShutdownResult(result)) return
+  if (resolveChildExitCode(result) !== 0) {
+    console.warn('❗ Database migrations were not applied (database unreachable or migration failed).')
+    console.warn('   ↳ start the infra containers with `yarn infra:up`, then run `yarn db:migrate` (opt out of this check with OM_DEV_AUTO_MIGRATE=0)')
+  }
+  } catch (error) {
+    if (error?.name !== 'EncryptionCompatibilityError') throw error
+    console.warn('[setup] Automatic migrations were skipped because encryption compatibility could not be verified. Restore the configured encryption keys and service access before running setup.')
+  }
+}
+
+// App restart-on-crash is on by default (PM2-like resilience, mirroring the
+// MCP lifecycle); OM_DEV_APP_RESTART=0/false/no/off restores exit-on-crash.
+function shouldRestartAppOnCrash(env = process.env) {
+  const raw = env.OM_DEV_APP_RESTART
+  if (typeof raw !== 'string' || raw.trim() === '') return true
+  return !['0', 'false', 'no', 'off'].includes(raw.trim().toLowerCase())
+}
+
+async function runAppLifecycle() {
   const appArgs = [monorepoAppDevScript]
   if (classic) appArgs.push('--classic')
   else if (verbose) appArgs.push('--verbose')
@@ -1840,19 +2777,59 @@ function launchMonorepoAppDev() {
     progressLabel: 'Launching app runtime',
     activity: 'App runtime is starting',
   })
-  const app = spawnCommand(process.execPath, appArgs, {
-    cwd: monorepoAppDir,
-    stdio: 'inherit',
-    env: buildAppDevEnv({ stageCurrent, stageTotal }),
-  })
 
-  app.on('close', (code, signal) => {
-    if (!shuttingDown) {
-      // Unexpected child exit MUST surface as non-zero even if the child reported
-      // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
-      const childCode = resolveChildExitCode({ code, signal }, 1)
-      shutdown(childCode === 0 ? 1 : childCode)
+  const restartEnabled = shouldRestartAppOnCrash()
+  let fastCrashes = 0
+  while (!shuttingDown) {
+    const startedAt = Date.now()
+    writeSplashChildStateFileClear()
+    devRuntime.beginGeneration('app runtime launch')
+    const app = spawnCommand(process.execPath, appArgs, {
+      cwd: monorepoAppDir,
+      stdio: 'inherit',
+      env: buildAppDevEnv({ stageCurrent, stageTotal }),
+    })
+    managedAppChild = app
+
+    const result = await waitForClose(app)
+    if (shuttingDown || isGracefulShutdownResult(result)) return
+    // A recovery action relaunches the runtime itself, so this supervisor steps
+    // aside rather than racing it with a second child.
+    if (consumeRequestedRestart()) return
+
+    // Unexpected child exit MUST surface as non-zero even if the child reported
+    // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+    const childCode = resolveChildExitCode(result, 1)
+    recordManagedRuntimeExit(childCode, result?.signal)
+    // Gateway mode keeps serving diagnostics without the runtime, so it owns the
+    // aftermath and this loop must not restart underneath it.
+    if (keepSupervisorAliveAfterFailure()) return
+
+    const exitCode = childCode === 0 ? 1 : childCode
+    if (!restartEnabled) {
+      shutdown(exitCode)
+      return
     }
+    fastCrashes = isFastMcpCrash(Date.now() - startedAt) ? fastCrashes + 1 : 0
+    if (fastCrashes >= MCP_MAX_FAST_CRASHES) {
+      console.error(`❌ App runtime keeps crashing (exit ${exitCode}) — giving up on restarts.`)
+      shutdown(exitCode)
+      return
+    }
+    const delay = nextMcpRestartDelayMs(fastCrashes)
+    console.warn(`❗ App runtime exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s (OM_DEV_APP_RESTART=0 disables restarts)`)
+    updateSplashState({ activity: `App runtime crashed — restarting in ${Math.round(delay / 1000)}s` })
+    managedAppChild = null
+    await sleepUnlessShuttingDown(delay)
+  }
+}
+
+function launchMonorepoAppDev() {
+  if (startupAborted) return
+  startMcpRuntime()
+  void runAppLifecycle().catch((error) => {
+    console.error(`❌ App runtime supervisor failed: ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
   })
 }
 
@@ -1867,6 +2844,7 @@ async function runStandardDev() {
     '--log-prefix=none',
   ])
 
+  await applyPendingMigrationsBestEffort()
   startPackageWatch()
   launchMonorepoAppDev()
 }
@@ -1874,27 +2852,37 @@ async function runStandardDev() {
 async function runClassicStandardDev() {
   await runRawYarnCommand(['build:packages'])
 
+  await applyPendingMigrationsBestEffort()
   startPackageWatch()
   launchMonorepoAppDev()
 }
 
+function purgeGreenfieldCaches() {
+  const { activeServer } = purgeAppBuildCaches()
+  if (!activeServer) return true
+  console.error(`❌ Another next dev server is already running for this app (pid ${activeServer.pid}${activeServer.appUrl ? `, ${activeServer.appUrl}` : ''}).`)
+  console.error(`   Stop it first (for example: kill ${activeServer.pid}); a greenfield run would delete the build manifests it is serving.`)
+  shutdown(1)
+  return false
+}
+
 async function runGreenfieldDev() {
-  purgeAppBuildCaches()
+  if (!purgeGreenfieldCaches()) return
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
-  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5 })
+  await runPassthroughStage('🔨 Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true })
 
   startPackageWatch()
   launchMonorepoAppDev()
 }
 
 async function runClassicGreenfieldDev() {
-  purgeAppBuildCaches()
+  if (!purgeGreenfieldCaches()) return
   await runRawYarnCommand(['build:packages'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['build:packages'])
-  await runRawYarnCommand(['initialize', '--', '--reinstall'])
+  await runRawYarnCommand(['initialize', '--', '--reinstall'], { env: INIT_DEV_AUTOSTART_ENV })
 
   startPackageWatch()
   launchMonorepoAppDev()
@@ -1911,11 +2899,11 @@ async function runStandaloneSetup() {
   }
   await runPassthroughStage('📦 Installing dependencies', ['install'], { stageCurrent: 1, stageTotal: 5 })
   await runPassthroughStage('🧬 Generating app artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
-  await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], { stageCurrent: 3, stageTotal: 5 })
+  await runPassthroughStage('💾 Applying database migrations', ['db:migrate'], { stageCurrent: 3, stageTotal: 5 })
   await runPassthroughStage(
-    '🛠️ Initializing Open Mercato',
-    reinstall ? ['initialize', '--reinstall'] : ['initialize'],
-    { stageCurrent: 4, stageTotal: 5 },
+    '🔨 Initializing Open Mercato',
+    reinstall ? ['initialize', '--reinstall'] : ['initialize', '--skip-if-initialized'],
+    { stageCurrent: 4, stageTotal: 5, env: INIT_DEV_AUTOSTART_ENV, echoSummaryBox: true },
   )
   launchStandaloneDev({
     stageCurrent: 4,
@@ -1936,7 +2924,7 @@ async function runClassicStandaloneSetup() {
   await runRawYarnCommand(['install'])
   await runRawYarnCommand(['generate'])
   await runRawYarnCommand(['db:migrate'])
-  await runRawYarnCommand(reinstall ? ['initialize', '--reinstall'] : ['initialize'])
+  await runRawYarnCommand(reinstall ? ['initialize', '--reinstall'] : ['initialize', '--skip-if-initialized'], { env: INIT_DEV_AUTOSTART_ENV })
   launchStandaloneDev()
 }
 
@@ -1953,9 +2941,60 @@ async function runClassicStandaloneDev() {
   launchStandaloneDev()
 }
 
+// The proxy binds where the eager server would: the dev runner's --host, else
+// MCP_HTTP_HOST from the app's `.env` (what `mcp:serve-http` reads), else
+// loopback. Owning the port from the start means a later bind race can no
+// longer move the endpoint under the app or OpenCode.
+function resolveLazyMcpProxyHost() {
+  const devHost = resolveDevMcpHost({ env: process.env })
+  if (devHost) return devHost
+  try {
+    return parseEnv(fs.readFileSync(path.join(mcpCliCwd, '.env'), 'utf8')).MCP_HTTP_HOST?.trim() || '127.0.0.1'
+  } catch {
+    return '127.0.0.1'
+  }
+}
+
+async function listenLazyMcpProxy() {
+  mcpProxy = createLazyMcpProxy({
+    trustedPeers: ['127.0.0.1', '::1', ...(process.env.OM_DEV_MCP_TRUSTED_PEERS ?? '').split(',')],
+  })
+  const host = resolveLazyMcpProxyHost()
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await mcpProxy.listen(mcpPort, host)
+      return
+    } catch (error) {
+      if (error?.code !== 'EADDRINUSE' || attempt >= MCP_MAX_PORT_SELECTION_ATTEMPTS) throw error
+      mcpPort = await selectAvailableMcpPort(0)
+    }
+  }
+}
+
+async function prepareMcpEndpoint() {
+  if (!withMcp) return true
+  try {
+    mcpPort = await selectAvailableMcpPort(preferredMcpPort)
+    if (mcpLazy) await listenLazyMcpProxy()
+  } catch (error) {
+    console.error(`❌ Unable to select an MCP port: ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
+    return false
+  }
+
+  if (mcpPort !== preferredMcpPort) {
+    console.log(`🔌 MCP port ${preferredMcpPort} is unavailable; selected http://localhost:${mcpPort}/mcp`)
+  }
+  opencodeEndpointRefreshNeeded = !process.env.OPENCODE_MCP_URL && mcpPort !== MCP_DEFAULT_PORT
+  return true
+}
+
 async function main() {
+  if (!await prepareMcpEndpoint()) return
   printDevLogLocation()
+  devRuntime.start()
   await startSplashServer()
+  if (!await startDevRuntimeGateway()) return
   if (!ensureDevFileWatchLimits()) return
 
   if (!isMonorepo) {
@@ -1983,7 +3022,7 @@ async function main() {
       })
     }
     if (shouldAutoMigrateOnDev()) {
-      await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], {
+      await runPassthroughStage('💾 Applying database migrations', ['db:migrate'], {
         stageCurrent: 2,
         stageTotal: standaloneStageTotal,
       })
@@ -2016,6 +3055,27 @@ async function main() {
   await runStandardDev()
 }
 
+function resolveDevSessionMode() {
+  const topology = gatewayMode ? 'proxy' : 'direct'
+  const output = classic ? 'classic' : verbose ? 'verbose' : 'compact'
+  if (greenfield) return `greenfield:${topology}:${output}`
+  if (setupMode) return `setup:${topology}:${output}`
+  if (appOnly) return `app-only:${topology}:${output}`
+  return `dev:${topology}:${output}`
+}
+
+try {
+  devSession = await acquireDevSession({
+    workspaceRoot: process.env.OM_DEV_SESSION_WORKSPACE_ROOT?.trim() || process.cwd(),
+    mode: resolveDevSessionMode(),
+    url: resolveExpectedAppBaseUrl(),
+    role: 'dev-runner',
+  })
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  process.exit(1)
+}
+
 memoryTrace?.start()
 markMemoryTrace('dev:start', 'Dev runner started', {
   mode: splashMode,
@@ -2024,4 +3084,9 @@ markMemoryTrace('dev:start', 'Dev runner started', {
   greenfield,
   classic,
 })
-await main()
+try {
+  await main()
+} catch (error) {
+  console.error(`❌ ${error instanceof Error ? error.message : String(error)}`)
+  shutdown(2)
+}

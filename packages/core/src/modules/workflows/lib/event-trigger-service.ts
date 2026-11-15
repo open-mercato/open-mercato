@@ -66,14 +66,6 @@ export interface UnifiedTrigger {
   organizationId: string
 }
 
-interface CachedTriggers {
-  triggers: UnifiedTrigger[]
-  cachedAt: number
-}
-
-// Cache TTL: 5 minutes
-const TRIGGER_CACHE_TTL = 5 * 60 * 1000
-
 function readEventActorUserId(payload: Record<string, unknown>): string | null {
   const candidate = payload.userId ?? payload.actorUserId
   if (typeof candidate !== 'string') return null
@@ -325,33 +317,8 @@ export function mapEventToContext(
 }
 
 // ============================================================================
-// Trigger Loading with Caching
+// Trigger Loading
 // ============================================================================
-
-// In-memory cache for triggers (per tenant/org).
-// Park the Map on globalThis so the same compiled module loaded under two
-// paths (a Next.js server chunk vs. a worker resolving the file through a
-// different import root) shares one cache. Without this,
-// `invalidateTriggerCache(...)` called from the PUT /api/workflows/definitions
-// route clears its own copy while the wildcard event-trigger subscriber keeps
-// reading a stale copy populated before the trigger was added — newly added
-// triggers stay invisible for up to TRIGGER_CACHE_TTL. Mirrors the same
-// workaround used by the modules registry and `getDiRegistrars()`.
-const GLOBAL_TRIGGER_CACHE_KEY = '__openMercatoWorkflowTriggerCache__'
-
-function getTriggerCache(): Map<string, CachedTriggers> {
-  const existing = (globalThis as any)[GLOBAL_TRIGGER_CACHE_KEY] as
-    | Map<string, CachedTriggers>
-    | undefined
-  if (existing) return existing
-  const created = new Map<string, CachedTriggers>()
-  ;(globalThis as any)[GLOBAL_TRIGGER_CACHE_KEY] = created
-  return created
-}
-
-function getCacheKey(tenantId: string, organizationId: string): string {
-  return `${tenantId}:${organizationId}`
-}
 
 /**
  * Load legacy triggers from WorkflowEventTrigger entity table.
@@ -374,6 +341,7 @@ async function loadLegacyTriggers(
     },
     {
       orderBy: { priority: 'DESC', createdAt: 'ASC' },
+      refresh: true,
     },
     { tenantId, organizationId },
   )
@@ -386,7 +354,7 @@ async function loadLegacyTriggers(
     organizationId,
     enabled: true,
     deletedAt: null,
-  }, {}, { tenantId, organizationId }) : []
+  }, { refresh: true }, { tenantId, organizationId }) : []
   const definitionMap = new Map(definitions.map(d => [d.id, d]))
 
   return legacyTriggers
@@ -420,6 +388,13 @@ async function loadLegacyTriggers(
  * those with no triggers — so the caller can let a materialized (customized)
  * definition suppress its code-registry counterpart regardless of whether the
  * customization kept any triggers (#4425).
+ *
+ * Versions of a workflow coexist as separate rows, and publishing copies the
+ * triggers into the new row while the previous one stays enabled for the
+ * instances and pinned callers still running it. Triggers are therefore taken
+ * only from the database row an unpinned start resolves to
+ * (`findWorkflowDefinition`): the highest enabled, published version. Projecting every enabled row would
+ * start one instance per version for a single event.
  */
 async function loadEmbeddedTriggers(
   em: EntityManager,
@@ -428,7 +403,8 @@ async function loadEmbeddedTriggers(
 ): Promise<{ triggers: UnifiedTrigger[]; workflowIds: Set<string> }> {
   const postgresEm = em as unknown as PostgreSqlEntityManager
   // Load all definitions so disabled customizations still shadow their code
-  // counterpart. Only enabled definitions contribute embedded triggers below.
+  // counterpart. Only the resolved version of each workflow contributes
+  // embedded triggers below.
   const definitions = await findWithDecryption(
     postgresEm,
     WorkflowDefinition,
@@ -437,17 +413,25 @@ async function loadEmbeddedTriggers(
       organizationId,
       deletedAt: null,
     },
-    {},
+    { refresh: true },
     { tenantId, organizationId },
   )
 
   const triggers: UnifiedTrigger[] = []
   const workflowIds = new Set<string>()
+  const resolvedVersions = new Map<string, WorkflowDefinition>()
 
   for (const def of definitions) {
     workflowIds.add(def.workflowId)
-    if (!def.enabled) continue
+    if (!def.enabled || def.lifecycle !== 'published') continue
 
+    const resolved = resolvedVersions.get(def.workflowId)
+    if (!resolved || def.version > resolved.version) {
+      resolvedVersions.set(def.workflowId, def)
+    }
+  }
+
+  for (const def of resolvedVersions.values()) {
     const embeddedTriggers = def.definition?.triggers as WorkflowDefinitionTrigger[] | undefined
     if (!embeddedTriggers || embeddedTriggers.length === 0) continue
 
@@ -533,7 +517,9 @@ export function loadCodeTriggers(
 }
 
 /**
- * Load all enabled triggers for a tenant/organization with caching.
+ * Load current enabled triggers for a tenant/organization.
+ * Read each event from storage so independent app and worker processes observe
+ * committed definition changes without relying on process-local invalidation.
  * Merges legacy (entity), embedded (definition), and code-registry triggers;
  * a DB-backed source for a given workflowId takes precedence over its code
  * trigger so `customize` semantics are preserved.
@@ -542,17 +528,8 @@ export async function loadTriggersForTenant(
   em: EntityManager,
   tenantId: string,
   organizationId: string,
-  cacheService?: CacheService
+  _cacheService?: CacheService
 ): Promise<UnifiedTrigger[]> {
-  const cacheKey = getCacheKey(tenantId, organizationId)
-  const cache = getTriggerCache()
-
-  // Check in-memory cache
-  const cached = cache.get(cacheKey)
-  if (cached && Date.now() - cached.cachedAt < TRIGGER_CACHE_TTL) {
-    return cached.triggers
-  }
-
   // Load from both DB sources
   const [legacyTriggers, embedded] = await Promise.all([
     loadLegacyTriggers(em, tenantId, organizationId),
@@ -573,36 +550,14 @@ export async function loadTriggersForTenant(
   const allTriggers = [...legacyTriggers, ...embeddedTriggers, ...codeTriggers]
     .sort((a, b) => b.priority - a.priority)
 
-  // Update cache
-  cache.set(cacheKey, {
-    triggers: allTriggers,
-    cachedAt: Date.now(),
-  })
-
   return allTriggers
 }
 
 /**
- * Invalidate trigger cache for a tenant/organization.
- * Call this when:
- * - Legacy triggers are created/updated/deleted
- * - Workflow definitions with embedded triggers are created/updated/deleted
+ * Compatibility hook for definition writers. Trigger lists are read fresh for
+ * every event, so no process-local snapshot needs invalidation.
  */
-export function invalidateTriggerCache(tenantId: string, organizationId?: string): void {
-  const cache = getTriggerCache()
-  if (organizationId) {
-    // Invalidate specific org
-    const cacheKey = getCacheKey(tenantId, organizationId)
-    cache.delete(cacheKey)
-  } else {
-    // Invalidate all orgs for tenant
-    for (const key of cache.keys()) {
-      if (key.startsWith(`${tenantId}:`)) {
-        cache.delete(key)
-      }
-    }
-  }
-}
+export function invalidateTriggerCache(_tenantId: string, _organizationId?: string): void {}
 
 // ============================================================================
 // Trigger Matching
@@ -639,6 +594,134 @@ export async function findMatchingTriggers(
 // ============================================================================
 // Trigger Processing
 // ============================================================================
+
+// Open debounce windows for triggers configured with `debounceMs`, keyed by
+// tenant/org/trigger/entity and holding the timestamp each window closes at.
+// Parked on globalThis so duplicated service modules share debounce windows: the
+// compiled module can be loaded under two import roots (a Next.js server chunk
+// vs. a worker), and a module-local Map would debounce each copy separately —
+// halving the effective window whenever both copies see the same event stream.
+// The state is still per process: a deployment running several app or worker
+// processes debounces independently in each one, so the guard bounds trigger
+// storms per process rather than cluster-wide.
+const GLOBAL_TRIGGER_DEBOUNCE_KEY = '__openMercatoWorkflowTriggerDebounce__'
+
+// Cap on tracked keys so a long-lived worker cannot grow the Map without bound;
+// mirrors the prune step in query_index's `markAutoReindexScheduled`.
+const TRIGGER_DEBOUNCE_MAX_KEYS = 5000
+
+type GlobalWithTriggerDebounce = typeof globalThis & {
+  [GLOBAL_TRIGGER_DEBOUNCE_KEY]?: Map<string, number>
+}
+
+function getTriggerDebounceState(): Map<string, number> {
+  const globalScope = globalThis as GlobalWithTriggerDebounce
+  if (!globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY]) {
+    globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY] = new Map<string, number>()
+  }
+  return globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY]
+}
+
+// Entries store their own expiry rather than their start, so pruning never has
+// to assume one shared window length: `debounceMs` is per trigger and ranges
+// from 0 to the validator's one-hour ceiling, and expiring a one-hour window
+// because a 100 ms trigger happened to run the prune would silently reopen it.
+function pruneTriggerDebounceState(state: Map<string, number>, now: number): void {
+  if (state.size < TRIGGER_DEBOUNCE_MAX_KEYS) return
+
+  for (const [key, expiresAt] of state) {
+    if (expiresAt <= now) state.delete(key)
+  }
+
+  if (state.size < TRIGGER_DEBOUNCE_MAX_KEYS) return
+
+  const oldestKey = state.keys().next().value
+  if (oldestKey !== undefined) state.delete(oldestKey)
+}
+
+/**
+ * Resolve the debounce window a trigger/event pair shares, or `null` when the
+ * trigger has no debounce configured.
+ *
+ * The key includes the event payload's `id` so the window is per trigger *and*
+ * per entity — rapid updates to two different records still start two
+ * workflows. Tenant and organization are part of the key because code-defined
+ * triggers reuse one id across every tenant.
+ */
+function resolveTriggerDebounceWindow(
+  trigger: UnifiedTrigger,
+  payload: Record<string, unknown>,
+): { key: string; debounceMs: number } | null {
+  const debounceMs = trigger.config?.debounceMs
+
+  if (!debounceMs || debounceMs <= 0) return null
+
+  // Accept numeric ids too: falling back to the shared `*` bucket would collapse
+  // every record under one key and suppress workflows for unrelated entities.
+  const rawPayloadId = payload?.id
+  const payloadId =
+    typeof rawPayloadId === 'string' ? rawPayloadId
+    : typeof rawPayloadId === 'number' ? String(rawPayloadId)
+    : null
+
+  return { key: `${trigger.tenantId}:${trigger.organizationId}:${trigger.id}:${payloadId ?? '*'}`, debounceMs }
+}
+
+/**
+ * Check whether this event falls inside the trigger's debounce window, opening
+ * a fresh window when it does not.
+ *
+ * Leading-edge semantics: the first event fires the workflow and opens the
+ * window; repeats inside it are dropped. This matches the two other
+ * `debounceMs` implementations in the codebase (`markAutoReindexScheduled` in
+ * query_index, `NotificationDispatcher.shouldDebounce` in the UI package) and
+ * needs no timer that would have to survive a process restart.
+ *
+ * The window is opened here rather than after the workflow starts so that
+ * nothing awaits between reading and writing it — two events racing through
+ * `processEventTriggers` must not both observe an empty window. An attempt that
+ * does not go on to start a workflow closes its window again via
+ * `releaseTriggerDebounceWindow`, so only a real start keeps one open.
+ */
+function shouldDebounceTrigger(trigger: UnifiedTrigger, payload: Record<string, unknown>): boolean {
+  const debounceWindow = resolveTriggerDebounceWindow(trigger, payload)
+
+  if (!debounceWindow) return false
+
+  const state = getTriggerDebounceState()
+  const now = Date.now()
+  const expiresAt = state.get(debounceWindow.key)
+
+  if (expiresAt !== undefined && now < expiresAt) return true
+
+  pruneTriggerDebounceState(state, now)
+  state.delete(debounceWindow.key)
+  state.set(debounceWindow.key, now + debounceWindow.debounceMs)
+  return false
+}
+
+/**
+ * Close a window `shouldDebounceTrigger` opened for an event that never started
+ * a workflow — the concurrency limit blocked it, or mapping/starting threw.
+ * Leaving it open would let one blocked or failed attempt suppress every later
+ * event for the same record until the window elapsed, which at the validator's
+ * one-hour ceiling means an hour of silently dropped starts.
+ */
+function releaseTriggerDebounceWindow(trigger: UnifiedTrigger, payload: Record<string, unknown>): void {
+  const debounceWindow = resolveTriggerDebounceWindow(trigger, payload)
+
+  if (!debounceWindow) return
+
+  getTriggerDebounceState().delete(debounceWindow.key)
+}
+
+/**
+ * Clear all debounce windows. Test-only seam — production code relies on the
+ * windows expiring on their own.
+ */
+export function resetTriggerDebounceState(): void {
+  getTriggerDebounceState().clear()
+}
 
 /**
  * Check if max concurrent instances limit is reached.
@@ -687,11 +770,20 @@ export async function processEventTriggers(
 
   // Process each trigger (definitions already validated during loading)
   for (const trigger of triggers) {
+    let startedWorkflow = false
     try {
+      // Check debounce window before any DB work
+      if (shouldDebounceTrigger(trigger, context.payload)) {
+        logger.debug('Skipping trigger: inside debounce window', { triggerId: trigger.id, triggerName: trigger.name, debounceMs: trigger.config?.debounceMs })
+        result.skipped++
+        continue
+      }
+
       // Check concurrency limit
       const canStart = await checkConcurrencyLimit(em, trigger)
       if (!canStart) {
         logger.debug('Skipping trigger: max concurrent instances reached', { triggerId: trigger.id, triggerName: trigger.name })
+        releaseTriggerDebounceWindow(trigger, context.payload)
         result.skipped++
         continue
       }
@@ -741,6 +833,7 @@ export async function processEventTriggers(
         organizationId: context.organizationId,
       })
 
+      startedWorkflow = true
       result.triggered++
       result.instances.push({
         triggerId: trigger.id,
@@ -760,6 +853,7 @@ export async function processEventTriggers(
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       logger.error('Error processing trigger', { triggerId: trigger.id, triggerName: trigger.name, err: error })
+      if (!startedWorkflow) releaseTriggerDebounceWindow(trigger, context.payload)
       result.errors.push({
         triggerId: trigger.id,
         error: errorMessage,

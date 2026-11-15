@@ -700,6 +700,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         title={mode === 'create'
           ? t('sales.channels.offers.form.createTitle', 'Create offer')
           : t('sales.channels.offers.form.editTitle', 'Edit offer')}
+        titleHeadingLevel={1}
         entityId={E.catalog.catalog_offer}
         fields={fields}
         groups={groups}

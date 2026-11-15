@@ -111,6 +111,8 @@ curl -X PUT "$BASE_URL/directory/organizations" \
   }"
 ```
 
+Only the fields present in the body are changed. Omitting `parentId` or `childIds` leaves the organization's place in the hierarchy as it is; send `parentId: null` to move it to the top level and `childIds: []` to detach its children.
+
 Response:
 
 ```json

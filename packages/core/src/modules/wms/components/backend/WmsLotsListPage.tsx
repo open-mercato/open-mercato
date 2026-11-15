@@ -261,9 +261,10 @@ export default function WmsLotsListPage() {
             <DataTable
               embedded
               title={title}
+              titleHeadingLevel={2}
               columns={columns}
               data={lotsQuery.data.items}
-              isLoading={lotsQuery.isFetching}
+              isLoading={lotsQuery.isLoading}
               entityId={E.wms.inventory_lot}
               searchValue={search}
               onSearchChange={(value) => {

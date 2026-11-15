@@ -9,6 +9,7 @@ import type {
   EventDefinition,
   EventModuleConfig,
   EventPayload,
+  EventPayloadSchema,
   EmitOptions,
   CreateModuleEventsOptions,
   ModuleEventEmitter,
@@ -101,18 +102,44 @@ function getEventRegistryState(): EventRegistryState {
   }
 }
 
+const CRUD_AFTER_EVENT_SUFFIXES = ['.created', '.updated', '.deleted'] as const
+
+/**
+ * Generated payload schema for platform-emitted CRUD after-events. Mirrors the
+ * default payload built by the data engine's `emitOrmEntityEvent` when no
+ * `buildPayload` override is configured: `{ id, organizationId, tenantId }`
+ * plus `syncOrigin` when the write originated from a sync. organizationId and
+ * tenantId keys are always present but may be null, so they are `optional`.
+ */
+export const DEFAULT_CRUD_PAYLOAD_SCHEMA: EventPayloadSchema = {
+  fields: [
+    { path: 'id', type: 'text' },
+    { path: 'organizationId', type: 'text', optional: true },
+    { path: 'tenantId', type: 'text', optional: true },
+    { path: 'syncOrigin', type: 'text', optional: true },
+  ],
+}
+
+function applyDefaultCrudPayloadSchema(event: EventDefinition): EventDefinition {
+  if (event.payloadSchema) return event
+  if (event.category !== 'crud') return event
+  if (!CRUD_AFTER_EVENT_SUFFIXES.some(suffix => event.id.endsWith(suffix))) return event
+  return { ...event, payloadSchema: DEFAULT_CRUD_PAYLOAD_SCHEMA }
+}
+
 function addDeclaredEvent(event: EventDefinition): void {
+  const declared = applyDefaultCrudPayloadSchema(event)
   const state = getEventRegistryState()
-  state.declaredEventIds.add(event.id)
-  const existingIndex = state.declaredEvents.findIndex((candidate) => candidate.id === event.id)
+  state.declaredEventIds.add(declared.id)
+  const existingIndex = state.declaredEvents.findIndex((candidate) => candidate.id === declared.id)
   if (existingIndex < 0) {
-    state.declaredEvents.push(event)
+    state.declaredEvents.push(declared)
     return
   }
   // Refresh a module's own definition in place during HMR without allowing a
   // duplicate declaration from another module to take over the event id.
-  if (state.declaredEvents[existingIndex]?.module === event.module) {
-    state.declaredEvents[existingIndex] = event
+  if (state.declaredEvents[existingIndex]?.module === declared.module) {
+    state.declaredEvents[existingIndex] = declared
   }
 }
 
@@ -183,6 +210,20 @@ export function isPrivateCrossProcessEventEmitter(
   return typeof event.module === 'string'
     && event.module.length > 0
     && event.module === emitterModuleId
+}
+
+/**
+ * Check whether an event opted into coalesced browser delivery.
+ * Read by the event bus before it hands a browser dispatch to the coalescer.
+ */
+export function isCoalescedBroadcastEvent(eventId: string): boolean {
+  const event = getEventRegistryState().declaredEvents.find(e => e.id === eventId)
+  if (event?.broadcastCoalescing !== true) return false
+  // Private cross-process coordination must never be delayed, and an event with
+  // no browser sink has nothing to coalesce. Both are rejected at declaration
+  // time, so this is defence in depth for events registered by other paths.
+  if (event.crossProcessBroadcast === true) return false
+  return event.clientBroadcast === true || event.portalBroadcast === true
 }
 
 /**
@@ -271,11 +312,32 @@ export function createModuleEvents<
   // Build set of valid event IDs for runtime validation
   const validEventIds = new Set(events.map(e => e.id))
 
-  // Build full event definitions with module added
-  const fullEvents: EventDefinition[] = events.map(e => ({
-    ...e,
-    module: moduleId,
-  }))
+  // Build full event definitions with module added and the generated CRUD
+  // payload-schema default applied, so config consumers and the global
+  // registry see the same definitions.
+  const fullEvents: EventDefinition[] = events.map(e =>
+    applyDefaultCrudPayloadSchema({
+      ...e,
+      module: moduleId,
+    }),
+  )
+
+  for (const event of fullEvents) {
+    if (event.broadcastCoalescing !== true) continue
+    if (event.crossProcessBroadcast === true) {
+      throw new Error(
+        `[internal] Event "${event.id}" declared by module "${moduleId}" combines crossProcessBroadcast with ` +
+        'broadcastCoalescing. Private cross-process coordination must be delivered immediately — delaying it ' +
+        'would let another process serve stale data. Drop one of the two flags.',
+      )
+    }
+    if (event.clientBroadcast !== true && event.portalBroadcast !== true) {
+      throw new Error(
+        `[internal] Event "${event.id}" declared by module "${moduleId}" sets broadcastCoalescing without ` +
+        'clientBroadcast or portalBroadcast. There is no browser delivery to coalesce.',
+      )
+    }
+  }
 
   // Register all event IDs and definitions in the global registry.
   for (const event of fullEvents) {

@@ -14,10 +14,10 @@ const WRITABLE_KINDS = new Set(['implementation', 'regression'])
 const RELEASE_SUPPORTED_RUNNERS = ['codex', 'claude']
 const RELEASE_VALIDATION_COMMANDS = ['yarn generate', 'yarn typecheck', 'yarn lint', 'yarn build']
 const RELEASE_VALIDATION_OUTPUT_ROOTS = new Map([
-  ['yarn generate', ['.mercato/generated']],
+  ['yarn generate', ['.mercato/cache', '.mercato/generated']],
   ['yarn typecheck', ['tsconfig.tsbuildinfo']],
   ['yarn lint', []],
-  ['yarn build', ['.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
+  ['yarn build', ['.mercato/cache', '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo']],
 ])
 const RUNNERS = new Set(RELEASE_SUPPORTED_RUNNERS)
 const ALLOWED_VALIDATION_COMMANDS = new Set(RELEASE_VALIDATION_COMMANDS)
@@ -33,7 +33,7 @@ export const ROUTING_STEP_SLACK_MS = 60_000
 const COPY_EXCLUDED_PREFIXES = [
   '.git', '.next', '.turbo', '.cache', 'build', 'coverage', 'dist', 'node_modules', 'out',
   '.ai/framework-context', '.ai/harness/results', '.ai/reports',
-  '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo',
+  '.mercato/cache', '.mercato/generated', '.mercato/next', 'next-env.d.ts', 'tsconfig.tsbuildinfo',
 ]
 const SAFE_ENV_TEMPLATES = new Set(['.env.example', '.env.sample', '.env.template'])
 const SENSITIVE_AUTH_FILES = new Set(['.git-credentials', '.netrc', '.npmrc', '.pypirc', '.yarnrc', '.yarnrc.yml', '.yarnrc.yaml'])
@@ -42,7 +42,7 @@ const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|passwo
 const GENERATED_YARN_CONFIG_PATH = '.yarnrc.yml'
 const GENERATED_YARN_CONFIG_LIMIT = 16_384
 // The deterministic step invokes no model, so its ceiling must not ride --case-timeout. Timed on
-// Linux x86_64, the complete 234-case catalog finished in 768-998 ms, and narrowing the selection
+// Linux x86_64, the complete catalog finished in 768-998 ms, and narrowing the selection
 // down to a single case measured 842-890 ms, inside the same spread, so the run is dominated by
 // fixed process and catalog load rather than by case count. A flat allowance is therefore the
 // honest shape, and 120000 ms is both about 120x the slowest observed run and the value this gate

@@ -75,23 +75,67 @@ export function toNumericString(value: number | null | undefined): string | null
 
 export type RequireScope = {
   tenantId: string | null
-  organizationId: string | null
+  organizationId: string | string[] | null
 }
 
 // Derives the actor's effective tenant/org scope for entry-point lookups, mirroring
-// the bypass semantics of ensureTenantScope/ensureOrganizationScope: tenant is always
-// strict, organization is left unrestricted for super-admins and global-org actors.
+// commandScopeWhere's tenant rule: it falls back to organizationScope.tenantId for
+// auth-less callers (e.g. the Akeneo importer) instead of dropping tenant scoping
+// entirely. Organization is left unrestricted for super-admins and global-org actors
+// (allowedIds === null); otherwise, when a scope was resolved, it is scoped to every
+// allowed organization — never pinned to just the selected one, since a restricted
+// actor may legitimately target a record in any organization they can access. When no
+// scope was resolved at all (system/worker contexts), fall back to the legacy single
+// current-org pin, matching ensureOrganizationScope's Pattern C fallback.
 export function commandActorScope(ctx: CommandRuntimeContext): RequireScope {
-  const orgUnrestricted = ctx.auth?.isSuperAdmin === true || ctx.organizationScope?.allowedIds === null
-  return {
-    tenantId: ctx.auth?.tenantId ?? null,
-    organizationId: orgUnrestricted ? null : (ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null),
+  const tenantId = ctx.auth ? (ctx.auth.tenantId ?? null) : (ctx.organizationScope?.tenantId ?? null)
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
+  const scope = ctx.organizationScope
+  if (!scope) {
+    return {
+      tenantId,
+      organizationId: isSuperAdmin ? null : (ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null),
+    }
   }
+  const orgUnrestricted = isSuperAdmin || scope.allowedIds === null
+  return {
+    tenantId,
+    organizationId: orgUnrestricted ? null : scope.allowedIds,
+  }
+}
+
+export type CommandScopeWhere = {
+  tenantId?: string
+  organizationId?: { $in: string[] }
+}
+
+export function commandScopeWhere(
+  ctx: Pick<CommandRuntimeContext, 'auth' | 'organizationScope'>,
+): CommandScopeWhere {
+  const where: CommandScopeWhere = {}
+  const tenantId = ctx.auth ? ctx.auth.tenantId ?? null : ctx.organizationScope?.tenantId ?? null
+  if (tenantId) where.tenantId = tenantId
+  const allowedIds = ctx.organizationScope?.allowedIds
+  if (ctx.auth?.isSuperAdmin !== true && Array.isArray(allowedIds)) {
+    where.organizationId = { $in: [...allowedIds] }
+  }
+  return where
 }
 
 function applyScopeToWhere(where: Record<string, unknown>, scope: RequireScope): void {
   if (scope.tenantId != null) where.tenantId = scope.tenantId
-  if (scope.organizationId != null) where.organizationId = scope.organizationId
+  if (scope.organizationId != null) {
+    where.organizationId = Array.isArray(scope.organizationId)
+      ? { $in: scope.organizationId }
+      : scope.organizationId
+  }
+}
+
+// The decryption scope only picks an encryption key; decryptEntitiesWithFallbackScope
+// resolves the actual organization from the loaded record's own column, so a
+// multi-org allow-list has nothing single-valued to offer it here.
+function decryptionOrganizationId(organizationId: RequireScope['organizationId']): string | null | undefined {
+  return Array.isArray(organizationId) ? undefined : organizationId
 }
 
 export async function requireProduct(
@@ -107,7 +151,7 @@ export async function requireProduct(
     CatalogProduct,
     where as FilterQuery<CatalogProduct>,
     undefined,
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { tenantId: scope.tenantId, organizationId: decryptionOrganizationId(scope.organizationId) },
   )
   if (!product) throw new CrudHttpError(404, { error: message })
   return product
@@ -126,7 +170,7 @@ export async function requireVariant(
     CatalogProductVariant,
     where as FilterQuery<CatalogProductVariant>,
     { populate: ['product'] },
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { tenantId: scope.tenantId, organizationId: decryptionOrganizationId(scope.organizationId) },
   )
   if (!variant) throw new CrudHttpError(404, { error: message })
   return variant
@@ -145,7 +189,7 @@ export async function requireOffer(
     CatalogOffer,
     where as FilterQuery<CatalogOffer>,
     undefined,
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { tenantId: scope.tenantId, organizationId: decryptionOrganizationId(scope.organizationId) },
   )
   if (!offer) throw new CrudHttpError(404, { error: message })
   return offer
@@ -186,7 +230,7 @@ export async function requireOptionSchemaTemplate(
     CatalogOptionSchemaTemplate,
     where as FilterQuery<CatalogOptionSchemaTemplate>,
     undefined,
-    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { tenantId: scope.tenantId, organizationId: decryptionOrganizationId(scope.organizationId) },
   )
   if (!schema) throw new CrudHttpError(404, { error: message })
   return schema

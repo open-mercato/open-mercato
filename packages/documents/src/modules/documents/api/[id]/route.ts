@@ -11,6 +11,7 @@ import {
   assertDocumentNotArchived,
   handleDocumentsRouteError,
   hasDocumentsFeature,
+  isRemovedDocumentVisibleToActor,
   loadScopedDocument,
   readBody,
   resolveActorUserId,
@@ -91,7 +92,13 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   try {
     const id = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
+    if (!z.string().uuid().safeParse(id).success) {
+      throw new CrudHttpError(404, { error: 'documents.documents.notFound' })
+    }
     const projection = await resolveDocumentCapabilityProjection(ctx, id)
+    if (!projection.relationshipTier && await isRemovedDocumentVisibleToActor(ctx, id)) {
+      throw new CrudHttpError(404, { error: 'documents.documents.notFound' })
+    }
     if (!projection.relationshipTier || !projection.capabilities.canView) {
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }

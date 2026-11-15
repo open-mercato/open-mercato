@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import FeedbackEmail from '@open-mercato/onboarding/modules/onboarding/emails/FeedbackEmail'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('onboarding').child({ component: 'demo-feedback' })
 
@@ -28,6 +31,14 @@ const feedbackSchema = z.object({
 })
 
 export async function POST(req: Request) {
+  if (!parseBooleanWithDefault(process.env.DEMO_MODE, true)) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      ok: false,
+      error: translate('demoFeedback.errors.disabled', 'Feedback is unavailable because demo mode is disabled.'),
+    }, { status: 404 })
+  }
+
   const { error: rateLimitError } = await checkAuthRateLimit({
     req,
     ipConfig: demoFeedbackIpRateLimitConfig,
@@ -47,7 +58,18 @@ export async function POST(req: Request) {
   }
 
   const { email, message, marketingConsent } = parsed.data
-  const adminEmail = process.env.ADMIN_EMAIL || 'piotr@catchthetornado.com'
+  const adminEmail = process.env.ADMIN_EMAIL?.trim()
+  if (!adminEmail) {
+    logger.warn('ADMIN_EMAIL is unset; skipping demo feedback notification')
+    return NextResponse.json({ ok: true })
+  }
+
+  // Load-bearing despite the discarded result: building the request container is what runs
+  // `communication_channels`' DI registration, and that is the only caller of
+  // `registerEmailTransport`. Without it `sendEmail` below finds no registered transport and
+  // throws `EMAIL_TRANSPORT_NOT_CONFIGURED`. This route is the one `sendEmail` call site with no
+  // container of its own, so the dependency has to be satisfied explicitly here.
+  await createRequestContainer()
 
   const marketingText = marketingConsent ? 'Marketing consent: Yes' : 'Marketing consent: No'
 
@@ -92,6 +114,7 @@ const feedbackPostDoc: OpenApiMethodDoc = {
   },
   responses: [
     { status: 200, description: 'Feedback sent successfully.' },
+    { status: 404, description: 'Demo feedback is disabled unless demo mode is enabled.' },
   ],
 }
 

@@ -16,7 +16,7 @@ test.describe('TC-ADMIN-007: Custom Entity Creation', () => {
 
     // Navigate to User Entities
     await page.goto('/backend/entities/user');
-    await expect(page.getByRole('heading', { name: 'User Entities', level: 2 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'User Entities', level: 1 })).toBeVisible();
     await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
 
     // Verify table columns
@@ -51,7 +51,7 @@ test.describe('TC-ADMIN-007: Custom Entity Creation', () => {
     await expect(page.getByText('Description')).toBeVisible();
 
     // Verify Entity ID default placeholder value
-    const entityIdField = page.getByRole('textbox', { name: 'module_name:entity_id' });
+    const entityIdField = page.getByLabel('Entity ID', { exact: false });
     await expect(entityIdField).toBeVisible();
     await expect(entityIdField).toHaveValue('user:your_entity');
 

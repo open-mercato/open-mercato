@@ -222,21 +222,38 @@ export async function fireTimer(
     return
   }
 
+  // Resume from the paused wait BEFORE executing the transition, exactly as
+  // `sendSignal` does. Without it the executor's defense-in-depth PAUSED check
+  // stops the run at the very first step the timer traverses, so the instance
+  // sits at that step (typically END) as PAUSED and never completes.
+  instance.status = 'RUNNING'
+  await em.flush()
+
   const transitionResult = await transitionHandler.executeTransition(
     em,
     container,
     instance,
     instance.currentStepId,
     firstValidTransition.transition.toStepId,
-    transitionContext
+    { ...transitionContext, transitionId: firstValidTransition.transition.transitionId },
   )
 
   if (!transitionResult.success) {
-    throw new TimerError(
-      'Transition failed after timer fired',
-      'TRANSITION_FAILED',
-      { error: transitionResult.error }
-    )
+    const { handleTransitionFailure } = await import('./workflow-executor')
+    const failure = await handleTransitionFailure(em, container, instance, transitionResult, {
+      evalContext: transitionContext,
+      fromStepId: firstValidTransition.transition.fromStepId,
+      toStepId: firstValidTransition.transition.toStepId,
+      source: 'timer',
+    })
+    if (failure.kind === 'parked') return
+    if (failure.kind === 'failed') {
+      throw new TimerError(
+        'Transition failed after timer fired',
+        'TRANSITION_FAILED',
+        { error: transitionResult.error }
+      )
+    }
   }
 
   await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })

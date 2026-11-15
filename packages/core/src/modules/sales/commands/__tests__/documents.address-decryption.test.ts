@@ -25,6 +25,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { CustomerAddress } from '@open-mercato/core/modules/customers/data/entities'
 import { SalesQuote } from '../../data/entities'
 import type { DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -133,6 +134,7 @@ function makeEm(quote: Record<string, any>) {
     find: jest.fn(async () => []),
     flush: jest.fn(async () => {}),
     begin: jest.fn(async () => {}),
+    getKysely: () => createSalesDocumentLockKyselyFixture(QUOTE_ID),
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     fork() {
@@ -166,7 +168,10 @@ describe('#3038 — sales document shipping address is decrypted before snapshot
     const quote = makeQuote()
     const em = makeEm(quote)
     const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-    container.register({ em: asValue(em) })
+    container.register({
+      em: asValue(em),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
+    })
     const ctx: any = {
       container,
       auth: { tenantId: TENANT_ID, orgId: ORG_ID, sub: 'user-1' },

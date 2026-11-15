@@ -34,7 +34,7 @@ import {
   normalizeTaxRateSummary,
   mergeTaxRateSummaries,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
-import { parseNumericInput } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
+import { parseNumericInput, pickEnrichmentNamespaces } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
   VariantBasicsSection,
   VariantOptionValuesSection,
@@ -385,6 +385,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
                   ? record.updated_at
                   : null,
             ...customDefaults,
+            ...pickEnrichmentNamespaces(record),
           })
         }
       } catch (err) {
@@ -558,6 +559,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
       <PageBody>
         <CrudForm<VariantFormValues>
           title={formTitle}
+          titleHeadingLevel={1}
           backHref={productVariantsHref}
           versionHistory={{ resourceKind: 'catalog.variant', resourceId: variantId ? String(variantId) : '' }}
           extraActions={(

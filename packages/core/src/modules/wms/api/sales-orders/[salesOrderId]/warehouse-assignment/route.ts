@@ -5,6 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -17,6 +18,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { salesOrderWarehouseAssignBodySchema } from '../../../../data/validators'
 import { loadSalesOrderWarehouseAssignmentView } from '../../../../lib/salesOrderWarehouseAssignment'
 import { executeWmsCustomPostRoute } from '../../../inventory/helpers'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('wms')
 
@@ -69,7 +71,7 @@ async function resolveCommandContext(request: Request): Promise<CommandRuntimeCo
     container,
     auth,
     organizationScope,
-    selectedOrganizationId: organizationScope?.selectedId ?? auth.orgId ?? null,
+    selectedOrganizationId: resolveSingleOrganizationIdOrDeny(organizationScope, auth) ?? null,
     organizationIds: organizationScope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
     request,
   }
@@ -241,6 +243,10 @@ export async function DELETE(
     }
     return NextResponse.json(intercepted.body, { status: intercepted.statusCode })
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     if (error instanceof CrudHttpError) {
       return NextResponse.json(error.body, { status: error.status })
     }

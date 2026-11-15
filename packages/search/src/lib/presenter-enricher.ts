@@ -11,8 +11,14 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
+import {
+  buildCustomFieldKindIndex,
+  createCustomFieldKindMapResolver,
+  type CustomFieldKindMapResolver,
+} from '@open-mercato/shared/lib/custom-fields/kinds'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { extractFallbackPresenter } from './fallback-presenter'
+import { extractSearchableFields } from './field-policy'
 import { needsSearchResultEnrichment } from './search-result-enrichment'
 
 /** Maximum number of record IDs per batch query to avoid hitting DB parameter limits */
@@ -36,8 +42,80 @@ function chunk<T>(array: T[], size: number): T[][] {
 }
 
 /**
+ * Load the `kind` of every active custom field on the entity types in this batch, as a
+ * per-entity-type resolver. Without it `decryptIndexDocForSearch` runs `JSON.parse` over
+ * decrypted string-typed values and returns `123` where `"123"` was stored (issue #5968).
+ *
+ * The definitions' scope columns come along so each result row can be typed by the
+ * definition that applies to *its* organization: global search spans organizations, and one
+ * of them may override a key with a different `kind` than another.
+ *
+ * Fails open: a lookup error yields an empty map, which keeps the previous behavior rather
+ * than breaking search.
+ */
+async function fetchCustomFieldKindResolversByEntityType(
+  db: Kysely<any>,
+  entityTypes: string[],
+  tenantId: string,
+): Promise<Map<string, CustomFieldKindMapResolver>> {
+  const byEntityType = new Map<string, CustomFieldKindMapResolver>()
+  if (!entityTypes.length) return byEntityType
+  try {
+    const rows = await db
+      .selectFrom('custom_field_defs')
+      .select(['entity_id', 'key', 'kind', 'organization_id', 'tenant_id', 'config_json', 'updated_at'])
+      .where('entity_id', 'in', entityTypes)
+      .where('is_active', '=', true)
+      .where((eb: any) => eb.or([
+        eb('tenant_id', '=', tenantId),
+        eb('tenant_id', 'is', null),
+      ]))
+      .execute() as Array<Record<string, unknown>>
+    const grouped = new Map<string, Array<Record<string, unknown>>>()
+    for (const row of rows) {
+      const entityType = typeof row.entity_id === 'string' ? row.entity_id : String(row.entity_id ?? '')
+      if (!entityType) continue
+      const group = grouped.get(entityType) ?? []
+      group.push(row)
+      grouped.set(entityType, group)
+    }
+    for (const [entityType, group] of grouped) {
+      const index = buildCustomFieldKindIndex(group.map((row) => ({
+        key: row.key,
+        kind: row.kind,
+        organizationId: row.organization_id,
+        tenantId: row.tenant_id,
+        configJson: row.config_json,
+        updatedAt: row.updated_at,
+      })))
+      byEntityType.set(entityType, createCustomFieldKindMapResolver(index))
+    }
+  } catch (err) {
+    logWarning('Failed to resolve custom field kinds', { err })
+  }
+  return byEntityType
+}
+
+/**
  * Build a single batch query for multiple entity types and their record IDs.
  * Uses OR conditions to fetch all needed docs in one round trip.
+ *
+ * The tenant predicate carries the same NULL branch the organization predicate
+ * below already has, and for the same reason: a row stored under a null scope is
+ * one shared record, not a record belonging to nobody. `entity_indexes` holds at
+ * most one row per (entity_type, entity_id, organization_id_coalesced), so a
+ * platform-wide catalogue whose source table has neither scope column has exactly
+ * one row to serve every tenant from, and an exact-match tenant predicate resolves
+ * it for at most one of them; the rest get a search hit with no presenter, which
+ * the UI renders as a raw record id.
+ *
+ * The branch is deliberately NOT `tenant_id IS NULL` on its own. `tenant_id` is
+ * null on the projection of every source table with neither scope column —
+ * `resolveQueryIndexRecordScope()` calls that shape `global` and requires an
+ * explicitly null scope for it — and most of those tables are private
+ * (`directory:tenant`, `auth:user_role`, `auth:session`). An unqualified NULL
+ * branch would serve all of them to every tenant. Only entity types declared
+ * through `registerTenantGlobalEntityTypes()` are widened.
  */
 async function fetchDocsBatch(
   db: Kysely<any>,
@@ -57,6 +135,12 @@ async function fetchDocsBatch(
 
   if (allPairs.length === 0) return allDocs
 
+  // Dynamically imported to match the sibling reader in `strategies/token.strategy.ts`
+  // and keep this module free of a load-time edge back into `@open-mercato/core`.
+  const { resolveQueryIndexSearchScope, buildQueryIndexSearchScopePredicate } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+  const scope = await resolveQueryIndexSearchScope()
+  const globalTypes = new Set(scope.tenantGlobalEntityTypes)
+
   // Process in chunks to avoid hitting DB parameter limits
   const chunks = chunk(allPairs, BATCH_SIZE)
 
@@ -69,11 +153,24 @@ async function fetchDocsBatch(
       chunkByType.set(entityType, ids)
     }
 
+    // Entity types in this chunk that are declared platform-wide catalogues, and so
+    // may also be served from a row stored under the null tenant.
+    const globalEntityTypes = Array.from(chunkByType.keys()).filter((entityType) => globalTypes.has(entityType))
+
     // Build query with OR conditions per entity type
     let query = db
       .selectFrom('entity_indexes' as any)
       .select(['entity_type' as any, 'entity_id' as any, 'doc' as any])
-      .where('tenant_id' as any, '=', tenantId)
+      .where(buildQueryIndexSearchScopePredicate(scope, { entityTypeRef: 'entity_indexes.entity_type', recordIdRef: 'entity_indexes.entity_id', organizationIdRef: 'entity_indexes.organization_id' }, tenantId))
+      .where((eb) => (globalEntityTypes.length === 0
+        ? eb('tenant_id' as any, '=', tenantId)
+        : eb.or([
+          eb('tenant_id' as any, '=', tenantId),
+          eb.and([
+            eb('tenant_id' as any, 'is', null),
+            eb('entity_type' as any, 'in', globalEntityTypes),
+          ]),
+        ])))
       .where('deleted_at' as any, 'is', null)
       .where((eb: any) => eb.or(
         Array.from(chunkByType.entries()).map(([entityType, recordIds]) => eb.and([
@@ -248,7 +345,7 @@ async function computePresenterAndLinks(
 
   // Fallback presenter: extract from doc fields directly
   if (!presenter) {
-    presenter = extractFallbackPresenter(doc, entityId, recordId)
+    presenter = extractFallbackPresenter(extractSearchableFields(doc, { fieldPolicy: config?.fieldPolicy }), entityId, recordId)
   }
 
   // Resolve URL from config
@@ -291,6 +388,14 @@ export function createPresenterEnricher(
   encryptionService?: TenantDataEncryptionService | null,
 ): PresenterEnricherFn {
   return async (results, tenantId, organizationId) => {
+    const { resolveQueryIndexSearchScope, filterQueryIndexSearchRecords } = await import('@open-mercato/core/modules/query_index/lib/search-scope')
+    const scope = await resolveQueryIndexSearchScope()
+    const persistedSources = new Set(['tokens', 'vector', 'fulltext'])
+    const candidates = results.filter((result) => persistedSources.has(result.source))
+      .map((result) => ({ entityId: result.entityId, recordId: result.recordId, tenantId, organizationId: result.organizationId ?? null, result }))
+    const allowed = await filterQueryIndexSearchRecords(db, scope, candidates)
+    const allowedResults = new Set(allowed.map((candidate) => candidate.result))
+    results = results.filter((result) => !scope.blockedEntityTypes.includes(result.entityId) && (!persistedSources.has(result.source) || allowedResults.has(result)))
     const shouldEnrich = (result: SearchResult): boolean =>
       needsSearchResultEnrichment(result) || entityConfigMap.has(result.entityId as EntityId)
 
@@ -305,8 +410,17 @@ export function createPresenterEnricher(
       byEntityType.set(result.entityId, group)
     }
 
+    // The kind lookup only matters to decryption, so skip the round trip entirely when no
+    // encryption service will run — search is a hot path and the map would be dead weight.
+    const decryptionActive = Boolean(encryptionService) && encryptionService?.isEnabled?.() !== false
+
     // Single batch query for all docs across all entity types
-    const rawDocs = await fetchDocsBatch(db, byEntityType, tenantId, organizationId)
+    const [rawDocs, kindResolversByEntityType] = await Promise.all([
+      fetchDocsBatch(db, byEntityType, tenantId, organizationId),
+      decryptionActive
+        ? fetchCustomFieldKindResolversByEntityType(db, Array.from(byEntityType.keys()), tenantId)
+        : Promise.resolve(new Map<string, CustomFieldKindMapResolver>()),
+    ])
 
     // Decrypt docs in parallel using DEK cache for efficiency
     const dekCache = new Map<string | null, string | null>()
@@ -320,12 +434,17 @@ export function createPresenterEnricher(
           const docOrgId = (docData.organization_id as string | null | undefined) ?? organizationId
           const scope = { tenantId, organizationId: docOrgId }
 
+          // Same scope for the kind as for the decryption itself — a result from another
+          // organization must not be typed by this organization's definition.
+          const resolveKinds = kindResolversByEntityType.get(row.entity_type)
+
           const decryptedDoc = await decryptIndexDocForSearch(
             row.entity_type,
             row.doc,
             scope,
             encryptionService ?? null,
             dekCache,
+            resolveKinds ? resolveKinds(docOrgId, tenantId) : null,
           )
           return { ...row, doc: decryptedDoc }
         } catch (err) {

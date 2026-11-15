@@ -87,6 +87,19 @@ describe('deals organization scope', () => {
     expect(ids).toEqual([NO_ORGANIZATION_SENTINEL])
   })
 
+  it('keeps an explicit empty scope deny-all even when auth has a home organization', async () => {
+    const { em } = createEntityManager([])
+
+    const ids = await resolveDealsOrganizationIds({
+      em,
+      scope: { filterIds: [] },
+      auth: { orgId: accountOrgId },
+      tenantId,
+    })
+
+    expect(ids).toEqual([NO_ORGANIZATION_SENTINEL])
+  })
+
   it('never returns an empty list, so callers can rely on the first id', async () => {
     const { em } = createEntityManager([])
 

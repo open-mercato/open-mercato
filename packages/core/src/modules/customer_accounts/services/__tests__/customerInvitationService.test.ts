@@ -1,12 +1,22 @@
 /** @jest-environment node */
+import { LockMode, UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { hash } from 'bcryptjs'
+import {
+  CustomerInvitationEmailConflictError,
+  CustomerInvitationService,
+  isCustomerInvitationEmailConflictError,
+} from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import {
   CustomerRole,
   CustomerUser,
   CustomerUserInvitation,
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
+
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
+  isCustomerTenantActive: jest.fn(async () => true),
+}))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator', () => ({
   generateSecureToken: jest.fn(() => 'raw-token'),
@@ -15,6 +25,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator', () 
 
 jest.mock('@open-mercato/shared/lib/encryption/aes', () => ({
   hashForLookup: jest.fn(() => 'email-hash'),
+  lookupHashCandidates: jest.fn(() => ['email-hash', 'legacy-email-hash']),
 }))
 
 jest.mock('bcryptjs', () => ({
@@ -27,6 +38,133 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findAndCountWithDecryption: (em: any, entity: any, where: any, options?: any) => em.findAndCount(entity, where, options),
 }))
 
+describe('CustomerInvitationService invitation terminal transitions', () => {
+  const scope = {
+    tenantId: '11111111-1111-4111-8111-111111111111',
+    organizationId: '22222222-2222-4222-8222-222222222222',
+  }
+  const invitationId = '33333333-3333-4333-8333-333333333333'
+
+  function buildFixture() {
+    const invitation = {
+      id: invitationId,
+      ...scope,
+      email: 'invitee@example.com',
+      token: 'hashed-token',
+      roleIdsJson: [],
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+    const transactionEm = {
+      nativeUpdate: jest.fn(async () => 1),
+      findOne: jest.fn(async () => null),
+      create: jest.fn((_entity: unknown, data: unknown) => data),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    const transactional = jest.fn(async (operation: (em: EntityManager) => Promise<unknown>) =>
+      operation(transactionEm as unknown as EntityManager),
+    )
+    const rootEm = {
+      findOne: jest.fn(async () => invitation),
+      nativeUpdate: jest.fn(async () => 1),
+      transactional,
+    }
+    const service = new CustomerInvitationService(rootEm as unknown as EntityManager)
+    return { service, invitation, rootEm, transactionEm }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('cancels only an unexpired pending invitation in the supplied tenant and organization', async () => {
+    const { service, rootEm } = buildFixture()
+
+    await expect(service.cancelInvitation(invitationId, scope)).resolves.toBe(true)
+
+    expect(rootEm.nativeUpdate).toHaveBeenCalledWith(CustomerUserInvitation, {
+      id: invitationId,
+      ...scope,
+      acceptedAt: null,
+      cancelledAt: null,
+      expiresAt: { $gt: expect.any(Date) },
+    }, { cancelledAt: expect.any(Date) })
+    expect(rootEm.findOne).not.toHaveBeenCalled()
+    expect(rootEm.transactional).not.toHaveBeenCalled()
+  })
+
+  it('returns a neutral unchanged outcome for missing, out-of-scope, or terminal invitations', async () => {
+    const { service, rootEm } = buildFixture()
+    rootEm.nativeUpdate.mockResolvedValue(0)
+
+    await expect(service.cancelInvitation(invitationId, scope)).resolves.toBe(false)
+  })
+
+  it.each([
+    { tenantId: '', organizationId: scope.organizationId },
+    { tenantId: scope.tenantId, organizationId: '' },
+  ])('refuses an incomplete scope without querying', async (incompleteScope) => {
+    const { service, rootEm } = buildFixture()
+
+    await expect(service.cancelInvitation(invitationId, incompleteScope)).resolves.toBe(false)
+    expect(rootEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('does not create a user if cancellation wins during password hashing', async () => {
+    const { service, transactionEm } = buildFixture()
+    jest.mocked(hash).mockImplementationOnce(async () => {
+      await service.cancelInvitation(invitationId, scope)
+      transactionEm.nativeUpdate.mockResolvedValue(0)
+      return 'hashed-password'
+    })
+
+    await expect(service.acceptInvitation('raw-token', 'Password123!', 'Invitee')).resolves.toBeNull()
+    expect(transactionEm.create).not.toHaveBeenCalled()
+    expect(transactionEm.persist).not.toHaveBeenCalled()
+    expect(transactionEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('rechecks the original token and pending state atomically within the user creation transaction', async () => {
+    const { service, invitation, rootEm, transactionEm } = buildFixture()
+
+    const result = await service.acceptInvitation('raw-token', 'Password123!', 'Invitee')
+
+    expect(rootEm.transactional).toHaveBeenCalledTimes(1)
+    expect(transactionEm.nativeUpdate).toHaveBeenCalledWith(CustomerUserInvitation, {
+      id: invitationId,
+      ...scope,
+      token: 'hashed-token',
+      acceptedAt: null,
+      cancelledAt: null,
+      expiresAt: { $gt: expect.any(Date) },
+    }, { acceptedAt: expect.any(Date) })
+    expect(result?.invitation.acceptedAt).toBeInstanceOf(Date)
+    expect(transactionEm.create).toHaveBeenCalledTimes(1)
+    expect(transactionEm.flush).toHaveBeenCalledTimes(1)
+    expect(result?.invitation).toBe(invitation)
+    expect(invitation.acceptedAt).toBeInstanceOf(Date)
+  })
+
+  it('propagates transaction failure without marking the original invitation accepted', async () => {
+    const { service, invitation, transactionEm } = buildFixture()
+    transactionEm.flush.mockRejectedValue(new Error('transaction failed'))
+
+    await expect(service.acceptInvitation('raw-token', 'Password123!', 'Invitee'))
+      .rejects.toThrow('transaction failed')
+    expect(invitation.acceptedAt).toBeNull()
+  })
+
+  it.each(['cancelledAt', 'acceptedAt'] as const)('rejects an invitation already marked %s', async (field) => {
+    const { service, invitation, rootEm } = buildFixture()
+    invitation[field] = new Date()
+
+    await expect(service.acceptInvitation('raw-token', 'Password123!', 'Invitee')).resolves.toBeNull()
+    expect(rootEm.transactional).not.toHaveBeenCalled()
+  })
+})
+
 describe('CustomerInvitationService.acceptInvitation — role lookup batching', () => {
   const roleIds = [
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -36,7 +174,7 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const organizationId = '22222222-2222-4222-8222-222222222222'
 
-  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
   let service: CustomerInvitationService
 
   beforeEach(() => {
@@ -47,7 +185,9 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
       create: jest.fn((_: unknown, data: unknown) => data as any),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
-    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+      nativeUpdate: jest.fn(async () => 1),
+      transactional: jest.fn(async (operation: (transactionEm: EntityManager) => Promise<unknown>) => operation(mockEm as unknown as EntityManager)),
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 
@@ -195,6 +335,137 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
   })
 })
 
+describe('CustomerInvitationService.acceptInvitation — soft-deleted email reuse (#5532)', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '22222222-2222-4222-8222-222222222222'
+
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
+  let service: CustomerInvitationService
+
+  const buildInvitation = () => ({
+    id: 'inv-reuse',
+    email: 'reused@example.com',
+    tenantId,
+    organizationId,
+    customerEntityId: null,
+    personEntityId: null,
+    roleIdsJson: [],
+    expiresAt: new Date(Date.now() + 60_000),
+    acceptedAt: null,
+    cancelledAt: null,
+  }) as unknown as CustomerUserInvitation
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEm = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+      create: jest.fn((_: unknown, data: unknown) => data as any),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+      nativeUpdate: jest.fn(async () => 1),
+      transactional: jest.fn(async (operation: (transactionEm: EntityManager) => Promise<unknown>) => operation(mockEm as unknown as EntityManager)),
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
+    service = new CustomerInvitationService(mockEm as unknown as EntityManager)
+  })
+
+  it('creates the user when only a soft-deleted CustomerUser row shares the email (the active-row lookup filters it out)', async () => {
+    const invitation = buildInvitation()
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      if (entity === CustomerUser) return null
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+
+    const result = await service.acceptInvitation('raw-token', 'Secret123!', 'Reused User')
+
+    expect(result).not.toBeNull()
+    const userFinds = (mockEm.findOne as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userFinds).toHaveLength(1)
+    expect(userFinds[0][1]).toMatchObject({ tenantId, deletedAt: null })
+    const userCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userCreates).toHaveLength(1)
+  })
+
+  it('matches the legacy lookup hash as well, so an active account written before the keyed digest is still found', async () => {
+    const invitation = buildInvitation()
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+
+    await service.acceptInvitation('raw-token', 'Secret123!', 'Reused User')
+
+    const userFinds = (mockEm.findOne as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userFinds[0][1].emailHash).toEqual({ $in: ['email-hash', 'legacy-email-hash'] })
+    // The new row must still be written under the primary hash only.
+    const userCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userCreates[0][1]).toMatchObject({ emailHash: 'email-hash' })
+  })
+
+  it('maps a unique-constraint violation raised by the flush onto the same conflict error, so a concurrent accept cannot resurface the raw 500', async () => {
+    const invitation = buildInvitation()
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+    ;(mockEm.flush as jest.Mock).mockRejectedValue(
+      new UniqueConstraintViolationException(new Error('duplicate key value violates unique constraint')),
+    )
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'Reused User'))
+      .rejects.toThrow(CustomerInvitationEmailConflictError)
+  })
+
+  it('maps a driver error carrying only the Postgres unique-violation SQLSTATE, since the thrown exception class may come from another MikroORM copy', async () => {
+    const invitation = buildInvitation()
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+    const foreignRealmViolation = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      name: 'UniqueConstraintViolationException',
+      code: '23505',
+    })
+    ;(mockEm.flush as jest.Mock).mockRejectedValue(foreignRealmViolation)
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'Reused User'))
+      .rejects.toThrow(CustomerInvitationEmailConflictError)
+  })
+
+  it('lets an unrelated flush failure propagate untouched rather than reporting it as an email conflict', async () => {
+    const invitation = buildInvitation()
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+    ;(mockEm.flush as jest.Mock).mockRejectedValue(new Error('connection terminated'))
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'Reused User'))
+      .rejects.toThrow('connection terminated')
+  })
+
+  it('throws CustomerInvitationEmailConflictError instead of creating a duplicate when an active CustomerUser already owns the email', async () => {
+    const invitation = buildInvitation()
+    const activeUser = { id: 'existing-user', tenantId, emailHash: 'email-hash', deletedAt: null }
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      if (entity === CustomerUser) return activeUser
+      return null
+    })
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'Reused User'))
+      .rejects.toThrow(CustomerInvitationEmailConflictError)
+    expect(mockEm.create).not.toHaveBeenCalledWith(CustomerUser, expect.anything())
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+})
+
 describe('CustomerInvitationService.createInvitation — pending-invitation dedupe', () => {
   const roleIds = [
     'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -203,7 +474,7 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
   const tenantId = '11111111-1111-4111-8111-111111111111'
   const organizationId = '22222222-2222-4222-8222-222222222222'
 
-  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'transactional'>>
   let service: CustomerInvitationService
 
   beforeEach(() => {
@@ -214,7 +485,8 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
       create: jest.fn((_: unknown, data: unknown) => data as any),
       persist: jest.fn(() => mockEm),
       flush: jest.fn(async () => undefined),
-    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+      transactional: jest.fn(async (operation: (transactionEm: EntityManager) => Promise<unknown>) => operation(mockEm as unknown as EntityManager)),
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'transactional'>>
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 
@@ -280,6 +552,51 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
       cancelledAt: null,
     })
     expect(dedupeFinds[0][1].expiresAt).toHaveProperty('$gt')
+    expect(dedupeFinds[0][2]).toMatchObject({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+    expect(mockEm.transactional).toHaveBeenCalledTimes(1)
+  })
+
+  // #5499: re-inviting the same address from a surface that only knows the company
+  // (portal invite, admin users page) must not strip the person link off the row —
+  // the person's account-status card finds the invitation through it — nor the
+  // display name the invitation email is personalized with.
+  it('keeps the existing person link and display name when the re-invite carries neither', async () => {
+    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const existing = {
+      id: 'inv-existing',
+      email: 'old@example.com',
+      tenantId,
+      organizationId,
+      emailHash: 'email-hash',
+      token: 'old-hashed-token',
+      customerEntityId: null,
+      personEntityId,
+      roleIdsJson: ['old-role'],
+      invitedByUserId: null,
+      invitedByCustomerUserId: null,
+      displayName: 'Old Name',
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return existing
+      return null
+    })
+
+    const result = await service.createInvitation(
+      'old@example.com',
+      { tenantId, organizationId },
+      { roleIds, customerEntityId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', invitedByCustomerUserId: 'portal-user-1' },
+    )
+
+    expect(result.reused).toBe(true)
+    expect(existing.personEntityId).toBe(personEntityId)
+    expect(existing.displayName).toBe('Old Name')
+    expect(existing.customerEntityId).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+    expect(result.rollbackState?.personEntityId).toBe(personEntityId)
+    expect(result.rollbackState?.displayName).toBe('Old Name')
   })
 
   it('inserts a new invitation row when no pending invitation exists', async () => {
@@ -313,33 +630,56 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
 })
 
 describe('CustomerInvitationService.rollbackInvitation', () => {
-  it('hard-deletes the invitation and flushes the removal', async () => {
+  function fixture() {
+    const invitation = {
+      id: 'inv-roll', tenantId: 'tenant', organizationId: 'organization',
+      email: 'new@example.com', token: 'new-token', roleIdsJson: ['new-role'],
+      expiresAt: new Date(Date.now() + 60_000), acceptedAt: null, cancelledAt: null,
+    } as CustomerUserInvitation
+    let persisted: CustomerUserInvitation | null = { ...invitation }
     const flush = jest.fn(async () => undefined)
-    const mockEm = { remove: jest.fn(() => mockEm), flush } as unknown as EntityManager
-    const service = new CustomerInvitationService(mockEm)
-    const invitation = { id: 'inv-roll' } as unknown as CustomerUserInvitation
+    const transactionEm = {
+      flush,
+      findOne: jest.fn(async (_entity: unknown, where: {
+        id: string; tenantId: string; organizationId: string; token: string
+        acceptedAt: null; cancelledAt: null; expiresAt: { $gt: Date }
+      }) => persisted && persisted.id === where.id && persisted.tenantId === where.tenantId
+        && persisted.organizationId === where.organizationId && persisted.token === where.token
+        && persisted.acceptedAt === where.acceptedAt && persisted.cancelledAt === where.cancelledAt
+        && persisted.expiresAt > where.expiresAt.$gt ? persisted : null),
+      remove: jest.fn(() => { persisted = null; return { flush } }),
+    }
+    const mockEm = {
+      remove: transactionEm.remove,
+      flush,
+      transactional: jest.fn(async (operation: (em: EntityManager) => Promise<void>) => operation(transactionEm as unknown as EntityManager)),
+      nativeUpdate: jest.fn(async (_entity: unknown, where: { id: string; tenantId: string; organizationId: string }, update: { cancelledAt: Date }) => {
+        if (!persisted || persisted.id !== where.id || persisted.tenantId !== where.tenantId
+          || persisted.organizationId !== where.organizationId || persisted.acceptedAt || persisted.cancelledAt) return 0
+        persisted.cancelledAt = update.cancelledAt
+        return 1
+      }),
+    }
+    const service = new CustomerInvitationService(mockEm as unknown as EntityManager)
+    return { invitation, transactionEm, mockEm, service, persisted: () => persisted }
+  }
 
-    await service.rollbackInvitation(invitation, null)
-
-    expect(mockEm.remove).toHaveBeenCalledWith(invitation)
-    expect(flush).toHaveBeenCalledTimes(1)
+  it('removes only the exact scoped pending token under a refreshed write lock', async () => {
+    const state = fixture()
+    const managed = state.persisted()
+    await state.service.rollbackInvitation(state.invitation, null)
+    expect(state.transactionEm.findOne).toHaveBeenCalledWith(CustomerUserInvitation, {
+      id: state.invitation.id, tenantId: 'tenant', organizationId: 'organization', token: 'new-token',
+      acceptedAt: null, cancelledAt: null, expiresAt: { $gt: expect.any(Date) },
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+    expect(state.transactionEm.remove).toHaveBeenCalledWith(managed)
+    expect(state.transactionEm.flush).toHaveBeenCalledTimes(1)
+    expect(state.mockEm.transactional).toHaveBeenCalledTimes(1)
+    expect(state.persisted()).toBeNull()
   })
 
   it('restores the prior state of a reused invitation', async () => {
-    const flush = jest.fn(async () => undefined)
-    const mockEm = { remove: jest.fn(), flush } as unknown as EntityManager
-    const service = new CustomerInvitationService(mockEm)
-    const invitation = {
-      email: 'new@example.com',
-      token: 'new-token',
-      customerEntityId: 'new-customer',
-      personEntityId: 'new-person',
-      roleIdsJson: ['new-role'],
-      invitedByUserId: 'new-user',
-      invitedByCustomerUserId: null,
-      displayName: 'New Name',
-      expiresAt: new Date('2026-08-05T00:00:00.000Z'),
-    } as unknown as CustomerUserInvitation
+    const state = fixture()
     const rollbackState = {
       email: 'old@example.com',
       token: 'old-token',
@@ -352,10 +692,84 @@ describe('CustomerInvitationService.rollbackInvitation', () => {
       expiresAt: new Date('2026-08-04T00:00:00.000Z'),
     }
 
-    await service.rollbackInvitation(invitation, rollbackState)
+    await state.service.rollbackInvitation(state.invitation, rollbackState)
 
-    expect(invitation).toMatchObject(rollbackState)
-    expect(mockEm.remove).not.toHaveBeenCalled()
-    expect(flush).toHaveBeenCalledTimes(1)
+    expect(state.persisted()).toMatchObject(rollbackState)
+    expect(state.invitation.token).toBe('new-token')
+    expect(state.transactionEm.remove).not.toHaveBeenCalled()
+    expect(state.transactionEm.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['acceptedAt', 'cancelledAt', 'token', 'expiresAt', 'tenantId', 'organizationId'] as const)(
+    'preserves a row whose %s changed while delivery was in flight, including reused rows', async (field) => {
+      for (const reused of [false, true]) {
+        const state = fixture()
+        const persisted = state.persisted()!
+        Object.assign(persisted, { [field]: field === 'expiresAt' ? new Date(0)
+          : field === 'acceptedAt' || field === 'cancelledAt' ? new Date() : 'newer-value' })
+        const before = { ...persisted }
+        const rollbackState = reused ? {
+          email: 'old@example.com', token: 'old-token', roleIdsJson: ['old-role'],
+          expiresAt: new Date(Date.now() + 60_000), customerEntityId: null, personEntityId: null,
+          invitedByUserId: null, invitedByCustomerUserId: null, displayName: null,
+        } : null
+        await state.service.rollbackInvitation(state.invitation, rollbackState)
+        expect(state.persisted()).toEqual(before)
+        expect(state.transactionEm.remove).not.toHaveBeenCalled()
+        expect(state.transactionEm.flush).not.toHaveBeenCalled()
+      }
+    },
+  )
+
+  it('uses the delivered token even if the caller identity map already contains a newer resend', async () => {
+    const state = fixture()
+    state.invitation.token = 'newer-token'
+    state.persisted()!.token = 'newer-token'
+    await state.service.rollbackInvitation(state.invitation, null, 'new-token')
+    expect(state.persisted()!.token).toBe('newer-token')
+    expect(state.transactionEm.remove).not.toHaveBeenCalled()
+  })
+
+  it('preserves cancellation committed while an invitation email is in flight and then fails', async () => {
+    const state = fixture()
+    let failDelivery!: (error: Error) => void
+    const delivery = new Promise<void>((_resolve, reject) => { failDelivery = reject })
+    const compensation = delivery.catch(() => state.service.rollbackInvitation(state.invitation, null, 'new-token'))
+    expect(await state.service.cancelInvitation(state.invitation.id, {
+      tenantId: state.invitation.tenantId, organizationId: state.invitation.organizationId,
+    })).toBe(true)
+    const cancelledAt = state.persisted()!.cancelledAt
+    failDelivery(new Error('[internal] Email transport failed'))
+    await compensation
+    expect(state.persisted()).toMatchObject({ cancelledAt, token: 'new-token' })
+    expect(state.transactionEm.remove).not.toHaveBeenCalled()
+    expect(state.transactionEm.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('isCustomerInvitationEmailConflictError — bundle-boundary safety', () => {
+  it('recognises an error thrown by this module', () => {
+    expect(isCustomerInvitationEmailConflictError(new CustomerInvitationEmailConflictError('a@b.test'))).toBe(true)
+  })
+
+  it('recognises an equivalent error thrown by a duplicated copy of this module', () => {
+    // The accept route resolves the service through DI and is bundled into a
+    // different chunk, so its `CustomerInvitationEmailConflictError` class is not
+    // the same object as this one and `instanceof` is false — which silently sent
+    // the 409 back to a raw 500. The Symbol.for marker is what survives that.
+    const duplicateModuleError = Object.assign(new Error('[internal] An account with this email address already exists'), {
+      name: 'CustomerInvitationEmailConflictError',
+      email: 'a@b.test',
+      [Symbol.for('@open-mercato/CustomerInvitationEmailConflictError')]: true,
+    })
+
+    expect(duplicateModuleError instanceof CustomerInvitationEmailConflictError).toBe(false)
+    expect(isCustomerInvitationEmailConflictError(duplicateModuleError)).toBe(true)
+  })
+
+  it('does not claim unrelated errors', () => {
+    expect(isCustomerInvitationEmailConflictError(new Error('boom'))).toBe(false)
+    expect(isCustomerInvitationEmailConflictError(null)).toBe(false)
+    expect(isCustomerInvitationEmailConflictError('nope')).toBe(false)
   })
 })

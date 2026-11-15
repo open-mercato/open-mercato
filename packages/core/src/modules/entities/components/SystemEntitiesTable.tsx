@@ -54,6 +54,7 @@ export default function SystemEntitiesTable() {
   return (
     <DataTable
       title="System Entities"
+      titleHeadingLevel={1}
       actions={(
         <>
           <Button variant="outline" onClick={() => {

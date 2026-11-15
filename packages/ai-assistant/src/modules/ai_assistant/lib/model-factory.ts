@@ -64,7 +64,7 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from './llm-registry'
 import {
   intersectAllowlists,
   canonicalProviderId,

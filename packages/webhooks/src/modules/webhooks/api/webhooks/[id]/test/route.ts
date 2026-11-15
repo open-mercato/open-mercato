@@ -85,7 +85,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     deliveryId: delivery.id,
     tenantId: delivery.tenantId,
     organizationId: delivery.organizationId,
-  }, { scheduleRetries: false })
+  }, { scheduleRetries: false, resolver: scope.container })
 
   await em.refresh(delivery)
 

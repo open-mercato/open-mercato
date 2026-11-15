@@ -51,6 +51,25 @@ describe('normalizeInboundGmailMessage', () => {
     expect((result.channelMetadata as { gmailLabelIds: string[] }).gmailLabelIds).toEqual(['INBOX', 'IMPORTANT'])
   })
 
+  it('dates the message with Gmail internalDate, not the sender-written Date header (#6095)', async () => {
+    const receivedAt = new Date('2026-05-28T10:00:07.000Z')
+    const result = await normalizeInboundGmailMessage({
+      rawMessage: buildMime({
+        messageId: '<m@example.com>',
+        from: 'alice@gmail.com',
+        to: 'bob@example.com',
+        subject: 'skewed',
+        text: 'hi',
+        date: 'Tue, 01 Jan 2030 00:00:00 +0000',
+      }),
+      gmailMessageId: 'gm-msg-101',
+      gmailThreadId: 'gm-thread-1',
+      accountIdentifier: 'bob@example.com',
+      receivedAt,
+    })
+    expect(result.timestamp).toEqual(receivedAt)
+  })
+
   it('synthesises a deterministic fallback message id when missing', async () => {
     const result = await normalizeInboundGmailMessage({
       rawMessage: buildMime({
@@ -102,5 +121,23 @@ describe('normalizeInboundGmailMessage', () => {
     expect(payload.gmailMessageId).toBe('gm-msg-9')
     expect(payload.gmailThreadId).toBe('gm-thread-9')
     expect(payload.gmailLabelIds).toEqual(['INBOX'])
+  })
+
+  it('uses Gmail internalDate when the MIME Date header is missing', async () => {
+    const fallbackDate = new Date('2026-05-29T10:00:00.000Z')
+    const result = await normalizeInboundGmailMessage({
+      rawMessage: buildMime({
+        messageId: '<msg@example.com>',
+        from: 'alice@example.com',
+        to: 'bob@example.com',
+        text: 'hi',
+      }),
+      gmailMessageId: 'gm-msg-10',
+      gmailThreadId: 'gm-thread-10',
+      accountIdentifier: 'bob@example.com',
+      fallbackDate,
+    })
+    expect(result.timestamp).toEqual(fallbackDate)
+    expect(result.providerTimestamp).toEqual(fallbackDate)
   })
 })

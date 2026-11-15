@@ -239,6 +239,7 @@ export default function DiscordAiAutoReplyPage({ params }: { params?: { id?: str
       <PageBody>
         <CrudForm<FormValues>
           title={t('channel_discord.aiAutoReply.page.title', 'Discord AI auto-reply')}
+          titleHeadingLevel={1}
           backHref={CHANNELS_LIST_HREF}
           cancelHref={CHANNELS_LIST_HREF}
           fields={fields}

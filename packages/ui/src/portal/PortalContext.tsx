@@ -10,6 +10,7 @@ import {
 } from 'react'
 import type { CustomerAuthResult } from '@open-mercato/shared/modules/customer-auth'
 import type { CustomerAuthContext } from '@open-mercato/shared/modules/customer-auth'
+import { navigateWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
 import { apiCall } from '../backend/utils/apiCall'
 
 /* ------------------------------------------------------------------ */
@@ -155,7 +156,7 @@ export function PortalProvider({ orgSlug, children, initialAuth, initialTenant }
     }
     profileEnrichedRef.current = false
     setAuthState({ user: null, roles: [], resolvedFeatures: [], isPortalAdmin: false, loading: false, error: null })
-    window.location.assign(`/${orgSlug}/portal/login`)
+    navigateWithPageReload(`/${orgSlug}/portal/login`)
   }, [orgSlug])
 
   /* ---- Tenant state ---- */

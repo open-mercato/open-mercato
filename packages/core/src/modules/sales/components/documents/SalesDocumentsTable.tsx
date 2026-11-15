@@ -619,6 +619,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     setPage(1)
   }, [])
 
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
   const handleRefresh = React.useCallback(() => {
     setReloadToken((token) => token + 1)
   }, [])
@@ -769,11 +774,12 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           stickyFirstColumn
           stickyActionsColumn
           title={(
-            <div className="flex flex-col">
+            <span className="flex flex-col">
               <span>{title}</span>
               <span className="text-sm font-normal text-muted-foreground">{subtitle}</span>
-            </div>
+            </span>
           )}
+          titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href={`/backend/sales/documents/create?kind=${kind}`}>
@@ -783,8 +789,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           )}
           columns={columns}
           data={rows}
+          sortable
+          manualSorting
           sorting={sorting}
-          onSortingChange={setSorting}
+          onSortingChange={handleSortingChange}
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={handleSearchChange}
