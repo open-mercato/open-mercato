@@ -1591,6 +1591,7 @@
   "workflows.selectors.workflow.close": "Workflow-Auswahl schließen",
   "workflows.signals.awaiting": "Wartet auf Signal",
   "workflows.signals.correlationKey": "Korrelationsschlüssel",
+  "workflows.signals.errors.deliveryFailed": "Signal konnte nicht zugestellt werden",
   "workflows.signals.payload": "Signal-Nutzlast",
   "workflows.signals.plural": "Signale",
   "workflows.signals.received": "Signal empfangen",
