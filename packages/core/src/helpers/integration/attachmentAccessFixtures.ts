@@ -3,6 +3,7 @@ import { expect, type APIRequestContext } from '@playwright/test'
 import { apiRequest, clearAuthTokenCache, getAuthToken, withCredentialIsolatedRequest } from './api'
 import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from './authFixtures'
 import { deleteAttachmentIfExists, uploadAttachmentFixture } from './attachmentsFixtures'
+import { createOrganizationInDb, withClient } from './dbFixtures'
 import { expectId, getTokenContext, readJsonSafe } from './generalFixtures'
 
 export const OWNER_ACCESS_FEATURES = [
@@ -20,12 +21,48 @@ export type OwnerAccessActor = { id: string; token: string; refreshToken: () => 
 type Assignment = { type: string; id: string; label?: string }
 type Share = { id: string; updatedAt: string }
 
+/** Every stored column of an attachment row, read straight from the database. */
+export type AttachmentRowSnapshot = {
+  id: string
+  entity_id: string
+  record_id: string
+  tenant_id: string | null
+  organization_id: string | null
+  partition_code: string
+  file_name: string
+  mime_type: string
+  file_size: number
+  storage_driver: string
+  storage_path: string
+  storage_metadata: unknown
+  url: string
+  content: string | null
+  created_at: Date
+}
+export type ForeignAttachmentScope = 'organization' | 'tenant'
+export type ForeignAttachment = { id: string; tenantId: string; organizationId: string; recordId: string }
+
+const ATTACHMENT_ROW_COLUMNS = [
+  'id', 'entity_id', 'record_id', 'tenant_id', 'organization_id', 'partition_code', 'file_name', 'mime_type',
+  'file_size', 'storage_driver', 'storage_path', 'storage_metadata', 'url', 'content', 'created_at',
+].join(', ')
+
+export async function readAttachmentRowInDb(attachmentId: string): Promise<AttachmentRowSnapshot | null> {
+  return withClient(async (client) => {
+    const result = await client.query<AttachmentRowSnapshot>(
+      `select ${ATTACHMENT_ROW_COLUMNS} from attachments where id = $1`, [attachmentId],
+    )
+    return result.rows[0] ?? null
+  })
+}
+
 export async function ownerPolicyRequest<Body = { error?: string }>(
   method: string, path: string, token: string, data?: unknown, scheme: 'Bearer' | 'ApiKey' = 'Bearer',
+  headers: Record<string, string> = {},
 ) {
   return withCredentialIsolatedRequest(async (isolated) => {
     const response = await isolated.fetch(path, {
-      method, headers: { Authorization: `${scheme} ${token}`, 'Content-Type': 'application/json' },
+      method, headers: { ...headers, Authorization: `${scheme} ${token}`, 'Content-Type': 'application/json' },
       ...(data === undefined ? {} : { data }),
     })
     return {
@@ -46,7 +83,14 @@ export type AttachmentOwnerFixture = {
   destination: string
   document: (label: string, token?: string) => Promise<string>
   share: (documentId: string, permission: 'viewer' | 'editor', principalType?: 'user' | 'role', principalId?: string, token?: string) => Promise<Share>
-  upload: (documentId: string, label: string, options?: { entityId?: string; assignments?: Assignment[]; tags?: string[] }) => Promise<string>
+  unshare: (documentId: string, share: Share, token?: string) => Promise<void>
+  /**
+   * Copies an uploaded row into another organization of this tenant, or into an
+   * organization of a second tenant, straight in the database. Both scopes are
+   * created on first use and removed with the copies in teardown.
+   */
+  foreignCopy: (attachmentId: string, scope: ForeignAttachmentScope, options?: { entityId?: string; recordId?: string }) => Promise<ForeignAttachment>
+  upload:(documentId: string, label: string, options?: { entityId?: string; assignments?: Assignment[]; tags?: string[] }) => Promise<string>
   uploadProxy: (documentId: string) => Promise<{ attachmentId: string; url: string }>
   uploadPublicImage: (documentId: string) => Promise<string>
   key: () => Promise<{ id: string; secret: string }>
@@ -59,6 +103,8 @@ export async function withAttachmentOwnerFixture(
   const scope = getTokenContext(admin)
   const prefix = `attachment-owner-${randomUUID()}`
   const users: string[] = [], documents: string[] = [], attachments: string[] = [], keys: string[] = []
+  const foreignAttachments: string[] = [], foreignOrganizations: string[] = [], foreignTenants: string[] = []
+  const foreignScopes = new Map<ForeignAttachmentScope, { tenantId: string; organizationId: string }>()
   let roleId: string | null = null
   try {
     roleId = await createRoleFixture(request, admin, { name: prefix, tenantId: scope.tenantId })
@@ -90,7 +136,46 @@ export async function withAttachmentOwnerFixture(
       expect(body?.updatedAt).toBeTruthy()
       return { id: expectId(body?.id, 'Fixture response must include id'), updatedAt: body!.updatedAt }
     }
-    const upload: AttachmentOwnerFixture['upload'] = async (documentId, label, options = {}) => {
+    const unshare: AttachmentOwnerFixture['unshare'] = async (documentId, revoked, token = admin) => {
+      const response = await apiRequest(request, 'DELETE', `/api/documents/${documentId}/shares`, { token, data: { id: revoked.id } })
+      expect(response.status()).toBe(200)
+    }
+    const foreignScope = async (kind: ForeignAttachmentScope) => {
+      const existing = foreignScopes.get(kind)
+      if (existing) return existing
+      let tenantId = scope.tenantId
+      if (kind === 'tenant') {
+        tenantId = randomUUID()
+        await withClient((client) => client.query(
+          'insert into tenants (id, name, is_active, created_at, updated_at) values ($1, $2, true, now(), now())',
+          [tenantId, `${prefix}-tenant`],
+        ))
+        foreignTenants.push(tenantId)
+      }
+      const organizationId = await createOrganizationInDb({ name: `${prefix}-${kind}`, tenantId })
+      foreignOrganizations.push(organizationId)
+      const created = { tenantId, organizationId }
+      foreignScopes.set(kind, created)
+      return created
+    }
+    const foreignCopy: AttachmentOwnerFixture['foreignCopy'] = async (attachmentId, kind, options = {}) => {
+      const target = await foreignScope(kind)
+      const id = randomUUID()
+      const recordId = options.recordId ?? randomUUID()
+      const inserted = await withClient((client) => client.query<{ id: string }>(
+        `insert into attachments (id, entity_id, record_id, tenant_id, organization_id, partition_code, file_name, mime_type,
+           file_size, storage_driver, storage_path, storage_metadata, url, content, created_at)
+         select $2, coalesce($3, entity_id), $4, $5, $6, partition_code, file_name, mime_type,
+           file_size, storage_driver, storage_path, storage_metadata, url, content, created_at
+         from attachments where id = $1
+         returning id`,
+        [attachmentId, id, options.entityId ?? null, recordId, target.tenantId, target.organizationId],
+      ))
+      expect(inserted.rows).toHaveLength(1)
+      foreignAttachments.push(id)
+      return { id, recordId, ...target }
+    }
+    const upload:AttachmentOwnerFixture['upload'] = async (documentId, label, options = {}) => {
       const file = await uploadAttachmentFixture(request, admin, {
         entityId: options.entityId ?? 'documents:document', recordId: documentId,
         fileName: `${prefix}-${label}.txt`, mimeType: 'text/plain', buffer: Buffer.from(`${prefix}-${label}-content`),
@@ -130,8 +215,18 @@ export async function withAttachmentOwnerFixture(
     }
     const visible = await document('visible'), hidden = await document('hidden'), destination = await document('destination')
     await share(visible, 'viewer')
-    await run({ admin, roleId, prefix, recipient, unshared, visible, hidden, destination, document, share, upload, uploadProxy, uploadPublicImage, key })
+    await run({
+      admin, roleId, prefix, recipient, unshared, visible, hidden, destination,
+      document, share, unshare, foreignCopy, upload, uploadProxy, uploadPublicImage, key,
+    })
   } finally {
+    if (foreignAttachments.length > 0 || foreignOrganizations.length > 0 || foreignTenants.length > 0) {
+      await withClient(async (client) => {
+        await client.query('delete from attachments where id = any($1::uuid[])', [foreignAttachments])
+        await client.query('delete from organizations where id = any($1::uuid[])', [foreignOrganizations])
+        await client.query('delete from tenants where id = any($1::uuid[])', [foreignTenants])
+      }).catch(() => undefined)
+    }
     for (const id of keys) await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${id}`, { token: admin }).catch(() => undefined)
     for (const id of attachments) await deleteAttachmentIfExists(request, admin, id)
     for (const id of documents.reverse()) await apiRequest(request, 'DELETE', `/api/documents/${id}`, { token: admin }).catch(() => undefined)

@@ -97,7 +97,7 @@ A user with `attachments.view` or AI-assistant access can therefore read a Docum
 - with `destination: { entityId, recordId, moveAssignments? }` for `reassign`, it also evaluates the row as it would look after the move;
 - rows of owners without a policy are always allowed.
 
-**CLI, worker and MCP processes.** `bootstrapFromAppRoot` runs the generated bootstrap registrations, so `mcp:serve`, `mcp:serve-http` and `mcp:dev` evaluate the same resolvers as the app. If the generated file fails to load, the process still starts, logs and reports the error, and treats the access registry as invalid (`didBootstrapRegistrationsFail`), so direct readers deny every row and attachment writes that need the registry refuse.
+**CLI, worker and MCP processes.** `bootstrapFromAppRoot` runs the generated bootstrap registrations, so `mcp:serve`, `mcp:serve-http` and `mcp:dev` evaluate the same resolvers as the app. If the generated file is missing or fails to load, the process still starts, logs the problem (a load failure is also reported as an error), and treats the access registry as invalid (`didBootstrapRegistrationsFail`), so direct readers deny every row and attachment writes that need the registry refuse.
 
 Callers that move rows (`transfer_record_attachments`, the Messages link functions) load them with `ATTACHMENT_ROW_WRITE_LOCK` and evaluate and write in the same transaction, as the transfer route does. Re-linking a row already on the message is not a move and is not evaluated.
 
@@ -150,6 +150,7 @@ New exports from `@open-mercato/core/modules/attachments`: `evaluateAttachmentRo
 
 - `messages.errors.attachmentAccessDenied` in all `messages` locales (en, pl, de, es, ko).
 - The AI tools reuse "not found" outcomes; a refused transfer adds `ai_assistant.errors.attachmentTransferDenied` in every locale.
+- A pending-action confirmation refused by the attachment recheck answers `ai_assistant.errors.attachmentAccessDenied` in every locale, with the stable code `attachment_access_denied`.
 
 ## UI/UX
 
@@ -191,8 +192,14 @@ Delivered by #7989 (Phases 1 and 2).
    - `TC-API-MSG-ATTACH-OWNER-001`: linking that file to a Messages draft is refused for the first user; a library upload (`entityId=attachments:library`, `recordId=R`) that also carries a `documents:document` assignment through the upload route's `assignments` field makes composing a message with `attachmentRecordId: R` refused as a whole with 403;
    - `TC-AI-ATTACHMENT-OWNER-002`: through `POST /api/ai_assistant/tools/execute` with `x-api-key`, `attachments.read_attachment` answers `found: false` for a key created with a role that lacks access to the document, although its creator can read the file, and `found: true` for a key whose role has access.
    - `TC-AI-ATTACHMENT-OWNER-003`: through `POST /api/ai_assistant/tools/execute`, `catalog.draft_description_from_media` (`isMutation: false`, no model call in its handler) drops the Documents file from `userUploadedAttachmentIds` for the first user and keeps it for the second.
+   - `TC-AI-ATTACHMENT-OWNER-004`: copies of a library file (no owner policy) and of a Documents file in a second organization of the tenant and in an organization of a second tenant answer `found: false` through `attachments.read_attachment` and are absent from `attachments.list_record_attachments` for users, the administrator and an API key of the first organization, while the original library file stays readable; every foreign row is unchanged;
+   - `TC-AI-ATTACHMENT-OWNER-005`: revoking the role share of a document makes an API key of that role read its file as `found: false`; revoking the user share then does the same for the user, and the listing is empty; the row is unchanged;
+   - `TC-AI-ATTACHMENT-OWNER-006`: a session key issued by `POST /api/ai_assistant/session-key` reads a file its user may open through a user share, a regular key with the same role and the session key of a user without the share do not, and the session key is refused once the share is revoked. The issued secret is stored only on the server, so the test replaces the key row's hash with one for a secret it generates;
+   - `TC-AI-ATTACHMENT-OWNER-007`: `POST /api/ai_assistant/ai/actions/{id}/confirm` on a pending action seeded in the database with `attachment_ids` answers 403 `attachment_access_denied` with the localized `ai_assistant.errors.attachmentAccessDenied` (English and Polish) for a user who cannot open the document, 403 `attachment_cross_tenant` for a file of another organization or tenant, confirms for a user the document is shared with, and refuses that user once the share is revoked; refused actions stay `pending` and the product unchanged;
+   - `TC-API-MSG-ATTACH-OWNER-002`: draft linking and composing with an `attachmentRecordId` ignore attachments of another organization or tenant, which stay unchanged; a document editor who loses the share is refused with 403 for the next file, which stays on the document unchanged;
+   - `TC-API-MSG-ATTACH-OWNER-003`: an editor and a user who cannot edit the document link the same file concurrently: the editor gets 200, the other 403, the file ends on the editor's draft with every other column unchanged, and retries repeat both outcomes; two editors racing both get 200 and the file ends complete on exactly one draft.
 
-   Reply calls the same link helpers (`linkAttachmentsToMessage`, `linkLibraryAttachmentsToMessage`) and draft update calls `linkAttachmentsToMessage`, each with the same `access` as compose and draft linking, so they are unit-tested on their commands. The pending-action recheck stays unit-tested, because a pending action is created only by a model's `prepareMutation` call in a chat turn, which needs an LLM key. The transfer into a protected destination stays unit-tested on the tool handler, because `tools/execute` refuses every `isMutation` tool before it runs and `attachments.transfer_record_attachments` is one. The chat path stays unit-tested because `POST /api/ai_assistant/ai/chat` stops at `provider_not_configured` without an LLM key; the MCP servers run the same tool handlers and principal builder as `tools/execute`, which the integration tests cover. Session keys stay unit-tested: their secret never leaves the server, so a test cannot authenticate with one, and the HTTP MCP server is a separate process outside the integration environment.
+   Reply calls the same link helpers (`linkAttachmentsToMessage`, `linkLibraryAttachmentsToMessage`) and draft update calls `linkAttachmentsToMessage`, each with the same `access` as compose and draft linking, so they are unit-tested on their commands. A key-authenticated confirm stays unit-tested: the pending-action repository matches a row only to a user id, so a key subject (`api_key:<id>`) is answered 404 before the recheck runs. The transfer into a protected destination stays unit-tested on the tool handler, because `tools/execute` refuses every `isMutation` tool before it runs and `attachments.transfer_record_attachments` is one. The chat path stays unit-tested: `POST /api/ai_assistant/ai/chat` drops protected ids inside the agent runtime with no observable result before the model call, and the integration environment configures no LLM provider, so the turn ends with 500 `internal_error` from the model factory whichever ids it carried. The HTTP MCP server, including its `_sessionToken` argument, stays unit-tested because it is a separate process outside the integration environment; it runs the same tool handlers and principal builder as `tools/execute`, which the integration tests cover.
 
 ### Phase 2: Unguarded-reader declarations
 
@@ -213,7 +220,7 @@ Delivered by #7989 (Phases 1 and 2).
 
 ### Testing Strategy
 
-Unit tests cover the helper, every caller and the declarations. Integration tests create their own document, API keys (for `TC-AI-ATTACHMENT-OWNER-002`), product (for `TC-AI-ATTACHMENT-OWNER-003`, which also grants `catalog.products.view` to both users, because the tool answers `found: false` before loading media for an unknown product), roles and users in setup and delete them in teardown.
+Unit tests cover the helper, every caller and the declarations. Integration tests create their own document, API keys (for `TC-AI-ATTACHMENT-OWNER-002`, `-005`, `-006`), product (for `TC-AI-ATTACHMENT-OWNER-003`, which also grants `catalog.products.view` to both users, because the tool answers `found: false` before loading media for an unknown product, and for `-007`), roles and users in setup and delete them in teardown. The shared fixture creates the second organization, the second tenant and the foreign attachment rows in the database, because the directory routes refuse non-super-admin callers, and reads attachment rows from the database to compare every column before and after a refusal. Pending actions and session-key hashes are written in the database, as no route creates the former and the latter's secret stays on the server.
 
 ## Risks & Impact Review
 
@@ -283,10 +290,16 @@ Ready for implementation, delivered by #7989. Merge requires the `security` labe
 
 ## Changelog
 
+### 2026-11-15
+- A missing `bootstrap-registrations.generated.ts` invalidates the access registry in CLI, worker and MCP processes, like a failed load.
+- The pending-action `attachment_access_denied` refusal is localized (`ai_assistant.errors.attachmentAccessDenied`).
+- The request API key lookup filters by the authenticated tenant and organization and derives no backing user from a key outside them.
+- Integration coverage for foreign organizations and tenants, revoked shares, session keys, pending-action confirmation and concurrent Messages links (`TC-AI-ATTACHMENT-OWNER-004` to `-007`, `TC-API-MSG-ATTACH-OWNER-002`, `-003`); the remaining unit-only paths list their reasons.
+
 ### 2026-11-05
 - Recorded the tool context `apiKeyUserId` field in the migration table and the protected-id disclosure as a residual risk.
 - Move paths load rows under a write lock in the transaction that evaluates and writes them.
-- A failed load of the generated bootstrap registrations invalidates the access registry.
+- A missing or failed load of the generated bootstrap registrations invalidates the access registry.
 
 ### 2026-11-03
 - Split from `2026-10-25-inbox-ops-inbound-attachments.md` (its former Phase 0) and aligned with #6829 as merged; added unguarded-reader declarations so the enterprise stager fix no longer blocks OSS consumers.

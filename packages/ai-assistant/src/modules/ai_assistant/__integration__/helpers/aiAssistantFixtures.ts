@@ -82,6 +82,8 @@ export interface SeedPendingActionInput {
   normalizedInput?: Record<string, unknown>;
   executionResult?: Record<string, unknown> | null;
   idempotencyKey?: string;
+  /** Attachment ids the action carries into its confirmation recheck. Defaults to none. */
+  attachmentIds?: string[];
 }
 
 export interface SeededPendingAction {
@@ -112,7 +114,7 @@ export async function seedPendingActionInDb(input: SeedPendingActionInput): Prom
           queue_mode, execution_result, created_at, expires_at)
        values
          (gen_random_uuid(), $1, $2, $3, $4, $5::jsonb,
-          '[]'::jsonb, '[]'::jsonb, $6, $7, $8,
+          '[]'::jsonb, $11::jsonb, $6, $7, $8,
           'inline', $9::jsonb, now(), now() + make_interval(mins => $10::int))
        returning id`,
       [
@@ -126,6 +128,7 @@ export async function seedPendingActionInDb(input: SeedPendingActionInput): Prom
         status,
         executionResult,
         expiresInMinutes,
+        JSON.stringify(input.attachmentIds ?? []),
       ],
     );
     return { id: result.rows[0].id, idempotencyKey };
