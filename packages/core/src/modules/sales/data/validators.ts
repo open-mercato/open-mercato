@@ -980,6 +980,31 @@ export const returnDeleteSchema = scoped.extend({
   orderId: uuid(),
 })
 
+const invoiceLineInputSchema = z
+  .object({
+    orderLineId: uuid().optional(),
+    lineNumber: z.coerce.number().int().min(0).optional(),
+    kind: lineKindSchema.optional(),
+    name: z.string().trim().max(500).optional(),
+    sku: z.string().trim().max(191).optional(),
+    description: z.string().trim().max(4000).optional(),
+    quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
+    quantityUnit: z.string().trim().max(25).optional(),
+    normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
+    normalizedUnit: z.string().trim().max(25).nullable().optional(),
+    uomSnapshot: uomSnapshotSchema,
+    currencyCode,
+    unitPriceNet: decimal({ min: 0 }).optional(),
+    unitPriceGross: decimal({ min: 0 }).optional(),
+    discountAmount: decimal({ min: 0 }).optional(),
+    discountPercent: percentage().optional(),
+    taxRate: percentage().optional(),
+    taxAmount: decimal({ min: 0 }).optional(),
+    totalNetAmount: decimal({ min: 0 }).optional(),
+    totalGrossAmount: decimal({ min: 0 }).optional(),
+    metadata,
+  })
+
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
   invoiceNumber: z.string().trim().min(1).max(191).optional(),
@@ -989,33 +1014,9 @@ export const invoiceCreateSchema = scoped.extend({
   currencyCode,
   metadata,
   customFieldSetId: uuid().optional(),
-  lines: z
-    .array(
-      z.object({
-        orderLineId: uuid().optional(),
-        lineNumber: z.coerce.number().int().min(0).optional(),
-        kind: lineKindSchema.optional(),
-        name: z.string().trim().max(500).optional(),
-        sku: z.string().trim().max(191).optional(),
-        description: z.string().trim().max(4000).optional(),
-        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
-        quantityUnit: z.string().trim().max(25).optional(),
-        normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
-        normalizedUnit: z.string().trim().max(25).nullable().optional(),
-        uomSnapshot: uomSnapshotSchema,
-        currencyCode,
-        unitPriceNet: decimal({ min: 0 }).optional(),
-        unitPriceGross: decimal({ min: 0 }).optional(),
-        discountAmount: decimal({ min: 0 }).optional(),
-        discountPercent: percentage().optional(),
-        taxRate: percentage().optional(),
-        taxAmount: decimal({ min: 0 }).optional(),
-        totalNetAmount: decimal({ min: 0 }).optional(),
-        totalGrossAmount: decimal({ min: 0 }).optional(),
-        metadata,
-      })
-    )
-    .optional(),
+  // `null` and non-object values keep passing and store nothing, as before.
+  customFields: z.unknown().optional(),
+  lines: z.array(invoiceLineInputSchema).optional(),
   subtotalNetAmount: decimal({ min: 0 }).optional(),
   subtotalGrossAmount: decimal({ min: 0 }).optional(),
   discountTotalAmount: decimal({ min: 0 }).optional(),
@@ -1202,6 +1203,7 @@ export type ReturnUpdateInput = z.infer<typeof returnUpdateSchema>
 export type ReturnDeleteInput = z.infer<typeof returnDeleteSchema>
 export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
+export type InvoiceLineInput = z.infer<typeof invoiceLineInputSchema>
 export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>
 export type CreditMemoUpdateInput = z.infer<typeof creditMemoUpdateSchema>
 export const quoteSendSchema = z.object({

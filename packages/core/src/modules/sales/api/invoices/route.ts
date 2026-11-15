@@ -15,6 +15,15 @@ import { E } from '#generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
 
+/**
+ * Fold `cf_*` / `customFields` input into `customFields`, the same way the order
+ * and quote routes do, so the command stores it inside its transaction.
+ */
+function withFoldedCustomFields(payload: unknown): Record<string, unknown> {
+  const { base, custom } = splitCustomFieldPayload(payload)
+  return Object.keys(custom).length ? { ...base, customFields: custom } : base
+}
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
@@ -99,8 +108,7 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return invoiceCreateSchema.parse(base)
+        return invoiceCreateSchema.parse(withFoldedCustomFields(scoped))
       },
     },
     update: {
@@ -109,8 +117,7 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return invoiceUpdateSchema.parse(base)
+        return invoiceUpdateSchema.parse(withFoldedCustomFields(scoped))
       },
     },
     delete: {
@@ -144,11 +151,31 @@ const invoiceItemSchema = z.object({
   outstandingAmount: z.string().optional(),
 })
 
+const customFieldsDescription =
+  'Custom field values keyed by field key. `cf_<key>`, `cf:<key>` and `customValues` body keys are folded in. Rich-text values are sanitized; values are not validated against the field definitions.'
+
+const invoiceCreateRequestSchema = invoiceCreateSchema.extend({
+  customFields: z.record(z.string(), z.unknown()).nullable().optional().describe(customFieldsDescription),
+})
+
+const invoiceUpdateRequestSchema = invoiceUpdateSchema.extend({
+  customFields: z.record(z.string(), z.unknown()).nullable().optional().describe(customFieldsDescription),
+})
+
 export const openApi = createSalesCrudOpenApi({
   resourceName: 'Invoice',
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(invoiceItemSchema),
-  create: { schema: invoiceCreateSchema, description: 'Create a new invoice' },
-  update: { schema: invoiceUpdateSchema, responseSchema: z.object({ invoiceId: z.string().uuid() }), description: 'Update an invoice' },
+  create: {
+    schema: invoiceCreateRequestSchema,
+    description:
+      'Create a new invoice. Amounts are stored as sent.',
+  },
+  update: {
+    schema: invoiceUpdateRequestSchema,
+    responseSchema: z.object({ invoiceId: z.string().uuid() }),
+    description:
+      'Update an invoice. Answers 404 when the invoice is missing or outside the request organization, and 403 when its tenant or organization is outside the caller scope.',
+  },
   del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ invoiceId: z.string().uuid() }), description: 'Delete an invoice' },
 })

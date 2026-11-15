@@ -27,6 +27,8 @@ import { resolveNotificationService } from "../../notifications/lib/notification
 import { buildFeatureNotificationFromType } from "../../notifications/lib/notificationBuilder";
 import { emitSalesEvent } from "../events";
 import { setRecordCustomFields } from "@open-mercato/core/modules/entities/lib/helpers";
+import { sanitizeCustomFieldHtmlRichTextValuesServer } from "@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer";
+import { buildCustomFieldResetMap } from "@open-mercato/shared/lib/commands/customFieldSnapshots";
 import { loadCustomFieldValues } from "@open-mercato/shared/lib/crud/custom-fields";
 import {
   normalizeCustomFieldResponse,
@@ -102,6 +104,7 @@ import {
   type OrderLineCreateInput,
   type OrderAdjustmentCreateInput,
   type InvoiceCreateInput,
+  type InvoiceLineInput,
   type CreditMemoCreateInput,
 } from "../data/validators";
 import {
@@ -2205,7 +2208,7 @@ async function loadInvoiceSnapshot(
   if (!invoice) return null;
   const lines = await em.find(
     SalesInvoiceLine,
-    { invoice: invoice },
+    { invoice: invoice, organizationId: invoice.organizationId, tenantId: invoice.tenantId },
     { orderBy: { lineNumber: "asc" } },
   );
   const [invoiceCustomFields] = await Promise.all([
@@ -2226,8 +2229,8 @@ async function loadInvoiceSnapshot(
       orderId: invoice.orderId ?? null,
       statusEntryId: invoice.statusEntryId ?? null,
       status: invoice.status ?? null,
-      issueDate: invoice.issueDate ?? null,
-      dueDate: invoice.dueDate ?? null,
+      issueDate: invoice.issueDate ? new Date(invoice.issueDate) : null,
+      dueDate: invoice.dueDate ? new Date(invoice.dueDate) : null,
       currencyCode: invoice.currencyCode,
       subtotalNetAmount: String(invoice.subtotalNetAmount),
       subtotalGrossAmount: String(invoice.subtotalGrossAmount),
@@ -2237,7 +2240,8 @@ async function loadInvoiceSnapshot(
       grandTotalGrossAmount: String(invoice.grandTotalGrossAmount),
       paidTotalAmount: String(invoice.paidTotalAmount),
       outstandingAmount: String(invoice.outstandingAmount),
-      metadata: invoice.metadata ?? null,
+      // Copies, so a later in-place change to the managed entity cannot alter `before`.
+      metadata: cloneJson(invoice.metadata ?? null),
       customFieldSetId: invoice.customFieldSetId ?? null,
       customFields: invoiceCustomFields[invoice.id] ?? null,
     },
@@ -2253,7 +2257,7 @@ async function loadInvoiceSnapshot(
       quantityUnit: line.quantityUnit ?? null,
       normalizedQuantity: String(line.normalizedQuantity),
       normalizedUnit: line.normalizedUnit ?? null,
-      uomSnapshot: line.uomSnapshot ?? null,
+      uomSnapshot: cloneJson(line.uomSnapshot ?? null),
       currencyCode: line.currencyCode,
       unitPriceNet: String(line.unitPriceNet),
       unitPriceGross: String(line.unitPriceGross),
@@ -2263,7 +2267,7 @@ async function loadInvoiceSnapshot(
       taxAmount: String(line.taxAmount),
       totalNetAmount: String(line.totalNetAmount),
       totalGrossAmount: String(line.totalGrossAmount),
-      metadata: line.metadata ?? null,
+      metadata: cloneJson(line.metadata ?? null),
     })),
   };
 }
@@ -4539,20 +4543,23 @@ async function restoreQuoteGraph(
   return quote;
 }
 
-async function throwDocumentUndoStale(kind: "order" | "quote"): Promise<never> {
+async function throwDocumentUndoStale(kind: "order" | "quote" | "invoice"): Promise<never> {
   const { translate } = await resolveTranslations();
-  throw new CrudHttpError(409, {
-    error:
-      kind === "order"
-        ? translate(
-            "sales.documents.errors.undoStaleOrder",
-            "This change can no longer be undone because the order was changed afterwards.",
-          )
-        : translate(
-            "sales.documents.errors.undoStaleQuote",
-            "This change can no longer be undone because the quote was changed afterwards.",
-          ),
-  });
+  const messages = {
+    order: translate(
+      "sales.documents.errors.undoStaleOrder",
+      "This change can no longer be undone because the order was changed afterwards.",
+    ),
+    quote: translate(
+      "sales.documents.errors.undoStaleQuote",
+      "This change can no longer be undone because the quote was changed afterwards.",
+    ),
+    invoice: translate(
+      "sales.documents.errors.undoStaleInvoice",
+      "This change can no longer be undone because the invoice was changed afterwards.",
+    ),
+  } satisfies Record<typeof kind, string>;
+  throw new CrudHttpError(409, { error: messages[kind] });
 }
 
 function canonicalizeForComparison(value: unknown): unknown {
@@ -9750,6 +9757,215 @@ const invoiceCrudEvents: CrudEventsConfig<SalesInvoice> = {
   }),
 };
 
+type InvoiceRecordScope = { organizationId: string; tenantId: string };
+
+/**
+ * Maps one invoice line input to a new line entity. `orderLineId` is not a
+ * mapped column on `SalesInvoiceLine`, so it stays unstored, as it always was.
+ */
+function buildInvoiceLineEntity(
+  em: EntityManager,
+  invoice: SalesInvoice,
+  line: InvoiceLineInput,
+  index: number,
+  fallbackCurrencyCode: string,
+): SalesInvoiceLine {
+  return em.create(SalesInvoiceLine, {
+    id: randomUUID(),
+    invoice,
+    orderLineId: line.orderLineId ?? null,
+    organizationId: invoice.organizationId,
+    tenantId: invoice.tenantId,
+    lineNumber: line.lineNumber ?? index + 1,
+    kind: line.kind ?? "product",
+    name: line.name ?? null,
+    sku: line.sku ?? null,
+    description: line.description ?? null,
+    quantity: toNumericString(line.quantity ?? 0),
+    quantityUnit: line.quantityUnit ?? null,
+    normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
+    normalizedUnit: line.normalizedUnit ?? null,
+    uomSnapshot: line.uomSnapshot ?? null,
+    currencyCode: line.currencyCode ?? fallbackCurrencyCode,
+    unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
+    unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
+    discountAmount: toNumericString(line.discountAmount ?? 0),
+    discountPercent: toNumericString(line.discountPercent ?? 0),
+    taxRate: toNumericString(line.taxRate ?? 0),
+    taxAmount: toNumericString(line.taxAmount ?? 0),
+    totalNetAmount: toNumericString(
+      deriveLineNetFromGross(line.totalNetAmount ?? 0, line.totalGrossAmount ?? 0, line.taxRate ?? 0),
+    ),
+    totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
+    metadata: line.metadata ?? null,
+  });
+}
+
+/**
+ * Narrows `customFields` input to a non-empty plain object. `null`, arrays and
+ * primitives store nothing, as `setDocumentCustomFieldsIfSupplied` treats them.
+ */
+function narrowInvoiceCustomFieldInput(value: unknown): Record<string, unknown> | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length ? record : null;
+}
+
+/**
+ * Writes invoice custom fields inside the caller's transaction. `setRecordCustomFields`
+ * does not sanitize rich text, so values are sanitized first. Values are not
+ * validated against their definitions, as on orders; a value that cannot be
+ * stored fails the write and rolls the invoice back.
+ */
+async function writeInvoiceCustomFields(
+  em: EntityManager,
+  invoiceId: string,
+  scope: InvoiceRecordScope,
+  customFields: unknown,
+): Promise<void> {
+  const values = narrowInvoiceCustomFieldInput(customFields);
+  if (!values) return;
+  const sanitized = await sanitizeCustomFieldHtmlRichTextValuesServer(em, {
+    entityId: E.sales.sales_invoice,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    values,
+  });
+  await setRecordCustomFields(em, {
+    entityId: E.sales.sales_invoice,
+    recordId: invoiceId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    values: normalizeCustomFieldValues(sanitized),
+  });
+}
+
+async function resetInvoiceCustomFields(
+  em: EntityManager,
+  invoiceId: string,
+  scope: InvoiceRecordScope,
+  resetValues: Record<string, unknown>,
+): Promise<void> {
+  if (!Object.keys(resetValues).length) return;
+  await setRecordCustomFields(em, {
+    entityId: E.sales.sales_invoice,
+    recordId: invoiceId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    values: toSnapshotCustomFieldWriteValues(resetValues),
+  });
+}
+
+function isEmptyInvoiceCustomFieldValue(value: unknown): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0)
+  );
+}
+
+/**
+ * Clearing a custom field leaves a row that reads back `cf_x: null`, so empty
+ * values (`null`, `undefined`, `''`, `[]`) are dropped and `{}` is treated as
+ * `null` before two snapshots are compared. `0` and `false` stay values.
+ */
+function compactInvoiceCustomFields(
+  values: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  if (!values || typeof values !== "object") return null;
+  const entries = Object.entries(values).filter(
+    ([, value]) => !isEmptyInvoiceCustomFieldValue(value),
+  );
+  return entries.length ? Object.fromEntries(entries) : null;
+}
+
+/**
+ * True when the stored invoice still matches the snapshot a write left behind.
+ * Undo of `sales.invoices.create` and `sales.invoices.update` refuses otherwise,
+ * because restoring `before` would overwrite another actor's later change.
+ */
+function invoiceMatchesSnapshot(
+  current: InvoiceGraphSnapshot | null,
+  expected: InvoiceGraphSnapshot | null | undefined,
+): boolean {
+  if (!current || !expected) return false;
+  const currentInvoice = {
+    ...current.invoice,
+    customFields: compactInvoiceCustomFields(current.invoice.customFields),
+  };
+  const expectedInvoice = {
+    ...expected.invoice,
+    customFields: compactInvoiceCustomFields(expected.invoice.customFields),
+  };
+  return (
+    sameRecords([currentInvoice], [expectedInvoice]) &&
+    sameRecords(current.lines, expected.lines)
+  );
+}
+
+/**
+ * Counts the rows that would be silently unlinked or stranded if the invoice
+ * were deleted: payment allocations and credit memos (`on delete set null`,
+ * soft-deleted credit memos included) and invoice notes (no foreign key).
+ * Allocation and credit-memo inserts wait for the create undo's `FOR UPDATE`
+ * lock; a note has no foreign key, so one written between this count and the
+ * delete is not blocked and stays behind.
+ */
+async function countInvoiceDependants(
+  em: EntityManager,
+  invoiceId: string,
+  scope: InvoiceRecordScope,
+): Promise<number> {
+  const [allocationCount, creditMemoCount, noteCount] = await Promise.all([
+    em.count(SalesPaymentAllocation, {
+      invoice: invoiceId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    }),
+    em.count(SalesCreditMemo, {
+      invoice: invoiceId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    }),
+    em.count(SalesNote, {
+      contextType: "invoice",
+      contextId: invoiceId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    }),
+  ]);
+  return allocationCount + creditMemoCount + noteCount;
+}
+
+function restoreInvoiceHeader(invoice: SalesInvoice, before: InvoiceGraphSnapshot): void {
+  invoice.invoiceNumber = before.invoice.invoiceNumber;
+  invoice.orderId = before.invoice.orderId;
+  invoice.statusEntryId = before.invoice.statusEntryId;
+  invoice.status = before.invoice.status;
+  invoice.issueDate = before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : null;
+  invoice.dueDate = before.invoice.dueDate ? new Date(before.invoice.dueDate as string) : null;
+  invoice.currencyCode = before.invoice.currencyCode;
+  invoice.subtotalNetAmount = before.invoice.subtotalNetAmount;
+  invoice.subtotalGrossAmount = before.invoice.subtotalGrossAmount;
+  invoice.discountTotalAmount = before.invoice.discountTotalAmount;
+  invoice.taxTotalAmount = before.invoice.taxTotalAmount;
+  invoice.grandTotalNetAmount = before.invoice.grandTotalNetAmount;
+  invoice.grandTotalGrossAmount = before.invoice.grandTotalGrossAmount;
+  invoice.paidTotalAmount = before.invoice.paidTotalAmount;
+  invoice.outstandingAmount = before.invoice.outstandingAmount;
+  invoice.metadata = before.invoice.metadata;
+  invoice.updatedAt = new Date();
+}
+
+/**
+ * `after` snapshots `sales.invoices.create` captures inside its transaction, keyed
+ * by the result object, so a write by another actor between commit and
+ * `captureAfter` cannot become part of what create undo accepts as unchanged.
+ */
+const invoiceCreateSnapshots = new WeakMap<object, InvoiceGraphSnapshot | null>();
+
 const createInvoiceCommand: CommandHandler<
   InvoiceCreateInput,
   { invoiceId: string }
@@ -9833,67 +10049,37 @@ const createInvoiceCommand: CommandHandler<
       updatedAt: new Date(),
     });
 
-    // Header + lines + custom-field writes must commit atomically.
-    // setRecordCustomFields flushes mid-build, so without a transaction a
-    // partial write could persist the header without its lines/custom fields.
+    // Header, lines and custom fields commit atomically: an invoice is never
+    // stored without the custom fields (for example its Company link) it was
+    // created with. Custom fields run in their own phase because their writer
+    // queries, and a query in the same phase as pending changes can drop them.
+    let after: InvoiceGraphSnapshot | null = null;
     await withAtomicFlush(
       em,
       [
-        async () => {
+        () => {
           em.persist(invoice);
-
-          if (parsed.lines?.length) {
-            for (let i = 0; i < parsed.lines.length; i++) {
-              const line = parsed.lines[i];
-              em.persist(
-                em.create(SalesInvoiceLine, {
-                  id: randomUUID(),
-                  invoice,
-                  orderLineId: line.orderLineId ?? null,
-                  organizationId: parsed.organizationId,
-                  tenantId: parsed.tenantId,
-                  lineNumber: line.lineNumber ?? i + 1,
-                  kind: line.kind ?? "product",
-                  name: line.name ?? null,
-                  sku: line.sku ?? null,
-                  description: line.description ?? null,
-                  quantity: toNumericString(line.quantity ?? 0),
-                  quantityUnit: line.quantityUnit ?? null,
-                  normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
-                  normalizedUnit: line.normalizedUnit ?? null,
-                  uomSnapshot: line.uomSnapshot ?? null,
-                  currencyCode: line.currencyCode ?? parsed.currencyCode,
-                  unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
-                  unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
-                  discountAmount: toNumericString(line.discountAmount ?? 0),
-                  discountPercent: toNumericString(line.discountPercent ?? 0),
-                  taxRate: toNumericString(line.taxRate ?? 0),
-                  taxAmount: toNumericString(line.taxAmount ?? 0),
-                  totalNetAmount: toNumericString(
-                    deriveLineNetFromGross(line.totalNetAmount ?? 0, line.totalGrossAmount ?? 0, line.taxRate ?? 0),
-                  ),
-                  totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
-                  metadata: line.metadata ?? null,
-                }),
-              );
-            }
-          }
-
-          if (parsed.customFieldSetId) {
-            await setRecordCustomFields(em, {
-              entityId: E.sales.sales_invoice,
-              recordId: invoiceId,
-              organizationId: parsed.organizationId,
-              tenantId: parsed.tenantId,
-              values: normalizeCustomFieldValues(
-                ((parsed as Record<string, unknown>).customFields as Record<string, unknown>) ?? {},
-              ),
-            });
-          }
+          (parsed.lines ?? []).forEach((line, index) => {
+            em.persist(buildInvoiceLineEntity(em, invoice, line, index, parsed.currencyCode));
+          });
+        },
+        async () => {
+          await writeInvoiceCustomFields(
+            em,
+            invoiceId,
+            { organizationId: parsed.organizationId, tenantId: parsed.tenantId },
+            parsed.customFields,
+          );
+        },
+        async () => {
+          em.clear();
+          after = await loadInvoiceSnapshot(em, invoiceId);
         },
       ],
-      { transaction: true },
+      { transaction: true, label: "sales.invoices.create" },
     );
+    const result = { invoiceId: invoice.id };
+    invoiceCreateSnapshots.set(result, after);
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
@@ -9921,9 +10107,10 @@ const createInvoiceCommand: CommandHandler<
       "created",
     );
 
-    return { invoiceId: invoice.id };
+    return result;
   },
   captureAfter: async (_input, result, ctx) => {
+    if (invoiceCreateSnapshots.has(result)) return invoiceCreateSnapshots.get(result) ?? null;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadInvoiceSnapshot(em, result.invoiceId);
   },
@@ -9947,14 +10134,63 @@ const createInvoiceCommand: CommandHandler<
     const payload = extractUndoPayload<InvoiceUndoPayload>(logEntry);
     const after = payload?.after;
     if (!after) return;
+    const scope: InvoiceRecordScope = {
+      organizationId: after.invoice.organizationId,
+      tenantId: after.invoice.tenantId,
+    };
+    ensureOrganizationScope(ctx, scope.organizationId);
+    ensureTenantScope(ctx, scope.tenantId);
+    const removed: { invoice: SalesInvoice | null; lines: DeletableEntity[] } = {
+      invoice: null,
+      lines: [],
+    };
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const invoice = await em.findOne(SalesInvoice, { id: after.invoice.id });
+    await em.transactional(async (tx) => {
+      // `FOR UPDATE`, not `lockSalesDocumentRow`: `FOR NO KEY UPDATE` still admits
+      // the `KEY SHARE` lock of a foreign-key insert, so an allocation committed
+      // after the dependant count would be unlinked by the delete.
+      const invoice = await findOneWithDecryption(
+        tx,
+        SalesInvoice,
+        { id: after.invoice.id, deletedAt: null, ...scope },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        scope,
+      );
+      if (!invoice) return throwDocumentUndoStale("invoice");
+      const current = await loadInvoiceSnapshot(tx, invoice.id);
+      if (!invoiceMatchesSnapshot(current, after)) return throwDocumentUndoStale("invoice");
+      if ((await countInvoiceDependants(tx, invoice.id, scope)) > 0) {
+        return throwDocumentUndoStale("invoice");
+      }
+      // A reindex can have put the lines in the search index, so they are
+      // removed from it after commit.
+      removed.lines = (current?.lines ?? []).map((line) => ({ id: line.id, ...scope }));
+      removed.invoice = invoice;
+      tx.clear();
+      await tx.nativeDelete(CustomFieldValue, {
+        entityId: E.sales.sales_invoice,
+        recordId: invoice.id,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      });
+      await tx.nativeDelete(SalesInvoiceLine, { invoice: invoice.id, ...scope });
+      await tx.nativeDelete(SalesInvoice, { id: invoice.id, ...scope });
+    });
+    const invoice = removed.invoice;
     if (!invoice) return;
-    ensureOrganizationScope(ctx, invoice.organizationId);
-    ensureTenantScope(ctx, invoice.tenantId);
-    await em.nativeDelete(SalesInvoiceLine, { invoice: invoice.id });
-    em.remove(invoice);
-    await em.flush();
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueDeletionSideEffects(dataEngine, removed.lines, E.sales.sales_invoice_line);
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: "deleted",
+      entity: invoice,
+      identifiers: {
+        id: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_invoice },
+    });
   },
 };
 
@@ -9974,6 +10210,7 @@ const invoiceUpdateChangeKeys = [
   "paidTotalAmount",
   "outstandingAmount",
   "metadata",
+  "customFields",
 ] as const;
 
 function toAuditISOString(value: unknown): string | null {
@@ -10040,6 +10277,16 @@ function applyInvoiceHeaderUpdate(
   if (input.metadata !== undefined) invoice.metadata = input.metadata;
 }
 
+/**
+ * Snapshots `sales.invoices.update` captures under its row lock, keyed by the
+ * result object: zod hands `execute` a new input object, so the input cannot key
+ * them. `captureAfter` and `buildLog` read them back.
+ */
+const invoiceUpdateSnapshots = new WeakMap<
+  object,
+  { before: InvoiceGraphSnapshot | null; after: InvoiceGraphSnapshot | null }
+>();
+
 const updateInvoiceCommand: CommandHandler<
   z.infer<typeof invoiceUpdateSchema>,
   { invoiceId: string }
@@ -10047,35 +10294,87 @@ const updateInvoiceCommand: CommandHandler<
   id: "sales.invoices.update",
   async prepare(input, ctx) {
     const id = requireId(input);
-    const em = ctx.container.resolve("em") as EntityManager;
-    const snapshot = await loadInvoiceSnapshot(em, id);
-    if (snapshot) {
-      ensureOrganizationScope(ctx, snapshot.invoice.organizationId);
-      ensureTenantScope(ctx, snapshot.invoice.tenantId);
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const invoice = await findOneWithDecryption(
+      em,
+      SalesInvoice,
+      { id, deletedAt: null },
+      {},
+      resolveRequestDecryptionScope(ctx),
+    );
+    if (invoice) {
+      ensureOrganizationScope(ctx, invoice.organizationId);
+      ensureTenantScope(ctx, invoice.tenantId);
     }
-    return snapshot ? { before: snapshot } : {};
+    // `before` is captured under the row lock in `execute`.
+    return {};
   },
   async execute(rawInput, ctx) {
     const parsed = invoiceUpdateSchema.parse(rawInput ?? {});
     const id = requireId(parsed);
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
+    const { translate } = await resolveTranslations();
+    const missingMessage = translate("sales.documents.errors.invoiceNotFound", "Invoice not found.");
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const invoice = await em.findOneOrFail(SalesInvoice, {
-      id,
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      deletedAt: null,
-    });
+    let invoice!: SalesInvoice;
+    let scope!: InvoiceRecordScope;
+    let before: InvoiceGraphSnapshot | null = null;
+    let after: InvoiceGraphSnapshot | null = null;
 
-    let resolvedStatus: string | null | undefined;
-    if (parsed.statusEntryId !== undefined) {
-      resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
-    }
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          const where: Record<string, unknown> = { id, deletedAt: null };
+          if (parsed.organizationId !== undefined) where.organizationId = parsed.organizationId;
+          if (parsed.tenantId !== undefined) where.tenantId = parsed.tenantId;
+          const existing = await findOneWithDecryption(
+            em,
+            SalesInvoice,
+            where,
+            {},
+            resolveRequestDecryptionScope(ctx),
+          );
+          if (!existing) throw notFound(missingMessage);
+          ensureOrganizationScope(ctx, existing.organizationId);
+          ensureTenantScope(ctx, existing.tenantId);
+          scope = { organizationId: existing.organizationId, tenantId: existing.tenantId };
+          if (!(await lockSalesDocumentRow(em, "sales_invoices", id, scope))) {
+            throw notFound(missingMessage);
+          }
+          const locked = await findOneWithDecryption(
+            em,
+            SalesInvoice,
+            { id, deletedAt: null, ...scope },
+            { refresh: true },
+            scope,
+          );
+          if (!locked) throw notFound(missingMessage);
+          invoice = locked;
+          before = await loadInvoiceSnapshot(em, invoice.id);
+          let resolvedStatus: string | null | undefined;
+          if (parsed.statusEntryId !== undefined) {
+            resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, {
+              tenantId: invoice.tenantId,
+            });
+          }
+          applyInvoiceHeaderUpdate(invoice, parsed, resolvedStatus);
+          invoice.updatedAt = new Date();
+        },
+        async () => {
+          await writeInvoiceCustomFields(em, invoice.id, scope, parsed.customFields);
+        },
+        async () => {
+          em.clear();
+          after = await loadInvoiceSnapshot(em, id);
+        },
+      ],
+      { transaction: true, label: "sales.invoices.update" },
+    );
 
-    applyInvoiceHeaderUpdate(invoice, parsed, resolvedStatus);
-    invoice.updatedAt = new Date();
-    await em.flush();
+    const result = { invoiceId: invoice.id };
+    invoiceUpdateSnapshots.set(result, { before, after });
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
@@ -10103,14 +10402,19 @@ const updateInvoiceCommand: CommandHandler<
       "updated",
     );
 
-    return { invoiceId: invoice.id };
+    return result;
   },
   captureAfter: async (_input, result, ctx) => {
+    const locked = invoiceUpdateSnapshots.get(result);
+    if (locked) return locked.after;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadInvoiceSnapshot(em, result.invoiceId);
   },
   buildLog: async ({ input, result, snapshots }) => {
-    const before = snapshots.before as InvoiceGraphSnapshot | undefined;
+    const before =
+      invoiceUpdateSnapshots.get(result)?.before ??
+      (snapshots.before as InvoiceGraphSnapshot | undefined) ??
+      null;
     const after = snapshots.after as InvoiceGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
@@ -10139,29 +10443,66 @@ const updateInvoiceCommand: CommandHandler<
     const payload = extractUndoPayload<InvoiceUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
+    const after = payload?.after ?? null;
+    const scope: InvoiceRecordScope = {
+      organizationId: before.invoice.organizationId,
+      tenantId: before.invoice.tenantId,
+    };
+    ensureOrganizationScope(ctx, scope.organizationId);
+    ensureTenantScope(ctx, scope.tenantId);
+    const restored: { invoice: SalesInvoice | null } = { invoice: null };
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const invoice = await em.findOne(SalesInvoice, { id: before.invoice.id });
+
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          if (!(await lockSalesDocumentRow(em, "sales_invoices", before.invoice.id, scope))) {
+            return throwDocumentUndoStale("invoice");
+          }
+          const current = await loadInvoiceSnapshot(em, before.invoice.id);
+          if (!invoiceMatchesSnapshot(current, after)) return throwDocumentUndoStale("invoice");
+          em.clear();
+          const invoice = await findOneWithDecryption(
+            em,
+            SalesInvoice,
+            { id: before.invoice.id, deletedAt: null, ...scope },
+            {},
+            scope,
+          );
+          if (!invoice) return throwDocumentUndoStale("invoice");
+          restoreInvoiceHeader(invoice, before);
+          restored.invoice = invoice;
+        },
+        async () => {
+          await resetInvoiceCustomFields(
+            em,
+            before.invoice.id,
+            scope,
+            buildCustomFieldResetMap(
+              before.invoice.customFields ?? undefined,
+              after?.invoice.customFields ?? undefined,
+            ),
+          );
+        },
+      ],
+      { transaction: true, label: "sales.invoices.update.undo" },
+    );
+
+    const invoice = restored.invoice;
     if (!invoice) return;
-    ensureOrganizationScope(ctx, invoice.organizationId);
-    ensureTenantScope(ctx, invoice.tenantId);
-    invoice.invoiceNumber = before.invoice.invoiceNumber;
-    invoice.orderId = before.invoice.orderId;
-    invoice.statusEntryId = before.invoice.statusEntryId;
-    invoice.status = before.invoice.status;
-    invoice.issueDate = before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : null;
-    invoice.dueDate = before.invoice.dueDate ? new Date(before.invoice.dueDate as string) : null;
-    invoice.currencyCode = before.invoice.currencyCode;
-    invoice.subtotalNetAmount = before.invoice.subtotalNetAmount;
-    invoice.subtotalGrossAmount = before.invoice.subtotalGrossAmount;
-    invoice.discountTotalAmount = before.invoice.discountTotalAmount;
-    invoice.taxTotalAmount = before.invoice.taxTotalAmount;
-    invoice.grandTotalNetAmount = before.invoice.grandTotalNetAmount;
-    invoice.grandTotalGrossAmount = before.invoice.grandTotalGrossAmount;
-    invoice.paidTotalAmount = before.invoice.paidTotalAmount;
-    invoice.outstandingAmount = before.invoice.outstandingAmount;
-    invoice.metadata = before.invoice.metadata;
-    invoice.updatedAt = new Date();
-    await em.flush();
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: invoice,
+      identifiers: {
+        id: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_invoice },
+    });
   },
 };
 

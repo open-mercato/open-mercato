@@ -666,3 +666,7 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## #7336 2026-11-15
+
+STABLE §7 invoices + undo: additive fields; 500/400 to 404; stale undo 409; unstorable custom fields 500. No step waived. [Migration](UPGRADE_NOTES.md#sales-invoice-write-path-for-imported-invoices-7336)

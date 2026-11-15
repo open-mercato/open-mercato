@@ -49,7 +49,7 @@ export async function enforceSalesDocumentOptimisticLock(
   })
 }
 
-type SalesDocumentLockTable = 'sales_orders' | 'sales_quotes'
+type SalesDocumentLockTable = 'sales_orders' | 'sales_quotes' | 'sales_invoices'
 type SalesDocumentLockRow = {
   id: string
   tenant_id: string
@@ -62,7 +62,8 @@ type SalesDocumentLockDatabase = Record<SalesDocumentLockTable, SalesDocumentLoc
  * Take the parent-document row lock that serializes every write deriving the
  * order/quote header (totals, line count, paid amounts) or the document's child
  * rows (lines, adjustments, returned/fulfilled quantities) inside the caller's
- * transaction. Acquire it BEFORE reading the child rows the header is
+ * transaction. Invoice update and its undo take the same lock on `sales_invoices`.
+ * Acquire it BEFORE reading the child rows the header is
  * recalculated from, and before locking those child rows, so all writers use the
  * same parent-then-children lock order (#6463).
  *
