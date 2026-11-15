@@ -422,6 +422,77 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       expect(csv).not.toContain('Deleted-interaction subject')
       expect(csv).not.toContain('Something newer')
     })
+
+    // Regression for @pkarw's review on #8978 (pullrequestreview-5909684050) —
+    // the previous round's embedded-interaction coverage only exercised the
+    // JSON list route; the CSV export has its own serialization path for
+    // `customers.person`/`customers.company` snapshots and their
+    // `changesJson.interactions.{from,to}` diffs and needs the same proof.
+    it('hides an embedded Person-history email whose ownership transferred, in both the snapshot and the interaction-array diff', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        const idFilter = where?.id as { $in?: string[] } | undefined
+        if (idFilter?.$in?.includes('embedded-1')) {
+          return [{ id: 'embedded-1', visibility: 'private', authorUserId: 'user-3', channelId: null, entity: 'person-1' }]
+        }
+        if ('ownerUserId' in where) {
+          // The only share grant on record covers the OLD (stored) author, user-2.
+          return [{ id: 'share-1', ownerUserId: 'user-2', personEntity: { id: 'person-1' } }]
+        }
+        return []
+      })
+      ;(mockEm as Record<string, unknown>).find = find
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          {
+            id: 'action-person-update',
+            commandId: 'cmd-person-update',
+            actionLabel: 'Update person',
+            actorUserId: 'user-2',
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            resourceKind: 'customers.person',
+            resourceId: 'person-1',
+            createdAt: new Date('2024-06-18T12:00:00.000Z'),
+            contextJson: null,
+            snapshotBefore: {
+              entity: { id: 'person-1' },
+              interactions: [
+                { id: 'embedded-1', interactionType: 'email', authorUserId: 'user-2', title: 'Old secret subject', body: 'Old secret body' },
+              ],
+            },
+            snapshotAfter: {
+              entity: { id: 'person-1' },
+              interactions: [
+                { id: 'embedded-1', interactionType: 'email', authorUserId: 'user-2', title: 'New secret subject', body: 'New secret body' },
+              ],
+            },
+            changesJson: {
+              interactions: {
+                from: [{ id: 'embedded-1', interactionType: 'email', authorUserId: 'user-2', title: 'Old secret subject' }],
+                to: [{ id: 'embedded-1', interactionType: 'email', authorUserId: 'user-2', title: 'New secret subject' }],
+              },
+            },
+          },
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+      expect(res.status).toBe(200)
+      const csv = await res.text()
+      expect(csv).not.toContain('Old secret subject')
+      expect(csv).not.toContain('New secret subject')
+      expect(csv).not.toContain('Old secret body')
+      expect(csv).not.toContain('New secret body')
+    })
   })
 
   // Regression for the follow-up security finding on #8978 — the CSV export only

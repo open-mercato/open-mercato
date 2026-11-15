@@ -294,19 +294,18 @@ function redactChanges(changes: unknown): unknown {
  * Delete snapshots for Person/Company strip restore-only columns (`visibility`,
  * `channelId`, ...) from `interactions[]` before storage — see
  * `commands/interactionRestoreDetails.ts:omitInteractionRestoreDetails` — so the
- * stored audit row cannot tell whether an embedded email was shared. Fail
- * closed: redact every email row whose CURRENT author is not the viewer and
- * whose CURRENT (live) parent has no matching conversation-share grant for
- * that CURRENT author, since "unknown" must not mean "visible".
- *
- * Each entry resolves its OWN live authority by its `id` via the same
- * {@link resolveInteractionAuthority} standalone `customers.interaction`
- * entries use — never the snapshot's historical stored `authorUserId` or
- * container parent. Both can go stale: `customers.interactions.update` lets
- * the existing author transfer ownership to someone else, and an interaction
- * can move to a different Person/Company — either one means a historical
- * grant for the OLD author/parent must not authorize a representation that
- * now belongs to a different, unshared author or parent.
+ * stored audit row cannot tell whether an embedded email was shared. Delegates
+ * the hidden/visible decision to {@link isHiddenEmailInteraction} — the exact
+ * same CURRENT-authority rule (visibility, shared channel, conversation
+ * share, author) standalone `customers.interaction` entries use, resolved
+ * fresh per entry by its own `id` rather than the snapshot's historical
+ * stored fields or container parent. `customers.interactions.update` lets the
+ * existing author transfer ownership and lets an interaction move to a
+ * different Person/Company, so a historical grant/visibility for the OLD
+ * author/parent must not authorize a representation that now belongs to a
+ * different, unshared one — but a CURRENTLY shared email or shared-mailbox
+ * channel must stay just as readable here as it is on a live CRM read or a
+ * standalone interaction audit entry.
  */
 function redactEmbeddedInteractionEntries(
   interactions: unknown[],
@@ -315,19 +314,7 @@ function redactEmbeddedInteractionEntries(
   return interactions.map((entry) => {
     if (!entry || typeof entry !== 'object') return entry
     const interaction = entry as Record<string, unknown>
-    if (interaction.interactionType !== 'email') return entry
-    const interactionId = typeof interaction.id === 'string' ? interaction.id : null
-    const storedAuthorUserId = typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null
-    const authority = resolveInteractionAuthority(interactionId, storedAuthorUserId, ctx)
-    if (ctx.viewerUserId && authority.authorUserId && authority.authorUserId === ctx.viewerUserId) return entry
-    const shared = Boolean(
-      authority.entityId &&
-        authority.authorUserId &&
-        ctx.sharedConversations.some(
-          (grant) => grant.personEntityId === authority.entityId && grant.ownerUserId === authority.authorUserId,
-        ),
-    )
-    if (shared) return entry
+    if (!isHiddenEmailInteraction(interaction, null, ctx)) return entry
     return redactRecordFields(interaction)
   })
 }

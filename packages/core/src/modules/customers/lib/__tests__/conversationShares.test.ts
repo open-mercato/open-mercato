@@ -186,6 +186,28 @@ describe('loadLiveInteractionAuthority', () => {
     await expect(loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1'])).resolves.toEqual(new Map())
   })
 
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909684050) —
+  // the batch query MUST always scope by tenantId, and by organizationId
+  // whenever the caller's scope carries one, so a row from a different
+  // tenant/organization can never surface through this lookup.
+  it('always scopes the query by tenantId, and by organizationId when the caller scope carries one', async () => {
+    const find = jest.fn(async () => [])
+    await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1'])
+    expect(find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId }),
+      expect.anything(),
+    )
+  })
+
+  it('omits organizationId from the query when the caller scope has none (tenant-wide read)', async () => {
+    const find = jest.fn(async () => [])
+    await loadLiveInteractionAuthority(em({ find }), { tenantId: 'tenant-1', organizationId: null }, ['int-1'])
+    const [, where] = find.mock.calls[0]
+    expect(where).not.toHaveProperty('organizationId')
+    expect(where).toMatchObject({ tenantId: 'tenant-1' })
+  })
+
   it('caps the resolved set at LIVE_INTERACTION_ARM_MAX', async () => {
     const many = Array.from({ length: LIVE_INTERACTION_ARM_MAX + 25 }, (_v, i) => ({
       id: `int-${i}`,

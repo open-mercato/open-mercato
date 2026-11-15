@@ -724,6 +724,63 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
     expect(interactions[0].title).toBeNull()
   })
 
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909684050) —
+  // the embedded redactor used to permit ONLY the author or an explicit
+  // conversation-share grant, silently ignoring a CURRENTLY `shared`
+  // visibility and a current shared-mailbox channel — both of which make a
+  // live CRM read, and a standalone `customers.interaction` audit entry for
+  // the same email, fully visible. That mismatch over-redacted content a
+  // non-owner viewer is actually authorized to see.
+  it('keeps a CURRENTLY shared embedded email visible even with no author/grant match', () => {
+    const entry = personDeleteEntry([
+      { id: 'embedded-interaction-shared', interactionType: 'email', authorUserId: OWNER, title: 'Team-visible subject', body: 'Team-visible body' },
+    ])
+    const redacted = redactCustomerAuditEntry(
+      entry,
+      ctx({
+        liveInteractionsById: new Map([
+          ['embedded-interaction-shared', { visibility: 'shared', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
+        ]),
+      }),
+    )
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+    expect(interactions[0].title).toBe('Team-visible subject')
+  })
+
+  it('keeps an embedded private email visible through a CURRENTLY shared team-mailbox channel', () => {
+    const entry = personDeleteEntry([
+      { id: 'embedded-interaction-channel', interactionType: 'email', authorUserId: OWNER, title: 'Mailbox subject', body: 'Mailbox body' },
+    ])
+    const redacted = redactCustomerAuditEntry(
+      entry,
+      ctx({
+        sharedChannelIds: ['channel-1'],
+        liveInteractionsById: new Map([
+          ['embedded-interaction-channel', { visibility: 'private', authorUserId: OWNER, channelId: 'channel-1', entityId: PERSON_ID }],
+        ]),
+      }),
+    )
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+    expect(interactions[0].title).toBe('Mailbox subject')
+  })
+
+  it('hides an embedded private email once its shared-mailbox channel is no longer in the shared set (revoked)', () => {
+    const entry = personDeleteEntry([
+      { id: 'embedded-interaction-channel-revoked', interactionType: 'email', authorUserId: OWNER, title: 'Mailbox subject', body: 'Mailbox body' },
+    ])
+    const redacted = redactCustomerAuditEntry(
+      entry,
+      ctx({
+        sharedChannelIds: [],
+        liveInteractionsById: new Map([
+          ['embedded-interaction-channel-revoked', { visibility: 'private', authorUserId: OWNER, channelId: 'channel-1', entityId: PERSON_ID }],
+        ]),
+      }),
+    )
+    const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+    expect(interactions[0].title).toBeNull()
+  })
+
   // Regression for @pkarw's review on #8978 (pullrequestreview-5909526934) —
   // `customers.interactions.update` lets the existing author transfer
   // ownership to someone else. The embedded redactor used to match shares
