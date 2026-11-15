@@ -5,6 +5,7 @@ import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/atta
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../data/entities'
 import {
   assessDamagePhoto,
+  ATTACHMENT_CONVERSION_FAILED_CODE,
   extractProofOfPurchase,
   WarrantyAiNotConfiguredError,
 } from '../lib/aiAssist'
@@ -12,6 +13,7 @@ import { aiTools } from '../ai-tools'
 import { setClaimLineAssessmentCommand } from '../commands/claim-lines'
 import { POST } from '../api/ai/assess/route'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { ERROR_CODE_SHAPE } from '@open-mercato/shared/lib/telemetry/error-code'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -57,6 +59,7 @@ jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-parts'
 }))
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
   getTelemetryRuntime: () => ({ reportError: reportErrorMock }),
 }))
 
@@ -632,16 +635,17 @@ describe('warranty claim AI assessment packet', () => {
       expect(generateObjectMock).not.toHaveBeenCalled()
       expect(commandExecuteMock).not.toHaveBeenCalled()
       expect(reportErrorMock).toHaveBeenCalledTimes(2)
+      expect(ERROR_CODE_SHAPE.test(ATTACHMENT_CONVERSION_FAILED_CODE)).toBe(true)
       expect(reportErrorMock).toHaveBeenCalledWith(conversionError, {
         module: 'warranty_claims',
-        code: 'warranty_claims.ai.attachment_conversion_failed',
+        code: ATTACHMENT_CONVERSION_FAILED_CODE,
         attributes: { attachmentId: ATTACHMENT_ID },
       })
       expect(warnSpy).toHaveBeenCalledTimes(2)
       expect(warnSpy).toHaveBeenCalledWith('warranty_claims.ai.attachment_conversion_failed', {
         attachmentId: ATTACHMENT_ID,
         errorName: 'TypeError',
-        errorMessage: 'Invalid URL',
+        errorCode: 'ERR_INVALID_URL',
       })
       expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('SECRET-SIGNATURE')
     } finally {
@@ -669,9 +673,7 @@ describe('warranty claim AI assessment packet', () => {
       attachmentId: ATTACHMENT_ID,
     }, makeToolContext(container))).rejects.toBe(readError)
     expect(convertToModelMessagesMock).not.toHaveBeenCalled()
-    expect(reportErrorMock).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      code: 'warranty_claims.ai.attachment_conversion_failed',
-    }))
+    expect(reportErrorMock).not.toHaveBeenCalled()
     expect(generateObjectMock).not.toHaveBeenCalled()
     expect(commandExecuteMock).not.toHaveBeenCalled()
   })
