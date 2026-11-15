@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="en" data-prototype-id="customer-portal-mfa">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Customer portal MFA — interactive prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+<style>
+.portal { background: var(--background); color: var(--foreground); min-height: 34rem; display: flex; flex-direction: column; }
+.portal-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); }
+.portal-brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.875rem; }
+.portal-nav { display: flex; gap: 0.25rem; font-size: 0.875rem; }
+.portal-nav a, .portal-nav span { padding: 0.375rem 0.75rem; border-radius: var(--radius-md); color: var(--muted-foreground); text-decoration: none; }
+.portal-nav .active { background: var(--muted); color: var(--foreground); font-weight: 500; }
+.portal-body { flex: 1; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-width: 60rem; width: 100%; margin: 0 auto; }
+.portal-center { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding: 3rem 1rem; background: var(--muted); }
+.auth-card { width: 26rem; max-width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+.auth-card h1 { font-size: 1.25rem; font-weight: 600; margin: 0; }
+.auth-icon { width: 2.5rem; height: 2.5rem; border-radius: 9999px; background: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.auth-icon svg { width: 1.25rem; height: 1.25rem; }
+.code-input { font-family: var(--font-geist-mono), monospace; letter-spacing: 0.4em; text-align: center; font-size: 1.25rem; height: 3rem; }
+.qr { width: 9rem; height: 9rem; border: 1px solid var(--border); border-radius: var(--radius-md); background-image: repeating-linear-gradient(0deg, var(--foreground) 0 6px, transparent 6px 12px), repeating-linear-gradient(90deg, var(--foreground) 0 6px, transparent 6px 12px); background-blend-mode: difference; opacity: 0.85; flex: none; }
+.codes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem 1.5rem; font-family: var(--font-geist-mono), monospace; font-size: 0.875rem; padding: 1rem; border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--muted); }
+.stepper { display: flex; gap: 0.5rem; font-size: 0.75rem; color: var(--muted-foreground); flex-wrap: wrap; }
+.stepper span { padding: 0.125rem 0.5rem; border-radius: 9999px; border: 1px solid var(--border); }
+.stepper .done { background: var(--status-success-bg); color: var(--status-success-text); border-color: var(--status-success-border); }
+.stepper .now { background: var(--foreground); color: var(--background); border-color: var(--foreground); }
+.method-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+.method-row:last-child { border-bottom: 0; }
+.method-meta { display: flex; align-items: center; gap: 0.75rem; }
+.method-meta svg { width: 1.25rem; height: 1.25rem; color: var(--muted-foreground); }
+.linkish { color: var(--foreground); text-decoration: underline; font-size: 0.875rem; cursor: pointer; background: none; border: 0; padding: 0; }
+.kv { display: grid; grid-template-columns: 12rem 1fr; gap: 0.5rem 1rem; font-size: 0.875rem; }
+.kv dt { color: var(--muted-foreground); }
+.kv dd { margin: 0; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+<symbol id="ic-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></symbol>
+<symbol id="ic-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></symbol>
+<symbol id="ic-finger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M14 13.12c0 2.38 0 6.38-1 8.88"/><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/><path d="M2 12a10 10 0 0 1 18-6"/><path d="M2 16h.01"/><path d="M21.8 16c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/><path d="M8.65 22c.21-.66.45-1.32.57-2"/><path d="M9 6.8a6 6 0 0 1 9 5.2v2"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+<symbol id="ic-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+<symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Customer portal MFA — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Login</a>
+    <a href="#s2">2 Challenge</a>
+    <a href="#s3">3 Wrong code</a>
+    <a href="#s4">4 Recovery</a>
+    <a href="#s5">5 Expired</a>
+    <a href="#s6">6 Grace banner</a>
+    <a href="#s7">7 Security</a>
+    <a href="#s8">8 Enrol TOTP</a>
+    <a href="#s9">9 Codes</a>
+    <a href="#s10">10 Enrolled</a>
+    <a href="#s11">11 Re-auth</a>
+    <a href="#s12">12 Forced setup</a>
+    <a href="#s13">13 Policies</a>
+    <a href="#s14">14 Policy form</a>
+    <a href="#s15">15 Customer user</a>
+    <a href="#s16">16 Reset dialog</a>
+    <a href="#s17">17 Sudo</a>
+    <a href="#s18">18 Reset done</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Customer portal MFA — screen inventory</h1>
+  <p class="muted" style="max-width:70ch;margin:0">
+    Low-fidelity, clickable proposal derived from <code class="t-mono">.ai/specs/enterprise/2026-11-13-customer-portal-mfa.md</code> (issue #7345).
+    Screens 1–12 are the <b>customer portal</b> (portal shell, simplified); screens 13–18 are the <b>backoffice</b> (AppShell anatomy).
+    All data is fictional. Nothing here is implemented; it illustrates flow and layout for review only.
+  </p>
+  <table class="table" style="margin-top:1rem;max-width:70rem">
+    <thead><tr><th>#</th><th>Screen</th><th>Stories</th><th>Spec §</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Portal sign-in (password)</td><td>US-P1, US-O1</td><td>Login sequence</td></tr>
+      <tr><td>2–3</td><td>MFA challenge — authenticator code, wrong-code state</td><td>US-P1</td><td>UI/UX 1</td></tr>
+      <tr><td>4</td><td>MFA challenge — recovery code fallback</td><td>US-P2</td><td>UI/UX 1</td></tr>
+      <tr><td>5</td><td>Challenge expired / attempts exhausted</td><td>US-P1</td><td>Edge cases</td></tr>
+      <tr><td>6</td><td>Dashboard with enforcement grace banner</td><td>US-P4</td><td>UI/UX 4</td></tr>
+      <tr><td>7–10</td><td>Security page: empty → enrol TOTP → recovery codes → enrolled</td><td>US-P3</td><td>UI/UX 3</td></tr>
+      <tr><td>11</td><td>Re-authenticate dialog (remove method / regenerate codes)</td><td>US-P3</td><td>API: DELETE methods</td></tr>
+      <tr><td>12</td><td>Forced enrolment stepper after sign-in</td><td>US-P4</td><td>UI/UX 2</td></tr>
+      <tr><td>13–14</td><td>Enforcement policies list + form with Audience</td><td>US-A1</td><td>UI/UX 5</td></tr>
+      <tr><td>15–18</td><td>Customer user detail → Reset MFA → sudo → done</td><td>US-A2</td><td>UI/UX 6</td></tr>
+    </tbody>
+  </table>
+</header>
+
+<!-- ============ PORTAL ============ -->
+
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Portal sign-in</h2>
+    <p>Existing OSS login page. The only OSS change: when the response carries <code>mfa_required</code>, the page follows the server-provided <code>redirect</code>.</p>
+    <div class="screen-refs"><span class="ref">Login sequence</span><span class="ref">US-P1</span><span class="ref">US-O1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/login</span></div>
+    <div class="portal">
+      <div class="portal-head"><div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply — customer portal</div></div>
+      <div class="portal-center">
+        <form class="auth-card" onsubmit="return false">
+          <h1>Sign in</h1>
+          <div class="field"><label for="s1-email">Email</label><input id="s1-email" class="input" value="maria.kowalska@example.test" /></div>
+          <div class="field"><label for="s1-pass">Password</label><input id="s1-pass" class="input" type="password" value="password-here" /></div>
+          <button class="btn btn-primary" type="button" data-goto="s2">Sign in</button>
+          <div class="between"><span class="linkish">Email me a sign-in link</span><span class="linkish">Forgot password?</span></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Enrolled user: response is <code>200 { ok: true, mfa_required: true, mfa_step: "challenge", redirect }</code>; no <code>customer_auth_token</code>/<code>customer_session_token</code> cookies; a 10-minute httpOnly <code>customer_mfa_pending</code> cookie is set instead. Not enrolled and not enforced: unchanged response.</span></div>
+    <div class="note"><b>2</b><span>The magic-link and invitation-accept pages behave the same way (screen 2, or screen 12 when enrolment is forced).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. MFA challenge — authenticator app</h2>
+    <p>Security-owned portal page <code>/[orgSlug]/portal/mfa/challenge</code>; reuses <code>MfaChallengePanel</code> with the portal API base.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 1</span><span class="ref">US-P1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/mfa/challenge</span></div>
+    <div class="portal">
+      <div class="portal-head"><div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply — customer portal</div></div>
+      <div class="portal-center">
+        <form class="auth-card" onsubmit="return false">
+          <span class="auth-icon"><svg><use href="#ic-shield"/></svg></span>
+          <h1>Two-step verification</h1>
+          <p class="muted" style="margin:0">Enter the 6-digit code from your authenticator app.</p>
+          <div class="segmented" role="tablist" aria-label="Verification method">
+            <button class="btn btn-sm btn-outline" type="button" aria-pressed="true"><svg><use href="#ic-phone"/></svg> Authenticator app</button>
+            <button class="btn btn-sm btn-ghost" type="button"><svg><use href="#ic-finger"/></svg> Passkey</button>
+          </div>
+          <div class="field"><label for="s2-code">Verification code</label><input id="s2-code" class="input code-input" inputmode="numeric" autocomplete="one-time-code" value="482 913" /></div>
+          <button class="btn btn-primary" type="button" data-goto="s6">Verify <span class="kbd">⌘↵</span></button>
+          <button class="btn btn-ghost btn-sm" type="button" data-goto="s3">Simulate wrong code</button>
+          <div class="between"><a class="linkish" href="#s4" data-goto="s4">Use a recovery code instead</a><a class="linkish" href="#s1" data-goto="s1">Back to sign in</a></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Default tab = last-used method. Passkey tab triggers <code>navigator.credentials.get</code> on click (virtual authenticator in tests).</span></div>
+    <div class="note"><b>2</b><span>Success: <code>POST /api/security/portal/mfa/verify</code> marks the challenge verified once, clears the pending cookie, then issues the normal customer session via the OSS <code>issueCustomerSessionResponse</code> helper and redirects to the dashboard.</span></div>
+    <div class="note"><b>3</b><span><kbd>Esc</kbd> returns to sign in.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. MFA challenge — wrong code</h2>
+    <p>Generic error with attempts remaining; the account lockout counter is not touched (Q8).</p>
+    <div class="screen-refs"><span class="ref">Edge cases</span><span class="ref">US-P1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/mfa/challenge</span></div>
+    <div class="portal">
+      <div class="portal-head"><div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply — customer portal</div></div>
+      <div class="portal-center">
+        <form class="auth-card" onsubmit="return false">
+          <span class="auth-icon"><svg><use href="#ic-shield"/></svg></span>
+          <h1>Two-step verification</h1>
+          <div class="alert alert-error" role="alert"><svg width="16" height="16"><use href="#ic-warn"/></svg><div><div class="alert-title">That code didn't work</div><div>3 attempts remaining.</div></div></div>
+          <div class="field"><label for="s3-code">Verification code</label><input id="s3-code" class="input code-input input-invalid" value="111 111" /></div>
+          <button class="btn btn-primary" type="button" data-goto="s6">Verify</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-goto="s5">Simulate attempts exhausted</button>
+          <div class="between"><a class="linkish" href="#s4" data-goto="s4">Use a recovery code instead</a><a class="linkish" href="#s1" data-goto="s1">Back to sign in</a></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Cap = existing <code>securityConfig.mfa.maxAttempts</code> (5). Per-IP and per-challenge rate limits also apply.</span></div></div>
+</section>
+
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. MFA challenge — recovery code</h2>
+    <p>Fallback when the user has no access to their factor.</p>
+    <div class="screen-refs"><span class="ref">API: /portal/mfa/recovery</span><span class="ref">US-P2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/mfa/challenge?method=recovery</span></div>
+    <div class="portal">
+      <div class="portal-head"><div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply — customer portal</div></div>
+      <div class="portal-center">
+        <form class="auth-card" onsubmit="return false">
+          <span class="auth-icon"><svg><use href="#ic-key"/></svg></span>
+          <h1>Use a recovery code</h1>
+          <p class="muted" style="margin:0">Each recovery code works once. Enter one of the codes you saved when you set up two-step verification.</p>
+          <div class="field"><label for="s4-code">Recovery code</label><input id="s4-code" class="input t-mono" value="k7q2-9wmx" /></div>
+          <button class="btn btn-primary" type="button" data-goto="s6">Verify</button>
+          <div class="between"><a class="linkish" href="#s2" data-goto="s2">Use my authenticator app</a><a class="linkish" href="#s1" data-goto="s1">Back to sign in</a></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Emits <code>security.recovery.used</code> with <code>principalType: "customer_user"</code>. When no codes remain the link on screen 2 is hidden and the copy says to contact the portal operator.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Challenge expired or exhausted</h2>
+    <p>Pending cookie missing/expired, attempts exhausted, or admin reset mid-challenge (410).</p>
+    <div class="screen-refs"><span class="ref">Edge cases</span><span class="ref">US-P1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/mfa/challenge</span></div>
+    <div class="portal">
+      <div class="portal-head"><div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply — customer portal</div></div>
+      <div class="portal-center">
+        <div class="auth-card">
+          <span class="auth-icon"><svg><use href="#ic-lock"/></svg></span>
+          <h1>Your sign-in expired</h1>
+          <p class="muted" style="margin:0">For your security, please sign in again.</p>
+          <a class="btn btn-primary" href="#s1" data-goto="s1">Back to sign in</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Dashboard — enforcement grace banner</h2>
+    <p>Tenant enforces portal MFA with a future deadline; user not yet enrolled. Widget injected at <code>portal:dashboard:sections</code>.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 4</span><span class="ref">US-P4</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/dashboard</span></div>
+    <div class="portal">
+      <div class="portal-head">
+        <div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply</div>
+        <nav class="portal-nav"><span class="active">Dashboard</span><span>Orders</span><span>Invoices</span><span>Profile</span><a href="#s7" data-goto="s7">Security</a></nav>
+        <span class="avatar">MK</span>
+      </div>
+      <div class="portal-body">
+        <div class="alert alert-warning" role="status"><svg width="16" height="16"><use href="#ic-warn"/></svg><div class="grow"><div class="alert-title">Two-step verification required from 1 December 2026</div><div>Acme Supply requires two-step verification for portal sign-in. Set it up now to avoid interruption.</div></div><a class="btn btn-sm btn-outline" href="#s7" data-goto="s7">Set up now</a></div>
+        <div class="kpis">
+          <div class="kpi card card-pad"><div class="muted">Open orders</div><div class="t-page-title">4</div></div>
+          <div class="kpi card card-pad"><div class="muted">Unpaid invoices</div><div class="t-page-title">2</div></div>
+          <div class="kpi card card-pad"><div class="muted">Quotes awaiting you</div><div class="t-page-title">1</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Banner driven by <code>GET /api/security/portal/mfa/status</code> → <code>{ enforced: true, enrolled: false, deadline }</code>. After the deadline, sign-in goes to screen 12 instead.</span></div>
+    <div class="note"><b>2</b><span>The "Security" nav entry comes from the security module's portal page metadata (<code>nav.group: "account"</code>), gated by customer feature <code>portal.security.mfa.manage</code>.</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Portal Security page — not enrolled</h2>
+    <p>Self-service enrolment entry point.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 3</span><span class="ref">US-P3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/security</span></div>
+    <div class="portal">
+      <div class="portal-head">
+        <div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply</div>
+        <nav class="portal-nav"><a href="#s6" data-goto="s6">Dashboard</a><span>Orders</span><span>Invoices</span><span>Profile</span><span class="active">Security</span></nav>
+        <span class="avatar">MK</span>
+      </div>
+      <div class="portal-body">
+        <div><h1 class="t-page-title">Security</h1><p class="muted" style="margin:0.25rem 0 0">Protect your account with a second step at sign-in.</p></div>
+        <div class="alert alert-warning"><svg width="16" height="16"><use href="#ic-warn"/></svg><div>Required by Acme Supply from 1 December 2026.</div></div>
+        <div class="card">
+          <div class="card-head"><span class="t-card-title">Two-step verification</span><span class="badge badge-neutral">Off</span></div>
+          <div class="method-row"><div class="method-meta"><svg><use href="#ic-phone"/></svg><div><div class="strong">Authenticator app</div><div class="muted t-hint">Google Authenticator, 1Password, Microsoft Authenticator…</div></div></div><button class="btn btn-outline btn-sm" type="button" data-goto="s8"><svg><use href="#ic-plus"/></svg> Add</button></div>
+          <div class="method-row"><div class="method-meta"><svg><use href="#ic-finger"/></svg><div><div class="strong">Passkey</div><div class="muted t-hint">Use your device's fingerprint, face or screen lock.</div></div></div><button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-plus"/></svg> Add</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Recovery codes are generated automatically with the first method; they are not a standalone method.</span></div></div>
+</section>
+
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Enrol authenticator app</h2>
+    <p>Scan QR or enter the key manually, then confirm with a code.</p>
+    <div class="screen-refs"><span class="ref">API: POST/PUT /portal/mfa/provider/totp</span><span class="ref">US-P3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/security?setup=totp</span></div>
+    <div class="portal">
+      <div class="portal-head">
+        <div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply</div>
+        <nav class="portal-nav"><span>Dashboard</span><span>Orders</span><span>Invoices</span><span>Profile</span><span class="active">Security</span></nav>
+        <span class="avatar">MK</span>
+      </div>
+      <div class="portal-body">
+        <a class="back-link" href="#s7" data-goto="s7"><svg width="16" height="16"><use href="#ic-chevron-left"/></svg> Security</a>
+        <div class="card card-pad stack-4">
+          <div class="t-card-title">Set up an authenticator app</div>
+          <div class="row-4" style="align-items:flex-start">
+            <div class="qr" role="img" aria-label="QR code (illustrative)"></div>
+            <div class="stack-3 grow">
+              <div class="t-body">1. Scan this QR code with your authenticator app.</div>
+              <div class="field"><label for="s8-key">Or enter this key manually</label><div class="input-group"><input id="s8-key" class="input t-mono" readonly value="JBSW Y3DP EHPK 3PXP" /><button class="btn btn-outline btn-icon" type="button" aria-label="Copy key"><svg><use href="#ic-copy"/></svg></button></div></div>
+              <div class="field"><label for="s8-label">Name this device (optional)</label><input id="s8-label" class="input" value="Work phone" /></div>
+              <div class="field"><label for="s8-code">2. Enter the 6-digit code</label><input id="s8-code" class="input code-input" style="max-width:14rem" value="905 117" /></div>
+            </div>
+          </div>
+          <div class="form-foot"><div class="actions"><button class="btn btn-outline" type="button" data-goto="s7">Cancel</button><button class="btn btn-primary" type="button" data-goto="s9">Confirm</button></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>QR data URL is generated server-side by the existing TOTP provider; the portal bundle ships no QR library. Tests read the manual key from the field and compute codes locally (offline).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Save recovery codes</h2>
+    <p>Shown once after the first method; Continue is enabled only after the user confirms saving.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 2–3</span><span class="ref">US-P2</span><span class="ref">US-P3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/security?setup=totp&amp;step=codes</span></div>
+    <div class="portal">
+      <div class="portal-head">
+        <div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply</div>
+        <nav class="portal-nav"><span>Dashboard</span><span>Orders</span><span>Invoices</span><span>Profile</span><span class="active">Security</span></nav>
+        <span class="avatar">MK</span>
+      </div>
+      <div class="portal-body">
+        <div class="card card-pad stack-4">
+          <div class="alert alert-success"><svg width="16" height="16"><use href="#ic-check"/></svg><div>Authenticator app added.</div></div>
+          <div class="t-card-title">Save your recovery codes</div>
+          <p class="muted" style="margin:0">If you lose your phone you can sign in with one of these codes. Each works once. We won't show them again.</p>
+          <div class="codes"><span>k7q2-9wmx</span><span>p3zd-v8ht</span><span>a9fn-2kqe</span><span>x4rc-7ymb</span><span>t6wu-3jpa</span><span>m2ge-8dzs</span><span>h5vk-1nqr</span><span>c8ly-6wfo</span><span>e1sb-4tgu</span><span>r9pj-5xai</span></div>
+          <div class="row-3"><button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-copy"/></svg> Copy</button><button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-download"/></svg> Download .txt</button></div>
+          <label class="row-3"><button class="check" type="button" role="checkbox" aria-checked="true" aria-label="I have saved these codes"><svg><use href="#ic-check"/></svg></button> I have saved these codes somewhere safe</label>
+          <div class="form-foot"><div class="actions"><button class="btn btn-primary" type="button" data-goto="s10">Continue</button></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Security page — enrolled</h2>
+    <p>Method list, recovery codes remaining, remove disabled for the last method under enforcement.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 3</span><span class="ref">US-P3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/security</span></div>
+    <div class="portal">
+      <div class="portal-head">
+        <div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply</div>
+        <nav class="portal-nav"><a href="#s6" data-goto="s6">Dashboard</a><span>Orders</span><span>Invoices</span><span>Profile</span><span class="active">Security</span></nav>
+        <span class="avatar">MK</span>
+      </div>
+      <div class="portal-body">
+        <div><h1 class="t-page-title">Security</h1></div>
+        <div class="card">
+          <div class="card-head"><span class="t-card-title">Two-step verification</span><span class="badge badge-success">On</span></div>
+          <div class="method-row"><div class="method-meta"><svg><use href="#ic-phone"/></svg><div><div class="strong">Authenticator app · Work phone</div><div class="muted t-hint">Added 13 Nov 2026 · last used today</div></div></div><button class="btn btn-ghost btn-icon" type="button" aria-label="Remove Work phone (last method — blocked while required)" disabled title="This is your only method and your organization requires two-step verification."><svg><use href="#ic-trash"/></svg></button></div>
+          <div class="method-row"><div class="method-meta"><svg><use href="#ic-finger"/></svg><div><div class="strong">Passkey</div><div class="muted t-hint">Not set up</div></div></div><button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-plus"/></svg> Add</button></div>
+          <div class="method-row"><div class="method-meta"><svg><use href="#ic-key"/></svg><div><div class="strong">Recovery codes</div><div class="muted t-hint">9 of 10 remaining</div></div></div><button class="btn btn-outline btn-sm" type="button" data-goto="s11"><svg><use href="#ic-refresh"/></svg> Regenerate</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Passkeys show the host they were registered on (rpId per portal domain) — e.g. "Passkey · portal.acme.example".</span></div>
+    <div class="note"><b>2</b><span>Removing a method (when allowed) and regenerating codes open the re-authentication dialog (screen 11).</span></div>
+  </div>
+</section>
+
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Re-authenticate dialog</h2>
+    <p>Required for removing a method or regenerating recovery codes.</p>
+    <div class="screen-refs"><span class="ref">API: DELETE /portal/mfa/methods/[id]</span><span class="ref">US-P3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/security</span></div>
+    <div class="portal modal-scrim" style="position:relative">
+      <div class="portal-head"><div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply</div></div>
+      <div class="portal-body"><div class="card card-pad muted">Security page (behind dialog)</div></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="s11-title">
+        <div class="modal-head"><h2 id="s11-title" class="t-section" style="margin:0">Confirm it's you</h2></div>
+        <div class="modal-body">
+          <p class="muted" style="margin:0">Enter a code from your authenticator app to regenerate your recovery codes. Your old codes will stop working.</p>
+          <div class="field"><label for="s11-code">Verification code</label><input id="s11-code" class="input code-input" value="733 204" /></div>
+          <span class="linkish">Use my password instead</span>
+        </div>
+        <div class="modal-foot"><button class="btn btn-outline" type="button" data-goto="s10">Cancel <span class="kbd">Esc</span></button><button class="btn btn-primary" type="button" data-goto="s9">Confirm <span class="kbd">⌘↵</span></button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Forced enrolment after sign-in</h2>
+    <p>Enforced, not enrolled, deadline passed (or invitation accept under enforcement). No session until done; works without the self-service feature.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 2</span><span class="ref">Gate decision table</span><span class="ref">US-P4</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/acme/portal/mfa/setup</span></div>
+    <div class="portal">
+      <div class="portal-head"><div class="portal-brand"><span class="brand-mark">AS</span> Acme Supply — customer portal</div></div>
+      <div class="portal-center">
+        <form class="auth-card" style="width:34rem" onsubmit="return false">
+          <div class="stepper"><span class="done">1 Choose method</span><span class="now">2 Scan &amp; confirm</span><span>3 Save codes</span></div>
+          <h1>Set up two-step verification</h1>
+          <p class="muted" style="margin:0">Acme Supply requires two-step verification to access the portal.</p>
+          <div class="row-4" style="align-items:flex-start">
+            <div class="qr" role="img" aria-label="QR code (illustrative)"></div>
+            <div class="stack-3 grow">
+              <div class="field"><label for="s12-key">Manual key</label><input id="s12-key" class="input t-mono" readonly value="KRUG S4ZA NFXX EZLO" /></div>
+              <div class="field"><label for="s12-code">6-digit code</label><input id="s12-code" class="input code-input" value="216 480" /></div>
+            </div>
+          </div>
+          <div class="between"><a class="linkish" href="#s1" data-goto="s1">Cancel and sign out</a><button class="btn btn-primary" type="button" data-goto="s9">Confirm</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Authenticated by the <code>customer_mfa_pending</code> cookie with <code>purpose: "enroll"</code>. Confirming the method issues the session; step 3 is the recovery-codes screen (9), whose Continue lands on the dashboard.</span></div>
+  </div>
+</section>
+
+<!-- ============ BACKOFFICE ============ -->
+
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Enforcement policies — with Audience</h2>
+    <p>Existing <code>/backend/security/enforcement</code> list gains an Audience column and filter.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 5</span><span class="ref">US-A1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/security/enforcement</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Security</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-shield"/></svg> MFA enforcement</span>
+            <span class="nav-item"><svg><use href="#ic-users"/></svg> Users MFA</span>
+            <span class="nav-item"><svg><use href="#ic-lock"/></svg> Sudo protection</span>
+          </div>
+          <div class="nav-group"><span>Customers</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item" href="#s15" data-goto="s15"><svg><use href="#ic-user"/></svg> Portal users</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Security</span><svg><use href="#ic-chevron-right"/></svg><span class="here">MFA enforcement</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title" style="margin:0">MFA enforcement policies</h2><div class="dt-head-actions"><button class="btn btn-primary" type="button" data-goto="s14"><svg><use href="#ic-plus"/></svg> New policy</button></div></div>
+              <div class="dt-toolbar"><div class="dt-toolbar-row"><div class="input dt-search row-3"><svg width="16" height="16"><use href="#ic-search"/></svg> Search</div><span class="chip chip-active">Audience: Customer portal <svg width="12" height="12"><use href="#ic-x"/></svg></span><span class="chip chip-dashed"><svg width="12" height="12"><use href="#ic-filter"/></svg> Filter</span></div></div>
+            </div>
+            <table class="table">
+              <thead><tr><th>Audience</th><th>Scope</th><th>Target</th><th>Enforced</th><th>Allowed methods</th><th>Deadline</th><th>Compliance</th><th class="w-0"></th></tr></thead>
+              <tbody>
+                <tr><td><span class="badge badge-info">Customer portal</span></td><td>Tenant</td><td>Acme Supply</td><td><span class="badge badge-success">Yes</span></td><td>Authenticator app, Passkey</td><td>1 Dec 2026</td><td class="num">142 / 388</td><td><button class="btn btn-ghost btn-icon" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+                <tr><td><span class="badge badge-info">Customer portal</span></td><td>Organization</td><td>Acme Supply — Finance partners</td><td><span class="badge badge-success">Yes</span></td><td>Passkey</td><td>—</td><td class="num">18 / 18</td><td><button class="btn btn-ghost btn-icon" aria-label="Row actions"><svg><use href="#ic-more"/></svg></button></td></tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="muted num">Showing 1 to 2 of 2 results</span></div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Without the filter, backoffice policies appear with a neutral "Backoffice" badge. Portal rows require <code>security.portal_mfa.manage</code>.</span></div></div>
+</section>
+
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. New enforcement policy — Audience field</h2>
+    <p><code>EnforcementPolicyForm</code> (CrudForm) gets Audience as its first field.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 5</span><span class="ref">US-A1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/security/enforcement/create</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Security</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s13" data-goto="s13"><svg><use href="#ic-shield"/></svg> MFA enforcement</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>MFA enforcement</span><svg><use href="#ic-chevron-right"/></svg><span class="here">New policy</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">New enforcement policy</h1></div></div>
+          <form class="form-layout" onsubmit="return false">
+            <div class="stack-3">
+              <div class="form-group">
+                <div class="t-card-title">Who and where</div>
+                <div class="field"><label>Audience <span class="req">*</span></label>
+                  <div class="segmented"><button class="btn btn-sm btn-ghost" type="button">Backoffice users</button><button class="btn btn-sm btn-outline" type="button" aria-pressed="true">Customer portal users</button></div>
+                  <span class="t-hint muted">Portal policies apply to customer accounts signing in to the portal only.</span>
+                </div>
+                <div class="field"><label for="s14-scope">Scope <span class="req">*</span></label><select id="s14-scope" class="input"><option>Tenant</option><option selected>Organization</option></select></div>
+                <div class="field"><label for="s14-org">Organization</label><select id="s14-org" class="input"><option>Acme Supply — Finance partners</option></select></div>
+              </div>
+              <div class="form-group">
+                <div class="t-card-title">Requirements</div>
+                <label class="row-3"><span class="switch" role="switch" aria-checked="true" aria-label="Enforce MFA"></span> Enforce two-step verification</label>
+                <div class="field"><label>Allowed methods</label>
+                  <label class="row-3"><button class="check" type="button" role="checkbox" aria-checked="true" aria-label="Authenticator app"><svg><use href="#ic-check"/></svg></button> Authenticator app (TOTP)</label>
+                  <label class="row-3"><button class="check" type="button" role="checkbox" aria-checked="true" aria-label="Passkey"><svg><use href="#ic-check"/></svg></button> Passkey</label>
+                  <label class="row-3 muted"><button class="check" type="button" role="checkbox" aria-checked="false" aria-label="Email code" disabled><svg><use href="#ic-check"/></svg></button> Email code — available in Release 2</label>
+                </div>
+                <div class="field"><label for="s14-deadline">Enrolment deadline</label><input id="s14-deadline" class="input" value="2026-12-01" /><span class="t-hint muted">Recommended. Until then users can sign in and see a reminder; afterwards they must set up before their session starts.</span></div>
+              </div>
+            </div>
+            <div class="stack-3">
+              <div class="form-group"><div class="t-card-title">Impact preview</div><div class="t-body">18 portal users in scope · 0 enrolled</div><div class="alert alert-info"><svg width="16" height="16"><use href="#ic-info"/></svg><div>Existing portal sessions continue until they expire. The policy applies at next sign-in.</div></div></div>
+            </div>
+          </form>
+          <div class="form-foot" style="margin-top:1rem"><div class="actions"><button class="btn btn-outline" type="button" data-goto="s13">Cancel</button><button class="btn btn-primary" type="button" data-goto="s13"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Optimistic locking unchanged: <code>updatedAt</code> header on edit; conflicts via the unified conflict bar.</span></div></div>
+</section>
+
+<section class="screen" id="s15">
+  <div class="screen-meta">
+    <h2>15. Customer user detail — MFA section</h2>
+    <p>Widget injected at the new spot <code>customer_accounts.portal-user.detail:sections</code>; hidden without <code>security.portal_mfa.reset</code>.</p>
+    <div class="screen-refs"><span class="ref">UI/UX 6</span><span class="ref">US-A2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer_accounts/users/7c1e…</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-user"/></svg> Portal users</span><a class="nav-item" href="#s13" data-goto="s13"><svg><use href="#ic-shield"/></svg> MFA enforcement</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Portal users</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Maria Kowalska</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="form-head between"><div class="row-3"><span class="back-link"><svg width="16" height="16"><use href="#ic-chevron-left"/></svg> Back to list</span><h1 class="t-page-title" style="margin:0">Maria Kowalska</h1></div><div class="row-3"><button class="btn btn-destructive-outline btn-sm" type="button">Delete</button></div></div>
+          <div class="card card-pad"><dl class="kv"><dt>Email</dt><dd>maria.kowalska@example.test</dd><dt>Company</dt><dd>Kowalska Hurt sp. z o.o.</dd><dt>Roles</dt><dd>Buyer</dd><dt>Last login</dt><dd>13 Nov 2026, 09:12</dd></dl></div>
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Multi-factor authentication</span><span class="badge badge-success">Compliant</span></div>
+            <div class="card-body card-pad stack-3">
+              <dl class="kv"><dt>Policy</dt><dd>Customer portal · Tenant · deadline 1 Dec 2026</dd><dt>Methods</dt><dd>Authenticator app "Work phone" — last used today</dd><dt>Recovery codes</dt><dd>9 of 10 remaining</dd></dl>
+              <div><button class="btn btn-destructive-outline btn-sm" type="button" data-goto="s16"><svg><use href="#ic-refresh"/></svg> Reset MFA</button></div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Data from <code>GET /api/security/portal/users/[id]/mfa/status</code>; a customer user in another tenant returns 404 (no existence leak).</span></div></div>
+</section>
+
+<section class="screen" id="s16">
+  <div class="screen-meta">
+    <h2>16. Reset MFA dialog</h2>
+    <p>Reason required; explains consequences.</p>
+    <div class="screen-refs"><span class="ref">API: POST /portal/users/[id]/mfa/reset</span><span class="ref">US-A2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer_accounts/users/7c1e…</span></div>
+    <div class="app app-narrow modal-scrim" style="position:relative">
+      <aside class="sidebar"><div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div></aside>
+      <div class="main"><main class="page"><div class="card card-pad muted">Customer user detail (behind dialog)</div></main></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="s16-title">
+        <div class="modal-head"><h2 id="s16-title" class="t-section" style="margin:0">Reset multi-factor authentication?</h2></div>
+        <div class="modal-body">
+          <div class="alert alert-warning"><svg width="16" height="16"><use href="#ic-warn"/></svg><div>Maria Kowalska's authenticator apps, passkeys and recovery codes will be removed and she will be signed out of the portal everywhere. If a policy requires MFA she will have to set it up at next sign-in.</div></div>
+          <div class="field"><label for="s16-reason">Reason <span class="req">*</span></label><textarea id="s16-reason" class="textarea">Lost phone — identity verified by phone call with account manager.</textarea></div>
+        </div>
+        <div class="modal-foot"><button class="btn btn-outline" type="button" data-goto="s15">Cancel <span class="kbd">Esc</span></button><button class="btn btn-destructive" type="button" data-goto="s17">Reset MFA <span class="kbd">⌘↵</span></button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="s17">
+  <div class="screen-meta">
+    <h2>17. Sudo challenge</h2>
+    <p>Existing <code>SudoChallengeModal</code>, target <code>security.admin.portal_mfa.reset</code>.</p>
+    <div class="screen-refs"><span class="ref">API guards</span><span class="ref">US-A2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer_accounts/users/7c1e…</span></div>
+    <div class="app app-narrow modal-scrim" style="position:relative">
+      <aside class="sidebar"><div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div></aside>
+      <div class="main"><main class="page"><div class="card card-pad muted">Customer user detail (behind dialog)</div></main></div>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="s17-title" style="width:28rem">
+        <div class="modal-head"><h2 id="s17-title" class="t-section" style="margin:0">Confirm with your authenticator</h2></div>
+        <div class="modal-body"><p class="muted" style="margin:0">This action is protected. Enter a code from your own authenticator app.</p><div class="field"><label for="s17-code">Code</label><input id="s17-code" class="input code-input" value="559 018" /></div></div>
+        <div class="modal-foot"><button class="btn btn-outline" type="button" data-goto="s15">Cancel</button><button class="btn btn-primary" type="button" data-goto="s18">Confirm</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="s18">
+  <div class="screen-meta">
+    <h2>18. Reset complete</h2>
+    <p>Status updates; flash confirms; audit records the reason.</p>
+    <div class="screen-refs"><span class="ref">Events: security.mfa.reset</span><span class="ref">US-A2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer_accounts/users/7c1e…</span></div>
+    <div class="app app-narrow" style="position:relative">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s15" data-goto="s15"><svg><use href="#ic-user"/></svg> Portal users</a></div></nav>
+      </aside>
+      <div class="main">
+        <main class="page">
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Multi-factor authentication</span><span class="badge badge-warning">Not enrolled · required</span></div>
+            <div class="card-body card-pad"><dl class="kv"><dt>Methods</dt><dd>None</dd><dt>Last reset</dt><dd>13 Nov 2026 by Anna Nowak — "Lost phone — identity verified…"</dd></dl></div>
+          </div>
+        </main>
+      </div>
+      <div class="toast" role="status"><svg><use href="#ic-check"/></svg> MFA reset. Maria Kowalska was signed out of the portal.</div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Command <code>security.admin.portal_mfa.reset</code> (not undoable, audit-logged). Emits <code>security.mfa.reset</code> with <code>principalType: "customer_user"</code>; backoffice notification subscribers skip it in Release 1.</span></div></div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
