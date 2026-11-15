@@ -186,6 +186,7 @@ function formatDayLabel(date: Date, t: TranslateFn): string {
 export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0, events: providedEvents }: ActivitiesDayStripProps) {
   const t = useT()
   const monthLabelId = React.useId()
+  const viewportRef = React.useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = React.useState<Date>(() => anchorCenteredOn(selectedDate))
   const [fetchedEvents, setFetchedEvents] = React.useState<InteractionSummary[]>([])
   // When the parent supplies `events` (preferred path — keeps day strip and
@@ -204,6 +205,19 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
 
   const visibleDays = React.useMemo(() => buildVisibleDays(anchor), [anchor])
   const headerLabel = React.useMemo(() => formatMonthLabel(visibleDays[0], t), [visibleDays, t])
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    const selected = viewport?.querySelector<HTMLElement>('button[aria-pressed="true"]')
+    if (!viewport || !selected) return
+    const viewportBounds = viewport.getBoundingClientRect()
+    const selectedBounds = selected.getBoundingClientRect()
+    if (selectedBounds.left < viewportBounds.left) {
+      viewport.scrollLeft += selectedBounds.left - viewportBounds.left
+    } else if (selectedBounds.right > viewportBounds.right) {
+      viewport.scrollLeft += selectedBounds.right - viewportBounds.right
+    }
+  }, [anchor, selectedDate.getTime()])
 
   React.useEffect(() => {
     if (useProvidedEvents) return
@@ -293,7 +307,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
           <ChevronLeft className="size-4 text-foreground" />
         </IconButton>
         <ScrollAreaRoot className="h-30 min-w-0 flex-1" type="auto">
-          <ScrollAreaViewport tabIndex={0} role="group" aria-labelledby={monthLabelId} className="focus-visible:shadow-focus">
+          <ScrollAreaViewport ref={viewportRef} tabIndex={0} role="group" aria-labelledby={monthLabelId} className="focus-visible:shadow-focus">
             <div className="flex w-max min-w-full items-stretch justify-center gap-1 px-1 pt-1 pb-3">
               {visibleDays.map((day) => {
                 const busy = computeDayBusyness(events, day)

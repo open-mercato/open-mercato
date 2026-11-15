@@ -164,6 +164,7 @@ for (const kind of ['companies', 'people'] as const) {
           test(`TC-CRM-8603 keeps calendar controls reachable by ${inputMode}`, async ({ page, calendarAccount }, testInfo) => {
             await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
             await withCalendar(page, calendarAccount, kind, populated, async ({ card, dates }) => {
+              await assertDateVisible(dates.getByRole('button', { name: 'WED 04' }))
               await assertBounds(card)
               if (inputMode === 'pointer') await attachEvidence(card, dates, testInfo)
               const buttons = dates.getByRole('button')
