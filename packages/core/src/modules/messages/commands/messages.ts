@@ -23,6 +23,7 @@ import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID 
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
+import { assertExternalEmailBudget } from '../lib/externalEmailBudget'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
@@ -143,6 +144,7 @@ const composeCommandSchema = composeMessageSchema.safeExtend({
   // undefined). When set, a re-issued compose returns the first message instead
   // of creating a duplicate.
   idempotencyKey: z.string().min(1).max(255).optional(),
+  externalEmailRecipients: z.array(z.string().email()).min(1).optional(),
 })
 
 const updateDraftCommandSchema = updateDraftSchema.safeExtend({
@@ -299,6 +301,14 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         scope,
       )
       if (existing) return buildComposeResultFromExisting(em, existing)
+    }
+
+    if (!input.isDraft && (input.sendViaEmail || input.externalEmailRecipients?.length) && input.externalEmail) {
+      await assertExternalEmailBudget(
+        ctx.container,
+        { tenantId: input.tenantId, userId: input.userId },
+        input.externalEmailRecipients ? [input.externalEmail, ...input.externalEmailRecipients] : input.externalEmail,
+      )
     }
 
     let messageId = ''
@@ -558,11 +568,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
     }
 
+    const finalVisibility = input.visibility ?? message.visibility
     // Validate the send transition BEFORE the atomic-flush block so a rejected
     // send never mutates or flushes anything (everything checked here is known
     // from the parsed input + the loaded message).
     if (isSending) {
-      const finalVisibility = input.visibility ?? message.visibility
       const finalSubject = input.subject ?? message.subject
       const finalBody = input.body ?? message.body
       const finalRecipientCount = input.recipients
@@ -573,6 +583,16 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
       if (!finalSubject?.trim()) throw new Error('subject is required')
       if (!finalBody?.trim()) throw new Error('body is required')
+    }
+
+    const finalSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
+    const finalExternalEmail = input.externalEmail ?? message.externalEmail
+    if (isSending && (finalVisibility === 'public' || finalSendViaEmail) && finalExternalEmail) {
+      await assertExternalEmailBudget(
+        ctx.container,
+        { tenantId: input.tenantId, userId: input.userId },
+        finalExternalEmail,
+      )
     }
 
     // Phase 1 mutates the managed `message` scalars; the per-phase flush issues
@@ -670,13 +690,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       const recipientUserIds = input.recipients
         ? input.recipients.map((r) => r.userId)
         : (preloadedRecipients ?? []).map((r) => r.recipientUserId)
-      const resolvedVisibility = input.visibility ?? message.visibility
-      const resolvedSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
       await emitMessageSentEvent(ctx.container, {
         messageId: message.id,
         senderUserId: input.userId,
         recipientUserIds,
-        sendViaEmail: resolvedVisibility === 'public' ? true : resolvedSendViaEmail,
+        sendViaEmail: finalVisibility === 'public' ? true : finalSendViaEmail,
         externalEmail: message.externalEmail ?? null,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
@@ -820,6 +838,23 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
     }
     if (recipientIds.size === 0 && original.senderUserId !== SYSTEM_SENDER_USER_ID) {
       throw new Error('No recipients available for reply')
+    }
+
+    const channelThread = !input.sendViaEmail && original.visibility === 'public'
+      ? await resolveMessageChannelThreadAccess(
+        ctx.container,
+        { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
+        { messageThreadId: original.threadId ?? original.id },
+        { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
+      )
+      : null
+    const sendsChannelEmail = channelThread?.channelType === 'email'
+    if ((input.sendViaEmail && original.externalEmail) || sendsChannelEmail) {
+      await assertExternalEmailBudget(
+        ctx.container,
+        { tenantId: input.tenantId, userId: input.userId },
+        original.externalEmail ?? [],
+      )
     }
 
     let messageId = ''
@@ -988,6 +1023,13 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     // thread, not the source, and some public messages on a channel thread
     // carry no source type (an AI or parented compose), so the thread decides.
     const keepsExternalCorrespondent = !(await isOnChannelThread(ctx, input, original))
+    if (input.sendViaEmail && keepsExternalCorrespondent && original.externalEmail) {
+      await assertExternalEmailBudget(
+        ctx.container,
+        { tenantId: input.tenantId, userId: input.userId },
+        original.externalEmail,
+      )
+    }
     let newMessageId = ''
     let responseExternalEmail: string | null = null
     await em.transactional(async (trx) => {
