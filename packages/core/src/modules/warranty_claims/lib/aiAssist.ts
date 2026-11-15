@@ -394,7 +394,11 @@ async function buildAttachmentMessages(input: {
   if (fileParts.length === 0) {
     throw new WarrantyAiUnavailableError('[internal] warranty ai attachment content unavailable')
   }
-  return toWarrantyModelMessages(input.prompt, fileParts)
+  try {
+    return await toWarrantyModelMessages(input.prompt, fileParts)
+  } catch (err) {
+    throw new WarrantyAiUnavailableError(err instanceof Error ? err.message : '[internal] warranty ai attachment conversion failed')
+  }
 }
 
 export async function toWarrantyModelMessages(

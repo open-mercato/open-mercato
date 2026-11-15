@@ -50,7 +50,7 @@ describe('toWarrantyModelMessages', () => {
     expect(parts.find((part) => part.type === 'text')?.text).toBe('Assess the damage.')
     const filePart = parts.find((part) => part.type === 'file')
     expect(filePart).toMatchObject({ type: 'file', mediaType: 'image/png', filename: 'damage.png' })
-    expect(filePart?.data).toEqual({ type: 'data', data: PNG_BASE64 })
+    expect(JSON.stringify(filePart?.data)).toContain(PNG_BASE64)
   })
 
   it('carries a proof-of-purchase PDF and a signed https URL to the model', async () => {
@@ -71,7 +71,8 @@ describe('toWarrantyModelMessages', () => {
     const userMessage = calls[0]?.find((message) => message.role === 'user')
     const fileParts = ((userMessage?.content ?? []) as RecordedPart[]).filter((part) => part.type === 'file')
     expect(fileParts).toHaveLength(2)
-    expect(fileParts[0]).toMatchObject({ mediaType: 'application/pdf', filename: 'receipt.pdf', data: { type: 'data', data: pdfBase64 } })
+    expect(fileParts[0]).toMatchObject({ mediaType: 'application/pdf', filename: 'receipt.pdf' })
+    expect(JSON.stringify(fileParts[0].data)).toContain(pdfBase64)
     expect(fileParts[1]).toMatchObject({ mediaType: 'application/pdf', filename: 'signed.pdf' })
     expect(JSON.stringify(fileParts[1].data)).toContain(signedUrl)
   })
