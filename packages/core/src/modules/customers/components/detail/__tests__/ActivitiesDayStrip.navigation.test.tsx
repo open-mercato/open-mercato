@@ -33,6 +33,33 @@ describe('ActivitiesDayStrip navigation', () => {
     expect(within(dates).getByRole('button', { name: 'TUE 03' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('reveals the selected date inside the viewport on mount and selection changes', () => {
+    const bounds = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const viewport = this.getAttribute('role') === 'group' ? this : this.closest<HTMLElement>('[role="group"]')
+      if (!viewport) return { left: 0, right: 0 } as DOMRect
+      if (this === viewport) return { left: 79, right: 311 } as DOMRect
+      const index = Array.from(viewport.querySelectorAll('button')).indexOf(this)
+      const left = 83 + index * 104 - viewport.scrollLeft
+      return { left, right: left + 100 } as DOMRect
+    })
+    try {
+      const onSelectDate = jest.fn()
+      const calendar = (day: number) => (
+        <ActivitiesDayStrip entityId="owned-person" selectedDate={new Date(2026, 10, day)} onSelectDate={onSelectDate} events={[]} />
+      )
+      const { rerender } = renderWithProviders(calendar(3))
+      const viewport = screen.getByRole('group', { name: 'November 2026' })
+      expect(viewport.scrollLeft).toBe(80)
+      expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled()
+
+      rerender(calendar(5))
+      expect(viewport.scrollLeft).toBe(288)
+      expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      bounds.mockRestore()
+    }
+  })
+
   it('selects the local calendar day without changing its callback contract', () => {
     const onSelectDate = renderCalendar()
     fireEvent.click(screen.getByRole('button', { name: 'THU 05' }))
