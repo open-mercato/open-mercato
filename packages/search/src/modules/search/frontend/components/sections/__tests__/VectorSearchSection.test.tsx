@@ -21,6 +21,17 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 const flashMock = jest.fn()
 
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value(this: HTMLDialogElement) { this.setAttribute('open', '') },
+  })
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value(this: HTMLDialogElement) { this.removeAttribute('open') },
+  })
+})
+
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
 }))
@@ -125,6 +136,55 @@ describe('VectorSearchSection provider controls', () => {
     expect(providerButton.getAttribute('aria-controls')).toBeNull()
     expect(providerButton.parentElement?.classList.contains('cursor-not-allowed')).toBe(true)
     expect(document.getElementById('provider-ollama-configuration')).toBeNull()
+  })
+})
+
+describe('VectorSearchSection confirmation keyboard controls', () => {
+  beforeEach(() => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockResolvedValue(null)
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: jest.fn(() => new Promise(() => undefined)),
+    })
+  })
+
+  it('cancels reindex with Escape without sending a mutation and can reopen', async () => {
+    renderSection()
+    fireEvent.click(screen.getByRole('tab', { name: 'Index Management' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+  })
+
+  it.each(['ctrlKey', 'metaKey'])('confirms reindex once with %s+Enter', async (modifier) => {
+    renderSection()
+    fireEvent.click(screen.getByRole('tab', { name: 'Index Management' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Enter', [modifier]: true })
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1))
+    expect(readApiResultOrThrowMock.mock.calls[0][0]).toBe('/api/search/embeddings/reindex')
+  })
+
+  it('cancels a provider change with Escape without persisting it', async () => {
+    renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Confirm' }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['ctrlKey', 'metaKey'])('confirms a provider change once with %s+Enter', async (modifier) => {
+    renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Confirm' }), { key: 'Enter', [modifier]: true })
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1))
+    expect(readApiResultOrThrowMock.mock.calls[0][0]).toBe('/api/search/embeddings')
   })
 })
 
