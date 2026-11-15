@@ -317,10 +317,19 @@ const numericAmountPattern = /^\d+(?:\.\d+)?$/
  * `moneyAmountSchema` above: `rate_override_amount` is consumed by the cost
  * calculator as a number, not written straight onto a numeric column.)
  */
+// `String(1e-8)` is "1e-8", which the plain-decimal pattern rejects; write it out in full.
+function numberToPlainDecimal(value: number): string | null {
+  return isDecimalInput(value) ? decimalToString(value) : null
+}
+
 const numericAmountSchema = z
   .union([z.number(), z.string()])
   .transform((value, ctx) => {
-    const raw = typeof value === 'number' ? String(value) : value.trim().replace(',', '.')
+    const raw = typeof value === 'number' ? numberToPlainDecimal(value) : value.trim().replace(',', '.')
+    if (raw === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'staff.validation.nonNegativeAmount' })
+      return z.NEVER
+    }
     if (raw.length === 0) return null
     if (!numericAmountPattern.test(raw) || !isDecimalInput(raw)) {
       ctx.addIssue({

@@ -119,6 +119,35 @@ describe('Staff time project billing validators', () => {
     )
   })
 
+  test('accepts numeric micro-rates and large in-range numbers like their string forms', () => {
+    const cases: Array<[number, string]> = [
+      [0.00000001, '0.00000001'],
+      [1e21, '1000000000000000000000'],
+    ]
+    for (const [numeric, text] of cases) {
+      const created = staffTimeProjectCreateSchema.parse(
+        projectCreateInput({ hourlyRate: numeric, budgetKind: 'amount', budgetValue: numeric }),
+      )
+      expect(created.hourlyRate).toBe(text)
+      expect(created.budgetValue).toBe(text)
+      expect(staffTimeProjectCreateSchema.parse(projectCreateInput({ hourlyRate: text })).hourlyRate).toBe(text)
+      const updated = staffTimeProjectUpdateSchema.parse({
+        id: projectId,
+        hourlyRate: numeric,
+        budgetKind: 'amount',
+        budgetValue: numeric,
+      })
+      expect(updated.hourlyRate).toBe(text)
+      expect(updated.budgetValue).toBe(text)
+    }
+  })
+
+  test('still rejects negative and non-finite numeric amounts', () => {
+    for (const value of [-0.00000001, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(staffTimeProjectCreateSchema.safeParse(projectCreateInput({ hourlyRate: value })).success).toBe(false)
+    }
+  })
+
   test('rejects an oversized rate or budget as a validation issue instead of throwing', () => {
     const tooManyDigits = `1${'2'.repeat(1000)}`
     const tooManyIntegerDigits = '9'.repeat(301)
