@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -80,10 +81,12 @@ export async function GET(req: Request) {
     const contextOrResponse = await resolvePortalOptionsContext(req)
     if (contextOrResponse instanceof Response) return contextOrResponse
     const context = contextOrResponse
-    const em = (context.container.resolve('em') as EntityManager).fork()
-    const reasons = await loadDictionaryOptions(em, context, 'warranty-claim-reason')
-    const faultCodes = await loadDictionaryOptions(em, context, 'warranty-claim-fault-code')
-    return NextResponse.json({ ok: true, result: { reasons, faultCodes } })
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const em = (context.container.resolve('em') as EntityManager).fork()
+      const reasons = await loadDictionaryOptions(em, context, 'warranty-claim-reason')
+      const faultCodes = await loadDictionaryOptions(em, context, 'warranty-claim-fault-code')
+      return NextResponse.json({ ok: true, result: { reasons, faultCodes } })
+    })
   } catch (err) {
     const { translate } = await resolveTranslations()
     if (err instanceof z.ZodError) {

@@ -1,8 +1,12 @@
-import { asValue } from 'awilix'
+import { asFunction, asValue } from 'awilix'
 import { Pool } from 'pg'
+import { resolveDatabaseConnectionUrl } from '@open-mercato/shared/lib/db/runtime'
+import type { VectorDriver } from '../../vector/types'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { EmbeddingService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '../../vector'
+import { resolvePgVectorStorage } from '../../vector/drivers/pgvector/storage'
+import { reportSearchError } from '../../lib/debug'
 import type { PgPool } from '../../vector/drivers/pgvector'
 import { createVectorIndexingQueue, type VectorIndexJobPayload } from '../../queue/vector-indexing'
 import { createFulltextIndexingQueue, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
@@ -18,7 +22,7 @@ const SHUTDOWN_KEY = '__omSearchSingletonsShutdown__'
 
 type SearchSingletonCache = {
   [EMBEDDING_SERVICE_KEY]?: EmbeddingService
-  [VECTOR_DRIVERS_KEY]?: ReturnType<typeof createPgVectorDriver>[]
+  [VECTOR_DRIVERS_KEY]?: VectorDriver[]
   [VECTOR_INDEX_QUEUE_KEY]?: Queue<VectorIndexJobPayload>
   [FULLTEXT_INDEX_QUEUE_KEY]?: Queue<FulltextIndexJobPayload>
   [PG_POOL_KEY]?: PgPool
@@ -47,9 +51,19 @@ function buildQueueOptions(): {
   return { queueStrategy, queueConnection }
 }
 
+function createVectorDrivers(pool?: PgPool): [ReturnType<typeof createPgVectorDriver>, VectorDriver, VectorDriver] {
+  const pgDriver = createPgVectorDriver(pool ? { pool } : {})
+  try {
+    return [pgDriver, createChromaDbDriver(), createQdrantDriver()]
+  } catch (error) {
+    void pgDriver.close().catch((cleanupError: unknown) => reportSearchError('SearchModule', cleanupError, 'search.pool_cleanup_failed'))
+    throw error
+  }
+}
+
 function getOrCreateSingletons(): {
   embeddingService: EmbeddingService
-  drivers: ReturnType<typeof createPgVectorDriver>[]
+  drivers: VectorDriver[]
   vectorIndexQueue: Queue<VectorIndexJobPayload>
   fulltextIndexQueue: Queue<FulltextIndexJobPayload>
 } {
@@ -69,33 +83,29 @@ function getOrCreateSingletons(): {
     }
   }
 
+  resolvePgVectorStorage()
+  const { queueStrategy, queueConnection } = buildQueueOptions()
   const embeddingService = new EmbeddingService()
 
-  // Create the pgvector pool separately so we can close it in the shutdown hook
   let pgPool: PgPool | undefined
   const dbUrl = process.env.DATABASE_URL
   if (dbUrl) {
-    pgPool = new Pool({ connectionString: dbUrl }) as unknown as PgPool
+    pgPool = new Pool({ connectionString: resolveDatabaseConnectionUrl('runtime', dbUrl) }) as unknown as PgPool
     g[PG_POOL_KEY] = pgPool
   }
 
-  const drivers = [
-    createPgVectorDriver(pgPool ? { pool: pgPool } : {}),
-    createChromaDbDriver(),
-    createQdrantDriver(),
-  ]
-
-  const { queueStrategy, queueConnection } = buildQueueOptions()
-
-  const vectorIndexQueue: Queue<VectorIndexJobPayload> = createVectorIndexingQueue(
-    queueStrategy,
-    queueConnection,
-  )
-
-  const fulltextIndexQueue: Queue<FulltextIndexJobPayload> = createFulltextIndexingQueue(
-    queueStrategy,
-    queueConnection,
-  )
+  const drivers = createVectorDrivers(pgPool)
+  const pgDriver = drivers[0]
+  let vectorIndexQueue: Queue<VectorIndexJobPayload> | undefined
+  let fulltextIndexQueue: Queue<FulltextIndexJobPayload>
+  try {
+    vectorIndexQueue = createVectorIndexingQueue(queueStrategy, queueConnection)
+    fulltextIndexQueue = createFulltextIndexingQueue(queueStrategy, queueConnection)
+  } catch (error) {
+    void pgDriver.close().catch((cleanupError: unknown) => reportSearchError('SearchModule', cleanupError, 'search.pool_cleanup_failed'))
+    void vectorIndexQueue?.close().catch((cleanupError: unknown) => reportSearchError('SearchModule', cleanupError, 'search.queue_cleanup_failed'))
+    throw error
+  }
 
   g[EMBEDDING_SERVICE_KEY] = embeddingService
   g[VECTOR_DRIVERS_KEY] = drivers
@@ -106,7 +116,7 @@ function getOrCreateSingletons(): {
     const shutdown = () => {
       // L2: chromadb/qdrant drivers use stateless HTTP clients — no persistent
       // connection to close. Only the pg.Pool and BullMQ queues need teardown.
-      g[PG_POOL_KEY]?.end().catch(() => {})
+      for (const driver of g[VECTOR_DRIVERS_KEY] ?? []) driver.close?.().catch(() => {})
       g[VECTOR_INDEX_QUEUE_KEY]?.close().catch(() => {})
       g[FULLTEXT_INDEX_QUEUE_KEY]?.close().catch(() => {})
     }
@@ -140,13 +150,11 @@ export function register(container: AppContainer) {
 
     container.register({
       vectorEmbeddingService: asValue(new EmbeddingService()),
-      vectorDrivers: asValue([
-        createPgVectorDriver(),
-        createChromaDbDriver(),
-        createQdrantDriver(),
-      ]),
-      vectorIndexQueue: asValue(createVectorIndexingQueue(queueStrategy, queueConnection)),
-      fulltextIndexQueue: asValue(createFulltextIndexingQueue(queueStrategy, queueConnection)),
+      vectorDrivers: asFunction(() => createVectorDrivers()).singleton().disposer(async (drivers) => {
+        await Promise.all(drivers.map((driver) => driver.close?.()))
+      }),
+      vectorIndexQueue: asFunction(() => createVectorIndexingQueue(queueStrategy, queueConnection)).singleton().disposer((queue) => queue.close()),
+      fulltextIndexQueue: asFunction(() => createFulltextIndexingQueue(queueStrategy, queueConnection)).singleton().disposer((queue) => queue.close()),
     })
     return
   }

@@ -399,7 +399,7 @@ export async function upsertIndexRow(
   const revived = existed && wasDeleted
   // The search-token rebuild (DELETE + chunked INSERT) is the heavy tail of indexing.
   // Callers that defer it (the upsert subscriber) run `reindexSearchTokensForRecord`
-  // asynchronously after this projection update so write latency stays bounded.
+  // after this projection update and await its completion within the accepted invocation.
   if (!args.deferSearchTokens) {
     try {
       await reindexSearchTokensForRecord(em, {

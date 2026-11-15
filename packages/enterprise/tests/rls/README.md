@@ -1,0 +1,42 @@
+# Enterprise RLS production regressions
+
+These harnesses exercise the production runtime in `src/lib/rls/runtime` against real PostgreSQL using randomly named schemas, restricted login roles and synthetic records. They do not run application migrations. Keep existing tenant, organization, authorization and encryption checks enabled.
+
+Run from the repository root with dependencies installed and packages built:
+
+```sh
+timeout 300 yarn workspace @open-mercato/enterprise typecheck
+timeout 300 yarn workspace @open-mercato/enterprise test --runInBand
+timeout 120 yarn tsc --project packages/enterprise/tests/rls/tsconfig.json --noEmit
+```
+
+Set `OM_RLS_TEST_DATABASE_URL` privately to an **explicitly disposable** PostgreSQL database with administrative privileges to create roles and schemas and change database privileges. Never use production, user data, a shared developer database, or the application database. The catalog harness revokes the database's PUBLIC temporary-table privilege; this database-wide change is intentionally not restored. Discard the database after testing.
+
+```sh
+timeout 240 node --test packages/enterprise/tests/rls/integration.test.mjs
+```
+
+The integration runner launches two sequential subprocesses with 90-second deadlines and requires exactly **16 runtime checks** and **27 catalog checks**. Without the disposable URL, both tests skip; skips provide no live isolation evidence. The former prototype environment variable and runtime-selection flag are no longer used.
+
+For private diagnostics, run either harness directly:
+
+```sh
+timeout 120 yarn tsx packages/enterprise/tests/rls/run.ts
+timeout 120 yarn tsx packages/enterprise/tests/rls/catalog.run.ts
+```
+
+The runtime regression covers ORM reads/flush, raw SQL, Kysely, commit/rollback, A→B→absent reuse on one connection, denied writes, setup-failure recovery, 60 overlapping reads and 60 mixed transactions over three simultaneous backend connections, stale leases, borrowed pinned transactions, completed invocation cleanup, nested tenant switching and fixture removal. Its negative control confirms that transaction-local state outside a transaction cannot protect later autocommit queries.
+
+The catalog regression covers unsafe roles and effective privileges, unknown tenant tables, schema drift, inheritance, canonical and widening policies, dependent views, concurrent reconciliation, exact-version rollback and production adapter readiness. The catalog harness also verifies a distinct, explicitly scoped maintenance login and rejects tenant access to its bypass pool. Activated migration hooks cover preflight, transactional storage-provision failure rollback, policy installation/removal and re-enabling with no pending schema migrations. The actual queue/event-worker retry and CLI check validates persisted tenant identity before containers, awaits scoped disposal, and uses a separate maintenance login. Both harnesses remove their random schema and roles in `finally`; success is printed only after cleanup. Forced termination may prevent cleanup, so discard the disposable database after any timeout or failure.
+
+The integration runner suppresses subprocess diagnostics that could contain credentials. Do not paste direct harness diagnostics or database URLs into reports. These explicit operator commands do not alter CI configuration. HTTP/worker/RSC propagation and application-canary acceptance remain separate live gates; these regressions alone do not establish production readiness.
+
+## Restricted pgvector storage regression
+
+Against an explicitly disposable PostgreSQL database with the pgvector extension available, set `OM_RLS_TEST_DATABASE_URL` privately and run `timeout 120 node --test packages/enterprise/tests/rls/vector.integration.test.mjs`. This test never skips: it requires six checks, validates active readiness on a read-only restricted connection, concurrent actual vector-driver operations and a separate enforced canary, and removes its schema/role. Revoke PUBLIC TEMP on this disposable database before running; the runtime preflight intentionally refuses that privilege. The vector table remains deferred with application tenant predicates, not FORCE-enrolled.
+
+## Actual Redis and scheduled dispatch
+
+Run `timeout 180 node --test --test-timeout=180000 packages/enterprise/tests/rls/worker.integration.test.mjs` with Node 24.22.3 and Docker available. It creates independent randomly named disposable PostgreSQL 17 and Redis 7 containers, uses the production async queue, per-job handler, event and scheduler dispatch with actual restricted SQL, and verifies fresh retry scopes, canonical persisted schedule bindings, invalid-envelope refusal and maintenance separation. Both owned containers and database fixtures are removed and verified in finally. The business target/subscriber is a test fixture; production scope, SQL, Redis and scheduler authority paths are exercised directly.
+
+The requested genuine pre-PR HTTP comparison with DB_POOL_MAX=40 is recorded in [pool40-analysis.md](pool40-analysis.md), including observed performance overhead and measurement limits.

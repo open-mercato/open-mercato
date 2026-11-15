@@ -53,6 +53,7 @@ function parseArgs(rest: string[]) {
 }
 
 const seedDefs: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'install',
   async run(rest) {
     const args = parseArgs(rest)
@@ -95,6 +96,7 @@ const seedDefs: ModuleCli = {
 
 // Reinstall: remove existing definitions for target scope and re-seed from modules
 const reinstallDefs: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'reinstall',
   async run(rest) {
     const args = parseArgs(rest)
@@ -173,6 +175,7 @@ const reinstallDefs: ModuleCli = {
 
 // Interactive: add a single custom field definition
 const addField: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'add-field',
   async run(rest) {
     const args = parseArgs(rest)
@@ -300,6 +303,7 @@ async function getSystemScopedEntityIds(): Promise<Set<string>> {
 }
 
 const seedEncryptionMaps: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'seed-encryption',
   async run(rest) {
     const args = parseArgs(rest)
@@ -522,6 +526,7 @@ async function updateEncryptionColumns(
 }
 
 const rotateEncryptionKey: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'rotate-encryption-key',
   async run(rest) {
     const args = parseArgs(rest)
@@ -822,6 +827,7 @@ const rotateEncryptionKey: ModuleCli = {
 }
 
 const decryptDatabase: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'decrypt-database',
   async run(rest) {
     const args = parseArgs(rest)
@@ -1285,6 +1291,7 @@ const decryptDatabase: ModuleCli = {
  * `encryptEntityPayload`, so a partial run can simply be repeated.
  */
 const backfillSystemEncryption: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'backfill-system-encryption',
   async run(rest) {
     const args = parseArgs(rest)

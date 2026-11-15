@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -100,27 +101,29 @@ export async function GET(req: Request) {
     const contextOrResponse = await resolvePortalContext(req)
     if (contextOrResponse instanceof Response) return contextOrResponse
     const context = contextOrResponse
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
 
-    const guides = await context.em.find(
-      WarrantyTroubleshootingGuide,
-      {
-        tenantId: context.tenantId,
-        organizationId: context.organizationId,
-        isActive: true,
-        deletedAt: null,
-      },
-      {
-        orderBy: { updatedAt: 'desc' },
-        limit: 500,
-      },
-    )
-    const candidates = guides
-      .map(serializeGuide)
-      .filter((guide): guide is PortalTroubleshootingGuide => guide !== null)
-    const guide = selectBestGuide(candidates, query.claimType ?? null, query.reasonCode ?? null)
+      const guides = await context.em.find(
+        WarrantyTroubleshootingGuide,
+        {
+          tenantId: context.tenantId,
+          organizationId: context.organizationId,
+          isActive: true,
+          deletedAt: null,
+        },
+        {
+          orderBy: { updatedAt: 'desc' },
+          limit: 500,
+        },
+      )
+      const candidates = guides
+        .map(serializeGuide)
+        .filter((guide): guide is PortalTroubleshootingGuide => guide !== null)
+      const guide = selectBestGuide(candidates, query.claimType ?? null, query.reasonCode ?? null)
 
-    return NextResponse.json({
-      guide: guide ? { id: guide.id, title: guide.title, steps: guide.steps } : null,
+      return NextResponse.json({
+        guide: guide ? { id: guide.id, title: guide.title, steps: guide.steps } : null,
+      })
     })
   } catch (err) {
     const { translate } = await resolveTranslations()

@@ -19,8 +19,8 @@ export function emitSupportAttachmentActivity(
   ticket: Pick<StaffSupportTicket, 'id'>,
   kind: SupportAttachmentActivityKind,
   attachmentId: string,
-): void {
-  void emitStaffEvent(
+): Promise<void> {
+  return emitStaffEvent(
     'staff.support_ticket.activity_recorded',
     {
       id: ticket.id,

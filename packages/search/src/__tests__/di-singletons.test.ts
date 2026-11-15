@@ -36,6 +36,7 @@ jest.mock('../vector', () => ({
 }))
 
 jest.mock('awilix', () => ({
+  asFunction: jest.requireActual('awilix').asFunction,
   asValue: (v: unknown) => ({ _value: v }),
 }))
 

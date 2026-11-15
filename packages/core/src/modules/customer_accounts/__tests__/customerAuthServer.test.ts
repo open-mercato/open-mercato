@@ -82,6 +82,14 @@ describe('getCustomerAuthFromCookies — session claim binding', () => {
     })
   })
 
+  it('reports unavailable identity storage separately while preserving the legacy null result', async () => {
+    const { resolveCustomerAuthFromCookiesDetailed } = await import('../lib/customerAuthServer')
+    setCustomerCookie(signCustomerToken())
+    findActiveSessionForClaims.mockRejectedValue(new Error('[internal] identity store unavailable'))
+    expect(await resolveCustomerAuthFromCookiesDetailed()).toEqual({ auth: null, status: 'error' })
+    expect(await getCustomerAuthFromCookies()).toBeNull()
+  })
+
   it('binds cookie authentication to the session owner and scope', async () => {
     setCustomerCookie(signCustomerToken())
 

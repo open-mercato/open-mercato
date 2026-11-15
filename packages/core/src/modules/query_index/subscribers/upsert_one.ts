@@ -116,7 +116,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       return
     }
     // Update the projection row synchronously so list reads (`customValues`) are
-    // consistent the moment the write returns; defer the heavy search-token rebuild.
+    // consistent the moment the write returns; rebuild search tokens afterward.
     const result = await upsertIndexRow(em, {
       entityType,
       recordId,
@@ -172,33 +172,28 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         } catch {}
       }
     }
-    // Defer the heavy, eventually-consistent tail: search-token rebuild + vectorize +
-    // fulltext indexing. The data engine awaits this subscriber for projection
-    // consistency, so this work runs fire-and-forget to keep write latency bounded.
-    const deferredScope = { entityType, recordId, organizationId, tenantId }
+    const eventScope = { entityType, recordId, organizationId, tenantId }
     const resolvedDoc = result.doc
-    void (async () => {
-      try {
-        await reindexSearchTokensForRecord(em, { ...deferredScope, doc: resolvedDoc, searchTokenDoc })
-        const bus = ctx.resolve<any>('eventBus')
-        await bus.emitEvent('query_index.vectorize_one', deferredScope)
-        await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId })
-      } catch (error) {
-        await recordIndexerError(
-          { em },
-          {
-            source: 'query_index',
-            handler: 'event:query_index.upsert_one:search_tokens',
-            error,
-            entityType,
-            recordId,
-            tenantId: tenantId ?? null,
-            organizationId: organizationId ?? null,
-            payload,
-          },
-        ).catch(() => {})
-      }
-    })()
+    try {
+      await reindexSearchTokensForRecord(em, { ...eventScope, doc: resolvedDoc, searchTokenDoc })
+      const bus = ctx.resolve<any>('eventBus')
+      await bus.emitEvent('query_index.vectorize_one', eventScope)
+      await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId })
+    } catch (error) {
+      await recordIndexerError(
+        { em },
+        {
+          source: 'query_index',
+          handler: 'event:query_index.upsert_one:search_tokens',
+          error,
+          entityType,
+          recordId,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          payload,
+        },
+      ).catch(() => {})
+    }
   } catch (error) {
     await recordIndexerError(
       { em },

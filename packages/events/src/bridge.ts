@@ -1,3 +1,5 @@
+import { z } from 'zod'
+import { configureDatabaseTransport, isDatabaseRuntimeEnabled, resolveCurrentDatabaseExecutionContext, runWithFreshDatabaseExecutionContext, type DatabasePoolLifecycle } from '@open-mercato/shared/lib/db/runtime'
 import { randomUUID } from 'node:crypto'
 import { Client, Pool } from 'pg'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
@@ -47,6 +49,8 @@ type PgNotificationMessage = {
 }
 
 let publisherPool: InstanceType<typeof Pool> | null | undefined
+let publisherLifecycle: DatabasePoolLifecycle | undefined
+let listenerLifecycle: DatabasePoolLifecycle | undefined
 let listenerClient: InstanceType<typeof Client> | null = null
 let listenerConnectPromise: Promise<void> | null = null
 let listenerReconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -80,15 +84,30 @@ function getPublisherPool(): InstanceType<typeof Pool> | null {
     return null
   }
   const ssl = getSslConfig()
-  publisherPool = new Pool({
+  const pool = new Pool({
     connectionString,
     max: 2,
     ...(ssl ? { ssl } : {}),
   })
-  return publisherPool
+  try {
+    publisherLifecycle = configureDatabaseTransport(pool, { id: 'events.publisher', kind: 'pool', mode: 'publish', channel: BRIDGE_CHANNEL })
+    publisherPool = pool
+    return pool
+  } catch (error) {
+    void pool.end().catch(() => undefined)
+    throw error
+  }
 }
 
 async function dispatchEnvelope(envelope: BridgeEnvelope): Promise<void> {
+  if (isDatabaseRuntimeEnabled()) {
+    const tenantId = z.string().uuid().parse(envelope.options?.tenantId).toLowerCase()
+    return runWithFreshDatabaseExecutionContext({ kind: 'tenant', tenantId, source: 'event', operation: envelope.event }, () => dispatchScopedEnvelope(envelope))
+  }
+  return dispatchScopedEnvelope(envelope)
+}
+
+async function dispatchScopedEnvelope(envelope: BridgeEnvelope): Promise<void> {
   for (const listener of listeners) {
     try {
       await Promise.resolve(listener(envelope))
@@ -107,7 +126,9 @@ function clearReconnectTimer(): void {
 async function closeListenerClient(): Promise<void> {
   if (!listenerClient) return
   const client = listenerClient
+  const lifecycle = listenerLifecycle
   listenerClient = null
+  listenerLifecycle = undefined
   try {
     client.removeAllListeners('notification')
     client.removeAllListeners('error')
@@ -115,6 +136,8 @@ async function closeListenerClient(): Promise<void> {
     await client.end()
   } catch {
     // Ignore shutdown errors.
+  } finally {
+    lifecycle?.dispose()
   }
 }
 
@@ -143,25 +166,32 @@ async function ensureCrossProcessListener(): Promise<void> {
       try {
         const parsed = JSON.parse(message.payload) as BridgeEnvelope
         if (!parsed || typeof parsed.event !== 'string') return
-        void dispatchEnvelope(parsed)
+        void dispatchEnvelope(parsed).catch((error: unknown) => logger.warn('Cross-process event boundary rejected', { err: error }))
       } catch (error) {
         logger.warn('Failed to parse cross-process bridge payload', { err: error })
       }
     })
 
     const handleDisconnect = () => {
-      if (listenerClient === client) {
-        listenerClient = null
-      }
-      scheduleReconnect()
+      if (listenerClient === client) void closeListenerClient().finally(scheduleReconnect)
+      else scheduleReconnect()
     }
 
     client.on('error', handleDisconnect)
     client.on('end', handleDisconnect)
 
-    await client.connect()
-    await client.query(`LISTEN ${BRIDGE_CHANNEL}`)
-    listenerClient = client
+    const lifecycle = configureDatabaseTransport(client, { id: 'events.listener', kind: 'client', mode: 'listen', channel: BRIDGE_CHANNEL })
+    try {
+      await client.connect()
+      await lifecycle.ready()
+      await client.query(`LISTEN ${BRIDGE_CHANNEL}`)
+      listenerClient = client
+      listenerLifecycle = lifecycle
+    } catch (error) {
+      await client.end().catch(() => undefined)
+      lifecycle.dispose()
+      throw error
+    }
   })()
     .catch((error) => {
       logger.warn('Cross-process event bridge listener failed', { err: error })
@@ -179,6 +209,11 @@ export async function publishCrossProcessEvent(
   payload: EventPayload,
   options?: EmitOptions,
 ): Promise<void> {
+  if (isDatabaseRuntimeEnabled()) {
+    const tenantId = z.string().uuid().parse(options?.tenantId).toLowerCase()
+    const current = await resolveCurrentDatabaseExecutionContext()
+    if (!current || current.kind !== 'tenant' || current.tenantId !== tenantId) throw new Error('[internal] Cross-process event requires its active canonical tenant')
+  }
   const pool = getPublisherPool()
   if (!pool) return
 
@@ -202,6 +237,7 @@ export async function publishCrossProcessEvent(
     return
   }
 
+  await publisherLifecycle?.ready()
   await pool.query('SELECT pg_notify($1, $2)', [BRIDGE_CHANNEL, serialized])
 }
 

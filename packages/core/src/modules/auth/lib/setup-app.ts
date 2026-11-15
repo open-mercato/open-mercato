@@ -1,3 +1,4 @@
+import { runDatabaseTenantSetup } from '@open-mercato/shared/lib/db/setup'
 import { hash } from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -510,7 +511,7 @@ export async function setupInitialTenant(
   // Call module onTenantCreated hooks
   for (const mod of resolvedModules) {
     if (mod.setup?.onTenantCreated) {
-      await mod.setup.onTenantCreated({ em, tenantId, organizationId })
+      await runDatabaseTenantSetup({ em, tenantId, organizationId }, (context) => mod.setup!.onTenantCreated!(context))
     }
   }
 

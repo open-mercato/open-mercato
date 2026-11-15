@@ -181,6 +181,7 @@ export type ApiRouteManifestEntry = {
 }
 
 export type ModuleCli = {
+  databaseAccess?: 'tenant-or-maintenance' | 'maintenance'
   command: string
   run: (argv: string[]) => Promise<void> | void
   // Usage text printed by the `mercato` dispatcher when the command is invoked with --help/-h.

@@ -9,6 +9,7 @@ import {
   type AiAssistantEventId,
 } from '../events'
 import { AiPendingActionStateError } from '../lib/pending-action-types'
+import { runAiMaintenanceTenant } from '../database'
 
 const logger = createLogger('ai_assistant')
 
@@ -163,7 +164,6 @@ export async function runPendingActionCleanup(
   options: PendingActionCleanupRunOptions,
 ): Promise<PendingActionCleanupSummary> {
   const clock = options.now ?? new Date()
-  const repo = options.repo ?? new AiPendingActionRepository(options.em)
   const emitter = options.emitEvent ?? defaultEmitter
   const pageSize = Math.max(1, Math.min(500, options.pageSize ?? DEFAULT_PAGE_SIZE))
   const discoverTenants = options.discoverTenants ?? discoverTenantsDefault
@@ -187,59 +187,62 @@ export async function runPendingActionCleanup(
   if (!tenants.length) return summary
 
   for (const scope of tenants) {
-    summary.tenantsScanned += 1
-    for (let page = 0; page < MAX_PAGES_PER_TENANT; page += 1) {
-      let expiredRows: AiPendingAction[]
-      try {
-        expiredRows = await repo.listExpired(
-          {
-            tenantId: scope.tenantId,
-            organizationId: scope.organizationId,
-            userId: null,
-          },
-          clock,
-          pageSize,
-        )
-      } catch (error) {
-        logger.error('listExpired failed for tenant', { tenantId: scope.tenantId, err: error })
-        break
-      }
-
-      if (!expiredRows.length) break
-
-      for (const row of expiredRows) {
-        summary.rowsProcessed += 1
+    await runAiMaintenanceTenant(scope, options.em, async (em) => {
+      const repo = options.repo ?? new AiPendingActionRepository(em)
+      summary.tenantsScanned += 1
+      for (let page = 0; page < MAX_PAGES_PER_TENANT; page += 1) {
+        let expiredRows: AiPendingAction[]
         try {
-          const updated = await repo.setStatus(
-            row.id,
-            'expired',
+          expiredRows = await repo.listExpired(
             {
               tenantId: scope.tenantId,
               organizationId: scope.organizationId,
               userId: null,
             },
-            { resolvedByUserId: null, now: clock },
+            clock,
+            pageSize,
           )
-          summary.rowsExpired += 1
-          const payload = buildExpiredPayload(updated, scope, clock)
-          try {
-            await emitter('ai.action.expired', payload)
-          } catch (emitError) {
-            logger.warn('Failed to emit ai.action.expired', { pendingActionId: row.id, err: emitError })
-          }
         } catch (error) {
-          if (error instanceof AiPendingActionStateError) {
-            summary.rowsSkipped += 1
-            logger.info('Skipping pending action: concurrent transition already occurred', { pendingActionId: row.id, from: error.from, to: error.to })
-            continue
-          }
-          summary.rowsErrored += 1
-          logger.error('Failed to expire pending action', { pendingActionId: row.id, err: error })
+          logger.error('listExpired failed for tenant', { tenantId: scope.tenantId, err: error })
+          break
         }
-      }
 
-      if (expiredRows.length < pageSize) break
-    }
+        if (!expiredRows.length) break
+
+        for (const row of expiredRows) {
+          summary.rowsProcessed += 1
+          try {
+            const updated = await repo.setStatus(
+              row.id,
+              'expired',
+              {
+                tenantId: scope.tenantId,
+                organizationId: scope.organizationId,
+                userId: null,
+              },
+              { resolvedByUserId: null, now: clock },
+            )
+            summary.rowsExpired += 1
+            const payload = buildExpiredPayload(updated, scope, clock)
+            try {
+              await emitter('ai.action.expired', payload)
+            } catch (emitError) {
+              logger.warn('Failed to emit ai.action.expired', { pendingActionId: row.id, err: emitError })
+            }
+          } catch (error) {
+            if (error instanceof AiPendingActionStateError) {
+              summary.rowsSkipped += 1
+              logger.info('Skipping pending action: concurrent transition already occurred', { pendingActionId: row.id, from: error.from, to: error.to })
+              continue
+            }
+            summary.rowsErrored += 1
+            logger.error('Failed to expire pending action', { pendingActionId: row.id, err: error })
+          }
+        }
+
+        if (expiredRows.length < pageSize) break
+      }
+    })
   }
 
   return summary

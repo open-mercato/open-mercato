@@ -7,6 +7,7 @@ import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import { afterDatabaseMigrate, beforeDatabaseMigrate, resolveDatabaseConnectionUrl, runWithDatabaseExecutionContext, shouldRecoverDatabaseMigrationReindex } from '@open-mercato/shared/lib/db/runtime'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { quotePostgresIdentifier } from './identifiers'
 import {
@@ -444,11 +445,18 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
 }
 
 export async function dbMigrate(resolver: PackageResolver, options: DbOptions = {}): Promise<void> {
+  return runWithDatabaseExecutionContext({ kind: 'maintenance', tenantId: null, source: 'cli', operation: 'db:migrate' }, () => migrateModules(resolver, options))
+}
+
+async function migrateModules(resolver: PackageResolver, _options: DbOptions): Promise<void> {
   const modules = resolver.loadEnabledModules()
   const ordered = sortModules(modules)
   const results: string[] = []
   const appliedMigrations: AppliedMigration[] = []
+  const recoverHistory = shouldRecoverDatabaseMigrationReindex()
+  let reconciled = false
 
+  await beforeDatabaseMigrate()
   try {
     for (const entry of ordered) {
       const modId = entry.id
@@ -472,7 +480,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
       const sslConfig = getSslConfig()
       const orm = await MikroORM.init<PostgreSqlDriver>({
         driver: PostgreSqlDriver,
-        clientUrl: getClientUrl(),
+        clientUrl: resolveDatabaseConnectionUrl('maintenance', getClientUrl()),
         loggerFactory: () => createMinimalLogger(),
         dynamicImportProvider,
         entities: [],
@@ -501,6 +509,12 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
 
       try {
         const migrator = orm.migrator as Migrator
+        if (recoverHistory) {
+          const executed = await migrator.getExecuted()
+          for (const migration of executed) {
+            appliedMigrations.push({ moduleId: modId, migrationsPath, name: migration.name })
+          }
+        }
         const pending = await migrator.getPending()
         if (!pending.length) {
           results.push(formatResult(modId, 'no pending migrations', ''))
@@ -512,16 +526,14 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
           }
           for (const migration of pending) {
             const migrationName =
-              typeof migration === 'string'
-                ? migration
-                : (migration as any).name ?? (migration as any).fileName
+              typeof migration === 'string' ? migration : migration.name
             await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
             if (migrationName) {
               appliedMigrations.push({
                 moduleId: modId,
                 migrationsPath,
                 name: String(migrationName),
-                filePath: typeof migration === 'string' ? null : (migration as any).path ?? null,
+                filePath: typeof migration === 'string' ? null : migration.path ?? null,
               })
             }
             applied += 1
@@ -538,9 +550,11 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         await orm.close(true)
       }
     }
+    await afterDatabaseMigrate()
+    reconciled = true
   } finally {
     console.log(results.join('\n'))
-    await dischargeQueryIndexReindexRequests(appliedMigrations)
+    if (!recoverHistory || reconciled) await dischargeQueryIndexReindexRequests(appliedMigrations)
   }
 }
 

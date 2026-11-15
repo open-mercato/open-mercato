@@ -41,7 +41,7 @@ export class LocalLockStrategy {
    * `idle_in_transaction_session_timeout` (120s) then makes Postgres kill the
    * connection (FATAL 25P03), which crashes the scheduler process.
    */
-  async runWithLock<T>(key: string, fn: () => Promise<T>): Promise<{ acquired: boolean; result?: T }> {
+  async runWithLock<T>(key: string, fn: () => Promise<T>, resolveEm: () => EntityManager = this.em): Promise<{ acquired: boolean; result?: T }> {
     if (this.heldKeys.has(key)) {
       return { acquired: false }
     }
@@ -51,7 +51,7 @@ export class LocalLockStrategy {
     this.heldKeys.add(key)
 
     try {
-      const em = this.em().fork()
+      const em = resolveEm().fork()
       const hash = this.hashString(key)
       let claimed = false
 

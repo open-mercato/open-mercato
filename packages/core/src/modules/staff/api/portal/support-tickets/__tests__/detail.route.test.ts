@@ -1,5 +1,13 @@
 /** @jest-environment node */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { DatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+
+const mockDatabaseScope = new AsyncLocalStorage<DatabaseExecutionContext>()
+jest.mock('@open-mercato/shared/lib/db/runtime', () => ({
+  runWithDatabaseExecutionContext: (context: DatabaseExecutionContext, callback: () => unknown) => mockDatabaseScope.run(context, callback),
+}))
+
 const mockResolveScope = jest.fn()
 const mockLoadOwnedTicket = jest.fn()
 
@@ -24,7 +32,10 @@ jest.mock('../../../../lib/support/portalTickets', () => ({
   PORTAL_SUPPORT_TICKETS_VIEW_FEATURE: 'portal.support_tickets.view',
   PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE: 'portal.support_tickets.manage',
   resolveSupportPortalScope: (...args: unknown[]) => mockResolveScope(...args),
-  loadPortalOwnedTicket: (...args: unknown[]) => mockLoadOwnedTicket(...args),
+  loadPortalOwnedTicket: (...args: unknown[]) => {
+    expect(mockDatabaseScope.getStore()).toMatchObject({ kind: 'tenant', tenantId: (args[0] as { tenantId: string }).tenantId, source: 'portal' })
+    return mockLoadOwnedTicket(...args)
+  },
 }))
 
 jest.mock('../../../../lib/support/portalAttachments', () => ({
@@ -124,3 +135,25 @@ describe('portal support ticket detail authorship', () => {
     ])
   })
 })
+
+ it('separates overlapping verified portal scopes and leaves the caller unscoped', async () => {
+  const first = buildScope([])
+  const second = { ...buildScope([]), tenantId: '77777777-7777-4777-8777-777777777777' }
+  mockResolveScope.mockImplementationOnce(async () => first).mockImplementationOnce(async () => second)
+  mockLoadOwnedTicket.mockImplementation(async () => {
+    const scope = mockDatabaseScope.getStore()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(mockDatabaseScope.getStore()).toBe(scope)
+    return ownedTicket(SIGNED_IN_USER_ID)
+  })
+  await Promise.all([readDetail(), readDetail()])
+  expect(mockDatabaseScope.getStore()).toBeUndefined()
+ })
+
+ it('returns a rejected identity without establishing a tenant continuation', async () => {
+  mockResolveScope.mockResolvedValue(new Response(null, { status: 401 }))
+  const response = await GET(new Request('https://test.local/api/staff/portal/support-tickets/rejected'))
+  expect(response.status).toBe(401)
+  expect(mockLoadOwnedTicket).not.toHaveBeenCalled()
+  expect(mockDatabaseScope.getStore()).toBeUndefined()
+ })

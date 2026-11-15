@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -325,88 +326,90 @@ export async function GET(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
-  const url = new URL(req.url)
-  const query = listQuerySchema.safeParse({
-    page: url.searchParams.get('page') ?? undefined,
-    pageSize: url.searchParams.get('pageSize') ?? undefined,
-    search: url.searchParams.get('search') ?? undefined,
-    status: url.searchParams.get('status') ?? undefined,
-    stateGroup: url.searchParams.get('stateGroup') ?? undefined,
-    serialNumber: url.searchParams.get('serialNumber') ?? undefined,
-  })
-  if (!query.success) {
-    const { translate } = await resolveTranslations()
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
-  }
-  const { page, pageSize, search, status, stateGroup, serialNumber } = query.data
-  const where = buildPortalOwnedClaimWhere(context)
-  if (status) where.status = status
-  else if (stateGroup) where.status = { $in: portalClaimStatusesForStateGroup(stateGroup) }
-  if (search) {
-    const pattern = `%${escapeLikePattern(search)}%`
-    where.$or = [
-      { claimNumber: { $ilike: pattern } },
-      { orderNumber: { $ilike: pattern } },
-    ]
-  }
-  if (serialNumber) {
-    const matchingLines = await findWithDecryption(
-      context.em,
-      WarrantyClaimLine,
-      {
-        serialNumber,
-        tenantId: context.tenantId,
-        organizationId: context.organizationId,
-        deletedAt: null,
-        claim: buildPortalOwnedClaimWhere(context),
-      },
-      {},
-      { tenantId: context.tenantId, organizationId: context.organizationId },
-    )
-    const matchingClaimIds = Array.from(new Set(
-      matchingLines.map((line) => relationId(line.claim)).filter((id): id is string => Boolean(id)),
-    ))
-    if (matchingClaimIds.length === 0) {
-      return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
+  return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+    const url = new URL(req.url)
+    const query = listQuerySchema.safeParse({
+      page: url.searchParams.get('page') ?? undefined,
+      pageSize: url.searchParams.get('pageSize') ?? undefined,
+      search: url.searchParams.get('search') ?? undefined,
+      status: url.searchParams.get('status') ?? undefined,
+      stateGroup: url.searchParams.get('stateGroup') ?? undefined,
+      serialNumber: url.searchParams.get('serialNumber') ?? undefined,
+    })
+    if (!query.success) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    where.id = { $in: matchingClaimIds }
-  }
-  const total = await context.em.count(WarrantyClaim, where)
-  const claims = await findWithDecryption(
-    context.em,
-    WarrantyClaim,
-    where,
-    {
-      orderBy: { createdAt: 'DESC' },
-      limit: pageSize,
-      offset: (page - 1) * pageSize,
-    },
-    { tenantId: context.tenantId, organizationId: context.organizationId },
-  )
-  const claimIds = claims.map((claim) => claim.id)
-  const lines = claimIds.length
-    ? await findWithDecryption(
+    const { page, pageSize, search, status, stateGroup, serialNumber } = query.data
+    const where = buildPortalOwnedClaimWhere(context)
+    if (status) where.status = status
+    else if (stateGroup) where.status = { $in: portalClaimStatusesForStateGroup(stateGroup) }
+    if (search) {
+      const pattern = `%${escapeLikePattern(search)}%`
+      where.$or = [
+        { claimNumber: { $ilike: pattern } },
+        { orderNumber: { $ilike: pattern } },
+      ]
+    }
+    if (serialNumber) {
+      const matchingLines = await findWithDecryption(
         context.em,
         WarrantyClaimLine,
-        { claim: { $in: claimIds }, tenantId: context.tenantId, organizationId: context.organizationId, deletedAt: null },
+        {
+          serialNumber,
+          tenantId: context.tenantId,
+          organizationId: context.organizationId,
+          deletedAt: null,
+          claim: buildPortalOwnedClaimWhere(context),
+        },
         {},
         { tenantId: context.tenantId, organizationId: context.organizationId },
       )
-    : []
-  const linesByClaim = new Map<string, WarrantyClaimLine[]>()
-  for (const line of lines) {
-    const claimId = relationId(line.claim)
-    if (!claimId) continue
-    const bucket = linesByClaim.get(claimId) ?? []
-    bucket.push(line)
-    linesByClaim.set(claimId, bucket)
-  }
-  return NextResponse.json({
-    items: claims.map((claim) => serializePortalClaim(claim, linesByClaim.get(claim.id) ?? [])),
-    total,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      const matchingClaimIds = Array.from(new Set(
+        matchingLines.map((line) => relationId(line.claim)).filter((id): id is string => Boolean(id)),
+      ))
+      if (matchingClaimIds.length === 0) {
+        return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
+      }
+      where.id = { $in: matchingClaimIds }
+    }
+    const total = await context.em.count(WarrantyClaim, where)
+    const claims = await findWithDecryption(
+      context.em,
+      WarrantyClaim,
+      where,
+      {
+        orderBy: { createdAt: 'DESC' },
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+      },
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+    )
+    const claimIds = claims.map((claim) => claim.id)
+    const lines = claimIds.length
+      ? await findWithDecryption(
+          context.em,
+          WarrantyClaimLine,
+          { claim: { $in: claimIds }, tenantId: context.tenantId, organizationId: context.organizationId, deletedAt: null },
+          {},
+          { tenantId: context.tenantId, organizationId: context.organizationId },
+        )
+      : []
+    const linesByClaim = new Map<string, WarrantyClaimLine[]>()
+    for (const line of lines) {
+      const claimId = relationId(line.claim)
+      if (!claimId) continue
+      const bucket = linesByClaim.get(claimId) ?? []
+      bucket.push(line)
+      linesByClaim.set(claimId, bucket)
+    }
+    return NextResponse.json({
+      items: claims.map((claim) => serializePortalClaim(claim, linesByClaim.get(claim.id) ?? [])),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    })
   })
 }
 
@@ -414,117 +417,119 @@ export async function POST(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
-  const { translate } = await resolveTranslations()
-  let body: unknown
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
-  }
-  const parsed = portalIntakeInputSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
-  }
-  const ownership = await validatePortalOrderOwnership(context, parsed.data)
-  if (ownership instanceof Response) return ownership
-
-  const createInput: ClaimCreateInput = {
-    organizationId: context.organizationId,
-    tenantId: context.tenantId,
-    claimType: 'warranty',
-    channel: 'portal',
-    priority: 'normal',
-    customerId: context.customerId,
-    customerName: context.auth.displayName || null,
-    orderId: ownership.orderId,
-    // A resolved order supplies its own number; otherwise persist the typed reference (WQA-002).
-    orderNumber: ownership.orderId ? null : (parsed.data.orderReference ?? null),
-    reasonCode: parsed.data.reasonCode,
-    notes: parsed.data.notes ?? null,
-    currencyCode: ownership.currencyCode,
-    lines: parsed.data.lines.map((line, index) => ({
-      lineNo: index + 1,
-      orderLineId: line.orderLineId ?? null,
-      productId: line.productId ?? null,
-      productName: line.productName ?? null,
-      sku: line.sku ?? null,
-      serialNumber: line.serialNumber ?? null,
-      faultCode: line.faultCode ?? null,
-      faultDescription: line.faultDescription,
-      qtyClaimed: line.qtyClaimed ?? 1,
-      // Carry warranty metadata so order-backed portal lines keep their entitlement basis
-      // instead of persisting warrantyStatus='unknown' (WQA-004 / LINE-06).
-      purchaseDate: line.purchaseDate ?? null,
-      warrantyMonths: line.warrantyMonths ?? null,
-    })),
-  }
-
-  const guarded = await runPortalCreateGuard(req, context, { ...createInput })
-  if (!guarded.ok) {
-    return guarded.response
-  }
-  const effectiveInput: ClaimCreateInput = guarded.modifiedPayload
-    ? {
-        ...createInput,
-        ...guarded.modifiedPayload,
-        tenantId: createInput.tenantId,
-        organizationId: createInput.organizationId,
-        customerId: createInput.customerId,
-        channel: createInput.channel,
-        claimType: createInput.claimType,
-        orderId: createInput.orderId,
-        orderNumber: createInput.orderNumber,
-        currencyCode: createInput.currencyCode,
-        lines: createInput.lines,
-      }
-    : createInput
-
-  const commandBus = context.commandCtx.container.resolve('commandBus') as CommandBus
-  try {
-    const createResult = await commandBus.execute<ClaimCreateInput, { claimId: string }>(
-      'warranty_claims.claim.create',
-      { input: effectiveInput, ctx: context.commandCtx },
-    )
-    const claimId = createResult.result?.claimId
-    if (typeof claimId !== 'string') {
-      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') }, { status: 500 })
-    }
+  return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: context.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+    const { translate } = await resolveTranslations()
+    let body: unknown
     try {
-      await commandBus.execute<{ id: string; actorCustomerId: string }, { claimId: string }>(
-        'warranty_claims.claim.submit',
-        { input: { id: claimId, actorCustomerId: context.customerId }, ctx: context.commandCtx },
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
+    }
+    const parsed = portalIntakeInputSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
+    }
+    const ownership = await validatePortalOrderOwnership(context, parsed.data)
+    if (ownership instanceof Response) return ownership
+
+    const createInput: ClaimCreateInput = {
+      organizationId: context.organizationId,
+      tenantId: context.tenantId,
+      claimType: 'warranty',
+      channel: 'portal',
+      priority: 'normal',
+      customerId: context.customerId,
+      customerName: context.auth.displayName || null,
+      orderId: ownership.orderId,
+      // A resolved order supplies its own number; otherwise persist the typed reference (WQA-002).
+      orderNumber: ownership.orderId ? null : (parsed.data.orderReference ?? null),
+      reasonCode: parsed.data.reasonCode,
+      notes: parsed.data.notes ?? null,
+      currencyCode: ownership.currencyCode,
+      lines: parsed.data.lines.map((line, index) => ({
+        lineNo: index + 1,
+        orderLineId: line.orderLineId ?? null,
+        productId: line.productId ?? null,
+        productName: line.productName ?? null,
+        sku: line.sku ?? null,
+        serialNumber: line.serialNumber ?? null,
+        faultCode: line.faultCode ?? null,
+        faultDescription: line.faultDescription,
+        qtyClaimed: line.qtyClaimed ?? 1,
+        // Carry warranty metadata so order-backed portal lines keep their entitlement basis
+        // instead of persisting warrantyStatus='unknown' (WQA-004 / LINE-06).
+        purchaseDate: line.purchaseDate ?? null,
+        warrantyMonths: line.warrantyMonths ?? null,
+      })),
+    }
+
+    const guarded = await runPortalCreateGuard(req, context, { ...createInput })
+    if (!guarded.ok) {
+      return guarded.response
+    }
+    const effectiveInput: ClaimCreateInput = guarded.modifiedPayload
+      ? {
+          ...createInput,
+          ...guarded.modifiedPayload,
+          tenantId: createInput.tenantId,
+          organizationId: createInput.organizationId,
+          customerId: createInput.customerId,
+          channel: createInput.channel,
+          claimType: createInput.claimType,
+          orderId: createInput.orderId,
+          orderNumber: createInput.orderNumber,
+          currencyCode: createInput.currencyCode,
+          lines: createInput.lines,
+        }
+      : createInput
+
+    const commandBus = context.commandCtx.container.resolve('commandBus') as CommandBus
+    try {
+      const createResult = await commandBus.execute<ClaimCreateInput, { claimId: string }>(
+        'warranty_claims.claim.create',
+        { input: effectiveInput, ctx: context.commandCtx },
       )
-    } catch (submitError) {
-      try {
-        await commandBus.execute<{ id: string }, { claimId: string }>(
-          'warranty_claims.claim.delete',
-          { input: { id: claimId }, ctx: context.commandCtx },
-        )
-      } catch (compensationError) {
-        logger.error('warranty_claims.portal.claim.submit compensation failed — orphaned draft claim', {
-          err: compensationError,
-          claimId,
-          customerId: context.customerId,
-          tenantId: context.tenantId,
-          organizationId: context.organizationId,
-        })
+      const claimId = createResult.result?.claimId
+      if (typeof claimId !== 'string') {
+        return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') }, { status: 500 })
       }
-      throw submitError
-    }
+      try {
+        await commandBus.execute<{ id: string; actorCustomerId: string }, { claimId: string }>(
+          'warranty_claims.claim.submit',
+          { input: { id: claimId, actorCustomerId: context.customerId }, ctx: context.commandCtx },
+        )
+      } catch (submitError) {
+        try {
+          await commandBus.execute<{ id: string }, { claimId: string }>(
+            'warranty_claims.claim.delete',
+            { input: { id: claimId }, ctx: context.commandCtx },
+          )
+        } catch (compensationError) {
+          logger.error('warranty_claims.portal.claim.submit compensation failed — orphaned draft claim', {
+            err: compensationError,
+            claimId,
+            customerId: context.customerId,
+            tenantId: context.tenantId,
+            organizationId: context.organizationId,
+          })
+        }
+        throw submitError
+      }
 
-    await guarded.runAfterSuccess()
+      await guarded.runAfterSuccess()
 
-    return NextResponse.json({ ok: true, claimId }, { status: 201 })
-  } catch (err) {
-    if (isCrudHttpError(err)) {
-      return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
+      return NextResponse.json({ ok: true, claimId }, { status: 201 })
+    } catch (err) {
+      if (isCrudHttpError(err)) {
+        return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
+      }
+      const interceptorRejection = getCommandInterceptorHttpRejection(err)
+      if (interceptorRejection) {
+        return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+      }
+      throw err
     }
-    const interceptorRejection = getCommandInterceptorHttpRejection(err)
-    if (interceptorRejection) {
-      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
-    }
-    throw err
-  }
+  })
 }
 
 const lineSummarySchema = z.object({

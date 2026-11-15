@@ -365,7 +365,7 @@ export class HybridQueryEngine implements QueryEngine {
   private autoReindexEnabled: boolean | null = null
   private autoReindexDebounceMs: number | null = null
   private coverageOptimizationEnabled: boolean | null = null
-  private pendingCoverageRefreshKeys = new Set<string>()
+  private pendingCoverageRefreshKeys = new Map<string, Promise<void>>()
   private searchAvailabilityInstance: SearchTokenAvailability | null = null
 
   constructor(
@@ -567,7 +567,7 @@ export class HybridQueryEngine implements QueryEngine {
           )
           if (gap) {
             if (!opts.skipAutoReindex) {
-              this.scheduleAutoReindex(entity, opts, gap.stats, coverageScope?.organizationId ?? null)
+              await this.scheduleAutoReindex(entity, opts, gap.stats, coverageScope?.organizationId ?? null)
             }
             const force = this.isForcePartialIndexEnabled()
             if (!force) {
@@ -832,7 +832,7 @@ export class HybridQueryEngine implements QueryEngine {
             )
             if (!gap) continue
             if (!opts.skipAutoReindex) {
-              this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
+              await this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
             }
             partialIndexWarning = {
               entity: targetEntity,
@@ -2830,7 +2830,7 @@ export class HybridQueryEngine implements QueryEngine {
       }
 
       if (this.isCoverageOptimizationEnabled()) {
-        this.scheduleCoverageRefresh(entity, tenantId, organizationId, withDeleted)
+        await this.scheduleCoverageRefresh(entity, tenantId, organizationId, withDeleted)
         if (!row) return null
         return { baseCount: row.baseCount, indexedCount: row.indexedCount }
       }
@@ -2865,7 +2865,7 @@ export class HybridQueryEngine implements QueryEngine {
     return Date.now() - refreshedAtMs <= this.coverageStatsTtlMs
   }
 
-  private scheduleAutoReindex(
+  private async scheduleAutoReindex(
     entity: string,
     opts: QueryOptions,
     stats?: { baseCount: number; indexedCount: number },
@@ -2889,28 +2889,26 @@ export class HybridQueryEngine implements QueryEngine {
       ? { entity, tenantId: payload.tenantId, organizationId: payload.organizationId, baseCount: stats.baseCount, indexedCount: stats.indexedCount }
       : { entity, tenantId: payload.tenantId, organizationId: payload.organizationId }
 
-    void Promise.resolve().then(async () => {
-      try {
-        await bus.emitEvent('query_index.reindex', payload, { persistent: true })
-        if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
-      } catch (err) {
-        logger.warn('Failed to schedule auto reindex', { ...context, err })
-      }
-    })
+    try {
+      await bus.emitEvent('query_index.reindex', payload, { persistent: true })
+      if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
+    } catch (err) {
+      logger.warn('Failed to schedule auto reindex', { ...context, err })
+    }
   }
 
-  private scheduleCoverageRefresh(
+  private async scheduleCoverageRefresh(
     entity: string,
     tenantId: string | null | undefined,
     organizationId: string | null | undefined,
     withDeleted: boolean
-  ): void {
+  ): Promise<void> {
     const bus = this.resolveEventBus()
     if (!bus) return
     const key = [entity, tenantId ?? '__tenant__', organizationId ?? '__org__', withDeleted ? '1' : '0'].join('|')
-    if (this.pendingCoverageRefreshKeys.has(key)) return
-    this.pendingCoverageRefreshKeys.add(key)
-    void Promise.resolve()
+    const existing = this.pendingCoverageRefreshKeys.get(key)
+    if (existing) return existing
+    const completion = Promise.resolve()
       .then(async () => {
         try {
           await bus.emitEvent('query_index.coverage.refresh', {
@@ -2933,6 +2931,8 @@ export class HybridQueryEngine implements QueryEngine {
         }
       })
       .finally(() => { this.pendingCoverageRefreshKeys.delete(key) })
+    this.pendingCoverageRefreshKeys.set(key, completion)
+    await completion
   }
 
   private resolveEventBus(): Pick<EventBus, 'emitEvent'> | null {
@@ -3279,7 +3279,7 @@ export class HybridQueryEngine implements QueryEngine {
 
     const snapshot = await this.getStoredCoverageSnapshot(entity, tenantId, organizationId, withDeleted)
     if (!snapshot) {
-      this.scheduleCoverageRefresh(entity, tenantId, organizationId, withDeleted)
+      await this.scheduleCoverageRefresh(entity, tenantId, organizationId, withDeleted)
       return { stats: undefined, scope: 'scoped' }
     }
 

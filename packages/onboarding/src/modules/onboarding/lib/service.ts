@@ -97,7 +97,7 @@ export class OnboardingService {
   }
 
   async findById(id: string) {
-    return findOneWithDecryption(this.em, OnboardingRequest, { id })
+    return findOneWithDecryption(this.em, OnboardingRequest, { id }, { refresh: true })
   }
 
   async findLatestByTenantId(tenantId: string) {
@@ -157,11 +157,12 @@ export class OnboardingService {
     await this.em.flush()
   }
 
-  async claimPreparation(requestId: string, claimedAt: Date, staleBefore: Date): Promise<boolean> {
+  async claimPreparation(requestId: string, claimedAt: Date, staleBefore: Date, binding?: { tenantId: string; organizationId: string; tokenHash: string }): Promise<boolean> {
     const claimedRows = await this.em.nativeUpdate(
       OnboardingRequest,
       {
         id: requestId,
+        ...binding,
         status: 'completed',
         preparationCompletedAt: null,
         $or: [
@@ -174,11 +175,12 @@ export class OnboardingService {
     return claimedRows > 0
   }
 
-  async renewPreparation(requestId: string, renewedAt: Date): Promise<boolean> {
+  async renewPreparation(requestId: string, renewedAt: Date, binding?: { tenantId: string; organizationId: string; tokenHash: string }): Promise<boolean> {
     const renewedRows = await this.em.nativeUpdate(
       OnboardingRequest,
       {
         id: requestId,
+        ...binding,
         status: 'completed',
         preparationCompletedAt: null,
         preparationStartedAt: { $ne: null },
@@ -189,9 +191,18 @@ export class OnboardingService {
   }
 
   async markPreparationCompleted(request: OnboardingRequest, completedAt: Date) {
+    const updated = await this.em.nativeUpdate(OnboardingRequest, {
+      id: request.id,
+      tokenHash: request.tokenHash,
+      tenantId: request.tenantId,
+      organizationId: request.organizationId,
+      status: 'completed',
+      preparationCompletedAt: null,
+      deletedAt: null,
+    }, { preparationCompletedAt: completedAt, preparationStartedAt: null, updatedAt: new Date() })
+    if (updated === 0) return
     request.preparationCompletedAt = completedAt
     request.preparationStartedAt = null
-    await this.em.flush()
   }
 }
 

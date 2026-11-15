@@ -264,8 +264,13 @@ const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTER
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
 const enterpriseAgentsEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_AGENTS, false)
 
+if (parseBooleanWithDefault(process.env.OM_TENANT_RLS, false) && !enterpriseModulesEnabled) {
+  throw new Error('[internal] OM_TENANT_RLS requires enterprise modules to be enabled before generation and startup')
+}
+
 if (enterpriseModulesEnabled) {
   enabledModules.push(
+    { id: 'tenant_boundaries', from: '@open-mercato/enterprise' },
     { id: 'record_locks', from: '@open-mercato/enterprise' },
     { id: 'system_status_overlays', from: '@open-mercato/enterprise' },
   )

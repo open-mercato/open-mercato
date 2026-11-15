@@ -29,6 +29,7 @@ const portalAdminRoleId = '55555555-5555-4555-8555-555555555555'
 const mockEm = { id: 'em' }
 
 const mockContainer = {
+  dispose: jest.fn(async () => undefined),
   resolve: jest.fn((token: string) => {
     if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
     if (token === 'em') return mockEm

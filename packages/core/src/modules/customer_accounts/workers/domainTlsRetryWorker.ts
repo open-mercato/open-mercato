@@ -1,3 +1,4 @@
+import { runCustomerMaintenanceTenant } from '../database'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { DomainMappingService } from '@open-mercato/core/modules/customer_accounts/services/domainMappingService'
 
@@ -55,7 +56,8 @@ export default async function handle(_job: QueuedJob, ctx: HandlerContext): Prom
   for (const mapping of candidates) {
     attempted += 1
     try {
-      const updated = await service.healthCheck(mapping.id)
+      const updated = await runCustomerMaintenanceTenant(mapping, ctx, (container) =>
+        container.resolve<DomainMappingService>('domainMappingService').healthCheck(mapping.id))
       if (updated.status !== 'active') failed += 1
     } catch {
       failed += 1

@@ -144,6 +144,32 @@ describe('reindexEntity write reconciliation (GSM-266)', () => {
     expect(mockFinalizeJob).toHaveBeenCalledWith(expect.anything(), expect.anything(), { status: 'failed' })
   })
 
+  it('awaits asynchronous progress callbacks before completing the sweep', async () => {
+    const { em } = makeEm([[{ id: '1' }]])
+    mockUpsertIndexBatch.mockResolvedValue(batchResult({ attempted: 1, written: 1 }))
+    const progress: number[] = []
+    let settled = false
+    const completion = reindexEntity(em, {
+      ...OPTIONS,
+      onProgress: async ({ processed }) => {
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(settled).toBe(false)
+        progress.push(processed)
+      },
+    }).then(() => { settled = true })
+    await completion
+    expect(progress).toEqual([0, 1])
+  })
+
+  it('finalizes the job when an awaited progress callback fails', async () => {
+    const { em } = makeEm([[{ id: '1' }]])
+    await expect(reindexEntity(em, {
+      ...OPTIONS,
+      onProgress: async () => { throw new Error('[internal] progress failed') },
+    })).rejects.toThrow('progress failed')
+    expect(mockFinalizeJob).toHaveBeenCalledWith(expect.anything(), expect.anything(), { status: 'failed' })
+  })
+
   it('leaves the happy path untouched', async () => {
     const { em } = makeEm([[{ id: '1' }, { id: '2' }, { id: '3' }]])
     mockUpsertIndexBatch.mockResolvedValue(batchResult({ attempted: 3, written: 3 }))

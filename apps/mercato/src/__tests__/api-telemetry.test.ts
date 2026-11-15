@@ -28,6 +28,7 @@ jest.mock('@/bootstrap', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  attachTrustedAuthContext: jest.requireActual('@open-mercato/shared/lib/auth/server').attachTrustedAuthContext,
   resolveAuthFromRequestDetailed: jest.fn(async () => ({ auth: null, status: 'unauthenticated' })),
 }))
 

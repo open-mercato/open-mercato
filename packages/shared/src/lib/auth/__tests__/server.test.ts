@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { registerDatabaseRuntimeAdapter, type DatabaseExecutionContext } from '../../db/runtime'
+
 const cookieStore = { get: jest.fn() }
 const cookiesMock = jest.fn(async () => cookieStore)
 const verifyJwt = jest.fn()
@@ -27,6 +30,60 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
 }))
 
 const em = { id: 'em' }
+
+describe('database identity before canonical authentication', () => {
+  const storage = new AsyncLocalStorage<DatabaseExecutionContext>()
+  const runtimeKey = Symbol.for('@open-mercato/shared.databaseRuntime.v1')
+  const globals = globalThis as Record<symbol, unknown>
+  const actorTenant = '22222222-2222-4222-8222-222222222222'
+  const selectedTenant = '44444444-4444-4444-8444-444444444444'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete globals[runtimeKey]
+    registerDatabaseRuntimeAdapter({
+      id: 'auth-test', version: '1', configurationKey: 'auth-test',
+      configurePool: () => { throw new Error('[internal] No database pool in this test') },
+      run: (context, callback) => storage.run(context, callback),
+    })
+  })
+
+  afterEach(() => { delete globals[runtimeKey] })
+
+  it('creates the canonical-auth container under the signed actor identity before selected-tenant cookies apply', async () => {
+    const { getAuthFromRequest } = await import('../server')
+    const auth = { sub: '11111111-1111-4111-8111-111111111111', tenantId: actorTenant, orgId: null, isSuperAdmin: true }
+    verifyJwt.mockReturnValue(auth)
+    createRequestContainer.mockImplementation(async () => {
+      expect(storage.getStore()).toMatchObject({ kind: 'identity', tenantId: actorTenant, source: 'identity' })
+      return { resolve: () => em }
+    })
+    resolveCanonicalStaffAuthContext.mockImplementation(async () => {
+      expect(storage.getStore()?.tenantId).toBe(actorTenant)
+      return auth
+    })
+    const request = new Request('https://example.test/api/test', {
+      headers: { cookie: `auth_token=verified; om_selected_tenant=${selectedTenant}`, 'x-tenant-id': selectedTenant },
+    })
+    expect(await getAuthFromRequest(request)).toMatchObject({ tenantId: selectedTenant, actorTenantId: actorTenant })
+    expect(storage.getStore()).toBeUndefined()
+  })
+
+  it('uses an unscoped identity bootstrap for API-key discovery and never trusts a tenant header', async () => {
+    const { getAuthFromRequest } = await import('../server')
+    createRequestContainer.mockImplementation(async () => {
+      expect(storage.getStore()).toMatchObject({ kind: 'identity', tenantId: null, operation: 'api-key-authentication' })
+      return { resolve: () => em }
+    })
+    findApiKeyBySecret.mockImplementation(async () => {
+      expect(storage.getStore()?.tenantId).toBeNull()
+      return null
+    })
+    const request = new Request('https://example.test/api/test', { headers: { 'x-api-key': 'unknown-scoped-fixture', 'x-tenant-id': selectedTenant } })
+    expect(await getAuthFromRequest(request)).toBeNull()
+    expect(findApiKeyBySecret).toHaveBeenCalled()
+  })
+})
 
 describe('auth server integrity checks', () => {
   beforeEach(() => {
