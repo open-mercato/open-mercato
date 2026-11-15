@@ -30,6 +30,7 @@ import {
   CustomerTodoLink,
 } from '../../data/entities'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   registerCoreInjectionTables,
@@ -1313,6 +1314,7 @@ describe('customers commands undo custom fields', () => {
 
     const em = {
       fork: () => em,
+      findOne: jest.fn(async (ctor) => ctor === Organization ? { id: TEST_ORG_ID, tenant: TEST_TENANT_ID, deletedAt: null } : null),
       create: jest.fn((ctor, data) => {
         if (ctor === CustomerEntity) {
           const entity = {
@@ -1376,6 +1378,7 @@ describe('customers commands undo custom fields', () => {
 
     const em = {
       fork: () => em,
+      findOne: jest.fn(async (ctor) => ctor === Organization ? { id: TEST_ORG_ID, tenant: TEST_TENANT_ID, deletedAt: null } : null),
       create: jest.fn((ctor, data) => {
         if (ctor === CustomerEntity) {
           return {

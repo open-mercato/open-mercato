@@ -1,3 +1,4 @@
+import { isEntityIndexStrategyAllowed } from '../../lib/entity-strategy-policy'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -529,6 +530,15 @@ export class VectorIndexService {
     exclusions: CustomFieldExclusionLookup,
     opts: { skipDelete?: boolean } = {},
   ): Promise<VectorIndexOperationResult> {
+    if (!isEntityIndexStrategyAllowed(args.entityId, 'vector')) {
+      return {
+        action: 'skipped',
+        existed: false,
+        tenantId: args.tenantId,
+        organizationId: args.organizationId ?? null,
+        reason: 'unsupported',
+      }
+    }
     const scopeOrg = args.organizationId ?? null
     const { record, customFields } = this.extractRecordPayload(args.entityId, raw)
     const resolvedOrgId = scopeOrg ?? (record.organization_id ?? record.organizationId ?? null)
@@ -1363,7 +1373,7 @@ export class VectorIndexService {
     if (!this.opts.embeddingService.available) {
       throw new Error('[vector] Embedding service unavailable (missing OPENAI_API_KEY)')
     }
-    const embedding = await this.opts.embeddingService.createEmbedding(request.query)
+    const embedding = await this.opts.embeddingService.createEmbedding(request.query, { purpose: 'query' })
     const hits = await driver.query({
       vector: embedding,
       limit: request.limit ?? 10,

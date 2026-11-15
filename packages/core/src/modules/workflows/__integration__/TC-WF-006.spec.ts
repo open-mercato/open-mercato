@@ -81,17 +81,24 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       // the drawer footer Save share an accessible name.
       await drawer.getByRole('button', { name: /^save$/i }).click()
       await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
+      const savedEditorUrl = new URL(page.url())
+      const definitionEditorHref = `${savedEditorUrl.pathname}${savedEditorUrl.search}`
 
       // Back to the list — the entry should be visible
       await page.goto('/backend/definitions')
       await expect(page.getByRole('heading', { name: /workflow definitions/i })).toBeVisible()
 
-      const searchBox = page.getByPlaceholder(/search/i).first()
-      if (await searchBox.isVisible().catch(() => false)) {
-        await fillText(page, searchBox, workflowId)
-        // Filter bar submits on Enter or via Apply button; both work in this repo
-        await searchBox.press('Enter').catch(() => undefined)
-      }
+      await page.getByRole('main').getByRole('button', { name: /^filters$/i }).click()
+      const searchBox = page.getByPlaceholder('Search by workflow name or ID...', { exact: true })
+      await searchBox.fill(workflowId)
+      const filteredList = page.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return response.request().method() === 'GET'
+          && url.pathname === '/api/workflows/definitions'
+          && url.searchParams.get('search') === workflowId
+      })
+      await page.getByRole('button', { name: /^apply$/i }).first().click()
+      expect((await filteredList).ok()).toBeTruthy()
 
       // Match on the NAME, not the id: the list dropped its "Workflow ID"
       // column and moved the id into a portaled hover tooltip on the name, so
@@ -110,8 +117,11 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       // detection to flip the menu upward, away from the FAB.
       const triggerBtn = row.getByRole('button', { name: /open actions/i })
       await triggerBtn.evaluate((el) => el.scrollIntoView({ block: 'end' }))
-      await triggerBtn.click()
-      await page.getByRole('menuitem', { name: /^delete$/i }).click()
+      await triggerBtn.hover()
+      const definitionMenu = page.getByRole('menu').filter({
+        has: page.locator(`a[href="${definitionEditorHref}"]`),
+      })
+      await definitionMenu.getByRole('menuitem', { name: /^delete$/i }).click()
 
       // The definition list no longer hand-rolls its delete confirmation as a
       // Radix `Dialog`: it goes through the shared `ConfirmDialog`, which is a

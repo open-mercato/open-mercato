@@ -202,6 +202,27 @@ it.each(['library', 'record'])('defers last-reference byte deletion until the %s
   expect(mockCommit.mock.invocationCallOrder[0]).toBeLessThan(mockDelete.mock.invocationCallOrder[0])
 })
 
+it('rechecks library ownership under the transaction lock after strict storage preflight', async () => {
+  const previousPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+  process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict'
+  mockResolveDriver.mockImplementationOnce(async () => {
+    mockRecords[0].recordId = 'hidden'
+    return { delete: mockDelete }
+  })
+  try {
+    const response = await deleteFrom('library')
+    expect(response.status).toBe(404)
+    expect(mockResolveDriver).toHaveBeenCalledTimes(1)
+    expect(mockReferenceQuery.forUpdate).toHaveBeenCalledTimes(1)
+    expect(mockTx.remove).not.toHaveBeenCalled()
+    expect(mockCommit).not.toHaveBeenCalled()
+    expect(mockDelete).not.toHaveBeenCalled()
+  } finally {
+    if (previousPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+    else process.env.OM_ATTACHMENT_STORAGE_POLICY = previousPolicy
+  }
+})
+
 it('caps an unpaged protected record list at 100 visible rows after filtering hidden owners', async () => {
   mockRecords = [makeRecord(firstId, 'hidden'), ...Array.from({ length: 101 }, (_, index) => makeRecord(`visible-${index}`))]
   const response = await listRecord(new Request('http://localhost/api/attachments?entityId=documents:document&recordId=editable'))

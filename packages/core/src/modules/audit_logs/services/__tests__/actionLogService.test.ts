@@ -543,6 +543,47 @@ describe('ActionLogService.list pagination', () => {
     expect(result.totalPages).toBe(5)
   })
 
+  it('sizes the envelope from limit when no page size is given', async () => {
+    const { service } = buildServiceWithSpies([], 480)
+
+    const result = await service.list({
+      tenantId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      limit: 200,
+      offset: 0,
+      sortField: 'createdAt',
+      sortDir: 'asc',
+    })
+
+    expect(result.pageSize).toBe(200)
+    expect(result.totalPages).toBe(3)
+  })
+
+  it.each([
+    [{}, { limit: 50, offset: 0 }],
+    [{ page: 3, pageSize: 25 }, { limit: 25, offset: 50 }],
+    [{ page: 2 }, { limit: 50, offset: 50 }],
+    [{ limit: 20 }, { limit: 20, offset: 0 }],
+    [{ limit: 1000 }, { limit: 1000, offset: 0 }],
+    [{ limit: 200, offset: 0 }, { limit: 200, offset: 0 }],
+    [{ limit: 50, offset: 100 }, { limit: 50, offset: 100 }],
+    [{ page: 3, limit: 20 }, { limit: 20, offset: 40 }],
+    [{ pageSize: 10, limit: 500 }, { limit: 10, offset: 0 }],
+    [{ page: 4, pageSize: 10, offset: 7 }, { limit: 10, offset: 7 }],
+  ])('resolves the query window for %j', (query, expected) => {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const serviceWithPrivate = service as unknown as {
+      parseListQuery: (query: Record<string, unknown>) => Record<string, unknown>
+      resolvePagination: (parsed: Record<string, unknown>) => { limit: number; offset: number }
+    }
+    const window = serviceWithPrivate.resolvePagination(serviceWithPrivate.parseListQuery(query))
+    expect({ limit: window.limit, offset: window.offset }).toEqual(expected)
+  })
+
+  it('rejects a page size above the documented maximum', async () => {
+    const { service } = buildServiceWithSpies([], 0)
+    await expect(service.list({ pageSize: 201 })).rejects.toThrow()
+  })
+
   it('returns totalPages=1 when total is 0', async () => {
     const { service } = buildServiceWithSpies([], 0)
 
@@ -768,6 +809,47 @@ describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () =
     const [, filter, update] = transactionalUpdate.mock.calls[0]
     expect(filter).toMatchObject({ id: 'log-1', executionState: 'undone', deletedAt: null })
     expect(update).toEqual({ executionState: 'redone', undoToken: null })
+  })
+
+  it('releaseRedoClaim reverts only a redone source back to undone on a forked EntityManager', async () => {
+    const forkedUpdate = jest.fn(async () => 1)
+    const requestUpdate = jest.fn(async () => 1)
+    const fakeEm = {
+      nativeUpdate: requestUpdate,
+      isInTransaction: () => false,
+      fork: jest.fn(() => ({ nativeUpdate: forkedUpdate })),
+    }
+    const service = new ActionLogService(
+      fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+
+    expect(await service.releaseRedoClaim('log-1')).toBe(true)
+    expect(requestUpdate).not.toHaveBeenCalled()
+    const [, filter, update] = forkedUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'log-1', executionState: 'redone', deletedAt: null })
+    expect(update).toEqual({ executionState: 'undone' })
+  })
+
+  it('releaseRedoClaim stays on the request EntityManager while it holds an open transaction', async () => {
+    const requestUpdate = jest.fn(async () => 1)
+    const fork = jest.fn()
+    const fakeEm = { nativeUpdate: requestUpdate, isInTransaction: () => true, fork }
+    const service = new ActionLogService(
+      fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0],
+    )
+
+    expect(await service.releaseRedoClaim('log-1')).toBe(true)
+    expect(fork).not.toHaveBeenCalled()
+    expect(requestUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('releaseRedoClaim uses the supplied transactional EntityManager', async () => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(0)
+    const transactionalUpdate = jest.fn(async () => 1)
+
+    expect(await service.releaseRedoClaim('log-1', { nativeUpdate: transactionalUpdate } as never)).toBe(true)
+    expect(nativeUpdate).not.toHaveBeenCalled()
+    expect(transactionalUpdate).toHaveBeenCalledTimes(1)
   })
 })
 

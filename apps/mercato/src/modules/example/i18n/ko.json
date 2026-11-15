@@ -260,7 +260,6 @@
   "example.priority.normal": "보통",
   "example.publicPage": "공개 예제 페이지입니다.",
   "example.salesTodos.tabLabel": "할 일(예제)",
-  "example.search.todo.badge": "할 일",
   "example.search.todo.subtitle.done": "완료됨",
   "example.search.todo.subtitle.open": "진행 중",
   "example.todos.bulk.markDone": "선택한 할 일을 완료로 표시",
@@ -510,6 +509,7 @@
   "example.umes.queryExtensions.subscribers.run": "구독자 수집 프로브 실행",
   "example.umes.queryExtensions.subscribers.title": "N.2 동기 쿼리 이벤트 구독자",
   "example.umes.queryExtensions.title": "UMES Phase N — 쿼리 엔진 확장성",
+  "example.widgets.catalogSeoReport.docs": "이 위젯은 위젯 삽입 시스템을 통해 제품 테이블에 삽입됩니다.",
   "example.widgets.catalogSeoReport.edit": "수정",
   "example.widgets.catalogSeoReport.error": "SEO 리포트를 불러오지 못했습니다.",
   "example.widgets.catalogSeoReport.example": "예제",
@@ -546,5 +546,6 @@
   "example.workPlan.nav.group": "작업 계획",
   "integrations.marketplace.filters.category": "카테고리",
   "notifications.categories.demo": "데모",
-  "notifications.categories.example": "예제"
+  "notifications.categories.example": "예제",
+  "search.entityType.example.todo": "할 일"
 }

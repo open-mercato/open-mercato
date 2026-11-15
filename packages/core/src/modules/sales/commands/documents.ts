@@ -646,8 +646,9 @@ const documentUpdateFieldsSchema = z
     currencyCode: currencyCodeSchema.optional(),
     // Order-only columns — SalesQuote declares none of them. Declared here
     // because the create schema declares them and a caller reusing its create
-    // payload on an update otherwise lost them silently; `applyDocumentUpdate`
-    // rejects each with a 400 on a quote rather than dropping it.
+    // payload on an update otherwise lost them silently. `applyDocumentUpdate`
+    // rejects them on a quote, except `totalsMode`, which is ignored to preserve
+    // quote-create compatibility without enabling external quote amounts.
     exchangeRate: z.union([z.null(), exchangeRateSchema]).optional(),
     paymentStatusEntryId: z.string().uuid().nullable().optional(),
     fulfillmentStatusEntryId: z.string().uuid().nullable().optional(),
@@ -1477,14 +1478,21 @@ async function applyDocumentUpdate({
         });
       }
     }
-    (entity as any).shippingMethodId = input.shippingMethodId ?? null;
-    (entity as any).shippingMethod = shippingMethod ?? null;
-    (entity as any).shippingMethodCode =
-      input.shippingMethodCode ?? shippingMethod?.code ?? null;
+    if (input.shippingMethodId !== undefined) {
+      entity.shippingMethodId = input.shippingMethodId ?? null;
+      entity.shippingMethod = shippingMethod ?? null;
+    }
+    if (
+      input.shippingMethodId !== undefined ||
+      input.shippingMethodCode !== undefined
+    ) {
+      entity.shippingMethodCode =
+        input.shippingMethodCode ?? shippingMethod?.code ?? null;
+    }
     if (input.shippingMethodSnapshot !== undefined) {
       (entity as any).shippingMethodSnapshot =
         input.shippingMethodSnapshot ?? null;
-    } else {
+    } else if (input.shippingMethodId !== undefined) {
       (entity as any).shippingMethodSnapshot = shippingMethod
         ? {
             id: shippingMethod.id,
@@ -1535,14 +1543,21 @@ async function applyDocumentUpdate({
         });
       }
     }
-    (entity as any).paymentMethodId = input.paymentMethodId ?? null;
-    (entity as any).paymentMethod = paymentMethod ?? null;
-    (entity as any).paymentMethodCode =
-      input.paymentMethodCode ?? paymentMethod?.code ?? null;
+    if (input.paymentMethodId !== undefined) {
+      entity.paymentMethodId = input.paymentMethodId ?? null;
+      entity.paymentMethod = paymentMethod ?? null;
+    }
+    if (
+      input.paymentMethodId !== undefined ||
+      input.paymentMethodCode !== undefined
+    ) {
+      entity.paymentMethodCode =
+        input.paymentMethodCode ?? paymentMethod?.code ?? null;
+    }
     if (input.paymentMethodSnapshot !== undefined) {
       (entity as any).paymentMethodSnapshot =
         input.paymentMethodSnapshot ?? null;
-    } else {
+    } else if (input.paymentMethodId !== undefined) {
       (entity as any).paymentMethodSnapshot = paymentMethod
         ? {
             id: paymentMethod.id,
@@ -5894,7 +5909,6 @@ const updateQuoteCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {});
-    await assertAmountsModeUnsupportedOnQuote([parsed]);
     documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;
@@ -6068,7 +6082,7 @@ const updateQuoteCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.quote as unknown as Record<string, unknown>,
           after.quote as unknown as Record<string, unknown>,
           buildDocumentUpdateChangeKeys("quote", parsed),
@@ -6400,7 +6414,7 @@ const updateOrderCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.order as unknown as Record<string, unknown>,
           after.order as unknown as Record<string, unknown>,
           buildDocumentUpdateChangeKeys("order", parsed),
