@@ -2,7 +2,7 @@
 title: "Verify integration fixture cleanup against the actual endpoint"
 modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog"]
 areas: ["testing","integration"]
-topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","schema-validation","proposal-origin"]
+topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","proposal-origin","error-handling"]
 ---
 
 # Verify integration fixture cleanup against the actual endpoint
@@ -20,3 +20,5 @@ Evidence: `packages/core/src/modules/entities/api/definitions.ts` DELETE; `packa
 After merging authorization changes, also verify that setup reaches the intended guard. Discord refusal fixtures must be created as admin and authenticated with `stampSystemProposalFixture`; ordinary client cards fail the origin check before source-read validation. Keep forged-card coverage separate, use a unique scenario ID, and scope cleanup to records owned by the test. Evidence: PR #7356 review and `TC-CHANNEL-DISCORD-013`/`TC-CHANNEL-DISCORD-014`.
 
 Catalog dictionary authorization coverage in PR #9218 initially stopped at user creation: a UUID password lacks the uppercase character required by the default password policy. Generate fixture passwords satisfying every current policy requirement so denied-read assertions reach the authorization boundary. Evidence: `TC-CAT-046-dictionary-access-scope.spec.ts`, `auth/api/users/route.ts` and `shared/lib/auth/passwordPolicy.ts`.
+
+Review of #9156 found that the generic sales cleanup helper sends only an ID, while `DELETE /api/sales/shipments` also requires `orderId`. Send both fields and assert successful deletion, including for unexpectedly accepted creates in refusal tests. Put the remaining fixture cleanup in a nested `finally` so a failed cleanup assertion still reaches order cascade and reference teardown. Evidence: `sales/api/shipments/route.ts` delete `mapInput` and `TC-SALES-9156-reference-scope.spec.ts`.
