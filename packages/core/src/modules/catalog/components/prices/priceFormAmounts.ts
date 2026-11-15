@@ -13,11 +13,19 @@ export function normalizePriceFormAmounts(
   for (const field of ['unitPriceNet', 'unitPriceGross'] as const) {
     const raw = values[field]?.trim()
     if (!raw) continue
-    const parsed = parseLocaleNumber(raw, locale)
-    if (parsed === null || !validateCatalogPriceAmountInput(String(parsed)).ok) {
+    const compact = raw.replace(/[\s'’ʼ]/g, '').replace(/^\+/, '')
+    const separators = compact.match(/[.,]/g) ?? []
+    const hasDecimal = separators.length === 1 || (compact.includes(',') && compact.includes('.'))
+    const decimalIndex = hasDecimal ? Math.max(compact.lastIndexOf(','), compact.lastIndexOf('.')) : -1
+    const integerPart = (hasDecimal ? compact.slice(0, decimalIndex) : compact).replace(/[.,]/g, '') || '0'
+    const fractionPart = hasDecimal ? compact.slice(decimalIndex + 1) : ''
+    const normalized = `${integerPart}${fractionPart ? `.${fractionPart}` : ''}`
+    if (!validateCatalogPriceAmountInput(normalized).ok || parseLocaleNumber(raw, locale) === null) {
       fieldErrors[field] = t('catalog.prices.form.errors.invalidAmount')
     } else {
-      amounts[field] = String(parsed)
+      const canonicalInteger = integerPart.replace(/^0+(?=\d)/, '')
+      const canonicalFraction = fractionPart.replace(/0+$/, '')
+      amounts[field] = `${canonicalInteger}${canonicalFraction ? `.${canonicalFraction}` : ''}`
     }
   }
   if (Object.keys(fieldErrors).length) {

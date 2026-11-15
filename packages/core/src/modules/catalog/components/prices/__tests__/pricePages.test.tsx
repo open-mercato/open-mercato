@@ -57,3 +57,17 @@ it('edit preserves the loaded version, canonicalizes repeated saves and refuses 
   await expect(mockProps.onSubmit({ ...values, unitPriceGross: '1 2' })).rejects.toThrow()
   expect(mockUpdateCrud).not.toHaveBeenCalled()
 })
+
+describe.each(['unitPriceNet', 'unitPriceGross'] as const)('%s text validation', (field) => {
+  it.each(['999999999999.12345', '999999999999,12345', '-1e-999'])('refuses %s before create or update', async (raw) => {
+    const create = render(<CreateCatalogPricePage />)
+    await expect(mockProps.onSubmit({ ...values, [field]: raw })).rejects.toThrow()
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+    create.unmount()
+
+    render(<EditCatalogPricePage params={{ id: 'price' }} />)
+    await waitFor(() => expect(mockProps.optimisticLockUpdatedAt).toBe(version))
+    await expect(mockProps.onSubmit({ ...values, [field]: raw })).rejects.toThrow()
+    expect(mockUpdateCrud).not.toHaveBeenCalled()
+  })
+})

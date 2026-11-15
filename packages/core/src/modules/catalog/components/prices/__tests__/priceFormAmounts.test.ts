@@ -18,11 +18,18 @@ describe('flat price-rule monetary input', () => {
     expect(normalizePriceFormAmounts({}, 'pl', t)).toEqual({})
   })
 
-  it.each(['12,3,4', '1 2', 'abc', 'NaN', 'Infinity', '1e999', '-1', '−0,01', '1000000000000', '1,23456'])('refuses %s with localized errors on both fields', (raw) => {
+  it.each(['12,3,4', '1 2', 'abc', 'NaN', 'Infinity', '1e999', '-1', '−0,01', '1000000000000', '1,23456', '999999999999.12345', '999999999999,12345', '-1e-999', '−1e-999', '0.00001', '1e-999'])('refuses %s with localized errors on both fields', (raw) => {
     expect(() => normalizePriceFormAmounts({ unitPriceNet: raw, unitPriceGross: raw }, 'pl', t))
       .toThrow(expect.objectContaining({
         message: 'Podaj poprawną, nieujemną cenę.',
         fieldErrors: { unitPriceNet: 'Podaj poprawną, nieujemną cenę.', unitPriceGross: 'Podaj poprawną, nieujemną cenę.' },
       }))
+  })
+
+  it.each(['pl', 'en'])('preserves exact decimal text and grouped input under %s', (locale) => {
+    expect(normalizePriceFormAmounts({ unitPriceNet: '999999999999.9999', unitPriceGross: '1 234,5600' }, locale, t))
+      .toEqual({ unitPriceNet: '999999999999.9999', unitPriceGross: '1234.56' })
+    expect(normalizePriceFormAmounts({ unitPriceNet: '1,234.5600', unitPriceGross: '1.234.567' }, locale, t))
+      .toEqual({ unitPriceNet: '1234.56', unitPriceGross: '1234567' })
   })
 })
