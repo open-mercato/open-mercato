@@ -263,6 +263,7 @@
   "catalog.priceKinds.table.promotionYes": "Ja",
   "catalog.priceKinds.table.title": "Titel",
   "catalog.priceKinds.title": "Preisarten",
+  "catalog.prices.errors.taxClassUnavailable": "Steuerklassen sind nicht verfügbar.",
   "catalog.prices.flash.created": "Preisregel erstellt",
   "catalog.prices.flash.deleted": "Preisregel gelöscht",
   "catalog.prices.flash.updated": "Preisregel aktualisiert",
