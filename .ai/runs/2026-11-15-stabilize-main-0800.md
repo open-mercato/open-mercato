@@ -1,0 +1,51 @@
+# Stabilize main — scheduled 08:00 run
+
+## Goal
+Repair current main workflow failures and verify a full-suite draft PR before independent review and the `automerge` label.
+
+## Scope
+Main `a0ebde7427` passes CI run 43676273536, including all 15 integration shards. Snapshot run 43676273517 fails when Yarn fetches the just-published core tarball (HTTP 404); its existing retry helper retries quarantine responses only. Investigate the publishing/install boundary and repair the demonstrated cause with regression tests. Existing trusted `stabilize/*` and `ci-full` support already forces full integration, unit and type checks.
+
+Branch: `stabilize/main-2026-11-15-0800`, from `origin/main`. The original dated branch already merged through PR #9558, so preserve its local history and use this scheduled-run suffix.
+
+Non-goals: publish packages, change production, merge to main, weaken assertions, bypass QA, change unrelated modules or overwrite prior stabilization work.
+
+## Implementation Plan
+
+### Phase 1: Diagnose and repair
+1.1 Dispatch a read-only independent audit of the snapshot failure and validate its evidence.
+1.2 Repair the demonstrated root cause and add focused regression coverage.
+
+### Phase 2: Validate
+2.1 Run focused checks and the configured ordered validation gate; document real environment blockers.
+2.2 Run the PR full suite and repair demonstrated failures until current-head CI is green.
+
+### Phase 3: Review and hand off
+3.1 Dispatch one final review using om-auto-review-pr, validate its evidence and resolve actionable findings.
+3.2 Publish evidence, promote the green reviewed PR and apply automerge; release the owned claim.
+
+## Risks
+Registry propagation is external and cannot be deterministically reproduced with live npm. Use controlled command fixtures and exact observed failure logs. Snapshot publishing runs only on main; prove the repair without publishing from this PR. Additional failures may widen the necessary repair.
+
+## Execution
+Engine: om-auto-create-pr (steps: 6, --loop: no)
+Reuse the invoking isolated worktree. Parent owns coupled implementation and validation. At most two dispatched tasks: read-only diagnosis and final review. Do not merge unreviewed child changes.
+
+## Progress
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Diagnose and repair
+
+- [ ] 1.1 Dispatch a read-only independent audit of the snapshot failure and validate its evidence
+- [ ] 1.2 Repair the demonstrated root cause and add focused regression coverage
+
+### Phase 2: Validate
+
+- [ ] 2.1 Run focused checks and the configured ordered validation gate
+- [ ] 2.2 Run the PR full suite and repair demonstrated failures until current-head CI is green
+
+### Phase 3: Review and hand off
+
+- [ ] 3.1 Dispatch one final review and resolve actionable findings
+- [ ] 3.2 Publish evidence, promote the green reviewed PR and apply automerge
