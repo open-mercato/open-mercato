@@ -417,6 +417,33 @@ describe('prepareMutation', () => {
     ])
   })
 
+  it.each([
+    { operation: 'update', commentId: 'c-1', body: 'new' },
+    { operation: 'update', activityId: 'a-1', body: 'new' },
+    { operation: 'create', personId: 'person-1', body: 'new' },
+    { operation: 'create', companyId: 'company-1', body: 'new' },
+    { operation: 'delete', commentId: 'c-1' },
+  ])('keeps customers tool selectors out of fallback diffs: %j', async (toolCallArgs) => {
+    const tool = makeTool({
+      name: 'customers.manage_record_comment',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'c-1',
+        entityType: 'customers.comment',
+        recordVersion: 'v-1',
+        before: { body: 'old', entityId: 'person-1', authorUserId: 'user-1' },
+      }),
+    })
+    const { uiPart } = await prepareMutation(
+      { agent: makeAgent({ id: 'customers.assistant' }), tool, toolCallArgs },
+      { ...baseCtx, container: makeContainer(mockEm()) },
+    )
+
+    expect(uiPart.props.fieldDiff).toEqual(
+      'body' in toolCallArgs ? [{ field: 'body', before: 'old', after: 'new' }] : [],
+    )
+  })
+
   it('batch fallback patch from flat args: untouched snapshot fields do not surface as cleared (regression #7349)', async () => {
     const em = mockEm()
     const container = makeContainer(em)
