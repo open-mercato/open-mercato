@@ -518,7 +518,10 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
         await page.route(`**${optionsPath}`, async (route) => {
           const response = await route.fetch()
           const body = (await response.json()) as { result?: { reasons?: Array<{ value: string; label: string }>; faultCodes?: unknown } }
-          const reasons = [...(body.result?.reasons ?? []), { value: 'warranty-defect', label: 'Injected override label' }]
+          const reasons = [
+            ...(body.result?.reasons ?? []).filter((reason) => reason.value !== 'warranty-defect'),
+            { value: 'warranty-defect', label: 'Injected override label' },
+          ]
           await route.fulfill({ response, json: { ...body, result: { ...body.result, reasons } } })
         })
         await page.route(`**${detailPath}`, async (route) => {
@@ -526,8 +529,11 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
           const body = (await response.json()) as { item: Record<string, unknown> }
           await route.fulfill({ response, json: { item: { ...body.item, reasonCode: 'warranty-defect' } } })
         })
+        const optionsReloaded = page.waitForResponse((response) => response.url().includes(optionsPath))
         await page.reload({ waitUntil: 'domcontentloaded' })
+        await optionsReloaded
         await expect(heading).toHaveText('Warranty defect, Warranty claim')
+        expect(await heading.textContent()).not.toContain('Injected override label')
         await page.screenshot({ path: testInfo.outputPath('seeded-translation-precedence.png'), fullPage: true })
         await page.unroute(`**${optionsPath}`)
         await page.unroute(`**${detailPath}`)
@@ -557,26 +563,43 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
         await context.close()
       }
     } finally {
-      if (entryId && dictionaryId) {
-        const deleteEntry = await apiRequest(request, 'DELETE', `/api/dictionaries/${dictionaryId}/entries/${entryId}`, {
-          token: adminToken,
-          headers: { [OPTIMISTIC_LOCK_HEADER]: entryUpdatedAt! },
-        })
-        expect(deleteEntry.status(), 'owned reason dictionary entry should be deleted').toBe(200)
+      const cleanupErrors: unknown[] = []
+      const runCleanupStep = async (step: () => Promise<void>) => {
+        try {
+          await step()
+        } catch (error) {
+          cleanupErrors.push(error)
+        }
       }
-      if (ownsDictionary && dictionaryId) {
-        const dictionary = await apiRequest(request, 'GET', `/api/dictionaries/${dictionaryId}`, { token: adminToken })
-        const record = await readJsonSafe<{ updatedAt: string }>(dictionary)
-        await apiRequest(request, 'DELETE', `/api/dictionaries/${dictionaryId}`, {
-          token: adminToken,
-          headers: { [OPTIMISTIC_LOCK_HEADER]: record!.updatedAt },
-        })
-      }
-      await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
-      await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderId)
-      await deleteCustomerUserFixture(request, adminToken, userId)
-      await deleteCustomerRoleFixture(request, adminToken, roleId)
-      await deleteCustomerCompanyFixture(request, adminToken, companyId)
+
+      await runCleanupStep(async () => {
+        if (entryId && dictionaryId) {
+          const deleteEntry = await apiRequest(request, 'DELETE', `/api/dictionaries/${dictionaryId}/entries/${entryId}`, {
+            token: adminToken,
+            headers: { [OPTIMISTIC_LOCK_HEADER]: entryUpdatedAt! },
+          })
+          expect(deleteEntry.status(), 'owned reason dictionary entry should be deleted').toBe(200)
+        }
+      })
+      await runCleanupStep(async () => {
+        if (ownsDictionary && dictionaryId) {
+          const dictionary = await apiRequest(request, 'GET', `/api/dictionaries/${dictionaryId}`, { token: adminToken })
+          const record = await readJsonSafe<{ updatedAt: string }>(dictionary)
+          expect(record?.updatedAt, 'owned dictionary should resolve updatedAt before delete').toBeTruthy()
+          const deleteDictionary = await apiRequest(request, 'DELETE', `/api/dictionaries/${dictionaryId}`, {
+            token: adminToken,
+            headers: { [OPTIMISTIC_LOCK_HEADER]: record!.updatedAt },
+          })
+          expect(deleteDictionary.status(), 'owned reason dictionary should be deleted').toBe(200)
+        }
+      })
+      await runCleanupStep(() => cancelThenDeleteClaimIfPossible(request, adminToken, claimId))
+      await runCleanupStep(() => deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderId))
+      await runCleanupStep(() => deleteCustomerUserFixture(request, adminToken, userId))
+      await runCleanupStep(() => deleteCustomerRoleFixture(request, adminToken, roleId))
+      await runCleanupStep(() => deleteCustomerCompanyFixture(request, adminToken, companyId))
+
+      if (cleanupErrors.length > 0) throw cleanupErrors[0]
     }
   })
 })
