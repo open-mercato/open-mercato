@@ -8,6 +8,7 @@ import { CheckoutTransaction, CheckoutLink } from '../data/entities'
 import PaymentStartEmail from '../emails/PaymentStartEmail'
 import PaymentSuccessEmail from '../emails/PaymentSuccessEmail'
 import PaymentErrorEmail from '../emails/PaymentErrorEmail'
+import { consumeStartEmailBudget } from '../lib/startEmailBudget'
 
 export const CHECKOUT_EMAIL_QUEUE = 'checkout-email'
 
@@ -28,6 +29,10 @@ type HandlerContext = JobContext & {
 
 function interpolateVariables(template: string, variables: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => variables[key] ?? match)
+}
+
+function normalizeVariable(value: string): string {
+  return value.replace(/[\r\n\u2028\u2029]+/g, ' ').trim()
 }
 
 function escapeHtml(value: string): string {
@@ -131,11 +136,13 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
     deletedAt: null,
   }, undefined, { organizationId: payload.organizationId, tenantId: payload.tenantId })
 
-  const firstName = transaction.firstName ?? t('checkout.systemEmails.common.customerFallback')
-  const linkTitle = link?.title ?? link?.name ?? t('checkout.systemEmails.common.linkTitleFallback')
+  const firstName = normalizeVariable(transaction.firstName ?? t('checkout.systemEmails.common.customerFallback'))
+  const linkTitle = normalizeVariable(link?.title ?? link?.name ?? t('checkout.systemEmails.common.linkTitleFallback'))
   const amount = String(transaction.amount ?? '0.00')
-  const currencyCode = transaction.currencyCode ?? ''
-  const errorMessage = payload.type === 'error' ? (payload.errorMessage ?? null) : null
+  const currencyCode = normalizeVariable(transaction.currencyCode ?? '')
+  const errorMessage = payload.type === 'error' && payload.errorMessage
+    ? normalizeVariable(payload.errorMessage)
+    : null
 
   const variables: Record<string, string> = {
     firstName,
@@ -156,17 +163,29 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
     bodyField: string | null | undefined,
     defaultSubject: string,
   ): Promise<{ subject: string; bodyHtml: string | null }> {
-    const subject = subjectField
+    const subject = normalizeVariable(subjectField
       ? interpolateVariables(subjectField, variables)
-      : defaultSubject
+      : defaultSubject)
+    const escapedVariables = Object.fromEntries(
+      Object.entries(variables).map(([key, value]) => [key, escapeHtml(normalizeVariable(value))]),
+    )
     const bodyHtml = bodyField
-      ? renderMarkdownBody(interpolateVariables(bodyField, variables))
+      ? renderMarkdownBody(bodyField)
+        .split(/(<[^>]*>)/g)
+        .map((part) => part.startsWith('<') ? part : interpolateVariables(part, escapedVariables))
+        .join('')
       : null
     return { subject, bodyHtml }
   }
 
   if (payload.type === 'start') {
     if (link?.sendStartEmail === false) return
+    if (!await consumeStartEmailBudget(ctx, {
+      email,
+      linkId: transaction.linkId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    })) return
     const { subject, bodyHtml } = await resolveEmailContent(
       link?.startEmailSubject,
       link?.startEmailBody,

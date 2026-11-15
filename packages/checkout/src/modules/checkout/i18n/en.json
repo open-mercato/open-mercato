@@ -394,6 +394,7 @@
   "checkout.payPage.validation.amountRequired": "Enter an amount to continue.",
   "checkout.payPage.validation.documentRequired": "Accept {field} to continue.",
   "checkout.payPage.validation.fixErrors": "Check the highlighted fields and try again.",
+  "checkout.payPage.validation.nameTooLong": "Use no more than 100 characters for a name.",
   "checkout.payPage.validation.invalidEmail": "Enter a valid email address.",
   "checkout.payPage.validation.invalidPhone": "Enter a valid phone number.",
   "checkout.payPage.validation.labels.option": "payment option",

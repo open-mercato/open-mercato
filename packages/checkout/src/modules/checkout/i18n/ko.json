@@ -394,6 +394,7 @@
   "checkout.payPage.validation.amountRequired": "계속하려면 금액을 입력하세요.",
   "checkout.payPage.validation.documentRequired": "계속하려면 {field}에 동의하세요.",
   "checkout.payPage.validation.fixErrors": "강조 표시된 필드를 확인하고 다시 시도하세요.",
+  "checkout.payPage.validation.nameTooLong": "이름은 100자 이내로 입력하세요.",
   "checkout.payPage.validation.invalidEmail": "유효한 이메일 주소를 입력하세요.",
   "checkout.payPage.validation.invalidPhone": "유효한 전화번호를 입력하세요.",
   "checkout.payPage.validation.labels.option": "결제 옵션",

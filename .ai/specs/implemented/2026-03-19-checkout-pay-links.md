@@ -1208,6 +1208,8 @@ Fixed fields (firstName, lastName, email, phone) are rendered first in their own
 
 Submitted customer data is stored in `CheckoutTransaction.customerData` as encrypted JSON. The four fixed fields are also denormalized to encrypted columns (`first_name`, `last_name`, `email`, `phone`) for list display and filtering.
 
+Public submit accepts only keys declared in the link's `customerFieldsSchema`. Supplied email values are validated even when the link does not declare an email field; blank optional email values become null. First and last names are limited to 100 characters. Undeclared values never reach transaction storage or gateway payer metadata (#9159).
+
 ### UMES Extension
 
 Other modules can register additional customer field types by injecting into the `checkout.pay-page:customer-fields:after` spot or by extending the `FieldDefinitionsEditor` via the custom fields module's extension mechanism.
@@ -1503,6 +1505,8 @@ All emails:
 - Sent asynchronously via the `email-sender` worker queue
 - Support i18n (locale resolved from link or system default)
 - React components can be replaced via UMES component replacement
+
+Email bodies render merchant-authored Markdown before interpolating HTML-escaped variables into text nodes. Variables are single-line literal text, cannot introduce Markdown structure, and are not expanded inside HTML attributes. Default greetings and subjects also collapse line breaks. Start emails consume tenant/organization-scoped budgets of three messages per recipient per hour across links and 100 messages per link per hour across recipients. Recipient keys use a SHA-256 digest of the trimmed, lowercased address. The worker suppresses over-budget start emails; an unavailable limiter fails the job for the queue's normal retry handling. Success/error emails remain outside this pre-payment budget. Configure `RATE_LIMIT_CHECKOUT_START_EMAIL_{RECIPIENT|LINK}_{POINTS|DURATION|BLOCK_DURATION}` with the shared rate-limiter configuration. Use its Redis strategy for budgets shared across worker processes; memory strategy counts within each process.
 
 ---
 
@@ -1958,6 +1962,12 @@ Preferred doc locations:
 ---
 
 ## Migration & Backward Compatibility
+
+### Checkout email and customer-data hardening (#9159, 2026-11-15)
+
+The public submit schema and email-template interpretation are stable surfaces with intentional security narrowing. Undeclared payer fields, malformed nonempty email addresses, names over 100 characters and Markdown or multiline interpretation of variable values enabled merchant-branded email injection. Preserving those branches during a bridge release would retain the vulnerability. Route URLs, response shapes, events, database schema and exported signatures remain unchanged.
+
+Clients must submit only declared customer fields, use valid email addresses, and limit first/last names to 100 characters. Template authors must put formatting in the template and variables in text, rather than URL attributes. Operators rebuild/deploy checkout and worker processes together, configure the new budgets for their expected volume, and use the shared Redis limiter in multi-process deployments. Existing stored customer data is not rewritten; rendering protects queued historical records too. No database migration is required. A named human maintainer must approve the emergency waiver of deprecation steps 1–3 before merge; automated review cannot provide that approval. See UPGRADE_NOTES.md.
 
 Phase A keeps core changes minimal, but it does introduce one **additive** contract surface in `payment_gateways`: a generic provider-descriptor registry/service/API for session settings, supported currencies, payment types, and presentation capabilities.
 

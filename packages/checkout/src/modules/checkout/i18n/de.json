@@ -394,6 +394,7 @@
   "checkout.payPage.validation.amountRequired": "Bitte einen Betrag eingeben, um fortzufahren.",
   "checkout.payPage.validation.documentRequired": "Bitte {field} akzeptieren, um fortzufahren.",
   "checkout.payPage.validation.fixErrors": "Pruefe die markierten Felder und versuche es erneut.",
+  "checkout.payPage.validation.nameTooLong": "Verwenden Sie höchstens 100 Zeichen für einen Namen.",
   "checkout.payPage.validation.invalidEmail": "Bitte eine gueltige E-Mail-Adresse eingeben.",
   "checkout.payPage.validation.invalidPhone": "Bitte eine gueltige Telefonnummer eingeben.",
   "checkout.payPage.validation.labels.option": "Zahlungsoption",

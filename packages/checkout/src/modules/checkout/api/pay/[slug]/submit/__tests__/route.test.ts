@@ -160,7 +160,9 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
 
   it('forwards the collected payer email and name to the gateway session metadata', async () => {
     ;(findOneWithDecryption as jest.Mock)
-      .mockResolvedValueOnce({ ...createLink(), collectCustomerDetails: true })
+      .mockResolvedValueOnce({ ...createLink(), collectCustomerDetails: true, customerFieldsSchema: [
+        { key: 'email' }, { key: 'firstName' }, { key: 'lastName' },
+      ] })
       .mockResolvedValueOnce(createTransaction())
       .mockResolvedValueOnce(createTransaction())
       .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
@@ -193,6 +195,43 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
         },
       }),
     )
+  })
+
+  it('drops undeclared customer fields before persistence and gateway metadata', async () => {
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce({ ...createLink(), collectCustomerDetails: true, customerFieldsSchema: [{ key: 'custom' }] })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+    mockCommandExecute.mockResolvedValueOnce({ result: { id: TRANSACTION_ID } })
+    const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'filtered-key-123456', origin: 'https://merchant.example' },
+      body: JSON.stringify({ customerData: {
+        email: 'thirdparty@example.com', firstName: 'Injected', lastName: 'Name', phone: '+123456789', custom: 'kept', unexpected: true,
+      }, amount: 1 }),
+    }), { params: { slug: 'donate' } })
+    expect(response.status).toBe(201)
+    expect(mockCommandExecute).toHaveBeenCalledWith('checkout.transaction.create', expect.objectContaining({
+      input: expect.objectContaining({ customerData: { custom: 'kept' }, firstName: null, lastName: null, email: null, phone: null }),
+    }))
+    expect(mockCreatePaymentSession).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: { checkoutLinkId: LINK_ID, checkoutSlug: 'donate' },
+    }))
+  })
+
+  it('rejects an invalid undeclared email before creating a transaction or gateway session', async () => {
+    const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'invalid-email-123456', origin: 'https://merchant.example' },
+      body: JSON.stringify({ customerData: { email: 'invalid' }, amount: 1 }),
+    }), { params: { slug: 'donate' } })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      fieldErrors: { 'customerData.email': 'checkout.payPage.validation.invalidEmail' },
+    }))
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(mockCreatePaymentSession).not.toHaveBeenCalled()
   })
 
   it('omits payer metadata when the link does not collect customer details', async () => {
