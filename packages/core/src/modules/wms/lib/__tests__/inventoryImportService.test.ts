@@ -266,6 +266,7 @@ describe('validateInventoryImport', () => {
     ['additive', 'abc'],
     ['reconcile', '1,000'],
     ['reconcile', 'abc'],
+    ['reconcile', '1,5'],
     ['reconcile', 'Infinity'],
   ] as const)('rejects an unparseable quantity in %s mode instead of treating %s as zero', async (mode, quantity) => {
     mockWarehouseLocationVariant(42)
@@ -288,6 +289,27 @@ describe('validateInventoryImport', () => {
     expect(result.rows[0]?.errors).toEqual(['quantity_invalid'])
     expect(result.rows[0]?.resolved).toBeUndefined()
     expect(result.ok).toBe(false)
+  })
+
+  it('still accepts a decimal quantity written with a dot', async () => {
+    mockWarehouseLocationVariant(0)
+    const ctx = createCtx()
+    const result = await validateInventoryImport(ctx, {
+      tenantId: TENANT,
+      organizationId: ORG,
+      rows: [
+        {
+          warehouseCode: 'WH-MAIN',
+          locationCode: 'BIN-1',
+          sku: 'SKU-001',
+          quantity: '2.5',
+        },
+      ],
+    })
+
+    expect(result.rows[0]?.status).toBe('valid')
+    expect(result.rows[0]?.errors).toHaveLength(0)
+    expect(result.rows[0]?.resolved?.delta).toBe(2.5)
   })
 })
 
