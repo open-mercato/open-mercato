@@ -366,7 +366,7 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(mitigationActionUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return entityManager.transactional(async (entityManager) => {
+    const { result, lifecycleEvent } = await entityManager.transactional(async (entityManager) => {
       const unlockedRecord = await findMitigationAction(entityManager, parsed.id, false)
       if (!unlockedRecord) throw new CrudHttpError(404, { error: 'eudr.errors.mitigationActionNotFound' })
       ensureTenantScope(ctx, unlockedRecord.tenantId)
@@ -417,21 +417,28 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
         ],
       })
 
-      if (record.status === 'completed' && !wasCompleted) {
-        await emitEudrLifecycleEvent(ctx.container, 'eudr.mitigation_action.completed', {
-          id: record.id,
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          title: record.title,
-          riskAssessmentId: record.riskAssessmentId,
-        })
-      }
+      const lifecycleEvent = record.status === 'completed' && !wasCompleted
+        ? {
+          eventId: 'eudr.mitigation_action.completed' as const,
+          payload: {
+            id: record.id,
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+            title: record.title,
+            riskAssessmentId: record.riskAssessmentId,
+          },
+        }
+        : null
 
       const result = { entityId: record.id, updatedAt: record.updatedAt }
       const after = structuredClone(await buildMitigationActionSnapshot(entityManager, record))
       updateMitigationActionSnapshots.set(result, { before, after })
-      return result
+      return { result, lifecycleEvent }
     })
+    if (lifecycleEvent) {
+      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload)
+    }
+    return result
   },
   captureAfter: async (_rawInput, result) => updateMitigationActionSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {

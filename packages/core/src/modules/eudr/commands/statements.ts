@@ -759,7 +759,7 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(statementUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return entityManager.transactional(async (entityManager) => {
+    const { result, lifecycleEvent } = await entityManager.transactional(async (entityManager) => {
       const unlockedRecord = await entityManager.findOne(EudrDueDiligenceStatement, { id: parsed.id, deletedAt: null })
       if (!unlockedRecord) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
       ensureTenantScope(ctx, unlockedRecord.tenantId)
@@ -805,21 +805,28 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
             : previousStatus === 'available' && record.status === 'withdrawn'
               ? 'eudr.due_diligence_statement.withdrawn'
               : null
-      if (lifecycleEventId) {
-        await emitEudrLifecycleEvent(ctx.container, lifecycleEventId, {
-          id: record.id,
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          title: record.title,
-          referenceNumber: record.referenceNumber ?? null,
-        })
-      }
+      const lifecycleEvent = lifecycleEventId
+        ? {
+          eventId: lifecycleEventId,
+          payload: {
+            id: record.id,
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+            title: record.title,
+            referenceNumber: record.referenceNumber ?? null,
+          },
+        } as const
+        : null
 
       const result = { entityId: record.id, updatedAt: record.updatedAt }
       const after = structuredClone(await buildStatementSnapshot(entityManager, record))
       updateStatementSnapshots.set(result, { before, after })
-      return result
+      return { result, lifecycleEvent }
     })
+    if (lifecycleEvent) {
+      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload)
+    }
+    return result
   },
   captureAfter: async (_rawInput, result) => updateStatementSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {

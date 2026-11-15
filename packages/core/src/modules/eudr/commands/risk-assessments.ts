@@ -511,7 +511,7 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(riskAssessmentUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    return entityManager.transactional(async (entityManager) => {
+    const { result, lifecycleEvent } = await entityManager.transactional(async (entityManager) => {
       const unlockedRecord = await findRiskAssessment(entityManager, parsed.id, false)
       if (!unlockedRecord) throw new CrudHttpError(404, { error: 'eudr.errors.riskAssessmentNotFound' })
       ensureTenantScope(ctx, unlockedRecord.tenantId)
@@ -570,22 +570,29 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
         ],
       })
 
-      if (record.conclusion !== previousConclusion) {
-        await emitEudrLifecycleEvent(ctx.container, 'eudr.risk_assessment.concluded', {
-          id: record.id,
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          statementId: record.statementId,
-          statementTitle,
-          conclusion: record.conclusion,
-        })
-      }
+      const lifecycleEvent = record.conclusion !== previousConclusion
+        ? {
+          eventId: 'eudr.risk_assessment.concluded' as const,
+          payload: {
+            id: record.id,
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+            statementId: record.statementId,
+            statementTitle,
+            conclusion: record.conclusion,
+          },
+        }
+        : null
 
       const result = { entityId: record.id, updatedAt: record.updatedAt }
       const after = structuredClone(await buildRiskAssessmentSnapshot(entityManager, record))
       updateRiskAssessmentSnapshots.set(result, { before, after })
-      return result
+      return { result, lifecycleEvent }
     })
+    if (lifecycleEvent) {
+      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload)
+    }
+    return result
   },
   captureAfter: async (_rawInput, result) => updateRiskAssessmentSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {
