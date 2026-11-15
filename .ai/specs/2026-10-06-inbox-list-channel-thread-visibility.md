@@ -91,7 +91,7 @@ AND <hub predicate>
 - `all`: `applyMessageParticipantScope(q, userId, predicate)`.
 - `status=unread`: `r.status = 'unread' OR <widening clause>`.
 - A row without a recipient row of someone other than the sender reports `status: 'unread'` (their own rows keep `sent` / `draft`).
-- **List cache bypass** when the predicate resolves: cache keys cover scope and filters only, but channel sharing and assignment change who may see a conversation.
+- **List cache kept** while the predicate resolves: the key is per user, scope and filters, so widening never crosses users; its 30-second TTL is the same bounded staleness the cache already accepts for recipient state, so a sharing or assignment change can take up to one TTL to show.
 
 ### E. Per-operator read state: recipient row on first open / action
 
@@ -150,7 +150,7 @@ No schema change. Reads `messages.thread_id`, `messages.visibility`, `message_re
 | Deleted / archived row resurfaces | Owner of a personal mailbox deletes a mail, it reappears under All; deleting it returns 403 | Medium | `NOT EXISTS` on `message_recipients` with no `deleted_at` filter — widen only when the caller has no row at all | Low |
 | Rows cannot be acted on | Mark read / archive / delete answer 403, the row never leaves the Inbox | High | Caller's own recipient row created on first open / action (`ensureChannelInboxRecipient`), guarded by the same clause | Low |
 | Row reads as already read | New customer message never flagged as new, absent from `unread-count` and `status=unread` | Medium | No-row rows report `unread`; `status=unread` and `unread-count` use the clause | Low |
-| Stale list cache | Cached list ignores a newly shared / reassigned channel | Medium | Cache read and write bypassed whenever the predicate resolves | Medium — widening callers (every `messages.view` holder) lose the Inbox/All list cache; the query is index-backed |
+| Stale list cache | Cached list ignores a newly shared / reassigned channel | Medium | The per-user list cache is kept; its 30-second TTL bounds how long a sharing or assignment change can take to show | Medium — up to one cache TTL of stale membership; the same bound the cache already places on recipient state |
 | Tenant scale | Thousands of channel threads | Medium | No id collection and no cap: `EXISTS` semi-joins on indexed columns inside the list query | Low |
 | Enricher desync | Channel metadata shown for messages the list hides | High | One clause, one resolver, both call sites | Low |
 | Hub missing / failing | Widening silently partial | Low | Absent or non-callable hub service → no predicate → participant rule unchanged | Low |
@@ -188,4 +188,5 @@ Not a contract-shape change: no route, field, event, DB column or DI name is rem
 ## Changelog
 
 - 2026-10-06 — Initial spec and implementation for #6106: hub list facade, RBAC-gated resolver, shared predicate for the inbox list and the enricher, list-cache bypass when widening applies.
+- 2026-11-16 — Carry-forward review: the per-user list cache is kept while the widening applies (the existing integration test pins cache hits and mark-read invalidation), with the 30-second TTL bounding membership staleness; the lazy recipient insert only swallows the concurrent-first-open unique violation.
 - 2026-10-26 — Review pass on #6964: widened predicate narrowed to inbound + unassigned + `external_conversation` and moved to a hub SQL `EXISTS` (no id scan, no cap); per-operator recipient row on first open / action and `unread` status / `status=unread` / `unread-count` for rows without one; the `all` folder widens only when the caller has no recipient row at all (deleted included); unit and integration coverage.

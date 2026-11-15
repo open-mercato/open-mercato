@@ -5,7 +5,7 @@
 // These tests compile the real list query — with the real channels-hub predicate
 // resolved through DI — and pin the predicate, the folders it applies to, the
 // `messages.view` gate, the status reported for rows without a recipient row and
-// the cache bypass.
+// the shared list cache kept while the widening applies.
 
 import {
   DummyDriver,
@@ -227,13 +227,14 @@ describe('messages GET — channel-inbox widening (#6106)', () => {
     expect(scopeSql()).not.toContain('message_channel_links')
   })
 
-  it('bypasses the list cache whenever the widening applies', async () => {
+  it('keeps the list cache while the widening applies', async () => {
     arrange()
 
     await GET(new Request('http://localhost/api/messages?folder=inbox'))
 
-    expect(cacheGetMock).not.toHaveBeenCalled()
-    expect(cacheSetMock).not.toHaveBeenCalled()
+    expect(scopeSql()).toContain('message_channel_links')
+    expect(cacheGetMock).toHaveBeenCalled()
+    expect(cacheSetMock).toHaveBeenCalled()
   })
 
   it('status=unread keeps rows that have no recipient row yet', async () => {

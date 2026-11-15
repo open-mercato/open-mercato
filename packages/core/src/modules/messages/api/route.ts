@@ -176,9 +176,10 @@ export async function GET(req: Request) {
   // Channel-inbox widening (#6106): inbound messages on unassigned conversations of
   // channels the caller may work are listed without a recipient row. The predicate is
   // SQL, resolved from the channels hub; null when the caller lacks `messages.view`
-  // or the hub is absent. Cached lists are keyed on scope and filters only, but who
-  // may see a channel conversation changes with channel sharing and assignment, so a
-  // request that widens bypasses the list cache entirely.
+  // or the hub is absent. The list cache stays in force: its key is per user and per
+  // filters, and its 30-second TTL is the same bounded staleness the cache already
+  // accepts for recipient state, so a sharing or assignment change can take up to
+  // one TTL to show.
   const channelInboxPredicate =
     (input.folder === 'inbox' || input.folder === 'all') && scope.userId && scope.tenantId
       ? await resolveChannelInboxPredicate(ctx.container, {
@@ -188,7 +189,7 @@ export async function GET(req: Request) {
         })
       : null
 
-  const cache = isCrudCacheEnabled() && !channelInboxPredicate ? resolveCrudCache(ctx.container) : null
+  const cache = isCrudCacheEnabled() ? resolveCrudCache(ctx.container) : null
   const cacheKey = cache ? buildMessageListCacheKey(scope, input) : null
   if (cache && cacheKey) {
     try {
