@@ -599,7 +599,7 @@
   "wms.backend.inventory.import.validation.location_required": "Location is required",
   "wms.backend.inventory.import.validation.lot_not_found": "Lot not found",
   "wms.backend.inventory.import.validation.overwriting_existing_balance": "Will overwrite an existing balance",
-  "wms.backend.inventory.import.validation.quantity_invalid": "Quantity must be zero or greater",
+  "wms.backend.inventory.import.validation.quantity_invalid": "Quantity must be a plain number, zero or greater, without thousands separators",
   "wms.backend.inventory.import.validation.quantity_required": "Quantity is required",
   "wms.backend.inventory.import.validation.sku_ambiguous": "Multiple catalog variants share this SKU",
   "wms.backend.inventory.import.validation.sku_not_found": "SKU not found in catalog",

@@ -266,6 +266,7 @@ describe('validateInventoryImport', () => {
     ['additive', 'abc'],
     ['reconcile', '1,000'],
     ['reconcile', 'abc'],
+    ['reconcile', 'Infinity'],
   ] as const)('rejects an unparseable quantity in %s mode instead of treating %s as zero', async (mode, quantity) => {
     mockWarehouseLocationVariant(42)
     const ctx = createCtx()

@@ -11,11 +11,7 @@ import {
   getTokenScope,
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
-import {
-  createCrudFixture,
-  ensureRoleFeatures,
-  postAction,
-} from './helpers/wmsFixtures'
+import { createCrudFixture, ensureRoleFeatures } from './helpers/wmsFixtures'
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'catalog'],
@@ -41,8 +37,6 @@ test.describe('TC-WMS-035: Inventory CSV import rejects an unparseable quantity'
       'wms.view',
       'wms.manage_warehouses',
       'wms.manage_locations',
-      'wms.manage_inventory',
-      'wms.adjust_inventory',
       'wms.import',
     ])
 
@@ -55,7 +49,7 @@ test.describe('TC-WMS-035: Inventory CSV import rejects an unparseable quantity'
         title: `TC-WMS-035 Import ${suffix}`,
         sku: `TCW35-P-${suffix}`,
       })
-      const variantId = await createVariantFixture(request, adminToken, {
+      await createVariantFixture(request, adminToken, {
         productId,
         name: `TC-WMS-035 Variant ${suffix}`,
         sku: `TCW35-V-${suffix}`,
@@ -77,19 +71,6 @@ test.describe('TC-WMS-035: Inventory CSV import rejects an unparseable quantity'
         code: `BIN-${suffix}`,
         type: 'bin',
         isActive: true,
-      })
-
-      await postAction(request, adminToken, '/api/wms/inventory/adjust', {
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        warehouseId,
-        locationId,
-        catalogVariantId: variantId,
-        delta: 40,
-        reason: 'TC-WMS-035 seed',
-        referenceType: 'manual',
-        referenceId: randomUUID(),
-        performedBy: scope.userId,
       })
 
       const csv = [
