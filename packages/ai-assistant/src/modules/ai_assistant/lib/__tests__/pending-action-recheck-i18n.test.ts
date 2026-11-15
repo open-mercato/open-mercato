@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
-import { checkRecordVersion, type PendingActionAuthContext } from '../pending-action-recheck'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { checkAttachmentScope, checkRecordVersion, type PendingActionAuthContext } from '../pending-action-recheck'
 import type { AiToolDefinition } from '../types'
 import type { AiPendingAction } from '../../data/entities'
 
@@ -12,6 +13,11 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
   AttachmentPartition: class AttachmentPartition {},
+}))
+
+jest.mock('@open-mercato/core/modules/attachments/lib/access-rows', () => ({
+  buildAttachmentAccessAuth: () => ({ sub: 'user-1' }),
+  evaluateAttachmentRowAccess: jest.fn(async ({ rows }: { rows: unknown[] }) => ({ allowed: [], denied: rows })),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -141,6 +147,21 @@ describe('checkRecordVersion — localized stale messages', () => {
       status: 412,
       code: 'stale_version',
       message: 'translated:ai_assistant.errors.pendingSingleRecordStale',
+    })
+  })
+})
+
+describe('checkAttachmentScope — localized owner access denial', () => {
+  it('translates the attachment_access_denied refusal and keeps its stable code', async () => {
+    ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([
+      { id: 'att-1', tenantId: 'tenant-1', organizationId: 'org-1', entityId: 'documents:document', recordId: 'doc-1', partitionCode: 'private' },
+    ])
+    const result = await checkAttachmentScope(makeAction({ attachmentIds: ['att-1'] }), makeCtx())
+    expect(result).toEqual({
+      ok: false,
+      status: 403,
+      code: 'attachment_access_denied',
+      message: 'translated:ai_assistant.errors.attachmentAccessDenied',
     })
   })
 })

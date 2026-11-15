@@ -28,7 +28,7 @@ import type {
 } from './pending-action-types'
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { hasRequiredFeatures } from './auth'
-import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
+import { resolveAttachmentAccessDeniedMessage, resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
 import { planPendingActionExecution, resolvePendingActionBatchMessages } from './pending-action-batch'
 import { filterAttachmentRowsByOwnerAccess, type AttachmentOwnerAccessRow } from './attachment-owner-access'
@@ -295,7 +295,7 @@ export async function checkAttachmentScope(
       ok: false,
       status: 403,
       code: 'attachment_access_denied',
-      message: 'One or more attachments are not accessible to the caller.',
+      message: await resolveAttachmentAccessDeniedMessage(),
     }
   }
   return { ok: true }
