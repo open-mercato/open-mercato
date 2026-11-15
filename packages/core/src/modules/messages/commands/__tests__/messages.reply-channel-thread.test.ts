@@ -209,9 +209,9 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     ).rejects.toThrow('Access denied')
   })
 
-  it('does not consult the channel when the caller is already a participant', async () => {
+  it('keeps participant authorization while resolving the outbound channel type', async () => {
     const command = commandRegistry.get('messages.messages.reply')
-    const { container, resolveChannelThreadAccess } = makeContainer(null)
+    const { container, resolveChannelThreadAccess, rbacService } = makeContainer(null)
     const emFork = (container.resolve('em') as { fork: () => { findOne: jest.Mock } }).fork()
     emFork.findOne.mockImplementation(async (entity: unknown, where: Record<string, unknown>) => {
       if (entity === Message && where.id === inboundMessageId) {
@@ -223,7 +223,8 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
 
     await command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never)
 
-    expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+    expect(resolveChannelThreadAccess).toHaveBeenCalledTimes(1)
+    expect(rbacService.userHasAllFeatures).not.toHaveBeenCalled()
   })
 
   it('never opens a non-public message through the channel fallback', async () => {
@@ -299,6 +300,32 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
 
       const emFork = (container.resolve('em') as { fork: () => { transactional: jest.Mock } }).fork()
       expect(emFork.transactional).not.toHaveBeenCalled()
+      expect(emitMessagesEventMock).not.toHaveBeenCalled()
+    })
+
+    it.each([false, undefined])('rejects an email-channel reply before mutation when sendViaEmail is %s', async (sendViaEmail) => {
+      const command = commandRegistry.get('messages.messages.reply')
+      const { container } = makeContainer({ ...grantedThread(), channelType: 'email' })
+      withAssignedOperator(container, { ...inboundMessage, externalEmail: 'customer@example.com' })
+      const rejection = new Error('budget exceeded')
+      assertExternalEmailBudgetMock.mockRejectedValueOnce(rejection)
+      await expect(command!.execute(
+        { ...replyInput(), sendViaEmail }, commandCtx(container, ['messages.compose']) as never,
+      )).rejects.toBe(rejection)
+      expect(assertExternalEmailBudgetMock).toHaveBeenCalledWith(container, { tenantId, userId: operatorUserId }, 'customer@example.com')
+      expect((container.resolve('em') as { fork: () => { transactional: jest.Mock } }).fork().transactional).not.toHaveBeenCalled()
+      expect(emitMessagesEventMock).not.toHaveBeenCalled()
+    })
+
+    it('fails closed before mutation when an email-channel reply has no effective recipient', async () => {
+      const command = commandRegistry.get('messages.messages.reply')
+      const { container } = makeContainer({ ...grantedThread(), channelType: 'email' })
+      withAssignedOperator(container, inboundMessage)
+      const rejection = new Error('budget unavailable')
+      assertExternalEmailBudgetMock.mockRejectedValueOnce(rejection)
+      await expect(command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never)).rejects.toBe(rejection)
+      expect(assertExternalEmailBudgetMock).toHaveBeenCalledWith(container, { tenantId, userId: operatorUserId }, [])
+      expect((container.resolve('em') as { fork: () => { transactional: jest.Mock } }).fork().transactional).not.toHaveBeenCalled()
       expect(emitMessagesEventMock).not.toHaveBeenCalled()
     })
 

@@ -12,6 +12,8 @@ import {
   seedSystemEmailChannel,
   seedConnectedChannel,
   deleteChannelIfExists,
+  ingestInboundEmailMessage,
+  purgeSeededInboundMessage,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { composeMessageWithToken, decodeJwtSubject, deleteMessageIfExists } from './helpers'
@@ -27,6 +29,8 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
   let createdMessageIds: string[] = []
   let recipientHashes: string[] = []
   let configInstalled = false
+  let previousConfigs: Record<string, unknown>[] = []
+  let configId = randomUUID()
 
   test.beforeEach(async ({ request }) => {
     token = await getAuthToken(request, 'admin')
@@ -38,25 +42,38 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
     createdMessageIds = []
     recipientHashes = []
     configInstalled = false
+    previousConfigs = []
+    configId = randomUUID()
     const seedingAvailable = await isChannelSeedingAvailable(request, token)
     test.skip(!seedingAvailable, 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
     await seedSystemEmailChannel(request, token)
     await clearCapturedSystemEmails(request, token)
     await withClient(async (client) => {
-      const current = await client.query<{ count: string }>(
-        `select count(distinct recipient_hash)::text as count from message_external_recipient_days where tenant_id = $1`,
-        [tenantId],
-      )
-      const dailyLimit = Number(current.rows[0]?.count ?? '0') + 1
-      await client.query(
-        `delete from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2`,
-        [tenantId, DAILY_LIMIT_CONFIG],
-      )
-      await client.query(
-        `insert into module_configs (id, module_id, name, value_json, tenant_id, organization_id, created_at, updated_at)
-         values ($1, 'messages', $2, $3::jsonb, $4, null, now(), now())`,
-        [randomUUID(), DAILY_LIMIT_CONFIG, JSON.stringify(dailyLimit), tenantId],
-      )
+      await client.query('begin')
+      try {
+        const current = await client.query<{ count: string }>(
+          `select count(distinct recipient_hash)::text as count from message_external_recipient_days where tenant_id = $1`,
+          [tenantId],
+        )
+        const dailyLimit = Number(current.rows[0]?.count ?? '0') + 1
+        previousConfigs = (await client.query<{ snapshot: Record<string, unknown> }>(
+          `select to_jsonb(module_configs) as snapshot from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2 and organization_id is null`,
+          [tenantId, DAILY_LIMIT_CONFIG],
+        )).rows.map((row) => row.snapshot)
+        await client.query(
+          `delete from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2 and organization_id is null`,
+          [tenantId, DAILY_LIMIT_CONFIG],
+        )
+        await client.query(
+          `insert into module_configs (id, module_id, name, value_json, tenant_id, organization_id, created_at, updated_at)
+           values ($1, 'messages', $2, $3::jsonb, $4, null, now(), now())`,
+          [configId, DAILY_LIMIT_CONFIG, JSON.stringify(dailyLimit), tenantId],
+        )
+        await client.query('commit')
+      } catch (error) {
+        await client.query('rollback')
+        throw error
+      }
     })
     configInstalled = true
     const cachePurge = await apiRequest(request, 'POST', '/api/configs/cache', {
@@ -70,20 +87,32 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
     if (!tenantId || !userId || !configInstalled) return
     for (const messageId of createdMessageIds) await deleteMessageIfExists(request, token, messageId)
     await withClient(async (client) => {
-      await client.query(
-        `delete from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2`,
-        [tenantId, DAILY_LIMIT_CONFIG],
-      )
-      if (recipientHashes.length > 0) {
+      await client.query('begin')
+      try {
+        await client.query('delete from module_configs where id = $1 and tenant_id = $2', [configId, tenantId])
+        if (previousConfigs.length) {
+          await client.query('insert into module_configs select * from json_populate_recordset(null::module_configs, $1::json)', [JSON.stringify(previousConfigs)])
+        }
+        if (recipientHashes.length > 0) {
+          await client.query(
+            `delete from message_external_recipient_days where tenant_id = $1 and recipient_hash = any($2::text[]) and created_at >= $3`,
+            [tenantId, recipientHashes, startedAt],
+          )
+        }
         await client.query(
-          `delete from message_external_recipient_days where tenant_id = $1 and recipient_hash = any($2::text[]) and created_at >= $3`,
-          [tenantId, recipientHashes, startedAt],
+          `delete from message_external_email_windows where tenant_id = $1 and subject_id = $2 and created_at >= $3`,
+          [tenantId, userId, startedAt],
         )
+        const restored = await client.query<{ snapshot: Record<string, unknown> }>(
+          `select to_jsonb(module_configs) as snapshot from module_configs where tenant_id = $1 and module_id = 'messages' and name = $2 and organization_id is null`,
+          [tenantId, DAILY_LIMIT_CONFIG],
+        )
+        expect(restored.rows.map((row) => row.snapshot)).toEqual(previousConfigs)
+        await client.query('commit')
+      } catch (error) {
+        await client.query('rollback')
+        throw error
       }
-      await client.query(
-        `delete from message_external_email_windows where tenant_id = $1 and subject_id = $2 and created_at >= $3`,
-        [tenantId, userId, startedAt],
-      )
     })
     await drainIntegrationQueue('events')
     await drainIntegrationQueue('messages-email')
@@ -239,6 +268,47 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
       } finally {
         await deleteChannelIfExists(request, token, channelId)
         await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      }
+    })
+  }
+
+  for (const sendViaEmail of [false, undefined]) {
+    test(`rejects an email-channel reply with sendViaEmail=${sendViaEmail} before outbound bridging`, async ({ request }) => {
+      const firstEmail = `qa-reply-first-${stamp}@example.test`
+      const senderEmail = `qa-reply-sender-${stamp}@example.test`
+      recipientHashes = [firstEmail, senderEmail].map((email) => hashForLookup(email, 'messages.external_recipient'))
+      let channelId: string | null = null
+      let inbound: { messageId: string; conversationId: string; channelLinkId: string } | null = null
+      try {
+        channelId = await seedConnectedChannel(request, token, { externalIdentifier: `qa-reply-${stamp}@test-seed.local` })
+        const seeded = await ingestInboundEmailMessage(request, token, {
+          channelId, senderAddress: senderEmail, senderDisplayName: 'Quota sender', subject: `QA reply quota ${stamp}`,
+          body: 'An inbound message never consumes outbound quota.', externalMessageId: `<qa-reply-${stamp}@example.test>`,
+          externalConversationId: `qa-reply-${stamp}`,
+        })
+        expect(seeded.status).toBe('created')
+        expect(seeded.messageId && seeded.conversationId && seeded.channelLinkId).toBeTruthy()
+        inbound = { messageId: seeded.messageId!, conversationId: seeded.conversationId!, channelLinkId: seeded.channelLinkId! }
+        createdMessageIds.push(await composeMessageWithToken(request, token, {
+          visibility: 'public', externalEmail: firstEmail, recipients: [], subject: `QA reply admitted ${stamp}`,
+          body: 'Consume the last recipient slot.', sendViaEmail: true,
+        }))
+        const before = await withClient(async (client) => (await client.query('select * from messages where id = $1', [inbound!.messageId])).rows[0])
+        const rejected = await apiRequest(request, 'POST', `/api/messages/${inbound.messageId}/reply`, {
+          token, data: { body: 'Must not queue a reply.', ...(sendViaEmail === undefined ? {} : { sendViaEmail }) },
+        })
+        expect(rejected.status()).toBe(429)
+        expect(Number(rejected.headers()['retry-after'])).toBeGreaterThan(0)
+        await drainIntegrationQueue('events')
+        await drainIntegrationQueue('communication-channels-outbound')
+        await withClient(async (client) => {
+          expect((await client.query('select * from messages where id = $1', [inbound!.messageId])).rows[0]).toEqual(before)
+          expect((await client.query('select count(*)::int as count from messages where parent_message_id = $1', [inbound!.messageId])).rows).toEqual([{ count: 0 }])
+          expect((await client.query("select count(*)::int as count from message_channel_links where external_conversation_id = $1 and direction = 'outbound'", [inbound!.conversationId])).rows).toEqual([{ count: 0 }])
+        })
+      } finally {
+        if (inbound && channelId) await purgeSeededInboundMessage(request, token, channelId, inbound)
+        await deleteChannelIfExists(request, token, channelId)
       }
     })
   }

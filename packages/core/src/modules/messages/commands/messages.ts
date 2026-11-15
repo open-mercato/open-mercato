@@ -836,11 +836,20 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       throw new Error('No recipients available for reply')
     }
 
-    if (input.sendViaEmail && original.externalEmail) {
+    const channelThread = !input.sendViaEmail && original.visibility === 'public'
+      ? await resolveMessageChannelThreadAccess(
+        ctx.container,
+        { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
+        { messageThreadId: original.threadId ?? original.id },
+        { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
+      )
+      : null
+    const sendsChannelEmail = channelThread?.channelType === 'email'
+    if ((input.sendViaEmail && original.externalEmail) || sendsChannelEmail) {
       await assertExternalEmailBudget(
         ctx.container,
         { tenantId: input.tenantId, userId: input.userId },
-        original.externalEmail,
+        original.externalEmail ?? [],
       )
     }
 
