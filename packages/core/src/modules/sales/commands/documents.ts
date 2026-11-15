@@ -1478,14 +1478,21 @@ async function applyDocumentUpdate({
         });
       }
     }
-    (entity as any).shippingMethodId = input.shippingMethodId ?? null;
-    (entity as any).shippingMethod = shippingMethod ?? null;
-    (entity as any).shippingMethodCode =
-      input.shippingMethodCode ?? shippingMethod?.code ?? null;
+    if (input.shippingMethodId !== undefined) {
+      entity.shippingMethodId = input.shippingMethodId ?? null;
+      entity.shippingMethod = shippingMethod ?? null;
+    }
+    if (
+      input.shippingMethodId !== undefined ||
+      input.shippingMethodCode !== undefined
+    ) {
+      entity.shippingMethodCode =
+        input.shippingMethodCode ?? shippingMethod?.code ?? null;
+    }
     if (input.shippingMethodSnapshot !== undefined) {
       (entity as any).shippingMethodSnapshot =
         input.shippingMethodSnapshot ?? null;
-    } else {
+    } else if (input.shippingMethodId !== undefined) {
       (entity as any).shippingMethodSnapshot = shippingMethod
         ? {
             id: shippingMethod.id,
@@ -1536,14 +1543,21 @@ async function applyDocumentUpdate({
         });
       }
     }
-    (entity as any).paymentMethodId = input.paymentMethodId ?? null;
-    (entity as any).paymentMethod = paymentMethod ?? null;
-    (entity as any).paymentMethodCode =
-      input.paymentMethodCode ?? paymentMethod?.code ?? null;
+    if (input.paymentMethodId !== undefined) {
+      entity.paymentMethodId = input.paymentMethodId ?? null;
+      entity.paymentMethod = paymentMethod ?? null;
+    }
+    if (
+      input.paymentMethodId !== undefined ||
+      input.paymentMethodCode !== undefined
+    ) {
+      entity.paymentMethodCode =
+        input.paymentMethodCode ?? paymentMethod?.code ?? null;
+    }
     if (input.paymentMethodSnapshot !== undefined) {
       (entity as any).paymentMethodSnapshot =
         input.paymentMethodSnapshot ?? null;
-    } else {
+    } else if (input.paymentMethodId !== undefined) {
       (entity as any).paymentMethodSnapshot = paymentMethod
         ? {
             id: paymentMethod.id,
