@@ -110,6 +110,25 @@ describe('scheduler.jobs.update nextRunAt on re-enable', () => {
     expect(nextRunAt.getUTCMinutes()).toBe(0)
   })
 
+  it('recomputes nextRunAt in the stored timezone when a disabled cron schedule is enabled', async () => {
+    const update = loadUpdateCommand()
+    const schedule = makeSchedule({ scheduleType: 'cron', scheduleValue: '0 9 * * *', timezone: 'Europe/Warsaw' })
+    const em = makeEm(schedule)
+
+    const startedAt = Date.now()
+    await update.execute({ id: 'job-1', isEnabled: true }, makeCtx(em))
+
+    const nextRunAt = schedule.nextRunAt as Date
+    expect(nextRunAt.getTime()).toBeGreaterThan(startedAt)
+    const warsawTime = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Warsaw',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(nextRunAt)
+    expect(warsawTime).toBe('09:00')
+  })
+
   it('uses the new schedule value when enabling and changing the interval in one update', async () => {
     const update = loadUpdateCommand()
     const schedule = makeSchedule()
