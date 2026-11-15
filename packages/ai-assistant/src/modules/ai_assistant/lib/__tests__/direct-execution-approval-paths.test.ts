@@ -224,6 +224,8 @@ describe('confirm-required mutation input validation', () => {
     await resolved.tools.test__mutation.execute?.({ personId: '', note: 'hello' }, executionOptions)
 
     expect(prepareMutationMock).toHaveBeenCalledTimes(1)
-    expect(prepareMutationMock.mock.calls[0]?.[0].toolCallArgs).toEqual({ note: 'hello' })
+    const stagedArgs = prepareMutationMock.mock.calls[0]?.[0].toolCallArgs
+    expect(stagedArgs).toEqual({ note: 'hello' })
+    expect(inputSchema.safeParse(stagedArgs).success).toBe(true)
   })
 })
