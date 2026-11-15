@@ -520,6 +520,35 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
     })
   })
 
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909526934) —
+  // the live authorUserId must win outright once a live row resolves, never
+  // fall back to the snapshot's historical stored author: ownership can
+  // transfer via `customers.interactions.update`.
+  it('a grant for the OLD (former) author does not authorize a non-owner after ownership transferred', () => {
+    const NEW_OWNER = 'user-new-owner'
+    const contextWithLiveAuthority = ctx({
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'private', authorUserId: NEW_OWNER, channelId: null, entityId: PERSON_ID }],
+      ]),
+      // Grant only ever covered the OLD (stored) author.
+      sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
+    })
+    const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+  })
+
+  it('the former author no longer gets the own-content bypass once ownership has moved to someone else', () => {
+    const NEW_OWNER = 'user-new-owner'
+    const contextWithLiveAuthority = ctx({
+      viewerUserId: OWNER,
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'private', authorUserId: NEW_OWNER, channelId: null, entityId: PERSON_ID }],
+      ]),
+    })
+    const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+  })
+
   // Regression for @pkarw's follow-up review (pullrequestreview-5909263810,
   // finding 2): a snapshot missing its own `interaction.id` must NOT fall back
   // to trusting the stored `visibility` — that is exactly the unverifiable
@@ -693,6 +722,98 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
     )
     const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].title).toBeNull()
+  })
+
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909526934) —
+  // `customers.interactions.update` lets the existing author transfer
+  // ownership to someone else. The embedded redactor used to match shares
+  // against the snapshot's STORED (historical) authorUserId, so a grant made
+  // for the OLD author kept authorizing content now owned by someone else
+  // with no grant of their own, and the former owner's own-content bypass
+  // could fire on content they no longer own.
+  describe('ownership transfer (live authorUserId differs from the stored snapshot)', () => {
+    const NEW_OWNER = 'user-new-owner'
+
+    it("a grant for the OLD author does not authorize a non-owner once ownership transferred", () => {
+      const entry = personDeleteEntry([
+        { id: 'embedded-interaction-transferred', interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
+      ])
+      const redacted = redactCustomerAuditEntry(
+        entry,
+        ctx({
+          // Grant only ever covered the OLD author.
+          sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
+          liveInteractionsById: new Map([
+            [
+              'embedded-interaction-transferred',
+              { visibility: 'private', authorUserId: NEW_OWNER, channelId: null, entityId: PERSON_ID },
+            ],
+          ]),
+        }),
+      )
+      const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+      expect(interactions[0].title).toBeNull()
+    })
+
+    it('a grant for the NEW (current) author authorizes a non-owner after ownership transferred', () => {
+      const entry = personDeleteEntry([
+        { id: 'embedded-interaction-transferred', interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
+      ])
+      const redacted = redactCustomerAuditEntry(
+        entry,
+        ctx({
+          sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: NEW_OWNER }],
+          liveInteractionsById: new Map([
+            [
+              'embedded-interaction-transferred',
+              { visibility: 'private', authorUserId: NEW_OWNER, channelId: null, entityId: PERSON_ID },
+            ],
+          ]),
+        }),
+      )
+      const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+      expect(interactions[0].title).toBe('Secret')
+    })
+
+    it('the CURRENT (new) owner retains access to content they now own', () => {
+      const entry = personDeleteEntry([
+        { id: 'embedded-interaction-transferred', interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
+      ])
+      const redacted = redactCustomerAuditEntry(
+        entry,
+        ctx({
+          viewerUserId: NEW_OWNER,
+          liveInteractionsById: new Map([
+            [
+              'embedded-interaction-transferred',
+              { visibility: 'private', authorUserId: NEW_OWNER, channelId: null, entityId: PERSON_ID },
+            ],
+          ]),
+        }),
+      )
+      const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+      expect(interactions[0].title).toBe('Secret')
+    })
+
+    it('the FORMER owner no longer gets the own-content bypass once ownership has moved to someone else', () => {
+      const entry = personDeleteEntry([
+        { id: 'embedded-interaction-transferred', interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
+      ])
+      const redacted = redactCustomerAuditEntry(
+        entry,
+        ctx({
+          viewerUserId: OWNER,
+          liveInteractionsById: new Map([
+            [
+              'embedded-interaction-transferred',
+              { visibility: 'private', authorUserId: NEW_OWNER, channelId: null, entityId: PERSON_ID },
+            ],
+          ]),
+        }),
+      )
+      const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
+      expect(interactions[0].title).toBeNull()
+    })
   })
 
   it('leaves non-email embedded rows (calls, meetings) untouched', () => {
@@ -883,5 +1004,29 @@ describe('loadCustomerAuditRedactionContext', () => {
       channelId: null,
       entityId: null,
     })
+  })
+
+  // Regression for @pkarw's review on #8978 (pullrequestreview-5909526934,
+  // pullrequestreview-5909403897) — embedded interactions in a
+  // customers.person/customers.company entry's snapshots AND changesJson
+  // diff all need their live authority preloaded too, deduplicated against
+  // each other and against any standalone customers.interaction entries.
+  it('collects and dedupes embedded interaction ids from both snapshots and both diff sides', async () => {
+    jest.spyOn(conversationShares, 'listGrantsForViewer').mockResolvedValue([])
+    jest.spyOn(conversationShares, 'listSharedChannelIds').mockResolvedValue([])
+    const loadLiveSpy = jest.spyOn(conversationShares, 'loadLiveInteractionAuthority').mockResolvedValue(new Map())
+    await loadCustomerAuditRedactionContext(mockEm, scope, VIEWER, [
+      {
+        resourceKind: 'customers.person',
+        snapshotBefore: { entity: { id: PERSON_ID }, interactions: [{ id: 'embed-1' }, { id: 'embed-2' }] },
+        snapshotAfter: { entity: { id: PERSON_ID }, interactions: [{ id: 'embed-2' }] },
+        changesJson: {
+          interactions: { from: [{ id: 'embed-3' }], to: [{ id: 'embed-1' }, { id: 'embed-4' }] },
+        },
+      },
+      { resourceKind: 'customers.interaction', resourceId: 'embed-1' },
+    ])
+    const [, , calledIds] = loadLiveSpy.mock.calls[loadLiveSpy.mock.calls.length - 1]
+    expect(new Set(calledIds)).toEqual(new Set(['embed-1', 'embed-2', 'embed-3', 'embed-4']))
   })
 })

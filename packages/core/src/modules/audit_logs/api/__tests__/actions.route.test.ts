@@ -496,6 +496,57 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
       const data = await res.json()
       expect(data.items[0].snapshotBefore.interaction.title).toBeNull()
     })
+
+    // Regression for @pkarw's review on #8978 (pullrequestreview-5909526934) —
+    // an embedded Person-history interaction whose ownership transferred to a
+    // different user. A grant for the OLD (stored) author must not authorize
+    // it; only a grant for the CURRENT (live) author may.
+    it('does not authorize embedded Person history using a grant for the author it had before an ownership transfer', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
+        const idFilter = where?.id as { $in?: string[] } | undefined
+        if (idFilter?.$in?.includes('embedded-1')) {
+          return [{ id: 'embedded-1', visibility: 'private', authorUserId: 'user-3', channelId: null, entity: 'person-1' }]
+        }
+        if ('ownerUserId' in where) {
+          // The only share grant on record covers the OLD (stored) author, user-2.
+          return [{ id: 'share-1', ownerUserId: 'user-2', personEntity: { id: 'person-1' } }]
+        }
+        return []
+      })
+      ;(mockEm as Record<string, unknown>).find = find
+      mockActionLogs.list.mockResolvedValue({
+        items: [
+          makeActionLogEntry({
+            resourceKind: 'customers.person',
+            resourceId: 'person-1',
+            snapshotBefore: {
+              entity: { id: 'person-1' },
+              interactions: [
+                { id: 'embedded-1', interactionType: 'email', authorUserId: 'user-2', title: 'Secret subject', body: 'Secret body' },
+              ],
+            },
+            snapshotAfter: null,
+          }),
+        ],
+        total: 1,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+      })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.items[0].snapshotBefore.interactions[0].title).toBeNull()
+      expect(find).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ id: { $in: ['embedded-1'] }, tenantId: 'tenant-1', organizationId: 'org-1' }),
+        expect.anything(),
+      )
+    })
   })
 
   // Regression for the maintainer review on #8978 — this generic route must not

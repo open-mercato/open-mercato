@@ -154,6 +154,14 @@ function conservativeInteractionAuthority(storedAuthorUserId: string | null): Li
  * identifies the interaction for a real `customers.interaction` audit entry,
  * but defensively, if both are absent, the fallback still applies rather than
  * trusting unverifiable stored data.
+ *
+ * When a live row DOES resolve, its `authorUserId` is used exactly as
+ * stored there — including `null` — and never backfilled from the
+ * snapshot's historical author: `customers.interactions.update` lets the
+ * existing author transfer ownership to someone else, so the stored author
+ * is not a safe stand-in for "no current author" or for a now-different
+ * one. The historical author only survives into the CONSERVATIVE fallback,
+ * where there is no live row at all to contradict it.
  */
 function resolveInteractionAuthority(
   interactionId: string | null,
@@ -164,7 +172,7 @@ function resolveInteractionAuthority(
   if (live) {
     return {
       visibility: live.visibility,
-      authorUserId: live.authorUserId ?? storedAuthorUserId,
+      authorUserId: live.authorUserId,
       channelId: live.channelId,
       entityId: live.entityId,
     }
@@ -287,16 +295,18 @@ function redactChanges(changes: unknown): unknown {
  * `channelId`, ...) from `interactions[]` before storage — see
  * `commands/interactionRestoreDetails.ts:omitInteractionRestoreDetails` — so the
  * stored audit row cannot tell whether an embedded email was shared. Fail
- * closed: redact every email row whose author is not the viewer and whose
- * CURRENT (live) parent has no matching conversation-share grant, since
- * "unknown" must not mean "visible".
+ * closed: redact every email row whose CURRENT author is not the viewer and
+ * whose CURRENT (live) parent has no matching conversation-share grant for
+ * that CURRENT author, since "unknown" must not mean "visible".
  *
- * Each entry resolves its OWN live authority by its `id` — never the
- * snapshot's historical container parent — because an interaction can move
- * to a different Person/Company after this audit entry was recorded; a grant
- * for the OLD parent must not authorize a representation that now belongs to
- * a different, unshared one. See `resolveInteractionAuthority` for the same
- * rule on standalone `customers.interaction` entries.
+ * Each entry resolves its OWN live authority by its `id` via the same
+ * {@link resolveInteractionAuthority} standalone `customers.interaction`
+ * entries use — never the snapshot's historical stored `authorUserId` or
+ * container parent. Both can go stale: `customers.interactions.update` lets
+ * the existing author transfer ownership to someone else, and an interaction
+ * can move to a different Person/Company — either one means a historical
+ * grant for the OLD author/parent must not authorize a representation that
+ * now belongs to a different, unshared author or parent.
  */
 function redactEmbeddedInteractionEntries(
   interactions: unknown[],
@@ -306,15 +316,15 @@ function redactEmbeddedInteractionEntries(
     if (!entry || typeof entry !== 'object') return entry
     const interaction = entry as Record<string, unknown>
     if (interaction.interactionType !== 'email') return entry
-    const authorUserId = typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null
-    if (ctx.viewerUserId && authorUserId && authorUserId === ctx.viewerUserId) return entry
     const interactionId = typeof interaction.id === 'string' ? interaction.id : null
-    const currentPersonEntityId = interactionId ? ctx.liveInteractionsById.get(interactionId)?.entityId ?? null : null
+    const storedAuthorUserId = typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null
+    const authority = resolveInteractionAuthority(interactionId, storedAuthorUserId, ctx)
+    if (ctx.viewerUserId && authority.authorUserId && authority.authorUserId === ctx.viewerUserId) return entry
     const shared = Boolean(
-      currentPersonEntityId &&
-        authorUserId &&
+      authority.entityId &&
+        authority.authorUserId &&
         ctx.sharedConversations.some(
-          (grant) => grant.personEntityId === currentPersonEntityId && grant.ownerUserId === authorUserId,
+          (grant) => grant.personEntityId === authority.entityId && grant.ownerUserId === authority.authorUserId,
         ),
     )
     if (shared) return entry
