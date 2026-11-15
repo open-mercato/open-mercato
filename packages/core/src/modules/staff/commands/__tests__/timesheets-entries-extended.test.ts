@@ -676,6 +676,45 @@ describe('staff timesheets extended time-entry write path (T4.1)', () => {
       expect(entry.taskId).toBe(TASK_ID)
     })
 
+    it('accepts an explicit task with its project id written in upper case and keeps the project unchanged', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: HIDDEN_PROJECT_ID, taskId: null, rateCurrencyCode: 'PLN' })
+      const world: World = {
+        projects: [projectRow({ id: HIDDEN_PROJECT_ID, currencyCode: 'EUR' })],
+        tasks: [
+          { id: TASK_ID, tenantId: TENANT_ID, organizationId: ORG_ID, timeProjectId: HIDDEN_PROJECT_ID, deletedAt: null },
+        ],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID.toUpperCase(), taskId: TASK_ID }, ctx)
+
+      expect(entry.taskId).toBe(TASK_ID)
+      expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
+      expect(entry.rateCurrencyCode).toBe('PLN')
+    })
+
+    it('stores the resolved project id when an entry moves to a project written in upper case', async () => {
+      const { update, entities } = await loadCommands()
+      const entry = entryRow({ timeProjectId: PROJECT_ID })
+      const world: World = {
+        projects: [projectRow(), projectRow({ id: HIDDEN_PROJECT_ID, currencyCode: 'EUR' })],
+        tasks: [],
+        entries: [entry],
+        created: [],
+      }
+      const em = makeEm(world, entities)
+      const { ctx } = makeCtx(em)
+
+      await update.execute({ id: ENTRY_ID, timeProjectId: HIDDEN_PROJECT_ID.toUpperCase() }, ctx)
+
+      expect(entry.timeProjectId).toBe(HIDDEN_PROJECT_ID)
+      expect(entry.rateCurrencyCode).toBe('EUR')
+    })
+
     it('keeps the task and skips the task lookup when the project does not change', async () => {
       const { update, entities } = await loadCommands()
       const entry = entryRow({ timeProjectId: PROJECT_ID, taskId: TASK_ID })
