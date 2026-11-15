@@ -318,8 +318,26 @@ export function createShippingCarrierService(deps: {
         reason: input.reason,
         credentials,
       })
-      shipment.unifiedStatus = result.status
-      await em.flush()
+      await em.transactional(async (tx) => {
+        const locked = await findOneWithDecryption(
+          tx,
+          CarrierShipment,
+          {
+            id: shipment.id,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            deletedAt: null,
+          },
+          { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+          scope,
+        )
+        if (!locked) throw new CarrierShipmentNotFoundError()
+        if (!isValidShippingTransition(locked.unifiedStatus as UnifiedShipmentStatus, 'cancelled')) {
+          throw new ShipmentCancelNotAllowedError(locked.unifiedStatus)
+        }
+        locked.unifiedStatus = result.status
+        await tx.flush()
+      }, { clear: true })
       await emitShippingEvent('shipping_carriers.shipment.cancelled', {
         shipmentId: shipment.id,
         providerKey: input.providerKey,
