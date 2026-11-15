@@ -20,6 +20,7 @@ import { signAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
 const mockFindOneWithDecryption = jest.fn()
 const mockCookies = jest.fn()
 const mockResolve = jest.fn()
+const mockGetBoolConfig = jest.fn()
 const mockBcryptCompare = jest.fn(async (..._args: unknown[]) => false)
 const mockEmit = jest.fn(async (..._args: unknown[]) => undefined)
 
@@ -30,6 +31,9 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (name: string) => mockResolve(name) }),
 }))
 jest.mock('next/headers', () => ({ cookies: () => mockCookies() }))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (key: string) => key }),
+}))
 jest.mock('bcryptjs', () => ({
   compare: (...args: unknown[]) => mockBcryptCompare(...args),
   hash: jest.fn(async () => 'password-hash'),
@@ -126,6 +130,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockGetBoolConfig.mockResolvedValue({ ok: true, value: true })
   currentTenant = { id: tenantId, isActive: true, deletedAt: null }
   mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
     if (entity === Tenant) {
@@ -147,6 +152,7 @@ beforeEach(() => {
   })
   mockCreateSession.mockResolvedValue({ rawToken: 'raw-token', jwt: 'jwt', session })
   mockResolve.mockImplementation((name: string) => {
+    if (name === 'featureTogglesService') return { getBoolConfig: mockGetBoolConfig }
     if (name === 'em') return em
     if (name === 'customerUserService') return {
       findByEmail: async () => user,
@@ -169,6 +175,60 @@ beforeEach(() => {
 })
 
 describe('portal tenant suspension authentication (#7813)', () => {
+  it.each(['cookie', 'bearer'])('rejects existing %s JWTs when the portal is disabled (#9162)', async (credential) => {
+    mockGetBoolConfig.mockResolvedValue({ ok: true, value: false })
+    const token = customerToken()
+    const request = new Request('http://localhost/api/customer_accounts/portal/profile', {
+      headers: credential === 'cookie'
+        ? { cookie: `customer_auth_token=${token}` }
+        : { authorization: `Bearer ${token}` },
+    })
+
+    await expect(getCustomerAuthFromRequest(request)).rejects.toMatchObject({ status: 403 })
+    expect(mockGetBoolConfig).toHaveBeenCalledWith('portal_enabled', tenantId)
+    expect(mockGetEffectiveFeatures).not.toHaveBeenCalled()
+
+    mockGetBoolConfig.mockResolvedValue({ ok: true, value: true })
+    await expect(getCustomerAuthFromRequest(request)).resolves.toMatchObject({ sub: userId, tenantId })
+  })
+
+  it('rejects SSR JWTs when the portal is disabled (#9162)', async () => {
+    mockGetBoolConfig.mockResolvedValue({ ok: true, value: false })
+    mockCookies.mockResolvedValue({ get: () => ({ value: customerToken() }) })
+
+    await expect(getCustomerAuthFromCookies()).resolves.toBeNull()
+    expect(mockGetEffectiveFeatures).not.toHaveBeenCalled()
+  })
+
+  it('does not consume a magic link or authenticate while the portal is disabled (#9162)', async () => {
+    mockGetBoolConfig.mockResolvedValue({ ok: true, value: false })
+    const request = new Request('http://localhost/api/customer_accounts/magic-link/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'raw-magic-link' }),
+    })
+
+    await expect(verifyMagicLink(request)).rejects.toMatchObject({ status: 403 })
+    expect(database.updateTable).not.toHaveBeenCalled()
+    expect(mockCreateSession).not.toHaveBeenCalled()
+    expect(emMock.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('does not accept an invitation while the portal is disabled (#9162)', async () => {
+    mockGetBoolConfig.mockResolvedValue({ ok: true, value: false })
+    const service = new CustomerInvitationService(em)
+    const { requireCustomerPortalEnabled } = await import('../lib/portalAccess')
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const container = await createRequestContainer()
+
+    await expect(service.acceptInvitation('raw-invitation', 'Secret123!', 'Invitee',
+      (resolvedTenantId) => requireCustomerPortalEnabled(container, resolvedTenantId),
+    )).rejects.toMatchObject({ status: 403 })
+    expect(invitation.acceptedAt).toBeNull()
+    expect(emMock.create).not.toHaveBeenCalled()
+    expect(emMock.flush).not.toHaveBeenCalled()
+  })
+
   it('rechecks live tenant state and accepts reactivation', async () => {
     await expect(isCustomerTenantActive(em, tenantId)).resolves.toBe(true)
     currentTenant = { id: tenantId, isActive: false, deletedAt: null }

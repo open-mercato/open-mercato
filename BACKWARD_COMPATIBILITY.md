@@ -666,3 +666,16 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## Disabled portal API authentication (2026-11-15, #9162)
+
+STABLE HTTP behavior: customer authentication and portal APIs reject a tenant's
+`portal_enabled=false` setting with 403. The former acceptance is the bypass itself;
+keeping it as a bridge leaves account creation, token redemption and customer API
+writes reachable while the portal is disabled. The narrowing applies only to portal
+availability; URLs, payloads, cookies, token TTLs, ACLs and schema are unchanged.
+Clients handle unavailable responses; operators enable the tenant portal when API
+access is intended. No stored accounts/sessions are removed; blocked tokens retain
+their expiry. [Migration](UPGRADE_NOTES.md#disabled-customer-portals-also-block-api-access-9162)
+and [spec](.ai/specs/implemented/SPEC-060-2026-03-04-customer-identity-portal-auth.md#migration--backward-compatibility).
+Named human maintainer approval of the steps 1–3 security waiver is required before merge.

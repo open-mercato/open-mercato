@@ -237,10 +237,13 @@ export class CustomerInvitationService {
     token: string,
     password: string,
     displayName: string,
+    beforeConsume?: (tenantId: string) => Promise<void>,
   ): Promise<{ user: CustomerUser; invitation: CustomerUserInvitation } | null> {
     const invitation = await this.findByToken(token)
     if (!invitation) return null
     if (!(await isCustomerTenantActive(this.em, invitation.tenantId))) return null
+
+    await beforeConsume?.(invitation.tenantId)
 
     const passwordHash = await hash(password, BCRYPT_COST)
     try {

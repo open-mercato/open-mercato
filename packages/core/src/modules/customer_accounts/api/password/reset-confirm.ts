@@ -9,6 +9,7 @@ import { CustomerSessionService } from '@open-mercato/core/modules/customer_acco
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -30,7 +31,10 @@ export async function POST(req: Request) {
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
 
-  const result = await customerTokenService.verifyPasswordResetToken(parsed.data.token)
+  const result = await customerTokenService.verifyPasswordResetToken(
+    parsed.data.token, undefined,
+    (tenantId) => requireCustomerPortalEnabled(container, tenantId),
+  )
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
@@ -78,6 +82,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Password reset successful', schema: successSchema },
   ],
   errors: [
+    { status: 403, description: 'Customer portal is disabled', schema: errorSchema },
     { status: 400, description: 'Invalid or expired token', schema: errorSchema },
   ],
 }

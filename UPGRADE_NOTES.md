@@ -1,5 +1,21 @@
 # Upgrade Notes
 
+## Disabled customer portals also block API access (#9162)
+
+**Clients:** a tenant with `portal_enabled=false` now receives 403 from customer
+signup, login, magic links, email verification, password reset, invitation acceptance,
+session refresh and authenticated portal APIs. Existing cookie and bearer sessions
+cannot bypass this setting. Handle 403 as portal unavailable; avoid retrying sign-in.
+Logout remains available. Routes, payloads and cookie names are unchanged.
+
+**Operators:** enable `portal_enabled` for a tenant that needs customer API access.
+Missing toggles retain the enabled default; an invalid toggle value/type returns 503
+and needs correction in feature-toggle configuration. Existing toggle-cache behavior
+still applies. No database migration is required, and no accounts or sessions are
+deleted. Previously issued tokens remain unused when blocked by the new check and
+work after re-enabling until their original expiry. A compatibility bridge would
+preserve the disabled-portal bypass; see SPEC-060's Migration & Backward Compatibility.
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

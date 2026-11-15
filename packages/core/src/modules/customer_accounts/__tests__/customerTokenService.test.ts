@@ -41,6 +41,17 @@ describe('CustomerTokenService – atomic token consumption', () => {
       user: { id: 'user-1', tenantId: 'tenant-1' },
     }
 
+    it('checks the stored tenant before consuming an email token (#9162)', async () => {
+      const { em, db } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
+      const service = new CustomerTokenService(em)
+      const unavailable = new Error('portal disabled')
+      const guard = jest.fn(async () => { throw unavailable })
+
+      await expect(service.verifyEmailToken('abc', 'email_verification', undefined, guard)).rejects.toBe(unavailable)
+      expect(guard).toHaveBeenCalledWith('tenant-1')
+      expect(db.updateTable).not.toHaveBeenCalled()
+    })
+
     it('performs atomic UPDATE SET used_at WHERE used_at IS NULL', async () => {
       const { em, db, builder } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
       const service = new CustomerTokenService(em)
@@ -111,6 +122,17 @@ describe('CustomerTokenService – atomic token consumption', () => {
       expiresAt: new Date(Date.now() + 60000),
       user: { id: 'user-2', tenantId: 'tenant-2' },
     }
+
+    it('checks the stored tenant before consuming a password reset token (#9162)', async () => {
+      const { em, db } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
+      const service = new CustomerTokenService(em)
+      const unavailable = new Error('portal disabled')
+      const guard = jest.fn(async () => { throw unavailable })
+
+      await expect(service.verifyPasswordResetToken('xyz', undefined, guard)).rejects.toBe(unavailable)
+      expect(guard).toHaveBeenCalledWith('tenant-2')
+      expect(db.updateTable).not.toHaveBeenCalled()
+    })
 
     it('performs atomic UPDATE SET used_at WHERE used_at IS NULL', async () => {
       const { em, db, builder } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
