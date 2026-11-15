@@ -5,11 +5,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { ScimToken, SsoConfig } from '../../data/entities'
 import type { SsoAdminScope } from '../ssoConfigService'
 import { ScimTokenError, ScimTokenService } from '../scimTokenService'
+import type { SsoAuthorizationService } from '../ssoAuthorizationService'
 
 const mockReportError = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: (key: string) => key })),
 }))
 
 jest.mock('bcryptjs', () => ({
@@ -28,16 +33,24 @@ async function captureThrow(fn: () => Promise<unknown>): Promise<unknown> {
 
 function createEntityManagerMock() {
   const flush = jest.fn().mockResolvedValue(undefined)
+  const em = {
+    findOne: jest.fn(),
+    create: jest.fn().mockReturnValue({
+      id: 'scim-token-1',
+      tokenPrefix: 'omscim_12345',
+    }),
+    persist: jest.fn().mockReturnValue({ flush }),
+    transactional: jest.fn(),
+  }
+  em.transactional.mockImplementation(async (operation: (manager: EntityManager) => Promise<unknown>) => operation(em as unknown as EntityManager))
+  return { flush, em }
+}
+
+function createTokenService(em: ReturnType<typeof createEntityManagerMock>['em']) {
+  const authorization = { assertConfiguration: jest.fn().mockResolvedValue('tenant-1') }
   return {
-    flush,
-    em: {
-      findOne: jest.fn(),
-      create: jest.fn().mockReturnValue({
-        id: 'scim-token-1',
-        tokenPrefix: 'omscim_12345',
-      }),
-      persist: jest.fn().mockReturnValue({ flush }),
-    },
+    authorization,
+    service: new ScimTokenService(em as unknown as EntityManager, undefined, authorization as unknown as SsoAuthorizationService),
   }
 }
 
@@ -46,6 +59,7 @@ describe('ScimTokenService.generateToken', () => {
     isSuperAdmin: false,
     organizationId: 'org-1',
     tenantId: 'tenant-1',
+    actorUserId: 'actor-1',
   }
 
   beforeEach(() => { mockReportError.mockReset() })
@@ -58,7 +72,7 @@ describe('ScimTokenService.generateToken', () => {
       organizationId: 'org-1',
       tenantId: 'tenant-1',
     })
-    const service = new ScimTokenService(em as unknown as EntityManager)
+    const { service } = createTokenService(em)
 
     const generated = await service.generateToken('sso-config-1', 'Directory sync', sameOrgScope)
     expect(em.create).toHaveBeenCalledWith(ScimToken, expect.objectContaining({ tokenLookupHash: scimTokenLookupHash(generated.token) }))
@@ -67,12 +81,13 @@ describe('ScimTokenService.generateToken', () => {
       id: 'sso-config-1',
       deletedAt: null,
       organizationId: 'org-1',
-    })
+    }, expect.objectContaining({ refresh: true }))
     expect(em.create).toHaveBeenCalledWith(ScimToken, expect.objectContaining({
       ssoConfigId: 'sso-config-1',
       organizationId: 'org-1',
       tenantId: 'tenant-1',
       tokenLookupHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      createdBy: 'actor-1',
     }))
     expect(flush).toHaveBeenCalledTimes(1)
   })
@@ -86,7 +101,7 @@ describe('ScimTokenService.generateToken', () => {
     em.findOne.mockResolvedValue({ id: 'sso-config-1', jitEnabled: false, organizationId: 'org-1', tenantId: 'tenant-1' })
     flush.mockRejectedValue(driverError)
     if (telemetryThrows) mockReportError.mockImplementation(() => { throw new Error('[internal] Telemetry unavailable') })
-    const service = new ScimTokenService(em as unknown as EntityManager)
+    const { service } = createTokenService(em)
     const thrown = await captureThrow(() => service.generateToken('sso-config-1', 'Directory sync', sameOrgScope))
     expect(thrown).toBeInstanceOf(Error)
     expect(thrown).toMatchObject({ message: '[internal] SCIM token persistence unavailable' })
@@ -102,7 +117,7 @@ describe('ScimTokenService.generateToken', () => {
     em.findOne.mockResolvedValue({ id: 'sso-config-1', jitEnabled: false, organizationId: 'org-1', tenantId: 'tenant-1' })
     const originalError = new Error('private query material')
     em[operation].mockImplementation(() => { throw originalError })
-    const service = new ScimTokenService(em as unknown as EntityManager)
+    const { service } = createTokenService(em)
     const thrown = await captureThrow(() => service.generateToken('sso-config-1', 'Directory sync', sameOrgScope))
     expect(thrown).toMatchObject({ message: '[internal] SCIM token persistence unavailable' })
     expect(thrown).not.toHaveProperty('cause')
@@ -113,12 +128,13 @@ describe('ScimTokenService.generateToken', () => {
   it('fails closed before lookup when a non-superadmin has no organization scope', async () => {
     const { em } = createEntityManagerMock()
     em.findOne.mockResolvedValue({ id: 'foreign-config', jitEnabled: false })
-    const service = new ScimTokenService(em as unknown as EntityManager)
+    const { service } = createTokenService(em)
 
     const thrown = await captureThrow(() => service.generateToken('foreign-config', 'Foreign token', {
       isSuperAdmin: false,
       organizationId: null,
       tenantId: 'tenant-1',
+      actorUserId: 'actor-1',
     }))
 
     expect(thrown).toBeInstanceOf(ScimTokenError)
@@ -128,6 +144,31 @@ describe('ScimTokenService.generateToken', () => {
     expect(em.create).not.toHaveBeenCalled()
     expect(em.persist).not.toHaveBeenCalled()
   })
+
+  it('refuses to issue a token without a server-derived author', async () => {
+    const { em } = createEntityManagerMock()
+    const { service, authorization } = createTokenService(em)
+    await expect(service.generateToken('sso-config-1', 'Directory sync', {
+      ...sameOrgScope,
+      actorUserId: null,
+    })).rejects.toMatchObject({ status: 403 })
+    expect(em.transactional).not.toHaveBeenCalled()
+    expect(authorization.assertConfiguration).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+  })
+
+  it('checks both configuration and token authors before issuing a credential', async () => {
+    const { em } = createEntityManagerMock()
+    const config = { id: 'sso-config-1', jitEnabled: false, organizationId: 'org-1', tenantId: 'tenant-1' }
+    em.findOne.mockResolvedValue(config)
+    const { service, authorization } = createTokenService(em)
+    authorization.assertConfiguration.mockRejectedValue(new Error('[internal] Authority revoked'))
+    await expect(service.generateToken('sso-config-1', 'Directory sync', sameOrgScope)).rejects.toThrow('[internal] Authority revoked')
+    expect(authorization.assertConfiguration).toHaveBeenCalledWith(em, config, undefined, 'actor-1')
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+  })
+
 })
 
 describe('verified SCIM admission cache', () => {
@@ -153,7 +194,7 @@ describe('verified SCIM admission cache', () => {
   })
 
   function setup() {
-    const token = { id: 'token-1', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', tokenHash: 'stored-hash', isActive: true }
+    const token = { createdBy: 'actor-1', id: 'token-1', ssoConfigId: 'config-1', organizationId: 'org-1', tenantId: 'tenant-1', tokenHash: 'stored-hash', isActive: true }
     const em = {
       find: jest.fn(async () => token.isActive ? [token] : []),
       findOne: jest.fn(async () => token),
@@ -189,7 +230,7 @@ describe('verified SCIM admission cache', () => {
     const wrongSuffix = `${rawToken.slice(0, 12)}${'b'.repeat(59)}`
     expect(await service.verifyToken(wrongSuffix)).toBeNull()
     expect(em.nativeUpdate).not.toHaveBeenCalled()
-    expect(await service.verifyToken(rawToken)).toEqual(expect.objectContaining({ organizationId: 'org-1', tenantId: 'tenant-1' }))
+    expect(await service.verifyToken(rawToken)).toEqual(expect.objectContaining({ organizationId: 'org-1', tenantId: 'tenant-1', createdBy: 'actor-1' }))
     const tokenLookupHash = scimTokenLookupHash(rawToken)
     expect(em.nativeUpdate).toHaveBeenCalledWith(ScimToken, {
       id: token.id, tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-1',

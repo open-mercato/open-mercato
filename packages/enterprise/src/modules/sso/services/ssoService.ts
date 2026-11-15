@@ -114,6 +114,7 @@ export class SsoService {
 
     const clientSecret = await this.decryptClientSecret(config)
 
+    const configUpdatedAt = config.updatedAt instanceof Date ? config.updatedAt.getTime() : Number.NaN
     const idpPayload = await provider.handleCallback(config, {
       callbackParams,
       redirectUri,
@@ -123,16 +124,16 @@ export class SsoService {
       clientSecret,
     })
 
-    const tenantId = config.tenantId ?? ''
     let user: Awaited<ReturnType<AccountLinkingService['resolveUser']>>['user']
     try {
-      ;({ user } = await this.accountLinkingService.resolveUser(config, idpPayload, tenantId))
+      ;({ user } = await this.accountLinkingService.resolveUser(config, idpPayload, config.tenantId ?? '', configUpdatedAt))
     } catch (err) {
       if (isSsoRolesRevokedError(err)) await this.rbacService.invalidateUserCache(err.userId)
       throw err
     }
 
     await this.rbacService.invalidateUserCache(String(user.id))
+    const tenantId = user.tenantId ?? null
 
     const roles = await this.authService.getUserRoles(user, tenantId || null)
 
@@ -141,9 +142,10 @@ export class SsoService {
     const days = Number(process.env.REMEMBER_ME_DAYS || '30')
     const sessionExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
     const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt, {
-      tenantId: config.tenantId ?? null,
+      tenantId,
       organizationId: config.organizationId,
       ssoConfigId: config.id,
+      configUpdatedAt,
     })
 
     const token = signJwt({
@@ -166,7 +168,7 @@ export class SsoService {
       sessionToken: sessionRefreshToken,
       sessionExpiresAt,
       redirectUrl: flowState.returnUrl || '/backend',
-      tenantId: config.tenantId ?? null,
+      tenantId,
       organizationId: config.organizationId,
     }
   }

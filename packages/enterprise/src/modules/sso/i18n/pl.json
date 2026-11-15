@@ -137,6 +137,7 @@
   "sso.admin.wizard.review.save": "Utwórz konfigurację",
   "sso.admin.wizard.review.testing": "Testowanie...",
   "sso.admin.wizard.review.title": "Przegląd i zapis",
+  "sso.errors.authorizationDenied": "Autoryzacja SSO nie jest już ważna. Poproś uprawnionego administratora o ponowne zapisanie konfiguracji lub wymianę tokenu SCIM.",
   "sso.errors.oidc_url.blocked_hostname": "Host punktu końcowego OIDC jest niedozwolony",
   "sso.errors.oidc_url.credentials_in_url": "Adres URL punktu końcowego OIDC nie może zawierać danych uwierzytelniających",
   "sso.errors.oidc_url.dns_resolution_empty": "Punkt końcowy OIDC nie ma rekordów adresowych DNS; sprawdź konfigurację dostawcy",

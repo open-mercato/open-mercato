@@ -12,6 +12,7 @@ export interface ScimScope {
   organizationId: string
   tenantId: string | null
   config: SsoConfig
+  actorUserId?: string | null
 }
 
 export async function resolveScimContext(req: Request): Promise<
@@ -96,6 +97,7 @@ export async function resolveScimContext(req: Request): Promise<
       organizationId: config.organizationId,
       tenantId: verified.tenantId,
       config,
+      actorUserId: verified.createdBy ?? null,
     },
   }
 }

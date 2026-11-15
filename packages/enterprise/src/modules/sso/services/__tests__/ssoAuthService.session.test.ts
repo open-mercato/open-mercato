@@ -4,7 +4,8 @@ import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/a
 import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
-import { SsoUserDeactivation } from '../../data/entities'
+import { SsoConfig, SsoUserDeactivation } from '../../data/entities'
+import type { SsoAuthorizationService } from '../ssoAuthorizationService'
 import { SsoAuthService } from '../ssoAuthService'
 
 jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => ({ lockAuthorizationUserRows: jest.fn() }))
@@ -15,6 +16,16 @@ const expiresAt = new Date(Date.now() + 60_000)
 
 function fixture(markerConfigId: string | null = null, userExists = true, tenantActive = true) {
   let locked = false
+  const config = {
+    id: 'config-2', tenantId: 'tenant-1', organizationId: 'org-1',
+    updatedAt: new Date('2026-11-15T00:00:00.000Z'),
+  } as SsoConfig
+  const authorization = {
+    assertAccount: jest.fn(async () => {
+      locked = true
+      return 'tenant-1'
+    }),
+  }
   const managedUser = { ...user } as User
   const txEm = {
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ id: 'session-1', ...data })),
@@ -27,6 +38,7 @@ function fixture(markerConfigId: string | null = null, userExists = true, tenant
   }
   jest.mocked(lockAuthorizationUserRows).mockImplementation(async () => { locked = true })
   jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => {
+    if (entity === SsoConfig) return config
     if (!locked) throw new Error('[internal] Eligibility must be read after the parent lock')
     if (entity === User) return userExists ? managedUser : null
     if (entity === Tenant) return tenantActive ? { id: user.tenantId } as Tenant : null
@@ -38,7 +50,10 @@ function fixture(markerConfigId: string | null = null, userExists = true, tenant
     }
     return null
   })
-  return { em, txEm, managedUser, service: new SsoAuthService(em as unknown as EntityManager) }
+  return {
+    em, txEm, managedUser, config, authorization,
+    service: new SsoAuthService(em as unknown as EntityManager, authorization as unknown as SsoAuthorizationService),
+  }
 }
 
 describe('atomic SSO-aware session issuance', () => {
@@ -80,10 +95,10 @@ describe('atomic SSO-aware session issuance', () => {
   })
 
   it('preserves SSO configuration scope independently of the password policy', async () => {
-    const { service, txEm } = fixture('config-1')
+    const { service, txEm, config } = fixture('config-1')
 
     await expect(service.createSession(user, expiresAt, {
-      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-2',
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: 'config-2', configUpdatedAt: config.updatedAt.getTime(),
     })).resolves.toHaveProperty('session.id', 'session-1')
     expect(txEm.create).toHaveBeenCalledTimes(1)
   })
@@ -92,6 +107,83 @@ describe('atomic SSO-aware session issuance', () => {
     const { service, txEm } = fixture(null, false)
 
     await expect(service.createSession(user, expiresAt)).rejects.toBeInstanceOf(AuthSessionRejectedError)
+    expect(txEm.create).not.toHaveBeenCalled()
+  })
+
+  it('checks current account authority in the session transaction after locking the config', async () => {
+    const { service, txEm, config, authorization } = fixture()
+
+    await service.createSession(user, expiresAt, {
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
+      configUpdatedAt: config.updatedAt.getTime(),
+    })
+
+    expect(authorization.assertAccount).toHaveBeenCalledWith(txEm, config, user)
+    expect(jest.mocked(findOneWithDecryption).mock.invocationCallOrder[0]).toBeLessThan(
+      authorization.assertAccount.mock.invocationCallOrder[0],
+    )
+    expect(authorization.assertAccount.mock.invocationCallOrder[0]).toBeLessThan(txEm.create.mock.invocationCallOrder[0])
+    expect(lockAuthorizationUserRows).not.toHaveBeenCalled()
+  })
+
+  it.each(['target promoted after linking', 'config author demoted after linking'])(
+    'refuses a fresh session when %s', async () => {
+      const { service, txEm, config, authorization } = fixture()
+      const denial = new Error('[internal] Authority ceiling exceeded')
+      authorization.assertAccount.mockRejectedValueOnce(denial)
+
+      await expect(service.createSession(user, expiresAt, {
+        tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
+        configUpdatedAt: config.updatedAt.getTime(),
+      })).rejects.toBe(denial)
+
+      expect(txEm.create).not.toHaveBeenCalled()
+      expect(txEm.persist).not.toHaveBeenCalled()
+    },
+  )
+
+  it('rejects a configuration edited after its provider verified the assertion', async () => {
+    const { service, txEm, config, authorization } = fixture()
+
+    await expect(service.createSession(user, expiresAt, {
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
+      configUpdatedAt: config.updatedAt.getTime() - 1,
+    })).rejects.toBeInstanceOf(AuthSessionRejectedError)
+
+    expect(authorization.assertAccount).not.toHaveBeenCalled()
+    expect(txEm.create).not.toHaveBeenCalled()
+  })
+
+  it('requires a provider configuration version for SSO session issuance', async () => {
+    const { service, txEm, config } = fixture()
+
+    await expect(service.createSession(user, expiresAt, {
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
+    })).rejects.toBeInstanceOf(AuthSessionRejectedError)
+
+    expect(txEm.create).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when an SSO session has no authorization service', async () => {
+    const { em, txEm, config } = fixture()
+    const service = new SsoAuthService(em as unknown as EntityManager)
+
+    await expect(service.createSession(user, expiresAt, {
+      tenantId: 'tenant-1', organizationId: 'org-1', ssoConfigId: config.id,
+      configUpdatedAt: config.updatedAt.getTime(),
+    })).rejects.toThrow('[internal] SSO authorization service is unavailable')
+
+    expect(txEm.create).not.toHaveBeenCalled()
+  })
+
+  it('refuses a scope outside the organization tenant resolved by authorization', async () => {
+    const { service, txEm, config } = fixture()
+
+    await expect(service.createSession(user, expiresAt, {
+      tenantId: 'other-tenant', organizationId: 'org-1', ssoConfigId: config.id,
+      configUpdatedAt: config.updatedAt.getTime(),
+    })).rejects.toBeInstanceOf(AuthSessionRejectedError)
+
     expect(txEm.create).not.toHaveBeenCalled()
   })
 })
