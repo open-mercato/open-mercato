@@ -155,6 +155,68 @@ Measured delta:
 
 Action item: when the `16.3.x` line is released as stable, retest before upgrading. Expected impact is roughly a **30% dev-memory reduction** for this repo, but the stable release alone should not be treated as a complete fix because the canary still peaked at `5.8 GB` and remained dominated by `next-turbopack`.
 
+### 2026-11-09 standalone follow-up: concurrent ORM initialization
+
+`getOrm()` previously cached only the completed ORM. Eight callers entering before
+`MikroORM.init()` resolved created eight independent instances, each discovering
+all registered entities. Only the last assignment remained accessible through
+the singleton. Cache the pending initialization as well, clear it on settlement,
+and retain the existing completed-instance fast path. A failed initialization
+rejects all waiting callers; a later call can try again. This does not extend the
+ORM lifetime across module reloads or change entity-registration semantics.
+
+The packaged standalone reproduction registered 269 real entities, called
+`getOrm()` eight times concurrently, and executed `select 1 as ok` through every
+returned reference. All eight queries passed in every run. Each comparison used
+a fresh Node 24.13.1 process and the same PostgreSQL database, without forced GC
+or altered heap limits. Native Darwin physical footprint was sampled after the
+queries and before closing the distinct instances:
+
+| Repetition | Baseline instances | Fixed instances | Baseline footprint (MiB) | Fixed footprint (MiB) |
+|---|---:|---:|---:|---:|
+| 1 | 8 | 1 | 289.4 | 167.3 |
+| 2 | 8 | 1 | 288.8 | 172.4 |
+| 3 | 8 | 1 | 283.6 | 168.8 |
+
+The median process footprint fell from 288.8 to 168.8 MiB (41.5%) **in this
+concurrent-initialization scenario**, not across the application. Two regression
+tests cover single initialization with concurrent callers, subsequent reuse,
+shared rejection, and successful initialization after a failure.
+
+#### Whole-application qualification and rejected candidates
+
+Each candidate ran independently in the same packaged standalone fixture on
+Next.js 16.4.1 / Node 24.13.1, with a cold Next cache. The workload navigated
+companies, people, products, orders, claims and messages; created, read and
+version-protected-deleted a customer; opened message compose and opened/docked/
+closed the AI assistant; then changed both route metadata and the returned
+revision ten times. Every expected revision returned HTTP 200. The customer list
+still rendered afterward, with no unaborted browser errors.
+
+Samples covered the complete dev child-process tree every five seconds, including
+workers and one-shot generation processes; browser and Docker services were
+excluded. Physical footprint and RSS are separate measurements. Post-edit means
+include a 60-second idle window and the final probe restoration:
+
+| Independent candidate | Post-edit physical footprint (MiB) | Post-edit RSS (MiB) | Disposition |
+|---|---:|---:|---|
+| Baseline | 5119.6 | 7474.1 | Reference |
+| ORM single-flight | 5120.7 | 7692.4 | Fix the proven initialization race; no whole-app memory claim |
+| Lazy embedding SDKs | 5159.7 | 7267.4 | Unpublished; no demonstrated physical-footprint saving |
+| Lazy Stripe SDK | 5404.8 | 7173.9 | Unpublished; no demonstrated physical-footprint saving |
+| Lazy SES/Resend/SMTP SDKs | 5302.1 | 7883.9 | Unpublished; no demonstrated physical-footprint saving |
+| Turbopack full memory eviction | 5323.3 | 7977.5 | Not adopted |
+| Disable Turbopack input source maps | 5116.2 | 7956.7 | Not adopted; negligible difference does not justify debugging loss |
+| Enable Turbopack task GC | 5149.4 | 7640.9 | Not adopted |
+| Generator isolation from PR #9052 | 4326.0 | 6275.7 | Previously qualified improvement |
+| Generator isolation plus ORM single-flight | 4449.7 | 6542.2 | Compatible; no additional whole-app saving demonstrated |
+
+The combined run passed the same UI, mutation and ten-edit checks. Median served
+revision latency after the first edit was 8.921 seconds with generator isolation
+alone and 8.976 seconds with both fixes. These single whole-app runs are
+qualification evidence, not confidence intervals or additive percentage savings.
+The original approximate 30% whole-application reduction target remains unmet.
+
 ## Migration & backward compatibility
 
 - **No contract surface is touched** by this PR.
