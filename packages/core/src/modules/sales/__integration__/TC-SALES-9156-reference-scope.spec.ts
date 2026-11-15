@@ -20,6 +20,14 @@ test.describe('TC-SALES-9156: sales reference scope', () => {
       let shipmentId: string | null = null
       let paymentId: string | null = null
 
+      const deleteShipment = async (id: string | null) => {
+        if (!id || !orderId) return
+        const response = await apiRequest(request, 'DELETE', '/api/sales/shipments', {
+          token, data: { id, orderId },
+        })
+        expect(response.ok(), 'Shipment cleanup must succeed').toBeTruthy()
+      }
+
       try {
         await withClient(async (client) => {
           if (foreignScope === 'tenant') {
@@ -78,7 +86,8 @@ test.describe('TC-SALES-9156: sales reference scope', () => {
           const rejectedCreate = await apiRequest(request, 'POST', `/api/sales/${resource}`, { token, data })
           if (rejectedCreate.ok()) {
             const unexpected = await readJsonSafe<{ id?: string }>(rejectedCreate)
-            await deleteSalesEntityIfExists(request, token, `/api/sales/${resource}`, unexpected?.id ?? null)
+            if (resource === 'shipments') await deleteShipment(unexpected?.id ?? null)
+            else await deleteSalesEntityIfExists(request, token, `/api/sales/${resource}`, unexpected?.id ?? null)
           }
           expect(rejectedCreate.status()).toBe(400)
           const rejectedUpdate = await apiRequest(request, 'PUT', `/api/sales/${resource}`, {
@@ -100,15 +109,18 @@ test.describe('TC-SALES-9156: sales reference scope', () => {
         expect(rejectedMethodUpdate.status()).toBe(400)
       } finally {
         await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
-        await deleteSalesEntityIfExists(request, token, '/api/sales/shipments', shipmentId)
-        await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
-        await withClient(async (client) => {
-          await client.query('delete from dictionary_entries where id = $1 and dictionary_id = $2', [entryId, dictionaryId])
-          await client.query('delete from dictionaries where id = $1', [dictionaryId])
-          await client.query('delete from sales_shipping_methods where id = $1', [methodId])
-          await client.query('delete from organizations where id = $1 and tenant_id = $2', [foreignOrganizationId, foreignTenantId])
-          if (foreignScope === 'tenant') await client.query('delete from tenants where id = $1', [foreignTenantId])
-        })
+        try {
+          await deleteShipment(shipmentId)
+        } finally {
+          await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+          await withClient(async (client) => {
+            await client.query('delete from dictionary_entries where id = $1 and dictionary_id = $2', [entryId, dictionaryId])
+            await client.query('delete from dictionaries where id = $1', [dictionaryId])
+            await client.query('delete from sales_shipping_methods where id = $1', [methodId])
+            await client.query('delete from organizations where id = $1 and tenant_id = $2', [foreignOrganizationId, foreignTenantId])
+            if (foreignScope === 'tenant') await client.query('delete from tenants where id = $1', [foreignTenantId])
+          })
+        }
       }
     })
   }
