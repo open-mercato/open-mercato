@@ -44,7 +44,6 @@ These stay in `packages/core`. Do not move.
 * perspectives – view / perspective definitions
 * progress – ProgressJob / top-bar progress contract
 * query_index – query engine integration
-* resources – generic resource registry
 * seeds – encrypted seed loader
 * translations – translatable field registry
 * widgets – injection / component replacement system
@@ -54,9 +53,18 @@ These stay in `packages/core`. Do not move.
 
 Explicitly moved out:
 * availability – stock policy layer
+* resources – asset & resource planning / scheduling
 * sync_excel – excel import/export helpers
 
 ## Modules to Move Out
+
+**Naming:** a single mechanical rule — **package = `@open-mercato/` + kebab(module_name)** with no
+per-module exceptions (`customer_groups` → `@open-mercato/customer-groups`,
+`communication_channels` → `@open-mercato/communication-channels`, `warranty_claims` →
+`@open-mercato/warranty-claims`). The module `id`, folder and every FROZEN contract-id prefix (event
+ids, ACL feature ids, notification/agent/tool ids) stay **snake_case** and unchanged, so no
+event/feature renames or data migrations are required. `payment_gateways` stays in core as a
+platform abstraction (not extracted).
 
 ### Phase 1 – Catalog & Pricing
 * `catalog` → `@open-mercato/catalog`
@@ -149,6 +157,10 @@ Explicitly moved out:
   Depends on: core, workflows, customers
   Consumers: apps
 
+* `resources` → `@open-mercato/resources`
+  Depends on: core, entities, dictionaries, directory, auth, @open-mercato/planner
+  Consumers: apps
+
 * `staff` → `@open-mercato/staff` – already planned for extraction
   Depends on: core, auth, directory
   Consumers: apps
@@ -200,6 +212,44 @@ packages/<domain>/
 `version`: start at `0.1.0`, follow core versioning.
 `peerDependencies`: `@open-mercato/core`, `@open-mercato/shared`, `@open-mercato/ui`
 `dependencies`: only domain dependencies listed above.
+
+## Context & Docs Impact
+
+### Naming — no AGENTS.md or doc change required
+The rule **package = `@open-mercato/` + kebab(module_name)** with the module `id` staying
+**snake_case** is the *existing* convention, not a new one — no context file needs renaming:
+* Root `AGENTS.md` ("Modules: plural, snake_case … folders and `id`") and
+  `apps/docs/docs/framework/modules/overview.mdx` ("Modules: plural snake_case folder and `id`")
+  already state the module-id convention — unchanged, since the module id stays snake.
+* The channel-* packages already document the exact shape we are adopting:
+  `@open-mercato/channel-expo` ⇒ module id `channel_expo`, and likewise for `channel-fcm`,
+  `channel-apns`, `channel-imap`, `channel-gmail` (see `packages/channel-*/AGENTS.md`). Extracted
+  business packages follow the identical `@open-mercato/<kebab>` ⇒ `<snake>` mapping.
+* Every FROZEN contract-id prefix (event / ACL feature / notification / agent / tool / widget ids)
+  is built from the unchanged snake module id, so no renames, aliases or data migrations.
+
+### Extraction — the context that DOES need updating (per module, at move time)
+These are about modules *leaving* core, not about naming. Each is updated in the same PR that moves
+its module; the re-export shim keeps module-id references working in the meantime, so nothing breaks
+early:
+* `AGENTS.md` (root) — the "core (business modules: auth, catalog, customers, sales)" clause in the
+  package list: reframe `core` as a thin kernel and the listed domains as opt-in
+  `@open-mercato/<domain>` packages.
+* `packages/core/AGENTS.md` — opening line "core contains all core business modules (…)": same
+  reframe.
+* `apps/docs/docs/framework/modules/overview.mdx` — note that business domains ship as separate
+  installable packages enabled via `modules.ts`, not as in-core folders.
+* `apps/docs/docs/framework/modules/official-modules-development.mdx` and
+  `apps/docs/docs/cli/eject.mdx` — the `promote`/`eject` command *refuses* to extract from
+  `@open-mercato/core` ("those touch core barrel exports, the generated registry, and a shared
+  migration snapshot, so do them by hand"). This extraction is that "by hand" path; the command
+  should grow a core-extraction mode (or a documented carve-out) as modules move.
+
+### Specs
+Module-id-referencing specs (`catalog`, `customers`, `sales`, `warranty_claims`, …) need **no**
+change: the module id is unchanged and `@open-mercato/core/modules/<id>` keeps working through the
+re-export shim. Only a spec that makes a structural "lives in core" claim would need a note; audit
+each when its module moves.
 
 ## Migration Plan
 
@@ -253,7 +303,17 @@ Update docs for installation: `yarn add @open-mercato/catalog @open-mercato/sale
 * Dependency graph documented in `packages/DEPENDENCIES.md`.
 * Packages are publishable with `npm publish` and have correct `name`, `version`, `publishConfig`.
 
+## Decisions
+* Naming is a single mechanical rule: **package = `@open-mercato/` + kebab(module_name)**, with no
+  per-module exceptions. Module ids stay **snake_case** (unchanged), so every FROZEN contract-id
+  prefix (event ids, ACL feature ids, notification/agent/tool ids) stays intact — no event/feature
+  renames or data migrations. The earlier "id == folder == package token" idea and the one-off
+  `@open-mercato/channels` name were dropped.
+* `perspectives` stays in core (view / perspective definitions); `dashboards` is moved out to `@open-mercato/dashboards` and depends on the in-core `perspectives`.
+* Naming needs **no** AGENTS.md or doc rename (it is the existing `@open-mercato/<kebab>` ⇒ `<snake>`
+  convention). The only context edits are extraction-time reframes of "core contains business
+  modules" in root + `packages/core/AGENTS.md` and the module-system docs, plus a core-extraction
+  mode for `promote`/`eject` — see the Context & Docs Impact section.
+
 ## Open Questions
-* Final naming for `communication_channels` vs `channels`.
-* Whether `dashboards` and `perspectives` stay together.
 * Versioning policy alignment with core releases.
