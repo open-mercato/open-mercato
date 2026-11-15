@@ -24,10 +24,14 @@ Non-goals: publish packages, change production, merge to main, weaken assertions
 3.1 Dispatch one final review using om-auto-review-pr, validate its evidence and resolve actionable findings.
 3.2 Publish evidence, promote the green reviewed PR and apply automerge; release the owned claim.
 
+## Audit evidence
+Independent audit f71bf489 verified successful core publication at 05:06:56Z, metadata readiness at 05:20:36Z, and exact tarball HTTP404 at 05:20:49Z. A later actual GET returns the published SHA1 `942aaaa7db1f9f88717b16c78df3dc7d903d224a`, proving eventual availability. Public evidence cannot distinguish npm scanning from CDN propagation internally. Parent independently verified publish logs and later HTTP200. No child diff exists against its baseline; nothing was merged. Expanded focused checks: 51 pass, including exact-version/registry restrictions, mixed HTTP errors and bounded retries.
+
 ## Risks
 Registry propagation is external and cannot be deterministically reproduced with live npm. Use controlled command fixtures and exact observed failure logs. Snapshot publishing runs only on main; prove the repair without publishing from this PR. Additional failures may widen the necessary repair.
 
 ## Execution
+Local ordered gate passed its first six commands. Initial `yarn test` failed only in subprocess tsx IPC because strict Turbo omitted TMPDIR; retry with `TURBO_ENV_MODE=loose TMPDIR=/tmp`. Remote full CI is independent of this cockpit path issue.
 Runner: local (compose probes found no running app). Immutable install completed. Use `TMPDIR=/tmp` for tsx IPC on this host. Regression baseline: three new assertions fail before the repair; focused snapshot metadata/retry and CI scope/concurrency checks: 44 passed.
 Claim-Run: 36ad2f91-5589-4e68-9574-969a2f4c3bf9
 Claim-Lock-SHA: 44981e56f93b92a06f2969afc22f9076f7390776
@@ -42,7 +46,7 @@ PR: #9588
 
 ### Phase 1: Diagnose and repair
 
-- [ ] 1.1 Dispatch a read-only independent audit of the snapshot failure and validate its evidence
+- [x] 1.1 Dispatch a read-only independent audit of the snapshot failure and validate its evidence — 989da5011b (read-only audit f71bf489 validated; no child changes)
 - [x] 1.2 Repair the demonstrated root cause and add focused regression coverage — 989da5011b
 
 ### Phase 2: Validate
