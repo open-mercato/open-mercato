@@ -2509,7 +2509,7 @@ function roundAutoConvertedUnitPrice(
   return decimalToString(roundDecimal(parsed, decimalPlaces));
 }
 
-function convertLineUnitPricesOnUnitChange(params: {
+export function convertLineUnitPricesOnUnitChange(params: {
   existingSnapshot: SalesLineSnapshot | null;
   nextQuantityUnit: string | null;
   nextUomSnapshot: SalesLineUomSnapshot | Record<string, unknown> | null;
@@ -2542,16 +2542,31 @@ function convertLineUnitPricesOnUnitChange(params: {
     Number.isFinite(params.existingSnapshot.unitPriceGross)
       ? params.existingSnapshot.unitPriceGross
       : null;
-  const sameNumber = (left: number | null, right: number | null): boolean => {
-    if (left === null || right === null) return left === right;
-    return Math.abs(left - right) < 0.000001;
+  const samePrice = (
+    next: number | null,
+    nextExact: string | null | undefined,
+    existing: number | null,
+    existingExact: string | null | undefined,
+  ): boolean => {
+    if (next === null || existing === null) return next === existing;
+    return decimalsEqual(exactFor(next, nextExact) ?? next, exactFor(existing, existingExact) ?? existing);
   };
   const shouldConvertNet =
     params.unitPriceNet === null ||
-    sameNumber(params.unitPriceNet, existingUnitPriceNet);
+    samePrice(
+      params.unitPriceNet,
+      params.unitPriceNetExact,
+      existingUnitPriceNet,
+      params.existingSnapshot.unitPriceNetExact,
+    );
   const shouldConvertGross =
     params.unitPriceGross === null ||
-    sameNumber(params.unitPriceGross, existingUnitPriceGross);
+    samePrice(
+      params.unitPriceGross,
+      params.unitPriceGrossExact,
+      existingUnitPriceGross,
+      params.existingSnapshot.unitPriceGrossExact,
+    );
   if (!shouldConvertNet && !shouldConvertGross) {
     return {
       unitPriceNet: params.unitPriceNet,
