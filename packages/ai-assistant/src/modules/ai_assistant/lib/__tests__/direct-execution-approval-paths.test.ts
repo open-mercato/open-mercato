@@ -195,7 +195,30 @@ describe('confirm-required mutation input validation', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
-  it('stages the same sanitized input direct execution would pass to the handler', async () => {
+  it('refuses the same input on the direct path when the predicate does not gate the call', async () => {
+    toolRegistry.clear()
+    const tool: AiToolDefinition = {
+      name: 'test.mutation',
+      description: 'Mutation fixture',
+      inputSchema,
+      isMutation: true,
+      isDestructive: () => false,
+      requiredFeatures: ['test.records.manage'],
+      handler,
+    }
+    registerMcpTool(tool, { moduleId: 'test' })
+    seedAgent({ mutationPolicy: 'destructive-confirm-required' })
+    const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
+
+    await expect(
+      resolved.tools.test__mutation.execute?.({ personId: 'not-a-uuid', note: 'hello' }, executionOptions),
+    ).rejects.toThrow(/failed: Invalid input: personId/)
+
+    expect(prepareMutationMock).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('stages sanitized input with blank optional values dropped', async () => {
     const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
 
     await resolved.tools.test__mutation.execute?.({ personId: '', note: 'hello' }, executionOptions)
