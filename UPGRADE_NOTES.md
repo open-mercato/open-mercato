@@ -1,5 +1,23 @@
 # Upgrade Notes
 
+## Module events dispatch per request (#2963)
+
+Module emitters (`createModuleEvents().emit`) now run inline subscribers against
+the DI container built for the current API request or queue job, instead of the
+container built most recently anywhere in the process. Before this fix, a
+subscriber's `ctx.resolve('em')` (or `dataEngine`, `tenantEncryptionService`, …)
+could return another concurrent request's services. Within one request nothing
+changes: the latest container built during that request is used, as before.
+
+The API dispatcher (`app/api/[...slug]/route.ts`) and the per-job worker handler
+now open a request scope via `runInRequestScope` from
+`@open-mercato/shared/lib/di/request-scope`. **Standalone apps** that keep a
+customized copy of the catch-all API route should wrap their request handling in
+`runInRequestScope(() => …)` the same way. Without it, emits fall back to the
+global bus exactly as before. Code outside a scope (CLI commands, scheduler timers,
+RSC pages) is unchanged. No configuration, database, route, event or DI-key change
+is needed.
+
 ## EUDR update undo conflicts (#9128)
 
 Update undos for EUDR plots, risk assessments, product mappings, mitigation actions,

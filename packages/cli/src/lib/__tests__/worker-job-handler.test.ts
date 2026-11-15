@@ -3,6 +3,7 @@ import {
   getModuleResourceUsageReport,
   resetModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
+import { getRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { createPerJobWorkerHandler, type WorkerJobContainer } from '../worker-job-handler'
 
 type FakeContainer = WorkerJobContainer & {
@@ -101,6 +102,34 @@ describe('createPerJobWorkerHandler', () => {
     expect(resolvedEms[0]).toBe(containers[0].em)
     expect(resolvedEms[1]).toBe(containers[1].em)
     expect(resolvedEms[0]).not.toBe(resolvedEms[1])
+  })
+
+  it('exposes each concurrent job container as that job request scope container', async () => {
+    const { factory, containers } = makeContainerFactory()
+    let release: (() => void) | null = null
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const scoped: unknown[] = []
+    let firstEntered = false
+    const worker = makeWorker('w', async () => {
+      if (!firstEntered) {
+        firstEntered = true
+        await gate
+      }
+      scoped.push(getRequestScopeContainer())
+    })
+    const handler = createPerJobWorkerHandler([worker], factory)
+
+    const first = handler({ id: 'a' }, { ...baseCtx, jobId: 'a' })
+    const second = handler({ id: 'b' }, { ...baseCtx, jobId: 'b' })
+    await Promise.resolve()
+    await new Promise((resolve) => setImmediate(resolve))
+    release?.()
+    await Promise.all([first, second])
+
+    expect(scoped).toEqual([containers[1], containers[0]])
+    expect(getRequestScopeContainer()).toBeNull()
   })
 
   it('runs every worker for the queue against the same per-job container', async () => {

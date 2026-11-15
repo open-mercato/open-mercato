@@ -11,6 +11,7 @@ import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optim
 import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { createLogger } from '../logger'
+import { bindRequestScopeContainer } from './request-scope'
 
 const logger = createLogger('shared').child({ component: 'di' })
 
@@ -347,6 +348,7 @@ export async function createRequestContainer(): Promise<AppContainer> {
   } catch {
     // best-effort; do not block container creation
   }
+  bindRequestScopeContainer(container)
   return container
 }
 try {

@@ -4,6 +4,7 @@ import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
+import { bindRequestScopeContainer, runInRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 
 export type WorkerJobContainer = {
   resolve: <T = unknown>(name: string) => T
@@ -30,8 +31,9 @@ export function createPerJobWorkerHandler(
   workers: ModuleWorker[],
   createContainer: WorkerJobContainerFactory,
 ): JobHandler {
-  return async (job, ctx: JobContext) => {
+  return (job, ctx: JobContext) => runInRequestScope(async () => {
     const container = await createContainer()
+    bindRequestScopeContainer(container)
     try {
       for (const worker of workers) {
         await withModuleResourceUsage(
@@ -53,5 +55,5 @@ export function createPerJobWorkerHandler(
         // must never mask a job's own outcome.
       }
     }
-  }
+  })
 }

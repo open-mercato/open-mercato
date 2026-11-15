@@ -151,6 +151,20 @@ describe('bootstrap once-guard cache', () => {
     expect(bootstrapMock).toHaveBeenCalledTimes(2)
   })
 
+  it('binds each new container to the active request scope and leaves no binding outside one', async () => {
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    const { runInRequestScope, getRequestScopeContainer } = await import('@open-mercato/shared/lib/di/request-scope')
+    const unscoped = await createRequestContainer()
+    expect(unscoped).toBeDefined()
+    expect(getRequestScopeContainer()).toBeNull()
+    await runInRequestScope(async () => {
+      const first = await createRequestContainer()
+      expect(getRequestScopeContainer()).toBe(first)
+      const second = await createRequestContainer()
+      expect(getRequestScopeContainer()).toBe(second)
+    })
+  })
+
   it('resolves the default optimistic-lock guard in CLASSIC injection mode', async () => {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
