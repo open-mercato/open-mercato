@@ -8,11 +8,11 @@
 
 **Key points:**
 - The person form exposes **one** company via `companyEntityId` (`CompanySelectField`, a single-value combobox), but the data model already stores **many** companies per person in the `customer_person_company_links` join table, with full command/undo support and dedicated link endpoints.
-- Add a **new** multi-company picker component (`CompanyMultiSelectField`, built on `TagsInput`) so a person can be linked to several companies, on both the create and edit forms, on both the classic and `people-v2` pages. **`CompanySelectField` keeps its scalar `value: string | undefined` / `onChange(next: string | undefined)` contract unchanged** so its existing consumer (`components/detail/PersonHighlights.tsx:255`) and any external callers of the exported component continue to compile and behave identically. See *Migration & Backward Compatibility* → *Component contract*.
+- Add a **new** multi-company picker component (`CompanyMultiSelectField`, built on `TagsInput`) so a person can be linked to several companies on every surface that edits companies: the classic create page, the create dialog, the v2 edit page, and the classic edit page's `PersonHighlights` editor. **`CompanySelectField` keeps its scalar `value: string | undefined` / `onChange(next: string | undefined)` contract unchanged**, so external callers of the exported component continue to compile and behave identically; only in-repo call sites swap to the new component. See *Migration & Backward Compatibility* → *Component contract*.
 - **Primary company is not user-managed.** The existing `is_primary` invariant and the legacy `customer_people.company_entity_id` mirror are preserved by auto-defaulting a primary deterministically. No primary affordance is rendered.
 
 **Scope:**
-- UI: add `CompanyMultiSelectField` and wire it into the person create/edit form (classic + v2); keep the capped-list + by-id label hydration that #2615 added. **Do not** change `CompanySelectField`'s signature; it stays in place for `PersonHighlights` and external callers.
+- UI: add `CompanyMultiSelectField` and wire it into the shared person form field builder (classic create page, create dialog, v2 edit page via `createPersonEditFields`) and migrate `PersonHighlights` on the classic edit page to it; keep the capped-list + by-id label hydration that #2615 added. **Do not** change `CompanySelectField`'s signature; it stays exported and unchanged for external callers.
 - Edit path: the form reconciles the selected set against the current set by calling the existing `POST`/`DELETE` `/api/customers/people/[id]/companies[/[linkId]]` link endpoints. No change to the person update contract for companies.
 - Create path: the person does not exist yet, so there are no `[id]/companies` endpoints to call. The person **create** payload gains an additive `companyEntityIds: string[]`; the create command links the set in the same transaction it already uses for `companyEntityId`.
 - `companyEntityId` is retained as a `@deprecated` mirror of the auto-primary on both request and response.
@@ -50,23 +50,37 @@ Selected companies render as removable `Tag` pills. The inline "create company" 
 
 No primary toggle, star, or ordering control is rendered — primary is a backend concern (below).
 
-**`CompanySelectField` is left intact.** Its props (`value: string | undefined`, `onChange(next: string | undefined)`, `labels`) and runtime behavior are unchanged. `components/detail/PersonHighlights.tsx:255` (the person-detail inline company editor) and any third-party importer keep working with no edit. Only the person **create/edit form field builder** (`createPersonFormFields`) swaps to `CompanyMultiSelectField`.
+**`CompanySelectField` is left intact.** Its props (`value: string | undefined`, `onChange(next: string | undefined)`, `labels`) and runtime behavior are unchanged, so its exported contract and any third-party importer keep working. What changes is **which component each person surface renders**, not the scalar component itself.
+
+#### Surfaces that gain the multi-select (verified against the code)
+
+The module exposes four person surfaces that show or edit companies. Only three of them share the form field builder, and the classic edit page does **not**:
+
+| Surface | Entry point | Field source today | Change |
+| --- | --- | --- | --- |
+| Classic **create** page | `backend/customers/people/create/page.tsx` (`"use client"`, `CrudForm`) | `createPersonFormFields` (`formConfig.tsx:968`), `companyEntityId` field at `:1036` | The builder's company field becomes `CompanyMultiSelectField`. |
+| **Create dialog** on the list/detail pages | `components/detail/CreatePersonDialog.tsx:81` | `createPersonFormFields` | Gains the multi-select automatically through the shared builder; named here so it is covered by tests. |
+| **v2 edit** page | `backend/customers/people-v2/[id]/page.tsx` (`"use client"`, `CrudForm`) | `createPersonEditFields` (`formConfig.tsx:1788`), which maps `createPersonFormFields` | Gains the multi-select through the shared builder. |
+| Classic **edit** page | `backend/customers/people/[id]/page.tsx` (`"use client"`) | `PersonHighlights` (`components/detail/PersonHighlights.tsx:697`) → `CompanySelectField` at `:255`; the page does **not** use `createPersonFormFields` | **Concrete integration required:** `PersonHighlights` is migrated at its call site to render `CompanyMultiSelectField` and reconcile the set through the existing link endpoints. `CompanySelectField` stays exported and unchanged for other callers. |
+
+There is no `/backend/customers/people-v2` create route: the `people-v2` tree contains only `[id]/page.tsx`. Any v2 create surface would be **new proposed work**, not existing infrastructure, and is out of scope here.
 
 ### Write path
 
 Because create and edit have different capabilities, each uses the mechanism already available to it:
 
-- **Edit (person has an id).** On submit, the form diffs the selected set against the person's current `companies[]` (from the detail API) and issues, through `useGuardedMutation`:
+- **Edit via the form (v2 edit page).** On submit, `CrudForm` diffs the selected set against the person's current `companies[]` (from the detail API) and issues, through `useGuardedMutation`:
   - `POST /api/customers/people/[id]/companies { companyId }` for each added company (idempotent — `addPersonCompanyLink` undeletes a soft-deleted row and no-ops a duplicate).
   - `DELETE /api/customers/people/[id]/companies/[linkId]` for each removed company (passing the company id as the last segment, which `resolveLinkId` already accepts).
   - These reuse the undoable `customers.personCompanyLinks.create` / `.delete` commands verbatim. The person update contract is **unchanged** for companies.
-- **Create (no id yet).** The person create payload gains an additive, optional `companyEntityIds: string[]`. The `customers.people.create` command links each id while building the person graph, in the same `withAtomicFlush` transaction that already calls `syncLegacyPrimaryCompanyLink`. The existing single `companyEntityId` stays accepted for back-compat (treated as a one-element set when `companyEntityIds` is absent).
+- **Edit via `PersonHighlights` (classic edit page).** `PersonHighlights` currently receives a scalar `onCompanySave(companyId | null)` (`components/detail/PersonHighlights.tsx:57`) and edits one company. It is changed to render `CompanyMultiSelectField` for the person's full company set and to receive `onCompaniesChange(nextIds: string[])`, which runs the **same** diff-and-reconcile logic as the form path above (shared helper `reconcilePersonCompanyLinks(nextIds)`, using the existing link endpoints and guarded mutation). The displayed highlight becomes the primary company plus a count/secondary list; navigation to a company still resolves by id. This is what makes classic edit multi-select work while `CompanySelectField` itself stays untouched.
+- **Create (no id yet).** The person create payload gains an additive, optional `companyEntityIds: string[]`. The `customers.people.create` command links the set while building the person graph, in the same `withAtomicFlush` transaction that already calls `syncLegacyPrimaryCompanyLink`. The existing single `companyEntityId` stays accepted for back-compat (treated as a one-element set when `companyEntityIds` is absent). Both the classic create page and `CreatePersonDialog` reach this path through the shared builder.
 
 ### Create command undo/redo (snapshot restoration)
 
 The create command's `execute`, `undo`, and `redo` must all round-trip the full company set, not just the primary:
 
-- **`execute`** links the resolved id set inside the existing `withAtomicFlush({ transaction: true })` block. A new helper `linkPersonCompanies(em, entity, profile, companyEntityIds)` runs as a single atomic phase: the **first** id becomes primary via the existing `syncLegacyPrimaryCompanyLink` path, the remaining ids are added as non-primary links via the existing `addPersonCompanyLink` helper (no new primary logic). `captureAfter` already stores `companies[]` through `loadPersonSnapshot` → `summarizePersonCompanies`, so no snapshot-shape change is needed.
+- **`execute`** links the resolved id set inside the existing `withAtomicFlush({ transaction: true })` block. A new helper `linkPersonCompanies(em, entity, profile, companyEntityIds)` runs as a single atomic phase and is **bounded and batched** (see *Cardinality bound and batched assembly*): it deduplicates the input, enforces `MAX_PERSON_COMPANIES`, resolves **all** companies in one scoped query, loads the person's existing links **once**, then writes the missing links in one pass. The **first** id becomes primary via the existing `syncLegacyPrimaryCompanyLink` path, the remaining ids are added as non-primary links via the existing `addPersonCompanyLink` helper (no new primary logic). It must not call `addPersonCompanyLink` per id with its implicit `loadPersonCompanyLinks`/`requireCompany` round-trips; the batched variant takes the pre-loaded link set and company map as arguments. `captureAfter` already stores `companies[]` through `loadPersonSnapshot` → `summarizePersonCompanies`, so no snapshot-shape change is needed.
 - **`undo`** already deletes the person graph (which cascades/soft-deletes the links); unchanged.
 - **`redo`** currently calls only `syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, after.profile.companyEntityId)`. It is extended to call the same `linkPersonCompanies(em, newEntity, newProfile, orderedCompanyIds)` helper, where `orderedCompanyIds` is derived from the snapshot's `companies[]` with the `isPrimary` entry first so the primary flag and the `company_entity_id` mirror are reproduced exactly. This runs inside the existing redo `withAtomicFlush({ transaction: true })` block, preserving atomicity. Both the `entity-absent` (recreate) and `entity-present` (restore) redo branches use the helper, replacing the current single-company call in each.
 - **Atomicity & ordering:** link restoration shares the redo transaction with the entity/profile/tag restore, so a mid-restore failure rolls back the whole redo. Primary/link metadata (`is_primary`, scope, timestamps semantics) are reproduced by routing the first id through the primary path and the rest through the standard add path — exactly the invariants `execute` establishes.
@@ -89,50 +103,53 @@ The `customer_person_company_links.is_primary` invariant and the `company_entity
 
 ### Frontend Architecture Contract
 
-This feature adds client form state (selected-company set), asynchronous option hydration, and guarded link writes across four person routes. Per the repository Frontend Architecture Contract (`.ai/specs/2026-05-13-frontend-client-boundary-ram-reduction.md` → *Frontend Architecture Contract*):
+This feature adds client form state (selected-company set), asynchronous option hydration, and guarded link writes on the person surfaces listed in *Surfaces that gain the multi-select*. Per the repository Frontend Architecture Contract (`.ai/specs/2026-05-13-frontend-client-boundary-ram-reduction.md` → *Frontend Architecture Contract*):
 
 #### 1. Server/Client boundary map
 
-| Route / surface | Server root | Client islands | Data owner | Notes |
-| --- | --- | --- | --- | --- |
-| `/backend/customers/people/create` (classic create) | `backend/customers/people/create/page.tsx` | existing `CrudForm` client island + new `CompanyMultiSelectField` leaf | `POST /api/customers/people` (`companyEntityIds`) | No new page-root `"use client"`; the picker is a field inside the already-client `CrudForm`. |
-| `/backend/customers/people/[id]` (classic edit, via `PersonHighlights`) | `backend/customers/people/[id]/page.tsx` | existing detail client island + `CompanyMultiSelectField` in the form; **`PersonHighlights` keeps `CompanySelectField`** | `POST`/`DELETE /api/customers/people/[id]/companies[/[linkId]]` | Inline detail editor contract unchanged (scalar `CompanySelectField`). |
-| `/backend/customers/people-v2` (v2 create) | v2 `page.tsx` | shared `createPersonFormFields` → `CompanyMultiSelectField` leaf | same as classic create | Shares the form field builder with classic; no v2-specific client root added. |
-| `/backend/customers/people-v2/[id]` (v2 edit) | v2 `[id]/page.tsx` | same shared field builder | same as classic edit | — |
+All four entry points are **already client components** (`"use client"` at line 1 of each `page.tsx` / the dialog). There is no server page root to keep here and no server/client split to add; the contract question is which client module grows.
 
-Rules honored: `page.tsx`/`layout.tsx` stay server components; the only client surface added is the `CompanyMultiSelectField` leaf, scoped to the form, reusing the form's existing provider scope. No new shared/global provider.
+| Surface | Page root (already `"use client"`) | Client module that changes | Data owner | Notes |
+| --- | --- | --- | --- | --- |
+| Classic create `/backend/customers/people/create` | `backend/customers/people/create/page.tsx` | `components/formConfig.tsx` — `createPersonFormFields` → `CompanyMultiSelectField` | `POST /api/customers/people` (`companyEntityIds`) | No new `"use client"`; no page-root change. |
+| Create dialog (`CreatePersonDialog`) | — (dialog, already client) | same `createPersonFormFields`; `components/detail/CreatePersonDialog.tsx` unchanged apart from receiving the new field | same as classic create | Covered by the shared builder; no new file. |
+| v2 edit `/backend/customers/people-v2/[id]` | `backend/customers/people-v2/[id]/page.tsx` | `createPersonEditFields` → `createPersonFormFields` → `CompanyMultiSelectField` | `POST`/`DELETE /api/customers/people/[id]/companies[/[linkId]]` | No v2 create route exists; none is proposed. |
+| Classic edit `/backend/customers/people/[id]` | `backend/customers/people/[id]/page.tsx` | `components/detail/PersonHighlights.tsx` — call site swaps `CompanySelectField` → `CompanyMultiSelectField`, adds set reconciliation | same link endpoints, through the shared reconcile helper | The page keeps using `PersonHighlights`; it does not adopt `createPersonFormFields`. |
+
+`CompanySelectField` remains exported and unchanged; the multi-select is additive. No new route, no server-page extraction, and no new provider is introduced.
 
 #### 2. `"use client"` ledger
 
-| File | Reason | Imported by | Heavy deps? | Cleanup / hydration risk | Alternative rejected |
+| File | Change | Reason | Imported by | Heavy deps? | Cleanup / hydration risk |
 | --- | --- | --- | --- | --- | --- |
-| `components/formConfig.tsx` (already `"use client"`) | Adds `CompanyMultiSelectField` + extracted `CompanyCreateDialog`: stateful multi-select (selected set, async option fetch, inline-create dialog). Browser-only capability: controlled form state + `fetch`-backed option hydration + dialog focus/keyboard. | `createPersonFormFields` (classic + v2 person form) | No (reuses `TagsInput`, `apiCall`; no table/editor/chart/SDK) | Options fetched via existing `loadOptions`/`loadCompanyOption`; abort/stale handled as today's single-select does. No new global effect/subscription. | A separate client file was rejected — the component shares `normalizeCompanyOption`/`loadCompanyOption` with `CompanySelectField` in the same file; splitting would duplicate logic. |
+| `components/formConfig.tsx` (already `"use client"`) | Adds `CompanyMultiSelectField` + extracted `CompanyCreateDialog` | Stateful multi-select: selected set, async option fetch, inline-create dialog. Browser-only capability. | classic create page, create dialog, `createPersonEditFields` | No (reuses `TagsInput`, `apiCall`; no table/editor/chart/SDK) | Options fetched via existing `loadOptions`/`loadCompanyOption`; abort/stale handled as today's single-select does. No new global effect/subscription. |
+| `components/detail/PersonHighlights.tsx` (already `"use client"`) | Swaps the company editor to `CompanyMultiSelectField`; `onCompanySave` → `onCompaniesChange(nextIds)` | The classic detail editor is the only classic-edit company surface | `backend/customers/people/[id]/page.tsx:697` | No | Same page already hydrates the company; the set load reuses the detail API's `companies[]`. |
 
-No **new** top-level `"use client"` file is introduced; the change extends an existing client module.
+No **new** top-level `"use client"` file is introduced; both changed modules are existing client modules.
 
 #### 3. Client blob guardrail
 
-`formConfig.tsx` is an existing client module. The additions (`CompanyMultiSelectField` + extracted `CompanyCreateDialog`) are small leaves reusing existing helpers; the dialog extraction is net-neutral LOC. No table/editor/calendar/graph/browser-SDK dependency is added. If the file's touched additions trend past ~300 LOC net, extract `CompanyMultiSelectField` to a sibling leaf file importing the shared helpers — called out as the extraction fallback, not expected to be needed.
+Both changed files are existing client modules and the additions are small leaves reusing existing helpers. No table/editor/calendar/graph/browser-SDK dependency is added. If `formConfig.tsx`'s touched additions trend past ~300 LOC net, extract `CompanyMultiSelectField` to a sibling leaf file importing the shared helpers — the extraction fallback, not expected to be needed. `PersonHighlights.tsx` is a leaf already; the swap is net-neutral apart from the reconcile callback.
 
 #### 4. Budgets
 
 | Budget | Default target | Spec value |
 | --- | --- | --- |
-| Generated backend page-root `"use client"` | 0 new unallowlisted | 0 (no page root touched) |
-| Touched client page/root files over 300 LOC | 0 unless justified | 0 new; `formConfig.tsx` additions kept minimal, extraction fallback defined |
+| Backend page-root `"use client"` | 0 new unallowlisted | 0 (no page root touched; all four roots are already client) |
+| Touched client files over 300 LOC growth | 0 unless justified | 0 new; `formConfig.tsx` additions kept minimal with the extraction fallback; `PersonHighlights.tsx` swap is net-neutral |
 | Heavy browser libraries at page/provider root | 0 | 0 |
-| Per-route hydration smoke test | required for changed interactive route | Hydration/interaction coverage on classic create, classic edit, v2 create, v2 edit (see Test & Evidence) |
-| Performance evidence | static check + one runtime/build/bundle signal | `yarn check:client-boundaries` clean + `yarn workspace @open-mercato/core build` green |
+| Hydration/interaction smoke test | required for each changed interactive surface | classic create, create dialog, v2 edit, classic edit (`PersonHighlights`) — see *Test & evidence plan* |
+| Performance evidence | static check + one build signal | `yarn check:client-boundaries` clean + `yarn workspace @open-mercato/core build` green |
 
 #### 5. Provider / bootstrap scope
 
 | Provider/bootstrap | Global? | Scope | Why | Exit criteria to narrow |
 | --- | --- | --- | --- | --- |
-| None added | — | — | The picker uses the person form's existing provider scope and `apiCall`; no new provider, context, or global bootstrap registration. | n/a |
+| None added | — | — | Both surfaces use the person page's existing provider scope and `apiCall`; no new provider, context, or global bootstrap registration. | n/a |
 
 #### 6. Test & evidence plan
 
-Covered by the integration + hydration coverage in *Integration Test Coverage* below. Each of the four routes (classic create, classic edit, v2 create, v2 edit) gets a hydration/interaction check that the multi-company field renders, loads options, and submits; plus `yarn check:client-boundaries` output and a green core build as the static + build evidence.
+Covered by the integration + hydration coverage in *Integration Test Coverage* below. Each of the four surfaces (classic create, create dialog, v2 edit, classic edit) gets an interaction check that the multi-company field renders, loads options, and submits/reconciles; plus `yarn check:client-boundaries` output and a green core build as the static + build evidence.
 
 ## Data Models
 
@@ -147,7 +164,17 @@ Covered by the integration + hydration coverage in *Integration Test Coverage* b
   - `GET/POST /api/customers/people/[id]/companies`
   - `PATCH/DELETE /api/customers/people/[id]/companies/[linkId]`
 - **Additive (create):** `POST /api/customers/people` request gains optional `companyEntityIds: string[]` (uuids). `companyEntityId` remains accepted and is `@deprecated`. When both are present, `companyEntityIds` is authoritative and `companyEntityId` is folded in as a member (deduplicated); a currently-valid payload is **never newly rejected** — the API MUST NOT 400 on a `companyEntityId`-only or mismatched pair, since that would narrow an accepted contract (Category 7). Response adds nothing new (detail GET already carries `companies[]`).
-- **Validator:** extend `personCreateSchema` with `companyEntityIds: z.array(uuid()).optional()`; derive types via `z.infer`. No change to `personUpdateSchema` for companies.
+- **Validator:** extend `personCreateSchema` with `companyEntityIds: z.array(uuid()).max(MAX_PERSON_COMPANIES).optional()`; derive types via `z.infer`. No change to `personUpdateSchema` for companies.
+
+### Cardinality bound and batched assembly (resource safety)
+
+The company set is attacker-controlled and is processed inside one write transaction, so it must be bounded **and** assembled without per-id reloads. Today `addPersonCompanyLink` calls `requireCompany` and `loadPersonCompanyLinks` on every invocation (`lib/personCompanies.ts:332-333`), so linking N ids one-by-one costs N company lookups and N full link-set loads — quadratic work and a long-held transaction. The design fixes this at both ends:
+
+- **Constant:** `MAX_PERSON_COMPANIES = 50`, exported from the customers module (mirrors the repo's existing array caps such as `.max(20)` / `.max(50)`), and used in both the schema and the command.
+- **Request schema:** `z.array(uuid()).max(MAX_PERSON_COMPANIES)` bounds the **raw** array length before any dedup, so an oversized payload is rejected by validation without entering the command.
+- **Command boundary:** after folding in the legacy `companyEntityId`, the **deduplicated union** is re-checked against `MAX_PERSON_COMPANIES`. This closes the hole where many duplicate UUIDs pass the raw size check but a mismatched legacy field pushes the resolved set over the limit. Over-limit input is a validation error (`createCrudFormError`), not a partial write.
+- **Batched assembly:** `linkPersonCompanies` resolves all companies in **one** scoped query (`id IN (…)` plus `organizationId`/`tenantId`) and loads the person's existing links **once** (`loadPersonCompanyLinks`); it then writes/undeletes the missing links from the in-memory maps. No per-id `requireCompany`/`loadPersonCompanyLinks` round-trip remains inside the loop. A missing or foreign company in the batched result fails the whole transaction (no partial graph).
+- **Regression test:** a create request whose deduplicated set exceeds `MAX_PERSON_COMPANIES` returns a validation error and leaves **no** person row and **no** links behind.
 
 ## Migration & Backward Compatibility
 
@@ -158,16 +185,18 @@ Per `BACKWARD_COMPATIBILITY.md` (no changes to that document are required; no de
 
 ### Component contract (`CompanySelectField`)
 
-`CompanySelectField` is an exported component in `components/formConfig.tsx` consumed in-repo by `components/detail/PersonHighlights.tsx:255` and importable by third-party modules — i.e. a public-type / signature contract surface (Category 2/3 of `BACKWARD_COMPATIBILITY.md`). The original draft's "swap `CompanySelectField` value/onChange from scalar to `string[]`" would have **broken** that signature and the `PersonHighlights` scalar editing path. This revision avoids the breakage entirely:
+`CompanySelectField` is an exported component in `components/formConfig.tsx` importable by third-party modules — a public-type / signature contract surface (Category 2/3 of `BACKWARD_COMPATIBILITY.md`). The original draft's "swap `CompanySelectField` value/onChange from scalar to `string[]`" would have **broken** that signature. This revision avoids the breakage entirely:
 
-- `CompanySelectField` keeps its exact signature — `{ value?: string; onChange(next?: string): void; labels }` — and its runtime behavior. No `@deprecated` tag is needed; it remains the supported single-select for inline/detail use.
+- `CompanySelectField` keeps its exact signature — `{ value?: string; onChange(next?: string): void; labels }` — and its runtime behavior. No `@deprecated` tag is needed; it remains the supported single-select primitive for third-party and future scalar uses.
 - The multi-select is a **new, separate** component `CompanyMultiSelectField` with its own `{ value: string[]; onChange(next: string[]): void; labels }` signature. New additive export — non-breaking.
+- The in-repo consumer changes by **call site, not by contract**: `PersonHighlights` replaces its use of the scalar component with the new multi-select component and adopts `onCompaniesChange(nextIds)`. `PersonHighlights` is internal to the module (not an exported package surface), so this is a behaviour change on one internal screen, not a public-signature break. Any third-party importer of `CompanySelectField` is unaffected.
 - The inline create-company dialog is extracted into an internal `CompanyCreateDialog` and shared by both components. This is an internal refactor only; neither component's exported signature or behavior changes, and no import path is removed.
 - **Covered consumers:** `PersonHighlights` (unchanged, still scalar), the person create/edit form field builder `createPersonFormFields` (migrated to `CompanyMultiSelectField`), and external importers of `CompanySelectField` (unaffected). No deprecation window is consumed because nothing is removed or narrowed.
 
 ## UI/UX
 
-- The person **create/edit form's** company field becomes `CompanyMultiSelectField` — a `TagsInput` of company pills with the inline "create company" dialog preserved. Empty state shows the existing placeholder. The person-**detail** inline editor (`PersonHighlights`) keeps the single-select `CompanySelectField` and is visually unchanged.
+- The person **create/form surfaces** (classic create page, create dialog, v2 edit page) render `CompanyMultiSelectField` — a `TagsInput` of company pills with the inline "create company" dialog preserved. Empty state shows the existing placeholder.
+- The person-**detail** inline editor (`PersonHighlights` on the classic edit page) also moves to `CompanyMultiSelectField`: it shows the primary company plus the rest of the set and edits the full set inline. The scalar `CompanySelectField` component is not rendered there any more, but it stays exported and unchanged.
 - Dialog keyboard contract (`Cmd/Ctrl+Enter` submit, `Escape` cancel) is inherited from the shared `CompanyCreateDialog` (extracted from today's inline-create dialog) — unchanged.
 - No status colors, arbitrary Tailwind sizes, or inline SVG introduced; `Tag` + `TagsInput` already follow DS tokens. Boy-Scout: migrate any touched lines in `formConfig.tsx` to semantic tokens if applicable.
 - All copy via `useT()` keys under `customers.people.form.company*`; no hard-coded strings.
@@ -179,7 +208,8 @@ Per `BACKWARD_COMPATIBILITY.md` (no changes to that document are required; no de
 | Edit reconciliation races (parallel add/remove) leave the set inconsistent | Medium | person edit submit | Sequence link calls through `useGuardedMutation`; rely on `addPersonCompanyLink` idempotency (undelete/no-op) and `removePersonCompanyLink`; reload `companies[]` after save | Partial failure mid-sequence surfaces via flash + the reloaded set reflects actual DB state |
 | Create links not atomic with the person row | Medium | person create command | Links are added inside the command's existing `withAtomicFlush({ transaction: true })` block via `linkPersonCompanies`, same transaction as the entity/profile/tag writes | None beyond existing create-command guarantees |
 | Create **redo** restores only the primary company, silently dropping non-primary links | High | person create command `redo` | Redo calls `linkPersonCompanies` with the snapshot's full `companies[]` (primary-first ordering) in both redo branches, inside the redo transaction, instead of the current single `syncLegacyPrimaryCompanyLink` call; required integration test asserts create→undo→redo preserves every link and the primary | None — redo reproduces the exact snapshot set and primary flag |
-| `CompanySelectField` signature change breaks `PersonHighlights` / external callers | High (original draft) | component contract | Resolved: `CompanySelectField` kept intact; multi-select is the new `CompanyMultiSelectField`; shared dialog extracted without signature change | None — no exported contract changes |
+| `CompanySelectField` signature change breaks `PersonHighlights` / external callers | High (original draft) | component contract | Resolved: `CompanySelectField` kept intact; multi-select is the new `CompanyMultiSelectField`; the in-repo `PersonHighlights` call site swaps component (internal screen, not an exported contract); shared dialog extracted without signature change | None — no exported contract changes |
+| Unbounded `companyEntityIds` causes quadratic link work and a long transaction | High | create command | `MAX_PERSON_COMPANIES = 50` enforced on the raw array in the schema and on the deduplicated union at the command boundary; `linkPersonCompanies` batches company resolution and loads the person's links once; over-limit request is rejected with no rows written | None — bounded and batched by construction |
 | Removing the primary company via multi-select silently repoints `company_entity_id` | Low | legacy mirror | Existing `promoteFallbackPrimaryLink` already handles this; documented as intended | Third-party readers of `companyEntityId` see a different (still valid) primary |
 | Capped option list hides a linked company label (the #2615 class, now multiplied across N pills) | Medium | form render | Reuse by-id `loadCompanyOption` hydration per selected id; add integration coverage for a linked company beyond the first 100 | None if hydration runs for every selected id |
 | `companyEntityId` + `companyEntityIds` both sent on create | Low | create validator | `companyEntityIds` is authoritative; `companyEntityId` is folded in as a member (dedup). Never 400 a currently-valid payload (Category 7 — no contract narrowing) | A client sending a mismatched pair gets the union, not an error — acceptable and documented |
@@ -195,26 +225,29 @@ Per `.ai/qa/AGENTS.md`, these land in the same change under `packages/core/src/m
 - **Edit add/remove:** from a person with company `a`, select `[a, b]` → assert both linked; then `[b]` → assert `a` removed, `b` present; assert the legacy `companyEntityId` still resolves to an active linked company.
 - **Capped-list label hydration (#2615 regression, multi):** create >100 companies, link the person to one omitted from the first page, open the edit form, assert its pill renders the saved label (not blank).
 - **Back-compat:** `POST` with only the deprecated `companyEntityId` still links that one company as primary.
-- **Component contract (`PersonHighlights`):** the person-detail inline company editor still renders `CompanySelectField` and edits a single company with the unchanged scalar contract (guards against an accidental signature regression).
-- **Route hydration/interaction (per Frontend Architecture Contract):** classic create, classic edit, v2 create, v2 edit each load the multi-company field, hydrate options, and submit successfully.
+- **Over-limit rejection:** a `POST` whose deduplicated company set exceeds `MAX_PERSON_COMPANIES` is rejected and leaves **no** person row and **no** links; a raw array longer than the bound is rejected before the command runs.
+- **Legacy union bound:** a payload with `companyEntityIds` just under the cap plus a distinct `companyEntityId` that pushes the deduplicated union over the cap is rejected.
+- **Component contract (`CompanySelectField`):** the exported scalar component still compiles and behaves unchanged (import + scalar render guard), independent of the `PersonHighlights` call-site swap.
+- **Surface interaction (per Frontend Architecture Contract):** classic create, create dialog, v2 edit, and the classic edit `PersonHighlights` editor each load the multi-company field, hydrate options, and submit/reconcile successfully.
 
 Reference the existing CRM fixtures (`@open-mercato/core/helpers/integration/crmFixtures`).
 
 ## Phasing
 
-- **Phase 1 — Create path + undo/redo.** Add `companyEntityIds` to `personCreateSchema`; add the `linkPersonCompanies` helper and call it from the create command `execute`; extend both `redo` branches to restore the full snapshot `companies[]` via the same helper (replacing the single `syncLegacyPrimaryCompanyLink` call). Back-compat for `companyEntityId`. Integration tests for create, create→undo→redo (multi), and back-compat.
-- **Phase 2 — Form multi-select component.** Add `CompanyMultiSelectField` (new component on `TagsInput`) and extract the shared `CompanyCreateDialog`, leaving `CompanySelectField` intact. Wire `createPersonFormFields` (classic + v2, create + edit) to the new field; wire edit reconciliation through the existing link endpoints; keep inline company creation and by-id label hydration. Integration + route-hydration tests for edit add/remove, capped-list hydration, the four routes, and the `PersonHighlights` scalar-contract guard.
+- **Phase 1 — Create path + undo/redo.** Add the bounded `companyEntityIds` field to `personCreateSchema`; add the batched `linkPersonCompanies` helper (one company query, one link-set load) and call it from the create command `execute`; extend both `redo` branches to restore the full snapshot `companies[]` via the same helper (replacing the single `syncLegacyPrimaryCompanyLink` call). Back-compat for `companyEntityId`. Integration tests for create, create→undo→redo (multi), back-compat, and the over-limit / legacy-union bound.
+- **Phase 2 — Multi-select component + call sites.** Add `CompanyMultiSelectField` (new component on `TagsInput`) and extract the shared `CompanyCreateDialog`, leaving `CompanySelectField` intact. Wire `createPersonFormFields` (classic create + create dialog + v2 edit via `createPersonEditFields`) to the new field; migrate `PersonHighlights` to the new component with `onCompaniesChange` and the shared reconcile helper; keep inline company creation and by-id label hydration. Integration + interaction tests for edit add/remove (both form and `PersonHighlights`), capped-list hydration, and the four surfaces.
 - **Phase 3 — Docs/QA.** Update `TC-CRM-005` notes and any people-form docs to reflect multi-company; confirm `companyEntityId` deprecation note.
 
 ## Final Compliance Report
 
 - **TLDR / Overview / Problem / Proposed Solution / Architecture / Data Models / API Contracts / Risks / Changelog** — all present.
-- **Component contract (blocker):** `CompanySelectField` scalar signature is **retained**; multi-select ships as the new `CompanyMultiSelectField`. `PersonHighlights` and external callers are explicitly covered in *Migration & Backward Compatibility → Component contract* and guarded by a dedicated integration test. No signature narrowing, no deprecation window consumed.
+- **Component contract (blocker):** `CompanySelectField` scalar signature is **retained**; multi-select ships as the new `CompanyMultiSelectField`. The `PersonHighlights` call site swaps component (internal screen, not an exported contract), and external importers of `CompanySelectField` are unaffected. No signature narrowing, no deprecation window consumed.
 - **Create undo/redo (major):** the create command `redo` is redesigned to restore the full snapshot `companies[]` (primary-first) via a shared `linkPersonCompanies` helper inside the redo transaction, instead of re-linking only the primary. A create→undo→redo multi-company integration test is required.
-- **Frontend Architecture Contract (major):** added with Server/Client boundary map, `"use client"` ledger, client-blob guardrail + extraction fallback, measurable budgets, provider scope (none added), and per-route hydration/interaction evidence across all four classic + v2 routes.
+- **Frontend Architecture Contract (major):** present with the real Server/Client boundary map (all four roots already `"use client"`; no v2 create route), `"use client"` ledger, client-blob guardrail + extraction fallback, measurable budgets, provider scope (none added), and per-surface interaction evidence for classic create, create dialog, v2 edit, and the classic edit `PersonHighlights`.
+- **Resource safety (major):** `MAX_PERSON_COMPANIES = 50` bounds the raw array and the deduplicated command-level union; `linkPersonCompanies` batches company resolution and loads the person's links once, eliminating the per-id `requireCompany`/`loadPersonCompanyLinks` round-trips. Over-limit requests are rejected with no rows written.
 - **Canonical primitives:** `TagsInput`, `apiCall`/`useGuardedMutation`, existing link commands — no raw `fetch`, no new cross-module coupling.
 - **DS / i18n:** semantic tokens only, `useT()` keys, dialog keyboard contract preserved via the shared `CompanyCreateDialog`.
-- **CI / validation (open, maintainer-gated):** current-head CI, mutation tests, and the Enterprise Contribution Guard are `not_run` because the fork requires maintainer authorization to execute those workflows. These are **spec-external** gates — they are satisfied by a maintainer re-running the workflows on the branch, not by further spec edits. No enterprise-scope content is in this OSS spec.
+- **CI / validation:** spec-only change; the repository CI (lint, DS lint, scope/audit guards, docs-applicable tests) runs on the same-repo carry branch and is the validation source. No code, schema, or API surface ships from this PR.
 
 ## Changelog
 
@@ -222,3 +255,4 @@ Reference the existing CRM fixtures (`@open-mercato/core/helpers/integration/crm
 - 2026-10-07 — Backward-compatibility review against `BACKWARD_COMPATIBILITY.md`. Removed a proposed 400-reject on a `companyEntityId`/`companyEntityIds` mismatch (would have narrowed an accepted request contract — Category 7); the deprecated field is now folded in rather than rejected. Renamed the section to "Migration & Backward Compatibility" per Deprecation Protocol step 5. Confirmed no changes to the BC document and no deprecation-protocol exemption are needed.
 - 2026-10-09 — Review revision addressing three findings. (1) **blocker** — stopped mutating `CompanySelectField` in place; the scalar component is retained and the multi-select is a new `CompanyMultiSelectField`, with `PersonHighlights` + external callers covered in a new *Component contract* subsection and a dedicated test. (2) **major** — redesigned the create-command `redo` to restore the complete company-link snapshot (primary-first, atomic) via a shared `linkPersonCompanies` helper, with a required create→undo→redo multi-company integration test; corrected the earlier "undo is unchanged" claim. (3) **major** — added the Frontend Architecture Contract (boundary map, `"use client"` ledger, blob guardrail, budgets, provider scope, per-route hydration/QA evidence) for all four classic + v2 routes. Added a Final Compliance Report; noted the maintainer-gated CI/mutation/enterprise-guard validations as spec-external.
 - 2026-11-15 — Carry-forward revision: corrected the `PersonHighlights` reference to its full path (`components/detail/PersonHighlights.tsx:255`) and replaced the non-existent `om-spec-writing` reference citation with the repository's canonical Frontend Architecture Contract source (`.ai/specs/2026-05-13-frontend-client-boundary-ram-reduction.md`). No design change; all three prior findings remain resolved.
+- 2026-11-15 — Second carry-forward revision (review of the carried-forward head): corrected the route/form integration map to the real code — `people-v2` has no create page, the classic edit page does not use `createPersonFormFields` and needs the `PersonHighlights` call-site migration, and all four page roots are already `"use client"` — and added the *Cardinality bound and batched assembly* design (`MAX_PERSON_COMPANIES = 50`, schema + deduplicated command-level enforcement, batched company/link loading, over-limit regression) in response to an independent security finding.
