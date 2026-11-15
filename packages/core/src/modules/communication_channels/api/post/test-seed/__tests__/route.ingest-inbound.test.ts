@@ -164,10 +164,7 @@ describe('POST /api/communication_channels/test-seed — ingest-inbound (#4975)'
     })
   })
 
-  it('refuses to ingest against a channel connected with the email-shaped stub', async () => {
-    // Ingest does not verify that providerKey matches the channel it names, so
-    // accepting an email-flavored channel here would silently stamp the wrong
-    // provider onto the link — and normalizeInbound would throw anyway.
+  it('ingests email through the channel email adapter and the real command', async () => {
     mockFindOneWithDecryption.mockResolvedValue({
       id: CHANNEL_ID,
       userId: CALLER_USER,
@@ -176,9 +173,31 @@ describe('POST /api/communication_channels/test-seed — ingest-inbound (#4975)'
       externalIdentifier: 'seed@test-seed.local',
     })
 
-    const response = await POST(ingestRequest())
+    const response = await POST(ingestRequest({ senderIdentifier: 'sender@example.test' }))
+
+    expect(response.status).toBe(201)
+    expect(mockNormalizeInbound).toHaveBeenCalledTimes(1)
+    const ingestInput = mockCommandExecute.mock.calls[0][1].input
+    expect(ingestInput.providerKey).toBe('__test_seed__')
+    expect(ingestInput.channelType).toBe('email')
+    expect(ingestInput.scope).toEqual({ tenantId: CALLER_TENANT, organizationId: CALLER_ORG })
+    expect(ingestInput.message.senderIdentifier).toBe('sender@example.test')
+    expect(mockRawSql).not.toHaveBeenCalled()
+  })
+
+  it('refuses to ingest against a non-test provider', async () => {
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: CHANNEL_ID,
+      userId: CALLER_USER,
+      providerKey: 'imap_smtp',
+      channelType: 'email',
+      externalIdentifier: 'seed@test-seed.local',
+    })
+
+    const response = await POST(ingestRequest({ senderIdentifier: 'sender@example.test' }))
 
     expect(response.status).toBe(422)
+    expect(mockNormalizeInbound).not.toHaveBeenCalled()
     expect(mockCommandExecute).not.toHaveBeenCalled()
   })
 

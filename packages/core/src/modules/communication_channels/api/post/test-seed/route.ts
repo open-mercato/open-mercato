@@ -517,11 +517,11 @@ export async function POST(req: Request): Promise<Response> {
     // check that `providerKey` matches the channel it names, so passing a
     // different one would silently stamp the wrong provider onto the link.
     const channelProviderKey = ownedChannel.providerKey
-    if (channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY) {
+    if (channelProviderKey !== TEST_SEED_CHAT_PROVIDER_KEY && channelProviderKey !== TEST_SEED_PROVIDER_KEY) {
       return NextResponse.json(
         {
           error:
-            'ingest-inbound requires a channel connected with providerFlavor: "chat"; ' +
+            '[internal] ingest-inbound requires a test-seed email or chat channel; ' +
             `channel ${body.channelId} is '${channelProviderKey}'`,
         },
         { status: 422 },
@@ -535,7 +535,7 @@ export async function POST(req: Request): Promise<Response> {
     const adapter = adapterRegistry.get(channelProviderKey)
     if (!adapter) {
       return NextResponse.json(
-        { error: '[internal] test-seed chat adapter is not registered' },
+        { error: '[internal] test-seed adapter is not registered' },
         { status: 500 },
       )
     }
