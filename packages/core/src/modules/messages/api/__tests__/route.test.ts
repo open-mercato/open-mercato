@@ -5,12 +5,9 @@ const findWithDecryptionMock = jest.fn()
 const canUseChannelThreadFallbackMock = jest.fn(async () => true)
 const resolveMessageChannelThreadAccessMock = jest.fn()
 const delegateComposeToSenderMock = jest.fn()
-<<<<<<< HEAD
-=======
 const resolveReplyParentMessageMock = jest.fn()
 const canPostToChannelThreadMock = jest.fn(async () => true)
 const checkExternalEmailBudgetMock: jest.Mock<Promise<Response | null>> = jest.fn(async () => null)
->>>>>>> dcda6dd95d (fix(messages): enforce external email budgets across mailboxes (#9161) (#9598))
 
 jest.mock('@open-mercato/cache', () => ({
   runWithCacheTenant: async <T>(_tenantId: string | null, callback: () => Promise<T> | T) => callback(),
@@ -247,8 +244,6 @@ describe('messages /api/messages POST', () => {
     )
   })
 
-<<<<<<< HEAD
-=======
   it('forces email delivery for a public message a user composes, even when the client sends sendViaEmail=false (#6090)', async () => {
     // The route, not the compose command, owns this rule: the command honors the
     // caller so internal callers (ingest, send-as-user) can compose public
@@ -280,7 +275,6 @@ describe('messages /api/messages POST', () => {
     )
   })
 
->>>>>>> dcda6dd95d (fix(messages): enforce external email budgets across mailboxes (#9161) (#9598))
   it('passes draft compose input to command bus without route side effects', async () => {
     const response = await POST(new Request('http://localhost', {
       method: 'POST',

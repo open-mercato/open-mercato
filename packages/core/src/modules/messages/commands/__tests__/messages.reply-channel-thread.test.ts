@@ -244,8 +244,6 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
   })
 
-<<<<<<< HEAD
-=======
   describe('reply recipients (#6391)', () => {
     function recipientRows(trx: { create: jest.Mock }) {
       return trx.create.mock.calls
@@ -377,7 +375,6 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     })
   })
 
->>>>>>> dcda6dd95d (fix(messages): enforce external email budgets across mailboxes (#9161) (#9598))
   describe('messages.messages.forward (#6355)', () => {
     function forwardInput() {
       return {

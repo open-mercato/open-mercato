@@ -60,16 +60,12 @@ jest.mock('../../lib/routeHelpers', () => {
   return { ...actual, canUseMessageEmailFeature: jest.fn(async () => true) }
 })
 
-<<<<<<< HEAD
-import { POST as composeMessage } from '../route'
-=======
 jest.mock('../../lib/externalEmailBudget', () => ({
   ...jest.requireActual('../../lib/externalEmailBudget'),
   checkExternalEmailBudget: jest.fn(async () => null),
 }))
 
 import { GET as listMessages, POST as composeMessage } from '../route'
->>>>>>> dcda6dd95d (fix(messages): enforce external email budgets across mailboxes (#9161) (#9598))
 
 function publicComposeBody(extra: Record<string, unknown> = {}) {
   return {

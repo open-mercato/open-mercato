@@ -48,6 +48,7 @@ import { MessageCommandExecuteResult } from '../commands/shared'
 import {
   composeMessageRequestSchema as composeSchema,
   composeResponseSchema,
+  errorResponseSchema,
   listMessagesSchema as listSchema,
   messageListItemSchema,
 } from './openapi'
@@ -725,8 +726,6 @@ export const openApi: OpenApiRouteDoc = {
           schema: composeResponseSchema,
         },
       ],
-<<<<<<< HEAD
-=======
       errors: [
         { status: 400, description: 'Compose payload failed validation', schema: errorResponseSchema },
         { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
@@ -734,7 +733,6 @@ export const openApi: OpenApiRouteDoc = {
         { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
         { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],
->>>>>>> dcda6dd95d (fix(messages): enforce external email budgets across mailboxes (#9161) (#9598))
     },
   },
 }
