@@ -9,6 +9,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import type { InlineFieldProps } from './InlineEditors'
+import { decimalToNumber, decimalToString, isDecimalInput } from '@open-mercato/shared/lib/decimal'
 
 export type AnnualRevenueFieldProps = {
   label: string
@@ -16,7 +17,8 @@ export type AnnualRevenueFieldProps = {
   currency: string | null
   emptyLabel: string
   validator?: NonNullable<InlineFieldProps['validator']>
-  onSave: (payload: { amount: number | null; currency: string | null }) => Promise<void>
+  /** `amount` is a float copy of `amountExact`; prefer the exact string. */
+  onSave: (payload: { amount: number | null; amountExact?: string | null; currency: string | null }) => Promise<void>
 }
 
 export function AnnualRevenueField({
@@ -143,17 +145,21 @@ export function AnnualRevenueField({
         return
       }
     }
-    let numeric: number | null = null
+    let exact: string | null = null
     if (trimmedAmount.length) {
-      numeric = Number(trimmedAmount)
-      if (Number.isNaN(numeric)) {
+      if (!isDecimalInput(trimmedAmount)) {
         setError(t('customers.companies.detail.currency.invalidAmount', 'Enter a valid amount.'))
         return
       }
+      exact = decimalToString(trimmedAmount)
     }
     setSaving(true)
     try {
-      await onSave({ amount: numeric, currency: draftCurrency.trim() ? draftCurrency.trim() : null })
+      await onSave({
+        amount: exact === null ? null : decimalToNumber(exact),
+        amountExact: exact,
+        currency: draftCurrency.trim() ? draftCurrency.trim() : null,
+      })
       setEditing(false)
     } catch (err) {
       const message =
