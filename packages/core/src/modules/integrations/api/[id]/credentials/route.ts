@@ -6,6 +6,7 @@ import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { emitIntegrationsEvent } from '../../../events'
 import { saveCredentialsSchema } from '../../../data/validators'
 import {
@@ -241,6 +242,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
     if (error instanceof MaskedSecretDestinationChangedError) {
+      getTelemetryRuntime()?.reportError(error, { module: 'integrations', code: 'integrations.masked_secret_destination_changed' })
       const { t } = await resolveTranslations()
       const message = t('integrations.credentials.errors.destinationChanged')
       return NextResponse.json({
