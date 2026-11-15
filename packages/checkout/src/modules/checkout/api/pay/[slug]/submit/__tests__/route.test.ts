@@ -269,6 +269,25 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     expect(mockCreatePaymentSession).not.toHaveBeenCalled()
   })
 
+  it.each([[], {}, { toString: null }])('rejects unsupported required custom field values: %p', async (company) => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce({
+      ...createLink(), collectCustomerDetails: true,
+      customerFieldsSchema: [{ key: 'company', kind: 'text', required: true }],
+    })
+    const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'required-company-123456', origin: 'https://merchant.example' },
+      body: JSON.stringify({ customerData: { company }, amount: 1 }),
+    }), { params: { slug: 'donate' } })
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      fieldErrors: { 'customerData.company': 'checkout.payPage.validation.requiredField' },
+    }))
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+  })
+
   it('omits payer metadata when the link does not collect customer details', async () => {
     ;(findOneWithDecryption as jest.Mock)
       .mockResolvedValueOnce(createLink())

@@ -73,11 +73,12 @@ export function validateCheckoutCustomerData(
         : typeof value === 'number' || typeof value === 'boolean'
           ? String(value).trim()
           : null
+    const semanticType = getCheckoutCustomerFieldSemanticType(field)
 
     if (field.required === true) {
       const isMissing = field.kind === 'boolean'
         ? value !== true
-        : normalizedValue === ''
+        : normalizedValue === '' || (normalizedValue === null && semanticType === null)
       if (isMissing) {
         nextErrors[fieldPath] = 'checkout.payPage.validation.requiredField'
         continue
@@ -86,7 +87,6 @@ export function validateCheckoutCustomerData(
 
     if (field.kind === 'boolean' || normalizedValue === '') continue
 
-    const semanticType = getCheckoutCustomerFieldSemanticType(field)
     if (semanticType === 'email' && (normalizedValue === null || !isValidCheckoutEmail(normalizedValue))) {
       nextErrors[fieldPath] = 'checkout.payPage.validation.invalidEmail'
       continue
