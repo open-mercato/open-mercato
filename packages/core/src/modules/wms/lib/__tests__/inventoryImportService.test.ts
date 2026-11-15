@@ -260,6 +260,34 @@ describe('validateInventoryImport', () => {
     expect(result.rows[0]?.warnings).toHaveLength(0)
     expect(result.rows[0]?.resolved?.delta).toBe(10)
   })
+
+  it.each([
+    ['additive', '1,000'],
+    ['additive', 'abc'],
+    ['reconcile', '1,000'],
+    ['reconcile', 'abc'],
+  ] as const)('rejects an unparseable quantity in %s mode instead of treating %s as zero', async (mode, quantity) => {
+    mockWarehouseLocationVariant(42)
+    const ctx = createCtx()
+    const result = await validateInventoryImport(ctx, {
+      tenantId: TENANT,
+      organizationId: ORG,
+      mode,
+      rows: [
+        {
+          warehouseCode: 'WH-MAIN',
+          locationCode: 'BIN-1',
+          sku: 'SKU-001',
+          quantity,
+        },
+      ],
+    })
+
+    expect(result.rows[0]?.status).toBe('error')
+    expect(result.rows[0]?.errors).toEqual(['quantity_invalid'])
+    expect(result.rows[0]?.resolved).toBeUndefined()
+    expect(result.ok).toBe(false)
+  })
 })
 
 describe('applyInventoryImport', () => {
