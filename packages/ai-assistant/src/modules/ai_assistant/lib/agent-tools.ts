@@ -19,7 +19,7 @@ import {
 import { toolRegistry } from './tool-registry'
 import { toSafeZodSchema } from './schema-utils'
 import { prepareMutation } from './prepare-mutation'
-import { parseToolInput } from './tool-input'
+import { resolveStagedToolInput } from './tool-input'
 
 const logger = createLogger('ai_assistant')
 
@@ -271,15 +271,15 @@ function adaptToolToAiSdk(
             args && typeof args === 'object' && !Array.isArray(args)
               ? { ...(args as Record<string, unknown>) }
               : {}
-          const parsedInput = parseToolInput(tool.inputSchema, toolCallArgs)
-          if (!parsedInput.success) {
-            throw new Error(parsedInput.error)
+          const stagedInput = resolveStagedToolInput(tool.inputSchema, toolCallArgs)
+          if (!stagedInput.success) {
+            throw new Error(stagedInput.error)
           }
           const { uiPart, pendingAction, reused } = await prepareMutation(
             {
               agent: mutation.agent,
               tool: mutation.tool,
-              toolCallArgs: parsedInput.sanitizedInput as Record<string, unknown>,
+              toolCallArgs: stagedInput.input,
               conversationId: mutation.conversationId,
               mutationPolicyOverride: mutation.mutationPolicyOverride,
             },

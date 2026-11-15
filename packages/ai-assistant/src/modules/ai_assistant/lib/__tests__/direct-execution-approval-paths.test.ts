@@ -128,6 +128,7 @@ describe('confirm-required mutation input validation', () => {
   const inputSchema = z.object({
     personId: z.string().uuid().optional(),
     note: z.string().min(1),
+    subtitle: z.string().max(255).nullable().optional(),
   })
   let handler: jest.Mock
 
@@ -227,5 +228,13 @@ describe('confirm-required mutation input validation', () => {
     const stagedArgs = prepareMutationMock.mock.calls[0]?.[0].toolCallArgs
     expect(stagedArgs).toEqual({ note: 'hello' })
     expect(inputSchema.safeParse(stagedArgs).success).toBe(true)
+  })
+
+  it('stages input the schema already accepts as sent, blank values included', async () => {
+    const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
+
+    await resolved.tools.test__mutation.execute?.({ note: 'hello', subtitle: '' }, executionOptions)
+
+    expect(prepareMutationMock.mock.calls[0]?.[0].toolCallArgs).toEqual({ note: 'hello', subtitle: '' })
   })
 })
