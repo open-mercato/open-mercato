@@ -47,9 +47,8 @@ function movedTo(before: AttachmentRowSnapshot | null, draft: string): Attachmen
 }
 
 /**
- * TC-API-MSG-ATTACH-OWNER-003: concurrent links of one protected file. Linking
- * loads the file under a row write lock in the transaction that evaluates and
- * moves it, so racing contenders are serialized. A document editor and a user
+ * TC-API-MSG-ATTACH-OWNER-003: outcomes of concurrent links of one protected
+ * file, whatever order the requests run in. A document editor and a user
  * who cannot edit the document race to link the same file into their own
  * drafts: the editor gets 200, the other 403, and the file ends on the editor's
  * draft with every other column unchanged. Retries repeat the same outcome. Two

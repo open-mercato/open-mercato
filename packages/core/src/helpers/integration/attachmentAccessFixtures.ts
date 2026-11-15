@@ -106,6 +106,7 @@ export async function withAttachmentOwnerFixture(
   const foreignAttachments: string[] = [], foreignOrganizations: string[] = [], foreignTenants: string[] = []
   const foreignScopes = new Map<ForeignAttachmentScope, { tenantId: string; organizationId: string }>()
   let roleId: string | null = null
+  let runFailed = false
   try {
     roleId = await createRoleFixture(request, admin, { name: prefix, tenantId: scope.tenantId })
     await setRoleAclFeatures(request, admin, { roleId, features: OWNER_ACCESS_FEATURES })
@@ -219,6 +220,9 @@ export async function withAttachmentOwnerFixture(
       admin, roleId, prefix, recipient, unshared, visible, hidden, destination,
       document, share, unshare, foreignCopy, upload, uploadProxy, uploadPublicImage, key,
     })
+  } catch (error) {
+    runFailed = true
+    throw error
   } finally {
     const foreignCleanupErrors: unknown[] = []
     if (foreignAttachments.length > 0 || foreignOrganizations.length > 0 || foreignTenants.length > 0) {
@@ -239,7 +243,7 @@ export async function withAttachmentOwnerFixture(
     for (const id of documents.reverse()) await apiRequest(request, 'DELETE', `/api/documents/${id}`, { token: admin }).catch(() => undefined)
     for (const id of users) await deleteUserIfExists(request, admin, id)
     await deleteRoleIfExists(request, admin, roleId)
-    if (foreignCleanupErrors.length > 0) {
+    if (foreignCleanupErrors.length > 0 && !runFailed) {
       throw new AggregateError(foreignCleanupErrors, '[internal] Attachment owner fixture could not remove its foreign-scope rows')
     }
   }
