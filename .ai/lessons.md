@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 187 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 188 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,8 @@ This catalog indexes 187 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Semantic validators must not coerce structured JSON](lessons/semantic-validators-must-not-coerce-structured-json.md) — area:module-data,testing; module:checkout; topic:validation-errors,api-contracts,untrusted-input
 
 - [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context
 

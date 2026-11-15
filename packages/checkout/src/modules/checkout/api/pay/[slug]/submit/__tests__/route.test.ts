@@ -243,6 +243,32 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     expect(mockCreatePaymentSession).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { email: { toString: null }, phone: 'invalid' },
+    { email: 'invalid', phone: { toString: null } },
+  ])('returns combined 422 errors for structured customer values: %p', async (customerData) => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce({
+      ...createLink(), collectCustomerDetails: true, customerFieldsSchema: [
+        { key: 'email' }, { key: 'phone' }, { key: 'firstName' }, { key: 'lastName' },
+      ],
+    })
+    const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'structured-email-123456', origin: 'https://merchant.example' },
+      body: JSON.stringify({ customerData: { ...customerData, firstName: 'Jan', lastName: 'Kowalski' }, amount: 1 }),
+    }), { params: { slug: 'donate' } })
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      fieldErrors: {
+        'customerData.email': 'checkout.payPage.validation.invalidEmail',
+        'customerData.phone': 'checkout.payPage.validation.invalidPhone',
+      },
+    }))
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+  })
+
   it('omits payer metadata when the link does not collect customer details', async () => {
     ;(findOneWithDecryption as jest.Mock)
       .mockResolvedValueOnce(createLink())

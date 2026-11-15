@@ -70,26 +70,28 @@ export function validateCheckoutCustomerData(
       ? value.trim()
       : value == null
         ? ''
-        : String(value).trim()
+        : typeof value === 'number' || typeof value === 'boolean'
+          ? String(value).trim()
+          : null
 
     if (field.required === true) {
       const isMissing = field.kind === 'boolean'
         ? value !== true
-        : normalizedValue.length === 0
+        : normalizedValue === ''
       if (isMissing) {
         nextErrors[fieldPath] = 'checkout.payPage.validation.requiredField'
         continue
       }
     }
 
-    if (field.kind === 'boolean' || normalizedValue.length === 0) continue
+    if (field.kind === 'boolean' || normalizedValue === '') continue
 
     const semanticType = getCheckoutCustomerFieldSemanticType(field)
-    if (semanticType === 'email' && !isValidCheckoutEmail(normalizedValue)) {
+    if (semanticType === 'email' && (normalizedValue === null || !isValidCheckoutEmail(normalizedValue))) {
       nextErrors[fieldPath] = 'checkout.payPage.validation.invalidEmail'
       continue
     }
-    if (semanticType === 'phone' && !isValidCheckoutPhone(normalizedValue)) {
+    if (semanticType === 'phone' && (normalizedValue === null || !isValidCheckoutPhone(normalizedValue))) {
       nextErrors[fieldPath] = 'checkout.payPage.validation.invalidPhone'
     }
   }

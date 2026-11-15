@@ -1208,7 +1208,7 @@ Fixed fields (firstName, lastName, email, phone) are rendered first in their own
 
 Submitted customer data is stored in `CheckoutTransaction.customerData` as encrypted JSON. The four fixed fields are also denormalized to encrypted columns (`first_name`, `last_name`, `email`, `phone`) for list display and filtering.
 
-Public submit accepts only keys declared in the link's `customerFieldsSchema`. Supplied email values are validated even when the link does not declare an email field; blank optional email values become null. First and last names are limited to 100 characters. Undeclared values never reach transaction storage or gateway payer metadata (#9159).
+Public submit filters to keys declared in the link's `customerFieldsSchema` before value validation. Collected email values are validated; blank optional email values become null. Collected first and last names are limited to 100 characters. Undeclared values never reach transaction storage or gateway payer metadata (#9159).
 
 ### UMES Extension
 
