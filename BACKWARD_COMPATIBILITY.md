@@ -668,24 +668,6 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
 
-## SSO authority provenance (2026-11-15, #9014)
+## SSO authority (2026-11-15, #9014)
 
-**Surface:** stored enterprise SSO configurations and SCIM tokens without a
-trusted author; SSO-managed role grants and existing-account links that exceed
-that author's current grant authority. Classification: STABLE authentication and
-configuration behavior, with an additive nullable config column.
-
-Continuing to accept the legacy authority-free state is the escalation path:
-config managers can choose arbitrary privileged mappings or bind controlled IdP
-subjects to privileged accounts. A bridge or bypass flag would preserve that
-vulnerability. Only this unsafe acceptance is removed; routes, schemas, feature
-IDs, and public response fields remain intact.
-
-Deploy the additive migration, review and save each legacy configuration as an
-authorized human, and revoke/reissue legacy SCIM tokens. Audit historical grants,
-identities, direct ACLs, and sessions separately. See
-[upgrade instructions](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014)
-and [specification](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
-The operator approved implementing authority tracking on 2026-11-15. A named
-human maintainer must still acknowledge the emergency security waiver before
-merge; automated review cannot provide that sign-off.
+STABLE SSO/SCIM delegation: missing authority permits escalation; a bridge retains it. Re-save configs/reissue tokens. Named human waiver required. [Upgrade](UPGRADE_NOTES.md); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
