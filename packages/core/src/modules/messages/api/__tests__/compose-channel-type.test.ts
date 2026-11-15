@@ -60,7 +60,12 @@ jest.mock('../../lib/routeHelpers', () => {
   return { ...actual, canUseMessageEmailFeature: jest.fn(async () => true) }
 })
 
-import { POST as composeMessage } from '../route'
+jest.mock('../../lib/externalEmailBudget', () => ({
+  ...jest.requireActual('../../lib/externalEmailBudget'),
+  checkExternalEmailBudget: jest.fn(async () => null),
+}))
+
+import { GET as listMessages, POST as composeMessage } from '../route'
 
 function publicComposeBody(extra: Record<string, unknown> = {}) {
   return {
@@ -132,7 +137,7 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
 
     await expect(
       composeMessage(composeRequest(publicComposeBody({ sourceChannelType: 'discord' }))),
-    ).rejects.toThrow()
+    ).resolves.toMatchObject({ status: 400 })
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
@@ -141,14 +146,14 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
 
     await expect(
       composeMessage(composeRequest(publicComposeBody({ sourceChannelType: 'discord' }))),
-    ).rejects.toThrow()
+    ).resolves.toMatchObject({ status: 400 })
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
   it('keeps requiring an external email when the source resolves to an email channel', async () => {
     resolveChannelTypeMock.mockResolvedValue('email')
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    await expect(composeMessage(composeRequest(publicComposeBody()))).resolves.toMatchObject({ status: 400 })
 
     resolveChannelTypeMock.mockResolvedValue('email')
     const response = await composeMessage(
@@ -160,7 +165,7 @@ describe('POST /api/messages — source channel type resolution (#4975)', () => 
   it('fails closed when the source cannot be resolved to a channel', async () => {
     resolveChannelTypeMock.mockResolvedValue(null)
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    await expect(composeMessage(composeRequest(publicComposeBody()))).resolves.toMatchObject({ status: 400 })
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
@@ -236,7 +241,7 @@ describe('POST /api/messages — server-only compose fields', () => {
           }),
         ),
       ),
-    ).rejects.toThrow()
+    ).resolves.toMatchObject({ status: 400 })
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 })
@@ -281,7 +286,7 @@ describe('POST /api/messages — the channel-type lookup stays off the compose h
     // keeps getting it, and an unresolvable source keeps the pre-#4975 rule.
     resolveChannelTypeMock.mockResolvedValue(null)
 
-    await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
+    await expect(composeMessage(composeRequest(publicComposeBody()))).resolves.toMatchObject({ status: 400 })
     expect(resolveChannelTypeMock).toHaveBeenCalledTimes(1)
   })
 })
