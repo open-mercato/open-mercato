@@ -509,73 +509,77 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(riskAssessmentUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await findRiskAssessment(entityManager, parsed.id, false)
-    if (!record) throw new CrudHttpError(404, { error: 'eudr.errors.riskAssessmentNotFound' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
-    const previousConclusion = record.conclusion
-    let statementTitle = ''
+    return entityManager.transactional(async (entityManager) => {
+      const unlockedRecord = await findRiskAssessment(entityManager, parsed.id, false)
+      if (!unlockedRecord) throw new CrudHttpError(404, { error: 'eudr.errors.riskAssessmentNotFound' })
+      ensureTenantScope(ctx, unlockedRecord.tenantId)
+      ensureOrganizationScope(ctx, unlockedRecord.organizationId)
+      const record = await lockForUndo(entityManager, EudrRiskAssessment, unlockedRecord)
+      if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.riskAssessmentNotFound' })
+      const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
+      const previousConclusion = record.conclusion
+      let statementTitle = ''
 
-    await runCrudCommandWrite({
-      ctx,
-      em: entityManager,
-      entityId: RISK_ASSESSMENT_ENTITY_ID,
-      action: 'updated',
-      scope,
-      customFields: custom,
-      events: riskAssessmentCrudEvents,
-      indexer: riskAssessmentCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-      }),
-      phases: [
-        async () => {
-          const nextStatementId = parsed.statementId ?? record.statementId
-          const statement = await requireStatementInScope(entityManager, nextStatementId, scope)
-          statementTitle = statement.title
-          const summary = await computeRiskSummary(entityManager, nextStatementId, scope)
-          const nextCriteria = parsed.criteria ? cloneCriteria(parsed.criteria) : cloneCriteria(record.criteria)
-          const nextConclusion = parsed.conclusion ?? record.conclusion
-          const nextAssessedAt = parsed.assessedAt ?? record.assessedAt
-          assertNotFuture(nextAssessedAt, 'eudr.errors.assessedAtInFuture')
-          await assertCompletedMitigationIfRequired(entityManager, record.id, scope, nextCriteria, nextConclusion)
+      await runCrudCommandWrite({
+        ctx,
+        em: entityManager,
+        entityId: RISK_ASSESSMENT_ENTITY_ID,
+        action: 'updated',
+        scope,
+        customFields: custom,
+        events: riskAssessmentCrudEvents,
+        indexer: riskAssessmentCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: {
+            id: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+          },
+        }),
+        phases: [
+          async () => {
+            const nextStatementId = parsed.statementId ?? record.statementId
+            const statement = await requireStatementInScope(entityManager, nextStatementId, scope)
+            statementTitle = statement.title
+            const summary = await computeRiskSummary(entityManager, nextStatementId, scope)
+            const nextCriteria = parsed.criteria ? cloneCriteria(parsed.criteria) : cloneCriteria(record.criteria)
+            const nextConclusion = parsed.conclusion ?? record.conclusion
+            const nextAssessedAt = parsed.assessedAt ?? record.assessedAt
+            assertNotFuture(nextAssessedAt, 'eudr.errors.assessedAtInFuture')
+            await assertCompletedMitigationIfRequired(entityManager, record.id, scope, nextCriteria, nextConclusion)
 
-          record.statementId = nextStatementId
-          record.countryRisks = summary.countryRisks
-          record.overallTier = summary.overallTier
-          record.criteria = nextCriteria
-          record.conclusion = nextConclusion
-          record.isSimplified = summary.isSimplified
-          record.assessedAt = nextAssessedAt
-          record.assessedByName = resolveActorDisplayName(ctx)
-          if (parsed.reviewDueAt !== undefined) {
-            record.reviewDueAt = parsed.reviewDueAt
-          } else if (parsed.assessedAt !== undefined || !record.reviewDueAt) {
-            record.reviewDueAt = defaultReviewDueAt(nextAssessedAt)
-          }
-          if (parsed.notes !== undefined) record.notes = parsed.notes ?? null
-        },
-      ],
-    })
-
-    if (record.conclusion !== previousConclusion) {
-      await emitEudrLifecycleEvent(ctx.container, 'eudr.risk_assessment.concluded', {
-        id: record.id,
-        tenantId: record.tenantId,
-        organizationId: record.organizationId,
-        statementId: record.statementId,
-        statementTitle,
-        conclusion: record.conclusion,
+            record.statementId = nextStatementId
+            record.countryRisks = summary.countryRisks
+            record.overallTier = summary.overallTier
+            record.criteria = nextCriteria
+            record.conclusion = nextConclusion
+            record.isSimplified = summary.isSimplified
+            record.assessedAt = nextAssessedAt
+            record.assessedByName = resolveActorDisplayName(ctx)
+            if (parsed.reviewDueAt !== undefined) {
+              record.reviewDueAt = parsed.reviewDueAt
+            } else if (parsed.assessedAt !== undefined || !record.reviewDueAt) {
+              record.reviewDueAt = defaultReviewDueAt(nextAssessedAt)
+            }
+            if (parsed.notes !== undefined) record.notes = parsed.notes ?? null
+          },
+        ],
       })
-    }
 
-    return { entityId: record.id, updatedAt: record.updatedAt }
+      if (record.conclusion !== previousConclusion) {
+        await emitEudrLifecycleEvent(ctx.container, 'eudr.risk_assessment.concluded', {
+          id: record.id,
+          tenantId: record.tenantId,
+          organizationId: record.organizationId,
+          statementId: record.statementId,
+          statementTitle,
+          conclusion: record.conclusion,
+        })
+      }
+
+      return { entityId: record.id, updatedAt: record.updatedAt }
+    })
   },
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
@@ -609,34 +613,33 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.transactional(async (tx) => {
-      const current = await lockForUndo(tx, EudrRiskAssessment, before)
-      if (!current) {
-        const recreated = tx.create(EudrRiskAssessment, riskAssessmentSeedFromSnapshot(before))
-        tx.persist(recreated)
-        await tx.flush()
-        return recreated
+    return entityManager.transactional(async (entityManager) => {
+      let record = await lockForUndo(entityManager, EudrRiskAssessment, before)
+      if (!record) {
+        record = entityManager.create(EudrRiskAssessment, riskAssessmentSeedFromSnapshot(before))
+        entityManager.persist(record)
+        await entityManager.flush()
+      } else {
+        if (!isUnchangedSince(await buildRiskAssessmentSnapshot(entityManager, record), after)) await throwUndoConflict()
+        restoreRiskAssessment(record, before)
+        await entityManager.flush()
       }
-      if (!isUnchangedSince(await buildRiskAssessmentSnapshot(tx, current), after)) await throwUndoConflict()
-      restoreRiskAssessment(current, before)
-      await tx.flush()
-      return current
-    })
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
-    await setRiskAssessmentCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: riskAssessmentCrudIndexer,
-      events: riskAssessmentCrudEvents,
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
+      await setRiskAssessmentCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: riskAssessmentCrudIndexer,
+        events: riskAssessmentCrudEvents,
+      })
     })
   },
 }

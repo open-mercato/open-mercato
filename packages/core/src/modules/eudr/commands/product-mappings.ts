@@ -350,60 +350,64 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(productMappingUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.findOne(EudrProductMapping, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'EUDR product mapping not found' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
+    return entityManager.transactional(async (entityManager) => {
+      const unlockedRecord = await entityManager.findOne(EudrProductMapping, { id: parsed.id, deletedAt: null })
+      if (!unlockedRecord) throw new CrudHttpError(404, { error: 'EUDR product mapping not found' })
+      ensureTenantScope(ctx, unlockedRecord.tenantId)
+      ensureOrganizationScope(ctx, unlockedRecord.organizationId)
+      const record = await lockForUndo(entityManager, EudrProductMapping, unlockedRecord)
+      if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'EUDR product mapping not found' })
 
-    const nextProductId = parsed.productId ?? record.productId
-    const nextCommodity = parsed.commodity ?? record.commodity
+      const nextProductId = parsed.productId ?? record.productId
+      const nextCommodity = parsed.commodity ?? record.commodity
 
-    await runCrudCommandWrite({
-      ctx,
-      em: entityManager,
-      entityId: PRODUCT_MAPPING_ENTITY_ID,
-      action: 'updated',
-      scope: { tenantId: record.tenantId, organizationId: record.organizationId },
-      customFields: custom,
-      events: productMappingCrudEvents,
-      indexer: productMappingCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-      }),
-      phases: [
-        async () => {
-          if (nextProductId === record.productId && nextCommodity === record.commodity) return
-          await assertUniqueProductMapping(entityManager, {
-            tenantId: record.tenantId,
+      await runCrudCommandWrite({
+        ctx,
+        em: entityManager,
+        entityId: PRODUCT_MAPPING_ENTITY_ID,
+        action: 'updated',
+        scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+        customFields: custom,
+        events: productMappingCrudEvents,
+        indexer: productMappingCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: {
+            id: record.id,
             organizationId: record.organizationId,
-            productId: nextProductId,
-            commodity: nextCommodity,
-            excludeId: record.id,
-          })
-        },
-        () => {
-          if (parsed.productId !== undefined) record.productId = parsed.productId
-          if (parsed.productSnapshot !== undefined) record.productSnapshot = parsed.productSnapshot ?? null
-          if (parsed.commodity !== undefined) record.commodity = parsed.commodity
-          if (parsed.hsCode !== undefined) record.hsCode = parsed.hsCode ?? null
-          if (parsed.isInScope !== undefined) record.isInScope = parsed.isInScope
-          if (parsed.notes !== undefined) record.notes = parsed.notes ?? null
-          if (parsed.speciesScientificName !== undefined) record.speciesScientificName = parsed.speciesScientificName ?? null
-          if (parsed.speciesCommonName !== undefined) record.speciesCommonName = parsed.speciesCommonName ?? null
-          if (nextCommodity !== 'wood') {
-            record.speciesScientificName = null
-            record.speciesCommonName = null
-          }
-        },
-      ],
-    })
+            tenantId: record.tenantId,
+          },
+        }),
+        phases: [
+          async () => {
+            if (nextProductId === record.productId && nextCommodity === record.commodity) return
+            await assertUniqueProductMapping(entityManager, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              productId: nextProductId,
+              commodity: nextCommodity,
+              excludeId: record.id,
+            })
+          },
+          () => {
+            if (parsed.productId !== undefined) record.productId = parsed.productId
+            if (parsed.productSnapshot !== undefined) record.productSnapshot = parsed.productSnapshot ?? null
+            if (parsed.commodity !== undefined) record.commodity = parsed.commodity
+            if (parsed.hsCode !== undefined) record.hsCode = parsed.hsCode ?? null
+            if (parsed.isInScope !== undefined) record.isInScope = parsed.isInScope
+            if (parsed.notes !== undefined) record.notes = parsed.notes ?? null
+            if (parsed.speciesScientificName !== undefined) record.speciesScientificName = parsed.speciesScientificName ?? null
+            if (parsed.speciesCommonName !== undefined) record.speciesCommonName = parsed.speciesCommonName ?? null
+            if (nextCommodity !== 'wood') {
+              record.speciesScientificName = null
+              record.speciesCommonName = null
+            }
+          },
+        ],
+      })
 
-    return { entityId: record.id, updatedAt: record.updatedAt }
+      return { entityId: record.id, updatedAt: record.updatedAt }
+    })
   },
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
@@ -437,34 +441,33 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.transactional(async (tx) => {
-      const current = await lockForUndo(tx, EudrProductMapping, before)
-      if (!current) {
-        const recreated = tx.create(EudrProductMapping, productMappingSeedFromSnapshot(before))
-        tx.persist(recreated)
-        await tx.flush()
-        return recreated
+    return entityManager.transactional(async (entityManager) => {
+      let record = await lockForUndo(entityManager, EudrProductMapping, before)
+      if (!record) {
+        record = entityManager.create(EudrProductMapping, productMappingSeedFromSnapshot(before))
+        entityManager.persist(record)
+        await entityManager.flush()
+      } else {
+        if (!isUnchangedSince(await buildProductMappingSnapshot(entityManager, record), after)) await throwUndoConflict()
+        restoreProductMapping(record, before)
+        await entityManager.flush()
       }
-      if (!isUnchangedSince(await buildProductMappingSnapshot(tx, current), after)) await throwUndoConflict()
-      restoreProductMapping(current, before)
-      await tx.flush()
-      return current
-    })
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
-    await setProductMappingCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: productMappingCrudIndexer,
-      events: productMappingCrudEvents,
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
+      await setProductMappingCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: productMappingCrudIndexer,
+        events: productMappingCrudEvents,
+      })
     })
   },
 }

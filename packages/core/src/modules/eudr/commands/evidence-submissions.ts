@@ -506,51 +506,55 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(evidenceSubmissionUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await findEvidenceSubmission(entityManager, parsed.id, false)
-    if (!record) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
+    return entityManager.transactional(async (entityManager) => {
+      const unlockedRecord = await findEvidenceSubmission(entityManager, parsed.id, false)
+      if (!unlockedRecord) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
+      ensureTenantScope(ctx, unlockedRecord.tenantId)
+      ensureOrganizationScope(ctx, unlockedRecord.organizationId)
+      const record = await lockForUndo(entityManager, EudrEvidenceSubmission, unlockedRecord)
+      if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
+      const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
 
-    await runCrudCommandWrite({
-      ctx,
-      em: entityManager,
-      entityId: EVIDENCE_SUBMISSION_ENTITY_ID,
-      action: 'updated',
-      scope,
-      customFields: custom,
-      events: evidenceSubmissionCrudEvents,
-      indexer: evidenceSubmissionCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-      }),
-      phases: [
-        async () => {
-          const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
-          const nextPlotIds = parsed.plotIds !== undefined
-            ? [...parsed.plotIds]
-            : Array.isArray(record.plotIds)
-              ? [...record.plotIds]
-              : []
-          const activePlotCount = await validateSubmissionPlots({
-            em: entityManager,
-            scope,
-            plotIds: nextPlotIds,
-            supplierEntityId: nextSupplierEntityId,
-          })
-          const linkedAttachmentCount = await countLinkedAttachments(entityManager, scope, record.id)
-          applySubmissionUpdate(record, parsed)
-          refreshSubmissionCompleteness(record, { activePlotCount, linkedAttachmentCount })
-        },
-      ],
+      await runCrudCommandWrite({
+        ctx,
+        em: entityManager,
+        entityId: EVIDENCE_SUBMISSION_ENTITY_ID,
+        action: 'updated',
+        scope,
+        customFields: custom,
+        events: evidenceSubmissionCrudEvents,
+        indexer: evidenceSubmissionCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: {
+            id: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+          },
+        }),
+        phases: [
+          async () => {
+            const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
+            const nextPlotIds = parsed.plotIds !== undefined
+              ? [...parsed.plotIds]
+              : Array.isArray(record.plotIds)
+                ? [...record.plotIds]
+                : []
+            const activePlotCount = await validateSubmissionPlots({
+              em: entityManager,
+              scope,
+              plotIds: nextPlotIds,
+              supplierEntityId: nextSupplierEntityId,
+            })
+            const linkedAttachmentCount = await countLinkedAttachments(entityManager, scope, record.id)
+            applySubmissionUpdate(record, parsed)
+            refreshSubmissionCompleteness(record, { activePlotCount, linkedAttachmentCount })
+          },
+        ],
+      })
+
+      return { entityId: record.id, updatedAt: record.updatedAt }
     })
-
-    return { entityId: record.id, updatedAt: record.updatedAt }
   },
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
@@ -584,40 +588,39 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.transactional(async (tx) => {
-      const current = await lockForUndo(tx, EudrEvidenceSubmission, before)
-      if (!current) {
-        const recreated = tx.create(EudrEvidenceSubmission, evidenceSubmissionSeedFromSnapshot(before))
-        tx.persist(recreated)
-        await tx.flush()
-        return recreated
+    return entityManager.transactional(async (entityManager) => {
+      let record = await lockForUndo(entityManager, EudrEvidenceSubmission, before)
+      if (!record) {
+        record = entityManager.create(EudrEvidenceSubmission, evidenceSubmissionSeedFromSnapshot(before))
+        entityManager.persist(record)
+        await entityManager.flush()
+      } else {
+        const currentSnapshot = await buildEvidenceSubmissionSnapshot(entityManager, record)
+        if (!isUnchangedSince(withoutCompleteness(currentSnapshot), withoutCompleteness(after))) await throwUndoConflict()
+        const completenessContext = {
+          activePlotCount: await countActivePlots(entityManager, before),
+          linkedAttachmentCount: await countLinkedAttachments(entityManager, before, record.id),
+        }
+        restoreEvidenceSubmission(record, before)
+        refreshSubmissionCompleteness(record, completenessContext)
+        await entityManager.flush()
       }
-      const currentSnapshot = await buildEvidenceSubmissionSnapshot(tx, current)
-      if (!isUnchangedSince(withoutCompleteness(currentSnapshot), withoutCompleteness(after))) await throwUndoConflict()
-      const completenessContext = {
-        activePlotCount: await countActivePlots(tx, before),
-        linkedAttachmentCount: await countLinkedAttachments(tx, before, current.id),
-      }
-      restoreEvidenceSubmission(current, before)
-      refreshSubmissionCompleteness(current, completenessContext)
-      await tx.flush()
-      return current
-    })
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
-    await setEvidenceSubmissionCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: evidenceSubmissionCrudIndexer,
-      events: evidenceSubmissionCrudEvents,
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
+      await setEvidenceSubmissionCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: evidenceSubmissionCrudIndexer,
+        events: evidenceSubmissionCrudEvents,
+      })
     })
   },
 }

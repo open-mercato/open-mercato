@@ -364,64 +364,68 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(mitigationActionUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await findMitigationAction(entityManager, parsed.id, false)
-    if (!record) throw new CrudHttpError(404, { error: 'eudr.errors.mitigationActionNotFound' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
-    const wasCompleted = record.status === 'completed'
+    return entityManager.transactional(async (entityManager) => {
+      const unlockedRecord = await findMitigationAction(entityManager, parsed.id, false)
+      if (!unlockedRecord) throw new CrudHttpError(404, { error: 'eudr.errors.mitigationActionNotFound' })
+      ensureTenantScope(ctx, unlockedRecord.tenantId)
+      ensureOrganizationScope(ctx, unlockedRecord.organizationId)
+      const record = await lockForUndo(entityManager, EudrMitigationAction, unlockedRecord)
+      if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.mitigationActionNotFound' })
+      const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
+      const wasCompleted = record.status === 'completed'
 
-    await runCrudCommandWrite({
-      ctx,
-      em: entityManager,
-      entityId: MITIGATION_ACTION_ENTITY_ID,
-      action: 'updated',
-      scope,
-      customFields: custom,
-      events: mitigationActionCrudEvents,
-      indexer: mitigationActionCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-      }),
-      phases: [
-        async () => {
-          const nextRiskAssessmentId = parsed.riskAssessmentId ?? record.riskAssessmentId
-          await requireRiskAssessmentInScope(entityManager, nextRiskAssessmentId, scope)
-          if (parsed.riskAssessmentId !== undefined) record.riskAssessmentId = parsed.riskAssessmentId
-          if (parsed.actionType !== undefined) record.actionType = parsed.actionType ?? 'other'
-          if (parsed.title !== undefined) record.title = parsed.title
-          if (parsed.description !== undefined) record.description = parsed.description ?? null
-          if (parsed.status !== undefined) {
-            const previousStatus = record.status
-            record.status = parsed.status
-            if (record.status === 'completed' && previousStatus !== 'completed') {
-              record.completedAt = new Date()
-            } else if (record.status !== 'completed') {
-              record.completedAt = null
+      await runCrudCommandWrite({
+        ctx,
+        em: entityManager,
+        entityId: MITIGATION_ACTION_ENTITY_ID,
+        action: 'updated',
+        scope,
+        customFields: custom,
+        events: mitigationActionCrudEvents,
+        indexer: mitigationActionCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: {
+            id: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+          },
+        }),
+        phases: [
+          async () => {
+            const nextRiskAssessmentId = parsed.riskAssessmentId ?? record.riskAssessmentId
+            await requireRiskAssessmentInScope(entityManager, nextRiskAssessmentId, scope)
+            if (parsed.riskAssessmentId !== undefined) record.riskAssessmentId = parsed.riskAssessmentId
+            if (parsed.actionType !== undefined) record.actionType = parsed.actionType ?? 'other'
+            if (parsed.title !== undefined) record.title = parsed.title
+            if (parsed.description !== undefined) record.description = parsed.description ?? null
+            if (parsed.status !== undefined) {
+              const previousStatus = record.status
+              record.status = parsed.status
+              if (record.status === 'completed' && previousStatus !== 'completed') {
+                record.completedAt = new Date()
+              } else if (record.status !== 'completed') {
+                record.completedAt = null
+              }
             }
-          }
-          if (parsed.dueDate !== undefined) record.dueDate = parsed.dueDate ?? null
-          if (parsed.notes !== undefined) record.notes = parsed.notes ?? null
-        },
-      ],
-    })
-
-    if (record.status === 'completed' && !wasCompleted) {
-      await emitEudrLifecycleEvent(ctx.container, 'eudr.mitigation_action.completed', {
-        id: record.id,
-        tenantId: record.tenantId,
-        organizationId: record.organizationId,
-        title: record.title,
-        riskAssessmentId: record.riskAssessmentId,
+            if (parsed.dueDate !== undefined) record.dueDate = parsed.dueDate ?? null
+            if (parsed.notes !== undefined) record.notes = parsed.notes ?? null
+          },
+        ],
       })
-    }
 
-    return { entityId: record.id, updatedAt: record.updatedAt }
+      if (record.status === 'completed' && !wasCompleted) {
+        await emitEudrLifecycleEvent(ctx.container, 'eudr.mitigation_action.completed', {
+          id: record.id,
+          tenantId: record.tenantId,
+          organizationId: record.organizationId,
+          title: record.title,
+          riskAssessmentId: record.riskAssessmentId,
+        })
+      }
+
+      return { entityId: record.id, updatedAt: record.updatedAt }
+    })
   },
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
@@ -455,34 +459,33 @@ const updateMitigationActionCommand: CommandHandler<ScopedMitigationActionUpdate
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.transactional(async (tx) => {
-      const current = await lockForUndo(tx, EudrMitigationAction, before)
-      if (!current) {
-        const recreated = tx.create(EudrMitigationAction, mitigationActionSeedFromSnapshot(before))
-        tx.persist(recreated)
-        await tx.flush()
-        return recreated
+    return entityManager.transactional(async (entityManager) => {
+      let record = await lockForUndo(entityManager, EudrMitigationAction, before)
+      if (!record) {
+        record = entityManager.create(EudrMitigationAction, mitigationActionSeedFromSnapshot(before))
+        entityManager.persist(record)
+        await entityManager.flush()
+      } else {
+        if (!isUnchangedSince(await buildMitigationActionSnapshot(entityManager, record), after)) await throwUndoConflict()
+        restoreMitigationAction(record, before)
+        await entityManager.flush()
       }
-      if (!isUnchangedSince(await buildMitigationActionSnapshot(tx, current), after)) await throwUndoConflict()
-      restoreMitigationAction(current, before)
-      await tx.flush()
-      return current
-    })
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
-    await setMitigationActionCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: mitigationActionCrudIndexer,
-      events: mitigationActionCrudEvents,
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
+      await setMitigationActionCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: mitigationActionCrudIndexer,
+        events: mitigationActionCrudEvents,
+      })
     })
   },
 }

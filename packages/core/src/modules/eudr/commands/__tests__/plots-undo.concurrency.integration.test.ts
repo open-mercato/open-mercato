@@ -80,10 +80,12 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
   let postgres: StartedTestContainer | null = null
   let orm: TestOrm | null = null
   let gate: Gate | null = null
+  let customResetGate: Gate | null = null
+  let failCustomReset = false
 
   function rootEm(): EntityManager {
     if (!orm) throw new Error('[internal] ORM is not started')
-    return orm.em.fork()
+    return orm.em.fork({ useContext: true })
   }
 
   const dataEngine = {
@@ -96,7 +98,17 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
       tenantId?: string | null
       values: Record<string, unknown>
     }) => {
+      const current = customResetGate
+      if (current?.armed && Object.values(opts.values).some((value) => value === null)) {
+        current.armed = false
+        current.reached.resolve()
+        await current.release.promise
+      }
       await setRecordCustomFields(rootEm(), opts)
+      if (failCustomReset) {
+        failCustomReset = false
+        throw new Error('[internal] injected failure after custom-field reset')
+      }
     },
   }
 
@@ -243,6 +255,9 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
 
   afterEach(() => {
     gate = null
+    customResetGate?.release.resolve()
+    customResetGate = null
+    failCustomReset = false
   })
 
   afterAll(async () => {
@@ -337,5 +352,49 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
     const retried = await undo('eudr.plots.update', scope, logEntry)
     expect(retried.ok).toBe(true)
     expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: null })
+  }, CASE_TIMEOUT_MS)
+
+  it('preserves a custom-field-only writer that arrives while undo is resetting custom fields', async () => {
+    const scope = await newScope()
+    const plotId = await createPlot(scope)
+    const logEntry = await updatePlot(scope, plotId, { customFields: { grade: 'A' } })
+    const resetGate = createGate()
+    customResetGate = resetGate
+
+    const undoing = undo('eudr.plots.update', scope, logEntry)
+    await resetGate.reached.promise
+    const changing = settle(updatePlot(scope, plotId, { customFields: { grade: 'B' } }))
+    try {
+      await waitForLockWaiterOrSettled(changing)
+      resetGate.release.resolve()
+      const [undone, changed] = await Promise.all([undoing, changing])
+
+      expect(undone.ok).toBe(true)
+      expect(changed.ok).toBe(true)
+      expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: 'B' })
+    } finally {
+      resetGate.release.resolve()
+    }
+  }, CASE_TIMEOUT_MS)
+
+  it('rolls back both the row and custom fields when a reset fails, then retries safely', async () => {
+    const scope = await newScope()
+    const plotId = await createPlot(scope)
+    await updatePlot(scope, plotId, { customFields: { grade: 'A' } })
+    const logEntry = await updatePlot(scope, plotId, {
+      name: 'North field (surveyed)',
+      customFields: { grade: 'B' },
+    })
+    failCustomReset = true
+
+    const failed = await undo('eudr.plots.update', scope, logEntry)
+
+    expect(failed.ok).toBe(false)
+    expect(await readState(plotId)).toEqual({ name: 'North field (surveyed)', deleted: false, grade: 'B' })
+
+    const retried = await undo('eudr.plots.update', scope, logEntry)
+
+    expect(retried.ok).toBe(true)
+    expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: 'A' })
   }, CASE_TIMEOUT_MS)
 })

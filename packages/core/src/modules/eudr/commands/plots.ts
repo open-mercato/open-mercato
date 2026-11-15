@@ -430,51 +430,55 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(plotUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await findPlot(entityManager, parsed.id, false)
-    if (!record) throw new CrudHttpError(404, { error: 'eudr.errors.plotNotFound' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
+    return entityManager.transactional(async (entityManager) => {
+      const unlockedRecord = await findPlot(entityManager, parsed.id, false)
+      if (!unlockedRecord) throw new CrudHttpError(404, { error: 'eudr.errors.plotNotFound' })
+      ensureTenantScope(ctx, unlockedRecord.tenantId)
+      ensureOrganizationScope(ctx, unlockedRecord.organizationId)
+      const record = await lockForUndo(entityManager, EudrPlot, unlockedRecord)
+      if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.plotNotFound' })
 
-    await runCrudCommandWrite({
-      ctx,
-      em: entityManager,
-      entityId: PLOT_ENTITY_ID,
-      action: 'updated',
-      scope: { tenantId: record.tenantId, organizationId: record.organizationId },
-      customFields: custom,
-      events: plotCrudEvents,
-      indexer: plotCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-      }),
-      phases: [
-        () => {
-          const geometry = normalizePlotGeometry({
-            geometry: parsed.geometry ?? record.geometry,
-            areaHa: parsed.areaHa !== undefined ? parsed.areaHa : numericStringToNumber(record.areaHa),
-          })
-          if (parsed.supplierEntityId !== undefined) record.supplierEntityId = parsed.supplierEntityId
-          if (parsed.supplierSnapshot !== undefined) record.supplierSnapshot = parsed.supplierSnapshot ?? null
-          if (parsed.name !== undefined) record.name = parsed.name
-          if (parsed.externalId !== undefined) record.externalId = parsed.externalId ?? null
-          if (parsed.description !== undefined) record.description = parsed.description ?? null
-          if (parsed.originCountry !== undefined) record.originCountry = parsed.originCountry
-          record.plotType = geometry.plotType
-          record.geometry = geometry.geometry
-          record.areaHa = geometry.areaHa
-          record.validationWarnings = geometry.validationWarnings
-          if (parsed.producerName !== undefined) record.producerName = parsed.producerName ?? null
-          if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-        },
-      ],
+      await runCrudCommandWrite({
+        ctx,
+        em: entityManager,
+        entityId: PLOT_ENTITY_ID,
+        action: 'updated',
+        scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+        customFields: custom,
+        events: plotCrudEvents,
+        indexer: plotCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: {
+            id: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+          },
+        }),
+        phases: [
+          () => {
+            const geometry = normalizePlotGeometry({
+              geometry: parsed.geometry ?? record.geometry,
+              areaHa: parsed.areaHa !== undefined ? parsed.areaHa : numericStringToNumber(record.areaHa),
+            })
+            if (parsed.supplierEntityId !== undefined) record.supplierEntityId = parsed.supplierEntityId
+            if (parsed.supplierSnapshot !== undefined) record.supplierSnapshot = parsed.supplierSnapshot ?? null
+            if (parsed.name !== undefined) record.name = parsed.name
+            if (parsed.externalId !== undefined) record.externalId = parsed.externalId ?? null
+            if (parsed.description !== undefined) record.description = parsed.description ?? null
+            if (parsed.originCountry !== undefined) record.originCountry = parsed.originCountry
+            record.plotType = geometry.plotType
+            record.geometry = geometry.geometry
+            record.areaHa = geometry.areaHa
+            record.validationWarnings = geometry.validationWarnings
+            if (parsed.producerName !== undefined) record.producerName = parsed.producerName ?? null
+            if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+          },
+        ],
+      })
+
+      return { entityId: record.id, updatedAt: record.updatedAt }
     })
-
-    return { entityId: record.id, updatedAt: record.updatedAt }
   },
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
@@ -508,34 +512,33 @@ const updatePlotCommand: CommandHandler<ScopedPlotUpdateInput, PlotCommandResult
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.transactional(async (tx) => {
-      const current = await lockForUndo(tx, EudrPlot, before)
-      if (!current) {
-        const recreated = tx.create(EudrPlot, plotSeedFromSnapshot(before))
-        tx.persist(recreated)
-        await tx.flush()
-        return recreated
+    return entityManager.transactional(async (entityManager) => {
+      let record = await lockForUndo(entityManager, EudrPlot, before)
+      if (!record) {
+        record = entityManager.create(EudrPlot, plotSeedFromSnapshot(before))
+        entityManager.persist(record)
+        await entityManager.flush()
+      } else {
+        if (!isUnchangedSince(await buildPlotSnapshot(entityManager, record), after)) await throwUndoConflict()
+        restorePlot(record, before)
+        await entityManager.flush()
       }
-      if (!isUnchangedSince(await buildPlotSnapshot(tx, current), after)) await throwUndoConflict()
-      restorePlot(current, before)
-      await tx.flush()
-      return current
-    })
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
-    await setPlotCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: plotCrudIndexer,
-      events: plotCrudEvents,
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
+      await setPlotCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: plotCrudIndexer,
+        events: plotCrudEvents,
+      })
     })
   },
 }

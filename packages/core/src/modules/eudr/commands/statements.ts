@@ -757,59 +757,63 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(statementUpdateSchema, rawInput)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.findOne(EudrDueDiligenceStatement, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const previousStatus = record.status
+    return entityManager.transactional(async (entityManager) => {
+      const unlockedRecord = await entityManager.findOne(EudrDueDiligenceStatement, { id: parsed.id, deletedAt: null })
+      if (!unlockedRecord) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
+      ensureTenantScope(ctx, unlockedRecord.tenantId)
+      ensureOrganizationScope(ctx, unlockedRecord.organizationId)
+      const record = await lockForUndo(entityManager, EudrDueDiligenceStatement, unlockedRecord)
+      if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'EUDR due diligence statement not found' })
+      const previousStatus = record.status
 
-    await runCrudCommandWrite({
-      ctx,
-      em: entityManager,
-      entityId: STATEMENT_ENTITY_ID,
-      action: 'updated',
-      scope: { tenantId: record.tenantId, organizationId: record.organizationId },
-      customFields: custom,
-      events: statementCrudEvents,
-      indexer: statementCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
-        },
-      }),
-      phases: [
-        async () => {
-          const serverFields = await validateStatementUpdate(entityManager, record, parsed, custom)
-          applyStatementUpdate(record, parsed)
-          if (serverFields.submittedAt !== undefined) record.submittedAt = serverFields.submittedAt
-          if (serverFields.referenceIssuedAt !== undefined) record.referenceIssuedAt = serverFields.referenceIssuedAt
-        },
-      ],
-    })
-
-    const lifecycleEventId = record.status === previousStatus
-      ? null
-      : previousStatus === 'draft' && record.status === 'submitted'
-        ? 'eudr.due_diligence_statement.submitted'
-        : previousStatus === 'submitted' && record.status === 'available'
-          ? 'eudr.due_diligence_statement.reference_issued'
-          : previousStatus === 'available' && record.status === 'withdrawn'
-            ? 'eudr.due_diligence_statement.withdrawn'
-            : null
-    if (lifecycleEventId) {
-      await emitEudrLifecycleEvent(ctx.container, lifecycleEventId, {
-        id: record.id,
-        tenantId: record.tenantId,
-        organizationId: record.organizationId,
-        title: record.title,
-        referenceNumber: record.referenceNumber ?? null,
+      await runCrudCommandWrite({
+        ctx,
+        em: entityManager,
+        entityId: STATEMENT_ENTITY_ID,
+        action: 'updated',
+        scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+        customFields: custom,
+        events: statementCrudEvents,
+        indexer: statementCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: {
+            id: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+          },
+        }),
+        phases: [
+          async () => {
+            const serverFields = await validateStatementUpdate(entityManager, record, parsed, custom)
+            applyStatementUpdate(record, parsed)
+            if (serverFields.submittedAt !== undefined) record.submittedAt = serverFields.submittedAt
+            if (serverFields.referenceIssuedAt !== undefined) record.referenceIssuedAt = serverFields.referenceIssuedAt
+          },
+        ],
       })
-    }
 
-    return { entityId: record.id, updatedAt: record.updatedAt }
+      const lifecycleEventId = record.status === previousStatus
+        ? null
+        : previousStatus === 'draft' && record.status === 'submitted'
+          ? 'eudr.due_diligence_statement.submitted'
+          : previousStatus === 'submitted' && record.status === 'available'
+            ? 'eudr.due_diligence_statement.reference_issued'
+            : previousStatus === 'available' && record.status === 'withdrawn'
+              ? 'eudr.due_diligence_statement.withdrawn'
+              : null
+      if (lifecycleEventId) {
+        await emitEudrLifecycleEvent(ctx.container, lifecycleEventId, {
+          id: record.id,
+          tenantId: record.tenantId,
+          organizationId: record.organizationId,
+          title: record.title,
+          referenceNumber: record.referenceNumber ?? null,
+        })
+      }
+
+      return { entityId: record.id, updatedAt: record.updatedAt }
+    })
   },
   captureAfter: async (_rawInput, result, ctx) => {
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
@@ -843,38 +847,37 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await entityManager.transactional(async (tx) => {
-      const current = await lockForUndo(tx, EudrDueDiligenceStatement, before)
-      if (!current) {
-        const recreated = tx.create(EudrDueDiligenceStatement, statementSeedFromSnapshot(before))
-        tx.persist(recreated)
-        await tx.flush()
-        return recreated
+    return entityManager.transactional(async (entityManager) => {
+      let record = await lockForUndo(entityManager, EudrDueDiligenceStatement, before)
+      if (!record) {
+        record = entityManager.create(EudrDueDiligenceStatement, statementSeedFromSnapshot(before))
+        entityManager.persist(record)
+        await entityManager.flush()
+      } else {
+        if (record.status !== before.status) {
+          const blocker = await resolveStatementDeleteBlocker(entityManager, record)
+          if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
+        }
+        if (!isUnchangedSince(await buildStatementSnapshot(entityManager, record), after)) await throwUndoConflict()
+        restoreStatement(record, before)
+        await entityManager.flush()
       }
-      if (current.status !== before.status) {
-        const blocker = await resolveStatementDeleteBlocker(tx, current)
-        if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
-      }
-      if (!isUnchangedSince(await buildStatementSnapshot(tx, current), after)) await throwUndoConflict()
-      restoreStatement(current, before)
-      await tx.flush()
-      return current
-    })
 
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
-    await setStatementCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
-    await emitCrudUndoSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: statementCrudIndexer,
-      events: statementCrudEvents,
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)
+      await setStatementCustomFields(dataEngine, before.id, before.organizationId, before.tenantId, resetValues)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'updated',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: statementCrudIndexer,
+        events: statementCrudEvents,
+      })
     })
   },
 }

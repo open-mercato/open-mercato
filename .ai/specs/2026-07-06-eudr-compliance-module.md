@@ -265,6 +265,7 @@ Backend pages under `/backend/eudr/*` in the "Compliance" sidebar group, all gat
 **Update-undo refusal (#9128, PR #9129).** The six update undos (`eudr.plots.update`, `eudr.risk_assessments.update`, `eudr.product_mappings.update`, `eudr.mitigation_actions.update`, `eudr.evidence_submissions.update`, `eudr.statements.update`, through `POST /api/audit_logs/audit-logs/actions/undo`) no longer write the logged `before` snapshot back unconditionally:
 
 - `lockForUndo` (`lib/undo-guard.ts`) re-reads the row `SELECT … FOR UPDATE` inside the undo's transaction, scoped by id, tenant and organization. Tenant and organization scope are checked before the lock, so the re-create path for a row that no longer exists is scoped too. A concurrent update waits for the undo to commit and then applies on top.
+- Forward updates and update undos hold the same scoped parent-row lock through both entity writes and custom-field writes. The standard request-scoped DataEngine joins the existing MikroORM ambient transaction, so a custom-field reset failure rolls back the entity and custom values together; no DataEngine interface or DI registration changes are required. Custom-field-only forward writers explicitly take the parent-row lock even when no scalar value changes.
 - `isUnchangedSince` compares the locked row, including custom fields (empty values and multi-value order normalized), with the log's `after` snapshot and ignores `createdAt`/`updatedAt`, so undoing your own updates newest first still chains. A soft-deleted record counts as changed. Evidence submissions leave the attachment-driven completeness projection out of the compare and recompute completeness after restoring.
 - Any mismatch, and any legacy log entry without an `after` snapshot, is refused with `409` and code `eudr.errors.undoConflict` (translated in all five locales); nothing is written. Statement status refusals still answer first. Previously the undo returned 200 and silently overwrote later edits.
 
@@ -339,6 +340,9 @@ FK-ids plus snapshots only, no cross-module ORM relations · tenant and organiza
 Implemented on `feat/eudr-compliance-module` across five delivery batches (see Changelog). Full validation gate green (`build:packages`, `generate`, `i18n:check-sync`, `i18n:check-usage`, `typecheck`, `test`, `build:app`). Unit suites green across eudr and the touched notifications module. Integration specs TC-EUDR-001…017 pass against fresh ephemeral environments (017 added in Batch 5; run against a live environment before merge).
 
 ## Changelog
+
+### 2026-11-15 — Fix: serialize update custom fields with undo (#9562, #9131)
+The six forward-update/undo pairs now keep row and custom-field writes under a shared parent-row transaction boundary. Real PostgreSQL regressions pause an undo reset against a custom-field-only contender and verify complete rollback/retry after a custom reset failure. Both new cases fail on the prior implementation; all eight PostgreSQL cases pass with the repair. API shapes, schema, identifiers and create/delete undo behavior are unchanged.
 
 ### 2026-11-10 — Fix: update undos refuse to overwrite later edits (#9128, PR #9129)
 The six update undos lock the row, compare it with the logged `after` snapshot and return `409 eudr.errors.undoConflict` when it changed, was soft-deleted, or the log has no `after` snapshot. See Migration & Backward Compatibility for the comparison rules, upgrade guidance and tests.

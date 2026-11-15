@@ -11,6 +11,9 @@ final: reload the record and re-apply the wanted change by hand. Do not retry th
 same stale undo automatically. Edits lost to earlier undos are not recovered.
 
 Undoing an evidence-submission update also recomputes its completeness score.
+Forward updates and update undos now keep entity and custom-field writes in the
+same parent-row transaction. Custom-field-only updates wait for an in-flight undo;
+a failed reset rolls back both the row and its custom values before retry.
 Own updates can still be undone newest first when their recorded content matches;
 create/delete undos and forward commands are unchanged. No database migration,
 configuration change, route, event or response-field migration is needed for this
