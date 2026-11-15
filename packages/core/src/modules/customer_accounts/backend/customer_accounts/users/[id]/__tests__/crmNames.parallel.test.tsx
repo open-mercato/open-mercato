@@ -88,8 +88,16 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
+// `t` must be a stable reference across renders, like the real `useT()`
+// (which returns the memoized I18n context translator). A mock that builds
+// a fresh closure on every call makes `t` a new value each render, which
+// retriggers any load effect with `t` in its dependency array
+// (`PortalUserDetailPageClient`'s `[id, t]` effect) on every render and
+// never lets the component settle on "Loading user...".
+const mockTranslate = (_key: string, fallback?: string) => fallback ?? ''
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? '',
+  useT: () => mockTranslate,
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
