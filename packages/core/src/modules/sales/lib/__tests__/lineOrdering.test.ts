@@ -66,6 +66,47 @@ describe('resequenceLinesForUpsert', () => {
     expect(orderOf(stored)).toBe('a=1,b=2,c=3')
   })
 
+  it('keeps a non-contiguous stored order when the target echoes the stored number', () => {
+    const result = resequenceLinesForUpsert(
+      lines(['a', 10], ['b', 20], ['c', 30]),
+      'b',
+      20,
+      20,
+    )
+    expect(orderOf(result)).toBe('a=1,b=2,c=3')
+  })
+
+  it('keeps duplicate legacy numbers in their stored order when the target echoes them', () => {
+    const result = resequenceLinesForUpsert(
+      lines(['a', 5], ['b', 5], ['c', 10]),
+      'b',
+      5,
+      5,
+    )
+    expect(orderOf(result)).toBe('a=1,b=2,c=3')
+  })
+
+  it('still moves a line whose non-contiguous stored number differs from the target', () => {
+    const result = resequenceLinesForUpsert(
+      lines(['a', 10], ['b', 20], ['c', 30]),
+      'a',
+      3,
+      10,
+    )
+    expect(orderOf(result)).toBe('b=1,c=2,a=3')
+  })
+
+  it('inserts a new line at the target even when its number matches the target', () => {
+    const stored = lines(['a', 1], ['b', 2], ['c', 3])
+    const result = resequenceLinesForUpsert(
+      [...stored, { id: 'new', lineNumber: 2 }],
+      'new',
+      2,
+      null,
+    )
+    expect(orderOf(result)).toBe('a=1,new=2,b=3,c=4')
+  })
+
   it('converges in a single pass over every line of a reordered document', () => {
     const target = ['a', 'b', 'c', 'd']
     let current: TestLine[] = lines(['a', 1], ['c', 2], ['b', 3], ['d', 4])

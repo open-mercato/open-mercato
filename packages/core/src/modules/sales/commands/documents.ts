@@ -8168,6 +8168,7 @@ const orderLineUpsertCommand: CommandHandler<
         mergedLines,
         lineId,
         parsed.lineNumber ?? null,
+        existingSnapshot?.lineNumber ?? null,
       );
 
       const sourceInputs = nextLines.map((line, index) => ({
@@ -8834,6 +8835,7 @@ const quoteLineUpsertCommand: CommandHandler<
         mergedLines,
         lineId,
         parsed.lineNumber ?? null,
+        existingSnapshot?.lineNumber ?? null,
       );
 
       const sourceInputs = nextLines.map((line, index) => ({

@@ -11,9 +11,25 @@
  * changing.
  */
 
-import { createContainer, asValue, InjectionMode } from 'awilix'
+import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { SalesOrder, SalesQuote } from '../../data/entities'
+
+type FakeLine = {
+  id: string
+  name: string
+  lineNumber: number
+  [key: string]: unknown
+}
+
+type ReorderWorld = {
+  documentClass: unknown
+  lineEntityName: string
+  document: Record<string, unknown>
+  lines: FakeLine[]
+}
+
+let mockWorld: ReorderWorld | null = null
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -30,8 +46,8 @@ jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (_em: unknown, entityClass: unknown) => {
-    const world = (globalThis as any).__lineReorderWorld
-    return entityClass === world.documentClass ? world.document : null
+    const world = mockWorld
+    return entityClass === world?.documentClass ? world.document : null
   }),
   findWithDecryption: jest.fn(async () => []),
 }))
@@ -77,13 +93,6 @@ const DOCUMENT_CASES: DocumentCase[] = [
   },
 ]
 
-type FakeLine = {
-  id: string
-  name: string
-  lineNumber: number
-  [key: string]: unknown
-}
-
 function makeLine(name: string, lineNumber: number): FakeLine {
   return {
     id: LINE_IDS[name],
@@ -118,7 +127,7 @@ function setWorld(documentCase: DocumentCase, stored: Array<[string, number]>): 
   const lines = stored
     .map(([name, lineNumber]) => makeLine(name, lineNumber))
     .sort((a, b) => a.lineNumber - b.lineNumber)
-  ;(globalThis as any).__lineReorderWorld = {
+  mockWorld = {
     documentClass: documentCase.documentClass,
     lineEntityName: documentCase.lineEntityName,
     document: {
@@ -135,35 +144,84 @@ function setWorld(documentCase: DocumentCase, stored: Array<[string, number]>): 
   }
 }
 
-function makeEm() {
-  const world = () => (globalThis as any).__lineReorderWorld
-  const em: any = {
-    fork: function () {
-      return this
-    },
-    transactional: async (cb: (tx: unknown) => Promise<unknown>) => cb(em),
-    begin: jest.fn(async () => {}),
-    commit: jest.fn(async () => {}),
-    rollback: jest.fn(async () => {}),
-    find: jest.fn(async (entityClass: unknown) => {
+function requireWorld(): ReorderWorld {
+  if (!mockWorld) throw new Error('[internal] line-reorder test world is not set')
+  return mockWorld
+}
+
+type LockQueryBuilder = {
+  selectFrom: (table: string) => LockQueryBuilder
+  select: (column: string) => LockQueryBuilder
+  where: (column: string, operator: string, value: unknown) => LockQueryBuilder
+  forNoKeyUpdate: () => LockQueryBuilder
+  executeTakeFirst: () => Promise<{ id: string } | undefined>
+}
+
+function makeLockQuery(): LockQueryBuilder {
+  const builder: LockQueryBuilder = {
+    selectFrom: () => builder,
+    select: () => builder,
+    where: () => builder,
+    forNoKeyUpdate: () => builder,
+    executeTakeFirst: async () => ({ id: DOCUMENT_ID }),
+  }
+  return builder
+}
+
+type FakeEntityManager = {
+  fork: () => FakeEntityManager
+  transactional: <T>(callback: (tx: FakeEntityManager) => Promise<T>) => Promise<T>
+  begin: () => Promise<void>
+  commit: () => Promise<void>
+  rollback: () => Promise<void>
+  clear: () => void
+  isInTransaction: () => boolean
+  getKysely: () => LockQueryBuilder
+  find: (
+    entityClass: unknown,
+    where?: unknown,
+    options?: unknown,
+  ) => Promise<unknown[]>
+  findOne: () => Promise<null>
+  count: () => Promise<number>
+  create: (entity: unknown, data: Record<string, unknown>) => Record<string, unknown>
+  persist: (entity: FakeLine) => void
+  remove: (entity: FakeLine) => void
+  flush: () => Promise<void>
+  getReference: (entity: unknown, id: string) => { id: string }
+  getConnection: () => { execute: () => Promise<Array<{ value: number }>> }
+}
+
+function makeEm(): FakeEntityManager {
+  const em: FakeEntityManager = {
+    fork: () => em,
+    transactional: async (callback) => callback(em),
+    begin: async () => {},
+    commit: async () => {},
+    rollback: async () => {},
+    clear: () => {},
+    isInTransaction: () => true,
+    getKysely: () => makeLockQuery(),
+    find: async (entityClass) => {
+      const world = requireWorld()
       const entityName = (entityClass as { name?: string })?.name ?? ''
-      if (entityName === world().lineEntityName) return world().lines
+      if (entityName === world.lineEntityName) return world.lines
       return []
-    }),
-    findOne: jest.fn(async () => null),
-    count: jest.fn(async () => 0),
-    create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
-    persist: jest.fn((entity: FakeLine) => {
-      const lines = world().lines as FakeLine[]
-      if (!lines.some((line) => line.id === entity.id)) lines.push(entity)
-    }),
-    remove: jest.fn((entity: FakeLine) => {
-      const current = world()
-      current.lines = (current.lines as FakeLine[]).filter((line) => line.id !== entity.id)
-    }),
-    flush: jest.fn(async () => {}),
-    getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
-    getConnection: () => ({ execute: jest.fn(async () => [{ value: 1 }]) }),
+    },
+    findOne: async () => null,
+    count: async () => 0,
+    create: (_entity, data) => ({ ...data }),
+    persist: (entity) => {
+      const world = requireWorld()
+      if (!world.lines.some((line) => line.id === entity.id)) world.lines.push(entity)
+    },
+    remove: (entity) => {
+      const world = requireWorld()
+      world.lines = world.lines.filter((line) => line.id !== entity.id)
+    },
+    flush: async () => {},
+    getReference: (_entity, id) => ({ id }),
+    getConnection: () => ({ execute: async () => [{ value: 1 }] }),
   }
   return em
 }
@@ -196,7 +254,8 @@ async function upsertLine(
   documentCase: DocumentCase,
   overrides: Record<string, unknown>,
 ): Promise<void> {
-  const handler = commandRegistry.get(documentCase.commandId)!
+  const handler = commandRegistry.get(documentCase.commandId)
+  if (!handler) throw new Error('[internal] sales line-upsert command is not registered')
   const input = {
     body: {
       [documentCase.documentIdKey]: DOCUMENT_ID,
@@ -215,8 +274,8 @@ async function upsertLine(
 }
 
 const storedOrder = (): string =>
-  ((globalThis as any).__lineReorderWorld.lines as FakeLine[])
-    .slice()
+  requireWorld()
+    .lines.slice()
     .sort((a, b) => a.lineNumber - b.lineNumber)
     .map((line) => `${line.name}=${line.lineNumber}`)
     .join(',')
@@ -228,7 +287,7 @@ beforeAll(async () => {
 
 describe.each(DOCUMENT_CASES)('$label line reordering', (documentCase) => {
   afterEach(() => {
-    delete (globalThis as any).__lineReorderWorld
+    mockWorld = null
   })
 
   it('reaches the target order in one pass over the lines', async () => {
@@ -285,5 +344,23 @@ describe.each(DOCUMENT_CASES)('$label line reordering', (documentCase) => {
     setWorld(documentCase, [['A', 1], ['C', 2], ['B', 3], ['D', 4]])
     await upsertLine(documentCase, { id: LINE_IDS.B, name: 'B', quantity: 5 })
     expect(storedOrder()).toBe('A=1,C=2,B=3,D=4')
+  })
+
+  it('keeps a non-contiguous stored order when an edit echoes the stored number', async () => {
+    setWorld(documentCase, [['A', 10], ['B', 20], ['C', 30]])
+    await upsertLine(documentCase, { id: LINE_IDS.B, name: 'B', lineNumber: 20 })
+    expect(storedOrder()).toBe('A=1,B=2,C=3')
+  })
+
+  it('keeps duplicate legacy numbers in their stored order when an edit echoes them', async () => {
+    setWorld(documentCase, [['A', 5], ['B', 5], ['C', 10]])
+    await upsertLine(documentCase, { id: LINE_IDS.B, name: 'B', lineNumber: 5 })
+    expect(storedOrder()).toBe('A=1,B=2,C=3')
+  })
+
+  it('still moves a line whose non-contiguous stored number differs from the request', async () => {
+    setWorld(documentCase, [['A', 10], ['B', 20], ['C', 30]])
+    await upsertLine(documentCase, { id: LINE_IDS.A, name: 'A', lineNumber: 3 })
+    expect(storedOrder()).toBe('B=1,C=2,A=3')
   })
 })

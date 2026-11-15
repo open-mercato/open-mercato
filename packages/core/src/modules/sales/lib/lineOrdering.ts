@@ -25,15 +25,27 @@ function sortByLineNumber<T extends OrderableDocumentLine>(lines: readonly T[]):
  *
  * `null` means the caller did not ask for a position, and the stored numbers
  * stay the ordering.
+ *
+ * `storedLineNumber` is the upserted line's number *before* this call (`null`
+ * when the line is new). A document created with non-contiguous numbers — the
+ * accepted `10/20/30` — round-trips a record's current `lineNumber` on every
+ * ordinary edit, and that value names a stored number, not an ordinal position.
+ * Reading it as a position clamped `20` to the third slot and returned
+ * `a=1,c=2,b=3`; when the requested value equals the stored one the current
+ * order is kept instead.
  */
 export function resequenceLinesForUpsert<T extends OrderableDocumentLine>(
   lines: readonly T[],
   upsertedLineId: string,
   targetLineNumber: number | null,
+  storedLineNumber: number | null = null,
 ): T[] {
   if (targetLineNumber == null) return renumber(sortByLineNumber(lines))
   const upsertedLine = lines.find((line) => line.id === upsertedLineId)
   if (!upsertedLine) return renumber(sortByLineNumber(lines))
+  if (storedLineNumber != null && targetLineNumber === storedLineNumber) {
+    return renumber(sortByLineNumber(lines))
+  }
   const others = sortByLineNumber(lines.filter((line) => line.id !== upsertedLineId))
   const targetIndex = Math.min(Math.max(targetLineNumber, 1), others.length + 1) - 1
   others.splice(targetIndex, 0, upsertedLine)
