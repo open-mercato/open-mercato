@@ -1,0 +1,66 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Studio: test the draft</title><style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,sans-serif;font-size:13px;color:#262626;background:#fff}
+.top{background:#f5f5f5;border-bottom:1px solid #e5e5e5;padding:10px 24px;display:flex;justify-content:space-between;font-size:12px;color:#525252}
+.top b{color:#171717}
+.wrap{display:grid;grid-template-columns:1fr 380px;min-height:calc(100vh - 38px)}
+.frame{padding:20px 24px;border-right:1px solid #e5e5e5}
+.app{border:1px solid #d4d4d4;border-radius:10px;overflow:hidden;background:#fff}
+.bar{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid #e5e5e5;background:#fafafa;color:#737373;font-size:12px}
+.body{display:grid;grid-template-columns:150px 1fr}
+.side{background:#fafafa;border-right:1px solid #e5e5e5;padding:12px 10px;color:#737373;font-size:12px;min-height:300px}
+.side .h{font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 4px;color:#a3a3a3}
+.side .i{padding:4px 6px;border-radius:5px}.side .on{background:#e9e9e9;color:#171717}
+.page{padding:16px 18px}
+.over{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#737373}
+h1{font-size:18px;margin:2px 0 4px}.muted{color:#737373}.small{font-size:11px}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.btn{display:inline-block;position:relative;border:1px solid #d4d4d4;border-radius:7px;padding:5px 10px;font-weight:600;background:#fff;margin-left:8px;font-size:12px}
+.mb{position:absolute;top:-9px;right:-9px;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#e11d48;color:#fff;font-size:10.5px;font-weight:700}
+.dash.row>div:last-child,.row>span:last-child{white-space:nowrap}
+.btn.p{background:#171717;color:#fff;border-color:#171717}.btn.dis{background:#f5f5f5;border-color:#e5e5e5;color:#a3a3a3}.btn.p.dis{background:#d4d4d4;border-color:#d4d4d4;color:#fff}
+.tabs{display:flex;gap:16px;border-bottom:1px solid #e5e5e5;margin:10px 0 12px;font-size:12px;color:#737373;font-weight:600}
+.tabs span{padding:6px 0}.tabs .on{color:#171717;border-bottom:2px solid #171717}
+.card{border:1px solid #e5e5e5;border-radius:9px;padding:12px 14px;margin-bottom:10px;background:#fff}
+.card h3{margin:0 0 8px;font-size:13px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.g3{display:grid;grid-template-columns:1.2fr 1fr;gap:12px}
+.lbl{font-weight:600;margin:8px 0 4px;font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}.chip{border:1px solid #d4d4d4;border-radius:6px;padding:3px 8px;font-size:12px;white-space:nowrap}
+.chip.sel{border:1.5px solid #171717;background:#f5f5f5;font-weight:600}.chip.off{color:#a3a3a3;background:#fafafa;text-decoration:line-through}
+.in{border:1px solid #d4d4d4;border-radius:6px;padding:5px 8px;font-size:12px;background:#fff}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+.hint{font-size:11px;color:#737373;margin-top:3px}
+.cond{border-left:3px solid #a5b4fc;padding-left:8px;margin-top:8px}
+.forced{border-left:3px solid #818cf8;padding-left:8px;margin-top:8px}
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;border:1px solid}
+.badge:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.ok{background:#f0fdf4;color:#14532d;border-color:#bbf7d0}.warn{background:#fffbeb;color:#78350f;border-color:#fde68a}
+.err{background:#fef2f2;color:#7f1d1d;border-color:#fecaca}.info{background:#eef2ff;color:#312e81;border-color:#c7d2fe}.neu{background:#f5f5f5;color:#404040;border-color:#e5e5e5}
+.msg{border-radius:7px;padding:6px 9px;margin-bottom:6px;font-size:12px;border:1px solid}
+table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#737373;border-bottom:1px solid #e5e5e5;padding:5px 4px;background:#fafafa}
+td{border-bottom:1px solid #f0f0f0;padding:6px 4px;vertical-align:top}.r{text-align:right;font-variant-numeric:tabular-nums}
+.tot{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid #e5e5e5;margin-top:8px;padding-top:8px}.tot b{font-size:18px}
+.m{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#e11d48;color:#fff;font-size:10.5px;font-weight:700;margin:0 4px;vertical-align:1px;flex:none}
+.legend{padding:20px 22px;background:#fafafa}
+.legend h2{font-size:15px;margin:0 0 4px}.legend .sub{color:#737373;margin-bottom:14px;font-size:12px}
+.note{display:flex;gap:8px;margin-bottom:11px;line-height:1.45}.note b{display:block}
+.flowbox{border:1px solid #d4d4d4;border-radius:9px;padding:10px 12px;background:#fff}
+.overlay{position:relative}.scrim{position:absolute;inset:0;background:rgba(23,23,23,.28);border-radius:10px}
+.dialog{position:absolute;background:#fff;border:1px solid #d4d4d4;border-radius:11px;box-shadow:0 14px 34px rgba(0,0,0,.18);padding:14px 16px}
+.row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.dash{border:1px dashed #d4d4d4;border-radius:9px;padding:10px 12px}
+.strike{text-decoration:line-through;color:#a3a3a3}
+.lock{background:#fafafa;color:#a3a3a3}
+.state{margin:16px 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#737373;font-weight:700}
+.toast{display:inline-block;border:1px solid #bbf7d0;background:#f0fdf4;color:#14532d;border-radius:8px;padding:6px 10px;font-size:12px}
+</style></head><body>
+<div class="top"><span><b>Product Configurator spec</b> &middot; UX wireframe &middot; Studio: test the draft</span><span>Low fidelity: shows flow and states, not visual design. Final UI uses the Open Mercato design system.</span></div>
+<div class="wrap"><div class="frame"><div class="app"><div class="bar"><span>&#8962; &rsaquo; Models &rsaquo; Telescopic loader TL-500</span><span>Org: Green Valley Demo &#9662; &nbsp; &#9881; &nbsp; &#9787;</span></div>
+<div class="body"><div class="side"><div class="i ">Dashboard</div><div class="h">Customers</div><div class="i">Companies</div><div class="i">People</div><div class="h">Sales</div><div class="i">Create sales document</div><div class="i ">Orders</div><div class="i ">Quotes</div><div class="h">Catalog</div><div class="i">Products</div><div class="h">Product configurator</div><div class="i on">Models</div></div><div class="page"><div class="hd"><div><h1>Telescopic loader TL-500</h1><span class="badge ok">Published v4</span> <span class="badge warn">Unpublished changes</span><div class="muted small" style="margin-top:4px">Key tl-500 &middot; EUR &middot; Base price list &middot; Product: Telescopic loader TL-500</div></div><div><span class="btn dis">Save draft</span><span class="btn">Validate</span><span class="btn p">Publish</span><div class="hint">No unsaved changes.</div></div></div>
+<div class="tabs"><span class="">Overview</span><span class="">Features</span><span class="">Formulas</span><span class="">Lookups</span><span class="">Rules</span><span class="">BOM</span><span class="">Dependencies</span><span class="on">Test</span><span class="">Advanced (JSON)</span></div>
+<div class="msg info">Testing the saved draft (not published). No configuration is saved and nothing is added to any quote. <span class="m">1</span></div>
+<div class="card"><div class="row" style="justify-content:flex-start;gap:10px;align-items:end"><div><div class="lbl">Channel <span class="m">2</span></div><div class="in">Dealer network &#9662;</div></div><div><div class="lbl">Customer</div><div class="in">Green Valley Farms Ltd. &#9662;</div></div><div><div class="lbl">Price date</div><div class="in">27 Oct 2026</div></div><span class="muted small">or <u>use reference context</u></span></div></div>
+<div class="g3"><div class="card"><h3>Choices</h3><div class="lbl">Engine power</div><div class="chips"><span class="chip">&#9675; 75 kW</span><span class="chip">&#9675; 100 kW</span><span class="chip sel">&#9673; 120 kW</span></div>
+<div class="lbl">Lift height (m)</div><div class="in">10.0</div><div class="lbl">Attachment</div><div class="chips"><span class="chip sel">&#9673; Bucket 1.5 m&sup3;</span><span class="chip">&#9675; Pallet forks</span><span class="chip">&#9675; Bale grab</span></div><div class="hint">Excerpt of the same workspace reps use (all groups, BOM and locked values are there too). <span class="m">3</span></div></div>
+<div><div class="card"><div class="over">Net price (EUR), Dealer network</div><b style="font-size:20px">81,822.50</b><div class="hint">Catalog prices for this context; saved draft definition.</div></div>
+<div class="card"><h3>Messages</h3><div class="msg warn">Agricultural tyres limit road speed to 30 km/h.</div><div class="hint">Rules that fired: Quick hitch for bucket (TL-HITCH-002), Road speed limit (TL-TYRE-007) <span class="m">4</span></div></div></div></div></div></div></div></div>
+<aside class="legend"><h2>Studio: test the draft</h2><div class="sub">Admin tries the saved draft with real choices and a pricing context before publishing. Nothing reaches a quote.</div><div class="note"><span class="m">1</span><div><b>Safe test</b>Runs the saved draft through the same evaluator; no session, no snapshot, no quote line. With unsaved edits the banner says the test uses the saved draft.</div></div><div class="note"><span class="m">2</span><div><b>Pricing context</b>Pick channel, customer and date so prices match what a rep would see, or the reference context: the model price kind, no channel, no customer, today.</div></div><div class="note"><span class="m">3</span><div><b>Same workspace</b>Admins test exactly what reps will use, including disabled options and locked values.</div></div><div class="note"><span class="m">4</span><div><b>Rule trace</b>For admins only: the preview response lists the rules that fired (blocks, warnings, set values, surcharges) with names and ids.</div></div></aside></div></body></html>

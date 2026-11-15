@@ -14,6 +14,8 @@
   "notifications.delivery.settings.invalid": "잘못된 전달 설정입니다",
   "notifications.empty": "알림 없음",
   "notifications.error.action": "작업을 실행하지 못했습니다",
+  "notifications.error.actionCommandNotAllowed": "API로 생성한 알림 작업은 명령을 실행할 수 없습니다",
+  "notifications.error.actionForbidden": "이 알림 작업을 실행할 권한이 없습니다",
   "notifications.error.load": "알림을 불러오지 못했습니다",
   "notifications.filters.actionRequired": "조치 필요",
   "notifications.filters.all": "전체",

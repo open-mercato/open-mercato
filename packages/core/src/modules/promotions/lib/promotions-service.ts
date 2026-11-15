@@ -1,3 +1,4 @@
+import { TransactionContext } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { computeProductScopeKeys, PRODUCT_SCOPE_CATEGORY_PREFIX } from '@open-mercato/core/modules/catalog/lib/productScopeKeys'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
@@ -91,9 +92,10 @@ function resolvePromotionsServiceScope(container: PromotionsServiceContainer): P
 }
 
 function resolvePromotionsEm(container: PromotionsServiceContainer): EntityManager {
-  // Same fork-on-resolve precedent as `services/promotion-cache.ts`'s
-  // `resolvePromotionEm` / `commands/promotions.ts`'s command handlers.
-  return container.resolve<EntityManager>('em').fork()
+  const registeredEm = container.resolve<EntityManager>('em')
+  const contextualEm = TransactionContext.getEntityManager(registeredEm.name) as EntityManager | undefined
+  const em = contextualEm && contextualEm.getDriver() === registeredEm.getDriver() ? contextualEm : registeredEm
+  return em.fork({ keepTransactionContext: true, disableContextResolution: Boolean(contextualEm && contextualEm !== em) })
 }
 
 // Step 6.2's five code-service methods need the full `auth` (not just tenant/org scope)
@@ -150,6 +152,14 @@ function resolvePromotionCodeService(container: PromotionsServiceContainer): Pro
   return container.resolve<PromotionCodeService>('promotionCodeService')
 }
 
+function isCatalogAvailable(container: PromotionsServiceContainer): boolean {
+  try {
+    return Boolean(container.resolve('catalogScopedProductService'))
+  } catch {
+    return false
+  }
+}
+
 // D-R4-21/C11 batch category resolution — reuses `catalog`'s own `computeProductScopeKeys`
 // exactly (the same function catalog's search-index enricher uses for "category
 // membership including ancestors"), then narrows its combined `cat:<id>`/`tag:<id>` key
@@ -162,7 +172,7 @@ async function resolveCategoryIdsForProducts(
   scope: PromotionsServiceScope,
 ): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>()
-  if (productIds.length === 0) return result
+  if (productIds.length === 0 || !isCatalogAvailable(container)) return result
   const em = resolvePromotionsEm(container)
   const db = em.getKysely<any>()
   const scopeKeys = await computeProductScopeKeys(db, productIds, scope)

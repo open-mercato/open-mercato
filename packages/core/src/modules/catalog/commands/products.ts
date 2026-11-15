@@ -402,12 +402,14 @@ async function resolveScopedTaxRate(
   if (!taxRateId) {
     return { taxRateId: null, taxRate: normalizedRate };
   }
-  const record = await findOneWithDecryption(em, SalesTaxRate, {
-    id: taxRateId,
-    organizationId,
-    tenantId,
-    deletedAt: null,
-  });
+  const record = em.getMetadata().has(SalesTaxRate)
+    ? await findOneWithDecryption(em, SalesTaxRate, {
+        id: taxRateId,
+        organizationId,
+        tenantId,
+        deletedAt: null,
+      })
+    : null;
   if (!record) {
     const { translate } = await resolveTranslations();
     throw new CrudHttpError(400, {
@@ -688,6 +690,7 @@ function ensureSchemaName(
 
 async function assignOptionSchemaTemplate(
   em: EntityManager,
+  lookupEm: EntityManager,
   product: CatalogProduct,
   schema: CatalogProductOptionSchema,
   preferredName?: string | null,
@@ -703,7 +706,7 @@ async function assignOptionSchemaTemplate(
   });
   let template = product.optionSchemaTemplate ?? null;
   if (!template) {
-    template = await em.findOne(CatalogOptionSchemaTemplate, {
+    template = await lookupEm.findOne(CatalogOptionSchemaTemplate, {
       organizationId: product.organizationId,
       tenantId: product.tenantId,
       code: templateCode,
@@ -1607,6 +1610,7 @@ const createProductCommand: CommandHandler<
     } else if (optionSchemaDefinition) {
       optionSchemaTemplate = await assignOptionSchemaTemplate(
         em,
+        em,
         record,
         optionSchemaDefinition,
         optionSchemaDefinition.name ?? parsed.title,
@@ -2029,6 +2033,7 @@ const updateProductCommand: CommandHandler<
     if (optionSchemaDefinition) {
       await assignOptionSchemaTemplate(
         em,
+        lookupEm,
         record,
         optionSchemaDefinition,
         optionSchemaDefinition.name ?? parsed.title ?? record.title,

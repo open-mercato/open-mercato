@@ -1,3 +1,4 @@
+import { redactRestoredNextInteractionName } from '../lib/interactionProjection'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -12,7 +13,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerAddress,
   CustomerComment,
@@ -53,6 +54,7 @@ import {
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
+  shouldBumpOptimisticLockVersion,
   emitQueryIndexDeleteEvents,
   emitQueryIndexUpsertEvents,
   type QueryIndexEventEntry,
@@ -67,6 +69,7 @@ import { E } from '#generated/entities.ids.generated'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CUSTOMER_ENTITY_ID, resolveCompanyCustomFieldRouting } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { reviveSnapshotDates } from '@open-mercato/shared/lib/commands/undo'
@@ -138,8 +141,11 @@ type CompanyAddressSnapshot = {
   id: string
   name: string | null
   purpose: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -359,8 +365,11 @@ async function loadCompanySnapshot(
       id: address.id,
       name: address.name ?? null,
       purpose: address.purpose ?? null,
+      companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,
@@ -504,6 +513,15 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const organization = await findOneWithDecryption(
+      em,
+      Organization,
+      { id: parsed.organizationId, tenant: parsed.tenantId, deletedAt: null },
+      { fields: ['id'] },
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
+    if (!organization) throw forbidden()
+
     const nextInteractionName = parsed.nextInteraction?.name ? parsed.nextInteraction.name.trim() : null
     const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
     const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
@@ -636,6 +654,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       entity: reviveSnapshotDates(redoSnapshot.entity, ['nextInteractionAt']),
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, after.entity)
     let entity = await findOneWithDecryption(
       em,
       CustomerEntity,
@@ -805,15 +824,11 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
           profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
         }
 
-        // Profile columns and custom fields live outside CustomerEntity, so a save
-        // that only touches them never dirties the entity and its `updated_at` (the
-        // optimistic-lock version) would stay put — letting a stale second tab
-        // overwrite the change without a 409 (#7033). Bump it explicitly.
         const profileFieldsUpdated = [
           parsed.legalName, parsed.brandName, parsed.domain, parsed.websiteUrl,
           parsed.industry, parsed.sizeBucket, parsed.annualRevenue,
         ].some((value) => value !== undefined)
-        if (profileFieldsUpdated || Object.keys(custom).length > 0) {
+        if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
         }
       },
@@ -874,6 +889,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, before.entity)
     let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
     if (!entity) {
       entity = em.create(CustomerEntity, {
@@ -1208,6 +1224,7 @@ const deleteCompanyCommand: CommandHandler<
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
+      await redactRestoredNextInteractionName(em, before.entity)
       let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
       if (!entity) {
         entity = em.create(CustomerEntity, {
@@ -1387,8 +1404,11 @@ const deleteCompanyCommand: CommandHandler<
               entity,
               name: address.name,
               purpose: address.purpose,
+              companyName: address.companyName ?? null,
               addressLine1: address.addressLine1,
               addressLine2: address.addressLine2,
+              buildingNumber: address.buildingNumber ?? null,
+              flatNumber: address.flatNumber ?? null,
               city: address.city,
               region: address.region,
               postalCode: address.postalCode,

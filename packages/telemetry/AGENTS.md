@@ -25,7 +25,12 @@ off by default. Spec:
 - Emit spans from packages that must not depend on this one via
   `withTelemetrySpan` / `captureTelemetryTrace` from
   `@open-mercato/shared/lib/telemetry/runtime`, never a direct import.
-- Use semantic-convention metric/attribute names when available.
+- Use semantic-convention metric/attribute names when available, unless an
+  auto-instrumentation the OTLP provider registers already emits that name
+  (`PgInstrumentation` owns `db.client.connection.*`); use `om.*` then, since
+  two instruments must never share a name.
+- Keep the built-in metric names, units, and fixed labels synchronized with the
+  catalog in `packages/telemetry/README.md`.
 - Keep metric labels low-cardinality. Tenant, organization, and user IDs belong
   on span attributes, never metric labels.
 - Apply redaction at the provider boundary as well as at facade call sites.
@@ -106,6 +111,8 @@ host/queue shared runtime bridge ── absent while off
 - `src/provider/*`: noop/console/OTLP providers and global provider registry.
 - `src/init.ts`: explicit-enabled initialization and process-wide bridge
   registration.
+- `src/runtime-metrics.ts`: enabled-only process sampler and the single
+  interval that invokes shared periodic metric collectors.
 - `src/nextjs-config.ts`: build-time constants only; no runtime imports.
 - `src/nextjs.ts`: enabled runtime helper.
 - `src/browser/*`: browser RUM. `config.ts` (shared, env-free contract) and
