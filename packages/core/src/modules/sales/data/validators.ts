@@ -982,6 +982,8 @@ export const returnDeleteSchema = scoped.extend({
 
 export const INVOICE_NEGATIVE_LINE_TOTALS_REQUIRED_MESSAGE_KEY = 'sales.invoices.errors.negativeLineTotalsRequired'
 export const INVOICE_NEGATIVE_NET_POSITIVE_GROSS_MESSAGE_KEY = 'sales.invoices.errors.negativeNetPositiveGross'
+export const INVOICE_REPLACE_LINES_REQUIRES_LINES_MESSAGE_KEY = 'sales.invoices.errors.replaceLinesRequiresLines'
+export const INVOICE_REPLACE_LINES_REQUIRES_TOTALS_MESSAGE_KEY = 'sales.invoices.errors.replaceLinesRequiresTotals'
 
 /**
  * Invoice line amounts that may be negative. Invoices are caller-asserted records:
@@ -1081,6 +1083,45 @@ export const invoiceUpdateSchema = z
     id: uuid(),
   })
   .merge(invoiceCreateSchema.partial())
+  .extend({
+    // Only `true` replaces the lines. Any other value used to be stripped and
+    // accepted, so it keeps passing and leaves the lines alone (no narrowing).
+    replaceLines: z.unknown().optional(),
+  })
+
+/** Header totals a line replacement must send, because nothing recomputes them. */
+export const INVOICE_REPLACE_LINES_REQUIRED_TOTAL_KEYS = [
+  'subtotalNetAmount',
+  'subtotalGrossAmount',
+  'taxTotalAmount',
+  'grandTotalNetAmount',
+  'grandTotalGrossAmount',
+] as const
+
+/**
+ * Refined invoice update input used by the route and the command. It is kept
+ * separate from `invoiceUpdateSchema` so the exported schema stays unrefined and
+ * its `.partial()` / `.extend()` keep working for consumers.
+ */
+export const invoiceUpdateInputSchema = invoiceUpdateSchema.superRefine((input, ctx) => {
+  if (input.replaceLines !== true) return
+  if (!input.lines || input.lines.length === 0) {
+    ctx.addIssue({
+      code: 'custom',
+      message: INVOICE_REPLACE_LINES_REQUIRES_LINES_MESSAGE_KEY,
+      path: ['lines'],
+    })
+  }
+  for (const key of INVOICE_REPLACE_LINES_REQUIRED_TOTAL_KEYS) {
+    if (input[key] === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: INVOICE_REPLACE_LINES_REQUIRES_TOTALS_MESSAGE_KEY,
+        path: [key],
+      })
+    }
+  }
+})
 
 export const creditMemoCreateSchema = scoped.extend({
   orderId: uuid().optional(),

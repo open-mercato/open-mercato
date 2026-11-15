@@ -1275,6 +1275,8 @@
   "sales.errors.unauthorized": "Nicht autorisiert",
   "sales.invoices.errors.negativeLineTotalsRequired": "Eine Rechnungsposition mit einem negativen Betrag muss Netto- und Bruttosumme enthalten.",
   "sales.invoices.errors.negativeNetPositiveGross": "Eine Rechnungsposition mit einem negativen Betrag darf bei positiver Bruttosumme keine Nettosumme von null oder weniger haben.",
+  "sales.invoices.errors.replaceLinesRequiresLines": "Zum Ersetzen der Rechnungspositionen ist mindestens eine Position erforderlich.",
+  "sales.invoices.errors.replaceLinesRequiresTotals": "Zum Ersetzen der Rechnungspositionen sind Zwischensummen, Steuer und Gesamtsummen erforderlich.",
   "sales.messageObjects.notFound": "Nicht gefunden",
   "sales.messageObjects.order.title": "Bestellung",
   "sales.messageObjects.quote.title": "Angebot",

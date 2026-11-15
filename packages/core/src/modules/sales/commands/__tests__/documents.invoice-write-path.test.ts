@@ -538,6 +538,114 @@ describe('sales invoice write path (#7336)', () => {
       expect(state.invoice?.invoiceNumber).toBe('INV-1')
     })
 
+    it('leaves the old header and lines when a replaceLines update fails', async () => {
+      const state = baseState()
+      const em = makeFakeEm(state)
+      const { ctx } = makeCtx(em)
+      failNextCustomFieldWrite = true
+
+      await expect(
+        handler('sales.invoices.update').execute(
+          {
+            ...updateScope,
+            replaceLines: true,
+            lines: [{ quantity: 5, currencyCode: 'EUR', totalNetAmount: 5, totalGrossAmount: 5 }],
+            subtotalNetAmount: 5,
+            subtotalGrossAmount: 5,
+            taxTotalAmount: 0,
+            grandTotalNetAmount: 5,
+            grandTotalGrossAmount: 5,
+            customFields: { amount: 'x' },
+          } as never,
+          ctx,
+        ),
+      ).rejects.toThrow('custom field value cannot be stored')
+
+      expect(em.calls.rollbacks).toBe(1)
+      expect(state.lines).toEqual([makeLine()])
+      expect(state.invoice?.grandTotalGrossAmount).toBe('123')
+    })
+
+    it('leaves the lines alone with replaceLines: false', async () => {
+      const state = baseState()
+      const em = makeFakeEm(state)
+      const { ctx } = makeCtx(em)
+
+      await runUpdate({ ...updateScope, replaceLines: false, lines: [{ quantity: 9, currencyCode: 'EUR' }] }, ctx)
+
+      expect(em.calls.lineDeletes).toBe(0)
+      expect(state.lines).toEqual([makeLine()])
+    })
+
+    it('replaces every line with replaceLines and removes the old lines from the index', async () => {
+      const state = baseState()
+      const em = makeFakeEm(state)
+      const { ctx, markOrmEntityChange } = makeCtx(em)
+
+      const { log } = await runUpdate(
+        {
+          ...updateScope,
+          replaceLines: true,
+          lines: [
+            { quantity: 1, currencyCode: 'EUR', totalNetAmount: 100, totalGrossAmount: 123 },
+            { quantity: 1, currencyCode: 'EUR', kind: 'discount', totalNetAmount: -10, totalGrossAmount: -12.3 },
+          ],
+          subtotalNetAmount: 90,
+          subtotalGrossAmount: 110.7,
+          taxTotalAmount: 20.7,
+          grandTotalNetAmount: 90,
+          grandTotalGrossAmount: 110.7,
+        },
+        ctx,
+      )
+
+      expect(em.calls.lineDeletes).toBe(1)
+      expect(state.lines).toHaveLength(2)
+      expect(state.lines.map((line) => line.id)).not.toContain(LINE_ID)
+      expect(state.lines[1]).toMatchObject({ kind: 'discount', totalNetAmount: '-10', totalGrossAmount: '-12.3' })
+      expect(state.invoice).toMatchObject({ grandTotalGrossAmount: '110.7', outstandingAmount: '123' })
+      expect((log?.snapshotBefore as { lines: Row[] }).lines.map((line) => line.id)).toEqual([LINE_ID])
+      expect((log?.snapshotAfter as { lines: Row[] }).lines).toHaveLength(2)
+      expect(markOrmEntityChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'deleted',
+          identifiers: expect.objectContaining({ id: LINE_ID }),
+          indexer: { entityType: E.sales.sales_invoice_line },
+        }),
+      )
+    })
+
+    it('stores a replacement line with a net of 0 and a positive gross the same way as create', async () => {
+      const state = baseState()
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await runUpdate(
+        {
+          ...updateScope,
+          replaceLines: true,
+          lines: [{ quantity: 1, currencyCode: 'EUR', taxRate: 23, totalNetAmount: 0, totalGrossAmount: 123 }],
+          subtotalNetAmount: 100,
+          subtotalGrossAmount: 123,
+          taxTotalAmount: 23,
+          grandTotalNetAmount: 100,
+          grandTotalGrossAmount: 123,
+        },
+        ctx,
+      )
+
+      expect(state.lines[0]).toMatchObject({ totalNetAmount: '100', totalGrossAmount: '123' })
+    })
+
+    it('rejects replaceLines without lines or totals before touching the invoice', async () => {
+      const state = baseState()
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await expect(
+        handler('sales.invoices.update').execute({ ...updateScope, replaceLines: true, lines: [] } as never, ctx),
+      ).rejects.toThrow('sales.invoices.errors.replaceLinesRequiresLines')
+      expect(lockMock).not.toHaveBeenCalled()
+      expect(state.lines).toEqual([makeLine()])
+    })
   })
 
   describe('update undo', () => {
@@ -575,10 +683,66 @@ describe('sales invoice write path (#7336)', () => {
       )
     })
 
+    it('restores the original lines with their ids after a line replacement', async () => {
+      const state = baseState()
+      const undo = await updateAndCapture(state, {
+        replaceLines: true,
+        lines: [{ quantity: 3, currencyCode: 'EUR', totalNetAmount: 30, totalGrossAmount: 36.9 }],
+        subtotalNetAmount: 30,
+        subtotalGrossAmount: 36.9,
+        taxTotalAmount: 6.9,
+        grandTotalNetAmount: 30,
+        grandTotalGrossAmount: 36.9,
+      })
+      const addedLineId = state.lines[0].id
+      const { ctx, markOrmEntityChange } = makeCtx(makeFakeEm(state))
+
+      await runUndo('sales.invoices.update', undo, ctx)
+
+      expect(state.lines).toHaveLength(1)
+      const { invoice: restoredInvoice, ...restoredLine } = state.lines[0]
+      const { invoice: _seedInvoice, ...seedLine } = makeLine()
+      expect(restoredLine).toEqual(seedLine)
+      expect(restoredInvoice).toBe(state.invoice)
+      expect(state.invoice?.grandTotalGrossAmount).toBe('123')
+      expect(markOrmEntityChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'deleted',
+          identifiers: { id: addedLineId, organizationId: ORG_ID, tenantId: TENANT_ID },
+          indexer: { entityType: E.sales.sales_invoice_line },
+        }),
+      )
+    })
+
+    it.each([
+      ['a header field', (state: FakeState) => Object.assign(state.invoice!, { invoiceNumber: 'INV-LATER' })],
+      ['only a custom field', () => customFieldStore.set(INVOICE_ID, { company: 'c-later' })],
+      ['a custom field set to 0', () => customFieldStore.set(INVOICE_ID, { company: 'c-2', score: 0 })],
+      ['a custom field set to false', () => customFieldStore.set(INVOICE_ID, { company: 'c-2', flag: false })],
+      ['the soft-deleted invoice', (state: FakeState) => Object.assign(state.invoice!, { deletedAt: new Date() })],
+      ['the removed invoice', (state: FakeState) => Object.assign(state, { invoice: null })],
+    ])('answers 409 and changes nothing after a later change to %s', async (_label, laterChange) => {
+      const state = baseState()
+      const undo = await updateAndCapture(state, { customFields: { company: 'c-2' } })
+      laterChange(state)
+      if (!state.invoice || state.invoice.deletedAt) lockMock.mockResolvedValueOnce(false)
+      const storedInvoice = state.invoice ? { ...state.invoice } : null
+      const storedCustomFields = { ...(customFieldStore.get(INVOICE_ID) ?? {}) }
+      const em = makeFakeEm(state)
+      const { ctx } = makeCtx(em)
+
+      await expectStatus(runUndo('sales.invoices.update', undo, ctx), 409)
+
+      expect(state.invoice ? { ...state.invoice } : null).toEqual(storedInvoice)
+      expect(customFieldStore.get(INVOICE_ID) ?? {}).toEqual(storedCustomFields)
+    })
+
     it('rolls back a half-applied undo and leaves header, lines and custom fields as the update left them', async () => {
       const state = baseState()
       customFieldStore.set(INVOICE_ID, { company: 'c-1' })
       const undo = await updateAndCapture(state, {
+        replaceLines: true,
+        lines: [{ quantity: 3, currencyCode: 'EUR', totalNetAmount: 30, totalGrossAmount: 36.9 }],
         subtotalNetAmount: 30,
         subtotalGrossAmount: 36.9,
         taxTotalAmount: 6.9,

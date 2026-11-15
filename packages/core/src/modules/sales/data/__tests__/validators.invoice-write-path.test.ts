@@ -3,7 +3,10 @@
 import {
   INVOICE_NEGATIVE_LINE_TOTALS_REQUIRED_MESSAGE_KEY,
   INVOICE_NEGATIVE_NET_POSITIVE_GROSS_MESSAGE_KEY,
+  INVOICE_REPLACE_LINES_REQUIRES_LINES_MESSAGE_KEY,
+  INVOICE_REPLACE_LINES_REQUIRES_TOTALS_MESSAGE_KEY,
   invoiceCreateSchema,
+  invoiceUpdateInputSchema,
   invoiceUpdateSchema,
 } from '../validators'
 
@@ -83,5 +86,57 @@ describe('invoice validators (#7336)', () => {
         expect(invoiceCreateSchema.safeParse({ ...scope, [field]: -3 }).success).toBe(false)
       },
     )
+  })
+
+  describe('replaceLines', () => {
+    const totals = {
+      subtotalNetAmount: 90,
+      subtotalGrossAmount: 110.7,
+      taxTotalAmount: 20.7,
+      grandTotalNetAmount: 90,
+      grandTotalGrossAmount: 110.7,
+    }
+
+    it('accepts replaceLines with lines and the five summing totals', () => {
+      const result = invoiceUpdateInputSchema.safeParse({ id: INVOICE_ID, replaceLines: true, lines: [line()], ...totals })
+      expect(messages(result)).toEqual([])
+    })
+
+    it('keeps accepting lines without replaceLines', () => {
+      expect(invoiceUpdateInputSchema.safeParse({ id: INVOICE_ID, lines: [line()] }).success).toBe(true)
+    })
+
+    it.each([[undefined], [[]]])('rejects replaceLines with lines %p', (lines) => {
+      const result = invoiceUpdateInputSchema.safeParse({ id: INVOICE_ID, replaceLines: true, lines, ...totals })
+      expect(messages(result)).toEqual([INVOICE_REPLACE_LINES_REQUIRES_LINES_MESSAGE_KEY])
+    })
+
+    it.each(Object.keys(totals))('rejects replaceLines without %s', (missing) => {
+      const { [missing as keyof typeof totals]: _omitted, ...rest } = totals
+      const result = invoiceUpdateInputSchema.safeParse({ id: INVOICE_ID, replaceLines: true, lines: [line()], ...rest })
+      expect(result.error?.issues).toEqual([
+        expect.objectContaining({ message: INVOICE_REPLACE_LINES_REQUIRES_TOTALS_MESSAGE_KEY, path: [missing] }),
+      ])
+    })
+
+    it('keeps accepting replaceLines: false, which used to be stripped, without requiring lines or totals', () => {
+      const result = invoiceUpdateInputSchema.safeParse({ id: INVOICE_ID, replaceLines: false, lines: [line()] })
+      expect(messages(result)).toEqual([])
+    })
+
+    it.each([null, 'false', 0])('keeps accepting replaceLines %p, which used to be stripped', (replaceLines) => {
+      expect(invoiceUpdateInputSchema.safeParse({ id: INVOICE_ID, replaceLines }).success).toBe(true)
+    })
+
+    it('keeps the line object unrefined so schemas derived from it still work', () => {
+      const lineSchema = invoiceCreateSchema.shape.lines.unwrap().element
+      expect(() => lineSchema.partial()).not.toThrow()
+      expect(() => lineSchema.pick({ quantity: true })).not.toThrow()
+    })
+
+    it('keeps the exported update schema unrefined so .partial() still works', () => {
+      expect(() => invoiceUpdateSchema.partial()).not.toThrow()
+      expect(invoiceUpdateSchema.safeParse({ id: INVOICE_ID, replaceLines: true }).success).toBe(true)
+    })
   })
 })

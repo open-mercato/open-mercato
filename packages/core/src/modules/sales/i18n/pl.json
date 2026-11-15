@@ -1275,6 +1275,8 @@
   "sales.errors.unauthorized": "Brak autoryzacji",
   "sales.invoices.errors.negativeLineTotalsRequired": "Pozycja faktury z ujemną kwotą musi zawierać sumę netto i brutto.",
   "sales.invoices.errors.negativeNetPositiveGross": "Pozycja faktury z ujemną kwotą nie może mieć sumy netto równej zero lub mniejszej przy dodatniej sumie brutto.",
+  "sales.invoices.errors.replaceLinesRequiresLines": "Zastąpienie pozycji faktury wymaga co najmniej jednej pozycji.",
+  "sales.invoices.errors.replaceLinesRequiresTotals": "Zastąpienie pozycji faktury wymaga sum częściowych, podatku i sum końcowych.",
   "sales.messageObjects.notFound": "Nie znaleziono",
   "sales.messageObjects.order.title": "Zamówienie",
   "sales.messageObjects.quote.title": "Oferta",

@@ -1275,6 +1275,8 @@
   "sales.errors.unauthorized": "No autorizado",
   "sales.invoices.errors.negativeLineTotalsRequired": "Una línea de factura con un importe negativo debe incluir sus totales neto y bruto.",
   "sales.invoices.errors.negativeNetPositiveGross": "Una línea de factura con un importe negativo no puede tener un total neto de cero o menos con un total bruto positivo.",
+  "sales.invoices.errors.replaceLinesRequiresLines": "Reemplazar las líneas de la factura requiere al menos una línea.",
+  "sales.invoices.errors.replaceLinesRequiresTotals": "Reemplazar las líneas de la factura requiere los subtotales, el impuesto y los totales generales.",
   "sales.messageObjects.notFound": "No encontrado",
   "sales.messageObjects.order.title": "Pedido",
   "sales.messageObjects.quote.title": "Cotización",

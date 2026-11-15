@@ -2,7 +2,7 @@
 
 ## Sales invoice write path for imported invoices (#7336)
 
-`sales.invoices.create` and `sales.invoices.update` (and `POST`/`PUT /api/sales/invoices`) now store custom fields (sent as `customFields`, `customValues`, `cf_<key>` or `cf:<key>`) inside the invoice transaction, accept negative line amounts and negative `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount`.
+`sales.invoices.create` and `sales.invoices.update` (and `POST`/`PUT /api/sales/invoices`) now store custom fields (sent as `customFields`, `customValues`, `cf_<key>` or `cf:<key>`) inside the invoice transaction, accept negative line amounts and negative `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount`, and replace every invoice line when the caller sends `replaceLines: true` with a non-empty `lines` and the five summing header totals. `lines` without `replaceLines` is still ignored, so callers that send `lines` without the flag are unaffected.
 
 Behavior changes to check:
 
@@ -10,9 +10,10 @@ Behavior changes to check:
 - **Undo of an invoice update answers 409 when the invoice changed afterwards**, including a custom field edited through another path. It used to overwrite the newer values, rewrite a soft-deleted invoice, or report success without doing anything when the invoice was removed. Redo the correction by hand if you still need it.
 - **Undo of an invoice create answers 409** when the invoice changed afterwards, was deleted, or is referenced by a payment allocation, a credit memo or a note (soft-deleted ones included). It used to delete the row and silently unlink those records, hard-delete a soft-deleted invoice, or report success without doing anything when the invoice was gone.
 - `PUT /api/sales/invoices` for a missing or soft-deleted invoice, or one in another organization you may access, answers 404 instead of 500 (`sales.invoices.update` throws `CrudHttpError(404)` instead of MikroORM `NotFoundError`), and redo of an invoice update whose invoice is gone answers 404 instead of 400. An invoice id from another tenant still answers 403.
+- `replaceLines: true` now requires a non-empty `lines` and `subtotalNetAmount`, `subtotalGrossAmount`, `taxTotalAmount`, `grandTotalNetAmount` and `grandTotalGrossAmount` (400 otherwise). Before, the key was stripped and the request succeeded without touching the lines; a caller that already sent `replaceLines: true` with complete input now gets its lines replaced. Any other value is still accepted and ignored.
 - A command-bus undo of an invoice create or update by a caller outside the invoice's organization throws 403 even when the invoice no longer exists; it used to report success without doing anything. The undo route usually refuses such a caller earlier with `400 Undo token not available`; a tenant-level undoer without a selected organization can reach the handler and gets 403.
 - A line with a negative amount must send both `totalNetAmount` and `totalGrossAmount`, and cannot combine a net of 0 or less with a positive gross. Such lines were rejected before, so no existing request is affected.
-- The parsed output of `invoiceCreateSchema` and `invoiceUpdateSchema` now keeps `customFields`. Code that forwards a parsed body, or calls `sales.invoices.create` / `sales.invoices.update` through the command bus with `customFields`, starts storing those custom fields.
+- The parsed output of `invoiceCreateSchema` and `invoiceUpdateSchema` now keeps `customFields` (and `replaceLines` on update). Code that forwards a parsed body, or calls `sales.invoices.create` / `sales.invoices.update` through the command bus with `customFields`, starts storing those custom fields. An incomplete `replaceLines: true` sent straight to the command throws a `ZodError`, not an HTTP 400.
 
 Also new: the audit `changes` of an invoice update include `customFields`, and invoice create and update undo queue search-index side effects.
 

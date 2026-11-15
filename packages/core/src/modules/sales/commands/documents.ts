@@ -93,6 +93,7 @@ import {
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
   invoiceUpdateSchema,
+  invoiceUpdateInputSchema,
   creditMemoCreateSchema,
   creditMemoUpdateSchema,
   customerSnapshotSchema,
@@ -9760,7 +9761,8 @@ const invoiceCrudEvents: CrudEventsConfig<SalesInvoice> = {
 type InvoiceRecordScope = { organizationId: string; tenantId: string };
 
 /**
- * Maps one invoice line input to a new line entity. `orderLineId` is not a
+ * Maps one invoice line input to a new line entity. Create and line replacement
+ * share it, so a line stores the same net on both paths. `orderLineId` is not a
  * mapped column on `SalesInvoiceLine`, so it stays unstored, as it always was.
  */
 function buildInvoiceLineEntity(
@@ -9798,6 +9800,40 @@ function buildInvoiceLineEntity(
     ),
     totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
     metadata: line.metadata ?? null,
+  });
+}
+
+/** Re-creates a line from an undo snapshot with its original id and stored values. */
+function restoreInvoiceLineEntity(
+  em: EntityManager,
+  invoice: SalesInvoice,
+  line: InvoiceLineSnapshot,
+): SalesInvoiceLine {
+  return em.create(SalesInvoiceLine, {
+    id: line.id,
+    invoice,
+    organizationId: invoice.organizationId,
+    tenantId: invoice.tenantId,
+    lineNumber: line.lineNumber,
+    kind: line.kind as SalesLineKind,
+    name: line.name,
+    sku: line.sku,
+    description: line.description,
+    quantity: line.quantity,
+    quantityUnit: line.quantityUnit,
+    normalizedQuantity: line.normalizedQuantity,
+    normalizedUnit: line.normalizedUnit,
+    uomSnapshot: line.uomSnapshot as SalesInvoiceLine["uomSnapshot"],
+    currencyCode: line.currencyCode,
+    unitPriceNet: line.unitPriceNet,
+    unitPriceGross: line.unitPriceGross,
+    discountAmount: line.discountAmount,
+    discountPercent: line.discountPercent,
+    taxRate: line.taxRate,
+    taxAmount: line.taxAmount,
+    totalNetAmount: line.totalNetAmount,
+    totalGrossAmount: line.totalGrossAmount,
+    metadata: line.metadata,
   });
 }
 
@@ -10310,15 +10346,17 @@ const updateInvoiceCommand: CommandHandler<
     return {};
   },
   async execute(rawInput, ctx) {
-    const parsed = invoiceUpdateSchema.parse(rawInput ?? {});
+    const parsed = invoiceUpdateInputSchema.parse(rawInput ?? {});
     const id = requireId(parsed);
     ensureOrganizationScope(ctx, parsed.organizationId);
     ensureTenantScope(ctx, parsed.tenantId);
     const { translate } = await resolveTranslations();
     const missingMessage = translate("sales.documents.errors.invoiceNotFound", "Invoice not found.");
+    const replacementLines = parsed.replaceLines === true ? parsed.lines ?? [] : null;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let invoice!: SalesInvoice;
     let scope!: InvoiceRecordScope;
+    let previousLines: DeletableEntity[] = [];
     let before: InvoiceGraphSnapshot | null = null;
     let after: InvoiceGraphSnapshot | null = null;
 
@@ -10352,7 +10390,9 @@ const updateInvoiceCommand: CommandHandler<
           );
           if (!locked) throw notFound(missingMessage);
           invoice = locked;
-          before = await loadInvoiceSnapshot(em, invoice.id);
+          const lockedBefore = await loadInvoiceSnapshot(em, invoice.id);
+          before = lockedBefore;
+          previousLines = (lockedBefore?.lines ?? []).map((line) => ({ id: line.id, ...scope }));
           let resolvedStatus: string | null | undefined;
           if (parsed.statusEntryId !== undefined) {
             resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, {
@@ -10361,6 +10401,13 @@ const updateInvoiceCommand: CommandHandler<
           }
           applyInvoiceHeaderUpdate(invoice, parsed, resolvedStatus);
           invoice.updatedAt = new Date();
+        },
+        async () => {
+          if (!replacementLines) return;
+          await em.nativeDelete(SalesInvoiceLine, { invoice: invoice.id, ...scope });
+          replacementLines.forEach((line, index) => {
+            em.persist(buildInvoiceLineEntity(em, invoice, line, index, invoice.currencyCode));
+          });
         },
         async () => {
           await writeInvoiceCustomFields(em, invoice.id, scope, parsed.customFields);
@@ -10389,6 +10436,11 @@ const updateInvoiceCommand: CommandHandler<
       events: invoiceCrudEvents,
       indexer: { entityType: E.sales.sales_invoice },
     });
+    // New lines are not indexed, matching create; they reach the index on the
+    // next reindex. Replaced lines leave it now.
+    if (replacementLines) {
+      await queueDeletionSideEffects(dataEngine, previousLines, E.sales.sales_invoice_line);
+    }
 
     await invalidateCrudCache(
       ctx.container,
@@ -10450,6 +10502,8 @@ const updateInvoiceCommand: CommandHandler<
     };
     ensureOrganizationScope(ctx, scope.organizationId);
     ensureTenantScope(ctx, scope.tenantId);
+    // The update replaced the lines exactly when the line ids differ.
+    const linesReplaced = !!after && !sameIds(before.lines, after.lines);
     const restored: { invoice: SalesInvoice | null } = { invoice: null };
     const em = (ctx.container.resolve("em") as EntityManager).fork();
 
@@ -10473,6 +10527,14 @@ const updateInvoiceCommand: CommandHandler<
           if (!invoice) return throwDocumentUndoStale("invoice");
           restoreInvoiceHeader(invoice, before);
           restored.invoice = invoice;
+        },
+        async () => {
+          const invoice = restored.invoice;
+          if (!linesReplaced || !invoice) return;
+          await em.nativeDelete(SalesInvoiceLine, { invoice: invoice.id, ...scope });
+          for (const line of before.lines) {
+            em.persist(restoreInvoiceLineEntity(em, invoice, line));
+          }
         },
         async () => {
           await resetInvoiceCustomFields(
@@ -10503,6 +10565,17 @@ const updateInvoiceCommand: CommandHandler<
       },
       indexer: { entityType: E.sales.sales_invoice },
     });
+    if (linesReplaced && after) {
+      // Restored lines return to the index on the next reindex.
+      const restoredLineIds = new Set(before.lines.map((line) => line.id));
+      await queueDeletionSideEffects(
+        dataEngine,
+        after.lines
+          .filter((line) => !restoredLineIds.has(line.id))
+          .map((line) => ({ id: line.id, ...scope })),
+        E.sales.sales_invoice_line,
+      );
+    }
   },
 };
 
