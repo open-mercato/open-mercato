@@ -40,10 +40,23 @@ const resolveOrganizationScopeForRequestMock = jest.fn()
 const runRouteMutationGuardsMock = jest.fn()
 const commandExecuteMock = jest.fn()
 const attachmentTargetAccessMock = jest.fn()
+const convertToModelMessagesMock = jest.fn()
+const resolveAttachmentPartsMock = jest.fn()
+const reportErrorMock = jest.fn()
 
 jest.mock('ai', () => ({
   generateText: jest.fn(async () => ({ text: 'Draft text' })),
   generateObject: (...args: unknown[]) => generateObjectMock(...args),
+  convertToModelMessages: (...args: unknown[]) => convertToModelMessagesMock(...args),
+}))
+
+jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-parts', () => ({
+  ...jest.requireActual('@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-parts'),
+  resolveAttachmentParts: (...args: unknown[]) => resolveAttachmentPartsMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: reportErrorMock }),
 }))
 
 jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory', () => {
@@ -331,6 +344,41 @@ function mockFindOne(entity: unknown): unknown {
   return null
 }
 
+function configureVisionModel() {
+  createModelFactoryMock.mockImplementation(() => ({
+    resolveModel: () => ({ model: { modelId: 'vision-test' } }),
+  }))
+  resolveAttachmentPartsMock.mockResolvedValue([
+    {
+      attachmentId: ATTACHMENT_ID,
+      fileName: 'damage.jpg',
+      mediaType: 'image/jpeg',
+      source: 'bytes',
+      data: new Uint8Array([1, 2, 3]),
+    },
+  ])
+}
+
+function configureUserRequest(container: AwilixContainer) {
+  createRequestContainerMock.mockResolvedValue(container)
+  getAuthFromRequestMock.mockResolvedValue({
+    sub: USER_ID,
+    tenantId: TENANT_ID,
+    orgId: ORG_ID,
+    isSuperAdmin: false,
+  })
+  resolveOrganizationScopeForRequestMock.mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID] })
+  runRouteMutationGuardsMock.mockResolvedValue({ ok: true, modifiedPayload: null, runAfterSuccess: jest.fn() })
+}
+
+function postDamageAssessment(): Promise<Response> {
+  return POST(new Request('http://localhost/api/warranty_claims/ai/assess', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ claimId: CLAIM_ID, lineId: LINE_ID, attachmentId: ATTACHMENT_ID, kind: 'damage' }),
+  }))
+}
+
 describe('warranty claim AI assessment packet', () => {
   const previousOptimisticLockEnv = process.env.OM_OPTIMISTIC_LOCK
 
@@ -365,6 +413,11 @@ describe('warranty claim AI assessment packet', () => {
     commandExecuteMock.mockReset()
     attachmentTargetAccessMock.mockReset()
     attachmentTargetAccessMock.mockResolvedValue(true)
+    convertToModelMessagesMock.mockReset()
+    convertToModelMessagesMock.mockImplementation(async () => [])
+    resolveAttachmentPartsMock.mockReset()
+    resolveAttachmentPartsMock.mockResolvedValue([])
+    reportErrorMock.mockReset()
     findOneWithDecryptionMock.mockImplementation((_em: unknown, entity: unknown) => mockFindOne(entity))
     findWithDecryptionMock.mockResolvedValue([])
     createModelFactoryMock.mockImplementation(() => {
@@ -550,6 +603,58 @@ describe('warranty claim AI assessment packet', () => {
     const auth = attachmentTargetAccessMock.mock.calls[0]?.[0]?.auth
     expect(auth).toMatchObject({ sub: `api_key:${apiKeyId}`, keyId: apiKeyId, isApiKey: true })
     expect(auth?.userId).toBeUndefined()
+  })
+
+  test('a failed attachment conversion degrades to aiUnavailable on the route and the tool and is reported', async () => {
+    const em = makeEm()
+    const container = makeContainer(em)
+    configureVisionModel()
+    configureUserRequest(container)
+    const conversionError = new Error('unsupported file part')
+    convertToModelMessagesMock.mockRejectedValue(conversionError)
+    const tool = aiTools.find((candidate) => candidate.name === 'warranty_claims.assess_damage_photo')
+    if (!tool) throw new Error('assess_damage_photo tool was not registered')
+
+    const response = await postDamageAssessment()
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ status: 'aiUnavailable' })
+    await expect(tool.handler({
+      claimId: CLAIM_ID,
+      lineId: LINE_ID,
+      attachmentId: ATTACHMENT_ID,
+    }, makeToolContext(container))).resolves.toEqual({ unavailable: true })
+    expect(convertToModelMessagesMock).toHaveBeenCalledTimes(2)
+    expect(generateObjectMock).not.toHaveBeenCalled()
+    expect(commandExecuteMock).not.toHaveBeenCalled()
+    expect(reportErrorMock).toHaveBeenCalledWith(conversionError, expect.objectContaining({
+      module: 'warranty_claims',
+      code: 'warranty_claims.ai.attachment_conversion_failed',
+    }))
+  })
+
+  test('a failed attachment read is not turned into aiUnavailable', async () => {
+    const em = makeEm()
+    const container = makeContainer(em)
+    configureVisionModel()
+    configureUserRequest(container)
+    const readError = new Error('attachment storage read failed')
+    resolveAttachmentPartsMock.mockRejectedValue(readError)
+    const tool = aiTools.find((candidate) => candidate.name === 'warranty_claims.assess_damage_photo')
+    if (!tool) throw new Error('assess_damage_photo tool was not registered')
+
+    const response = await postDamageAssessment()
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: 'Failed to save warranty claim.' })
+    await expect(tool.handler({
+      claimId: CLAIM_ID,
+      lineId: LINE_ID,
+      attachmentId: ATTACHMENT_ID,
+    }, makeToolContext(container))).rejects.toBe(readError)
+    expect(convertToModelMessagesMock).not.toHaveBeenCalled()
+    expect(generateObjectMock).not.toHaveBeenCalled()
+    expect(commandExecuteMock).not.toHaveBeenCalled()
   })
 
   test('set_assessment persists assessment payload without mutating money fields', async () => {

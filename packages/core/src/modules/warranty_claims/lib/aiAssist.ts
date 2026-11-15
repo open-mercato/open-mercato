@@ -14,6 +14,8 @@ import {
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../data/entities'
 import type {
   WarrantyClaimDisposition,
@@ -27,6 +29,7 @@ import type {
 } from '../data/validators'
 
 const MODULE_ID = 'warranty_claims'
+const logger = createLogger(MODULE_ID)
 const AI_TIMEOUT_MS = 30_000
 
 type GenerateTextModel = Parameters<typeof generateText>[0]['model']
@@ -397,6 +400,11 @@ async function buildAttachmentMessages(input: {
   try {
     return await toWarrantyModelMessages(input.prompt, fileParts)
   } catch (err) {
+    logger.warn('warranty_claims.ai.attachment_conversion_failed', { attachmentId: input.attachmentId, err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: MODULE_ID,
+      code: 'warranty_claims.ai.attachment_conversion_failed',
+    })
     throw new WarrantyAiUnavailableError(err instanceof Error ? err.message : '[internal] warranty ai attachment conversion failed')
   }
 }
