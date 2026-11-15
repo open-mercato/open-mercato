@@ -11,6 +11,8 @@ import {
   listGrantsForViewer,
   listGrantsForViewerOnPerson,
   listSharedChannelIds,
+  loadLiveInteractionAuthority,
+  LIVE_INTERACTION_ARM_MAX,
   SHARED_CHANNEL_ARM_MAX,
 } from '../conversationShares'
 
@@ -124,5 +126,59 @@ describe('canShareConversation', () => {
 
   it('is false without a person id', async () => {
     await expect(canShareConversation(em(), SCOPE, 'owner-1', '')).resolves.toBe(false)
+  })
+})
+
+describe('loadLiveInteractionAuthority', () => {
+  it('returns an empty map without querying when no ids are given', async () => {
+    const find = jest.fn(async () => [])
+    await expect(loadLiveInteractionAuthority(em({ find }), SCOPE, [])).resolves.toEqual(new Map())
+    expect(find).not.toHaveBeenCalled()
+  })
+
+  it('dedupes ids and maps the CURRENT visibility/author/channel by id', async () => {
+    const find = jest.fn(async () => [
+      { id: 'int-1', visibility: 'private', authorUserId: 'owner-1', channelId: 'chan-1' },
+      { id: 'int-2', visibility: null, authorUserId: null, channelId: null },
+    ])
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1', 'int-1', 'int-2'])
+    expect(result).toEqual(
+      new Map([
+        ['int-1', { visibility: 'private', authorUserId: 'owner-1', channelId: 'chan-1' }],
+        ['int-2', { visibility: null, authorUserId: null, channelId: null }],
+      ]),
+    )
+    expect(find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: { $in: ['int-1', 'int-2'] }, tenantId: SCOPE.tenantId, deletedAt: null }),
+      expect.anything(),
+    )
+  })
+
+  it('omits a deleted/missing interaction — the caller falls back to its own conservative default', async () => {
+    const find = jest.fn(async () => [{ id: 'int-1', visibility: 'shared', authorUserId: 'owner-1', channelId: null }])
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1', 'int-deleted'])
+    expect(result.has('int-deleted')).toBe(false)
+    expect(result.get('int-1')).toEqual({ visibility: 'shared', authorUserId: 'owner-1', channelId: null })
+  })
+
+  it('fails closed to an empty map when the lookup throws', async () => {
+    const find = jest.fn(async () => {
+      throw new Error('connection reset')
+    })
+    await expect(loadLiveInteractionAuthority(em({ find }), SCOPE, ['int-1'])).resolves.toEqual(new Map())
+  })
+
+  it('caps the resolved set at LIVE_INTERACTION_ARM_MAX', async () => {
+    const many = Array.from({ length: LIVE_INTERACTION_ARM_MAX + 25 }, (_v, i) => ({
+      id: `int-${i}`,
+      visibility: 'private',
+      authorUserId: 'owner-1',
+      channelId: null,
+    }))
+    const find = jest.fn(async () => many)
+    const ids = many.map((row) => row.id)
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ids)
+    expect(result.size).toBe(LIVE_INTERACTION_ARM_MAX)
   })
 })

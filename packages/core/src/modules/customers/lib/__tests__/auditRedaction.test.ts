@@ -42,6 +42,7 @@ function ctx(overrides: Partial<CustomerAuditRedactionContext> = {}): CustomerAu
     viewerUserId: VIEWER,
     sharedConversations: [],
     sharedChannelIds: [],
+    liveInteractionsById: new Map(),
     ...overrides,
   }
 }
@@ -350,6 +351,164 @@ describe('redactCustomerAuditEntry — customers.interaction', () => {
   })
 })
 
+// Regression for @pkarw's review on #8978 (pullrequestreview-5909076861) —
+// `isInteractionSnapshotHidden` used to decide visibility from EACH snapshot's
+// own stored `visibility`, recorded at the time that audit entry was written.
+// A shared→private revocation left every historical "shared" snapshot (and its
+// diff) readable to a non-owner forever, since the live CRM read denies access
+// but the audit trail never re-checked. `loadCustomerAuditRedactionContext`'s
+// batched live-interaction lookup (`liveInteractionsById`) is how the CURRENT
+// authority reaches these checks.
+describe('redactCustomerAuditEntry — customers.interaction revocation (live authority)', () => {
+  const INTERACTION_ID = 'interaction-1'
+
+  function revocationEntry(overrides: Record<string, unknown> = {}) {
+    return {
+      resourceKind: 'customers.interaction',
+      // The audit row recorded when the email was still shared: nothing about
+      // THIS entry's own stored data signals it is private today.
+      snapshotBefore: {
+        interaction: {
+          id: INTERACTION_ID,
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'shared',
+          authorUserId: OWNER,
+          title: 'Old shared subject',
+          body: 'Old shared body',
+        },
+      },
+      snapshotAfter: {
+        interaction: {
+          id: INTERACTION_ID,
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'shared',
+          authorUserId: OWNER,
+          title: 'Newer shared subject',
+          body: 'Newer shared body',
+        },
+      },
+      changesJson: {
+        title: { from: 'Old shared subject', to: 'Newer shared subject' },
+        body: { from: 'Old shared body', to: 'Newer shared body' },
+      },
+      ...overrides,
+    }
+  }
+
+  it('hides both historical snapshots and the diff once the live record is private', () => {
+    const contextWithLiveAuthority = ctx({
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+      ]),
+    })
+    const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.body).toBeNull()
+    expect(interactionSnapshot(redacted.snapshotAfter).interaction.title).toBeNull()
+    expect(interactionSnapshot(redacted.snapshotAfter).interaction.body).toBeNull()
+    expect(redacted.changesJson).toEqual({})
+  })
+
+  it('hides an older shared-at-the-time entry too, once its interaction is revoked live', () => {
+    // Only snapshotBefore present — a create/update entry recorded while the
+    // conversation was still shared, long before the later revocation.
+    const entry = revocationEntry({ snapshotAfter: null, changesJson: null })
+    const contextWithLiveAuthority = ctx({
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+      ]),
+    })
+    const redacted = redactCustomerAuditEntry(entry, contextWithLiveAuthority)
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+  })
+
+  it('keeps the historical content visible to the email author regardless of revocation', () => {
+    const contextWithLiveAuthority = ctx({
+      viewerUserId: OWNER,
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+      ]),
+    })
+    const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBe('Old shared subject')
+    expect(redacted.changesJson).toEqual({
+      title: { from: 'Old shared subject', to: 'Newer shared subject' },
+      body: { from: 'Old shared body', to: 'Newer shared body' },
+    })
+  })
+
+  it('keeps the historical content visible when a CURRENT conversation-share grant covers it', () => {
+    const contextWithLiveAuthority = ctx({
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+      ]),
+      sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
+    })
+    const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBe('Old shared subject')
+  })
+
+  it('hides the historical content when the conversation share itself has since been revoked (no grant in context)', () => {
+    // No matching grant in `sharedConversations` — the share was revoked, so
+    // the strict live-private rule applies with no widening.
+    const contextWithLiveAuthority = ctx({
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'private', authorUserId: OWNER, channelId: null }],
+      ]),
+      sharedConversations: [],
+    })
+    const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+  })
+
+  it('fails closed to hidden when the interaction has been deleted (no live record resolves)', () => {
+    // The batched lookup found nothing for this id — deleted, or otherwise
+    // unresolvable — so the conservative fallback (private) applies even
+    // though the stored snapshot says "shared".
+    const redacted = redactCustomerAuditEntry(revocationEntry(), ctx({ liveInteractionsById: new Map() }))
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+    expect(redacted.changesJson).toEqual({})
+  })
+
+  it('keeps a still-shared interaction visible end to end (no false-positive redaction)', () => {
+    const contextWithLiveAuthority = ctx({
+      liveInteractionsById: new Map([
+        [INTERACTION_ID, { visibility: 'shared', authorUserId: OWNER, channelId: null }],
+      ]),
+    })
+    const redacted = redactCustomerAuditEntry(revocationEntry(), contextWithLiveAuthority)
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBe('Old shared subject')
+    expect(interactionSnapshot(redacted.snapshotAfter).interaction.title).toBe('Newer shared subject')
+    expect(redacted.changesJson).toEqual({
+      title: { from: 'Old shared subject', to: 'Newer shared subject' },
+      body: { from: 'Old shared body', to: 'Newer shared body' },
+    })
+  })
+
+  it('trusts the stored snapshot fields when the snapshot carries no id at all (pre-existing legacy data)', () => {
+    const entry = revocationEntry({
+      snapshotBefore: {
+        interaction: {
+          entityId: PERSON_ID,
+          interactionType: 'email',
+          visibility: 'shared',
+          authorUserId: OWNER,
+          title: 'Legacy shared subject',
+        },
+      },
+      snapshotAfter: null,
+      changesJson: null,
+    })
+    // No id on the snapshot to resolve a live row against, so this stays on
+    // the pre-existing "trust the entry's own stored visibility" path — the
+    // same behavior that shipped before this live-lookup fix existed.
+    const redacted = redactCustomerAuditEntry(entry, ctx({ liveInteractionsById: new Map() }))
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBe('Legacy shared subject')
+  })
+})
+
 describe('redactCustomerAuditEntry — customers.person / customers.company delete snapshots', () => {
   function personDeleteEntry(interactions: Record<string, unknown>[]) {
     return {
@@ -547,6 +706,7 @@ describe('loadCustomerAuditRedactionContext', () => {
       viewerUserId: VIEWER,
       sharedConversations: [{ personEntityId: PERSON_ID, ownerUserId: OWNER }],
       sharedChannelIds: ['channel-1'],
+      liveInteractionsById: new Map(),
     })
   })
 
@@ -554,6 +714,30 @@ describe('loadCustomerAuditRedactionContext', () => {
     jest.spyOn(conversationShares, 'listGrantsForViewer').mockRejectedValue(new Error('db down'))
     jest.spyOn(conversationShares, 'listSharedChannelIds').mockResolvedValue([])
     const result = await loadCustomerAuditRedactionContext(mockEm, scope, VIEWER)
-    expect(result).toEqual({ viewerUserId: VIEWER, sharedConversations: [], sharedChannelIds: [] })
+    expect(result).toEqual({
+      viewerUserId: VIEWER,
+      sharedConversations: [],
+      sharedChannelIds: [],
+      liveInteractionsById: new Map(),
+    })
+  })
+
+  it('batch-loads live interaction authority only for customers.interaction entries', async () => {
+    jest.spyOn(conversationShares, 'listGrantsForViewer').mockResolvedValue([])
+    jest.spyOn(conversationShares, 'listSharedChannelIds').mockResolvedValue([])
+    const loadLiveSpy = jest
+      .spyOn(conversationShares, 'loadLiveInteractionAuthority')
+      .mockResolvedValue(new Map([['int-1', { visibility: 'private', authorUserId: OWNER, channelId: null }]]))
+    const result = await loadCustomerAuditRedactionContext(mockEm, scope, VIEWER, [
+      { resourceKind: 'customers.interaction', resourceId: 'int-1' },
+      { resourceKind: 'customers.person', resourceId: 'person-9' },
+      { resourceKind: 'customers.interaction', resourceId: null },
+    ])
+    expect(loadLiveSpy).toHaveBeenCalledWith(mockEm, scope, ['int-1'])
+    expect(result.liveInteractionsById.get('int-1')).toEqual({
+      visibility: 'private',
+      authorUserId: OWNER,
+      channelId: null,
+    })
   })
 })

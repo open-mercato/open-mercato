@@ -5,44 +5,107 @@ import { isEmailHiddenFrom } from './visibilityFilter'
 import {
   listGrantsForViewer,
   listSharedChannelIds,
+  loadLiveInteractionAuthority,
   type ConversationShareGrant,
   type ConversationShareScope,
+  type LiveInteractionAuthority,
 } from './conversationShares'
 
 const logger = createLogger('customers')
 
 const REDACTED_INTERACTION_FIELDS: readonly string[] = ['title', 'body', 'participants', 'linkedEntities', 'custom']
 
+const INTERACTION_RESOURCE_KIND = 'customers.interaction'
+
 export type CustomerAuditRedactionContext = {
   viewerUserId: string | null
   sharedConversations: ConversationShareGrant[]
   sharedChannelIds: string[]
+  liveInteractionsById: Map<string, LiveInteractionAuthority>
 }
 
 /**
- * Resolves the widening grants for one audit-log read. Fails CLOSED on any
- * error: an empty context yields the strict owner-only redaction, never a
+ * Minimal shape `loadCustomerAuditRedactionContext` needs from the audit
+ * entries about to be redacted — kept generic (no `ActionLog` import) so this
+ * CRM-owned provider stays decoupled from the audit module's entity shape,
+ * per `packages/core/AGENTS.md` § Cross-Module Coupling.
+ */
+export type RedactableAuditEntryRef = {
+  resourceKind?: string | null
+  resourceId?: string | null
+}
+
+/**
+ * Resolves the widening grants, plus the CURRENT live authority of every
+ * `customers.interaction` entry about to be redacted, for one audit-log read.
+ * Fails CLOSED on any error: an empty context (and an empty live-authority
+ * map) yields the strict owner-only, "no live record" redaction, never a
  * leak, so a DB hiccup here can only over-redact.
  */
 export async function loadCustomerAuditRedactionContext(
   em: EntityManager,
   scope: ConversationShareScope,
   viewerUserId: string | null,
+  entries: ReadonlyArray<RedactableAuditEntryRef> = [],
 ): Promise<CustomerAuditRedactionContext> {
   try {
-    const [sharedConversations, sharedChannelIds] = await Promise.all([
+    const interactionIds = entries
+      .filter((entry) => entry.resourceKind === INTERACTION_RESOURCE_KIND)
+      .map((entry) => entry.resourceId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    const [sharedConversations, sharedChannelIds, liveInteractionsById] = await Promise.all([
       listGrantsForViewer(em, scope, viewerUserId),
       listSharedChannelIds(em, scope, viewerUserId),
+      loadLiveInteractionAuthority(em, scope, interactionIds),
     ])
-    return { viewerUserId, sharedConversations, sharedChannelIds }
+    return { viewerUserId, sharedConversations, sharedChannelIds, liveInteractionsById }
   } catch (err) {
     logger.warn('[internal] failed to resolve CRM audit redaction context; failing closed', { err })
     getTelemetryRuntime()?.reportError(err, {
       module: 'customers',
       code: 'customers.audit_redaction_context_load_failed',
     })
-    return { viewerUserId, sharedConversations: [], sharedChannelIds: [] }
+    return { viewerUserId, sharedConversations: [], sharedChannelIds: [], liveInteractionsById: new Map() }
   }
+}
+
+/**
+ * Resolves the authority to decide visibility for ONE historical interaction
+ * representation: the CURRENT live row when the snapshot carries an id to
+ * resolve it against, else the entry's own stored fields.
+ *
+ * A stored snapshot's own `visibility` can be stale — the email may have been
+ * `shared` when this audit entry was recorded and revoked to `private`
+ * since — so whenever a live row CAN be resolved, only its CURRENT values may
+ * be trusted for that decision. When the id resolves to no live row (deleted,
+ * or the batch lookup failed), assume the strictest state (`private`, no
+ * known shared channel) rather than trusting the now-unverifiable stored
+ * visibility. When the snapshot carries no id at all — audit data written
+ * before `customers.interaction` snapshots captured one — there is nothing to
+ * resolve against, so the entry's own stored fields are the only signal
+ * available and are used as-is, exactly as before this function existed. The
+ * stored author id is kept in every case: authorship never changes, so an
+ * author can always see their own historical content.
+ */
+function resolveInteractionAuthority(
+  interactionId: string | null,
+  storedAuthorUserId: string | null,
+  storedVisibility: string | null,
+  storedChannelId: string | null,
+  ctx: CustomerAuditRedactionContext,
+): LiveInteractionAuthority {
+  if (!interactionId) {
+    return { visibility: storedVisibility, authorUserId: storedAuthorUserId, channelId: storedChannelId }
+  }
+  const live = ctx.liveInteractionsById.get(interactionId)
+  if (live) {
+    return {
+      visibility: live.visibility,
+      authorUserId: live.authorUserId ?? storedAuthorUserId,
+      channelId: live.channelId,
+    }
+  }
+  return { visibility: 'private', authorUserId: storedAuthorUserId, channelId: null }
 }
 
 function redactRecordFields(record: Record<string, unknown>): Record<string, unknown> {
@@ -54,22 +117,30 @@ function redactRecordFields(record: Record<string, unknown>): Record<string, unk
 }
 
 function isHiddenEmailInteraction(
-  interaction: { interactionType?: unknown; visibility?: unknown; authorUserId?: unknown },
+  interaction: { id?: unknown; interactionType?: unknown; visibility?: unknown; authorUserId?: unknown; channelId?: unknown },
   personEntityId: string | null,
   ctx: CustomerAuditRedactionContext,
 ): boolean {
+  const interactionType = typeof interaction.interactionType === 'string' ? interaction.interactionType : null
+  if (interactionType !== 'email') return false
+  const interactionId = typeof interaction.id === 'string' ? interaction.id : null
+  const storedAuthorUserId = typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null
+  const storedVisibility = typeof interaction.visibility === 'string' ? interaction.visibility : null
+  const storedChannelId = typeof interaction.channelId === 'string' ? interaction.channelId : null
+  // When the snapshot carries an id, its stored `visibility`/`channelId`
+  // describe the state AT THE TIME this audit entry was recorded, which a
+  // later shared→private revocation can make stale — resolve the CURRENT
+  // authority instead of trusting them. See `resolveInteractionAuthority`.
+  const authority = resolveInteractionAuthority(interactionId, storedAuthorUserId, storedVisibility, storedChannelId, ctx)
   return isEmailHiddenFrom({
-    interactionType: typeof interaction.interactionType === 'string' ? interaction.interactionType : null,
-    visibility: typeof interaction.visibility === 'string' ? interaction.visibility : null,
-    authorUserId: typeof interaction.authorUserId === 'string' ? interaction.authorUserId : null,
+    interactionType,
+    visibility: authority.visibility,
+    authorUserId: authority.authorUserId,
     currentUserId: ctx.viewerUserId,
     personEntityId,
     sharedConversations: ctx.sharedConversations,
-    // `customers.interaction` audit snapshots never captured `channelId` (see
-    // `loadInteractionSnapshot`), so a shared team mailbox cannot be proven here.
-    // Fail closed rather than guess.
-    channelId: null,
-    sharedChannelIds: [],
+    channelId: authority.channelId,
+    sharedChannelIds: ctx.sharedChannelIds,
   })
 }
 

@@ -45,6 +45,12 @@ export type ActionLogRedactionProvider = {
     em: EntityManager,
     scope: { tenantId: string; organizationId: string | null },
     viewerUserId: string | null,
+    // The entries about to be redacted, reduced to the two generic fields a
+    // provider may need to batch-load live state (e.g. the CURRENT authority
+    // of a resource a stored snapshot only describes historically) — kept
+    // generic (no `ActionLog` import) so a provider never has to depend on
+    // this module's entity shape.
+    entries: ReadonlyArray<{ resourceKind?: string | null; resourceId?: string | null }>,
   ) => Promise<ActionLogRedactionContext>
   redactEntry: (entry: ActionLog, ctx: ActionLogRedactionContext) => ActionLog
 }
@@ -99,6 +105,6 @@ export async function redactActionLogEntries(
   if (!provider) {
     return entries.map((entry) => (isProtectedResourceKind(entry.resourceKind) ? suppressProtectedEntry(entry) : entry))
   }
-  const ctx = await provider.loadContext(em, scope, viewerUserId)
+  const ctx = await provider.loadContext(em, scope, viewerUserId, entries)
   return entries.map((entry) => (isProtectedResourceKind(entry.resourceKind) ? provider.redactEntry(entry, ctx) : entry))
 }

@@ -101,7 +101,7 @@ describe('redactActionLogEntries', () => {
     const result = await redactActionLogEntries(container, mockEm, { tenantId: 'tenant-1', organizationId: 'org-1' }, 'user-1', entries)
 
     expect(loadContext).toHaveBeenCalledTimes(1)
-    expect(loadContext).toHaveBeenCalledWith(mockEm, { tenantId: 'tenant-1', organizationId: 'org-1' }, 'user-1')
+    expect(loadContext).toHaveBeenCalledWith(mockEm, { tenantId: 'tenant-1', organizationId: 'org-1' }, 'user-1', entries)
     expect(redactEntry).toHaveBeenCalledTimes(2)
     expect(result).toEqual([
       { ...entries[0], redacted: true },
