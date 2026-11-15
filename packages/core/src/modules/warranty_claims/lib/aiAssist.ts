@@ -400,10 +400,15 @@ async function buildAttachmentMessages(input: {
   try {
     return await toWarrantyModelMessages(input.prompt, fileParts)
   } catch (err) {
-    logger.warn('warranty_claims.ai.attachment_conversion_failed', { attachmentId: input.attachmentId, err })
+    logger.warn('warranty_claims.ai.attachment_conversion_failed', {
+      attachmentId: input.attachmentId,
+      errorName: err instanceof Error ? err.name : typeof err,
+      errorMessage: err instanceof Error ? err.message : undefined,
+    })
     getTelemetryRuntime()?.reportError(err, {
       module: MODULE_ID,
       code: 'warranty_claims.ai.attachment_conversion_failed',
+      attributes: { attachmentId: input.attachmentId },
     })
     throw new WarrantyAiUnavailableError(err instanceof Error ? err.message : '[internal] warranty ai attachment conversion failed')
   }

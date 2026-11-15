@@ -11,6 +11,7 @@ import {
 import { aiTools } from '../ai-tools'
 import { setClaimLineAssessmentCommand } from '../commands/claim-lines'
 import { POST } from '../api/ai/assess/route'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
@@ -610,27 +611,42 @@ describe('warranty claim AI assessment packet', () => {
     const container = makeContainer(em)
     configureVisionModel()
     configureUserRequest(container)
-    const conversionError = new Error('unsupported file part')
+    const signedUrl = 'https://storage.example test/damage.jpg?signature=SECRET-SIGNATURE'
+    const conversionError = Object.assign(new TypeError('Invalid URL'), { code: 'ERR_INVALID_URL', input: signedUrl })
     convertToModelMessagesMock.mockRejectedValue(conversionError)
-    const tool = aiTools.find((candidate) => candidate.name === 'warranty_claims.assess_damage_photo')
-    if (!tool) throw new Error('assess_damage_photo tool was not registered')
+    const warnSpy = jest.spyOn(createLogger('warranty_claims'), 'warn').mockImplementation(() => undefined)
+    try {
+      const tool = aiTools.find((candidate) => candidate.name === 'warranty_claims.assess_damage_photo')
+      if (!tool) throw new Error('assess_damage_photo tool was not registered')
 
-    const response = await postDamageAssessment()
+      const response = await postDamageAssessment()
 
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ status: 'aiUnavailable' })
-    await expect(tool.handler({
-      claimId: CLAIM_ID,
-      lineId: LINE_ID,
-      attachmentId: ATTACHMENT_ID,
-    }, makeToolContext(container))).resolves.toEqual({ unavailable: true })
-    expect(convertToModelMessagesMock).toHaveBeenCalledTimes(2)
-    expect(generateObjectMock).not.toHaveBeenCalled()
-    expect(commandExecuteMock).not.toHaveBeenCalled()
-    expect(reportErrorMock).toHaveBeenCalledWith(conversionError, expect.objectContaining({
-      module: 'warranty_claims',
-      code: 'warranty_claims.ai.attachment_conversion_failed',
-    }))
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ status: 'aiUnavailable' })
+      await expect(tool.handler({
+        claimId: CLAIM_ID,
+        lineId: LINE_ID,
+        attachmentId: ATTACHMENT_ID,
+      }, makeToolContext(container))).resolves.toEqual({ unavailable: true })
+      expect(convertToModelMessagesMock).toHaveBeenCalledTimes(2)
+      expect(generateObjectMock).not.toHaveBeenCalled()
+      expect(commandExecuteMock).not.toHaveBeenCalled()
+      expect(reportErrorMock).toHaveBeenCalledTimes(2)
+      expect(reportErrorMock).toHaveBeenCalledWith(conversionError, {
+        module: 'warranty_claims',
+        code: 'warranty_claims.ai.attachment_conversion_failed',
+        attributes: { attachmentId: ATTACHMENT_ID },
+      })
+      expect(warnSpy).toHaveBeenCalledTimes(2)
+      expect(warnSpy).toHaveBeenCalledWith('warranty_claims.ai.attachment_conversion_failed', {
+        attachmentId: ATTACHMENT_ID,
+        errorName: 'TypeError',
+        errorMessage: 'Invalid URL',
+      })
+      expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('SECRET-SIGNATURE')
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 
   test('a failed attachment read is not turned into aiUnavailable', async () => {
@@ -653,6 +669,9 @@ describe('warranty claim AI assessment packet', () => {
       attachmentId: ATTACHMENT_ID,
     }, makeToolContext(container))).rejects.toBe(readError)
     expect(convertToModelMessagesMock).not.toHaveBeenCalled()
+    expect(reportErrorMock).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      code: 'warranty_claims.ai.attachment_conversion_failed',
+    }))
     expect(generateObjectMock).not.toHaveBeenCalled()
     expect(commandExecuteMock).not.toHaveBeenCalled()
   })
