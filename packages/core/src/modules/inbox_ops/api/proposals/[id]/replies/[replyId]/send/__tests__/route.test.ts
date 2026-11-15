@@ -426,4 +426,110 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
       expect(mockCreateMessageRecordForReply).not.toHaveBeenCalled()
     })
   })
+
+  describe('header CR/LF sanitization', () => {
+    function setupWithPayload(
+      payloadOverrides: Record<string, unknown>,
+      emailOverrides: Record<string, unknown> = {},
+    ) {
+      const { action, email } = setupHappyPath()
+      Object.assign(action.payload as Record<string, unknown>, payloadOverrides)
+      Object.assign(email, emailOverrides)
+    }
+
+    function sentHeaderValues(): string[] {
+      const sent = mockResendSend.mock.calls[0][0] as { subject: string; headers?: Record<string, string> }
+      return [sent.subject, ...Object.values(sent.headers ?? {})]
+    }
+
+    it('strips CR/LF from the subject and payload In-Reply-To / References', async () => {
+      setupWithPayload({
+        subject: 'Re: Order\r\nBcc: attacker@evil.test',
+        inReplyToMessageId: 'msg-1@example.com\r\nX-Injected: yes',
+        references: ['<ref-a@example.com>\r\nX-Injected: yes', 'ref-b@example.com'],
+      })
+
+      const response = await POST(makeRequest())
+
+      expect(response.status).toBe(200)
+      expect(mockResendSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subject: 'Re: Order Bcc: attacker@evil.test',
+          headers: {
+            'In-Reply-To': '<msg-1@example.com X-Injected: yes>',
+            'References': '<<ref-a@example.com> X-Injected: yes> <ref-b@example.com>',
+          },
+        }),
+      )
+      for (const value of sentHeaderValues()) {
+        expect(value).not.toMatch(/[\r\n]/)
+      }
+    })
+
+    it('strips CR/LF from the stored inbound email fallback values', async () => {
+      setupWithPayload(
+        {},
+        {
+          messageId: '<msg-123@example.com>\r\nX-Injected: yes',
+          emailReferences: ['<ref-1@example.com>\nX-Injected: yes', '\r\n'],
+        },
+      )
+
+      const response = await POST(makeRequest())
+
+      expect(response.status).toBe(200)
+      expect(mockResendSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headers: {
+            'In-Reply-To': '<<msg-123@example.com> X-Injected: yes>',
+            'References': '<<ref-1@example.com> X-Injected: yes>',
+          },
+        }),
+      )
+      for (const value of sentHeaderValues()) {
+        expect(value).not.toMatch(/[\r\n]/)
+      }
+    })
+
+    it('brackets bare message ids and ignores non-string stored references', async () => {
+      setupWithPayload(
+        { inReplyToMessageId: 'msg-1@example.com' },
+        { emailReferences: ['ref-1@example.com', 42, null] },
+      )
+
+      const response = await POST(makeRequest())
+
+      expect(response.status).toBe(200)
+      expect(mockResendSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          headers: {
+            'In-Reply-To': '<msg-1@example.com>',
+            'References': '<ref-1@example.com>',
+          },
+        }),
+      )
+    })
+
+    it('omits threading headers whose values are blank after sanitization', async () => {
+      setupWithPayload({}, { messageId: '\r\n', emailReferences: ['\r\n', '\t'] })
+
+      const response = await POST(makeRequest())
+
+      expect(response.status).toBe(200)
+      const sent = mockResendSend.mock.calls[0][0] as { headers?: Record<string, string> }
+      expect(sent.headers).toBeUndefined()
+    })
+
+    it('records the sanitized subject on the internal message record', async () => {
+      setupWithPayload({ subject: 'Re: Order\r\nBcc: attacker@evil.test' })
+
+      await POST(makeRequest())
+
+      expect(mockCreateMessageRecordForReply).toHaveBeenCalledWith(
+        expect.objectContaining({ subject: 'Re: Order Bcc: attacker@evil.test' }),
+        'email-1',
+        expect.anything(),
+      )
+    })
+  })
 })
