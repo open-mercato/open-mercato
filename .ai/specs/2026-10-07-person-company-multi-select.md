@@ -8,7 +8,7 @@
 
 **Key points:**
 - The person form exposes **one** company via `companyEntityId` (`CompanySelectField`, a single-value combobox), but the data model already stores **many** companies per person in the `customer_person_company_links` join table, with full command/undo support and dedicated link endpoints.
-- Add a **new** multi-company picker component (`CompanyMultiSelectField`, built on `TagsInput`) so a person can be linked to several companies, on both the create and edit forms, on both the classic and `people-v2` pages. **`CompanySelectField` keeps its scalar `value: string | undefined` / `onChange(next: string | undefined)` contract unchanged** so its existing consumer (`PersonHighlights.tsx:255`) and any external callers of the exported component continue to compile and behave identically. See *Migration & Backward Compatibility* → *Component contract*.
+- Add a **new** multi-company picker component (`CompanyMultiSelectField`, built on `TagsInput`) so a person can be linked to several companies, on both the create and edit forms, on both the classic and `people-v2` pages. **`CompanySelectField` keeps its scalar `value: string | undefined` / `onChange(next: string | undefined)` contract unchanged** so its existing consumer (`components/detail/PersonHighlights.tsx:255`) and any external callers of the exported component continue to compile and behave identically. See *Migration & Backward Compatibility* → *Component contract*.
 - **Primary company is not user-managed.** The existing `is_primary` invariant and the legacy `customer_people.company_entity_id` mirror are preserved by auto-defaulting a primary deterministically. No primary affordance is rendered.
 
 **Scope:**
@@ -50,7 +50,7 @@ Selected companies render as removable `Tag` pills. The inline "create company" 
 
 No primary toggle, star, or ordering control is rendered — primary is a backend concern (below).
 
-**`CompanySelectField` is left intact.** Its props (`value: string | undefined`, `onChange(next: string | undefined)`, `labels`) and runtime behavior are unchanged. `PersonHighlights.tsx:255` (the person-detail inline company editor) and any third-party importer keep working with no edit. Only the person **create/edit form field builder** (`createPersonFormFields`) swaps to `CompanyMultiSelectField`.
+**`CompanySelectField` is left intact.** Its props (`value: string | undefined`, `onChange(next: string | undefined)`, `labels`) and runtime behavior are unchanged. `components/detail/PersonHighlights.tsx:255` (the person-detail inline company editor) and any third-party importer keep working with no edit. Only the person **create/edit form field builder** (`createPersonFormFields`) swaps to `CompanyMultiSelectField`.
 
 ### Write path
 
@@ -89,7 +89,7 @@ The `customer_person_company_links.is_primary` invariant and the `company_entity
 
 ### Frontend Architecture Contract
 
-This feature adds client form state (selected-company set), asynchronous option hydration, and guarded link writes across four person routes. Per `om-spec-writing` → `references/frontend-architecture-contract.md`:
+This feature adds client form state (selected-company set), asynchronous option hydration, and guarded link writes across four person routes. Per the repository Frontend Architecture Contract (`.ai/specs/2026-05-13-frontend-client-boundary-ram-reduction.md` → *Frontend Architecture Contract*):
 
 #### 1. Server/Client boundary map
 
@@ -158,7 +158,7 @@ Per `BACKWARD_COMPATIBILITY.md` (no changes to that document are required; no de
 
 ### Component contract (`CompanySelectField`)
 
-`CompanySelectField` is an exported component in `components/formConfig.tsx` consumed in-repo by `PersonHighlights.tsx:255` and importable by third-party modules — i.e. a public-type / signature contract surface (Category 2/3 of `BACKWARD_COMPATIBILITY.md`). The original draft's "swap `CompanySelectField` value/onChange from scalar to `string[]`" would have **broken** that signature and the `PersonHighlights` scalar editing path. This revision avoids the breakage entirely:
+`CompanySelectField` is an exported component in `components/formConfig.tsx` consumed in-repo by `components/detail/PersonHighlights.tsx:255` and importable by third-party modules — i.e. a public-type / signature contract surface (Category 2/3 of `BACKWARD_COMPATIBILITY.md`). The original draft's "swap `CompanySelectField` value/onChange from scalar to `string[]`" would have **broken** that signature and the `PersonHighlights` scalar editing path. This revision avoids the breakage entirely:
 
 - `CompanySelectField` keeps its exact signature — `{ value?: string; onChange(next?: string): void; labels }` — and its runtime behavior. No `@deprecated` tag is needed; it remains the supported single-select for inline/detail use.
 - The multi-select is a **new, separate** component `CompanyMultiSelectField` with its own `{ value: string[]; onChange(next: string[]): void; labels }` signature. New additive export — non-breaking.
@@ -221,3 +221,4 @@ Reference the existing CRM fixtures (`@open-mercato/core/helpers/integration/crm
 - 2026-10-07 — Initial draft (spec-only). Open Questions resolved; full design, phasing, risks, and integration coverage written. No implementation.
 - 2026-10-07 — Backward-compatibility review against `BACKWARD_COMPATIBILITY.md`. Removed a proposed 400-reject on a `companyEntityId`/`companyEntityIds` mismatch (would have narrowed an accepted request contract — Category 7); the deprecated field is now folded in rather than rejected. Renamed the section to "Migration & Backward Compatibility" per Deprecation Protocol step 5. Confirmed no changes to the BC document and no deprecation-protocol exemption are needed.
 - 2026-10-09 — Review revision addressing three findings. (1) **blocker** — stopped mutating `CompanySelectField` in place; the scalar component is retained and the multi-select is a new `CompanyMultiSelectField`, with `PersonHighlights` + external callers covered in a new *Component contract* subsection and a dedicated test. (2) **major** — redesigned the create-command `redo` to restore the complete company-link snapshot (primary-first, atomic) via a shared `linkPersonCompanies` helper, with a required create→undo→redo multi-company integration test; corrected the earlier "undo is unchanged" claim. (3) **major** — added the Frontend Architecture Contract (boundary map, `"use client"` ledger, blob guardrail, budgets, provider scope, per-route hydration/QA evidence) for all four classic + v2 routes. Added a Final Compliance Report; noted the maintainer-gated CI/mutation/enterprise-guard validations as spec-external.
+- 2026-11-15 — Carry-forward revision: corrected the `PersonHighlights` reference to its full path (`components/detail/PersonHighlights.tsx:255`) and replaced the non-existent `om-spec-writing` reference citation with the repository's canonical Frontend Architecture Contract source (`.ai/specs/2026-05-13-frontend-client-boundary-ram-reduction.md`). No design change; all three prior findings remain resolved.
