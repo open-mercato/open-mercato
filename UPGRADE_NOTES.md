@@ -1,6 +1,6 @@
 # Upgrade Notes
 
-## Disabled customer portals also block API access (#9162)
+## Portal API access (#9162)
 
 **Clients:** a tenant with `portal_enabled=false` now receives 403 from customer
 signup, login, magic links, email verification, password reset, invitation acceptance,
@@ -14,7 +14,8 @@ and needs correction in feature-toggle configuration. Existing toggle-cache beha
 still applies. No database migration is required, and no accounts or sessions are
 deleted. Previously issued tokens remain unused when blocked by the new check and
 work after re-enabling until their original expiry. A compatibility bridge would
-preserve the disabled-portal bypass; see SPEC-060's Migration & Backward Compatibility.
+preserve the disabled-portal bypass; see the
+[spec's Migration & Backward Compatibility](.ai/specs/implemented/SPEC-060-2026-03-04-customer-identity-portal-auth.md#migration--backward-compatibility).
 
 ## Production Compose tenant encryption key (#7231)
 
