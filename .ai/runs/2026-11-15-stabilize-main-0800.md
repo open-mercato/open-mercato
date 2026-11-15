@@ -28,17 +28,22 @@ Non-goals: publish packages, change production, merge to main, weaken assertions
 Registry propagation is external and cannot be deterministically reproduced with live npm. Use controlled command fixtures and exact observed failure logs. Snapshot publishing runs only on main; prove the repair without publishing from this PR. Additional failures may widen the necessary repair.
 
 ## Execution
+Runner: local (compose probes found no running app). Immutable install completed. Use `TMPDIR=/tmp` for tsx IPC on this host. Regression baseline: three new assertions fail before the repair; focused snapshot metadata/retry and CI scope/concurrency checks: 44 passed.
+Claim-Run: 36ad2f91-5589-4e68-9574-969a2f4c3bf9
+Claim-Lock-SHA: 44981e56f93b92a06f2969afc22f9076f7390776
+Claim-Comment: 6890899073
 Engine: om-auto-create-pr (steps: 6, --loop: no)
 Reuse the invoking isolated worktree. Parent owns coupled implementation and validation. At most two dispatched tasks: read-only diagnosis and final review. Do not merge unreviewed child changes.
 
 ## Progress
+PR: #9588
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and repair
 
 - [ ] 1.1 Dispatch a read-only independent audit of the snapshot failure and validate its evidence
-- [ ] 1.2 Repair the demonstrated root cause and add focused regression coverage
+- [x] 1.2 Repair the demonstrated root cause and add focused regression coverage — 989da5011b
 
 ### Phase 2: Validate
 
