@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
+import { decryptWithAesGcm, encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { Migration20261115120000_mfa_removal_audit_redaction } from '../Migration20261115120000_mfa_removal_audit_redaction'
 
 const postgresUrl = process.env.OM_SECURITY_MIGRATION_PG_URL
@@ -45,7 +46,7 @@ describePostgres('MFA removal audit redaction against PostgreSQL', () => {
 
   async function createAuditTable(): Promise<void> {
     await client.query(`CREATE TABLE action_logs (
-      id text PRIMARY KEY, tenant_id text, command_id text NOT NULL,
+      id text PRIMARY KEY, tenant_id text, command_id text NOT NULL, resource_kind text,
       snapshot_before jsonb, snapshot_after jsonb, command_payload jsonb,
       changes_json jsonb, undo_token text, deleted_at timestamptz
     )`)
@@ -54,6 +55,7 @@ describePostgres('MFA removal audit redaction against PostgreSQL', () => {
   async function insertLog(id: string, options: {
     tenantId?: string
     command?: string
+    resourceKind?: string
     snapshot?: unknown
     payload?: unknown
     changes?: unknown
@@ -69,10 +71,11 @@ describePostgres('MFA removal audit redaction against PostgreSQL', () => {
       ? { secret: { from: 'private-seed', to: null }, providerMetadata: { from: { key: 'private-key' }, to: null }, isActive: { from: true, to: false } }
       : options.changes
     await client.query(`INSERT INTO action_logs
-      (id, tenant_id, command_id, snapshot_before, snapshot_after, command_payload, changes_json, undo_token, deleted_at)
-      VALUES ($1, $2, $3, $4::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, 'legacy-token', $7)`,
+      (id, tenant_id, command_id, snapshot_before, snapshot_after, command_payload, changes_json, undo_token, deleted_at, resource_kind)
+      VALUES ($1, $2, $3, $4::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, 'legacy-token', $7, $8)`,
     [id, options.tenantId ?? 'tenant-1', options.command ?? commandId,
-      JSON.stringify(snapshot), JSON.stringify(payload), JSON.stringify(changes), options.deletedAt ?? null])
+      JSON.stringify(snapshot), JSON.stringify(payload), JSON.stringify(changes), options.deletedAt ?? null,
+      options.resourceKind ?? (options.command && options.command !== commandId ? 'example.entity' : 'security.mfa_method')])
   }
 
   test('scrubs every persisted credential copy across tenants, deleted rows and undo traces', async () => {
@@ -100,9 +103,59 @@ describePostgres('MFA removal audit redaction against PostgreSQL', () => {
   test('preserves unrelated command history byte-for-byte', async () => {
     await createAuditTable()
     await insertLog('unrelated', { command: 'example.command' })
-    const before = await client.query('SELECT * FROM action_logs')
+    await insertLog('unrelated-same-resource', { command: 'example.command', resourceKind: 'security.mfa_method' })
+    const before = await client.query('SELECT * FROM action_logs ORDER BY id')
     await runMigration(client)
-    expect((await client.query('SELECT * FROM action_logs')).rows).toEqual(before.rows)
+    expect((await client.query('SELECT * FROM action_logs ORDER BY id')).rows).toEqual(before.rows)
+  })
+
+  test.each([
+    { encryptedCommand: true, encryptedJson: true },
+    { encryptedCommand: true, encryptedJson: false },
+    { encryptedCommand: false, encryptedJson: true },
+  ])('redacts encrypted and mixed MFA history: %j', async ({ encryptedCommand, encryptedJson }) => {
+    await createAuditTable()
+    const key = generateDek()
+    const sealedCommand = encryptWithAesGcm(commandId, key).raw
+    const snapshot = { id: 'method-1', secret: 'private-seed', providerMetadata: { key: 'private-key' } }
+    const payload = { methodType: 'totp', undo: { before: snapshot, after: snapshot }, __redoInput: { id: 'method-1' } }
+    const changes = { secret: { from: 'private-seed', to: null }, providerMetadata: { from: 'private-key', to: null } }
+    expect(decryptWithAesGcm(sealedCommand, key)).toBe(commandId)
+
+    for (const [index, id] of ['removed', 'deleted', 'undo-trace'].entries()) {
+      await insertLog(id, {
+        tenantId: `tenant-${index}`,
+        command: encryptedCommand ? sealedCommand : commandId,
+        resourceKind: 'security.mfa_method',
+        snapshot: encryptedJson ? encryptWithAesGcm(JSON.stringify(snapshot), key).raw : snapshot,
+        payload: id === 'undo-trace' ? null : encryptedJson ? encryptWithAesGcm(JSON.stringify(payload), key).raw : payload,
+        changes: encryptedJson ? encryptWithAesGcm(JSON.stringify(changes), key).raw : changes,
+        deletedAt: id === 'deleted' ? new Date() : null,
+      })
+    }
+    await insertLog('unrelated-encrypted', {
+      command: encryptWithAesGcm('example.command', key).raw,
+      resourceKind: 'example.entity',
+      snapshot: encryptWithAesGcm(JSON.stringify(snapshot), key).raw,
+      payload: encryptWithAesGcm(JSON.stringify(payload), key).raw,
+      changes: encryptWithAesGcm(JSON.stringify(changes), key).raw,
+    })
+    const unrelatedBefore = await client.query('SELECT * FROM action_logs WHERE id = $1', ['unrelated-encrypted'])
+
+    await runMigration(client)
+    await runMigration(client)
+    const { rows } = await client.query<Record<string, unknown>>('SELECT * FROM action_logs WHERE id <> $1', ['unrelated-encrypted'])
+    for (const row of rows) {
+      expect(row.command_id).toBe(encryptedCommand ? sealedCommand : commandId)
+      expect(row.resource_kind).toBe('security.mfa_method')
+      expect(row.undo_token).toBeNull()
+      expect(row.snapshot_before).toEqual(encryptedJson ? null : { id: 'method-1' })
+      expect(row.snapshot_after).toEqual(row.snapshot_before)
+      expect(row.command_payload).toEqual(encryptedJson || row.id === 'undo-trace' ? null : { methodType: 'totp' })
+      expect(row.changes_json).toEqual(encryptedJson ? null : {})
+    }
+    expect((await client.query('SELECT * FROM action_logs WHERE id = $1', ['unrelated-encrypted'])).rows)
+      .toEqual(unrelatedBefore.rows)
   })
 
   test.each([

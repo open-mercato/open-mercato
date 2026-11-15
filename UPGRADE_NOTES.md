@@ -14,7 +14,10 @@ through the normal upgrade process before restoring audit access. It scrubs
 credential snapshots, nested undo payloads and recorded credential changes from
 `security.mfa.method.remove` history, drops stored replay input, and clears undo
 tokens across all tenants, including deleted logs and undo traces. No schema
-change is required. Redaction is irreversible; rollback cannot recover secrets.
+change is required. Encrypted command IDs are located using the dedicated
+unencrypted MFA resource kind. Encrypted snapshot, payload and change columns
+are erased completely, including their non-sensitive contents; audit resource
+identifiers remain available. Redaction is irreversible; rollback cannot recover secrets.
 Secure or expire historical exports, replicas and backups separately, and rerun
 redaction before exposing a restored backup. Treat any previously exposed MFA
 credentials as compromised and have affected users remove/re-enroll factors;

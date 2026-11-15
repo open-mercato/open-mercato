@@ -28,7 +28,11 @@ export class Migration20261115120000_mfa_removal_audit_redaction extends Migrati
                 else null
               end,
               "undo_token" = null
-          where "command_id" = 'security.mfa.method.remove';
+          where "command_id" = 'security.mfa.method.remove'
+             or (
+               "resource_kind" = 'security.mfa_method'
+               and "command_id" ~ '^[A-Za-z0-9+/]{16}:[A-Za-z0-9+/]+={0,2}:[A-Za-z0-9+/]{22}==:v1$'
+             );
         end if;
       end $$;
     `)

@@ -677,6 +677,8 @@ of the waiver is **pending**, so automated approval cannot clear the merge gate.
 Consumers tolerate absent secret/provider metadata and enroll replacement factors.
 Operators stop old writers, deploy all replicas, run irreversible historical
 redaction, handle backups/exports separately and replace suspect credentials.
+Encrypted credential-bearing JSONB columns are erased as a whole; plaintext
+audit resource identifiers remain available.
 Routes, command IDs, success responses and database schema remain unchanged.
 [Migration](UPGRADE_NOTES.md#mfa-removal-audit-history-9144);
 [spec](.ai/specs/enterprise/implemented/SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md#mfa-removal-audit-hardening-9144).

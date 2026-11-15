@@ -1925,6 +1925,14 @@ commands and non-sensitive audit identifiers, tolerates absent audit tables,
 and is idempotent. Its down migration cannot recover erased credentials.
 No entity schema or schema snapshot changes.
 
+Default audit encryption also encrypts `command_id`. Encrypted command IDs are
+therefore selected through the dedicated, unencrypted `security.mfa_method`
+resource kind and the server's AES-GCM v1 envelope format. MFA removal is the
+only first-party command emitting this resource kind. Encrypted JSONB snapshots,
+payloads and changes are cleared completely because SQL cannot redact their
+contents without tenant keys; resource identifiers and unrelated encrypted
+history remain intact. Mixed plaintext/encrypted column states are covered too.
+
 Operators must stop old application/worker writers, deploy the fix everywhere,
 and apply the migration through their normal upgrade process before resuming
 audit access. Copies in backups, exports and replicas need separate retention
@@ -1943,6 +1951,8 @@ legacy undo tokens fail before any claim or mutation for both owner and another
 tenant actor, and disposable PostgreSQL tests exercise historical cleanup,
 tenant/deleted-row/undo-trace coverage, unrelated rows, malformed/null JSON,
 idempotency, irreversible rollback and absent audit tables.
+Encrypted-command and JSONB fixtures use real AES-GCM payloads and verify that
+unrelated encrypted history and unrelated plaintext commands remain unchanged.
 
 The emergency-bypass notification change (#5523) corrects shared enabled-module ownership
 for nested ACL wildcards such as `security.mfa.*`. Existing stored role and per-user grants
