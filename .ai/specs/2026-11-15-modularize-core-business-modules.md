@@ -8,19 +8,30 @@ Proposed
 Core is becoming a monolith: catalog, customers, sales, cart, promotions, warranty_claims, wms,
 customer_accounts, etc. live in the same package as the module system, auth, ACL, query index.
 This prevents independent versioning, opt-in activation, and clear dependency boundaries.
-`external/official-modules` is intended for exactly this kind of extraction.
 
 The goal is to keep `@open-mercato/core` as a thin platform kernel and move every business domain
-into its own npm workspace package, publishable as `@open-mercato/<domain>`.
+into its own npm **workspace** package, installable as `@open-mercato/<domain>` (see
+Distribution channels below). The `external/official-modules` git submodule is a *separate*
+distribution vehicle for **third-party** official modules; it is not the activation path for
+first-party domains extracted in this spec.
 
 ## Principles
 * Core stays platform only.
 * Business modules become first-class packages with their own `package.json`, `AGENTS.md`,
   `README.md`, DI registration and public API surface.
-* No direct ORM relations across packages. Cross-package coupling is via IDs, snapshots,
-  events, QueryEngine lookups and widgets – same rules as today.
-* Backward compatibility: existing imports from `@open-mercato/core/modules/<id>` must continue
-  to work via re-exports for at least one major version. Deprecation warnings are emitted.
+* No direct ORM relations across packages. Cross-package coupling **will be** via IDs,
+  snapshots, events, QueryEngine lookups and widgets — this is the *target*, not the current
+  state. Modules import each other's entities today (e.g. `sales` → `catalog`/`customers`/
+  `dictionaries` entities; `communication_channels` → `messages`; `business_rules` →
+  `api_keys`/`auth`/`directory`; `sync_excel` → `attachments`; `staff` → `planner`/`auth`).
+  A **decoupling pass** (Phase 0) must remove every cross-module entity import before the
+  affected module can leave core — extraction is not mechanical.
+* Backward compatibility: existing imports from `@open-mercato/core/modules/<id>` — including
+  **named** imports and **nested subpaths** (`…/commands`, `…/lib/…`, `…/events`,
+  `…/data/entities`) — must keep resolving via per-subpath re-export shims for at least one
+  major version, with a noise-safe (once-guarded) deprecation. This is a STABLE contract
+  surface (`BACKWARD_COMPATIBILITY.md` §4 Import Paths); the shim must preserve the full
+  `exports` map, not just a default export.
 * Packages are published to npm with `publishConfig.access: public` and workspace versioning.
 
 ## Keep in Core – Platform / Framework
@@ -91,6 +102,11 @@ platform abstraction (not extracted).
 * `customer_accounts` → `@open-mercato/customer-accounts`
   Depends on: core, auth, notifications, audit_logs
   Consumers: portal, sales, ecommerce
+
+* `portal` → `@open-mercato/portal`
+  Depends on: core, @open-mercato/customer-accounts, feature_toggles
+  Consumers: warranty_claims (Phase 4). In-core `workflows` references portal, so it resolves
+  it via `tryResolve` (optional peer) and degrades gracefully when the package is absent.
 
 * `inbox_ops` → `@open-mercato/inbox-ops`
   Depends on: core, customers, notifications, messages
@@ -183,7 +199,9 @@ platform abstraction (not extracted).
   subscribers in the target package.
 * Shared types go to `@open-mercato/shared`.
 * DI tokens are registered in each package `di.ts`. Optional peer dependencies are resolved
-  with `tryResolve` pattern.
+  with `tryResolve` pattern. In-core modules that consume a moved-out module (e.g. `workflows` →
+  `portal`, `data_sync` → `sync_excel`) depend on it as an **optional peer** and degrade
+  gracefully when the package is absent — core must never hard-require a business domain.
 * All public APIs must export `openApi` where applicable.
 
 ## Package Layout
@@ -209,9 +227,20 @@ packages/<domain>/
   tsconfig.json
 ```
 `package.json` name: `@open-mercato/<kebab-name>`
-`version`: start at `0.1.0`, follow core versioning.
+`version`: start at `0.1.0`; version **independently** with semver (a major bump for any
+breaking change). Core references each extracted package via a workspace range (`workspace:*`
+in-repo), so a domain can ship without a core release. (Resolves the prior Open Question.)
 `peerDependencies`: `@open-mercato/core`, `@open-mercato/shared`, `@open-mercato/ui`
 `dependencies`: only domain dependencies listed above.
+
+## Distribution channels
+Two distinct channels exist; this extraction uses the first, and the `promote`/`eject`
+carve-out in `official-modules-development.mdx` applies to the second:
+* **First-party domains (this spec):** in-repo npm **workspace** packages
+  (`@open-mercato/<domain>`, `publishConfig.access: public`), installed via `yarn add` and
+  enabled through `apps/mercato/src/modules.ts` + the generated `official-modules.generated.ts`.
+* **Third-party official modules:** the `external/official-modules` git submodule, activated via
+  `official-modules.json`. This extraction does **not** touch that schema.
 
 ## Context & Docs Impact
 
@@ -253,27 +282,54 @@ each when its module moves.
 
 ## Migration Plan
 
+### 0. Decouple cross-module entity imports (prerequisite, per module, before it moves)
+Inventory every cross-module **entity/validator import** inside `packages/core/src/modules/*`
+and replace each with a UUID reference + QueryEngine lookup (or a shared type via
+`@open-mercato/shared`). Known starting set (not exhaustive — re-scan before each move):
+* `sales/commands/documents.ts` → `catalog`, `customers`, `dictionaries` entities
+* `communication_channels/*` → `messages` entities
+* `business_rules/lib/*` → `api_keys`, `auth`, `directory` entities
+* `sync_excel/lib/upload-storage.ts` → `attachments` entities
+* `staff/lib/messageObjectPreviews.ts` → `planner`, `auth` entities
+* `customers|sales|catalog/inbox-actions.ts` → `inbox_ops` validators
+A module may leave core only after its cross-module entity imports are gone. (ORM *relation
+decorators* are already intra-module; the breakage is plain entity *imports*.)
+
 ### 1. Inventory & Graph
-Run static analysis to build import graph of `packages/core/src/modules/*`. Generate
-dependency matrix and verify no cycles introduced by extraction.
+Build the import graph of `packages/core/src/modules/*` and emit `packages/DEPENDENCIES.md`
+(the dependency matrix + phase order). Add a CI gate that **fails on a new cycle** introduced
+by extraction, and confirm each moved module's "Depends on" set is satisfied by an earlier
+phase or by core.
 
 ### 2. Scaffold Packages
 Create workspace packages for each module in Phase 1. Copy source tree from
 `packages/core/src/modules/<module>` into `packages/<domain>/src`. Update imports to
 package-level imports.
 
-### 3. Public API & Re-exports
-In `packages/core/src/modules/<module>/index.ts` add deprecation re-export:
+### 3. Public API & Re-exports (preserve the full `exports` map — STABLE, BC §4)
+The in-repo surface is ~1363 `@open-mercato/core/modules/<id>` imports, overwhelmingly
+**named** and **nested subpaths** (`…/commands`, `…/lib/…`, `…/events`, `…/data/entities`,
+`…/services/…`). A single `index.ts` default re-export cannot preserve them. For **each** entry
+currently mapped in `@open-mercato/core/package.json` `exports`, add a per-subpath shim that
+forwards **named** exports from the new package:
 ```ts
-import * as mod from '@open-mercato/<domain>'
-export default mod
-console.warn('[DEPRECATED] @open-mercato/core/modules/<module> moved to @open-mercato/<domain>')
+// packages/core/src/modules/<module>/<rest>  — one shim per existing subpath
+export * from '@open-mercato/<domain>/<rest>'
 ```
-Keep re-export for one major version.
+Rules:
+* Keep every existing `exports` entry; do not collapse subpaths into a single `index.ts`.
+* Use `export *` (named) — **not** `export default` — so `import { X }` keeps resolving.
+* Emit the deprecation **once**, noise-safe (a module-level guard, opt-in via e.g.
+  `OM_DEPRECATION_WARNINGS`), **not** a `console.warn` at module-eval (that fires on every
+  import and runs during SSR/build).
+* Keep each shim for one major version, with a smoke test asserting every pre-move subpath
+  still resolves after the move.
 
 ### 4. DI & Registration
-Move `di.ts`, `setup.ts`, `acl.ts` into the new package. Update `packages/core/src/modules.ts`
-registration to load from new packages when present.
+Move `di.ts`, `setup.ts`, `acl.ts` into the new package. Registration is **generated**, not
+hand-edited: the app registry is `apps/mercato/src/modules.ts`, which consumes the generated
+`apps/mercato/src/official-modules.generated.ts` ("don't edit by hand"). Rebuild it with
+`yarn generate` so the new packages are picked up — there is no `packages/core/src/modules.ts`.
 
 ### 5. Tests
 Move `__tests__` into new package. Update Jest config. Run `yarn workspace @open-mercato/<domain> test`.
@@ -283,24 +339,45 @@ Add `build` script to each package. Ensure `yarn build:packages` builds them in 
 Publish dry-run via `yarn nx publish` or `npm publish --dry-run`.
 
 ### 7. Docs & Activation
-Update `official-modules.json` schema to allow activation of extracted modules.
-Update docs for installation: `yarn add @open-mercato/catalog @open-mercato/sales`.
+Extracted domains ship as **workspace packages** and are enabled through the standard
+`modules.ts` / generated registry — **not** via `official-modules.json`, which activates the
+`external/official-modules` git submodule for **third-party** official modules. Update docs for
+installation: `yarn add @open-mercato/catalog @open-mercato/sales` + add the `modules.ts`
+entry (or run `yarn generate`). Leave the `official-modules.json` schema unchanged unless a
+domain is later republished through the submodule channel.
 
 ## Backward Compatibility
-* Re-export shim in core for 1 major version.
-* `BACKWARD_COMPATIBILITY.md` entry for each moved module.
+* Per-subpath **named** re-export shims in core, one major version (preserve the full `exports`
+  map; noise-safe deprecation; smoke-tested — see step 3).
+* `BACKWARD_COMPATIBILITY.md` entry for each moved module (Import Paths §4 + the re-export
+  contract).
 * Migration guide with `yarn generate` after switching imports.
 
 ## Risks & Mitigations
-* Circular deps: enforce dependency graph review before merge.
+* Circular deps: enforce the dependency-graph review + CI cycle gate (step 1) before merge.
 * Missing optional peer: use `tryResolve` + graceful degradation.
 * Migration churn: ship Phase 1 first, stabilize, then Phase 2-4.
+* Cross-module entity coupling: Phase 0 decoupling is the true critical path — a module cannot
+  move until its cross-module entity imports are gone; re-scan the import set before each move
+  (the list in step 0 is a starting point, not exhaustive).
+* Shared migration snapshot: `catalog`/`customers`/`sales` own migrations today. The single
+  `.snapshot-open-mercato.json` stays owned by core/app; per-package migrations are registered
+  through the shared `yarn db:generate` path (never a forked per-package snapshot), preserving
+  the ADDITIVE-ONLY schema rule (BC §8).
+* Re-export breakage: the per-subpath named shims (step 3) are covered by a smoke test that
+  re-resolves every pre-move `exports` subpath; do not collapse them into a default export.
 
 ## Acceptance Criteria
-* `@open-mercato/core` builds without business module source.
+* `@open-mercato/core` builds without business module source, and the full partition
+  (keep / move / Phase 0-decoupled) covers **every** entry in `packages/core/src/modules/`
+  — including `portal`, which is neither in-core nor currently listed.
+* No cross-module entity import remains in any moved package (step 0 clean).
 * All moved packages build, typecheck, test green.
-* Re-export shims emit deprecation warning but keep existing apps working.
-* Dependency graph documented in `packages/DEPENDENCIES.md`.
+* A smoke test re-resolves **every** pre-move `@open-mercato/core/modules/<id>` subpath
+  (named + nested) through its shim; deprecation is noise-safe (once-guarded), not a per-import
+  `console.warn`.
+* `packages/DEPENDENCIES.md` carries the dependency matrix + phase order, and a CI gate fails
+  on a new cycle.
 * Packages are publishable with `npm publish` and have correct `name`, `version`, `publishConfig`.
 
 ## Decisions
@@ -314,6 +391,19 @@ Update docs for installation: `yarn add @open-mercato/catalog @open-mercato/sale
   convention). The only context edits are extraction-time reframes of "core contains business
   modules" in root + `packages/core/AGENTS.md` and the module-system docs, plus a core-extraction
   mode for `promote`/`eject` — see the Context & Docs Impact section.
+* Distribution: extracted first-party domains are in-repo **workspace** packages enabled via
+  `modules.ts`/the generated registry; the `external/official-modules` submodule
+  (`official-modules.json`) is reserved for third-party modules and is **not** touched.
+* Re-export contract: preserve the full `exports` map with per-subpath **named** shims
+  (`export *`, not `export default`), noise-safe deprecation, and a pre-move subpath smoke test
+  (see step 3 / BC §4).
+* Decoupling is the critical path: Phase 0 removes cross-module entity imports before any module
+  moves; the shared `.snapshot-open-mercato.json` stays single and ADDITIVE-ONLY.
+* `portal` is a moved-out domain (`@open-mercato/portal`); in-core `workflows` resolves it via
+  `tryResolve`.
 
 ## Open Questions
-* Versioning policy alignment with core releases.
+* ~~Versioning policy alignment with core releases~~ — **resolved**: extracted packages version
+  independently with semver (major on break), referenced by core via `workspace:*`.
+* Whether any first-party domain is later republished through the `external/official-modules`
+  submodule (vs. staying a workspace package) — deferred; does not block Phase 1.
