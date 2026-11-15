@@ -2111,3 +2111,6 @@ None identified.
 
 ### 2026-10-29
 - Recorded @haxiorz’s human approval of the security exception for all 18 administrative fields and acknowledgment of the client/operator migration; independent review and QA remain required.
+
+### 2026-11-15
+- Hardened email variable rendering, public customer-data validation and declared-field filtering; added recipient/link start-email budgets with regression coverage and documented the pending security exception approval (#9159).

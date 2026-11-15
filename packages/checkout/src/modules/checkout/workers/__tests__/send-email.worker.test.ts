@@ -209,4 +209,3 @@ describe('checkout send-email worker', () => {
     )
   })
 })
-
