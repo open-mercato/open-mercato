@@ -36,6 +36,9 @@ const ORGANIZATION_ID = '22222222-2222-4222-8222-222222222222'
 const OWNER_ID = '33333333-3333-4333-8333-333333333333'
 const EDITOR_ID = '44444444-4444-4444-8444-444444444444'
 
+const WAITER_POLL_MS = 15
+const WAITER_TIMEOUT_MS = 5_000
+
 type Deferred = { promise: Promise<void>; resolve: () => void }
 
 function deferred(): Deferred {
@@ -43,8 +46,6 @@ function deferred(): Deferred {
   const promise = new Promise<void>((done) => { resolve = done })
   return { promise, resolve }
 }
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 maybe('attachment upload commit-boundary recheck vs. concurrent Documents mutations against PostgreSQL (#8975)', () => {
   jest.setTimeout(120_000)
@@ -238,51 +239,84 @@ maybe('attachment upload commit-boundary recheck vs. concurrent Documents mutati
     return decision
   }
 
+  async function waitForCondition(query: string, count: number, timeoutMs = WAITER_TIMEOUT_MS): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const rows = await orm.em.execute<Array<{ n: number }>>(query)
+      if (Number(rows[0]?.n ?? 0) >= count) return
+      await new Promise((resolve) => setTimeout(resolve, WAITER_POLL_MS))
+    }
+    throw new Error(`[internal] Timed out waiting for condition to reach count ${count}: ${query}`)
+  }
+
+  // Acquisition barrier: proves a contender's transaction genuinely holds an
+  // open Postgres transaction (idle between statements), not merely that
+  // "enough time" has passed.
+  function waitForIdleInTransaction(count: number): Promise<void> {
+    return waitForCondition(
+      `select count(*)::int as n from pg_stat_activity where datname = current_database() and state = 'idle in transaction'`,
+      count,
+    )
+  }
+
+  // Acquisition barrier: proves a contender's transaction is genuinely
+  // blocked on Postgres' own lock manager, not racing a plain read.
+  function waitForLockWaiters(count: number): Promise<void> {
+    return waitForCondition(
+      `select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+      count,
+    )
+  }
+
   it('blocks the commit-boundary recheck on Postgres row lock until a concurrent revoke commits, then denies on the now-revoked share', async () => {
     const revoke = deferred()
-    const revokePromise = runConcurrentShareRevoke(revoke.promise)
-    await delay(200) // let the revoke acquire the row lock and soft-delete the share, still uncommitted
+    let revokePromise: Promise<void> | undefined
+    let uploadPromise: Promise<AttachmentAccessDecision> | undefined
+    try {
+      revokePromise = runConcurrentShareRevoke(revoke.promise)
+      await waitForIdleInTransaction(1) // the revoke holds the row lock, soft-deleted share still uncommitted
 
-    let uploadSettled = false
-    const uploadPromise = runUploadCommitBoundaryCheck().then((decision) => {
-      uploadSettled = true
-      return decision
-    })
-    await delay(200)
-    expect(uploadSettled).toBe(false) // genuinely blocked on Postgres' row lock, not a JS mutex
+      uploadPromise = runUploadCommitBoundaryCheck()
+      await waitForLockWaiters(1) // genuinely blocked on Postgres' row lock, not a JS mutex
 
-    revoke.resolve() // the revoke transaction commits, releasing the row lock
-    await revokePromise
+      revoke.resolve() // the revoke transaction commits, releasing the row lock
+      await revokePromise
 
-    const decision = await uploadPromise
-    expect(uploadSettled).toBe(true)
-    expect(decision).toEqual({ ok: false, status: 404, reason: 'document_not_found' })
-    expect(await isShareRevoked()).toBe(true)
+      const decision = await uploadPromise
+      expect(decision).toEqual({ ok: false, status: 404, reason: 'document_not_found' })
+      expect(await isShareRevoked()).toBe(true)
+    } finally {
+      revoke.resolve()
+      await Promise.allSettled([revokePromise, uploadPromise])
+    }
   })
 
   it('lets the commit-boundary recheck finish and commit first on Postgres, serializing a queued revoke behind it', async () => {
     const upload = deferred()
-    let uploadSettled = false
-    const uploadPromise = runUploadCommitBoundaryCheck(upload.promise).then((decision) => {
-      uploadSettled = true
-      return decision
-    })
-    await delay(200) // let the upload acquire the row lock and obtain its decision first
+    let uploadPromise: Promise<AttachmentAccessDecision> | undefined
+    let revokePromise: Promise<void> | undefined
+    try {
+      uploadPromise = runUploadCommitBoundaryCheck(upload.promise)
+      await waitForIdleInTransaction(1) // the upload holds the row lock, decision still uncommitted
 
-    let revokeSettled = false
-    const revokePromise = runConcurrentShareRevoke().then(() => { revokeSettled = true })
-    await delay(200)
-    expect(revokeSettled).toBe(false) // queued behind the still-open upload transaction
-    expect(await isShareRevoked()).toBe(false)
+      let revokeSettled = false
+      revokePromise = runConcurrentShareRevoke().then(() => { revokeSettled = true })
+      await waitForLockWaiters(1) // queued behind the still-open upload transaction
 
-    upload.resolve() // the upload transaction commits, releasing the row lock
-    const decision = await uploadPromise
-    expect(uploadSettled).toBe(true)
-    expect(decision).toEqual({ ok: true })
+      expect(revokeSettled).toBe(false)
+      expect(await isShareRevoked()).toBe(false)
 
-    await revokePromise
-    expect(revokeSettled).toBe(true)
-    expect(await isShareRevoked()).toBe(true) // the revoke only lands after the upload committed
+      upload.resolve() // the upload transaction commits, releasing the row lock
+      const decision = await uploadPromise
+      expect(decision).toEqual({ ok: true })
+
+      await revokePromise
+      expect(revokeSettled).toBe(true)
+      expect(await isShareRevoked()).toBe(true) // the revoke only lands after the upload committed
+    } finally {
+      upload.resolve()
+      await Promise.allSettled([uploadPromise, revokePromise])
+    }
   })
 
   it('acquires locks for a reversed primary/assignment pair in a deterministic order and never deadlocks on real Postgres', async () => {

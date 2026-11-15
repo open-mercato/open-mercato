@@ -308,7 +308,7 @@ maybe('generic upload route commit-boundary recheck vs. concurrent Documents mut
       const response = await uploadPromise
 
       expect(response.status).toBe(404)
-      expect(await countAttachments()).toBe(0) // the denied transaction rolled back; nothing committed
+      expect(await countAttachments()).toBe(0)
       expect(storageDriver.deleteStrict).toHaveBeenCalledTimes(1) // the already-stored bytes are compensated
       expect(storageDriver.deleteStrict).toHaveBeenCalledWith(expect.any(String), expect.any(String))
       expect(quotaService.release).toHaveBeenCalledTimes(1) // the quota reservation is released, not left dangling
