@@ -90,7 +90,7 @@ export type AttachmentOwnerFixture = {
    * created on first use and removed with the copies in teardown.
    */
   foreignCopy: (attachmentId: string, scope: ForeignAttachmentScope, options?: { entityId?: string; recordId?: string }) => Promise<ForeignAttachment>
-  upload:(documentId: string, label: string, options?: { entityId?: string; assignments?: Assignment[]; tags?: string[] }) => Promise<string>
+  upload: (documentId: string, label: string, options?: { entityId?: string; assignments?: Assignment[]; tags?: string[] }) => Promise<string>
   uploadProxy: (documentId: string) => Promise<{ attachmentId: string; url: string }>
   uploadPublicImage: (documentId: string) => Promise<string>
   key: () => Promise<{ id: string; secret: string }>
@@ -175,7 +175,7 @@ export async function withAttachmentOwnerFixture(
       foreignAttachments.push(id)
       return { id, recordId, ...target }
     }
-    const upload:AttachmentOwnerFixture['upload'] = async (documentId, label, options = {}) => {
+    const upload: AttachmentOwnerFixture['upload'] = async (documentId, label, options = {}) => {
       const file = await uploadAttachmentFixture(request, admin, {
         entityId: options.entityId ?? 'documents:document', recordId: documentId,
         fileName: `${prefix}-${label}.txt`, mimeType: 'text/plain', buffer: Buffer.from(`${prefix}-${label}-content`),
@@ -220,17 +220,27 @@ export async function withAttachmentOwnerFixture(
       document, share, unshare, foreignCopy, upload, uploadProxy, uploadPublicImage, key,
     })
   } finally {
+    const foreignCleanupErrors: unknown[] = []
     if (foreignAttachments.length > 0 || foreignOrganizations.length > 0 || foreignTenants.length > 0) {
       await withClient(async (client) => {
-        await client.query('delete from attachments where id = any($1::uuid[])', [foreignAttachments])
-        await client.query('delete from organizations where id = any($1::uuid[])', [foreignOrganizations])
-        await client.query('delete from tenants where id = any($1::uuid[])', [foreignTenants])
-      }).catch(() => undefined)
+        const cleanups: Array<[string, string[]]> = [
+          ['delete from attachments where id = any($1::uuid[])', foreignAttachments],
+          ['delete from organizations where id = any($1::uuid[])', foreignOrganizations],
+          ['delete from tenants where id = any($1::uuid[])', foreignTenants],
+        ]
+        for (const [statement, ids] of cleanups) {
+          if (ids.length === 0) continue
+          await client.query(statement, [ids]).catch((error: unknown) => { foreignCleanupErrors.push(error) })
+        }
+      }).catch((error: unknown) => { foreignCleanupErrors.push(error) })
     }
     for (const id of keys) await apiRequest(request, 'DELETE', `/api/api_keys/keys?id=${id}`, { token: admin }).catch(() => undefined)
     for (const id of attachments) await deleteAttachmentIfExists(request, admin, id)
     for (const id of documents.reverse()) await apiRequest(request, 'DELETE', `/api/documents/${id}`, { token: admin }).catch(() => undefined)
     for (const id of users) await deleteUserIfExists(request, admin, id)
     await deleteRoleIfExists(request, admin, roleId)
+    if (foreignCleanupErrors.length > 0) {
+      throw new AggregateError(foreignCleanupErrors, '[internal] Attachment owner fixture could not remove its foreign-scope rows')
+    }
   }
 }

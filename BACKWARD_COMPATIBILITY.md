@@ -648,7 +648,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Attachment owner access on direct readers (2026-11-03, #6282)
 
-STABLE behavior BREAK, protected owners only (e.g. Documents): the `attachments.*` AI tools, chat `attachmentIds`, the pending-action recheck, `catalog.draft_description_from_media` and Messages compose, reply and draft linking deny protected attachments the caller may not access; without it they bypass the #6726 owner policy, and a bridge would keep that bypass. New exports and optional tool context and Messages link fields are additive; the spec lists them. [Migration](UPGRADE_NOTES.md#ai-attachment-tools-ai-chat-attachments-and-messages-linking-enforce-attachment-owner-policies-6282); [spec](.ai/specs/2026-11-03-attachment-direct-reader-owner-access.md). Human maintainer waiver: PENDING.
+STABLE behavior BREAK, protected owners only (e.g. Documents): the `attachments.*` AI tools, chat `attachmentIds`, the pending-action recheck, `catalog.draft_description_from_media` and Messages compose, reply and draft linking deny protected attachments the caller may not access, and CLI, worker and MCP processes whose generated bootstrap registrations are missing or fail to load deny every direct read and refuse attachment writes; without it they bypass the #6726 owner policy, and a bridge would keep that bypass. New exports and optional tool context and Messages link fields are additive; the spec lists them. [Migration](UPGRADE_NOTES.md#ai-attachment-tools-ai-chat-attachments-and-messages-linking-enforce-attachment-owner-policies-6282); [spec](.ai/specs/2026-11-03-attachment-direct-reader-owner-access.md). Human maintainer waiver: PENDING.
 
 ## #7809 2026-11-06
 

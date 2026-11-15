@@ -91,7 +91,7 @@ it('denies a protected row whose partition cannot be loaded but keeps an unprote
   expect(result.denied.map((row) => row.id)).toEqual(['protected'])
 })
 
-it('denies a resolver-only protected row when the process never loaded its bootstrap registrations', async () => {
+it('denies a Documents row when the process never loaded its bootstrap registrations, although the registry is empty', async () => {
   registerAttachmentAccessResolvers([])
   const { container } = setup(['documents.view'])
   const withoutRegistrations = await evaluateAttachmentRowAccess({ container, auth, rows: [protectedRow], action: 'read' })
