@@ -53,11 +53,13 @@ For owner lanes whose specs require Open Mercato core-team implementation and re
 
 ### Ready implementation PR
 
-A committed `ready.implementationPr` is valid only when the implementation PR is already merged to the tracker-configured base, its merge SHA is an ancestor of the provider-reported validation head, its body contains `CrudForm-Adoption-Work-Units: <comma-separated invocationId#alternative.id values>` including the exact work unit, and `ready.implementationReview` resolves to an eligible non-author provider-native approving review at that implementation PR's final source head. Use the provider/event source head, never GitHub's synthetic merge SHA. The readiness-promotion commit belongs to a later separate PR; it does not modify the implementation PR's reviewed head.
+A committed `ready.implementationPr` is valid only when the implementation PR is already merged to the tracker-configured base, its merge SHA is an ancestor of the provider-reported validation head, its **committed source tree at the reviewed implementation source head** contains the exact work-unit marker `CrudForm-Adoption-Work-Units: <comma-separated invocationId#alternative.id values>` including the exact work unit, and `ready.implementationReview` resolves to an eligible non-author provider-native approving review at that implementation PR's final source head. Use the provider/event source head, never GitHub's synthetic merge SHA. The readiness-promotion commit belongs to a later separate PR; it does not modify the implementation PR's reviewed head.
+
+The work-unit marker is **source-controlled evidence**, never a mutable PR field. The verifier reads the declaration through the provider's exact-SHA contents API at the reviewed implementation source head — the adopter spec file itself or a repository-relative declaration file it names — and requires the implementation PR's diff at that SHA to touch the declaring file. A marker that exists only in the PR body, title, labels, comments, or a per-repository default branch ref is supplemental diagnostics: it can never establish readiness, because those surfaces remain editable after approval and merge without changing the approved source SHA. An optional immutable provider attestation is accepted only when the adapter can bind it to the reviewed source SHA; a mutable run/comment id is not an attestation.
 
 The implementation PR itself retains the prior `planned` record referencing already approved independent design evidence, or an honestly `deferred` issue when the design has not landed. It never commits ready evidence about itself. A current-PR preview may resolve live reviews/checks into an ephemeral report, but is not a committed ready record, cannot satisfy completion, and is not an additional required completion/approval gate on that same PR. The implementation and promotion PRs must each satisfy their ordinary code/QA review gates; no approval is fabricated or bypassed.
 
-The referenced adopter spec must exist in the static manifest and the PR must change or explicitly name it. A sibling alternative cannot inherit readiness.
+The referenced adopter spec must exist in the static manifest, the implementation PR's committed diff at the reviewed source head must touch it, and the source-controlled declaration must name it. A sibling alternative cannot inherit readiness.
 
 Readiness additionally requires provider-backed green implementation checks at the exact reviewed implementation source-head SHA, for merged implementation PRs. Synthetic merge refs and another SHA's green checks cannot substitute. Use the descriptor's `get-pr-checks` and `get-required-checks`, plus exact-ref check/status reads when needed, and deduplicate reads per repository/SHA. Inspect the latest applicable attempt of every required context; if required-context discovery is unavailable, retain every reported applicable check/status instead of silently treating the required set as empty. Missing expected contexts, no check/status signal, queued/pending/in-progress, failed/cancelled/timed-out/action-required results, and unreadable provider evidence fail closed. `success` is accepted; `skipped`/`neutral` are accepted only when a provider-backed applicable path condition explicitly makes that context non-required for this implementation, and are recorded as skipped rather than passed. A merged PR accepted by an administrative override does not waive these checks.
 
@@ -67,7 +69,7 @@ Design approval and implementation approval are distinct evidence. `designReview
 
 ### Planned spec PR
 
-`planned.specPr` must resolve to an independently approved-design PR or a PR already merged to the configured base; it must not be the current validation PR or be changed by this inventory declaration commit. A spec/design PR carries only its stable work-unit marker and existing deferred/planned historical records, then a later declaration PR records its final approved head/review. Open external spec PR references fail closed if that external head later changes. It must change or explicitly name the referenced adopter spec and contain the exact work-unit marker. Closed-unmerged, draft-without-approval, stale-head, or unrelated PRs are invalid.
+`planned.specPr` must resolve to an independently approved-design PR or a PR already merged to the configured base; it must not be the current validation PR or be changed by this inventory declaration commit. A spec/design PR carries only its stable work-unit marker and existing deferred/planned historical records, then a later declaration PR records its final approved head/review. Open external spec PR references fail closed if that external head later changes. It must change the referenced adopter spec and carry the exact work-unit marker in that committed source at the reviewed head — a marker only in the mutable PR body, title, labels, or comments is invalid. Closed-unmerged, draft-without-approval, stale-head, or unrelated PRs are invalid.
 
 ### Deferred issue
 
@@ -156,6 +158,9 @@ No frontend files, route roots, providers, client boundaries, render-time reques
 | GitHub CI provides synthetic merge `GITHUB_SHA` | Ignore it for reviewed-head equality; use provider/event head |
 | Review approves an older PR head | Invalid stale-head result |
 | Current PR names sibling but not exact work unit | Invalid missing-marker result |
+| Marker exists only in the mutable PR body/title/labels after review or merge | Invalid; never satisfies readiness (source-controlled evidence only) |
+| Marker added to the declaring file after the reviewed source SHA | Invisible; the verifier reads the exact reviewed SHA, so the later commit cannot establish readiness |
+| Declaring file is not touched by the implementation PR's diff at the reviewed head | Invalid missing-evidence result |
 | Merged PR targets non-configured base | Invalid even if commit is reachable elsewhere |
 | Merge SHA is not ancestor of validation head | Invalid causal-evidence result |
 | Issue is open but unassigned/wrong owner | Invalid deferred-owner result |
@@ -193,7 +198,7 @@ This is additive tooling. It consumes schema-versioned static artifacts without 
 
 - Design review: eligible non-author approved/requested/dismissed review, invalid self-review/comment/external-run attestation, exact/stale/missing head, and unavailable provider.
 - Core-team ownership: eligible/ineligible implementation author and reviewer, immutable team-id and explicit-allowlist adapters, missing eligibility resolver, provider outage, and proof that repository permission or comment text cannot substitute for membership.
-- Implementation PR: provider-native eligible non-author implementation approval at exact head; current-PR ready self-reference rejection, ephemeral-only preview, synthetic merge SHA rejection, configured/wrong base, merged ancestor/non-ancestor, exact/missing/sibling work-unit marker; design-review reuse rejection. Verify exact-ref success, documented non-applicable skipped/neutral, failed, cancelled, timed-out, pending, missing-context/no-signal and unavailable-provider fixtures; wrong-SHA green and administratively merged red PRs fail. Every pending referenced implementation check remains blocking. Execute design A→approval→independent declaration and implementation A→approval→merge→separate promotion B without mutating the approved A head; A never requires self-ready evidence.
+- Implementation PR: provider-native eligible non-author implementation approval at exact head; current-PR ready self-reference rejection, ephemeral-only preview, synthetic merge SHA rejection, configured/wrong base, merged ancestor/non-ancestor, exact/missing/sibling work-unit marker in the reviewed source tree, a body-only marker ignored, a marker added after the reviewed SHA ignored, and a declaring file absent from the reviewed diff rejected; design-review reuse rejection. Verify exact-ref success, documented non-applicable skipped/neutral, failed, cancelled, timed-out, pending, missing-context/no-signal and unavailable-provider fixtures; wrong-SHA green and administratively merged red PRs fail. Every pending referenced implementation check remains blocking. Execute design A→approval→independent declaration and implementation A→approval→merge→separate promotion B without mutating the approved A head; A never requires self-ready evidence.
 - Planned PR: open approved design, merged, draft/unapproved, closed unmerged, wrong spec or marker.
 - Deferred issue: open/closed, assigned/unassigned/wrong owner, exact/missing ids, valid/expired date at UTC boundary.
 - External reference: correct/wrong repository and owner, accessible/missing spec or issue, no source/topology capture.
@@ -204,7 +209,7 @@ This is additive tooling. It consumes schema-versioned static artifacts without 
 
 1. Every non-compatibility work unit and external coordination reference receives one fail-closed provider-backed result.
 2. Exact-head design approval is a provider-native approving review from an eligible non-author; self-review, comments, external run ids, stale reviews, dismissed reviews, and spec prose never satisfy it.
-3. Ready implementation evidence proves an independent provider-native non-author implementation approval, exact work-unit marker, merged-to-base ancestry and separate readiness-promotion contract, and provider-backed applicable green checks/statuses at the exact reviewed implementation source head; administrative merge overrides do not waive validation.
+3. Ready implementation evidence proves an independent provider-native non-author implementation approval, an exact work-unit marker present in source-controlled evidence at the reviewed implementation source head (never only in a mutable PR body or a later commit), merged-to-base ancestry and the separate readiness-promotion contract, and provider-backed applicable green checks/statuses at the exact reviewed implementation source head; administrative merge overrides do not waive validation.
 4. Planned and deferred evidence enforce exact spec/work-unit/owner/state/date semantics.
 5. Provider unavailability is distinct from invalid evidence but both fail the required job after bounded retries.
 6. No credential, response body, optional source topology, current SHA, validation time, or check URL enters committed artifacts.
@@ -253,6 +258,8 @@ None.
 - **Fully compliant**: Approved — independently deployable after the static inventory capability.
 
 ## Changelog
+
+- **2026-11-16:** Bind the work-unit/spec association to source-controlled evidence at the reviewed source SHA instead of the mutable implementation-PR body; add body-edit and post-review-SHA regression cases and require the declaring file in the reviewed diff.
 
 - **2026-10-29:** Require post-merge readiness promotion in a separate PR and disallow self-referential committed approval evidence; align independent design declarations.
 

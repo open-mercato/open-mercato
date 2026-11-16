@@ -51,7 +51,7 @@ Keep a commercial coordination record that maps each available enterprise finite
 
 ## Coordination Contract
 
-- The enterprise owner runs `yarn crud-form-sections:inventory --scope enterprise --root packages/enterprise --output packages/enterprise/.ai/generated/crud-form-section-adoption` and owns deterministic `manifest.json`, `review.md`, and `completion.json` at that output. These artifacts use the shared schema/version and never enter the OSS artifact paths; adopter PRs supply facts but do not redefine the schema.
+- The enterprise owner runs `yarn crud-form-sections:inventory --scope enterprise --root packages/enterprise --output packages/enterprise/.ai/generated/crud-form-section-adoption` and owns deterministic committed `manifest.json` and `completion.json` plus an ephemeral, uncommitted `review.md` delta report at that output. These artifacts use the shared schema/version and never enter the OSS artifact paths; adopter PRs supply facts but do not redefine the schema.
 - An enterprise alternative work unit becomes `ready` only in the enterprise-owned artifact after exact-head design approval and its named adopter implementation PR merges with green exact gates; readiness never propagates to a sibling alternative from the same invocation.
 - The OSS artifacts contain only stable enterprise repository/owner/spec-or-issue links. They never contain enterprise invocation topology and remain byte-identical when enterprise sources are absent or present.
 - A configured-but-invalid policy follows the framework blocking-failure contract. No dedicated enterprise spec may restore actionable base controls on policy failure.
