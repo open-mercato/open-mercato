@@ -900,6 +900,21 @@ describe('sales invoice write path (#7336)', () => {
       expect(customFieldStore.get(INVOICE_ID)).toMatchObject({ company: 'c-1' })
     })
 
+    it.each([
+      ['a changed value', ['a', 'c']],
+      ['a duplicated value', ['a', 'a', 'b']],
+    ])('answers 409 and keeps the later edit when a multi-value custom field gets %s', async (_label, laterTags) => {
+      const state = baseState()
+      customFieldStore.set(INVOICE_ID, { company: 'c-1', tags: ['a', 'b'] })
+      const undo = await updateAndCapture(state, { customFields: { company: 'c-2' } })
+      customFieldStore.set(INVOICE_ID, { company: 'c-2', tags: laterTags })
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await expectStatus(runUndo('sales.invoices.update', undo, ctx), 409)
+
+      expect(customFieldStore.get(INVOICE_ID)).toEqual({ company: 'c-2', tags: laterTags })
+    })
+
     it('answers 403 for a caller outside the invoice organization, before locking', async () => {
       const state = baseState()
       const undo = await updateAndCapture(state, { invoiceNumber: 'INV-2' })

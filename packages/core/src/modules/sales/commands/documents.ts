@@ -9916,8 +9916,8 @@ function isEmptyInvoiceCustomFieldValue(value: unknown): boolean {
  * Clearing a custom field leaves a row that reads back `cf_x: null`, so empty
  * values (`null`, `undefined`, `''`, `[]`) are dropped and `{}` is treated as
  * `null` before two snapshots are compared. `0` and `false` stay values.
- * `loadCustomFieldValues` reads multi-value fields without `orderBy`, so their
- * values are sorted.
+ * Array values (multi-value fields, which `loadCustomFieldValues` reads without
+ * `orderBy`) are sorted by their JSON form.
  */
 function compactInvoiceCustomFields(
   values: Record<string, unknown> | null | undefined,
