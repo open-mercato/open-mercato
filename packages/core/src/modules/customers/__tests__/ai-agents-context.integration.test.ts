@@ -46,6 +46,11 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 const VALID_UUID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const VALID_UUID_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
@@ -311,6 +316,10 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
     })
     expect(result).toBeNull()
     expect(handler).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'customers',
+      code: 'customers.ai_context.acl_unavailable',
+    })
   })
 
   it('leaves input unchanged and logs a warn when the underlying service throws', async () => {

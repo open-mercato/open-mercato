@@ -36,6 +36,7 @@ import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, COMPANY_DETAIL_TAB_IDS, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
 import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
+import { usePeopleAccess } from '../../../../components/detail/usePeopleAccess'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
@@ -86,6 +87,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   )
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
+  const { canViewPeople } = usePeopleAccess()
 
   // Form state
   const [isDirty, setIsDirty] = React.useState(false)
@@ -536,7 +538,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 activitiesCount={data.counts?.activities ?? 0}
                 sectionAction={sectionAction}
               >
-                {activeTab === 'people' && (
+                {activeTab === 'people' && canViewPeople && (
                   <CompanyPeopleSection
                     companyId={companyId}
                     companyName={companyDisplayName}

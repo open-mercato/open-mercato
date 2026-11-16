@@ -27,6 +27,11 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 const VALID_UUID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const VALID_UUID_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const VALID_UUID_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
@@ -277,6 +282,28 @@ describe('Step 5.16 — catalog.merchandising_assistant.resolvePageContext (inte
     })
     expect(anonymous).toBeNull()
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('skips hydration and reports the error when the caller ACL cannot be loaded', async () => {
+    const handler = jest.fn(async () => ({ found: true, product: { id: VALID_UUID_A } }))
+    const loadAcl = jest.fn(async () => {
+      throw new Error('rbac down')
+    })
+    const { hydrateCatalogAssistantContext } = await loadHelpers('catalog.get_product', handler)
+    const result = await hydrateCatalogAssistantContext({
+      entityType: 'catalog.product',
+      recordId: VALID_UUID_A,
+      container: buildFakeContainer(loadAcl) as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      userId: 'user-1',
+    })
+    expect(result).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), {
+      module: 'catalog',
+      code: 'catalog.ai_context.acl_unavailable',
+    })
   })
 
   it('returns null when no UUIDs parse out of the recordId (unknown selection)', async () => {

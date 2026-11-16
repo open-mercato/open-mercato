@@ -53,6 +53,7 @@ import { createCustomerNotesAdapter } from '../../../../components/detail/notesA
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
+import { usePeopleAccess } from '../../../../components/detail/usePeopleAccess'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
@@ -121,6 +122,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
+  const { canViewPeople, isReady: isPeopleAccessReady } = usePeopleAccess()
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const currentCompanyId = data?.company?.id ?? null
@@ -277,13 +279,18 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
       { id: 'notes' as const, label: t('customers.companies.detail.tabs.notes', 'Notes') },
       { id: 'activities' as const, label: t('customers.companies.detail.tabs.activities', 'Activities') },
       { id: 'deals' as const, label: t('customers.companies.detail.tabs.deals', 'Deals') },
-      { id: 'people' as const, label: t('customers.companies.detail.tabs.people', 'People') },
+      ...(canViewPeople ? [{ id: 'people' as const, label: t('customers.companies.detail.tabs.people', 'People') }] : []),
       { id: 'addresses' as const, label: t('customers.companies.detail.tabs.addresses', 'Addresses') },
       { id: 'tasks' as const, label: t('customers.companies.detail.tabs.tasks', 'Tasks') },
       ...injectedTabs.map((tab) => ({ id: tab.id as SectionKey, label: tab.label })),
     ],
-    [injectedTabs, t],
+    [canViewPeople, injectedTabs, t],
   )
+
+  React.useEffect(() => {
+    if (!isPeopleAccessReady || canViewPeople) return
+    setActiveTab((current) => (current === 'people' ? 'notes' : current))
+  }, [isPeopleAccessReady, canViewPeople])
 
   React.useEffect(() => {
     if (!id) {
@@ -904,7 +911,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                   />
                 )
               }
-              if (activeTab === 'people') {
+              if (activeTab === 'people' && canViewPeople) {
                 return (
                   <CompanyPeopleSection
                     companyId={companyId}

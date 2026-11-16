@@ -35,6 +35,7 @@ import type {
   CatalogToolContext,
 } from './ai-tools/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('catalog')
@@ -85,6 +86,7 @@ async function buildToolContext(
     }
   } catch (error) {
     logger.warn('resolvePageContext caller ACL unavailable; skipping', { reason: 'acl_unavailable', err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'catalog', code: 'catalog.ai_context.acl_unavailable' })
     return null
   }
 }

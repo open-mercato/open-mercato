@@ -35,6 +35,10 @@ function tabOrder() {
 }
 
 describe('CompanyDetailTabs', () => {
+  beforeEach(() => {
+    mockGrantedFeatures = ['customers.*']
+  })
+
   it('preserves a pending injected selection and native defaults while sorting deduplicated tabs', () => {
     const onTabChange = jest.fn()
     const { rerender } = render(
@@ -74,10 +78,23 @@ describe('CompanyDetailTabs', () => {
   })
 
   it('hides the Deals tab when the user lacks customers.deals.view', () => {
-    mockGrantedFeatures = ['customers.companies.view']
+    mockGrantedFeatures = ['customers.companies.view', 'customers.people.view']
     renderTabs()
     expect(screen.queryByRole('tab', { name: /deals/i })).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /people/i })).toBeInTheDocument()
+  })
+
+  it('hides the People tab and falls back to the first visible tab without customers.people.view', () => {
+    mockGrantedFeatures = ['customers.companies.view', 'customers.deals.view']
+    const onTabChange = jest.fn()
+    render(
+      <CompanyDetailTabs activeTab="people" onTabChange={onTabChange}>
+        <div>content</div>
+      </CompanyDetailTabs>,
+    )
+    expect(screen.queryByRole('tab', { name: /people/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /deals/i })).toBeInTheDocument()
+    expect(onTabChange).toHaveBeenCalledWith('deals')
   })
 
   it('renders the Deals tab for a wildcard customers.* grant', () => {
