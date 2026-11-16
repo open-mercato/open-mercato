@@ -566,7 +566,7 @@ None new. The Integrations health badge (fed by Xero's health check), the core's
 | Workflow | Business Priority | Atomic Commits (raw) | Workaround? | Commits (effective) | Blocks ROI? |
 |---|---|---|---|---|---|
 | WF1 Connect | High | 4 | No | 4 | Yes — nothing works without it |
-| WF2 Contacts | High | 11 (+ ≈ 1 platform in `search`, § 10 #31) | No — the `search` change is a hard prerequisite (§ 10 #31) | 11 | Yes — invoices need Companies first |
+| WF2 Contacts | High | 11 (+ ≈ 1 platform in `search`, § 10 #31, met by #8410) | No | 11 | Yes — invoices need Companies first |
 | WF3 Invoices | High | 10 (+ ≈ 3 platform in `sales`, issue #7336) | No — the `sales` change is a hard prerequisite (§ 10 #19) | 10 | Yes — the primary business value |
 | WF4 Scheduled sync | Medium | 3 | No | 3 | No — runs on demand still deliver value; the default schedules are the keep-alive and the full pass the correctness backstop |
 | WF5 Reauth | Medium | 1 | No | 1 | No — but silent staleness without it is a real risk, and the core requires it of its first consumer |
@@ -1187,7 +1187,7 @@ The self-heal adds at most one call per invoice page plus one per 100 Contacts t
 
 ```
 PREREQUISITE: OAuth2 grant lifecycle core, Phase 1     merged       (PR #7057, 2026-10-21)
-PREREQUISITE for Phase 1: search indexer              ≈ 1 commit   (§ 10 #31, issue #7872: no encrypted custom fields in index-time build contexts)
+PREREQUISITE for Phase 1: search indexer              merged       (§ 10 #31, PR #8410: no encrypted custom fields in index-time build contexts)
 PREREQUISITE for Phase 2: sales write path            ≈ 3 commits  (§ 10 #19, issue #7336; § 10 #25 confirmation)
 
 Phase 1: Connect + Contacts                           17 commits   WF1, WF2 (incl. the test seam), WF5, WF4 (default schedules)
@@ -1202,7 +1202,7 @@ DELIVERY: Phase 1 = PR #7337 against main (17 step commits); this App Spec (#733
 #### Checklist
 - [x] Phases ordered by business priority x gap score x blocker status (Connect/Contacts before Invoices; the core's first-consumer acceptance puts WF5 in Phase 1; the keep-alive puts the default schedules in Phase 1; the full pass ships with the read-only invoices it corrects)
 - [x] Each phase delivers a complete, usable increment (Phase 2's user-visible surface is the Company tab of § 10 #21 (a))
-- [x] The high-gap blockers have no workaround: the `search` change of § 10 #31 is a hard prerequisite of Phase 1, and the `sales` write path (§ 10 #19) of Phase 2
+- [x] The high-gap blockers have no workaround: the `sales` write path (§ 10 #19) is a hard prerequisite of Phase 2; the `search` change of § 10 #31 is met (#8410), protects every module, and no Xero value depends on it
 - [x] Total atomic commits estimated per phase
 - [x] Acceptance criteria per phase: DDD wrote domain criteria, PM challenged them (outcomes recorded)
 - [x] Business value + ROI metric stated per phase

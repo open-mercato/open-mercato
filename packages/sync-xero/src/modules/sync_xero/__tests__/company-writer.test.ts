@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { companyCreateSchema, companyUpdateSchema } from '@open-mercato/core/modules/customers/data/validators'
 import type { ImportItem } from '@open-mercato/core/modules/data_sync/lib/adapter'
 import type { AddressSnapshot } from '../lib/contacts/addresses'
 import type { ClaimCompanyMappingInput } from '../lib/contacts/claim'
@@ -110,12 +111,14 @@ const commandBus = {
       throw error
     }
     if (id === 'customers.companies.create') {
+      companyCreateSchema.parse(input)
       const entityId = `e-${++sequence}`
       const company = storeCompany({ entityId, displayName: String(input.displayName) })
       applyInput(company, input)
       return { result: { entityId, companyId: `p-${sequence}` } as TResult, logEntry: null }
     }
     if (id === 'customers.companies.update') {
+      companyUpdateSchema.omit({ id: true }).parse(input)
       applyInput(companies.get(String(input.id))!, input)
       return { result: { entityId: input.id } as TResult, logEntry: null }
     }
