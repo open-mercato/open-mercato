@@ -19,7 +19,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { globSync } from 'glob'
 // @ts-expect-error — JS sibling module shared with the node:test suite.
-import { scanText } from './i18n-scanner.mjs'
+import { buildPrefixIndex, scanText } from './i18n-scanner.mjs'
 
 const __filename_ = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename_), '..')
@@ -86,11 +86,12 @@ function scanSourceFiles(allTranslationKeys: Set<string>): { refs: KeyReference[
 
   const refs: KeyReference[] = []
   let dynamicCount = 0
+  const prefixIndex = buildPrefixIndex(allTranslationKeys)
 
   for (const filePath of sourceFiles) {
     const content = fs.readFileSync(filePath, 'utf-8')
     const relPath = path.relative(ROOT, filePath)
-    const result = scanText(content, allTranslationKeys, { file: relPath })
+    const result = scanText(content, allTranslationKeys, { file: relPath, prefixIndex })
     refs.push(...result.refs)
     dynamicCount += result.dynamicCount
   }

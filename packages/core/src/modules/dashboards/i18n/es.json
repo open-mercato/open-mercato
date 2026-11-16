@@ -103,6 +103,7 @@
   "dashboards.analytics.widgets.topProducts.title": "Productos principales por ingresos",
   "dashboards.errors.forbidden": "Acceso denegado",
   "dashboards.errors.forbidden_scope": "El ámbito solicitado no es accesible",
+  "dashboards.errors.invalidPayload": "Datos no válidos",
   "dashboards.errors.organization_required": "Se requiere contexto de organización",
   "dashboards.errors.tenant_required": "Se requiere contexto de inquilino",
   "dashboards.errors.unauthorized": "No autorizado",

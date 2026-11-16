@@ -103,6 +103,7 @@
   "dashboards.analytics.widgets.topProducts.title": "Top Products by Revenue",
   "dashboards.errors.forbidden": "Forbidden",
   "dashboards.errors.forbidden_scope": "Requested scope is not accessible",
+  "dashboards.errors.invalidPayload": "Invalid payload",
   "dashboards.errors.organization_required": "Organization context is required",
   "dashboards.errors.tenant_required": "Tenant context is required",
   "dashboards.errors.unauthorized": "Unauthorized",

@@ -63,6 +63,12 @@ jest.mock('@open-mercato/core/modules/dashboards/lib/widgets', () => ({
   loadAllWidgets: jest.fn(async () => [{ metadata: { id: 'sales-summary' } }]),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (key: string, fallback: string) => key === 'dashboards.errors.invalidPayload' ? 'translated invalid payload' : fallback,
+  })),
+}))
+
 import { GET, PUT } from '../route'
 
 const foreignTenantId = '66666666-6666-4666-8666-666666666666'
@@ -239,6 +245,10 @@ describe('dashboards user widgets route mutation guard', () => {
     const response = await PUT(buildRequest({ userId: targetUserId, mode: 'override', widgetIds: ['sales-summary'] }))
 
     expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: 'translated invalid payload',
+      issues: expect.arrayContaining([expect.objectContaining({ path: ['mode'] })]),
+    })
     expect(em.findOne).toHaveBeenCalledTimes(1)
     expect(em.create).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()

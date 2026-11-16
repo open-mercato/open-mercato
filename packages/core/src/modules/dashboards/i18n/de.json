@@ -103,6 +103,7 @@
   "dashboards.analytics.widgets.topProducts.title": "Top-Produkte nach Umsatz",
   "dashboards.errors.forbidden": "Zugriff verweigert",
   "dashboards.errors.forbidden_scope": "Angeforderter Bereich ist nicht zugänglich",
+  "dashboards.errors.invalidPayload": "Ungültige Daten",
   "dashboards.errors.organization_required": "Organisationskontext ist erforderlich",
   "dashboards.errors.tenant_required": "Mandantenkontext ist erforderlich",
   "dashboards.errors.unauthorized": "Nicht autorisiert",

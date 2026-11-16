@@ -204,7 +204,11 @@ export async function PUT(req: Request) {
     userId: parsed.data.userId,
   })
   if (!effective.success) {
-    return NextResponse.json({ error: 'Invalid payload', issues: effective.error.issues }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      error: translate('dashboards.errors.invalidPayload', 'Invalid payload'),
+      issues: effective.error.issues,
+    }, { status: 400 })
   }
   const widgetIds = effective.data.widgetIds.filter((id) => validWidgetIds.has(id))
 

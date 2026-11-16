@@ -12,6 +12,7 @@ import {
   PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE,
   PAYMENT_SESSION_REPLAY_WINDOW_MS,
   pruneCompletedPaymentSessionInitializations,
+  pruneExpiredPaymentSessionInitializations,
 } from '../lib/session-idempotency'
 import handle, { metadata } from '../workers/session-initialization-prune'
 
@@ -58,8 +59,53 @@ describe('payment session initialization retention (#4861)', () => {
       ORGANIZATION_ID,
       new Date('2026-08-01T12:00:00.000Z'),
       100,
+      TENANT_ID,
+      ORGANIZATION_ID,
     ])
     expect(mode).toBe('run')
+  })
+
+  it('prunes released and abandoned claims only beyond both retention timestamps under row locks', async () => {
+    const execute: ExecuteSpy = jest.fn().mockResolvedValue({ rowCount: 3 })
+    const now = new Date('2026-08-02T12:00:00.000Z')
+
+    const deleted = await pruneExpiredPaymentSessionInitializations(
+      makeEmStub(execute),
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      { now, batchSize: 3 },
+    )
+
+    expect(deleted).toBe(3)
+    const [sql, params] = execute.mock.calls[0] as [string, unknown[]]
+    const normalizedSql = sql.replace(/\s+/g, ' ').trim()
+    expect(normalizedSql).toContain('gateway_transaction_id is not null or')
+    expect(normalizedSql).toContain('gateway_transaction_id is null')
+    expect(normalizedSql).toContain('claim_token is null and claimed_at is null')
+    expect(normalizedSql).toContain('claim_token is not null and claimed_at < ?')
+    expect(normalizedSql).toContain('updated_at < ?')
+    expect(normalizedSql).toContain('with expired_claims as materialized')
+    expect(normalizedSql).toContain('id in (select id from expired_claims)')
+    expect(normalizedSql).toContain('order by updated_at asc, id asc limit ? for update skip locked')
+    expect(params).toEqual([
+      TENANT_ID,
+      ORGANIZATION_ID,
+      new Date('2026-08-01T12:00:00.000Z'),
+      new Date('2026-08-01T12:00:00.000Z'),
+      3,
+      TENANT_ID,
+      ORGANIZATION_ID,
+    ])
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid batch size %s before querying', async (batchSize) => {
+    const execute: ExecuteSpy = jest.fn()
+
+    await expect(pruneExpiredPaymentSessionInitializations(
+      makeEmStub(execute),
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      { batchSize },
+    )).rejects.toThrow('batch size must be a positive integer')
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('deletes at most one bounded batch per invocation', async () => {
@@ -73,6 +119,19 @@ describe('payment session initialization retention (#4861)', () => {
 
     expect(deleted).toBe(2)
     expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not queue a continuation after a short batch', async () => {
+    const execute: ExecuteSpy = jest.fn().mockResolvedValue({ affectedRows: 1 })
+    const em = makeEmStub(execute) as EntityManager & { fork: () => EntityManager }
+    em.fork = () => em
+
+    await handle(
+      { payload: { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID } } as never,
+      { resolve: () => em } as never,
+    )
+
+    expect(mockEnqueue).not.toHaveBeenCalled()
   })
 
   it('lazily queues a continuation after a full or overreported worker batch', async () => {
@@ -92,6 +151,7 @@ describe('payment session initialization retention (#4861)', () => {
 
     expect(execute).toHaveBeenCalledTimes(1)
     expect(mockCreateModuleQueue).toHaveBeenCalledTimes(1)
+    expect(execute.mock.calls[0][0]).toContain('claim_token is null and claimed_at is null')
     expect(mockCreateModuleQueue).toHaveBeenCalledWith(
       PAYMENT_SESSION_INITIALIZATION_PRUNE_QUEUE,
       { concurrency: 1 },

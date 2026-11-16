@@ -103,6 +103,7 @@
   "dashboards.analytics.widgets.topProducts.title": "매출 기준 상위 상품",
   "dashboards.errors.forbidden": "접근이 거부되었습니다",
   "dashboards.errors.forbidden_scope": "요청한 범위에 접근할 수 없습니다",
+  "dashboards.errors.invalidPayload": "잘못된 데이터",
   "dashboards.errors.organization_required": "조직 컨텍스트가 필요합니다",
   "dashboards.errors.tenant_required": "테넌트 컨텍스트가 필요합니다",
   "dashboards.errors.unauthorized": "권한이 없습니다",
