@@ -346,6 +346,11 @@ const createPaymentCommand: CommandHandler<
         'sales.payments.order_not_found'
       )
       ensureSameScope(order, input.organizationId, input.tenantId)
+      const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+      const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
+      if (input.statusEntryId && !status) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
       if (order.deletedAt) {
         throw notFound('sales.payments.order_not_found')
       }
@@ -363,10 +368,10 @@ const createPaymentCommand: CommandHandler<
       }
       let paymentMethod = null
       if (input.paymentMethodId) {
-        const method = assertFound(
-          await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId }, {}, { tenantId: input.tenantId, organizationId: input.organizationId }),
-          'sales.payments.method_not_found'
-        )
+        const method = await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId, ...scope, deletedAt: null }, {}, scope)
+        if (!method) {
+          throw new CrudHttpError(400, { error: translate('sales.documents.detail.paymentMethodInvalid', 'Selected payment method could not be found.') })
+        }
         ensureSameScope(method, input.organizationId, input.tenantId)
         paymentMethod = method
       }
@@ -405,7 +410,6 @@ const createPaymentCommand: CommandHandler<
         })
         orderLines.forEach((line) => tx.persist(line))
       }
-      const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId })
       const payment = tx.create(SalesPayment, {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
@@ -749,7 +753,14 @@ const updatePaymentCommand: CommandHandler<
     // Apply payment scalar fields, order/line status changes and the
     // allocations rebuild in one transaction so a mid-write failure cannot
     // leave the payment and its allocations partially committed (#2336).
+    const scope = { tenantId: payment.tenantId, organizationId: payment.organizationId }
     await em.transactional(async (tx) => {
+      const status = input.statusEntryId !== undefined
+        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
+        : undefined
+      if (input.statusEntryId && !status) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
       if (input.orderId !== undefined) {
         if (!input.orderId) {
           payment.order = null
@@ -775,10 +786,10 @@ const updatePaymentCommand: CommandHandler<
         if (!input.paymentMethodId) {
           payment.paymentMethod = null
         } else {
-          const method = assertFound(
-            await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
-            'sales.payments.method_not_found'
-          )
+          const method = await findOneWithDecryption(tx, SalesPaymentMethod, { id: input.paymentMethodId, ...scope, deletedAt: null }, {}, scope)
+          if (!method) {
+            throw new CrudHttpError(400, { error: translate('sales.documents.detail.paymentMethodInvalid', 'Selected payment method could not be found.') })
+          }
           ensureSameScope(method, resolvedOrganizationId, resolvedTenantId)
           payment.paymentMethod = method
         }
@@ -817,7 +828,7 @@ const updatePaymentCommand: CommandHandler<
       if (input.paymentReference !== undefined) payment.paymentReference = input.paymentReference ?? null
       if (input.statusEntryId !== undefined) {
         payment.statusEntryId = input.statusEntryId ?? null
-        payment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: resolvedTenantId })
+        payment.status = status ?? null
       }
       if (input.amount !== undefined) payment.amount = toNumericString(input.amount) ?? '0'
       if (input.currencyCode !== undefined) payment.currencyCode = input.currencyCode

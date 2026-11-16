@@ -140,7 +140,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   )
 
   if (!sendResult.ok) {
-    return NextResponse.json({ error: sendResult.error }, { status: sendResult.status })
+    return NextResponse.json({ error: sendResult.error }, { status: sendResult.status, headers: sendResult.headers })
   }
 
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {

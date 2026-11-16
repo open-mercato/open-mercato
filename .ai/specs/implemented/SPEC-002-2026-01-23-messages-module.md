@@ -3303,3 +3303,18 @@ export function register(container: AwilixContainer): void {
 
 - 2026-04-15: Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs).
 - 2026-02-16: Refactored message write operations to command-bus handlers with undo support for message mutations, recipient state changes, draft attachment linking/unlinking, terminal action recording, and message confirmation state updates.
+
+
+## Release email-budget repair — 2026-11-15 (#9604)
+
+### Migration & Backward Compatibility
+The release backport restores the existing main-line advisory-lock prerequisite used by external email budgeting. The generic helper keeps the documented namespace/key hashing, independent transaction, subscriber cloning, bounded waiting and deadline/transient/unknown-commit error reasons. Only its missing transient-lock classifier is added to pg-errors; existing unique-violation behavior is unchanged. No OAuth provider or grant lifecycle configuration is added.
+
+The budget’s two module-local migrations are additive, with matching entity/snapshot and up/down regression coverage. Existing successful responses, message identifiers, routes and public result fields are preserved; exhausted budgets answer429 and unavailable budgeting answers503 with retry metadata. No permission is granted or widened. Committed cherry-pick conflict markers are removed, the OpenAPI error schema import is restored, and all origin assertions remain.
+
+### Integration coverage
+Shared advisory-lock unit/PostgreSQL tests cover exclusion, contention, rollback, timeout, subscriber preservation and unknown commit outcomes. messages/lib/__tests__/externalEmailBudget.integration.test.ts covers real-PostgreSQL recipient/window concurrency, tenant isolation and migration up/down. TC-MSG-EMAIL-003 covers platform compose, connected-mailbox sends, drafts, forward/reply and budget refusals; command/route regressions retain no-mutation assertions. Fresh release-head execution/QA/CI evidence is required; origin labels alone grant no signal.
+
+The release repair also restores the origin’s system-sender recipient filter (#6391), required by the retained reply-budget regressions. Channel system users have no users row and are excluded from ordinary replies, reply-all, explicit recipients and internal notes; human recipients and external delivery remain.
+
+Release-only integration prerequisites retain real email ingest through the gated stub normalizer, with its positive/negative unit coverage and optional test subject. The fixture cleanup uses the CLI’s isolated PostgreSQL fixture connection with exact tenant, organization, channel and seeded-record predicates inside a transaction; no new hard-delete product/test HTTP endpoint is introduced.
