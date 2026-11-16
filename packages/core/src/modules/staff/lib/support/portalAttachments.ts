@@ -25,6 +25,7 @@ export type PortalAttachmentsApi = {
   isMultipartRequestWithinUploadLimit: typeof import('@open-mercato/core/modules/attachments/lib/upload-limits').isMultipartRequestWithinUploadLimit
   resolveAttachmentMaxBytes: typeof import('@open-mercato/core/modules/attachments/lib/upload-limits').resolveAttachmentMaxBytes
   isScopedAttachmentUploadError: typeof import('@open-mercato/core/modules/attachments/lib/scoped-upload-service').isScopedAttachmentUploadError
+  removeAttachmentRecord: typeof import('@open-mercato/core/modules/attachments/lib/storageReferences').removeAttachmentRecord
 }
 
 export const portalSupportAttachmentItemSchema = z.object({
@@ -46,7 +47,7 @@ export type PortalSupportAttachmentItem = z.infer<typeof portalSupportAttachment
  */
 export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi | null> {
   try {
-    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService] = await Promise.all([
+    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService, storageReferences] = await Promise.all([
       import('@open-mercato/core/modules/attachments/data/entities'),
       import('@open-mercato/core/modules/attachments/lib/drivers'),
       import('@open-mercato/core/modules/attachments/lib/access'),
@@ -56,6 +57,7 @@ export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi |
       import('@open-mercato/core/modules/attachments/lib/thumbnailCache'),
       import('@open-mercato/core/modules/attachments/lib/upload-limits'),
       import('@open-mercato/core/modules/attachments/lib/scoped-upload-service'),
+      import('@open-mercato/core/modules/attachments/lib/storageReferences'),
     ])
     return {
       Attachment: entities.Attachment,
@@ -70,6 +72,7 @@ export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi |
       isMultipartRequestWithinUploadLimit: limits.isMultipartRequestWithinUploadLimit,
       resolveAttachmentMaxBytes: limits.resolveAttachmentMaxBytes,
       isScopedAttachmentUploadError: uploadService.isScopedAttachmentUploadError,
+      removeAttachmentRecord: storageReferences.removeAttachmentRecord,
     }
   } catch (err) {
     logger.warn('staff portal support attachments module unavailable', { err })
