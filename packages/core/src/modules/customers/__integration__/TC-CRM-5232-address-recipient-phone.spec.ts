@@ -294,6 +294,7 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
     let companyId: string | null = null
     let addressId: string | null = null
     let createdOtherMap = false
+    let restoredOtherMapId: string | null = null
     const startedAt = new Date()
     let backup: { id: string } | null = null
 
@@ -330,9 +331,11 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
         if (backup) {
           await client.query('update encryption_maps set deleted_at = now() where id = $1', [backup.id])
         }
-        const otherMap = await client.query(
-          `select 1 from encryption_maps
-            where entity_id = $1 and tenant_id = $2 and organization_id = $3 and deleted_at is null`,
+        const otherMap = await client.query<{ id: string; deleted_at: string | null }>(
+          `select id, deleted_at from encryption_maps
+            where entity_id = $1 and tenant_id = $2 and organization_id = $3
+            order by deleted_at nulls first, created_at desc
+            limit 1`,
           [otherEntity, tenantId, organizationId],
         )
         if (otherMap.rows.length === 0) {
@@ -342,6 +345,9 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
             [otherEntity, tenantId, organizationId],
           )
           createdOtherMap = true
+        } else if (otherMap.rows[0].deleted_at !== null) {
+          await client.query('update encryption_maps set deleted_at = null where id = $1', [otherMap.rows[0].id])
+          restoredOtherMapId = otherMap.rows[0].id
         }
       })
 
@@ -396,6 +402,8 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
               where entity_id = $1 and tenant_id = $2 and organization_id = $3 and created_at >= $4`,
             [otherEntity, tenantId, organizationId, startedAt],
           )
+        } else if (restoredOtherMapId) {
+          await client.query('update encryption_maps set deleted_at = now() where id = $1', [restoredOtherMapId])
         }
       })
     }
