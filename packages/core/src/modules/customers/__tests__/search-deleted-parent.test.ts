@@ -64,6 +64,27 @@ describe.each(['person', 'company'] as const)('customers %s profile search with 
     expect(calls.some((opts) => opts.withDeleted === true)).toBe(true)
   })
 
+  it('runs the withDeleted lookup once per record across isRecordExcluded and buildSource', async () => {
+    const { engine, calls } = makeQueryEngine('soft-deleted')
+    const ctx = makeContext(kind, engine)
+
+    await expect(config.isRecordExcluded!(ctx)).resolves.toBe(true)
+    await expect(config.buildSource!(ctx)).resolves.toBeNull()
+    expect(calls.filter((opts) => opts.withDeleted === true)).toHaveLength(1)
+  })
+
+  it('builds the source when the parent check fails', async () => {
+    const failing: QueryEngine = {
+      query: jest.fn(async (_entity: string, opts: QueryOptions = {}) => {
+        if (opts.withDeleted === true) throw new Error('[internal] lookup failed')
+        return { items: [], page: 1, pageSize: 1, total: 0 } as QueryResult<Record<string, unknown>>
+      }) as QueryEngine['query'],
+    }
+
+    await expect(config.isRecordExcluded!(makeContext(kind, failing))).rejects.toThrow('lookup failed')
+    await expect(config.buildSource!(makeContext(kind, failing))).resolves.toEqual(expect.objectContaining({ text: expect.any(Array) }))
+  })
+
   it('does not exclude the profile when no query engine is available', async () => {
     await expect(config.isRecordExcluded!(makeContext(kind))).resolves.toBe(false)
   })

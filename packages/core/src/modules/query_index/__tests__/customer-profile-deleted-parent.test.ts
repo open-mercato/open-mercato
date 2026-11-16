@@ -149,7 +149,11 @@ async function runCli(name: string, args: string[]) {
 }
 
 function useContainer(db: Kysely<Record<string, never>>) {
-  mockCreateRequestContainer.mockResolvedValue({ resolve: () => createEm(db) } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+  const emitEvent = jest.fn(async () => undefined)
+  const em = createEm(db)
+  const container = { resolve: (name: string) => (name === 'eventBus' ? { emitEvent } : em) }
+  mockCreateRequestContainer.mockResolvedValue(container as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+  return { emitEvent }
 }
 
 describe('query index skips customer profiles whose parent entity is soft-deleted (#8638)', () => {
@@ -318,9 +322,17 @@ describe('query index skips customer profiles whose parent entity is soft-delete
         if (query.sql.includes('from "entity_indexes"') && query.sql.startsWith('select')) return [{ id: 'index-row', deleted_at: null }]
         return respondWith(new Date('2026-11-01T00:00:00Z'))(query)
       })
-      useContainer(db)
+      const { emitEvent } = useContainer(db)
 
-      await runCli('rebuild', ['--entity', PERSON_PROFILE, '--record', PROFILE_ID, '--tenant', TENANT, '--org', ORG])
+      const { logs } = await runCli('rebuild', ['--entity', PERSON_PROFILE, '--record', PROFILE_ID, '--tenant', TENANT, '--org', ORG])
+
+      expect(emitEvent).toHaveBeenCalledWith(
+        'search.delete_record',
+        { entityId: PERSON_PROFILE, recordId: PROFILE_ID, organizationId: ORG, tenantId: TENANT },
+        { rethrowHandlerErrors: true },
+      )
+      expect(logs.some((line) => line.startsWith(`Removed index entry for ${PERSON_PROFILE} record ${PROFILE_ID}`))).toBe(true)
+      expect(logs.some((line) => line.startsWith('No matching row found'))).toBe(false)
 
       const writes = statements.map((statement) => statement.sql).filter((statement) => !statement.startsWith('select'))
       expect(writes.some((statement) => statement.startsWith('delete from "entity_indexes"'))).toBe(true)

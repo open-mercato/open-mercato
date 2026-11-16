@@ -187,6 +187,7 @@ type ProfileScopeRow = { id: string; organization_id: string | null; tenant_id: 
 type RebuildResult = {
   processed: number
   matched: number
+  removedRecord?: { tenantId: string | null; organizationId: string | null }
 }
 async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<RebuildResult> {
   const {
@@ -278,12 +279,12 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
         .where('id', '=', recordId)
         .executeTakeFirst()
       if (orphanedProfile) {
-        await upsertIndexRow(em, {
-          entityType,
-          recordId,
+        const removedScope = {
           organizationId: orgOverride ?? orphanedProfile.organization_id ?? null,
           tenantId: tenantOverride ?? orphanedProfile.tenant_id ?? null,
-        })
+        }
+        await upsertIndexRow(em, { entityType, recordId, ...removedScope })
+        return { processed: 0, matched: 0, removedRecord: removedScope }
       }
     }
     if (!row) return { processed: 0, matched: 0 }
@@ -609,7 +610,18 @@ const rebuild: ModuleCli = {
       })
 
       if (recordId) {
-        if (result.processed === 0) {
+        if (result.removedRecord) {
+          const bus = container.resolve('eventBus') as {
+            emitEvent(event: string, payload: Record<string, unknown>, options?: Record<string, unknown>): Promise<void>
+          }
+          await bus.emitEvent('search.delete_record', {
+            entityId: entity,
+            recordId,
+            organizationId: result.removedRecord.organizationId,
+            tenantId: result.removedRecord.tenantId,
+          }, { rethrowHandlerErrors: true })
+          console.log(`Removed index entry for ${entity} record ${recordId}: its parent customer entity is deleted`)
+        } else if (result.processed === 0) {
           console.log(`No matching row found for ${entity} with id ${recordId}`)
         } else {
           console.log(`Rebuilt index for ${entity} record ${recordId}`)

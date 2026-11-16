@@ -10,6 +10,7 @@ import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, EXAMPLE_TODO_SOURCE } from './lib/interactionCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { defaultEncryptionMaps } from './encryption'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
@@ -44,6 +45,7 @@ type LoadedCustomerEntity = {
 
 const entityIdCache = new Map<string, LoadedCustomerEntity | null>()
 const profileEntityCache = new WeakMap<Record<string, unknown>, Partial<Record<CustomerProfileKind, LoadedCustomerEntity | null>>>()
+const profileParentGoneCache = new WeakMap<Record<string, unknown>, Partial<Record<CustomerProfileKind, boolean>>>()
 const todoCache = new WeakMap<Record<string, unknown>, unknown>()
 
 // =============================================================================
@@ -320,8 +322,7 @@ async function hydrateProfileContext(ctx: SearchContext, kind: CustomerProfileKi
   }
 }
 
-async function isProfileParentGone(ctx: SearchBuildContext, kind: CustomerProfileKind): Promise<boolean> {
-  assertTenantContext(ctx)
+async function resolveProfileParentGone(ctx: SearchContext, kind: CustomerProfileKind): Promise<boolean> {
   const loaded = await loadCustomerEntityForProfile(ctx, kind)
   if (loaded?.entity) return loaded.entity.deleted_at != null
   const entityId = resolveCustomerEntityId(ctx.record)
@@ -336,6 +337,35 @@ async function isProfileParentGone(ctx: SearchBuildContext, kind: CustomerProfil
   })
   const parent = result.items[0] as Record<string, unknown> | undefined
   return !parent || parent.deleted_at != null
+}
+
+async function isProfileParentGone(ctx: SearchBuildContext, kind: CustomerProfileKind): Promise<boolean> {
+  assertTenantContext(ctx)
+  let cache = profileParentGoneCache.get(ctx.record)
+  if (!cache) {
+    cache = {}
+    profileParentGoneCache.set(ctx.record, cache)
+  }
+  const cached = cache[kind]
+  if (cached !== undefined) return cached
+  const gone = await resolveProfileParentGone(ctx, kind)
+  cache[kind] = gone
+  return gone
+}
+
+async function shouldSkipProfileSource(ctx: SearchBuildContext, kind: CustomerProfileKind): Promise<boolean> {
+  try {
+    return await isProfileParentGone(ctx, kind)
+  } catch (error) {
+    logger.warn('Failed to check the parent customer entity of a profile; building its search source', {
+      component: 'search',
+      kind,
+      recordId: ctx.record.id,
+      err: error,
+    })
+    getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.search_profile_parent_check_failed', attributes: { kind } })
+    return false
+  }
 }
 
 async function loadRecord(ctx: SearchContext, entityId: string, recordId?: string | null) {
@@ -685,7 +715,7 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
-        if (await isProfileParentGone(ctx, 'person')) return null
+        if (await shouldSkipProfileSource(ctx, 'person')) return null
         const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
@@ -788,7 +818,7 @@ export const searchConfig: SearchModuleConfig = {
 
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
-        if (await isProfileParentGone(ctx, 'company')) return null
+        if (await shouldSkipProfileSource(ctx, 'company')) return null
         const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record

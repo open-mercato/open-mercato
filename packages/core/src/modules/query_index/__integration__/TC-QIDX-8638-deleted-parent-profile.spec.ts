@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process'
+import path from 'node:path'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createPersonFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -8,19 +10,51 @@ import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/qu
 /**
  * TC-QIDX-8638: a forced reindex of `customers:customer_person_profile` must not bring back
  * the projection and search tokens of a profile whose parent `customer_entities` row is
- * soft-deleted, and must index the profile again once the parent is restored.
+ * soft-deleted, and must index the profile again once the parent is restored. The same holds for
+ * the search module's `SearchIndexer` (`mercato search index`), which writes the token strategy's
+ * rows for the record and must remove, not rewrite, them while the parent is deleted.
  */
 
 const PERSON_PROFILE = 'customers:customer_person_profile'
 const REINDEX_TIMEOUT_MS = 90_000
 
-async function profileIdFor(entityId: string): Promise<string> {
+type ProfileRow = { id: string; tenant_id: string; organization_id: string }
+
+async function profileFor(entityId: string): Promise<ProfileRow> {
   return withClient(async (client) => {
-    const result = await client.query<{ id: string }>('select id from customer_people where entity_id = $1', [entityId])
-    const id = result.rows[0]?.id
-    expect(id, `No customer_people row for entity ${entityId}`).toBeTruthy()
-    return id as string
+    const result = await client.query<ProfileRow>(
+      'select id, tenant_id, organization_id from customer_people where entity_id = $1',
+      [entityId],
+    )
+    const row = result.rows[0]
+    expect(row, `No customer_people row for entity ${entityId}`).toBeTruthy()
+    return row as ProfileRow
   })
+}
+
+function appRoot(): string {
+  const configured = process.env.OM_TEST_APP_ROOT?.trim()
+  return configured && configured.length > 0 ? configured : path.resolve(process.cwd(), 'apps/mercato')
+}
+
+async function indexThroughSearchIndexer(profile: ProfileRow): Promise<void> {
+  const args = [
+    'mercato', 'search', 'index',
+    '--entity', PERSON_PROFILE,
+    '--record', profile.id,
+    '--tenant', profile.tenant_id,
+    '--org', profile.organization_id,
+  ]
+  const outcome = await new Promise<{ code: number; output: string }>((resolve, reject) => {
+    const child = spawn('yarn', args, { cwd: appRoot(), env: { ...process.env, FORCE_COLOR: '0' }, shell: false })
+    let output = ''
+    child.stdout.on('data', (chunk) => { output += chunk.toString() })
+    child.stderr.on('data', (chunk) => { output += chunk.toString() })
+    child.on('error', reject)
+    child.on('close', (code) => resolve({ code: code ?? -1, output }))
+  })
+  expect(outcome.code, `yarn ${args.join(' ')} failed:\n${outcome.output.slice(-2000)}`).toBe(0)
+  expect(outcome.output, 'search index CLI did not reach the indexer').toContain('Record loaded, indexing')
 }
 
 async function setParentDeleted(entityId: string, deleted: boolean): Promise<void> {
@@ -86,7 +120,8 @@ test.describe('TC-QIDX-8638: profiles of soft-deleted customers stay out of the 
         lastName: 'Ghost',
         displayName: `${marker} Ghost`,
       })
-      const profileId = await profileIdFor(entityId)
+      const profile = await profileFor(entityId)
+      const profileId = profile.id
       await expect.poll(() => tokenCount(profileId), { timeout: 30_000 }).toBeGreaterThan(0)
       await expect.poll(() => searchHitIds(request, token, marker), { timeout: 30_000 }).toContain(profileId)
 
@@ -100,12 +135,19 @@ test.describe('TC-QIDX-8638: profiles of soft-deleted customers stay out of the 
       await expect.poll(() => tokenCount(profileId), { timeout: REINDEX_TIMEOUT_MS }).toBe(0)
       expect(await searchHitIds(request, token, marker)).not.toContain(profileId)
 
+      await indexThroughSearchIndexer(profile)
+      expect(await tokenCount(profileId)).toBe(0)
+      expect(await searchHitIds(request, token, marker)).not.toContain(profileId)
+
       await setParentDeleted(entityId, false)
       parentDeleted = false
       await forceReindex(request, token)
       await expect.poll(() => liveProjectionCount(profileId), { timeout: REINDEX_TIMEOUT_MS }).toBe(1)
       await expect.poll(() => tokenCount(profileId), { timeout: REINDEX_TIMEOUT_MS }).toBeGreaterThan(0)
       await expect.poll(() => searchHitIds(request, token, marker), { timeout: 30_000 }).toContain(profileId)
+
+      await indexThroughSearchIndexer(profile)
+      expect(await tokenCount(profileId)).toBeGreaterThan(0)
     } catch (error) {
       testError = error
       throw error
