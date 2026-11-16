@@ -435,6 +435,8 @@
   "auth.acl.inherited.assignedRoles": "Assigned roles:",
   "auth.acl.inherited.description": "This user currently inherits permissions from their assigned roles.",
   "auth.acl.inherited.override": "Override permissions for this user only",
+  "auth.acl.inherited.rolesLoadFailed": "할당된 역할을 불러오지 못했습니다.",
+  "auth.acl.inherited.rolesRetry": "다시 시도",
   "auth.acl.inherited.title": "Permissions inherited from roles",
   "auth.acl.loading": "Loading access control…",
   "auth.acl.manageViaSuperAdmin": "(manage via super admin)",
