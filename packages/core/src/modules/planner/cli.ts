@@ -2,6 +2,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedPlannerAvailabilityRuleSetDefaults, seedPlannerUnavailabilityReasons, type PlannerSeedScope } from './lib/seeds'
+import { isDictionariesModuleEnabled } from './lib/optionalModules'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string> = {}
@@ -55,6 +56,10 @@ const seedUnavailabilityReasonsCommand: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
       console.error('Usage: mercato planner seed-unavailability-reasons --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    if (!isDictionariesModuleEnabled()) {
+      console.log('Dictionaries module is disabled; nothing to seed for planner unavailability reasons.')
       return
     }
     const container = await createRequestContainer()
