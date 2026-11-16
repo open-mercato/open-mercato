@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from 'react'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { createMetadataAutosave, type AutosaveState } from './studio/metadata-autosave'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -332,6 +334,7 @@ function autosaveDebounce<TArgs extends unknown[]>(fn: (...args: TArgs) => void,
 export function FormStudio({ formId }: { formId: string }) {
   const t = useT()
   const { runMutation } = useGuardedMutation({ contextId: 'forms.form.studio' })
+  const runMutationRef = React.useRef(runMutation)
   const router = useRouter()
 
   const [form, setForm] = React.useState<FormDetail | null>(null)
@@ -340,7 +343,8 @@ export function FormStudio({ formId }: { formId: string }) {
   const [schema, setSchema] = React.useState<FormSchema>(DEFAULT_SCHEMA)
   const [selection, setSelection] = React.useState<StudioSelection>(null)
   const [previewRole, setPreviewRole] = React.useState<string>('admin')
-  const [autosaveState, setAutosaveState] = React.useState<'idle' | 'saving' | 'error'>('idle')
+  const [autosaveState, setAutosaveState] = React.useState<AutosaveState>('idle')
+  const [metadataAutosaveState, setMetadataAutosaveState] = React.useState<AutosaveState>('idle')
   const [isLoading, setIsLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [showPublishDialog, setShowPublishDialog] = React.useState(false)
@@ -361,6 +365,7 @@ export function FormStudio({ formId }: { formId: string }) {
   const schemaRef = React.useRef<FormSchema>(DEFAULT_SCHEMA)
   const selectionRef = React.useRef<StudioSelection>(null)
   const formUpdatedAtRef = React.useRef<string | null>(null)
+  const metadataTranslateRef = React.useRef(t)
   const versionUpdatedAtRef = React.useRef<string | null>(null)
   // Phase 4 — gridRefs ownership lives here so dragOverlayContent can measure
   // the target section's pixel rect when computing the overlay width. The
@@ -387,7 +392,55 @@ export function FormStudio({ formId }: { formId: string }) {
     versionUpdatedAtRef.current = version?.updatedAt ?? null
   }, [version?.updatedAt])
 
+  React.useEffect(() => {
+    metadataTranslateRef.current = t
+  }, [t])
+
+  React.useEffect(() => {
+    runMutationRef.current = runMutation
+  }, [runMutation])
+
+  const metadataAutosave = React.useMemo(
+    () =>
+      createMetadataAutosave({
+        onStateChange: setMetadataAutosaveState,
+        onError: (error) => {
+          getTelemetryRuntime()?.reportError(error, { code: 'forms.studio_metadata_autosave_failed' })
+          flash(metadataTranslateRef.current('forms.studio.autosave.error'), 'error')
+        },
+        save: async (payload) => {
+          const call = await runMutationRef.current({
+            operation: () => withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(formUpdatedAtRef.current),
+              () => apiCall<LockMutationResponse>(`/api/forms/${encodeURIComponent(formId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload),
+              }),
+            ),
+            context: { formId },
+            mutationPayload: { formId, ...payload },
+          })
+          if (!call.ok) {
+            if (surfaceRecordConflict({ status: call.status, body: call.result }, metadataTranslateRef.current)) return false
+            const errPayload = call.result as { error?: string } | undefined
+            flash(metadataTranslateRef.current(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
+            return false
+          }
+          const updatedAt = call.result?.updatedAt
+          if (updatedAt) {
+            formUpdatedAtRef.current = updatedAt
+            setForm((current) => current ? { ...current, updatedAt } : current)
+          }
+          return true
+        },
+      }),
+    [formId],
+  )
+
+  React.useEffect(() => () => metadataAutosave.dispose(), [metadataAutosave])
+
   const reload = React.useCallback(async () => {
+    metadataAutosave.reset()
     setIsLoading(true)
     setLoadError(null)
     const formCall = await apiCall<FormDetail>(`/api/forms/${encodeURIComponent(formId)}`)
@@ -405,7 +458,7 @@ export function FormStudio({ formId }: { formId: string }) {
 
     if (!draft) {
       // No draft yet — fork one automatically so the studio always has a draft.
-      const forkCall = await runMutation({
+      const forkCall = await runMutationRef.current({
         operation: () => apiCall<{ versionId: string }>(
           `/api/forms/${encodeURIComponent(formId)}/versions/fork`,
           { method: 'POST', body: JSON.stringify({}) },
@@ -441,7 +494,7 @@ export function FormStudio({ formId }: { formId: string }) {
       undoController.clear()
     }
     setIsLoading(false)
-  }, [formId, runMutation, undoController])
+  }, [formId, metadataAutosave, undoController])
 
   React.useEffect(() => {
     void reload()
@@ -1314,44 +1367,15 @@ export function FormStudio({ formId }: { formId: string }) {
     return null
   }, [activeDragId, activeDropTarget, paletteEntryById, t])
 
-  const persistFormPatch = React.useMemo(
-    () =>
-      autosaveDebounce(async (payload: { name?: string; description?: string | null }) => {
-        const call = await runMutation({
-          operation: () => withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(formUpdatedAtRef.current),
-            () => apiCall<LockMutationResponse>(`/api/forms/${encodeURIComponent(formId)}`, {
-              method: 'PATCH',
-              body: JSON.stringify(payload),
-            }),
-          ),
-          context: { formId },
-          mutationPayload: { formId, ...payload },
-        })
-        if (!call.ok) {
-          if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
-          const errPayload = call.result as { error?: string } | undefined
-          flash(t(errPayload?.error ?? 'forms.studio.autosave.error'), 'error')
-          return
-        }
-        const updatedAt = call.result?.updatedAt
-        if (updatedAt) {
-          formUpdatedAtRef.current = updatedAt
-          setForm((current) => current ? { ...current, updatedAt } : current)
-        }
-      }, 1000),
-    [formId, runMutation, t],
-  )
-
   const handleNameChange = React.useCallback((nextName: string) => {
     setForm((current) => (current ? { ...current, name: nextName } : current))
-    persistFormPatch({ name: nextName })
-  }, [persistFormPatch])
+    metadataAutosave.schedule({ name: nextName })
+  }, [metadataAutosave])
 
   const handleDescriptionChange = React.useCallback((nextDescription: string) => {
     setForm((current) => (current ? { ...current, description: nextDescription } : current))
-    persistFormPatch({ description: nextDescription.length > 0 ? nextDescription : null })
-  }, [persistFormPatch])
+    metadataAutosave.schedule({ description: nextDescription.length > 0 ? nextDescription : null })
+  }, [metadataAutosave])
 
   // Locale set edits persist immediately (no debounce): they change the studio's
   // available authoring locales, so the switcher must reflect the server state
@@ -1588,15 +1612,15 @@ export function FormStudio({ formId }: { formId: string }) {
           {resizeAnnouncement}
         </div>
         <header className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">{form.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-mono">{form.key}</span>
+          <div className="min-w-0">
+            <h1 className="break-words text-xl font-semibold text-foreground">{form.name}</h1>
+            <p className="break-words text-sm text-muted-foreground">
+              <span className="break-all font-mono">{form.key}</span>
               <span className="mx-2">—</span>
               <span>{t('forms.studio.schemaHashLabel')}: <span className="font-mono">{(version?.schemaHash ?? '').slice(0, 12) || '—'}</span></span>
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {form.supportedLocales.length > 1 ? (
               <div className="flex items-center gap-1.5">
                 <Globe className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -1625,10 +1649,10 @@ export function FormStudio({ formId }: { formId: string }) {
                   : 'forms.studio.statusDraft')}
             </Tag>
             <span className="text-xs text-muted-foreground">
-              {autosaveState === 'saving'
-                ? t('forms.studio.autosave.saving')
-                : autosaveState === 'error'
-                  ? t('forms.studio.autosave.error')
+              {autosaveState === 'error' || metadataAutosaveState === 'error'
+                ? t('forms.studio.autosave.error')
+                : autosaveState === 'saving' || metadataAutosaveState === 'saving'
+                  ? t('forms.studio.autosave.saving')
                   : t('forms.studio.autosave.idle')}
             </span>
             <IconButton

@@ -161,6 +161,7 @@ export async function GET(req: Request) {
     try {
       rows = await listQuery
         .orderBy('placed_at', 'desc')
+        .orderBy('id', 'desc')
         .limit(PAGE_SIZE)
         .offset((query.page - 1) * PAGE_SIZE)
         .execute() as Array<Record<string, unknown>>
