@@ -335,6 +335,8 @@
   "security.notifications.mfaEnrolled.title": "MFA-Methode aktiviert",
   "security.notifications.mfaReset.body": "Ein Administrator hat deine MFA-Methoden zurückgesetzt. Grund: {reason}",
   "security.notifications.mfaReset.title": "MFA-Methoden wurden zurückgesetzt",
+  "security.notifications.mfaVerificationLocked.body": "Zu viele fehlgeschlagene MFA-Verifizierungen. Warten Sie einige Minuten, bevor Sie es erneut versuchen. Falls Sie das nicht waren, ändern Sie Ihr Passwort.",
+  "security.notifications.mfaVerificationLocked.title": "MFA-Verifizierung vorübergehend gesperrt",
   "security.notifications.passwordChanged.body": "Das Passwort für dieses Konto wurde aktualisiert.",
   "security.notifications.passwordChanged.title": "Passwort geändert",
   "security.profile.backToList": "Zurück zu den Sicherheitseinstellungen",

@@ -335,6 +335,8 @@
   "security.notifications.mfaEnrolled.title": "MFA method enabled",
   "security.notifications.mfaReset.body": "An administrator reset your MFA methods. Reason: {reason}",
   "security.notifications.mfaReset.title": "MFA methods were reset",
+  "security.notifications.mfaVerificationLocked.body": "Too many unsuccessful MFA verification attempts. Wait a few minutes before trying again. If this was not you, change your password.",
+  "security.notifications.mfaVerificationLocked.title": "MFA verification temporarily locked",
   "security.notifications.passwordChanged.body": "Your password for this account was updated.",
   "security.notifications.passwordChanged.title": "Password changed",
   "security.profile.backToList": "Back to security settings",

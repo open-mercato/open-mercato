@@ -335,6 +335,8 @@
   "security.notifications.mfaEnrolled.title": "MFA 방법이 활성화됨",
   "security.notifications.mfaReset.body": "관리자가 회원님의 MFA 방법을 재설정했습니다. 사유: {reason}",
   "security.notifications.mfaReset.title": "MFA 방법이 재설정되었습니다",
+  "security.notifications.mfaVerificationLocked.body": "MFA 인증 시도가 너무 많이 실패했습니다. 몇 분 후 다시 시도하세요. 본인이 시도한 것이 아니라면 비밀번호를 변경하세요.",
+  "security.notifications.mfaVerificationLocked.title": "MFA 인증이 일시적으로 잠겼습니다",
   "security.notifications.passwordChanged.body": "이 계정의 비밀번호가 업데이트되었습니다.",
   "security.notifications.passwordChanged.title": "비밀번호가 변경되었습니다",
   "security.profile.backToList": "보안 설정으로 돌아가기",

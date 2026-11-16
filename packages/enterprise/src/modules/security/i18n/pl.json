@@ -335,6 +335,8 @@
   "security.notifications.mfaEnrolled.title": "Metoda MFA włączona",
   "security.notifications.mfaReset.body": "Administrator zresetował Twoje metody MFA. Powód: {reason}",
   "security.notifications.mfaReset.title": "Metody MFA zostały zresetowane",
+  "security.notifications.mfaVerificationLocked.body": "Zbyt wiele nieudanych prób weryfikacji MFA. Odczekaj kilka minut przed kolejną próbą. Jeśli to nie Ty, zmień hasło.",
+  "security.notifications.mfaVerificationLocked.title": "Weryfikacja MFA tymczasowo zablokowana",
   "security.notifications.passwordChanged.body": "Hasło do tego konta zostało zaktualizowane.",
   "security.notifications.passwordChanged.title": "Hasło zostało zmienione",
   "security.profile.backToList": "Powrót do ustawień bezpieczeństwa",

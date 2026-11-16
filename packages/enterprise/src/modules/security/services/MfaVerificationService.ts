@@ -1,10 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { MfaChallenge, UserMfaMethod } from '../data/entities'
+import { ZodError } from 'zod'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { MfaChallenge, MfaVerificationState, UserMfaMethod } from '../data/entities'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import { emitSecurityEvent } from '../events'
 import type { MfaService } from './MfaService'
 import type { MfaEnforcementService } from './MfaEnforcementService'
-import type { MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
+import type { MfaMethodRecord, MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
 
@@ -165,54 +167,90 @@ export class MfaVerificationService {
     if (!scope) {
       throw new MfaVerificationServiceError('MFA challenge not found', 404)
     }
-    const challenge = await this.getValidChallenge(challengeId, scope)
-    if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
-      return false
-    }
+    const initialChallenge = await this.getValidChallenge(challengeId, scope)
+    await this.assertMethodAllowedByPolicy(scope.userId, methodType)
+    const result = await this.em.transactional(async (transactionalEm) => {
+      const [lock] = await transactionalEm.execute<Array<{ locked: boolean }>>(
+        'select pg_try_advisory_xact_lock(hashtextextended(?::text, 0)) as locked',
+        [`security:mfa:${initialChallenge.tenantId}:${scope.userId}`],
+      )
+      if (!lock?.locked) return { verified: false }
 
-    await this.assertMethodAllowedByPolicy(challenge.userId, methodType)
+      const challenge = await this.getValidChallenge(challengeId, scope, transactionalEm)
+      const now = new Date()
+      const state = await this.getVerificationState(transactionalEm, challenge, now)
+      if (state.lockedUntil && state.lockedUntil > now) return { verified: false }
+      if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) return { verified: false }
+      if (state.resetAt <= now) {
+        state.attempts = 0
+        state.lockedUntil = null
+        state.resetAt = new Date(now.getTime() + this.securityConfig.mfa.challengeTtlMs)
+      }
 
-    if (challenge.methodType && challenge.methodType !== methodType) {
-      await this.registerFailedAttempt(challenge)
-      return false
-    }
-
-    const provider = this.mfaProviderRegistry.get(methodType)
-    if (!provider) {
-      throw new MfaVerificationServiceError(`MFA provider '${methodType}' is not registered`, 400)
-    }
-
-    const method = challenge.methodId
-      ? await this.findMethodById(challenge.userId, challenge.methodId)
-      : await this.findMethod(challenge.userId, methodType)
-    const context: MfaVerifyContext | undefined = challenge.providerChallenge
-      ? { challenge: challenge.providerChallenge }
-      : undefined
-    const verified = await provider.verify(challenge.userId, {
-      id: method.id,
-      type: method.type,
-      userId: method.userId,
-      tenantId: method.tenantId,
-      organizationId: method.organizationId ?? null,
-      secret: method.secret ?? null,
-      providerMetadata: method.providerMetadata,
-    }, payload, context, runtimeContext)
-
-    if (verified) {
-      challenge.verifiedAt = new Date()
-      challenge.methodType = methodType
-      method.lastUsedAt = new Date()
-      await this.em.flush()
-      await emitSecurityEvent('security.mfa.verified', {
+      if (challenge.methodType && challenge.methodType !== methodType) {
+        return this.registerFailedAttempt(challenge, state, now)
+      }
+      const provider = this.mfaProviderRegistry.get(methodType)
+      if (!provider) {
+        throw new MfaVerificationServiceError(`MFA provider '${methodType}' is not registered`, 400)
+      }
+      const method = await findOneWithDecryption(transactionalEm, UserMfaMethod, {
+        ...(challenge.methodId ? { id: challenge.methodId } : { type: methodType }),
         userId: challenge.userId,
-        challengeId: challenge.id,
+        tenantId: challenge.tenantId,
+        isActive: true,
+        deletedAt: null,
+      }, { refresh: true }, { tenantId: challenge.tenantId })
+      if (!method || method.type !== methodType) {
+        throw new MfaVerificationServiceError('MFA method not found', 404)
+      }
+      const context: MfaVerifyContext | undefined = challenge.providerChallenge
+        ? { challenge: challenge.providerChallenge }
+        : undefined
+      const providerMethod: MfaMethodRecord = {
+        id: method.id,
+        type: method.type,
+        userId: method.userId,
+        tenantId: method.tenantId,
+        organizationId: method.organizationId ?? null,
+        secret: method.secret ?? null,
+        providerMetadata: structuredClone(method.providerMetadata),
+      }
+      let verified: boolean
+      try {
+        verified = await provider.verify(challenge.userId, providerMethod, payload, context, runtimeContext)
+      } catch (error) {
+        if (!(error instanceof ZodError)) throw error
+        return { ...this.registerFailedAttempt(challenge, state, now), validationError: error }
+      }
+      if (!verified) return this.registerFailedAttempt(challenge, state, now)
+
+      challenge.verifiedAt = now
+      challenge.methodType = methodType
+      method.providerMetadata = providerMethod.providerMetadata
+      method.lastUsedAt = now
+      state.attempts = 0
+      state.lockedUntil = null
+      state.resetAt = new Date(now.getTime() + this.securityConfig.mfa.challengeTtlMs)
+      return { verified: true }
+    })
+
+    if ('lockedUntil' in result && result.lockedUntil) {
+      await emitSecurityEvent('security.mfa.verification_locked', {
+        userId: scope.userId,
+        tenantId: initialChallenge.tenantId,
+        lockedUntil: result.lockedUntil.toISOString(),
+      })
+    }
+    if (result.verified) {
+      await emitSecurityEvent('security.mfa.verified', {
+        userId: scope.userId,
+        challengeId,
         methodType,
       })
-      return true
     }
-
-    await this.registerFailedAttempt(challenge)
-    return false
+    if ('validationError' in result) throw result.validationError
+    return result.verified
   }
 
   async verifyRecoveryCode(userId: string, code: string): Promise<boolean> {
@@ -222,11 +260,12 @@ export class MfaVerificationService {
   private async getValidChallenge(
     challengeId: string,
     scope: MfaVerificationAuthScope,
+    em: EntityManager = this.em,
   ): Promise<MfaChallenge> {
-    const challenge = await this.em.findOne(MfaChallenge, {
+    const challenge = await findOneWithDecryption(em, MfaChallenge, {
       id: challengeId,
       userId: scope.userId,
-    })
+    }, { refresh: true })
     if (!challenge) {
       throw new MfaVerificationServiceError('MFA challenge not found', 404)
     }
@@ -249,22 +288,43 @@ export class MfaVerificationService {
     }
   }
 
-  private async registerFailedAttempt(challenge: MfaChallenge): Promise<void> {
-    const maxAttempts = this.securityConfig.mfa.maxAttempts
-    const rows = await this.em.getConnection().execute<Array<{ attempts: number }>>(
-      'UPDATE mfa_challenges SET attempts = attempts + 1 WHERE id = ? AND verified_at IS NULL AND attempts < ? RETURNING attempts',
-      [challenge.id, maxAttempts],
-    )
-    const updatedAttempts = rows.length > 0 ? Number(rows[0].attempts) : maxAttempts
-    challenge.attempts = updatedAttempts
-    if (updatedAttempts >= maxAttempts) {
-      const now = new Date()
-      await this.em.getConnection().execute(
-        'UPDATE mfa_challenges SET expires_at = ? WHERE id = ?',
-        [now, challenge.id],
-      )
+  private registerFailedAttempt(
+    challenge: MfaChallenge,
+    state: MfaVerificationState,
+    now: Date,
+  ): { verified: false; lockedUntil?: Date } {
+    challenge.attempts += 1
+    state.attempts += 1
+    if (challenge.attempts >= this.securityConfig.mfa.maxAttempts) {
       challenge.expiresAt = now
     }
+    if (state.attempts >= this.securityConfig.mfa.maxAttempts) {
+      state.lockedUntil = new Date(now.getTime() + this.securityConfig.mfa.challengeTtlMs)
+      state.resetAt = state.lockedUntil
+      return { verified: false, lockedUntil: state.lockedUntil }
+    }
+    return { verified: false }
+  }
+
+  private async getVerificationState(
+    em: EntityManager,
+    challenge: MfaChallenge,
+    now: Date,
+  ): Promise<MfaVerificationState> {
+    const state = await findOneWithDecryption(em, MfaVerificationState, {
+      userId: challenge.userId,
+      tenantId: challenge.tenantId,
+    }, { refresh: true }, { tenantId: challenge.tenantId })
+    if (state) return state
+    const created = em.create(MfaVerificationState, {
+      userId: challenge.userId,
+      tenantId: challenge.tenantId,
+      attempts: 0,
+      resetAt: new Date(now.getTime() + this.securityConfig.mfa.challengeTtlMs),
+      updatedAt: now,
+    })
+    em.persist(created)
+    return created
   }
 
   private async getActiveMethods(userId: string): Promise<UserMfaMethod[]> {
@@ -301,18 +361,6 @@ export class MfaVerificationService {
     return method
   }
 
-  private async findMethodById(userId: string, methodId: string): Promise<UserMfaMethod> {
-    const method = await this.em.findOne(UserMfaMethod, {
-      id: methodId,
-      userId,
-      isActive: true,
-      deletedAt: null,
-    })
-    if (!method) {
-      throw new MfaVerificationServiceError(`MFA method '${methodId}' not found`, 404)
-    }
-    return method
-  }
 }
 
 export default MfaVerificationService

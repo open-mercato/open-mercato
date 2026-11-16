@@ -79,7 +79,7 @@ describe('TotpProvider', () => {
     const code = generateTotp(secret, Math.floor(fixedEpochMs / 1000))
 
     const confirmation = await provider.confirmSetup('user-1', setup.setupId, { code })
-    expect(confirmation.metadata).toEqual({})
+    expect(confirmation.metadata).toEqual({ lastAcceptedTimeStep: Math.floor(fixedEpochMs / 30000) })
     expect(confirmation.secret).toBe(secret)
   })
 
@@ -90,6 +90,8 @@ describe('TotpProvider', () => {
     const code = generateTotp(secret, Math.floor(fixedEpochMs / 1000))
     const confirmation = await provider.confirmSetup('user-1', setup.setupId, { code })
 
+    jest.setSystemTime(fixedEpochMs + TOTP_PERIOD_SECONDS * 1000)
+    const nextCode = generateTotp(secret, Math.floor(Date.now() / 1000))
     const valid = await provider.verify(
       'user-1',
       {
@@ -99,7 +101,7 @@ describe('TotpProvider', () => {
         secret: confirmation.secret,
         providerMetadata: confirmation.metadata,
       },
-      { code },
+      { code: nextCode },
     )
     const invalid = await provider.verify(
       'user-1',
@@ -167,4 +169,38 @@ describe('TotpProvider', () => {
 
     expect(setup.clientData.issuer).toBe('Acme Security')
   })
+  test('rejects an accepted counter across provider instances and accepts the next counter', async () => {
+    const secret = 'JBSWY3DPEHPK3PXP'
+    const method = { id: 'method-1', type: 'totp', userId: 'user-1', secret, providerMetadata: {} }
+    const code = generateTotp(secret, Math.floor(fixedEpochMs / 1000))
+    expect(await new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET).verify('user-1', method, { code })).toBe(true)
+    expect(await new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET).verify('user-1', method, { code })).toBe(false)
+    jest.setSystemTime(fixedEpochMs + TOTP_PERIOD_SECONDS * 1000)
+    expect(await new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET).verify('user-1', method, { code })).toBe(false)
+    const nextCode = generateTotp(secret, Math.floor(Date.now() / 1000))
+    expect(await new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET).verify('user-1', method, { code: nextCode })).toBe(true)
+  })
+
+  test.each([-1, 1])('records the matched skewed counter (%s), rejecting it when time advances', async (delta) => {
+    const secret = 'JBSWY3DPEHPK3PXP'
+    const method = { id: 'method-1', type: 'totp', userId: 'user-1', secret, providerMetadata: {} }
+    const provider = new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const code = generateTotp(secret, Math.floor(fixedEpochMs / 1000) + delta * TOTP_PERIOD_SECONDS)
+    expect(await provider.verify('user-1', method, { code })).toBe(true)
+    expect(method.providerMetadata).toEqual({ lastAcceptedTimeStep: Math.floor(fixedEpochMs / 30000) + delta })
+    jest.setSystemTime(fixedEpochMs + delta * TOTP_PERIOD_SECONDS * 1000)
+    expect(await provider.verify('user-1', method, { code })).toBe(false)
+  })
+
+  test('an enrollment confirmation code cannot be reused for verification', async () => {
+    const provider = new TotpProvider(defaultSecurityModuleConfig, TEST_SETUP_TOKEN_SECRET)
+    const setup = await provider.setup('user-1', {})
+    const code = generateTotp(String(setup.clientData.secret), Math.floor(Date.now() / 1000))
+    const confirmation = await provider.confirmSetup('user-1', setup.setupId, { code })
+    expect(await provider.verify('user-1', {
+      id: 'method-1', type: 'totp', userId: 'user-1',
+      secret: confirmation.secret, providerMetadata: confirmation.metadata,
+    }, { code })).toBe(false)
+  })
+
 })

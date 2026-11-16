@@ -1,3 +1,5 @@
+import { ZodError } from 'zod'
+import { MfaVerificationState } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { emitSecurityEvent } from '../../events'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
@@ -8,6 +10,10 @@ import {
 } from '../../lib/security-config'
 import { MfaVerificationService } from '../MfaVerificationService'
 import type { MfaEnforcementService } from '../MfaEnforcementService'
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (em: EntityManager, entity: never, where: never, options: never) => em.findOne(entity, where, options),
+}))
 
 jest.mock('../../events', () => ({
   emitSecurityEvent: jest.fn().mockResolvedValue(undefined),
@@ -80,8 +86,15 @@ function createServiceContext(
     return []
   })
 
+  const states: MfaVerificationState[] = []
   const em = {
-    create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({
+    execute: jest.fn(async () => [{ locked: true }]),
+    transactional: jest.fn(async (callback: (em: unknown) => Promise<unknown>) => {
+      const result = await callback(em)
+      await em.flush()
+      return result
+    }),
+    create: jest.fn((entity: unknown, data: Record<string, unknown>) => entity === MfaVerificationState ? { ...data, id: 'state-1' } : ({
       id: `challenge-${challenges.length + 1}`,
       userId: String(data.userId),
       tenantId: String(data.tenantId),
@@ -93,12 +106,14 @@ function createServiceContext(
       verifiedAt: null,
     })),
     persist: jest.fn((challenge: (typeof challenges)[number]) => {
-      challenges.push(challenge)
+      if ('resetAt' in challenge) states.push(challenge as unknown as MfaVerificationState)
+      else challenges.push(challenge)
     }),
     flush: jest.fn().mockResolvedValue(undefined),
     getConnection: jest.fn(() => ({ execute })),
     find: jest.fn(async () => methods),
-    findOne: jest.fn(async (_entity: unknown, query: Record<string, unknown>) => {
+    findOne: jest.fn(async (entity: unknown, query: Record<string, unknown>) => {
+      if (entity === MfaVerificationState) return states.find((state) => state.userId === query.userId && state.tenantId === query.tenantId) ?? null
       if ('id' in query && 'userId' in query && 'isActive' in query) {
         return methods.find(
           (item) =>
@@ -145,7 +160,7 @@ function createServiceContext(
     securityConfig,
   )
 
-  return { service, em, registry, provider, mfaService, mfaEnforcementService, methods, challenges }
+  return { service, em, registry, provider, mfaService, mfaEnforcementService, methods, challenges, states }
 }
 
 const mockedEmitSecurityEvent = emitSecurityEvent as jest.MockedFunction<typeof emitSecurityEvent>
@@ -327,23 +342,54 @@ describe('MfaVerificationService', () => {
     })
   })
 
-  test('verifyChallenge increments attempts atomically via a conditional UPDATE', async () => {
-    const { service, challenges, em, registry } = createServiceContext()
-    const provider = registry.get('totp')
-    if (!provider) {
-      throw new Error('Expected TOTP provider to be registered')
-    }
-    provider.verify = jest.fn(async () => false)
+  test('verification serializes account budget checks inside a transaction', async () => {
+    const { service, em, provider } = createServiceContext()
     const created = await service.createChallenge('user-1')
-
-    await service.verifyChallenge(created.challengeId, 'totp', { code: '000000' }, undefined, { userId: 'user-1' })
-
-    expect(challenges[0].attempts).toBe(1)
-    const execute = em.getConnection().execute as jest.Mock
-    expect(execute).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE mfa_challenges SET attempts = attempts + 1'),
-      [created.challengeId, defaultSecurityModuleConfig.mfa.maxAttempts],
+    await service.verifyChallenge(created.challengeId, 'totp', { code: '123456' }, undefined, { userId: 'user-1' })
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(em.execute).toHaveBeenCalledWith(
+      expect.stringContaining('pg_try_advisory_xact_lock'),
+      ['security:mfa:tenant-1:user-1'],
     )
+    em.execute.mockResolvedValueOnce([{ locked: false }])
+    const second = await service.createChallenge('user-1')
+    expect(await service.verifyChallenge(second.challengeId, 'totp', {}, undefined, { userId: 'user-1' })).toBe(false)
+    expect(provider.verify).toHaveBeenCalledTimes(1)
+  })
+
+  test('fresh challenges share a temporary account lock and notify only on transition', async () => {
+    const { service, provider, states } = createServiceContext()
+    provider.verify = jest.fn(async () => false)
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const created = await service.createChallenge('user-1')
+      expect(await service.verifyChallenge(created.challengeId, 'totp', {}, undefined, { userId: 'user-1' })).toBe(false)
+    }
+    provider.verify = jest.fn(async () => true)
+    const created = await service.createChallenge('user-1')
+    expect(await service.verifyChallenge(created.challengeId, 'totp', {}, undefined, { userId: 'user-1' })).toBe(false)
+    expect(provider.verify).not.toHaveBeenCalled()
+    expect(states[0].attempts).toBe(5)
+    expect(states[0].lockedUntil?.getTime()).toBeGreaterThan(Date.now())
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledTimes(1)
+    expect(mockedEmitSecurityEvent).toHaveBeenCalledWith('security.mfa.verification_locked', {
+      userId: 'user-1', tenantId: 'tenant-1', lockedUntil: states[0].lockedUntil?.toISOString(),
+    })
+    states[0].lockedUntil = new Date(Date.now() - 1)
+    states[0].resetAt = states[0].lockedUntil
+    expect(await service.verifyChallenge(created.challengeId, 'totp', {}, undefined, { userId: 'user-1' })).toBe(true)
+    expect(states[0].attempts).toBe(0)
+  })
+
+  test.each([false, true])('invalid provider payloads consume budget while preserving their error (async=%s)', async (asynchronous) => {
+    const { service, provider, states, challenges } = createServiceContext()
+    const error = new ZodError([{ code: 'custom', path: ['code'], message: '[internal] Invalid proof' }])
+    provider.verify = asynchronous
+      ? jest.fn(() => Promise.reject(error))
+      : jest.fn(() => { throw error })
+    const { challengeId } = await service.createChallenge('user-1')
+    await expect(service.verifyChallenge(challengeId, 'totp', {}, undefined, { userId: 'user-1' })).rejects.toBe(error)
+    expect(states[0].attempts).toBe(1)
+    expect(challenges[0].attempts).toBe(1)
   })
 
   test('verifyChallenge never advances attempts past the cap and locks out', async () => {

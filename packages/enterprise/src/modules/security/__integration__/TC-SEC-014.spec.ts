@@ -137,7 +137,7 @@ test.describe('TC-SEC-014: MFA-pending tokens are rejected by general staff APIs
     expect(Array.isArray(mutationProbe.body.recoveryCodes)).toBe(true)
   })
 
-  test('exhausted challenge is cleaned up: correct code stops working and pending token stays locked out', async ({ request }) => {
+  test('exhausted challenge and fresh challenges remain locked out for the same account', async ({ request }) => {
     const { token, challengeId } = await pendingLogin(request)
 
     let lastVerifyStatus = 0
@@ -160,8 +160,8 @@ test.describe('TC-SEC-014: MFA-pending tokens are rejected by general staff APIs
 
     const freshLogin = await pendingLogin(request)
     const freshVerify = await verifyTotpChallenge(request, freshLogin.token, freshLogin.challengeId, totpSecret)
-    expect(freshVerify.status).toBe(200)
-    expect(freshVerify.body.ok).toBe(true)
+    expect(freshVerify.status).toBe(401)
+    expect(freshVerify.body.ok).not.toBe(true)
   })
 
   test('a remember-me session_token planted before enrollment cannot be traded for a full staff token while MFA is pending', async () => {
