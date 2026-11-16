@@ -203,10 +203,27 @@ describe('GET /api/entities/relations/options', () => {
   })
 
   it('enforces restricted custom entity ACL', async () => {
-    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    mockRbac.userHasAllFeatures.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     const response = await GET(new Request('http://x/api/entities/relations/options?entityId=virtual:restricted&labelField=title'))
     expect(response.status).toBe(403)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledTimes(2)
     expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('denies metadata-only access to unrestricted custom records before reading labels', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=virtual:example&labelField=title&tenantId=foreign'))
+    expect(response.status).toBe(403)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['entities.records.view'], { tenantId: 't1', organizationId: 'org' })
+    expect(mockQE.query).not.toHaveBeenCalled()
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+  })
+
+  it('allows a custom-record reader through the scoped relation query', async () => {
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=virtual:example&labelField=title&ids=rec-1'))
+    expect(response.status).toBe(200)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['entities.records.view'], { tenantId: 't1', organizationId: 'org' })
+    expect(mockQE.query).toHaveBeenCalledWith('virtual:example', expect.objectContaining({ tenantId: 't1', organizationId: 'org', forceCustomEntityStorage: true }))
   })
 
   it('does not turn a third-party declaration into an implicit system-data grant', async () => {

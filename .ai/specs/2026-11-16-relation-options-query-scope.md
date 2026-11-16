@@ -10,7 +10,7 @@ Relation labels are record reads: the metadata permission alone must not expose 
 
 ## Proposed solution and architecture
 
-Reuse `classifyRecordsEntity` and `assertEntityAclForRequest`. Reject platform-only and undeclared system targets, enforce mapped target view grants and restricted custom-entity grants before querying data. Declared ORM entities without a mapped requirement retain the existing ACL helper's superadmin fallback; declaration is not a substitute for authorization. Unknown/unresolvable ids retain the empty-list behavior.
+Reuse `classifyRecordsEntity` and `assertEntityAclForRequest`. Reject platform-only and undeclared system targets, require `entities.records.view` for every custom target, and enforce mapped target view grants and additional restricted custom-entity grants before querying data. Declared ORM entities without a mapped requirement retain the existing ACL helper's superadmin fallback; declaration is not a substitute for authorization. Unknown/unresolvable ids retain the empty-list behavior.
 
 Labels may use a trusted module `ce.ts` label, a scoped custom entity's configured label, or fixed `name`, `title`, `code`, `email`, `id` candidates. Trusted camelCase labels also accept their snake_case storage spelling. System labels cannot be overridden with a mutable custom-entity row. Custom registration precedence is organization, tenant, instance. Third-party declared labels remain supported subject to existing target ACL. Route-context fields retain their existing fixed allowlist. Results are capped at 100.
 
@@ -44,4 +44,4 @@ Uses existing classification, ACL, encryption read helpers and scope controls. N
 
 ## Changelog
 
-- 2026-11-16: Added #9106 security fix design, migration guidance and regression/integration coverage.
+- 2026-11-16: Added #9106 security fix design, migration guidance and regression/integration coverage. Custom relation labels require record-read access in addition to metadata access, with separate metadata-only denial and authorized-reader controls.

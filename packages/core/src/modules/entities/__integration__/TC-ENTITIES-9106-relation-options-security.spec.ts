@@ -12,6 +12,8 @@ test('TC-ENTITIES-9106: metadata access cannot read system secrets; permitted re
   const recordId = randomUUID()
   let roleId: string | null = null
   let userId: string | null = null
+  let readerRoleId: string | null = null
+  let readerUserId: string | null = null
   let entityCreated = false
   let recordCreated = false
   let fieldCreated = false
@@ -37,11 +39,18 @@ test('TC-ENTITIES-9106: metadata access cannot read system secrets; permitted re
     const record = await apiRequest(request, 'POST', '/api/entities/records', { token: administrator, data: { entityId, recordId, values: { title: 'Own relation label' } } })
     expect(record.status()).toBe(200)
     recordCreated = true
-    const label = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${entityId}&labelField=title&ids=${recordId}`, { token: actor })
+    const metadataOnly = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${entityId}&labelField=title&ids=${recordId}`, { token: actor })
+    expect(metadataOnly.status()).toBe(403)
+    readerRoleId = await createRoleFixture(request, administrator, { name: `relation-reader-9106-${randomUUID()}` })
+    await setRoleAclFeatures(request, administrator, { roleId: readerRoleId, features: ['entities.definitions.view', 'entities.records.view'] })
+    const readerEmail = `relation-reader-${randomUUID()}@example.test`
+    readerUserId = await createUserFixture(request, administrator, { email: readerEmail, password, organizationId, roles: [readerRoleId] })
+    const reader = await getAuthToken(request, readerEmail, password)
+    const label = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${entityId}&labelField=title&ids=${recordId}`, { token: reader })
     expect(label.status()).toBe(200)
     expect(await label.json()).toEqual({ items: [{ value: recordId, label: 'Own relation label' }] })
     for (const field of ['secret', 'password_hash']) {
-      const denied = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${entityId}&labelField=${field}`, { token: actor })
+      const denied = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${entityId}&labelField=${field}`, { token: reader })
       expect(denied.status()).toBe(400)
     }
   } finally {
@@ -49,6 +58,8 @@ test('TC-ENTITIES-9106: metadata access cannot read system secrets; permitted re
     if (fieldCreated) await apiRequest(request, 'DELETE', '/api/entities/definitions', { token: administrator, data: { entityId, key: 'title' } })
     if (entityCreated) await apiRequest(request, 'DELETE', '/api/entities/entities', { token: administrator, data: { entityId } })
     await deleteUserIfExists(request, administrator, userId)
+    await deleteUserIfExists(request, administrator, readerUserId)
     await deleteRoleIfExists(request, administrator, roleId)
+    await deleteRoleIfExists(request, administrator, readerRoleId)
   }
 })

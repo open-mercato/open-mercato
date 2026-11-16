@@ -77,6 +77,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [] })
   }
 
+  const rbac = container.resolve('rbacService') as RbacService
+  if (classification.kind === 'custom' && !(await rbac.userHasAllFeatures(
+    auth.sub,
+    ['entities.records.view'],
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+  ))) return forbidden()
+
   try {
     await assertEntityAclForRequest({
       auth,
@@ -84,7 +91,7 @@ export async function GET(req: Request) {
       action: 'view',
       isCustomEntity: classification.kind === 'custom',
       isRestricted: classification.restricted || declared?.accessRestricted === true,
-      rbac: container.resolve('rbacService') as RbacService,
+      rbac,
     })
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
