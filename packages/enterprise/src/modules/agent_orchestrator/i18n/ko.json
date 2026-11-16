@@ -774,6 +774,8 @@
   "agent_orchestrator.identity.audit.empty": "이 사람에 대해 기록된 작업이 없습니다.",
   "agent_orchestrator.identity.audit.error": "실행 주체 감사 체인을 불러오지 못했습니다.",
   "agent_orchestrator.identity.audit.instigator": "실행 주체",
+  "agent_orchestrator.identity.audit.producedBy": "에이전트 {{agent}}이(가) 실행함",
+  "agent_orchestrator.identity.audit.producedByVersion": "에이전트 {{agent}}이(가) 실행함 (버전 {{version}})",
   "agent_orchestrator.identity.audit.title": "실행 주체 감사 체인",
   "agent_orchestrator.identity.audit.viaAgent": "에이전트 경유",
   "agent_orchestrator.nav.agents": "에이전트",

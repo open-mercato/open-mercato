@@ -7,6 +7,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentProposal, AgentRun } from '../../../../data/entities'
 import {
+  AGENT_CORRELATION_KEY,
+  AGENT_VERSION_CORRELATION_KEY,
   buildRunActionCorrelationKeys,
   parseCorrelationKeys,
   RUN_ACTIONS_MAX_PAGE_SIZE,
@@ -66,6 +68,9 @@ const actionItemSchema = z.object({
   onBehalfOfUserId: z.string().nullable(),
   sourceKey: z.string().nullable(),
   correlation: z.record(z.string(), z.string()),
+  /** The agent and version that produced the entry: stamped on the entry, else the run's own. */
+  agentId: z.string(),
+  agentVersion: z.string().nullable(),
   createdAt: z.string(),
 })
 
@@ -135,18 +140,23 @@ export async function GET(req: Request, ctx: RouteContext) {
   })
 
   return NextResponse.json({
-    items: result.items.map((entry) => ({
-      id: entry.id,
-      commandId: entry.commandId,
-      actionLabel: entry.actionLabel ?? null,
-      resourceKind: entry.resourceKind ?? null,
-      resourceId: entry.resourceId ?? null,
-      actorUserId: entry.actorUserId ?? null,
-      onBehalfOfUserId: entry.onBehalfOfUserId ?? null,
-      sourceKey: entry.sourceKey ?? null,
-      correlation: parseCorrelationKeys(entry.correlationKeys),
-      createdAt: toIsoString(entry.createdAt),
-    })),
+    items: result.items.map((entry) => {
+      const correlation = parseCorrelationKeys(entry.correlationKeys)
+      return {
+        id: entry.id,
+        commandId: entry.commandId,
+        actionLabel: entry.actionLabel ?? null,
+        resourceKind: entry.resourceKind ?? null,
+        resourceId: entry.resourceId ?? null,
+        actorUserId: entry.actorUserId ?? null,
+        onBehalfOfUserId: entry.onBehalfOfUserId ?? null,
+        sourceKey: entry.sourceKey ?? null,
+        correlation,
+        agentId: correlation[AGENT_CORRELATION_KEY] ?? run.agentId,
+        agentVersion: correlation[AGENT_VERSION_CORRELATION_KEY] ?? run.agentVersion ?? null,
+        createdAt: toIsoString(entry.createdAt),
+      }
+    }),
     total: result.total,
     page,
     pageSize,
@@ -160,7 +170,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List action-log entries correlated with an agent run',
       description:
-        'Returns the decrypted action-log entries whose correlation carries this run id (`agentRunId`) or the id of one of its proposals (`proposalId`, effector writes after approval), newest first. `correlation` is the id-shaped correlation subset recorded on the entry. Org-scoped (404 for a run outside the caller organization); requires agent_orchestrator.trace.view and audit_logs.view_tenant; pageSize is capped at 100.',
+        'Returns the decrypted action-log entries whose correlation carries this run id (`agentRunId`) or the id of one of its proposals (`proposalId`, effector writes after approval), newest first. `correlation` is the id-shaped correlation subset recorded on the entry; `agentId` / `agentVersion` name the agent and version that produced it (stamped on the entry, else the run record). Org-scoped (404 for a run outside the caller organization); requires agent_orchestrator.trace.view and audit_logs.view_tenant; pageSize is capped at 100.',
       query: querySchema,
       responses: [{ status: 200, description: 'Run actions', schema: responseSchema }],
       errors: [

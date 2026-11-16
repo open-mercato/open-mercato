@@ -6,7 +6,10 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { AgentRun } from '../../../../data/entities'
 import {
+  AGENT_CORRELATION_KEY,
+  AGENT_VERSION_CORRELATION_KEY,
   PROPOSAL_CORRELATION_KEY,
   RUN_CORRELATION_KEY,
   readCorrelationValue,
@@ -30,6 +33,7 @@ export const metadata = {
 }
 
 const humanUserIdSchema = z.string().uuid()
+const runIdSchema = z.string().uuid()
 const querySchema = z.object({
   limit: z.coerce.number().int().positive().max(200).default(100),
 })
@@ -53,6 +57,9 @@ const entrySchema = z.object({
   via: z.enum(['direct', 'via_agent']),
   agentRunId: z.string().nullable(),
   proposalId: z.string().nullable(),
+  /** The agent that produced the entry: stamped on the entry, else read from its run; null for a human-only write. */
+  agentId: z.string().nullable(),
+  agentVersion: z.string().nullable(),
 })
 
 export const responseSchema = z.object({
@@ -124,11 +131,42 @@ export async function GET(req: Request, ctx: RouteContext) {
     for (const entry of entries) decryptedById.set(entry.id, entry)
   }
 
+  const readKeys = (row: Record<string, unknown>): string[] | null =>
+    Array.isArray(row.correlationKeys) ? (row.correlationKeys as string[]) : null
+
+  const runIdsMissingAgent = new Set<string>()
+  for (const row of typedRows) {
+    const keys = readKeys(row)
+    const runId = readCorrelationValue(keys, RUN_CORRELATION_KEY)
+    if (!runId) continue
+    if (!readCorrelationValue(keys, AGENT_CORRELATION_KEY) || !readCorrelationValue(keys, AGENT_VERSION_CORRELATION_KEY)) {
+      runIdsMissingAgent.add(runId)
+    }
+  }
+  const runAgentById = new Map<string, { agentId: string; agentVersion: string | null }>()
+  const runIdsToLoad = Array.from(runIdsMissingAgent).filter((runId) => runIdSchema.safeParse(runId).success)
+  if (runIdsToLoad.length > 0) {
+    const runs = await findWithDecryption(
+      em,
+      AgentRun,
+      {
+        id: { $in: runIdsToLoad },
+        tenantId: auth.tenantId,
+        ...(organizationId ? { organizationId } : {}),
+      },
+      { fields: ['id', 'agentId', 'agentVersion'] },
+      { tenantId: auth.tenantId, organizationId },
+    )
+    for (const run of runs) runAgentById.set(run.id, { agentId: run.agentId, agentVersion: run.agentVersion ?? null })
+  }
+
   const items = typedRows.map((row) => {
     const decrypted = decryptedById.get(String(row.id))
     const onBehalfOf = (row.onBehalfOfUserId as string | null) ?? null
     const createdAt = row.createdAt
-    const correlationKeys = Array.isArray(row.correlationKeys) ? (row.correlationKeys as string[]) : null
+    const correlationKeys = readKeys(row)
+    const agentRunId = readCorrelationValue(correlationKeys, RUN_CORRELATION_KEY)
+    const runAgent = agentRunId ? runAgentById.get(agentRunId) : undefined
     return {
       id: String(row.id),
       commandId: decrypted ? decrypted.commandId : (row.commandId as string | null) ?? null,
@@ -146,8 +184,11 @@ export async function GET(req: Request, ctx: RouteContext) {
             ? String(createdAt)
             : null,
       via: onBehalfOf === parsedId.data ? ('via_agent' as const) : ('direct' as const),
-      agentRunId: readCorrelationValue(correlationKeys, RUN_CORRELATION_KEY),
+      agentRunId,
       proposalId: readCorrelationValue(correlationKeys, PROPOSAL_CORRELATION_KEY),
+      agentId: readCorrelationValue(correlationKeys, AGENT_CORRELATION_KEY) ?? runAgent?.agentId ?? null,
+      agentVersion:
+        readCorrelationValue(correlationKeys, AGENT_VERSION_CORRELATION_KEY) ?? runAgent?.agentVersion ?? null,
     }
   })
 
@@ -161,7 +202,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List actions a human caused directly and via agents',
       description:
-        'Returns ActionLog entries where the human is either the direct actor or the on-behalf-of principal of an agent action, joined on action_logs.on_behalf_of_user_id. `agentRunId` / `proposalId` carry the run and proposal correlation recorded on the entry, or null. Org-scoped; gated by agent_orchestrator.identity.read.',
+        'Returns ActionLog entries where the human is either the direct actor or the on-behalf-of principal of an agent action, joined on action_logs.on_behalf_of_user_id. `agentRunId` / `proposalId` carry the run and proposal correlation recorded on the entry, or null. `agentId` / `agentVersion` name the agent and version that produced the entry (stamped on the entry, else read from its run), or null for a human-only write; `via` keeps its on-behalf-of meaning. Org-scoped; gated by agent_orchestrator.identity.read.',
       responses: [{ status: 200, description: 'Instigator audit chain', schema: responseSchema }],
       errors: [
         { status: 400, description: 'Invalid query', schema: errorSchema },

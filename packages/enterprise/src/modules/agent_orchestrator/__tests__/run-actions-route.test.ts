@@ -24,7 +24,7 @@ const PROPOSAL_B = '66666666-6666-4666-8666-666666666666'
 const AGENT_USER = '77777777-7777-4777-8777-777777777777'
 const HUMAN = '88888888-8888-4888-8888-888888888888'
 
-const RUN = { id: RUN_ID, tenantId: TENANT, organizationId: ORG }
+const RUN = { id: RUN_ID, tenantId: TENANT, organizationId: ORG, agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' }
 
 const ENTRY = {
   id: 'log-1',
@@ -109,12 +109,31 @@ describe('GET /api/agent_orchestrator/runs/:id/actions', () => {
         onBehalfOfUserId: HUMAN,
         sourceKey: 'agent',
         correlation: { agentRunId: RUN_ID, proposalId: PROPOSAL_A },
+        agentId: 'support.triage',
+        agentVersion: 'sha256:0123456789abcdef',
         createdAt: '2026-10-28T10:00:00.000Z',
       }],
       total: 1,
       page: 1,
       pageSize: 50,
     })
+  })
+
+  it('prefers the agent and version stamped on the entry over the run record', async () => {
+    const { listByCorrelationKeys } = await setup()
+    listByCorrelationKeys.mockResolvedValueOnce({
+      items: [{
+        ...ENTRY,
+        correlationKeys: [`agentRunId:${RUN_ID}`, 'agentId:support.triage', 'agentVersion:2.1.0'],
+      }],
+      total: 1,
+    })
+
+    const res = await GET(makeRequest(), { params })
+    const body = await res.json()
+
+    expect(body.items[0].agentId).toBe('support.triage')
+    expect(body.items[0].agentVersion).toBe('2.1.0')
   })
 
   it('returns 404 for a run outside the caller organization without querying the audit log', async () => {

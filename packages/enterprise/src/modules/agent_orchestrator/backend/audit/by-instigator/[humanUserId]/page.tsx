@@ -30,6 +30,8 @@ type InstigatorEntry = {
   via: 'direct' | 'via_agent'
   agentRunId: string | null
   proposalId: string | null
+  agentId?: string | null
+  agentVersion?: string | null
 }
 
 const ENTRY_LINK_CLASS = 'text-xs font-medium text-foreground underline-offset-4 hover:underline'
@@ -117,6 +119,16 @@ export default function InstigatorAuditChainPage({ params }: { params?: { humanU
                         agent: entry.actorUserId ?? '—',
                         human: entry.onBehalfOfUserId ?? '—',
                       })}
+                    </p>
+                  ) : null}
+                  {entry.agentId ? (
+                    <p className="text-xs text-muted-foreground">
+                      {entry.agentVersion
+                        ? t('agent_orchestrator.identity.audit.producedByVersion', {
+                            agent: entry.agentId,
+                            version: entry.agentVersion,
+                          })
+                        : t('agent_orchestrator.identity.audit.producedBy', { agent: entry.agentId })}
                     </p>
                   ) : null}
                   {entry.resourceKind ? (

@@ -774,6 +774,8 @@
   "agent_orchestrator.identity.audit.empty": "Keine Aktionen für diese Person aufgezeichnet.",
   "agent_orchestrator.identity.audit.error": "Die Audit-Kette des Auslösers konnte nicht geladen werden.",
   "agent_orchestrator.identity.audit.instigator": "Auslöser",
+  "agent_orchestrator.identity.audit.producedBy": "Ausgeführt von Agent {{agent}}",
+  "agent_orchestrator.identity.audit.producedByVersion": "Ausgeführt von Agent {{agent}} (Version {{version}})",
   "agent_orchestrator.identity.audit.title": "Audit-Kette nach Auslöser",
   "agent_orchestrator.identity.audit.viaAgent": "Über Agent",
   "agent_orchestrator.nav.agents": "Agenten",

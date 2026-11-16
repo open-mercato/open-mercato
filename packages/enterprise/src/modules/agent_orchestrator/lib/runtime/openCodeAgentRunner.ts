@@ -11,7 +11,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import { emitAgentOrchestratorEvent } from '../../events'
 import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
-import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { resolveAgentDefinitionHash, resolveRunAgentVersion } from '../trace/definitionHash'
 import { buildAgentRunManifestInput, buildRunManifestSpan, captureManifestTraceparent } from '../trace/runManifestEntry'
 import { resolveRunCapture } from '../trace/capturePolicy'
 import type { RunManifestCapture } from '../trace/runManifest'
@@ -214,6 +214,8 @@ export class OpenCodeAgentRunner {
       : null
     const messageCollector = runCapture && runCapture.level !== 'off' ? createOpenCodeMessageCollector() : null
 
+    const definitionHash = resolveAgentDefinitionHash(entry)
+    const auditAgent = { agentId, agentVersion: resolveRunAgentVersion({ definitionHash }) }
     const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
       tenantId: ctx.tenantId,
@@ -228,9 +230,9 @@ export class OpenCodeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
-      definitionHash: resolveAgentDefinitionHash(entry),
+      definitionHash,
     })
-    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId)
+    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId, auditAgent)
 
     if (ctx.onRunPersisted) {
       try {

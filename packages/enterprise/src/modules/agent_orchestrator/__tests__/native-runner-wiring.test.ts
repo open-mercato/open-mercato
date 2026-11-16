@@ -95,6 +95,7 @@ import { resetAgentAdmissionForTests } from '../lib/runtime/admission'
 import { resetProviderBudgetForTests } from '../lib/runtime/providerBudget'
 import { buildNativeTracePayload, type NativeTraceInput } from '../lib/runtime/nativeTraceCapture'
 import { RUN_MANIFEST_SPAN_NAME, computeManifestSha256 } from '../lib/trace/runManifest'
+import { resolveRunAgentVersion } from '../lib/trace/definitionHash'
 import { reportKnowledgeVersion } from '@open-mercato/shared/lib/ai/run-observation'
 import { ContextResolverImpl } from '../lib/context/contextResolver'
 import { entityProvenance, registerContextModule } from '../lib/context/registry'
@@ -244,7 +245,22 @@ describe('native run stamping', () => {
       workflowInstanceId: 'instance-1',
       correlationId: 'correlation-1',
       apiKeyId: 'key-1',
+      agentId: 'native.correlation_agent',
+      agentVersion: expect.stringMatching(/^sha256:[0-9a-f]{16}$/),
     })
+  })
+
+  it('stamps the same agent version on the audit correlation as on the run row', async () => {
+    registerNativeAgent('native.correlation_version_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.correlation_version_agent', {}, runCtx)
+
+    const createInput = createRunMock.mock.calls[0][2] as { agentId: string; definitionHash: string }
+    const stamped = (completeRunMock.mock.calls[0][1] as { auditCorrelation: Record<string, string> }).auditCorrelation
+    expect(stamped.agentId).toBe(createInput.agentId)
+    expect(stamped.agentVersion).toBe(resolveRunAgentVersion({ definitionHash: createInput.definitionHash }))
   })
 
   it('stamps only the run id when the context carries no other correlation', async () => {
@@ -255,7 +271,11 @@ describe('native run stamping', () => {
     await expect(service.run('native.correlation_bare_agent', {}, runCtx)).rejects.toThrow('model down')
 
     const runId = await createRunMock.mock.results[0].value
-    expect((failRunMock.mock.calls[0][1] as Record<string, unknown>).auditCorrelation).toEqual({ agentRunId: runId })
+    expect((failRunMock.mock.calls[0][1] as Record<string, unknown>).auditCorrelation).toEqual({
+      agentRunId: runId,
+      agentId: 'native.correlation_bare_agent',
+      agentVersion: expect.stringMatching(/^sha256:[0-9a-f]{16}$/),
+    })
   })
 
   it('dispatches a legacy in-process entry to the same native runner', async () => {

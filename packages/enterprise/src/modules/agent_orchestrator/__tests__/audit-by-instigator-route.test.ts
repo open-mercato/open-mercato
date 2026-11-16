@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { GET } from '../api/audit/by-instigator/[humanUserId]/route'
+import { AgentRun } from '../data/entities'
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
@@ -130,12 +131,16 @@ function seedRow(overrides: Partial<Row>): Row {
   }
 }
 
-async function setup(rows: Row[], decrypt: (row: Row) => Partial<Row> = () => ({})) {
+type RunRow = { id: string; agentId: string; agentVersion: string | null; organizationId: string }
+
+async function setup(rows: Row[], decrypt: (row: Row) => Partial<Row> = () => ({}), runs: RunRow[] = []) {
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
   const { findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
   ;(findWithDecryption as jest.Mock).mockImplementation(
-    async (_em: unknown, _entity: unknown, where: { id: { $in: string[] } }) =>
-      rows
+    async (_em: unknown, entity: unknown, where: { id: { $in: string[] }; organizationId?: string }) =>
+      entity === AgentRun
+        ? runs.filter((run) => where.id.$in.includes(run.id) && (!where.organizationId || run.organizationId === where.organizationId))
+        : rows
         .filter((row) => where.id.$in.includes(row.id))
         .map((row) => {
           const plain = { ...row, ...decrypt(row) }
@@ -218,6 +223,60 @@ describe('GET /api/agent_orchestrator/audit/by-instigator/:humanUserId', () => {
     const body = await res.json()
 
     expect(body.items[0]).toMatchObject({ agentRunId: runId, proposalId })
+  })
+
+  it('returns the agent and version stamped on an entry without loading its run', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: HUMAN, tenantId: TENANT_A, orgId: ORG_A })
+    const { findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+    const runId = '77777777-7777-4777-8777-777777777777'
+
+    await setup([
+      seedRow({
+        id: 'stamped-1',
+        correlation_keys: [`agentRunId:${runId}`, 'agentId:support.triage', 'agentVersion:sha256:0123456789abcdef'],
+      }),
+    ])
+
+    const body = await (await GET(makeRequest(), { params })).json()
+
+    expect(body.items[0]).toMatchObject({
+      agentRunId: runId,
+      agentId: 'support.triage',
+      agentVersion: 'sha256:0123456789abcdef',
+      via: 'direct',
+    })
+    expect((findWithDecryption as jest.Mock).mock.calls.some((call) => call[1] === AgentRun)).toBe(false)
+  })
+
+  it('reads the agent and version from the run, in the caller org, for an entry that predates the stamp', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: HUMAN, tenantId: TENANT_A, orgId: ORG_A })
+    const { findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+    const runId = '77777777-7777-4777-8777-777777777777'
+    const foreignRunId = '99999999-9999-4999-8999-999999999999'
+
+    await setup(
+      [
+        seedRow({ id: 'legacy-1', correlation_keys: [`agentRunId:${runId}`] }),
+        seedRow({ id: 'legacy-2', correlation_keys: [`agentRunId:${foreignRunId}`] }),
+        seedRow({ id: 'human-1', correlation_keys: null }),
+      ],
+      () => ({}),
+      [
+        { id: runId, agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef', organizationId: ORG_A },
+        { id: foreignRunId, agentId: 'other.agent', agentVersion: 'v9', organizationId: ORG_B },
+      ],
+    )
+
+    const body = await (await GET(makeRequest(), { params })).json()
+    const byId = new Map(body.items.map((item: { id: string }) => [item.id, item]))
+
+    expect(byId.get('legacy-1')).toMatchObject({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' })
+    expect(byId.get('legacy-2')).toMatchObject({ agentId: null, agentVersion: null })
+    expect(byId.get('human-1')).toMatchObject({ agentId: null, agentVersion: null })
+    const runCall = (findWithDecryption as jest.Mock).mock.calls.find((call) => call[1] === AgentRun)
+    expect(runCall?.[2]).toMatchObject({ tenantId: TENANT_A, organizationId: ORG_A })
   })
 
   it('is org-scoped: a row in another org for the same human is excluded (tenant isolation)', async () => {

@@ -774,6 +774,8 @@
   "agent_orchestrator.identity.audit.empty": "Brak zarejestrowanych akcji dla tej osoby.",
   "agent_orchestrator.identity.audit.error": "Nie udało się wczytać łańcucha audytu inicjatora.",
   "agent_orchestrator.identity.audit.instigator": "Inicjator",
+  "agent_orchestrator.identity.audit.producedBy": "Wykonane przez agenta {{agent}}",
+  "agent_orchestrator.identity.audit.producedByVersion": "Wykonane przez agenta {{agent}} (wersja {{version}})",
   "agent_orchestrator.identity.audit.title": "Łańcuch audytu według inicjatora",
   "agent_orchestrator.identity.audit.viaAgent": "Przez agenta",
   "agent_orchestrator.nav.agents": "Agenci",

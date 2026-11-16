@@ -774,6 +774,8 @@
   "agent_orchestrator.identity.audit.empty": "No hay acciones registradas para esta persona.",
   "agent_orchestrator.identity.audit.error": "No se pudo cargar la cadena de auditoría del instigador.",
   "agent_orchestrator.identity.audit.instigator": "Instigador",
+  "agent_orchestrator.identity.audit.producedBy": "Ejecutado por el agente {{agent}}",
+  "agent_orchestrator.identity.audit.producedByVersion": "Ejecutado por el agente {{agent}} (versión {{version}})",
   "agent_orchestrator.identity.audit.title": "Cadena de auditoría por instigador",
   "agent_orchestrator.identity.audit.viaAgent": "Vía agente",
   "agent_orchestrator.nav.agents": "Agentes",

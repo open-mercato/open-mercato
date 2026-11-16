@@ -774,6 +774,8 @@
   "agent_orchestrator.identity.audit.empty": "No actions recorded for this person.",
   "agent_orchestrator.identity.audit.error": "Failed to load the instigator audit chain.",
   "agent_orchestrator.identity.audit.instigator": "Instigator",
+  "agent_orchestrator.identity.audit.producedBy": "Run by agent {{agent}}",
+  "agent_orchestrator.identity.audit.producedByVersion": "Run by agent {{agent}} (version {{version}})",
   "agent_orchestrator.identity.audit.title": "Instigator audit chain",
   "agent_orchestrator.identity.audit.viaAgent": "Via agent",
   "agent_orchestrator.nav.agents": "Agents",

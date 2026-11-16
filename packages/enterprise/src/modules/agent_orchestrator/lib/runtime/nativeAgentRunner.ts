@@ -13,7 +13,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { withAuditCorrelation } from '@open-mercato/shared/lib/commands/auditCorrelationScope'
 import { getToolRegistry } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-registry'
 import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../sdk/defineAgent'
-import { resolveAgentDefinitionHash } from '../trace/definitionHash'
+import { resolveAgentDefinitionHash, resolveRunAgentVersion } from '../trace/definitionHash'
 import { buildAgentRunManifestInput, captureManifestTraceparent } from '../trace/runManifestEntry'
 import type { RunManifestCapture, RunManifestInput } from '../trace/runManifest'
 import { resolveRunCapture } from '../trace/capturePolicy'
@@ -146,6 +146,8 @@ export class NativeAgentRunner {
   ): Promise<AgentResult> {
     const baseCommandCtx = buildCommandContext(this.container, ctx)
 
+    const definitionHash = resolveAgentDefinitionHash(entry)
+    const auditAgent = { agentId, agentVersion: resolveRunAgentVersion({ definitionHash }) }
     const runId = await createRun(this.commandBus, baseCommandCtx, {
       source: ctx.source,
       tenantId: ctx.tenantId,
@@ -163,9 +165,9 @@ export class NativeAgentRunner {
       stepId: ctx.stepId ?? null,
       invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
-      definitionHash: resolveAgentDefinitionHash(entry),
+      definitionHash,
     })
-    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId)
+    const commandCtx = withRunAuditCorrelation(baseCommandCtx, ctx, runId, auditAgent)
 
     if (ctx.onRunPersisted) {
       try {
@@ -519,7 +521,7 @@ export class NativeAgentRunner {
         withRunContext(
           runId,
           () =>
-            withAuditCorrelation(buildRunAuditCorrelation(ctx, runId), () =>
+            withAuditCorrelation(buildRunAuditCorrelation(ctx, runId, auditAgent), () =>
               runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
                 const objectResult = await runAiAgentObject({
                   agentId,

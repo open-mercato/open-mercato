@@ -2,6 +2,8 @@ export const RUN_ACTIONS_MAX_PAGE_SIZE = 100
 
 export const RUN_CORRELATION_KEY = 'agentRunId'
 export const PROPOSAL_CORRELATION_KEY = 'proposalId'
+export const AGENT_CORRELATION_KEY = 'agentId'
+export const AGENT_VERSION_CORRELATION_KEY = 'agentVersion'
 
 export function buildRunActionCorrelationKeys(runId: string, proposalIds: readonly string[]): string[] {
   const keys = [`${RUN_CORRELATION_KEY}:${runId}`]
