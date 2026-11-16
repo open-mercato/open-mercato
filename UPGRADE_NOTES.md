@@ -1,5 +1,15 @@
 # Upgrade Notes
 
+## Invoice delete checks the expected version under the row lock
+
+`DELETE /api/sales/invoices` now locks the invoice row and compares the
+`x-om-ext-optimistic-lock-expected-updated-at` header with the `updated_at` of the
+locked row, as order delete already does. A delete whose invoice another request
+edited after the route's version check now answers 409 `optimistic_lock_conflict`
+instead of deleting the edited invoice. Deleting a missing or already deleted
+invoice answers 404 instead of 500.
+No migration or configuration change.
+
 ## Event-triggered workflow execution identity (#9137)
 
 Event payload `userId` and `actorUserId` remain data and no longer supply
