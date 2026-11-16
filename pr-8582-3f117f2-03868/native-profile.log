@@ -1,0 +1,17 @@
+◇ injected env (0) from apps/mercato/.env // tip: ⌘ suppress logs { quiet: true }
+
+🚀 Running test:integration TC-AUTH-066
+[integration] Running Playwright suite...
+[integration] Checking whether an existing ephemeral environment can be reused...
+[integration] Reusing screenshot capture setting from /home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.ai/qa/ephemeral-env.json: enabled.
+[integration] Reusing existing ephemeral environment at http://127.0.0.1:41735.
+[integration] Ensuring Playwright Chromium is installed...
+
+Running 1 test using 1 worker
+
+  ✓  1 packages/core/src/modules/portal/__integration__/TC-AUTH-066-profile-responsive-layout.spec.ts:11:1 › TC-AUTH-066: portal profile keeps long values and badges inside the viewport (1.3s)
+
+  1 passed (5.2s)
+[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.
+[integration] Screenshot capture is enabled (override with --screenshots / --no-screenshots)
+⏱️ Done in 9138ms
