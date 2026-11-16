@@ -5,7 +5,7 @@
 | **Status** | In progress — Phases 1 and 2 implemented, Phase 3 pending |
 | **Created** | 2026-10-05 |
 | **Modules** | `shift_scheduling` (new), `staff` (additive public DI resolvers), `planner` (additive DI reader) |
-| **Related** | [Staff decouple from core](./implemented/2026-05-08-staff-decouple-from-core.md), [Staff team hierarchy & managers](./2026-10-05-staff-team-hierarchy-and-managers.md) (separate branch, future per-team authorization) |
+| **Related** | [Staff decouple from core](./implemented/2026-05-08-staff-decouple-from-core.md), Staff team hierarchy & managers (separate branch, not yet in this repository; future per-team authorization) |
 
 ## 📝 TLDR
 Supervisors have no way to plan their employees' upcoming work. Nothing in the platform assigns shifts (assigned or open) to staff members, and nothing checks the result against labor-law constraints. This spec adds a new core module, `shift_scheduling`, displayed to users as **Schedule Planner**, with a multi-employee planning board:
@@ -151,13 +151,15 @@ Weeks are **schedule weeks**: they start on Monday, in the schedule timezone, an
 
 | Type | Parameters (seeded org default) | Observed value (`worseWhen`) | Violation subject (`subject_key`) |
 |---|---|---|---|
-| `max_hours_in_period` | `maxHours` (48); `period`: `day` \| `week` \| `month` \| `rolling_days` (`week`); `rollingDays` (required when `rolling_days`, at most 366); `averagingWeeks` (1 = no averaging; only valid with `week`; EU allows up to 17) | worked hours, or the average (`higher`) | period id: date / org-week start / month / rolling-window end date |
+| `max_hours_in_period` | `maxHours` (48); `period`: `day` \| `week` \| `month` \| `rolling_days` (`week`); `rollingDays` (required when `rolling_days`, at most 366); `averagingWeeks` (1 = no averaging; only valid with `week`; EU allows up to 17) | worked hours, or the average of a trailing averaging block (`higher`) | period id: date / judged org-week start (the block is derived from it, see below) / month / rolling-window end date |
 | `max_shift_duration` | `maxHours` (12, gross shift length) | shift hours (`higher`) | shift id |
 | `min_rest_between_shifts` | `minRestHours` (11) | rest hours before the shift (`lower`) | id of the later shift of the pair |
 | `min_weekly_rest` | `minContinuousRestHours` (35), per schedule week | longest continuous rest touching the week (`lower`): a rest that crosses into the next week counts for both weeks; time before the first or after the last scheduled shift counts only inside the week. Only weeks with a shift are checked. | week start |
 | `break_required_after` | `workHoursThreshold` (6), `minBreakMinutes` (30) | break minutes (`lower`) | shift id |
 | `max_consecutive_working_days` | `maxDays` (6, at most 366) | consecutive-day count reached (`higher`) | **each working day that exceeds the limit** (its date). This stays stable when a run grows in either direction. |
-| `min_hours_in_period` | `minHours` (30); `period`: `week` \| `month` (`week`). **Not seeded**: no minimum suits every organization, so admins create it where they need it (for example a guaranteed contract minimum). | worked hours in the period (`lower`) | period id: org-week start / month. Only periods with **at least one shift** are judged (an empty week is time off, not a short week), and only periods that lie **entirely inside the loaded window**, so a period cut off by the edge of the window is never mistaken for a short one. |
+| `min_hours_in_period` | `minHours` (30); `period`: `week` \| `month` (`week`). **Not seeded**: no minimum suits every organization, so admins create it where they need it (for example a guaranteed contract minimum). | worked hours in the period (`lower`) | period id: org-week start / month. Only periods with **at least one shift** are judged (an empty week is time off, not a short week), and only periods that lie **entirely inside the facts window** — the requested range widened by the per-employee context window described under Compliance engine, not the requested range alone — so a period cut off by the edge of the facts is never mistaken for a short one. |
+
+**`averagingWeeks` alignment.** An average is taken over a **trailing averaging block**: `averagingWeeks` consecutive schedule weeks (Monday-start, schedule timezone) whose **last week is the judged week, which is included in the block**. The block slides with the judged week and is not anchored to a fixed calendar reference, so every checked week is judged against its own trailing block and a week can only belong to one block. The context window below is widened to the whole block so the earlier weeks are always in the facts. The violation's `subject_key` stays the judged week's start date — unique per block under the sliding definition — and `period_start` / `period_end` carry the block's full range, so the dialog can show which weeks the average covers.
 
 A shift "involves" a violation when it is in the violation's subject:
 - the shift itself
@@ -190,7 +192,7 @@ A shift "involves" a violation when it is in the violation's subject:
 ### Compliance engine
 There is a single call site, `reconcileShiftCompliance(em, { staffMemberIds, range, scope, factScope })`:
 1. Resolve each employee's effective rule per type.
-2. Load their shifts for `range` widened by a **context window per employee**: at least 14 days, and as many days as the longest period among the rules that apply to that employee (a rolling window of `rollingDays`, an `averagingWeeks` average plus one week, a calendar month = 31 days, `maxDays` + 1 for consecutive working days, or a week or month for `min_hours_in_period`), capped at 400 days. A rule that looks back further than the window could not see the earlier work and would let a violating schedule through. Employees are grouped by window length so each group is one indexed query (`tenant, organization, staff member, starts_at`).
+2. Load their shifts for `range` widened by a **context window per employee**: at least 14 days, and as many days as the longest period among the rules that apply to that employee (a rolling window of `rollingDays`, an `averagingWeeks`-week averaging block with the judged week included (so `averagingWeeks` weeks, not one more), a calendar month = 31 days, `maxDays` + 1 for consecutive working days, or a week or month for `min_hours_in_period`), capped at 400 days. A rule that looks back further than the window could not see the earlier work and would let a violating schedule through. Employees are grouped by window length so each group is one indexed query (`tenant, organization, staff member, starts_at`).
 3. Run the evaluators.
 4. Reconcile the results into `shift_scheduling_compliance_violations`.
 
@@ -199,7 +201,7 @@ Unassigned shifts are never evaluated.
 `factScope` determines which shifts count:
 - **Check compliance (`all`):** all non-deleted shifts (draft and published).
 - **Publish (`publish`):** already-published shifts plus the shifts being published. Other drafts are excluded.
-- **Post-publish mutation (`post_publish`):** published shifts plus the shift being mutated, in its new state. For a removal (delete, unassign, or the old assignee of a reassign), published shifts without the removed shift, compared with the same scope including it.
+- **Post-publish mutation (`post_publish`):** published shifts plus the shift being mutated, in its new state. For a removal (delete, unassign, or the old assignee of a reassign) and for an **update that takes work out of a period** (a date or time change, or a reassignment away from the old assignee), published shifts without the removed contribution, compared with the same scope including it.
 
 **Only the `all` scope (Check compliance) may resolve rows.** Publish and post-publish evaluations see a *subset* of shifts. If they resolved rows, they would wrongly resolve violations that the full check found and the supervisor approved. So they only **upsert** what they detect and never resolve anything.
 
@@ -220,10 +222,10 @@ Reconciliation rules, keyed by `(staff_member_id, rule_id, subject_key)`:
 | Drafting | create/update/delete on shifts not meeting the post-publish trigger | No compliance check. Hard invariants only. |
 | On demand | "Check compliance" button (any time) | Reconcile the board's scope (`factScope: all`) and return `open` + `approved` rows, grouped New / Already approved. Approving writes approver, time, rule version and observed value. |
 | Publish | "Publish" button | Evaluate with `factScope: publish`. A detected violation that **involves a shift being published** and isn't covered blocks the publish (upserted as `open`) → `409 { code: 'shift_scheduling_compliance_approval_required', violations, fingerprint }`. Violations involving only already-published shifts don't block it. "Approve all & publish" re-submits the publish with `acknowledgeViolations: { fingerprint }`, the same re-submit as a post-publish edit; violations can also be approved one by one in the Check compliance dialog before publishing again. |
-| Post-publish | update / reassign / **delete / unassign** of a **published** shift (a new shift is always a draft, so create never qualifies) | Evaluate with `factScope: post_publish` before commit. **Edit and reassign (new assignee):** only uncovered violations that **involve the mutated shift** count, so pre-existing violations elsewhere (including shifts published before Phase 2 existed) never block an unrelated edit. **Delete, unassign and reassign (old assignee):** only an uncovered violation the removal **creates or makes worse** counts (see the note below). If any count on the first attempt → `409` (same code, with `violations` and `fingerprint`), and nothing commits. |
+| Post-publish | update / reassign / **delete / unassign** of a **published** shift (a new shift is always a draft, so create never qualifies) | Evaluate with `factScope: post_publish` before commit. **Edit and reassign (new assignee):** only uncovered violations that **involve the mutated shift** count, so pre-existing violations elsewhere (including shifts published before Phase 2 existed) never block an unrelated edit. **Delete, unassign and reassign (old assignee), and an edit that takes work out of a period:** only an uncovered violation the removal **creates or makes worse** counts (see the note below), so moving a published shift into another week cannot slip a now-short source week through. If any count on the first attempt → `409` (same code, with `violations` and `fingerprint`), and nothing commits. |
 
 **Approval re-submit.**
-- The `409` carries a `fingerprint`: a hash of the sorted `(rule_id, subject_key, observed_value)` of exactly the listed violations.
+- **The `409` carries a `fingerprint`:** a hash of the sorted `(staff_member_id, rule_id, subject_key, observed_value)` of exactly the listed violations. Including the member keeps the tuple unique under an organization or team rule shared by several employees, so a mid-flight change cannot make a re-submitted fingerprint match a row the supervisor never saw.
 - The client re-submits the same mutation with `acknowledgeViolations: { fingerprint }`.
 - The server **re-evaluates** and compares fingerprints.
   - **Match:** it commits and writes **only those listed** violations as `approved` (no other `open` row is touched).
@@ -231,7 +233,7 @@ Reconciliation rules, keyed by `(staff_member_id, rule_id, subject_key)`:
 
 **Notes:**
 - **Drafting stays free.** A brand-new draft next to a published week is not gated on edit. It is checked against the published shifts when it is itself published, because the publish fact scope includes published shifts.
-- **Deletes and unassigns of a published shift are checked on what the removal causes.** Removing work can break a rule (for instance a minimum number of hours per week), so the schedule is evaluated as it would be without the shift, for the employee who loses it, and compared with the schedule as it is now. Only a violation that did not exist before, or one that got **worse** (in the direction that is worse for its rule) and is not still covered by an approval, blocks; one that stays the same or shrinks never does, so an employee who is over a limit can still delete a shift to fix it. A blocked removal returns the same `409` and `fingerprint` as a post-publish edit and is approved or cancelled the same way. A reassignment checks both people: the new assignee with the shift added, the old assignee with it removed. Drafts are never checked. Of the v1 rule types only `min_hours_in_period` can be broken by removing work, so for the other six the check finds nothing; it does not rely on that. Remaining rows resolve on the next Check compliance.
+- **Deletes, unassigns and the removal side of an edit are checked on what the removal causes.** Removing work can break a rule (for instance a minimum number of hours per week), so the schedule is evaluated as it would be without the removed contribution — the shift itself for a delete or unassign, the work the shift no longer contributes for an edit or a reassignment away from the old assignee — for the employee who loses it, and compared with the schedule as it is now. Only a violation that did not exist before, or one that got **worse** (in the direction that is worse for its rule) and is not still covered by an approval, blocks; one that stays the same or shrinks never does, so an employee who is over a limit can still delete a shift to fix it. A blocked removal returns the same `409` and `fingerprint` as a post-publish edit and is approved or cancelled the same way. A reassignment checks both people: the new assignee with the shift added, the old assignee with it removed. Drafts are never checked. Of the v1 rule types only `min_hours_in_period` can be broken by removing work, so for the other six the check finds nothing; it does not rely on that. Remaining rows resolve on the next Check compliance.
 - **Check order on every mutation:** optimistic lock (`code: 'optimistic_lock_conflict'`) → hard invariants (`422` with field errors) → compliance (`409` with its own code). The compliance code never collides with the lock conflict, which the UI matches on `code`.
 - **A minimum is judged on the whole period.** `min_hours_in_period` totals a whole week or month, so it is most meaningful on a fully planned period: Check compliance counts drafts and published shifts, while publishing a single day of a week counts only the published shifts of that week and can report the week as short. The supervisor approves it ("Approve all & publish") or publishes the whole week. Removing a shift from a published week is where it matters most: the removal check blocks a delete or unassign that drops the week below its minimum.
 - **Fail closed:** an evaluator error blocks the publish or mutation and is reported via `reportError`. It never counts as "no violations".
@@ -246,7 +248,7 @@ Features are tenant-wide (see Risks):
 | `shift_scheduling.publish` | publish | admin |
 | `shift_scheduling.rules.manage` | compliance rules | admin |
 | `shift_scheduling.costs.view` | schedule cost (employees' hourly rates) on the board | admin |
-| `shift_scheduling.my_schedule.view` | own **published** shifts only | employee |
+| `shift_scheduling.my_schedule.view` | own **published** shifts only, plus the `settings` and time-code labels from `lookups` | employee |
 
 Compliance approval authority is `.manage`.
 
@@ -355,6 +357,13 @@ Every route exports `openApi` and per-method `metadata`. Custom write routes run
   - per-member open-violation flags (`openViolationMemberIds`: open violations whose period overlaps the loaded range)
   - `rates` and `costConversion` for the schedule cost, only when the caller has `.costs.view` (otherwise `null`)
 - No staff ACLs are needed, because the resolvers are called server-side.
+
+**Lookups** — `GET /api/shift_scheduling/lookups`
+- Requires `.view` **or** `.my_schedule.view`; the route is what the board and the My schedule page load first.
+- Payload: `settings: { timezone, weekStartsOn }`, `timeCodes` (the entries of the `shift_scheduling.time_codes` dictionary), `teams` and `members`.
+- A caller holding `.view` gets the full payload: the teams of the caller's organization and their members, tenant- and organization-scoped through `staffRosterResolver`, the same roster the board renders.
+- A caller holding only `.my_schedule.view` gets `settings` and `timeCodes` with empty `teams` and `members`. That is all the My schedule page needs for its labels, and it never exposes other employees to an employee-level role.
+- No other module's ACLs are required, because the roster is resolved server-side.
 
 **Rotation** — `POST /api/shift_scheduling/shifts/rotation`
 - Creates repeating shifts in one request. Body: the shift fields (`teamId`, `staffMemberId?`, `timeCodeEntryId`, `teamRoleId?`, `note?`, `breakDurationMinutes?`), local `startTime`/`endTime` and optional `breakStartTime`/`breakEndTime` (HH:mm, schedule timezone; an end at or before the start ends the next day), plus the pattern `startDate`, `endDate` (inclusive, under 366 days), `weekdays` (0 = Sunday … 6), `intervalWeeks` (1–8, counted from the week containing `startDate` using the org week start) and `copies` (1–20; above 1 only for unassigned shifts).
@@ -489,6 +498,7 @@ Built following the `om-backend-ui-design` skill and DS rules: semantic tokens o
 - **Shift changed by someone else after the board was loaded:** bulk assign and bulk delete skip it (`shift_changed`) instead of overwriting or deleting it; single edits get the platform's optimistic-lock conflict.
 - **Violation changed while the supervisor was deciding:** approve refuses the whole request (`shift_scheduling_violation_changed`) and returns the current values.
 - **Deleting a shift to fix an over-limit week:** allowed, because the removal makes the violation smaller; only a removal that creates or worsens a violation asks for approval.
+- **Moving a published shift out of a week that then falls short:** blocked even though the shift's new state looks compliant, because the edit takes the same work out of the source week a delete would; the source week is judged without the shift and the fingerprint re-submit approves it.
 - **Approval re-submit after the data changed:** the server re-evaluates. Different violations produce a fresh `409`.
 - **Evaluator error:** fail closed and `reportError`. Publish and the post-publish mutation are blocked.
 - **Staff module absent:** every route returns `403 staff_module_not_loaded`. **Planner absent:** the module doesn't load (`requires: ['planner']`).
@@ -622,7 +632,7 @@ Each PR leaves the app working.
 13. **Engine:** `lib/compliance/resolveEffectiveRules.ts` (employee > team > org; disabled = off; deleted = fall back), then `ShiftSchedulingComplianceViolation` and `lib/compliance/reconcile.ts` (upsert, resolve, re-open on version change or worsening).
 14. **Endpoints:** the check and approve endpoints, then the Check-compliance dialog and attention icon on the board.
 15. **Publish gate:** upgrade publish to run reconciliation, and add the "Approve all & publish" UI.
-16. **Post-publish gate:** wire it into update/reassign of published shifts (and, since 2026-10-12, delete/unassign by before-and-after comparison):
+16. **Post-publish gate:** wire it into update/reassign of published shifts (and, since 2026-10-12, delete/unassign by before-and-after comparison, extended on 2026-11-16 to an update that takes work out of a period):
     - only violations involving the mutated shift count
     - the fingerprint is returned with the `409`
     - `acknowledgeViolations: { fingerprint }` triggers a re-evaluation, and on a match only the fingerprinted rows become `approved`
@@ -632,7 +642,7 @@ Each PR leaves the app working.
 18. **Integration tests for Phase 2.**
 
 ## 🧪 Integration Coverage
-Every test creates its own fixtures through the API and cleans up after itself. This list is the target coverage. The shipped suite is TC-SHIFT-001…009 plus unit tests; the cases below that TC-SHIFT tests don't cover yet are **planned**, notably the **second-tenant isolation** case per API path, staff module absent, an evaluator error failing closed, and the upgrade actions.
+Every test creates its own fixtures through the API and cleans up after itself. This list is the target coverage. The shipped suite is TC-SHIFT-001…010 plus unit tests; TC-SHIFT-011 (edit-removal) and TC-SHIFT-012 (17-week averaging) are added by the 2026-11-16 review fix, and the remaining cases below are **acceptance criteria for the Phase 1/2 PRs** that must ship before this spec moves to `implemented/`, notably the **second-tenant isolation** case per API path, staff module absent, an evaluator error failing closed, and the upgrade actions.
 
 **API**
 - **Shifts:**
@@ -656,6 +666,7 @@ Every test creates its own fixtures through the API and cleans up after itself. 
   - rotation: Mon/Wed/Fri over two weeks, overlap days skipped and reported, three open shifts on one day, copies rejected for an assigned shift, the 200 cap (TC-SHIFT-005)
   - bulk actions: bulk-delete and bulk-assign process independent shifts, skip-and-report a conflicting one and continue, 404 on an already-deleted shift, and skip a shift changed after the board was loaded (`shift_changed`) without overwriting or deleting it (TC-SHIFT-006)
   - reassigning a published shift to an employee who would break the rest rule needs approval (TC-SHIFT-008)
+  - an edit that moves a published shift out of its week returns the compliance `409` for the now-short source week and commits with the fingerprint (TC-SHIFT-011); the same before-and-after comparison is unit-tested for the update path
   - deleting or unassigning published shifts goes through when it creates no new or worse violation, even next to an approved one (TC-SHIFT-009)
   - a team rule `min_hours_in_period` (30h a week): a week of four 7.5h published shifts publishes, deleting one of them returns the compliance `409` (22.5h under 30h), and the delete succeeds with the fingerprint and leaves an approved violation on the next Check compliance; a rolling period is rejected (TC-SHIFT-010); the before-and-after decision is also unit-tested (`removalGate.test.ts`, `ruleTypes.test.ts`)
   - approving a violation whose observed value changed is refused with `shift_scheduling_violation_changed` (TC-SHIFT-007)
@@ -668,6 +679,7 @@ Every test creates its own fixtures through the API and cleans up after itself. 
   - a duplicate team rule rejected
   - an employee in two employee-list rules of the same type → `rule_member_conflict`
   - defaults seeded idempotently, with tenant edits preserved on re-seed
+  - a `max_hours_in_period` rule with `averagingWeeks: 17` averages the trailing block that includes the judged week, and a week that moves across the block boundary changes which weeks the average covers (TC-SHIFT-012)
 - **Resolution:**
   - a team rule overriding and relaxing the default
   - an employee-list rule overriding the team rule, including for an employee from another team
@@ -722,7 +734,7 @@ Every test creates its own fixtures through the API and cleans up after itself. 
 | ACL features in `setup.ts` `defaultRoleFeatures` | ✅ |
 | Events via `createModuleEvents` | ✅ |
 | i18n, DS tokens, dialog shortcuts, `ConfirmDialog` | ✅ |
-| Integration coverage, including tenant isolation | ⚠️ lifecycle, bulk, stale-data and removal cases covered (TC-SHIFT-001…009); second-tenant isolation, staff-absent, evaluator-error and upgrade-action cases still planned |
+| Integration coverage, including tenant isolation | ⚠️ lifecycle, bulk, stale-data and removal cases covered through TC-SHIFT-010; TC-SHIFT-011 (edit-removal) and TC-SHIFT-012 (17-week averaging) ship with the review fix in the Phase 2 PR; second-tenant isolation, staff-absent, evaluator-error and upgrade-action cases are **acceptance criteria for the Phase 1/2 PRs** — they must ship before this spec moves to `implemented/` |
 | Backward compatibility | ✅ additive only |
 
 ## 📜 Changelog
@@ -769,6 +781,7 @@ Every test creates its own fixtures through the API and cleans up after itself. 
 - **2026-10-12 (removals)** — Deletes and unassigns of published shifts are no longer exempt from compliance. They are checked by comparing the employee's violations before and after the removal, so only a violation the removal creates or worsens blocks (approve/cancel dialog on the board for single delete, unassign and reassign; skipped with a hint in the bulk actions). This removes the assumption that every rule is monotonic in worked time.
 - **2026-10-13** — Spec consistency pass after the review fixes: delete and the post-publish table now describe the removal check (edits block on violations involving the shift, removals on violations they create or worsen), publish documents its `acknowledgeViolations` re-submit, the staff-absent note covers the compliance checks, the UI and edge cases describe the approve dialog for single delete/unassign/drag and the stale-data skips, the test list marks the still-missing cases (second-tenant isolation, staff absent, evaluator error, upgrade actions) as planned, the upgrade-action version is marked as assumed, and the changelog is back in date order.
 - **2026-10-13 (minimum hours)** — Added the rule type `min_hours_in_period` (`minHours`, `period` week or month, worse when lower, not seeded as an org default). Judges only periods with a shift and entirely inside the loaded window (facts now carry that window). It is the first rule that removing work can break, so the removal check applies to it for real; TC-SHIFT-010 found and fixed a bug where an approved removal was not persisted.
+- **2026-11-16 (review)** — Re-review fixes. (1) The post-publish gate now runs the before-and-after removal comparison for an **edit that takes work out of a period**, so moving a published shift into another week can no longer slip a now-short source week through; TC-SHIFT-011 covers it and the update path shares the removal-gate unit tests. (2) `averagingWeeks` alignment is defined: a trailing averaging block whose last week is the judged week, included, sliding with it, with the block range in `period_start`/`period_end`; TC-SHIFT-012 exercises a 17-week block. (3) `GET /api/shift_scheduling/lookups` has a contract: `.view` returns teams and members, `.my_schedule.view` alone returns only `settings` and time codes. (4) The `409` fingerprint includes `staff_member_id`. (5) "Loaded window" is now the explicit facts window for `min_hours_in_period`. (6) The Final Compliance Report and Integration Coverage mark the remaining cases as Phase 1/2 acceptance criteria instead of planned work, and the dropped team-hierarchy link is plain text.
 
 ## Implementation Status
 
