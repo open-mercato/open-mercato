@@ -20,7 +20,7 @@ import type { SearchFieldPolicy } from '@open-mercato/shared/modules/search'
 import { computeChecksum } from './checksum'
 import { EmbeddingService } from './embedding'
 import { logVectorOperation } from '../lib/vector-logs'
-import { searchDebug, searchDebugWarn } from '../../lib/debug'
+import { searchDebug, searchDebugWarn, searchError, reportSearchError } from '../../lib/debug'
 import { extractSearchableFields } from '../../lib/field-policy'
 
 type ContainerResolver = () => unknown
@@ -742,6 +742,17 @@ export class VectorIndexService {
       tenantId: ctx.tenantId,
       queryEngine: this.opts.queryEngine,
       container: this.opts.containerResolver ? this.opts.containerResolver() : undefined,
+    }
+    if (config.isRecordExcluded) {
+      try {
+        if ((await config.isRecordExcluded(baseCtx)) === true) return null
+      } catch (error) {
+        searchError('vector.index', 'isRecordExcluded failed; embedding the record', {
+          entityId,
+          error: error instanceof Error ? error.message : error,
+        })
+        reportSearchError('vector.index', error, 'search.record_exclusion_check_failed', { entityId })
+      }
     }
     if (config.buildSource) {
       const built = await config.buildSource(baseCtx)

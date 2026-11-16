@@ -66,6 +66,11 @@ export type VectorEntityConfig = {
    */
   buildSource?: (ctx: VectorBuildContext) => Promise<VectorIndexSource | null> | VectorIndexSource | null
   /**
+   * Return true when a loadable record must not be embedded (e.g. its parent is soft-deleted); the
+   * service then treats it like a record without a source and removes any stored vector.
+   */
+  isRecordExcluded?: (ctx: VectorBuildContext) => Promise<boolean> | boolean
+  /**
    * Resolve the primary admin URL for this record. When omitted the service expects a link inside `links`.
    */
   resolveUrl?: (ctx: VectorBuildContext) => Promise<string | null> | string | null

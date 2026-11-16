@@ -182,6 +182,8 @@ type RebuildExecutionOptions = {
   supportsDeletedFilter: boolean
 }
 
+type ProfileScopeRow = { id: string; organization_id: string | null; tenant_id: string | null }
+
 type RebuildResult = {
   processed: number
   matched: number
@@ -269,11 +271,12 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
       .where('id' as any, '=', recordId)
       .executeTakeFirst() as AnyRow | undefined
     if (!row && filtersOutDeletedParents) {
-      const orphanedProfile = await applyScopeFilters(
-        db.selectFrom(tableName as any).select(['organization_id' as any, 'tenant_id' as any]) as any,
+      const scopeDb = db as Kysely<Record<string, ProfileScopeRow>>
+      const orphanedProfile: ProfileScopeRow | undefined = await applyScopeFilters(
+        scopeDb.selectFrom(tableName).select(['id', 'organization_id', 'tenant_id']),
       )
-        .where('id' as any, '=', recordId)
-        .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
+        .where('id', '=', recordId)
+        .executeTakeFirst()
       if (orphanedProfile) {
         await upsertIndexRow(em, {
           entityType,

@@ -88,6 +88,19 @@ describe.each([false, true])('query_index upsert_one with a removed projection (
     expect(mockCreateCoverageAdjustments).toHaveBeenCalledWith(expect.objectContaining({ indexDelta: 0 }))
   })
 
+  it('emits a search delete for a non-profile entity whose source row is gone', async () => {
+    mockUpsertIndexRow.mockResolvedValue(removedProjection)
+    const { ctx, emitEvent } = makeContext()
+
+    await handleUpsertOne({ entityType: 'example:todo', recordId: 'todo-1', organizationId: 'org-1', tenantId: 'tenant-1' }, ctx)
+    await flushFireAndForget()
+
+    const events = emittedEvents(emitEvent)
+    expect(events).toContain('search.delete_record')
+    expect(events).not.toContain('search.index_record')
+    expect(emitEvent).toHaveBeenCalledWith('search.delete_record', expect.objectContaining({ entityId: 'example:todo', recordId: 'todo-1' }), ...(alwaysConsistent ? [expect.anything()] : []))
+  })
+
   it('does not decrement coverage when the projection was already soft-deleted', async () => {
     mockUpsertIndexRow.mockResolvedValue({ ...removedProjection, wasDeleted: true })
     const { ctx } = makeContext()

@@ -179,6 +179,7 @@ export default searchConfig
 | Callback | Purpose |
 |----------|---------|
 | `buildSource` | Returns text to index and optional presenter metadata |
+| `isRecordExcluded` | Optional. Return `true` for a record that loads but must not be searchable (for example a profile whose parent is soft-deleted); the indexer and the vector service remove it instead of indexing it |
 | `formatResult` | Shapes the result payload for UI consumers |
 | `resolveUrl` | Primary URL when a result is clicked |
 | `resolveLinks` | Additional action links (edit, view) |

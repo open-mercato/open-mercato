@@ -242,6 +242,7 @@ export class SearchIndexer {
         recordId,
         error: error instanceof Error ? error.message : error,
       })
+      reportSearchError('SearchIndexer', error, 'search.record_exclusion_check_failed', { entityId })
       return false
     }
   }
@@ -262,6 +263,7 @@ export class SearchIndexer {
           tenantId,
           error: error instanceof Error ? error.message : error,
         })
+        reportSearchError('SearchIndexer', error, 'search.excluded_record_delete_failed', { entityId })
       }
     }
   }
