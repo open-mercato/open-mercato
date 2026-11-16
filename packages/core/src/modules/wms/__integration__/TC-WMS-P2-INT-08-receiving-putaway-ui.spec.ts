@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { expect, test, type APIRequestContext } from '@playwright/test'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import {
   createProductFixture,
   createVariantFixture,
   deleteCatalogProductIfExists,
 } from '@open-mercato/core/helpers/integration/catalogFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   deleteGeneralEntityIfExists,
   getTokenScope,
+  readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCrudFixture,
@@ -27,6 +29,54 @@ import {
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'catalog'],
+}
+
+/** Pulled out of the completed task's own API response URL (`/putaway-tasks/<id>/complete`). */
+function extractPutawayTaskId(url: string): string | null {
+  return url.match(/\/putaway-tasks\/([^/]+)\/complete/)?.[1] ?? null
+}
+
+/**
+ * Receiving a line and completing its putaway task makes the ASN permanently
+ * undeletable through `DELETE /api/wms/asns` — `hasAsnDeleteBlockingLineActivity`
+ * refuses once any line has `receivedQty > 0` or `qcStatus !== 'pending'`, and that
+ * guard is intentional (receipt activity must stay auditable in production). This
+ * test-scoped teardown hard-deletes the fixture's receipt trail directly instead of
+ * trying to work around the guard, then verifies the ASN is actually gone so a future
+ * regression here fails loudly instead of leaking fixtures silently.
+ */
+async function purgeReceivedAsnFixture(
+  request: APIRequestContext,
+  token: string,
+  params: { asnId: string; putawayTaskId: string | null },
+): Promise<void> {
+  const { asnId, putawayTaskId } = params
+  const deleteResponse = await apiRequest(request, 'DELETE', `/api/wms/asns?id=${encodeURIComponent(asnId)}`, {
+    token,
+  })
+  if (!deleteResponse.ok()) {
+    expect(
+      deleteResponse.status(),
+      `Unexpected DELETE /api/wms/asns status for ${asnId}`,
+    ).toBe(409)
+    await withClient(async (client) => {
+      if (putawayTaskId) {
+        await client.query('delete from wms_putaway_tasks where id = $1', [putawayTaskId])
+      }
+      await client.query('delete from wms_receiving_lines where asn_id = $1', [asnId])
+      await client.query('delete from wms_asns where id = $1', [asnId])
+    })
+  }
+
+  const verifyResponse = await apiRequest(
+    request,
+    'GET',
+    `/api/wms/asns?ids=${encodeURIComponent(asnId)}&page=1&pageSize=1`,
+    { token },
+  )
+  expect(verifyResponse.ok(), 'Failed GET /api/wms/asns during cleanup verification').toBeTruthy()
+  const verifyBody = await readJsonSafe<{ items?: Array<{ id?: string }> }>(verifyResponse)
+  expect(verifyBody?.items?.length ?? 0, `ASN ${asnId} still present after cleanup`).toBe(0)
 }
 
 /**
@@ -66,6 +116,7 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
     let profileId: string | null = null
     let asnId: string | null = null
     let lineId: string | null = null
+    let putawayTaskId: string | null = null
     const warehouseName = `P2-UI WH ${suffix}`
     const stagingCode = `STG-${suffix}`
     const binCode = `BIN-${suffix}`
@@ -207,10 +258,11 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       })
       expect(completeResponse.url()).toContain('/complete')
       expect(completeResponse.ok()).toBeTruthy()
+      putawayTaskId = extractPutawayTaskId(completeResponse.url())
       await expect(putawayDialog).toBeHidden({ timeout: 10_000 })
     } finally {
       if (asnId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/asns', asnId)
+        await purgeReceivedAsnFixture(request, adminToken, { asnId, putawayTaskId })
       }
       if (profileId) {
         await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)
@@ -263,6 +315,7 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
     let binId: string | null = null
     let profileId: string | null = null
     let asnId: string | null = null
+    let putawayTaskId: string | null = null
     const warehouseName = `P2-I18N WH ${suffix}`
     const stagingCode = `I18N-STG-${suffix}`
     const binCode = `I18N-BIN-${suffix}`
@@ -481,10 +534,11 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       })
       expect(completeResponse.url()).toContain('/complete')
       expect(completeResponse.ok()).toBeTruthy()
+      putawayTaskId = extractPutawayTaskId(completeResponse.url())
       await expect(putawayDialog).toBeHidden({ timeout: 10_000 })
     } finally {
       if (asnId) {
-        await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/asns', asnId)
+        await purgeReceivedAsnFixture(request, adminToken, { asnId, putawayTaskId })
       }
       if (profileId) {
         await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)
