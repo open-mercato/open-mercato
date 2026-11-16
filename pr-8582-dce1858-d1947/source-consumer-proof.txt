@@ -1,0 +1,72 @@
+HEAD: dce185804f05cb482e73353d8d751add8c43c80d
+Base: 1766b080b2
+Generic PortalCard prefix byte-identical to final merged base.
+diff --git a/packages/ui/src/portal/components/PortalCard.tsx b/packages/ui/src/portal/components/PortalCard.tsx
+index 3a7379f2fb..5019949b95 100644
+--- a/packages/ui/src/portal/components/PortalCard.tsx
++++ b/packages/ui/src/portal/components/PortalCard.tsx
+@@ -60,11 +60,11 @@ type PortalStatRowProps = {
+  */
+ export function PortalStatRow({ label, value }: PortalStatRowProps) {
+   return (
+-    <div className="flex items-center justify-between gap-4 py-2.5">
++    <div className="flex min-w-0 flex-col items-start gap-1.5 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+       <span className="text-overline font-medium uppercase tracking-wider text-muted-foreground/70">
+         {label}
+       </span>
+-      <span className="text-sm font-medium text-foreground">{value}</span>
++      <span className="min-w-0 max-w-full break-words text-sm font-medium text-foreground sm:text-right">{value}</span>
+     </div>
+   )
+ }
+packages/ui/src/portal/components/PortalCard.tsx:52:type PortalStatRowProps = {
+packages/ui/src/portal/components/PortalCard.tsx:61:export function PortalStatRow({ label, value }: PortalStatRowProps) {
+packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx:10:import { PortalCard, PortalCardHeader, PortalStatRow, PortalCardDivider } from '@open-mercato/ui/portal/components/PortalCard'
+packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx:59:            <PortalStatRow
+packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx:71:            <PortalStatRow label={t('portal.dashboard.lastLogin', 'Last login')} value={formatDate(user.lastLoginAt)} />
+packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx:73:            <PortalStatRow label={t('portal.dashboard.memberSince', 'Member since')} value={formatDate(user.createdAt)} />
+packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx:77:                <PortalStatRow label={t('portal.dashboard.roles', 'Role')} value={<Badge className="text-overline">{t('portal.dashboard.portalAdmin', 'Portal Admin')}</Badge>} />
+diff --git a/packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx b/packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx
+index 1809e90508..d75b5afc3b 100644
+--- a/packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx
++++ b/packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx
+@@ -53,14 +53,14 @@ export default function PortalProfilePage({ params }: Props) {
+       <InjectionSpot spotId={extensionPoints.hosts.profileBefore.spotId} context={injectionContext} />
+ 
+       <div className="grid gap-5 md:grid-cols-2">
+-        <PortalCard>
++        <PortalCard className="min-w-0">
+           <PortalCardHeader label={t('portal.dashboard.profile', 'Profile')} title={user.displayName} />
+           <div className="flex flex-col">
+             <PortalStatRow
+               label={t('portal.dashboard.email', 'Email')}
+               value={
+-                <span className="flex items-center gap-2">
+-                  <span className="truncate">{user.email}</span>
++                <span className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
++                  <span className="min-w-0 break-all">{user.email}</span>
+                   <Badge variant={user.emailVerified ? 'default' : 'outline'} className="shrink-0 text-overline">
+                     {user.emailVerified ? t('portal.dashboard.emailVerified', 'Verified') : t('portal.dashboard.emailNotVerified', 'Unverified')}
+                   </Badge>
+@@ -80,8 +80,8 @@ export default function PortalProfilePage({ params }: Props) {
+           </div>
+         </PortalCard>
+ 
+-        <PortalCard>
+-          <PortalCardHeader label={t('portal.dashboard.roles', 'Roles')} title={`${roles.length} assigned`} />
++        <PortalCard className="min-w-0">
++          <PortalCardHeader label={t('portal.dashboard.roles', 'Roles')} title={t('portal.profile.rolesAssigned', '{count} assigned', { count: roles.length })} />
+           {roles.length > 0 ? (
+             <div className="flex flex-wrap gap-2">
+               {roles.map((role) => (
+@@ -93,8 +93,8 @@ export default function PortalProfilePage({ params }: Props) {
+           )}
+         </PortalCard>
+ 
+-        <PortalCard className="md:col-span-2">
+-          <PortalCardHeader label={t('portal.dashboard.permissions', 'Permissions')} title={`${resolvedFeatures.length} features`} />
++        <PortalCard className="min-w-0 md:col-span-2">
++          <PortalCardHeader label={t('portal.dashboard.permissions', 'Permissions')} title={t('portal.profile.featuresCount', '{count} features', { count: resolvedFeatures.length })} />
+           {resolvedFeatures.length > 0 ? (
+             <div className="flex flex-wrap gap-2">
+               {resolvedFeatures.map((feature) => (
