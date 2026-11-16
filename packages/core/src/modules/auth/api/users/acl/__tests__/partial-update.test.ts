@@ -71,11 +71,12 @@ jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({
   enforceCommandOptimisticLockWithGuards: jest.fn(async () => {}),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: jest.fn(async () => ({
-    translate: (_key: string, fallback: string) => fallback,
-  })),
-}))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => {
+  const { createFallbackTranslator } = jest.requireActual('@open-mercato/shared/lib/i18n/translate')
+  return {
+    resolveTranslations: jest.fn(async () => ({ translate: createFallbackTranslator({}) })),
+  }
+})
 
 function putRequest(body: Record<string, unknown>): Request {
   return new Request('http://localhost/api/auth/users/acl', {
@@ -135,7 +136,7 @@ describe('user ACL partial updates', () => {
     }))
 
     expect(res.status).toBe(200)
-    await expect(res.json()).resolves.toEqual({ ok: true, sanitized: false })
+    await expect(res.json()).resolves.toEqual({ ok: true, sanitized: false, updatedAt: null })
     expect(commandInput()).toMatchObject({
       isSuperAdmin: false,
       features: ['dashboards.view'],

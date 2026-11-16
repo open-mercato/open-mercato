@@ -14,6 +14,7 @@ import {
 } from '../openapi'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/sales_payment'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -155,6 +156,16 @@ const crud = makeCrudRoute({
     afterList: async (payload, ctx) => {
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
+      const tenantId = ctx.auth?.tenantId
+      if (!tenantId) return
+      const referenceScope = {
+        tenantId,
+        ...(ctx.organizationIds
+          ? { organizationId: { $in: ctx.organizationIds } }
+          : ctx.organizationScope?.allowedIds === null
+            ? {}
+            : { organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null }),
+      }
       const em = ctx.container.resolve('em') as EntityManager
       const methodIds: string[] = Array.from(
         new Set(
@@ -179,8 +190,8 @@ const crud = makeCrudRoute({
         )
       )
       const [methods, statusEntries] = await Promise.all([
-        methodIds.length ? em.find(SalesPaymentMethod, { id: { $in: methodIds } }) : [],
-        statusIds.length ? em.find(DictionaryEntry, { id: { $in: statusIds } }) : [],
+        methodIds.length ? findWithDecryption(em, SalesPaymentMethod, { id: { $in: methodIds }, ...referenceScope }, {}, { tenantId }) : [],
+        statusIds.length ? findWithDecryption(em, DictionaryEntry, { id: { $in: statusIds }, ...referenceScope }, {}, { tenantId }) : [],
       ])
       const methodMap = new Map(methods.map((method) => [method.id, method]))
       const statusMap = new Map(

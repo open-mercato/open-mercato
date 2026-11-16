@@ -84,7 +84,15 @@ const clearableUuidSchema = z.preprocess(emptyStringToNull, uuid().nullable().op
 // this schema — rule thresholds, benefit discount values, cart/line amounts — is a
 // non-negative magnitude; a resolved effect's own sign (a discount subtracts) is applied
 // downstream in `lib/effect-resolvers.ts`, never carried in the input itself.
-const decimalStringSchema = z.string().regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal string')
+const normalizeDecimalSeparator = (value: unknown): unknown => {
+  if (typeof value !== 'string' || !/^\d+,\d+$/.test(value)) return value
+  return value.replace(',', '.')
+}
+
+const decimalStringSchema = z.preprocess(
+  normalizeDecimalSeparator,
+  z.string().regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal string'),
+)
 
 const clearableDecimalStringSchema = z.preprocess(emptyStringToNull, decimalStringSchema.nullable().optional())
 

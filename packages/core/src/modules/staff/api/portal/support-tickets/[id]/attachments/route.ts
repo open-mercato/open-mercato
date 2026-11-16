@@ -312,6 +312,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'Ticket not found' },
         { status: 413, description: 'File too large' },
         { status: 429, description: 'Upload rate limit exceeded (per customer user)' },
+        { status: 503, description: 'Attachments module unavailable' },
       ],
     },
     DELETE: {
@@ -321,6 +322,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'The file was not uploaded by the caller' },
         { status: 404, description: 'Ticket or file not found' },
+        { status: 503, description: 'Attachments module unavailable' },
       ],
     },
   },

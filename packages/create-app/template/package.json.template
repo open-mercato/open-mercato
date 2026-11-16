@@ -124,6 +124,7 @@
     "react-big-calendar": "^1.20.0",
     "react-dom": "19.2.8",
     "react-email": "^6.9.3",
+    "react-is": "19.2.8",
     "reflect-metadata": "^0.2.2",
     "remark-gfm": "^4.0.1",
     "resend": "^6.24.0",
@@ -165,7 +166,7 @@
   "optionalDependencies": {
     "better-sqlite3": "^13.0.3",
     "bullmq": "^6.0.9",
-    "bullmq-otel": "^1.3.1",
+    "bullmq-otel": "^2.0.1",
     "ioredis": "^6.0.0"
   },
   "resolutions": {
