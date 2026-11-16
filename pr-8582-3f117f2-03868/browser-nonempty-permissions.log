@@ -1,0 +1,321 @@
+
+Running 4 tests using 1 worker
+
+(node:3600316) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+view - main:
+  - status "Loading": Loading...
+  - text: Loading user...
+manager - main:
+  - status "Loading": Loading...
+  - text: Loading user...
+  ✓  1 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/permissions.spec.cjs:2:1 › view-only staff no security affordances and direct refusal preserves record (2.0s)
+en - main:
+  - paragraph: Account
+  - heading "Profile" [level=1]
+  - paragraph: Profile
+  - heading "QA owned account with long display name for responsive profile" [level=3]
+  - text: Email qa-03868-d9314095-longlonglonglonglonglong@test.local Not verified Last login Never Member since Never
+  - paragraph: Roles
+  - heading "0 assigned" [level=3]
+  - paragraph: No roles assigned
+  - paragraph: Permissions
+  - heading "0 features" [level=3]
+  - paragraph: No permissions
+  ✘  2 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds en (30.8s)
+(node:3601177) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+en - main:
+  - paragraph: Account
+  - heading "Profile" [level=1]
+  - paragraph: Profile
+  - heading "QA owned account with long display name for responsive profile" [level=3]
+  - text: Email qa-03868-d9314095-longlonglonglonglonglong@test.local Verified Last login Nov 16, 2026, 04:33 PM Member since Nov 16, 2026, 04:23 PM
+  - paragraph: Roles
+  - heading "1 assigned" [level=3]
+  - text: QA long profile role bb1a926e9345
+  - paragraph: Permissions
+  - heading "0 features" [level=3]
+  - paragraph: No permissions
+  ✘  3 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds en (retry #1) (32.6s)
+(node:3601964) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+pl - main:
+  - paragraph: Konto
+  - heading "Profil" [level=1]
+  - paragraph: Profil
+  - heading "QA owned account with long display name for responsive profile" [level=3]
+  - text: Email qa-03868-d9314095-longlonglonglonglonglong@test.local Niezweryfikowany Ostatnie logowanie Nigdy Członek od Nigdy
+  - paragraph: Role
+  - 'heading "Przypisane role: 0" [level=3]'
+  - paragraph: Brak przypisanych ról
+  - paragraph: Uprawnienia
+  - 'heading "Uprawnienia: 0" [level=3]'
+  - paragraph: Brak uprawnień
+  ✘  4 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds pl (30.9s)
+(node:3602555) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+pl - main:
+  - paragraph: Konto
+  - heading "Profil" [level=1]
+  - paragraph: Profil
+  - heading "QA owned account with long display name for responsive profile" [level=3]
+  - text: Email qa-03868-d9314095-longlonglonglonglonglong@test.local Zweryfikowany Ostatnie logowanie Nov 16, 2026, 04:34 PM Członek od Nov 16, 2026, 04:23 PM
+  - paragraph: Role
+  - 'heading "Przypisane role: 1" [level=3]'
+  - text: QA long profile role bb1a926e9345
+  - paragraph: Uprawnienia
+  - 'heading "Uprawnienia: 0" [level=3]'
+  - paragraph: Brak uprawnień
+  ✘  5 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds pl (retry #1) (32.6s)
+(node:3603307) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+customer_accounts.* - main:
+  - link "Back to list":
+    - /url: /backend/customer_accounts/users
+  - heading "QA owned account with long display name for responsive profile" [level=1]
+  - paragraph: qa-03868-d9314095-longlonglonglonglonglong@test.local
+  - button "Delete"
+  - heading "Customer Portal Access" [level=3]
+  - paragraph: This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.
+  - paragraph: "Portal URL: http://127.0.0.1:41735/[org-slug]/portal"
+  - heading "User Information" [level=2]
+  - term: Email
+  - definition: qa-03868-d9314095-longlonglonglonglonglong@test.local
+  - term: Email Verified
+  - definition: "Yes"
+  - term: Last Login
+  - definition: 11/16/2026, 4:34:07 PM
+  - term: Created
+  - definition: 11/16/2026, 4:23:13 PM
+  - heading "CRM Links" [level=2]
+  - paragraph: Person
+  - textbox "Search people by name..."
+  - paragraph: Company
+  - textbox "Search companies by name..."
+  - paragraph: Changes to CRM links are saved when you click Save Changes below.
+  - heading "Account Settings" [level=2]
+  - text: Display Name
+  - textbox "Display Name": QA owned account with long display name for responsive profile
+  - text: Active
+  - switch "Active" [checked]
+  - paragraph: Roles
+  - button "Portal Admin"
+  - button "Buyer"
+  - button "Viewer"
+  - button "QA invite eda98378"
+  - button "QA invite 027c8bad"
+  - button "QA long profile role bb1a926e9345"
+  - button "Save Changes"
+  - heading "Security" [level=2]
+  - button "Reset Password"
+  - button "Send Reset Link"
+  - heading "Active Sessions(5)" [level=2]
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:34:07 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:33:35 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:33:01 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:32:29 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:32:24 PM"
+  - button "Revoke"
+* - main:
+  - link "Back to list":
+    - /url: /backend/customer_accounts/users
+  - heading "QA owned account with long display name for responsive profile" [level=1]
+  - paragraph: qa-03868-d9314095-longlonglonglonglonglong@test.local
+  - button "Delete"
+  - heading "Customer Portal Access" [level=3]
+  - paragraph: This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.
+  - paragraph: "Portal URL: http://127.0.0.1:41735/[org-slug]/portal"
+  - heading "User Information" [level=2]
+  - term: Email
+  - definition: qa-03868-d9314095-longlonglonglonglonglong@test.local
+  - term: Email Verified
+  - definition: "Yes"
+  - term: Last Login
+  - definition: 11/16/2026, 4:34:07 PM
+  - term: Created
+  - definition: 11/16/2026, 4:23:13 PM
+  - heading "CRM Links" [level=2]
+  - paragraph: Person
+  - textbox "Search people by name..."
+  - paragraph: Company
+  - textbox "Search companies by name..."
+  - paragraph: Changes to CRM links are saved when you click Save Changes below.
+  - heading "Account Settings" [level=2]
+  - text: Display Name
+  - textbox "Display Name": QA owned account with long display name for responsive profile
+  - text: Active
+  - switch "Active" [checked]
+  - paragraph: Roles
+  - button "Portal Admin"
+  - button "Buyer"
+  - button "Viewer"
+  - button "QA invite eda98378"
+  - button "QA invite 027c8bad"
+  - button "QA long profile role bb1a926e9345"
+  - button "Save Changes"
+  - heading "Security" [level=2]
+  - button "Reset Password"
+  - button "Send Reset Link"
+  - heading "Active Sessions(5)" [level=2]
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:34:07 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:33:35 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:33:01 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:32:29 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:32:24 PM"
+  - button "Revoke"
+  ✓  6 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/wildcards.spec.cjs:2:1 › module and global wildcard manager controls (3.3s)
+
+
+  1) ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds en 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: '3 features', exact: true })
+    Expected: visible
+    Timeout: 20000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for getByRole('heading', { name: '3 features', exact: true })
+
+
+      1 | const {test,expect}=require(process.cwd()+'/node_modules/@playwright/test');const fs=require('fs');const {req,check,stateFile}=require(process.cwd()+'/.ai/scripts/test-env-qa-api.cjs');
+    > 2 | for(const locale of ['en','pl'])test('profile localized counts and settled viewport bounds '+locale,async({browser})=>{const s=JSON.parse(fs.readFileSync(stateFile));const login=await req('/api/customer_accounts/login','POST',{email:s.user.email,password:s.user.password,tenantId:s.claims.tenantId});check(login,200);const c=await browser.newContext();try{const cookies=login.cookies.map(v=>{const part=v.split(';')[0],idx=part.indexOf('=');return {name:part.slice(0,idx),value:part.slice(idx+1),url:s.base}});await c.addCookies([...cookies,{name:'locale',value:locale,url:s.base}]);const p=await c.newPage();await p.goto('/'+s.orgSlug+'/portal/profile');const email=p.getByRole('main').getByText(s.user.email,{exact:true});await expect(email).toBeVisible();console.log(locale,await p.getByRole('main').ariaSnapshot());for(const width of [320,390,768,1440]){await p.setViewportSize({width,height:844});await expect.poll(()=>p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await expect.poll(()=>email.evaluate(el=>{const card=el.parentElement?.parentElement?.parentElement?.parentElement;return !!card&&[...card.querySelectorAll('span')].every(v=>{const b=v.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+1&&v.scrollWidth<=v.clientWidth+1})})).toBe(true);await p.waitForTimeout(10000);await expect(p.getByRole('main')).not.toContainText(locale==='en'?'Never':'Nigdy');await expect.poll(()=>p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await expect.poll(()=>email.evaluate(el=>{const card=el.parentElement?.parentElement?.parentElement?.parentElement;return !!card&&[...card.querySelectorAll('span')].every(v=>{const b=v.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+1&&v.scrollWidth<=v.clientWidth+1})})).toBe(true);await expect(p.getByRole('heading',{name:locale==='en'?'1 assigned':'Przypisane role: 1',exact:true})).toBeVisible();await expect(p.getByRole('heading',{name:locale==='en'?'3 features':'Uprawnienia: 3',exact:true})).toBeVisible();await expect(p.getByRole('heading').filter({hasText:'portal.profile.'})).toHaveCount(0);if(locale==='pl'){await expect(p.getByRole('main')).toContainText('Uprawnienia:');await expect(p.getByRole('main')).toContainText('Przypisane role:');await expect(p.getByRole('main')).not.toContainText(/\d+ features|\d+ assigned/)}await p.screenshot({path:process.env.CEZ_ARTIFACTS_DIR+'/profile-'+locale+'-'+width+'.png',fullPage:true})}}finally{await c.close()}});
+        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ^
+      3 |
+        at /home/pkarw/Projects/open-mercato/.ai/cezar/artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:2028
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--1128a--settled-viewport-bounds-en/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--1128a--settled-viewport-bounds-en/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: '3 features', exact: true })
+    Expected: visible
+    Timeout: 20000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for getByRole('heading', { name: '3 features', exact: true })
+
+
+      1 | const {test,expect}=require(process.cwd()+'/node_modules/@playwright/test');const fs=require('fs');const {req,check,stateFile}=require(process.cwd()+'/.ai/scripts/test-env-qa-api.cjs');
+    > 2 | for(const locale of ['en','pl'])test('profile localized counts and settled viewport bounds '+locale,async({browser})=>{const s=JSON.parse(fs.readFileSync(stateFile));const login=await req('/api/customer_accounts/login','POST',{email:s.user.email,password:s.user.password,tenantId:s.claims.tenantId});check(login,200);const c=await browser.newContext();try{const cookies=login.cookies.map(v=>{const part=v.split(';')[0],idx=part.indexOf('=');return {name:part.slice(0,idx),value:part.slice(idx+1),url:s.base}});await c.addCookies([...cookies,{name:'locale',value:locale,url:s.base}]);const p=await c.newPage();await p.goto('/'+s.orgSlug+'/portal/profile');const email=p.getByRole('main').getByText(s.user.email,{exact:true});await expect(email).toBeVisible();console.log(locale,await p.getByRole('main').ariaSnapshot());for(const width of [320,390,768,1440]){await p.setViewportSize({width,height:844});await expect.poll(()=>p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await expect.poll(()=>email.evaluate(el=>{const card=el.parentElement?.parentElement?.parentElement?.parentElement;return !!card&&[...card.querySelectorAll('span')].every(v=>{const b=v.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+1&&v.scrollWidth<=v.clientWidth+1})})).toBe(true);await p.waitForTimeout(10000);await expect(p.getByRole('main')).not.toContainText(locale==='en'?'Never':'Nigdy');await expect.poll(()=>p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await expect.poll(()=>email.evaluate(el=>{const card=el.parentElement?.parentElement?.parentElement?.parentElement;return !!card&&[...card.querySelectorAll('span')].every(v=>{const b=v.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+1&&v.scrollWidth<=v.clientWidth+1})})).toBe(true);await expect(p.getByRole('heading',{name:locale==='en'?'1 assigned':'Przypisane role: 1',exact:true})).toBeVisible();await expect(p.getByRole('heading',{name:locale==='en'?'3 features':'Uprawnienia: 3',exact:true})).toBeVisible();await expect(p.getByRole('heading').filter({hasText:'portal.profile.'})).toHaveCount(0);if(locale==='pl'){await expect(p.getByRole('main')).toContainText('Uprawnienia:');await expect(p.getByRole('main')).toContainText('Przypisane role:');await expect(p.getByRole('main')).not.toContainText(/\d+ features|\d+ assigned/)}await p.screenshot({path:process.env.CEZ_ARTIFACTS_DIR+'/profile-'+locale+'-'+width+'.png',fullPage:true})}}finally{await c.close()}});
+        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ^
+      3 |
+        at /home/pkarw/Projects/open-mercato/.ai/cezar/artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:2028
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--1128a--settled-viewport-bounds-en-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--1128a--settled-viewport-bounds-en-retry1/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--1128a--settled-viewport-bounds-en-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--1128a--settled-viewport-bounds-en-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds pl 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Uprawnienia: 3', exact: true })
+    Expected: visible
+    Timeout: 20000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for getByRole('heading', { name: 'Uprawnienia: 3', exact: true })
+
+
+      1 | const {test,expect}=require(process.cwd()+'/node_modules/@playwright/test');const fs=require('fs');const {req,check,stateFile}=require(process.cwd()+'/.ai/scripts/test-env-qa-api.cjs');
+    > 2 | for(const locale of ['en','pl'])test('profile localized counts and settled viewport bounds '+locale,async({browser})=>{const s=JSON.parse(fs.readFileSync(stateFile));const login=await req('/api/customer_accounts/login','POST',{email:s.user.email,password:s.user.password,tenantId:s.claims.tenantId});check(login,200);const c=await browser.newContext();try{const cookies=login.cookies.map(v=>{const part=v.split(';')[0],idx=part.indexOf('=');return {name:part.slice(0,idx),value:part.slice(idx+1),url:s.base}});await c.addCookies([...cookies,{name:'locale',value:locale,url:s.base}]);const p=await c.newPage();await p.goto('/'+s.orgSlug+'/portal/profile');const email=p.getByRole('main').getByText(s.user.email,{exact:true});await expect(email).toBeVisible();console.log(locale,await p.getByRole('main').ariaSnapshot());for(const width of [320,390,768,1440]){await p.setViewportSize({width,height:844});await expect.poll(()=>p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await expect.poll(()=>email.evaluate(el=>{const card=el.parentElement?.parentElement?.parentElement?.parentElement;return !!card&&[...card.querySelectorAll('span')].every(v=>{const b=v.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+1&&v.scrollWidth<=v.clientWidth+1})})).toBe(true);await p.waitForTimeout(10000);await expect(p.getByRole('main')).not.toContainText(locale==='en'?'Never':'Nigdy');await expect.poll(()=>p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await expect.poll(()=>email.evaluate(el=>{const card=el.parentElement?.parentElement?.parentElement?.parentElement;return !!card&&[...card.querySelectorAll('span')].every(v=>{const b=v.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+1&&v.scrollWidth<=v.clientWidth+1})})).toBe(true);await expect(p.getByRole('heading',{name:locale==='en'?'1 assigned':'Przypisane role: 1',exact:true})).toBeVisible();await expect(p.getByRole('heading',{name:locale==='en'?'3 features':'Uprawnienia: 3',exact:true})).toBeVisible();await expect(p.getByRole('heading').filter({hasText:'portal.profile.'})).toHaveCount(0);if(locale==='pl'){await expect(p.getByRole('main')).toContainText('Uprawnienia:');await expect(p.getByRole('main')).toContainText('Przypisane role:');await expect(p.getByRole('main')).not.toContainText(/\d+ features|\d+ assigned/)}await p.screenshot({path:process.env.CEZ_ARTIFACTS_DIR+'/profile-'+locale+'-'+width+'.png',fullPage:true})}}finally{await c.close()}});
+        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ^
+      3 |
+        at /home/pkarw/Projects/open-mercato/.ai/cezar/artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:2028
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--2daff--settled-viewport-bounds-pl/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--2daff--settled-viewport-bounds-pl/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Uprawnienia: 3', exact: true })
+    Expected: visible
+    Timeout: 20000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for getByRole('heading', { name: 'Uprawnienia: 3', exact: true })
+
+
+      1 | const {test,expect}=require(process.cwd()+'/node_modules/@playwright/test');const fs=require('fs');const {req,check,stateFile}=require(process.cwd()+'/.ai/scripts/test-env-qa-api.cjs');
+    > 2 | for(const locale of ['en','pl'])test('profile localized counts and settled viewport bounds '+locale,async({browser})=>{const s=JSON.parse(fs.readFileSync(stateFile));const login=await req('/api/customer_accounts/login','POST',{email:s.user.email,password:s.user.password,tenantId:s.claims.tenantId});check(login,200);const c=await browser.newContext();try{const cookies=login.cookies.map(v=>{const part=v.split(';')[0],idx=part.indexOf('=');return {name:part.slice(0,idx),value:part.slice(idx+1),url:s.base}});await c.addCookies([...cookies,{name:'locale',value:locale,url:s.base}]);const p=await c.newPage();await p.goto('/'+s.orgSlug+'/portal/profile');const email=p.getByRole('main').getByText(s.user.email,{exact:true});await expect(email).toBeVisible();console.log(locale,await p.getByRole('main').ariaSnapshot());for(const width of [320,390,768,1440]){await p.setViewportSize({width,height:844});await expect.poll(()=>p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await expect.poll(()=>email.evaluate(el=>{const card=el.parentElement?.parentElement?.parentElement?.parentElement;return !!card&&[...card.querySelectorAll('span')].every(v=>{const b=v.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+1&&v.scrollWidth<=v.clientWidth+1})})).toBe(true);await p.waitForTimeout(10000);await expect(p.getByRole('main')).not.toContainText(locale==='en'?'Never':'Nigdy');await expect.poll(()=>p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);await expect.poll(()=>email.evaluate(el=>{const card=el.parentElement?.parentElement?.parentElement?.parentElement;return !!card&&[...card.querySelectorAll('span')].every(v=>{const b=v.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth+1&&v.scrollWidth<=v.clientWidth+1})})).toBe(true);await expect(p.getByRole('heading',{name:locale==='en'?'1 assigned':'Przypisane role: 1',exact:true})).toBeVisible();await expect(p.getByRole('heading',{name:locale==='en'?'3 features':'Uprawnienia: 3',exact:true})).toBeVisible();await expect(p.getByRole('heading').filter({hasText:'portal.profile.'})).toHaveCount(0);if(locale==='pl'){await expect(p.getByRole('main')).toContainText('Uprawnienia:');await expect(p.getByRole('main')).toContainText('Przypisane role:');await expect(p.getByRole('main')).not.toContainText(/\d+ features|\d+ assigned/)}await p.screenshot({path:process.env.CEZ_ARTIFACTS_DIR+'/profile-'+locale+'-'+width+'.png',fullPage:true})}}finally{await c.close()}});
+        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ^
+      3 |
+        at /home/pkarw/Projects/open-mercato/.ai/cezar/artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:2028
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--2daff--settled-viewport-bounds-pl-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--2daff--settled-viewport-bounds-pl-retry1/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--2daff--settled-viewport-bounds-pl-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/output/profile-profile-localized--2daff--settled-viewport-bounds-pl-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds en 
+    ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds pl 
+  2 passed (2.3m)
