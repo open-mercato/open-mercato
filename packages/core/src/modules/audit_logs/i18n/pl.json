@@ -42,6 +42,7 @@
   "audit_logs.common.none": "—",
   "audit_logs.common.refresh": "Odśwież",
   "audit_logs.common.refreshing": "Odświeżanie…",
+  "audit_logs.error.entry_not_found": "Nie znaleziono tego wpisu audytu lub nie masz do niego dostępu",
   "audit_logs.error.load": "Nie udało się załadować logów",
   "audit_logs.error.redo": "Nie udało się przywrócić działania",
   "audit_logs.error.redo_failed": "Nie udało się przywrócić operacji",

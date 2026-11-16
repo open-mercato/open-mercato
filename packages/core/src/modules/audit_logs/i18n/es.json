@@ -42,6 +42,7 @@
   "audit_logs.common.none": "—",
   "audit_logs.common.refresh": "Actualizar",
   "audit_logs.common.refreshing": "Actualizando…",
+  "audit_logs.error.entry_not_found": "No se encontró esta entrada de auditoría o está fuera de su acceso",
   "audit_logs.error.load": "No se pudieron cargar los registros",
   "audit_logs.error.redo": "No se pudo rehacer la acción",
   "audit_logs.error.redo_failed": "No se pudo rehacer la acción",

@@ -10,6 +10,7 @@ import { requireResolvedTenantScope } from '../readScope'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
@@ -27,6 +28,10 @@ const auditActionQuerySchema = z.object({
   actorUserId: z
     .string()
     .describe('Filter logs created by specific actor IDs (tenant administrators only). Accepts a single UUID or a comma-separated UUID list.')
+    .optional(),
+  ids: z
+    .string()
+    .describe('Restrict results to these action log IDs (comma-separated UUIDs, at most 100). Actor and organization scoping still apply.')
     .optional(),
   resourceKind: z.string().describe('Filter by resource kind (e.g., "order", "product")').optional(),
   resourceId: z.string().describe('Filter by resource ID (UUID of the specific record)').optional(),
@@ -165,6 +170,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
+  const ids = parseIdsParam(url.searchParams.get('ids'), 100)
   const resourceKind = url.searchParams.get('resourceKind') ?? undefined
   const resourceId = url.searchParams.get('resourceId') ?? undefined
   const actionTypes = parseActionTypes(url.searchParams.get('actionType'))
@@ -207,6 +213,7 @@ export async function GET(req: Request) {
     actorSubject,
     actorUserId,
     actorUserIds,
+    ids: ids.length > 0 ? ids : undefined,
     resourceKind,
     resourceId,
     actionTypes,

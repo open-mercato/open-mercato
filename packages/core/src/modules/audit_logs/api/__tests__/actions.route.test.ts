@@ -255,6 +255,35 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     }))
   })
 
+  it('passes the ids filter through while keeping the self-only actor scope', async () => {
+    const logId = '55555555-5555-4555-8555-555555555555'
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+
+    await GET(makeRequest(`http://localhost/api/audit_logs/audit-logs/actions?ids=${logId},not-a-uuid`))
+    expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({
+      ids: [logId],
+      actorSubject: 'user-1',
+    }))
+  })
+
+  it('sends no ids filter when the ids param is absent', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+
+    await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(mockActionLogs.list.mock.calls[0][0].ids).toBeUndefined()
+  })
+
   it('returns 400 (not 500) when a filter fails uuid validation', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({

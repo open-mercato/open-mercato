@@ -42,6 +42,7 @@
   "audit_logs.common.none": "—",
   "audit_logs.common.refresh": "Aktualisieren",
   "audit_logs.common.refreshing": "Aktualisiere…",
+  "audit_logs.error.entry_not_found": "Dieser Audit-Eintrag wurde nicht gefunden oder liegt außerhalb Ihres Zugriffs",
   "audit_logs.error.load": "Audit-Logs konnten nicht geladen werden",
   "audit_logs.error.redo": "Aktion kann nicht wiederholt werden",
   "audit_logs.error.redo_failed": "Wiederholen fehlgeschlagen",

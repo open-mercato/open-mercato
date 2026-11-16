@@ -1220,3 +1220,41 @@ describe('ActionLogService correlation key filter', () => {
     expect(missingKeys.total).toBe(0)
   })
 })
+
+describe('ActionLogService id filter', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const logId = '55555555-5555-4555-8555-555555555555'
+
+  function captureWheres(query: Record<string, unknown>): unknown[][] {
+    const wheres: unknown[][] = []
+    const builder: Record<string, unknown> = {}
+    builder.selectAll = () => builder
+    builder.where = (...args: unknown[]) => {
+      wheres.push(args)
+      return builder
+    }
+    builder.orderBy = () => builder
+    const fakeEm = { getKysely: () => ({ selectFrom: () => builder }) }
+    const service = new ActionLogService(fakeEm as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const internals = service as unknown as {
+      buildListQuery: (parsed: Record<string, unknown>) => unknown
+      parseListQuery: (input: Record<string, unknown>) => Record<string, unknown>
+    }
+    internals.buildListQuery(internals.parseListQuery(query))
+    return wheres
+  }
+
+  it('narrows to the requested ids on top of the tenant scope', () => {
+    const wheres = captureWheres({ tenantId, ids: [logId, logId] })
+    expect(wheres).toContainEqual(['action_logs.tenant_id', '=', tenantId])
+    expect(wheres).toContainEqual(['action_logs.id', 'in', [logId]])
+  })
+
+  it('adds no id predicate when no ids are requested', () => {
+    expect(captureWheres({ tenantId }).some((args) => args[0] === 'action_logs.id')).toBe(false)
+  })
+
+  it('rejects non-uuid ids', () => {
+    expect(() => captureWheres({ tenantId, ids: ['not-a-uuid'] })).toThrow()
+  })
+})

@@ -42,6 +42,7 @@
   "audit_logs.common.none": "—",
   "audit_logs.common.refresh": "새로고침",
   "audit_logs.common.refreshing": "새로고침 중…",
+  "audit_logs.error.entry_not_found": "이 감사 항목을 찾을 수 없거나 접근 권한이 없습니다",
   "audit_logs.error.load": "감사 로그를 불러오지 못했습니다",
   "audit_logs.error.redo": "작업을 다시 실행할 수 없습니다",
   "audit_logs.error.redo_failed": "다시 실행에 실패했습니다",

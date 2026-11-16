@@ -1,10 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { InspectorCard } from './InspectorCard'
 import { formatDateTime } from '../types'
+import { buildAuditEntryHref, buildProposalHref } from '../../lib/identity/auditEntryLinks'
 
 export type RunActionRow = {
   id: string
@@ -103,10 +105,25 @@ export function RunActionsCard({ runId }: { runId: string }) {
                 {row.correlation.proposalId ? (
                   <div className="flex min-w-0 gap-1">
                     <dt className="text-muted-foreground">{t('agent_orchestrator.traces.actions.columns.proposal')}</dt>
-                    <dd className="truncate font-mono text-foreground" title={row.correlation.proposalId}>{shortId(row.correlation.proposalId)}</dd>
+                    <dd className="truncate font-mono text-foreground" title={row.correlation.proposalId}>
+                      <Link
+                        href={buildProposalHref(row.correlation.proposalId)}
+                        className="underline-offset-4 hover:underline"
+                        data-testid="run-action-proposal-link"
+                      >
+                        {shortId(row.correlation.proposalId)}
+                      </Link>
+                    </dd>
                   </div>
                 ) : null}
               </dl>
+              <Link
+                href={buildAuditEntryHref(row.id)}
+                className="mt-1 inline-block text-xs font-medium text-foreground underline-offset-4 hover:underline"
+                data-testid="run-action-audit-link"
+              >
+                {t('agent_orchestrator.audit.links.openEntry')}
+              </Link>
             </li>
           ))}
         </ul>

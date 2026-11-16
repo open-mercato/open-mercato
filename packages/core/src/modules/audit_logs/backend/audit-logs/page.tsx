@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -8,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { ActionLogItem } from '../../components/AuditLogsActions'
 import { AuditLogsActions } from '../../components/AuditLogsActions'
+import { ActionLogDetailsDialog } from '../../components/ActionLogDetailsDialog'
 import type { AccessLogItem } from '../../components/AccessLogsTable'
 import { AccessLogsTable } from '../../components/AccessLogsTable'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -37,6 +39,7 @@ type AccessLogResponse = {
 type TabOption = 'actions' | 'access'
 
 const DEFAULT_PAGE_SIZE = 50
+const LOG_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export default function AuditLogsPage() {
   const t = useT()
@@ -58,6 +61,37 @@ export default function AuditLogsPage() {
   const [accessTotalPages, setAccessTotalPages] = React.useState(1)
   const [accessTotalIsCapped, setAccessTotalIsCapped] = React.useState(false)
   const accessPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
+  const searchParams = useSearchParams()
+  const requestedLogId = searchParams?.get('logId') ?? null
+  const [linkedEntry, setLinkedEntry] = React.useState<ActionLogItem | null>(null)
+
+  React.useEffect(() => {
+    if (!requestedLogId || !LOG_ID_PATTERN.test(requestedLogId)) {
+      setLinkedEntry(null)
+      return
+    }
+    let cancelled = false
+    const params = new URLSearchParams({ ids: requestedLogId, pageSize: '1' })
+    readApiResultOrThrow<ActionLogResponse>(
+      `/api/audit_logs/audit-logs/actions?${params.toString()}`,
+      undefined,
+      { errorMessage: t('audit_logs.error.load') },
+    )
+      .then((result) => {
+        if (cancelled) return
+        const entry = (result.items ?? []).find((item) => item.id === requestedLogId) ?? null
+        setLinkedEntry(entry)
+        if (!entry) setError(t('audit_logs.error.entry_not_found'))
+      })
+      .catch((err) => {
+        if (cancelled) return
+        logger.error('Failed to load linked audit entry', { err })
+        setError(t('audit_logs.error.load'))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [requestedLogId, t])
 
   const fetchActions = React.useCallback(async (page: number, pageSize: number) => {
     const params = new URLSearchParams()
@@ -238,6 +272,9 @@ export default function AuditLogsPage() {
             }}
           />
         )}
+        {linkedEntry ? (
+          <ActionLogDetailsDialog item={linkedEntry} onClose={() => setLinkedEntry(null)} />
+        ) : null}
       </PageBody>
     </Page>
   )
