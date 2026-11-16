@@ -988,7 +988,6 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
         onChange={(next) => setValue(next)}
         labels={buildDictionaryLabels(t, definition)}
         allowInlineCreate
-        allowAppearance
         showManage
       />
     ),
@@ -1028,7 +1027,6 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
             manageTitle: t('customers.people.form.dictionary.manage'),
           }}
           allowInlineCreate
-          allowAppearance
           showManage
         />
       ),
