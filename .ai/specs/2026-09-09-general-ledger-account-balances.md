@@ -3,9 +3,9 @@
 ## TLDR
 
 **Key Points:**
-- Adds read-only balance and turnover reporting on top of the `ledger` module's schema as specified by #5663 (`JournalEntry`/`JournalEntryLine`/`LedgerAccount`) — no changes to the posting schema or `postJournalEntry`. Ships as Phase 2 of the `ledger` module (#5663), not a new module. **#5663 is an unmerged spec — see Prerequisites.**
-- Restores `getAccountBalance` (cut from #5663 Phase 1 as a stakeholder-directed scope reduction) and adds the ZSiO report (Zestawienie Obrotów i Sald / Trial Balance, art. 18 Ustawy o rachunkowości): opening balance, period and year-to-date debit/credit turnover, and closing balance per account, distinguishing syntetyk (an account with children under `parentAccountId`) from analityk (a leaf account), per the Event Storming Section 05 hot spot (HS-11 already gave us `parentAccountId` for exactly this).
-- Balances are computed live from `JournalEntryLine` — no new tables, no changes to the write path.
+- Adds read-only balance and turnover reporting on top of the `ledger` module's schema as specified by #5663 (`JournalEntry`/`JournalEntryLine`/`LedgerAccount`) — plus one additive `LedgerAccount.parentAccountId` link this rollup owns — with no changes to the posting schema or `postJournalEntry`. Ships as Phase 2 of the `ledger` module (#5663), not a new module. **#5663 is an unmerged spec — see Prerequisites.**
+- Restores `getAccountBalance` (cut from #5663 Phase 1 as a stakeholder-directed scope reduction) and adds the ZSiO report (Zestawienie Obrotów i Sald / Trial Balance, art. 18 Ustawy o rachunkowości): opening balance, period and year-to-date debit/credit turnover, and closing balance per account, distinguishing syntetyk (an account with children under `parentAccountId`) from analityk (a leaf account), per the Event Storming Section 05 hot spot (the parent column #5663 removed on 2026-10-12 returns here as its first consumer).
+- Balances are computed live from `JournalEntryLine` — no new tables and no changes to the posting write path; the one schema change is the additive nullable `LedgerAccount.parentAccountId` (Data Models).
 
 **Scope:**
 - Per-account balance as of a date (`GET /api/ledger/accounts/:id/balance`), recursively including descendant accounts for a syntetyk account that also has direct postings of its own.
@@ -60,7 +60,7 @@ ledger/` does not exist anywhere in this repository today — not on
 claim elsewhere in this document about "the ledger module's existing
 schema," "indexes already exist," or reading #5663's entities "as
 they are today" describes #5663's *specification*, not running code;
-read them as "as specified in #5663." None of Phase 1's eight
+read them as "as specified in #5663." None of Phase 1's nine
 Implementation Plan steps can begin until #5663 is merged and
 implemented — that is a prerequisite for this document, not a
 concurrent or independent piece of work, whatever the Design
@@ -86,10 +86,11 @@ books foot correctly":
    balances: an accountant would have to sum `debit`/`credit` across
    every line, for every account, by hand, across however many pages
    of results, to get a single account's balance.
-2. `LedgerAccount.parentAccountId` (added 2026-09-06, HS-11) is
-   structural only — nothing anywhere reads it. A syntetyk account's
-   balance (which must include every analityk child rolled up into
-   it) cannot be produced today.
+2. `LedgerAccount` has no parent column today: #5663 removed the
+   earlier structural `parentAccountId` on 2026-10-12 and delegates its
+   return to this rollup. Until it exists, a syntetyk account's
+   balance (every analityk child rolled up into it) cannot be
+   produced.
 3. Art. 18's specific, named requirement — a ZSiO, at minimum monthly,
    with opening/turnover/closing per account, reconciled against the
    journal — has no artifact in this system at all, not a partial one.
@@ -119,13 +120,15 @@ Two read-only capabilities, both computed on demand from
 
 Both read `JournalEntryLine` as the source of every `debit`/`credit`
 figure, filtered by its own `organization_id`/`tenant_id` columns; the
-date/timestamp filter (`posted_at`) is not one of them — `postedAt`
+accounting-date filter (`operation_date`) is not one of them — `operationDate`
 lives on `JournalEntry`, not `JournalEntryLine` (Data Models), so
 every query here joins `journal_entry_line` to `journal_entry` by
-`journalEntryId` to apply it: `JournalEntryLine` rows filtered by
-`(organization_id, account_id)`, joined to `journal_entry` by primary
-key, filtered by `posted_at`. No new entities and no change to
-`postJournalEntry`'s transaction.
+`journalEntryId` to apply the accounting date `operationDate` — the
+period-membership field #5663 locks and filters on: `JournalEntryLine`
+rows filtered by `(organization_id, account_id)`, joined to
+`journal_entry` by primary key, filtered by `operation_date`. No new
+entities and no change to `postJournalEntry`'s transaction; the one
+additive column is the parent rollup link (Data Models).
 
 ### Design decisions
 
@@ -151,20 +154,25 @@ balance" is not a recoverable failure mode. One formula, evaluated at
 two dates, is the only version of this that can't disagree with
 itself.
 
-**Every date boundary here (`asOf`, `periodStart`, `periodEnd`) is an
-inclusive whole calendar day, evaluated in UTC.** "As of date D" means
-every line posted through the end of D, not a naive `posted_at <= D`
-timestamp comparison against `D`'s midnight — `postedAt` is a
-timestamp (Data Models), not a date, so `posted_at <= D` would exclude
-everything posted after midnight on D itself. The precise predicate is
-`posted_at < D + 1 day` (UTC). This is what makes
-`getAccountBalance(accountId, periodStartDate - 1 day)` (the opening
-balance, above) equal exactly `posted_at < periodStartDate` — the
-same predicate `getTrialBalance`'s own CTE uses for opening (Queries)
-— rather than a subtly different one; both `getAccountBalance` and
-`zeroSumCheck`'s `posted_at <= periodEnd`/`posted_at <= asOf` phrasing
-elsewhere in this document are shorthand for this same inclusive-day
-rule, not a competing, looser one.
+**Every fiscal-period boundary here (`asOf`, `periodStart`,
+`periodEnd`) filters on the accounting date `operationDate`, not the
+recording timestamp `postedAt`.** #5663 assigns an entry to a fiscal
+period by `operationDate` (the business-event date); its lock and its
+`periodId` filter both key on it, while `postedAt` is the server-set
+recording time (`2026-08-18-general-ledger-core-engine.md`, "the lock
+check and the `periodId` filter key on `operationDate`, not
+`postedAt`"). Filtering on `postedAt` here would put an entry recorded
+on February 2 for a January 31 operation into February's ZSiO while
+the journal has it in January — exactly the mismatch art. 18 forbids.
+
+The inclusive whole-calendar-day rule therefore applies to
+`operation_date`: "as of date D" means `operation_date < D + 1 day`
+(UTC), so `getAccountBalance(accountId, periodStartDate - 1 day)` (the
+opening balance, above) equals exactly `operation_date <
+periodStartDate` — the same predicate `getTrialBalance`'s CTE uses for
+opening (Queries). `postedAt` is never a fiscal-period membership
+predicate; a separately specified recording-time snapshot is Phase 2
+and not offered here.
 
 **Syntetyk balance is a recursive rollup over `parentAccountId`, not a
 separate stored aggregate.** A syntetyk account (one with children) is
@@ -196,7 +204,7 @@ accounts, not just a single recursive query. Corrected: `getTrialBalance`
 runs the same `WITH RECURSIVE` account-tree walk once for the whole
 chart, and computes all four figures per account in that single pass
 using conditional aggregation over `JournalEntryLine`
-(`SUM(CASE WHEN posted_at < periodStart THEN signedAmount END)` for
+(`SUM(CASE WHEN operation_date < periodStart THEN signedAmount END)` for
 opening, equivalent `CASE` expressions scoped to the period and to the
 fiscal year for `periodDebit`/`periodCredit`/`ytdDebit`/`ytdCredit`,
 and one scoped through `periodEnd` for closing), joined against the
@@ -231,7 +239,7 @@ parent's rollup row). `zeroSumCheck` is therefore computed by a
 second, independent query that never touches `TrialBalanceRowDto`,
 the account hierarchy, or `normalBalance` at all: `SUM(debit) -
 SUM(credit) = 0` directly over `JournalEntryLine`
-(organization/tenant-scoped, `posted_at < periodEnd + 1 day` (UTC) —
+(organization/tenant-scoped, `operation_date < periodEnd + 1 day` (UTC) —
 every line posted through the period's end, inclusive). This is the
 literal restatement of
 #5663's own posting-time invariant (every entry balances, enforced by
@@ -630,9 +638,9 @@ wiring):
 
 - `getAccountBalance(em, { accountId, tenantId, organizationId, asOf })`
   — runs the `WITH RECURSIVE` CTE described in Design decisions,
-  scoped by tenant/organization, filtered to `posted_at < asOf + 1
-  day` (UTC — Design decisions, "Every date boundary here... is an
-  inclusive whole calendar day"), returns a single signed balance
+  scoped by tenant/organization, filtered to `operation_date < asOf +
+  1 day` (UTC — Design decisions, "Every fiscal-period boundary here
+  filters on the accounting date"), returns a single signed balance
   (already normalized to the account's `normalBalance` side). Since
   2026-10-26 it also returns `balanceInAccountCurrency` and `currency` for
   an account with a `currencyId` (Design decisions, "Balance in the
@@ -650,7 +658,7 @@ wiring):
   come out of this call, from two independent queries:
   - `rows` (one `TrialBalanceRowDto` per account) — the per-account
     CTE result above, returned **page/pageSize-paginated**, ordered by
-    account code (`LedgerAccount.slug`), `pageSize` capped at 100
+    the account number (`LedgerAccount.number`), `pageSize` capped at 100
     (default 100) — offset-based, matching `DataTable`'s actual
     pagination contract (`page`/`pageSize`/`total`/`totalPages`; the
     component has no cursor/keyset mode). This is the concrete answer
@@ -661,7 +669,7 @@ wiring):
     hierarchy at all (Design decisions, "`zeroSumCheck` is a direct
     ledger aggregate"): a second, independent query, `SUM(debit) -
     SUM(credit) = 0` directly over `JournalEntryLine`
-    (organization/tenant-scoped, `posted_at < periodEnd + 1 day`
+    (organization/tenant-scoped, `operation_date < periodEnd + 1 day`
     (UTC)), with no join to `LedgerAccount` and no recursion. Computed once per
     request, unaffected by `page`/`pageSize`, and cheaper than the
     per-account CTE, not just independent of it.
@@ -703,7 +711,7 @@ wiring):
   totalPages, onPageChange }} />`, capped at `pageSize ≤ 100` per root
   `AGENTS.md` → UI & HTTP, and a stable `entityId` keeps future widget
   injection (columns/filters) working. One row per `LedgerAccount`,
-  sorted by account code — syntetyk and analityk rows appear in that
+  sorted by account number — syntetyk and analityk rows appear in that
   same flat order, with no indentation by hierarchy depth in Phase 1:
   `DataTable` has no tree/indentation support to build on today
   (checked directly; no such "existing hierarchical-list convention"
@@ -727,12 +735,19 @@ wiring):
 
 ## Data Models
 
-**No new entities and no migration.** Both `getAccountBalance` and
-`getTrialBalance` read the existing `JournalEntry`, `JournalEntryLine`,
-`LedgerAccount`, and `FiscalPeriod` entities from #5663, as specified
-there. The only structural assumption this document adds is that
-"the fiscal year containing a `FiscalPeriod`" is determinable from
-existing data. It is not, as an account-of-gaps rule: #5663's
+**One additive schema change, no new entities: `LedgerAccount.parentAccountId` returns with this feature.** #5663 removed the earlier structural `parentAccountId` on 2026-10-12 and delegated its return to this account-balances rollup — the first consumer that aggregates over it (`2026-08-18-general-ledger-core-engine.md`, revised "`LedgerAccount` has no parent column"). This document owns the additive column:
+
+- nullable UUID `parentAccountId` FK to `ledger_accounts.id` (`ON DELETE SET NULL`), `NULL` for a root, always the same `tenant_id`/`organization_id` as the child;
+- one migration adds the column plus `(organization_id, parent_account_id)`; no backfill is needed (every existing row is a root), and no data is rewritten;
+- the entity (`data/entities.ts`), `data/validators.ts`, `commands/ledgerAccounts.ts` and `api/accounts/route.ts` accept and validate it: the parent exists in the same tenant/organization, an account cannot be its own parent or a descendant of itself (write-time cycle prevention, in addition to the read-time CTE guard in Risks), and the parent is a syntetyk-eligible account of the same type/group;
+- reads and ordering use the account business key `number` (formerly `slug`); `description` is the display name;
+- additive-only and backward compatible: a nullable column with a `NULL` default plus a new index, no rename/remove/narrow of any #5663 surface (`BACKWARD_COMPATIBILITY.md` additive category).
+
+Both `getAccountBalance` and `getTrialBalance` read the existing
+`JournalEntry`, `JournalEntryLine`, `LedgerAccount`, and `FiscalPeriod`
+entities from #5663, as specified there. The fiscal-year resolution is
+the calendar-year rule recorded below; it is not an account-of-gaps
+rule: #5663's
 `FiscalPeriod` carries only `startDate`/`endDate`/`isLocked` (Data
 Models) — no `fiscalYear` field, and no fiscal-year-length
 configuration exists anywhere in #5663 or this codebase to
@@ -779,6 +794,12 @@ year.
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `LedgerAccount` with that id in the caller's
   tenant/organization.
+- **Response 429**: per-user/per-organization report concurrency cap
+  reached (`Retry-After` set; Risks & Impact Review, "Availability
+  controls").
+- **Response 503**: the enforced report query deadline expired
+  (`{ error: 'report_timeout' }`); the query is aborted, not retried
+  server-side.
 
 ### `GET /api/ledger/reports/trial-balance`
 
@@ -791,8 +812,8 @@ year.
   missing/malformed `periodId` or an out-of-range `page`/`pageSize` is
   a 400.
 - **Response 200**: `{ periodId, periodStart, periodEnd, zeroSumCheck: boolean, rows: TrialBalanceRowDto[], page: number, pageSize: number, total: number, totalPages: number }`
-  where `TrialBalanceRowDto` is `{ accountId, accountSlug, accountName, parentAccountId, openingBalance, periodDebit, periodCredit, ytdDebit, ytdCredit, closingBalance }`.
-  `rows` is paginated by account code via `page`/`pageSize` — see
+  where `TrialBalanceRowDto` is `{ accountId, accountNumber, description, parentAccountId, openingBalance, periodDebit, periodCredit, ytdDebit, ytdCredit, closingBalance }` (`number` and `description` are #5663's account business key and display name).
+  `rows` is paginated by account number via `page`/`pageSize` — see
   Design decisions, "`getTrialBalance` computes every account's row
   in one set-based pass," for why pagination applies to `rows` but
   not to `zeroSumCheck`, which is a separate query computed over the
@@ -802,6 +823,12 @@ year.
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `FiscalPeriod` with that id in the caller's
   tenant/organization.
+- **Response 429**: per-user/per-organization report concurrency cap
+  reached (`Retry-After` set; Risks & Impact Review, "Availability
+  controls").
+- **Response 503**: the enforced report query deadline expired
+  (`{ error: 'report_timeout' }`); the query is aborted, not retried
+  server-side.
 
 ## Internationalization (i18n)
 
@@ -854,10 +881,13 @@ top of the live query.
    Grant Sync) — this document is Phase 2 of an already-shipped
    module, so tenants initialized under Phase 1 would not otherwise
    get it.
-2. Implement `getAccountBalance` (`queries/getAccountBalance.ts`) —
+2. Add the additive `LedgerAccount.parentAccountId` column, index and
+   write-time validation (entity, validator, migration, account
+   commands/API) per Data Models — no backfill.
+3. Implement `getAccountBalance` (`queries/getAccountBalance.ts`) —
    the `WITH RECURSIVE` CTE plus `normalBalance`-signed aggregation,
    scoped by tenant/organization.
-3. Implement `getTrialBalance` (`queries/getTrialBalance.ts`) — one
+4. Implement `getTrialBalance` (`queries/getTrialBalance.ts`) — one
    `WITH RECURSIVE` set-based query over the whole chart of accounts
    computing opening/period-turnover/YTD-turnover/closing per account
    (Design decisions, "`getTrialBalance` computes every account's row
@@ -865,21 +895,21 @@ top of the live query.
    account — plus a second, independent aggregate query directly
    over `JournalEntryLine` for `zeroSumCheck` (Design decisions,
    "`zeroSumCheck` is a direct ledger aggregate").
-4. Implement `api/accounts/[id]/balance/route.ts` and
+5. Implement `api/accounts/[id]/balance/route.ts` and
    `api/reports/trial-balance/route.ts`, both behind
    `ledger.reports.view`, both validating query params with zod
    (`asOf`, `periodId`; see API Contracts) before querying, both
    exporting `openApi`.
-5. Add the "Balance" panel to the existing `accounts/[id]/page.tsx`.
-6. Implement `backend/ledger/reports/trial-balance/page.tsx`
+6. Add the "Balance" panel to the existing `accounts/[id]/page.tsx`.
+7. Implement `backend/ledger/reports/trial-balance/page.tsx`
    (page-owned `apiCallOrThrow` loading plus `periodId`/`page`/`pageSize`
    state, loading/error/empty states, a flat `DataTable` sorted by
-   account code with the response's `rows` and pagination, the period
+   account number with the response's `rows` and pagination, the period
    picker, and the `<StatusBadge>` summary rendered from the same
    response — no hierarchy-depth indentation in Phase 1).
-7. Add `ledger.reports.*` keys to `i18n/en.json` and `i18n/pl.json`
+8. Add `ledger.reports.*` keys to `i18n/en.json` and `i18n/pl.json`
    (see Internationalization).
-8. Integration tests for both routes (400 on a malformed `asOf`/
+9. Integration tests for both routes (400 on a malformed `asOf`/
    `periodId`, 403 without the feature, 404 on a foreign-tenant id, 200
    with correct figures) per root `AGENTS.md:164`.
 
@@ -903,7 +933,12 @@ top of the live query.
 |------|--------|---------|
 | `acl.ts` | Modify | Add `ledger.reports.view` |
 | `setup.ts` | Modify | Add `ledger.reports.view` to `employee`'s `defaultRoleFeatures` |
-| `queries/getAccountBalance.ts` | Create | Recursive, `normalBalance`-signed balance-as-of-date |
+| `data/entities.ts` | Modify | Add nullable `LedgerAccount.parentAccountId` plus the `(organization_id, parent_account_id)` index |
+| `data/validators.ts` | Modify | Validate the optional `parentAccountId` (same tenant/organization, acyclic) |
+| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Modify/Create | Add the `parent_account_id` column and index (additive only, no backfill) |
+| `commands/ledgerAccounts.ts` | Modify | Persist/clear `parentAccountId` with cycle prevention in `createLedgerAccount`/`updateLedgerAccount` |
+| `api/accounts/route.ts` | Modify | Accept and return `parentAccountId` in the account CRUD fields |
+| `queries/getAccountBalance.ts` | Create | Recursive, `normalBalance`-signed balance as of an `operationDate` |
 | `queries/getTrialBalance.ts` | Create | Per-account opening/turnover/YTD/closing rows + zero-sum check |
 | `api/accounts/[id]/balance/route.ts` | Create | `GET .../balance`, `metadata` + `openApi` export |
 | `api/reports/trial-balance/route.ts` | Create | `GET .../trial-balance`, `metadata` + `openApi` export, `page`/`pageSize` pagination |
@@ -950,7 +985,7 @@ top of the live query.
   `CREDIT`-normal), and `zeroSumCheck === true`.
 - Assert `zeroSumCheck` is computed as `SUM(JournalEntryLine.debit) -
   SUM(JournalEntryLine.credit)` directly (organization/tenant-scoped,
-  `posted_at < periodEnd + 1 day` (UTC)) and is independent of `rows`
+  `operation_date < periodEnd + 1 day` (UTC)) and is independent of `rows`
   — a ZSiO
   requested with `pageSize=1` returns the same `zeroSumCheck` value as
   one requested with `pageSize=100` (Design decisions, "`zeroSumCheck`
@@ -991,6 +1026,20 @@ top of the live query.
   Contracts).
 - Assert the balance route's `asOf` default (today) matches an
   explicit `asOf=<today's date>` call.
+- Late-entry regression across a month and a year boundary: post an
+  entry with `operationDate` on January 31 but `postedAt` on February 2,
+  then assert it is included in January's ZSiO (period and YTD) and
+  excluded from February's, matching #5663's journal membership
+  (Design decisions, "Every fiscal-period boundary here...").
+- Parent-column migration and validation: `parent_account_id` starts
+  `NULL` for every existing account; `createLedgerAccount`/
+  `updateLedgerAccount` accept a same-tenant parent, reject a
+  cross-tenant parent, and reject a self/descendant parent (a cycle);
+  the `(organization_id, parent_account_id)` index serves the CTE.
+- Availability: issue more concurrent report requests than the
+  per-user cap from one tenant and assert the excess receives `429`
+  while another tenant's request still completes; force a slow query
+  and assert the deadline returns `503` and releases the connection.
 - Post a year-end `CLOSING` entry that zeroes a revenue account (debit
   equal to its full-year credit balance) and assert: the account's
   `getAccountBalance` as of period end is `0`; the ZSiO row's
@@ -1011,6 +1060,18 @@ top of the live query.
   the concrete regression test for Design decisions,
   "`getTrialBalance` computes every account's row in one set-based
   pass."
+- Integration (UI), self-contained Playwright scenarios required with
+  the eventual implementation (not shipped in this design-only PR):
+  - trial-balance page — changing the fiscal period reloads the report
+    and resets `page` to 1; paging advances via `page`/`pageSize` while
+    keeping the period; account number, opening/period/YTD/closing
+    figures and the zero-sum `<StatusBadge>` all render from the same
+    response; loading, error and empty states show; a user without
+    `ledger.reports.view` gets the forbidden state.
+  - account page Balance panel — the as-of date control refetches
+    `GET /api/ledger/accounts/:id/balance` and renders the base and
+    (when present) account-currency figures with the panel's
+    loading/error states.
 
 ## Risks & Impact Review
 
@@ -1021,10 +1082,11 @@ cyclic `parentAccountId` chain.**
 - Scenario: an account hierarchy is accidentally made cyclic (A →
   parent B → parent A) through a bug or direct database edit, or a
   chain is deep enough to hit a query planner limit.
-- Severity: Low — `parentAccountId` has no active guard yet against
-  re-parenting (#5663's own Design decisions leave that guard's
-  trigger condition "intentionally left open" until a real reader
-  exists); this document is exactly that first real reader.
+- Severity: Low — this document adds the write-time parent/cycle
+  validation (Data Models) that #5663 left open until a real reader
+  existed, so new cycles are rejected at write time; only a direct
+  database edit can still create one, and the read-time guard below
+  bounds it.
 - Affected area: `getAccountBalance`/`getTrialBalance` for the
   affected subtree only — no write-path impact, no ledger corruption.
 - Mitigation: this document's own `WITH RECURSIVE` query needs a
@@ -1060,20 +1122,50 @@ or the balance panel.**
   independent of it.
 - Affected area: this document's two routes and the reports page only
   — `postJournalEntry` and every other write path are untouched.
-- Mitigation: `(organization_id, account_id)` on `journal_entry_line`
-  and `(organization_id, posted_at)` on `journal_entry` are specified
-  in #5663's own migration (Prerequisites) — two different tables,
-  not one: the access path is `journal_entry_line` filtered by
+- Mitigation: `(organization_id, account_id)` on `journal_entry_lines`
+  and `(organization_id, operation_date)` on `journal_entries`
+  (`journal_entries_operation_date_idx`) are specified in #5663's own
+  migration (Prerequisites) — two different tables, not one: the
+  access path is `journal_entry_line` filtered by
   `(organization_id, account_id)`, joined to `journal_entry` by
-  primary key, then filtered by `posted_at` (Proposed Solution). Both
-  indexes directly serve that path once #5663 ships; no new index is
-  required on top of it. Both
-  routes log query duration; a duration alert threshold is an
-  operational config value (not a code change) so it can be tuned
-  without a follow-up spec.
+  primary key, then filtered by `operation_date` (Proposed Solution).
+  Both indexes directly serve that path once #5663 ships; the only new
+  index this document needs is `(organization_id,
+  parent_account_id)` for the parent rollup (Data Models). Both routes
+  log query duration; a duration alert threshold is an operational
+  config value (not a code change) so it can be tuned without a
+  follow-up spec, and both are bounded by the availability controls
+  below.
 - Residual risk: real production measurement may show this needs a
   materialized/cached balance table later (Phase 2) — an additive
   change behind the same function signatures, not a redesign.
+
+### Availability controls
+
+**A report query must not let one tenant monopolize shared database
+capacity (security review, 2026-11-16).** Phase 1 keeps the live query
+(Design decisions, "Live query..."), so both routes enforce:
+
+- **Per-user and per-organization concurrency caps** on the two report
+  routes (default 2 concurrent report queries per user, 8 per
+  organization; a config value), returning `429 Too Many Requests` with
+  `Retry-After` when exceeded.
+- **An enforced query deadline** (a server-side statement timeout,
+  default 5 s) that aborts the query and returns `503` with
+  `{ error: 'report_timeout' }`; above the supported live-query budget
+  the request fails with that response rather than falling back to an
+  unbounded scan or a stale cache.
+- **Documented budget** in both routes' `openApi` and their API
+  Contracts (`429`/`503`), with the UI rendering the error state via
+  `ErrorMessage` instead of a spinner.
+- **Load/timeout coverage**: a concurrency test issuing more than the
+  per-user cap from one tenant asserts the excess receives `429` while
+  another tenant's request still completes, and a forced-slow-query
+  test asserts the deadline returns `503` and releases the connection.
+
+A fresh security review is required after this revision; the finding
+was raised by the security scan on the carried head and is inherited
+here.
 
 ### Tenant & data isolation
 
@@ -1084,8 +1176,14 @@ this document adds no new isolation surface to reason about.
 
 ### Migration & deployment
 
-None — no schema change, purely additive routes and a query layer over
-existing, already-migrated tables.
+One additive migration (Data Models): add the nullable
+`ledger_accounts.parent_account_id` column with `ON DELETE SET NULL` and
+the `(organization_id, parent_account_id)` index. No backfill (existing
+rows are roots) and no data rewrite; the routes and query layer are
+otherwise additive over #5663's already-migrated tables. Because the
+column is nullable with a `NULL` default and nothing is renamed or
+removed, this stays inside `BACKWARD_COMPATIBILITY.md`'s additive
+category.
 
 ## Out of scope (tracked separately)
 
@@ -1100,7 +1198,7 @@ existing, already-migrated tables.
 - **Visual indentation of syntetyk/analityk rows by hierarchy depth in
   the ZSiO table** — `DataTable` has no tree/indentation rendering
   today (Architecture → Backend Pages); Phase 1 ships a flat table
-  sorted by account code instead. Adding depth-based indentation is a
+  sorted by account number instead. Adding depth-based indentation is a
   `packages/ui` `DataTable` extension, scoped as its own future piece
   of work once a real need for it is confirmed.
 - **Materialized/cached balance table** — only if real measurement
@@ -1160,7 +1258,7 @@ existing, already-migrated tables.
 
 | Rule Source | Rule | Status | Notes |
 | --- | --- | --- | --- |
-| `AGENTS.md` | No direct ORM relationships between modules | Compliant | No new entities; existing FK-id columns (`accountId`, `parentAccountId`) are read, not related to across modules |
+| `AGENTS.md` | No direct ORM relationships between modules | Compliant | One additive nullable `parentAccountId` column on `LedgerAccount`; no new entities and no cross-module ORM relationship (FK id only) |
 | `AGENTS.md` | Filter by tenant/organization | Compliant | Both queries filter every table by `tenant_id`/`organization_id` — see Data Models, Risks |
 | `AGENTS.md` | Write operations via Command pattern | N/A | This document adds no write operations — see Architecture → Queries, which explains why these are queries, not commands |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | Both new routes export `openApi`; `api/openapi.ts` updated (File Manifest) |
@@ -1474,5 +1572,17 @@ Addressed the 2026-11-09 CHANGES REQUESTED re-review on the carried-forward bran
 - **Major — journal reconciliation double-counted descendants** — the art. 18 reconciliation population is now the **root rows** (`parentAccountId = null`, collected across every page) under a validated acyclic, complete tree instead of every row; direct parent postings are supported, so leaves-only is not a valid population. The regression test now asserts the root-row sum against an independent `JournalEntryLine` aggregate and adds the parent-plus-child counterexample (`130-1` under `130`; all-rows debit 200 vs journal 100).
 - **Major — `DataTable` does not own route fetching or pagination** — Backend Pages now specifies a page-owned `apiCallOrThrow` load with `periodId`/`page`/`pageSize` state, loading/error/empty states, and a controlled `pagination` object; the page keeps the response, passes `columns`/`data`/`pagination` to `DataTable`, and renders `zeroSumCheck` from that same response. No `apiPath` prop, no shared-component extension, no extra summary request.
 - **Minor — implementation step and test parameters contradicted the revised scope** — step 6 now specifies the flat, code-sorted table (no hierarchy-depth indentation) and the zero-sum pagination regression uses `pageSize=1`/`pageSize=100`, matching the route's validated `pageSize`.
+
+The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and is not part of Phase 1.
+
+
+### 2026-11-16b — PR #9722 re-review response (pkarw, `om-auto-fix-pr` carry)
+
+Addressed the 2026-11-16 CHANGES REQUESTED review on the carried head:
+
+- **Critical — align the hierarchy schema with current #5663** — #5663 removed `LedgerAccount.parentAccountId` on 2026-10-12 and renamed `slug` to `number` (`description` is the display name). Data Models now owns the additive nullable `parentAccountId` column (FK, index, write-time parent/cycle validation, entity/validator/command/API edits, no backfill), the File Manifest and Implementation Plan list those files, and reads/ordering use `number`/`description`. The root-row reconciliation regression stays.
+- **High — use the accounting date for fiscal-period reporting** — every `asOf`/`periodStart`/`periodEnd` predicate (and the independent `zeroSumCheck` aggregate) now filters on `operation_date`, matching #5663's lock/`periodId` semantics; `postedAt` is recording time only. Added a late-entry regression across a month/year boundary.
+- **Medium (inherited security) — bound report work before broad access** — added the Availability controls: per-user/per-organization concurrency caps (`429`), an enforced query deadline (`503 { error: 'report_timeout' }`), documented budget, and load/timeout coverage. A fresh security review is requested after this revision.
+- **Medium — plan integration coverage for both UI paths** — Testing Strategy now requires self-contained Playwright scenarios for the trial-balance page (period change resets page, pagination, figures/badge from the same response, loading/error/empty, feature gating) and the account balance panel; they ship with the eventual implementation, not this design-only PR.
 
 The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and is not part of Phase 1.
