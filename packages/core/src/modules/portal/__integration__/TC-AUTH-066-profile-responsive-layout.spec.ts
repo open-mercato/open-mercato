@@ -27,7 +27,8 @@ test('TC-AUTH-066: portal profile keeps long values and badges inside the viewpo
       { name: 'customer_session_token', value: session.sessionToken, url: baseURL },
     ])
     await page.goto(`/${orgSlug}/portal/profile`, { waitUntil: 'domcontentloaded' })
-    const email = page.getByText(user.email, { exact: true })
+    const email = page.getByRole('main').getByText(user.email, { exact: true })
+    await expect(email).toHaveCount(1)
     await expect(email).toBeVisible()
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: 844 })
