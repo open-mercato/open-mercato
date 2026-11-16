@@ -666,3 +666,12 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+
+## 2026-11-16 — Relation option read authority (#9106)
+
+**Surface:** STABLE relation-option authorization and label-selection behavior, and default query-engine handling of global base tables. URLs, request field names, response shapes, public signatures and query option types remain unchanged.
+
+Arbitrary client-selected system columns and metadata-only reads are the disclosure itself. A bridge accepting those requests would continue exposing secrets and cross-tenant rows, so this correction requests the Emergency Security Exception for steps 1–3. Intentional trusted global queries retain the existing explicit scope opt-out, which is never exposed as a request parameter.
+
+**Migration:** clients use declared labels and hold the target's existing view grant. Module authors explicitly scope trusted global queries; operators review affected roles and audit suspicious reads. See [UPGRADE_NOTES](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106) and [the spec](.ai/specs/2026-11-16-relation-options-query-scope.md#migration--backward-compatibility). Named human-maintainer acknowledgment remains a merge prerequisite and is not granted by automation.

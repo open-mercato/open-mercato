@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Relation options and explicit global query scope (#9106)
+
+Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized scoped custom labels and declared module labels remain available; metadata permission alone no longer grants system-record access.
+
+Module authors querying a table with neither `tenant_id` nor `organization_id` must explicitly use the existing trusted `omitAutomaticTenantOrgScope: true` option and enforce their own visibility filters. Never bind that option to a request parameter. Operators should review metadata-only roles that relied on excessive access and audit unintended secret or cross-tenant reads. No persisted data, migrations, startup options or configuration formats change. The security exception needs named human-maintainer acknowledgment before merge; automation does not supply it. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
+
 ## Event-triggered workflow execution identity (#9137)
 
 Event payload `userId` and `actorUserId` remain data and no longer supply
