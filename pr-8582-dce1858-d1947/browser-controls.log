@@ -1,0 +1,259 @@
+
+Running 5 tests using 1 worker
+
+(node:3682546) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+- main:
+  - heading "Customer Portal" [level=3]
+  - paragraph: Manage customer portal accounts. Customers can self-register, log in, and access orders, quotes, and invoices through the portal.
+  - paragraph: "Portal URL: http://127.0.0.1:5001/[org-slug]/portal"
+  - link "Open Configuration":
+    - /url: /backend/customer_accounts/settings
+  - link "Open Portal":
+    - /url: http://127.0.0.1:5001/acme-corp/portal
+  - heading "Users" [level=1]
+  - button "Create User"
+  - searchbox "Search by name or email..."
+  - button "Filters"
+  - status "Loading": Loading...
+  - text: Loading table…
+- dialog "Create Customer User":
+  - button "Close"
+  - heading "Create Customer User" [level=2]
+  - text: Email
+  - textbox "Email":
+    - /placeholder: user@example.com
+  - text: Display Name
+  - textbox "Display Name":
+    - /placeholder: John Doe
+  - text: Password
+  - textbox "Password":
+    - /placeholder: Min. 8 characters
+  - button "Show password"
+  - text: Organization
+  - combobox "Organization" [disabled]:
+    - option "Current organization" [selected]
+  - paragraph: Roles
+  - status "Loading": Loading...
+  - text: Loading roles...
+  - button "Cancel"
+  - button "Create User"
+  ✓  1 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/admin-create.spec.cjs:2:1 › admin create weak refusal and editable compliant retry (12.3s)
+  ✓  2 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/boundaries.spec.cjs:2:1 › customer detail loading and server-error boundaries (2.0s)
+  ✘  3 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/permissions.spec.cjs:2:1 › view-only staff no security affordances and direct refusal preserves record (92ms)
+(node:3682820) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  4 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/permissions.spec.cjs:2:1 › view-only staff no security affordances and direct refusal preserves record (retry #1) (71ms)
+(node:3682897) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  5 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/stale.spec.cjs:2:1 › two actors stale write preserves second actor change (21.9s)
+(node:3683128) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  6 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/stale.spec.cjs:2:1 › two actors stale write preserves second actor change (retry #1) (25.6s)
+(node:3683341) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+customer_accounts.* - main:
+  - link "Back to list":
+    - /url: /backend/customer_accounts/users
+  - heading "QA Long Profile Display Name abcdefghijklmnopqrstuvwxyz" [level=1]
+  - paragraph: qa-long-profile-user-73585052575711-abcdefghijklmnopqrstuvwxyz0123456789@test.local
+  - button "Delete"
+  - heading "Customer Portal Access" [level=3]
+  - paragraph: This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.
+  - paragraph: "Portal URL: http://127.0.0.1:5001/[org-slug]/portal"
+  - heading "User Information" [level=2]
+  - term: Email
+  - definition: qa-long-profile-user-73585052575711-abcdefghijklmnopqrstuvwxyz0123456789@test.local
+  - term: Email Verified
+  - definition: "Yes"
+  - term: Last Login
+  - definition: 11/16/2026, 5:13:17 PM
+  - term: Created
+  - definition: 11/16/2026, 5:05:57 PM
+  - heading "CRM Links" [level=2]
+  - paragraph: Person
+  - textbox "Search people by name..."
+  - paragraph: Company
+  - textbox "Search companies by name..."
+  - paragraph: Changes to CRM links are saved when you click Save Changes below.
+  - heading "Account Settings" [level=2]
+  - text: Display Name
+  - textbox "Display Name": QA Long Profile Display Name abcdefghijklmnopqrstuvwxyz
+  - text: Active
+  - switch "Active" [checked]
+  - paragraph: Roles
+  - button "Portal Admin"
+  - button "Buyer"
+  - button "Viewer"
+  - button "QA Profile 901e01e1890334"
+  - button "QA invite 80e592bc"
+  - button "QA invite be6f7e39"
+  - button "Save Changes"
+  - heading "Security" [level=2]
+  - button "Reset Password"
+  - button "Send Reset Link"
+  - heading "Active Sessions(1)" [level=2]
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 5:13:17 PM"
+  - button "Revoke"
+* - main:
+  - link "Back to list":
+    - /url: /backend/customer_accounts/users
+  - heading "QA Long Profile Display Name abcdefghijklmnopqrstuvwxyz" [level=1]
+  - paragraph: qa-long-profile-user-73585052575711-abcdefghijklmnopqrstuvwxyz0123456789@test.local
+  - button "Delete"
+  - heading "Customer Portal Access" [level=3]
+  - paragraph: This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.
+  - paragraph: "Portal URL: http://127.0.0.1:5001/[org-slug]/portal"
+  - heading "User Information" [level=2]
+  - term: Email
+  - definition: qa-long-profile-user-73585052575711-abcdefghijklmnopqrstuvwxyz0123456789@test.local
+  - term: Email Verified
+  - definition: "Yes"
+  - term: Last Login
+  - definition: 11/16/2026, 5:13:17 PM
+  - term: Created
+  - definition: 11/16/2026, 5:05:57 PM
+  - heading "CRM Links" [level=2]
+  - paragraph: Person
+  - textbox "Search people by name..."
+  - paragraph: Company
+  - textbox "Search companies by name..."
+  - paragraph: Changes to CRM links are saved when you click Save Changes below.
+  - heading "Account Settings" [level=2]
+  - text: Display Name
+  - textbox "Display Name": QA Long Profile Display Name abcdefghijklmnopqrstuvwxyz
+  - text: Active
+  - switch "Active" [checked]
+  - paragraph: Roles
+  - button "Portal Admin"
+  - button "Buyer"
+  - button "Viewer"
+  - button "QA Profile 901e01e1890334"
+  - button "QA invite 80e592bc"
+  - button "QA invite be6f7e39"
+  - button "Save Changes"
+  - heading "Security" [level=2]
+  - button "Reset Password"
+  - button "Send Reset Link"
+  - heading "Active Sessions(1)" [level=2]
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 5:13:17 PM"
+  - button "Revoke"
+  ✓  7 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/wildcards.spec.cjs:2:1 › module and global wildcard manager controls (3.1s)
+
+
+  1) ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/permissions.spec.cjs:2:1 › view-only staff no security affordances and direct refusal preserves record 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 200
+    Received: 403
+
+      1 | const {test,expect}=require(process.cwd()+'/node_modules/@playwright/test');const fs=require('fs');const {req,check,stateFile}=require(process.cwd()+'/.ai/scripts/test-env-qa-api.cjs');
+    > 2 | test('view-only staff no security affordances and direct refusal preserves record',async({browser})=>{const s=JSON.parse(fs.readFileSync(stateFile));const before=check(await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin),200);expect((await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.viewToken)).status).toBe(200);for(const kind of ['view','manager']){const c=await browser.newContext();try{await c.addCookies([{name:'auth_token',value:s[kind+'Token'],url:s.base},{name:'om_selected_org',value:s.claims.orgId,url:s.base}]);const p=await c.newPage();await p.goto('/backend/customer_accounts/users/'+s.user.id);console.log(kind,await p.getByRole('main').ariaSnapshot());if(kind==='view'){await expect(p.getByRole('main')).toContainText(s.user.email);for(const name of ['Reset Password','Send Reset Link','Revoke All Sessions','Revoke'])await expect(p.getByRole('button',{name,exact:true})).toHaveCount(0);await expect(p.getByRole('dialog')).toHaveCount(0)}else{await expect(p.getByRole('button',{name:'Reset Password',exact:true})).toBeVisible();await expect(p.getByRole('button',{name:'Send Reset Link',exact:true})).toBeVisible()}await p.screenshot({path:process.env.CEZ_ARTIFACTS_DIR+'/staff-'+kind+'.png',fullPage:true})}finally{await c.close()}}expect((await req('/api/customer_accounts/admin/users/'+s.user.id+'/reset-password','POST',{newPassword:'Qa-Denied-Password-2026!'},s.viewToken)).status).toBe(403);expect(check(await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin),200)).toEqual(before);fs.writeFileSync(process.env.CEZ_ARTIFACTS_DIR+'/staff-permissions-results.json',JSON.stringify({read:200,directReset:403,unchanged:true,managerControls:true}))});
+        |                                                                                                                                                                                                                                                                                                                                                                         ^
+      3 |
+        at /home/pkarw/Projects/open-mercato/.ai/cezar/artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/permissions.spec.cjs:2:361
+
+    Error Context: ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/permissions-view-only-staf-01c36-ct-refusal-preserves-record/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 200
+    Received: 403
+
+      1 | const {test,expect}=require(process.cwd()+'/node_modules/@playwright/test');const fs=require('fs');const {req,check,stateFile}=require(process.cwd()+'/.ai/scripts/test-env-qa-api.cjs');
+    > 2 | test('view-only staff no security affordances and direct refusal preserves record',async({browser})=>{const s=JSON.parse(fs.readFileSync(stateFile));const before=check(await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin),200);expect((await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.viewToken)).status).toBe(200);for(const kind of ['view','manager']){const c=await browser.newContext();try{await c.addCookies([{name:'auth_token',value:s[kind+'Token'],url:s.base},{name:'om_selected_org',value:s.claims.orgId,url:s.base}]);const p=await c.newPage();await p.goto('/backend/customer_accounts/users/'+s.user.id);console.log(kind,await p.getByRole('main').ariaSnapshot());if(kind==='view'){await expect(p.getByRole('main')).toContainText(s.user.email);for(const name of ['Reset Password','Send Reset Link','Revoke All Sessions','Revoke'])await expect(p.getByRole('button',{name,exact:true})).toHaveCount(0);await expect(p.getByRole('dialog')).toHaveCount(0)}else{await expect(p.getByRole('button',{name:'Reset Password',exact:true})).toBeVisible();await expect(p.getByRole('button',{name:'Send Reset Link',exact:true})).toBeVisible()}await p.screenshot({path:process.env.CEZ_ARTIFACTS_DIR+'/staff-'+kind+'.png',fullPage:true})}finally{await c.close()}}expect((await req('/api/customer_accounts/admin/users/'+s.user.id+'/reset-password','POST',{newPassword:'Qa-Denied-Password-2026!'},s.viewToken)).status).toBe(403);expect(check(await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin),200)).toEqual(before);fs.writeFileSync(process.env.CEZ_ARTIFACTS_DIR+'/staff-permissions-results.json',JSON.stringify({read:200,directReset:403,unchanged:true,managerControls:true}))});
+        |                                                                                                                                                                                                                                                                                                                                                                         ^
+      3 |
+        at /home/pkarw/Projects/open-mercato/.ai/cezar/artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/permissions.spec.cjs:2:361
+
+    Error Context: ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/permissions-view-only-staf-01c36-ct-refusal-preserves-record-retry1/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/permissions-view-only-staf-01c36-ct-refusal-preserves-record-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/permissions-view-only-staf-01c36-ct-refusal-preserves-record-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/stale.spec.cjs:2:1 › two actors stale write preserves second actor change 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('textbox', { name: 'Display Name', exact: true })
+    Expected: visible
+    Timeout: 20000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for getByRole('textbox', { name: 'Display Name', exact: true })
+
+
+      1 | const {test,expect}=require(process.cwd()+'/node_modules/@playwright/test');const fs=require('fs');const root=process.cwd(),dir=process.env.CEZ_ARTIFACTS_DIR;const {req,stateFile}=require(root+'/.ai/scripts/test-env-qa-api.cjs');const s=JSON.parse(fs.readFileSync(stateFile));
+    > 2 | test('two actors stale write preserves second actor change',async({browser})=>{const a=await browser.newContext({storageState:root+'/.ai/qa/test-env.lock/staff-browser.json'});const b=await browser.newContext();try{await b.addCookies([{name:'auth_token',value:s.managerToken,url:s.base},{name:'om_selected_org',value:s.claims.orgId,url:s.base}]);const pa=await a.newPage(),pb=await b.newPage();const path='/backend/customer_accounts/users/'+s.user.id;await pa.goto(path);await expect(pa.getByRole('textbox',{name:'Display Name',exact:true})).toBeVisible();await pb.goto(path);await expect(pb.getByRole('textbox',{name:'Display Name',exact:true})).toBeVisible();await pb.getByRole('textbox',{name:'Display Name',exact:true}).fill('QA second actor saved');const saved=pb.waitForResponse(r=>r.url().endsWith('/api/customer_accounts/admin/users/'+s.user.id)&&r.request().method()==='PUT');await pb.getByRole('button',{name:'Save Changes',exact:true}).click();expect((await saved).status()).toBe(200);const before=(await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin)).body;
+        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ^
+      3 | await pa.getByRole('switch',{name:'Active',exact:true}).click();const stale=pa.waitForResponse(r=>r.url().endsWith('/api/customer_accounts/admin/users/'+s.user.id)&&r.request().method()==='PUT');await pa.getByRole('button',{name:'Save Changes',exact:true}).click();expect((await stale).status()).toBe(409);const after=(await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin)).body;expect(after).toEqual(before);await expect(pa.getByRole('button',{name:'Save Changes',exact:true})).toBeEnabled();const twice=pa.waitForResponse(r=>r.url().endsWith('/api/customer_accounts/admin/users/'+s.user.id)&&r.request().method()==='PUT');await pa.getByRole('button',{name:'Save Changes',exact:true}).click();expect((await twice).status()).toBe(409);expect((await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin)).body).toEqual(before);await pa.waitForTimeout(10000);await pa.evaluate(()=>window.scrollTo(0,0));fs.writeFileSync(dir+'/stale-write-results.json',JSON.stringify({actorBSave:200,actorAStaleSave:409,actorARepeatedStaleSave:409,settledTenSeconds:true,wholeRecordPreserved:true},null,2));await pa.screenshot({path:dir+'/stale-write-conflict.png',fullPage:true});fs.writeFileSync(dir+'/stale-write-snapshot.txt',await pa.getByRole('main').ariaSnapshot());}finally{await a.close();await b.close()}});
+      4 |
+        at /home/pkarw/Projects/open-mercato/.ai/cezar/artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/stale.spec.cjs:2:648
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/stale-two-actors-stale-write-preserves-second-actor-change/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/stale-two-actors-stale-write-preserves-second-actor-change/test-failed-2.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/stale-two-actors-stale-write-preserves-second-actor-change/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('textbox', { name: 'Display Name', exact: true })
+    Expected: visible
+    Timeout: 20000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 20000ms
+      - waiting for getByRole('textbox', { name: 'Display Name', exact: true })
+
+
+      1 | const {test,expect}=require(process.cwd()+'/node_modules/@playwright/test');const fs=require('fs');const root=process.cwd(),dir=process.env.CEZ_ARTIFACTS_DIR;const {req,stateFile}=require(root+'/.ai/scripts/test-env-qa-api.cjs');const s=JSON.parse(fs.readFileSync(stateFile));
+    > 2 | test('two actors stale write preserves second actor change',async({browser})=>{const a=await browser.newContext({storageState:root+'/.ai/qa/test-env.lock/staff-browser.json'});const b=await browser.newContext();try{await b.addCookies([{name:'auth_token',value:s.managerToken,url:s.base},{name:'om_selected_org',value:s.claims.orgId,url:s.base}]);const pa=await a.newPage(),pb=await b.newPage();const path='/backend/customer_accounts/users/'+s.user.id;await pa.goto(path);await expect(pa.getByRole('textbox',{name:'Display Name',exact:true})).toBeVisible();await pb.goto(path);await expect(pb.getByRole('textbox',{name:'Display Name',exact:true})).toBeVisible();await pb.getByRole('textbox',{name:'Display Name',exact:true}).fill('QA second actor saved');const saved=pb.waitForResponse(r=>r.url().endsWith('/api/customer_accounts/admin/users/'+s.user.id)&&r.request().method()==='PUT');await pb.getByRole('button',{name:'Save Changes',exact:true}).click();expect((await saved).status()).toBe(200);const before=(await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin)).body;
+        |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ^
+      3 | await pa.getByRole('switch',{name:'Active',exact:true}).click();const stale=pa.waitForResponse(r=>r.url().endsWith('/api/customer_accounts/admin/users/'+s.user.id)&&r.request().method()==='PUT');await pa.getByRole('button',{name:'Save Changes',exact:true}).click();expect((await stale).status()).toBe(409);const after=(await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin)).body;expect(after).toEqual(before);await expect(pa.getByRole('button',{name:'Save Changes',exact:true})).toBeEnabled();const twice=pa.waitForResponse(r=>r.url().endsWith('/api/customer_accounts/admin/users/'+s.user.id)&&r.request().method()==='PUT');await pa.getByRole('button',{name:'Save Changes',exact:true}).click();expect((await twice).status()).toBe(409);expect((await req('/api/customer_accounts/admin/users/'+s.user.id,'GET',undefined,s.admin)).body).toEqual(before);await pa.waitForTimeout(10000);await pa.evaluate(()=>window.scrollTo(0,0));fs.writeFileSync(dir+'/stale-write-results.json',JSON.stringify({actorBSave:200,actorAStaleSave:409,actorARepeatedStaleSave:409,settledTenSeconds:true,wholeRecordPreserved:true},null,2));await pa.screenshot({path:dir+'/stale-write-conflict.png',fullPage:true});fs.writeFileSync(dir+'/stale-write-snapshot.txt',await pa.getByRole('main').ariaSnapshot());}finally{await a.close();await b.close()}});
+      4 |
+        at /home/pkarw/Projects/open-mercato/.ai/cezar/artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/stale.spec.cjs:2:648
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/stale-two-actors-stale-write-preserves-second-actor-change-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/stale-two-actors-stale-write-preserves-second-actor-change-retry1/test-failed-2.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/stale-two-actors-stale-write-preserves-second-actor-change-retry1/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/stale-two-actors-stale-write-preserves-second-actor-change-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/output/stale-two-actors-stale-write-preserves-second-actor-change-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/permissions.spec.cjs:2:1 › view-only staff no security affordances and direct refusal preserves record 
+    ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/stale.spec.cjs:2:1 › two actors stale write preserves second actor change 
+  3 passed (1.2m)
