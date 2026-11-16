@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
@@ -10,7 +11,7 @@ import type { OAuthDisconnectResult } from '@open-mercato/core/modules/integrati
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { runDisconnectSteps, SKIPPED_DISCONNECT_STEPS } from '../../../lib/disconnect-steps'
 import { readGuardedPayload } from '../../../lib/guarded-payload'
-import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
+import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, type XeroHandlerContext } from '../../../lib/route-auth'
 import { xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
 import { resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../openapi'
@@ -36,10 +37,11 @@ async function disconnectFailureResponse(error: unknown): Promise<Response | nul
   return null
 }
 
-export async function POST(req: Request): Promise<Response> {
-  const authorized = await authorizeXeroRoute(req)
+export async function POST(req: Request, ctx?: XeroHandlerContext): Promise<Response> {
+  const container = await createRequestContainer()
+  const authorized = await authorizeXeroRoute(req, ctx?.auth, container)
   if (!authorized.ok) return authorized.response
-  const { container, scope, userId } = authorized.context
+  const { scope, userId } = authorized.context
 
   const body = bodySchema.safeParse((await readJsonSafe(req, {})) ?? {})
   if (!body.success) return xeroErrorResponse(400, 'invalid_request')

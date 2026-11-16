@@ -1,6 +1,6 @@
-import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { isExplicitlyEmptyOrganizationScope, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
-import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { XeroScope } from './owner'
 import { xeroErrorResponse } from './route-errors'
@@ -8,6 +8,8 @@ import { xeroErrorResponse } from './route-errors'
 export const CREDENTIALS_MANAGE_FEATURE = 'integrations.credentials.manage'
 
 export type AuthenticatedContext = Exclude<AuthContext, null>
+
+export type XeroHandlerContext = { params?: Record<string, string | string[]>; auth?: AuthContext }
 
 export type RbacFeatureChecker = {
   userHasAllFeatures(
@@ -49,20 +51,21 @@ export async function userHoldsFeatures(
 }
 
 /**
- * The core route contract's rule 1, in its order: a super admin acting in another tenant, an
- * explicitly empty organization scope, the active organization, then `features` in that organization.
+ * The core route contract's rule 1, in its order, on the dispatcher's `auth` and the handler's
+ * request container: a super admin acting in another tenant, an explicitly empty organization
+ * scope, the active organization, then `features` in that organization.
  */
 export async function authorizeXeroRoute(
   req: Request,
+  auth: AuthContext | undefined,
+  container: AppContainer,
   features: string[] = [CREDENTIALS_MANAGE_FEATURE],
 ): Promise<XeroRouteAuthResult> {
-  const auth = await getAuthFromRequest(req)
   if (!auth?.sub) return { ok: false, response: await xeroErrorResponse(401, 'unauthorized') }
   const tenantId = normalizeId(auth.tenantId)
   if (!tenantId) return { ok: false, response: await xeroErrorResponse(400, 'organization_scope_required') }
   if (actsInAnotherTenant(auth)) return { ok: false, response: await xeroErrorResponse(403, 'forbidden') }
 
-  const container = await createRequestContainer()
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   if (isExplicitlyEmptyOrganizationScope(organizationScope)) return { ok: false, response: await xeroErrorResponse(403, 'forbidden') }
   const organizationId = resolveActiveOrganizationId(auth)

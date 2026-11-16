@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import type { SyncScheduleService } from '@open-mercato/core/modules/data_sync/lib/sync-schedule-service'
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
 import { resolveOAuthRedirectUri } from '@open-mercato/core/modules/integrations/lib/oauth/redirect'
 import { toXeroGrantView } from '../../../lib/connection-status'
 import { XERO_CALLBACK_PATH } from '../../../lib/constants'
-import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, userHoldsFeatures } from '../../../lib/route-auth'
+import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, userHoldsFeatures, type XeroHandlerContext } from '../../../lib/route-auth'
 import { seamFailureResponse } from '../../../lib/route-errors'
 import { resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
 import { listXeroSchedules } from '../../../lib/schedules'
@@ -30,10 +31,11 @@ function displayRedirectUri(): string | null {
   }
 }
 
-export async function GET(req: Request): Promise<Response> {
-  const authorized = await authorizeXeroRoute(req, [VIEW_FEATURE])
+export async function GET(req: Request, ctx?: XeroHandlerContext): Promise<Response> {
+  const container = await createRequestContainer()
+  const authorized = await authorizeXeroRoute(req, ctx?.auth, container, [VIEW_FEATURE])
   if (!authorized.ok) return authorized.response
-  const { container, scope, userId } = authorized.context
+  const { scope, userId } = authorized.context
 
   let grant: XeroRouteGrant
   try {

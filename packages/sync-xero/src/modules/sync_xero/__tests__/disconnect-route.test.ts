@@ -1,17 +1,13 @@
 /** @jest-environment node */
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { createFakeGrantService, type FakeGrantService } from './support/fakeGrantService'
 import { createFakeContainer } from './support/fakeContainer'
 
-const mockGetAuthFromRequest = jest.fn()
 const mockCreateRequestContainer = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
 const mockReportError = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
-}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
@@ -29,7 +25,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 
-import { POST as disconnect, metadata } from '../api/post/disconnect/route'
+import { POST as disconnectRoute, metadata } from '../api/post/disconnect/route'
+
+let currentAuth: AuthContext | undefined
+const disconnect = (req: Request) => disconnectRoute(req, { auth: currentAuth })
 
 const USER_ID = 'user-1'
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -121,7 +120,7 @@ beforeEach(() => {
   runHealthCheck.mockResolvedValue({ status: 'unhealthy' })
   upsertState.mockResolvedValue({ isEnabled: false })
   saveCredentials.mockResolvedValue(undefined)
-  mockGetAuthFromRequest.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID })
+  currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID }
   mockCreateRequestContainer.mockImplementation(async () => buildContainer())
   mockResolveOrganizationScope.mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID], allowedIds: null, tenantId: TENANT_ID })
 })
@@ -133,6 +132,20 @@ afterAll(() => {
 describe('POST /api/sync_xero/disconnect', () => {
   it('requires integrations.credentials.manage', () => {
     expect(metadata).toEqual({ path: '/sync_xero/disconnect', POST: { requireAuth: true, requireFeatures: ['integrations.credentials.manage'] } })
+  })
+
+  it('answers 401 when the dispatcher passes no auth, without touching the grant', async () => {
+    const response = await disconnectRoute(request({}, currentRevision()))
+    expect(response.status).toBe(401)
+    expect(await json(response)).toMatchObject({ code: 'unauthorized' })
+    expect(grants.calls).toEqual([])
+  })
+
+  it('creates one request container per request and authorizes against it', async () => {
+    const response = await disconnect(request({}, currentRevision()))
+    expect(response.status).toBe(200)
+    expect(mockCreateRequestContainer).toHaveBeenCalledTimes(1)
+    expect(mockResolveOrganizationScope).toHaveBeenCalledWith(expect.objectContaining({ container: await mockCreateRequestContainer.mock.results[0].value }))
   })
 
   it('erases and revokes the grant, runs one health check and disables the integration', async () => {

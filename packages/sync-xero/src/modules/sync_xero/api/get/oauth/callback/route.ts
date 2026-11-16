@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
@@ -41,7 +41,7 @@ import { autoSelectOrganisation, hasXeroSyncHistory, xeroProviderDataGuardPayloa
 import { buildXeroGrantOwner, type XeroScope } from '../../../../lib/owner'
 import { ensureXeroFieldDefinitionsAfterSave } from '../../../../lib/field-definitions'
 import { ensureDefaultSchedules } from '../../../../lib/schedules'
-import { CREDENTIALS_MANAGE_FEATURE, userHoldsFeatures } from '../../../../lib/route-auth'
+import { CREDENTIALS_MANAGE_FEATURE, userHoldsFeatures, type XeroHandlerContext } from '../../../../lib/route-auth'
 import { clearXeroStateCookie, readXeroStateCookie } from '../../../../lib/state-cookie'
 import { XERO_OPENAPI_TAG } from '../../../openapi'
 
@@ -118,7 +118,7 @@ async function verifyState(
   return { payload, scope, extra: extra.data }
 }
 
-async function completeCallback(req: Request): Promise<XeroCallbackResult> {
+async function completeCallback(req: Request, auth: AuthContext | undefined): Promise<XeroCallbackResult> {
   const url = new URL(req.url)
   const providerError = url.searchParams.get('error')
   if (providerError) return providerError === 'access_denied' ? 'connect_cancelled' : 'connect_failed'
@@ -126,7 +126,6 @@ async function completeCallback(req: Request): Promise<XeroCallbackResult> {
   const stateParam = url.searchParams.get('state')
   if (!code || !stateParam) return 'connect_state_invalid'
 
-  const auth = await getAuthFromRequest(req)
   if (!auth?.sub) return 'connect_state_invalid'
   const container = await createRequestContainer()
   const verified = await verifyState(req, container, auth.sub, auth.tenantId, stateParam)
@@ -199,10 +198,10 @@ async function completeCallback(req: Request): Promise<XeroCallbackResult> {
   })
 }
 
-export async function GET(req: Request): Promise<Response> {
+export async function GET(req: Request, ctx?: XeroHandlerContext): Promise<Response> {
   let result: XeroCallbackResult
   try {
-    result = await completeCallback(req)
+    result = await completeCallback(req, ctx?.auth)
   } catch (error) {
     if (error instanceof OAuthGrantError) {
       result = toCallbackResult(error.code)

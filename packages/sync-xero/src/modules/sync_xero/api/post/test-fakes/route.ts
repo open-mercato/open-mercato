@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND, XERO_INTEGRATION_ID } from '../../../lib/constants'
 import { grantActionGuardPayloadSchema, readGuardedPayload } from '../../../lib/guarded-payload'
-import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
+import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, type XeroHandlerContext } from '../../../lib/route-auth'
 import { isXeroSeamEnabled } from '../../../lib/testing/seam'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../openapi'
 
@@ -24,13 +25,14 @@ function notFound(): Response {
   return NextResponse.json({ error: 'Not found' }, { status: 404 })
 }
 
-export async function POST(req: Request): Promise<Response> {
+export async function POST(req: Request, ctx?: XeroHandlerContext): Promise<Response> {
   if (!isXeroSeamEnabled()) return notFound()
   const control = await import('../../../lib/testing/seam-control')
 
-  const authorized = await authorizeXeroRoute(req)
+  const container = await createRequestContainer()
+  const authorized = await authorizeXeroRoute(req, ctx?.auth, container)
   if (!authorized.ok) return authorized.response
-  const { container, scope, userId } = authorized.context
+  const { scope, userId } = authorized.context
 
   const parsed = control.seamActionSchema.safeParse(await readJsonSafe(req, null))
   if (!parsed.success) return NextResponse.json({ error: 'Invalid request body', code: 'invalid_request' }, { status: 400 })

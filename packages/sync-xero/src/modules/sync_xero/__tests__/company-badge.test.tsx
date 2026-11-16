@@ -7,9 +7,14 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import enDict from '../i18n/en.json'
 
 const mockApiCall = jest.fn()
+const mockReportError = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
 import XeroCompanyBadgeWidget from '../widgets/injection/company-badge/widget.client'
@@ -25,6 +30,7 @@ function render(companyId: string | null = COMPANY_ID) {
 
 beforeEach(() => {
   mockApiCall.mockReset()
+  mockReportError.mockReset()
 })
 
 describe('Xero Company badge', () => {
@@ -63,10 +69,12 @@ describe('Xero Company badge', () => {
     await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
     expect(failed.container.innerHTML).toBe('')
     failed.unmount()
+    expect(mockReportError).not.toHaveBeenCalled()
 
     mockApiCall.mockRejectedValue(new Error('network'))
     const rejected = render()
     await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(mockReportError).toHaveBeenCalledWith(expect.any(Error), { module: 'sync_xero', code: 'sync_xero.company_badge_load_failed' }))
     expect(rejected.container.innerHTML).toBe('')
     rejected.unmount()
 

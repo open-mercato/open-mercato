@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { listAllOrganisations, listConsentOrganisations } from '../../../lib/connections'
 import { parseXeroProviderData } from '../../../lib/provider-data'
-import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
+import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, type XeroHandlerContext } from '../../../lib/route-auth'
 import { interactiveFailureResponse, xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
 import { createInteractiveXeroClient, grantSelection, loadPreviousOrganisations, resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors } from '../../openapi'
@@ -15,10 +16,11 @@ export const metadata = {
 
 const querySchema = z.object({ scope: z.enum(['consent', 'all']).default('consent') })
 
-export async function GET(req: Request): Promise<Response> {
-  const authorized = await authorizeXeroRoute(req)
+export async function GET(req: Request, ctx?: XeroHandlerContext): Promise<Response> {
+  const container = await createRequestContainer()
+  const authorized = await authorizeXeroRoute(req, ctx?.auth, container)
   if (!authorized.ok) return authorized.response
-  const { container, scope } = authorized.context
+  const { scope } = authorized.context
 
   const query = querySchema.safeParse({ scope: new URL(req.url).searchParams.get('scope') ?? undefined })
   if (!query.success) return xeroErrorResponse(400, 'invalid_request')

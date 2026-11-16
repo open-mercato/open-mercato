@@ -5,7 +5,7 @@ import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entiti
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
 import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
@@ -21,7 +21,7 @@ export const metadata = {
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
-type RouteContext = { params?: { id?: string } | Promise<{ id?: string }> }
+type RouteContext = { params?: { id?: string } | Promise<{ id?: string }>; auth?: AuthContext }
 
 /**
  * The Company badge's link: the Company's `sync_xero` mapping, as a Xero deep link and the date the
@@ -31,7 +31,7 @@ type RouteContext = { params?: { id?: string } | Promise<{ id?: string }> }
 export async function GET(req: Request, context: RouteContext): Promise<Response> {
   const params = paramsSchema.safeParse(await context.params)
   if (!params.success) return xeroErrorResponse(400, 'invalid_request')
-  const auth = await getAuthFromRequest(req)
+  const auth = context.auth
   if (!auth) return xeroErrorResponse(401, 'unauthorized')
   if (!auth.tenantId) return xeroErrorResponse(400, 'organization_scope_required')
 

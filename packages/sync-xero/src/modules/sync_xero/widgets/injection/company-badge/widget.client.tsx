@@ -4,6 +4,7 @@ import * as React from 'react'
 import { ExternalLink } from 'lucide-react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -32,7 +33,9 @@ export default function XeroCompanyBadgeWidget({ context }: InjectionWidgetCompo
       .then((call) => {
         if (!cancelled && call.ok) setLink(call.result?.link ?? null)
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: 'sync_xero.company_badge_load_failed' })
+      })
     return () => {
       cancelled = true
     }

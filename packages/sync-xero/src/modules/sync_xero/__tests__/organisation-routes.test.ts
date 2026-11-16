@@ -1,18 +1,14 @@
 /** @jest-environment node */
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createFakeGrantService, type FakeGrantService } from './support/fakeGrantService'
 import { createFakeContainer } from './support/fakeContainer'
 import { createFakeScheduleService, type FakeScheduleService } from './support/fakeScheduleService'
 import { startStubHttpServer, type StubHttpServer, type StubResponse } from './support/stubHttpServer'
 
-const mockGetAuthFromRequest = jest.fn()
 const mockCreateRequestContainer = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
 const mockResolveEndpoints = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
-}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
@@ -45,10 +41,16 @@ jest.mock('../lib/endpoints', () => ({
   resolveXeroEndpoints: (...args: unknown[]) => mockResolveEndpoints(...args),
 }))
 
-import { GET as getConnection, metadata as connectionMetadata } from '../api/get/connection/route'
-import { GET as getOrganisations, metadata as organisationsMetadata } from '../api/get/organisations/route'
-import { PUT as putOrganisation, metadata as organisationMetadata } from '../api/put/organisation/route'
-import { POST as postSchedules, metadata as schedulesMetadata } from '../api/post/schedules/route'
+import { GET as getConnectionRoute, metadata as connectionMetadata } from '../api/get/connection/route'
+import { GET as getOrganisationsRoute, metadata as organisationsMetadata } from '../api/get/organisations/route'
+import { PUT as putOrganisationRoute, metadata as organisationMetadata } from '../api/put/organisation/route'
+import { POST as postSchedulesRoute, metadata as schedulesMetadata } from '../api/post/schedules/route'
+
+let currentAuth: AuthContext | undefined
+const getConnection = (req: Request) => getConnectionRoute(req, { auth: currentAuth })
+const getOrganisations = (req: Request) => getOrganisationsRoute(req, { auth: currentAuth })
+const putOrganisation = (req: Request) => putOrganisationRoute(req, { auth: currentAuth })
+const postSchedules = (req: Request) => postSchedulesRoute(req, { auth: currentAuth })
 
 const APP_ORIGIN = 'http://localhost:3000'
 const USER_ID = 'user-1'
@@ -150,7 +152,7 @@ beforeEach(() => {
   cursorRows = []
   mockFindWithDecryption.mockReset().mockImplementation(async () => cursorRows)
   connectionsHandler = () => ({ status: 200, body: [connection(CONN_A, XERO_ORG_A, 'Demo Company (Global)')] })
-  mockGetAuthFromRequest.mockReset().mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID })
+  currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID }
   mockCreateRequestContainer.mockReset().mockImplementation(async () => buildContainer())
   mockResolveOrganizationScope.mockReset().mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID], allowedIds: null, tenantId: TENANT_ID })
   mockResolveEndpoints.mockReset().mockResolvedValue({

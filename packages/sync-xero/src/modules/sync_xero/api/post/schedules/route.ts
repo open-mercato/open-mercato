@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
-import { authorizeXeroRoute } from '../../../lib/route-auth'
+import { authorizeXeroRoute, type XeroHandlerContext } from '../../../lib/route-auth'
 import { xeroErrorResponse } from '../../../lib/route-errors'
 import { ensureDefaultSchedules } from '../../../lib/schedules'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors, xeroScheduleSchema } from '../../openapi'
@@ -13,10 +14,11 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: FEATURES },
 }
 
-export async function POST(req: Request): Promise<Response> {
-  const authorized = await authorizeXeroRoute(req, FEATURES)
+export async function POST(req: Request, ctx?: XeroHandlerContext): Promise<Response> {
+  const container = await createRequestContainer()
+  const authorized = await authorizeXeroRoute(req, ctx?.auth, container, FEATURES)
   if (!authorized.ok) return authorized.response
-  const { container, scope, userId } = authorized.context
+  const { scope, userId } = authorized.context
 
   const ensured = await ensureDefaultSchedules({ container, scope, guard: { req, userId } })
   if (ensured.failed.length > 0) return xeroErrorResponse(503, 'xero.schedule_create_failed', { schedules: ensured.schedules })

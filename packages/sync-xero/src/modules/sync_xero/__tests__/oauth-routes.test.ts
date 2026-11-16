@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import {
   startFakeAuthorizationServer,
@@ -10,14 +11,9 @@ import { createFakeContainer, createMemoryCache, type MemoryCache } from './supp
 import { createFakeScheduleService, type FakeScheduleService } from './support/fakeScheduleService'
 import { startStubHttpServer, type StubHttpServer, type StubResponse } from './support/stubHttpServer'
 
-const mockGetAuthFromRequest = jest.fn()
 const mockCreateRequestContainer = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
 const mockResolveEndpoints = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
-}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
@@ -43,8 +39,12 @@ jest.mock('../lib/endpoints', () => ({
   resolveXeroEndpoints: (...args: unknown[]) => mockResolveEndpoints(...args),
 }))
 
-import { POST as initiate, metadata as initiateMetadata } from '../api/post/oauth/initiate/route'
-import { GET as callback, metadata as callbackMetadata } from '../api/get/oauth/callback/route'
+import { POST as initiateRoute, metadata as initiateMetadata } from '../api/post/oauth/initiate/route'
+import { GET as callbackRoute, metadata as callbackMetadata } from '../api/get/oauth/callback/route'
+
+let currentAuth: AuthContext | undefined
+const initiate = (req: Request) => initiateRoute(req, { auth: currentAuth })
+const callback = (req: Request) => callbackRoute(req, { auth: currentAuth })
 
 const APP_ORIGIN = 'http://localhost:3000'
 const REDIRECT_URI = `${APP_ORIGIN}/api/sync_xero/oauth/callback`
@@ -192,7 +192,7 @@ beforeEach(() => {
   allowedOrganizations = new Set([ORG_ID])
   schedules = createFakeScheduleService()
   connectionsHandler = () => ({ status: 200, body: [organisationA] })
-  mockGetAuthFromRequest.mockReset().mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID })
+  currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID }
   mockCreateRequestContainer.mockReset().mockImplementation(async () => buildContainer())
   mockResolveOrganizationScope.mockReset().mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID], allowedIds: null, tenantId: TENANT_ID })
   mockResolveEndpoints.mockReset().mockResolvedValue({
@@ -230,8 +230,15 @@ describe('POST /api/sync_xero/oauth/initiate', () => {
     expect(cookie).toMatch(/Max-Age=300/)
   })
 
+  it('answers 401 when the dispatcher passes no auth', async () => {
+    const response = await initiateRoute(initiateRequest())
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ code: 'unauthorized' })
+    expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
   it('refuses a super admin acting in another tenant', async () => {
-    mockGetAuthFromRequest.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID, actorTenantId: '99999999-9999-4999-8999-999999999999' })
+    currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID, actorTenantId: '99999999-9999-4999-8999-999999999999' }
     const response = await initiate(initiateRequest())
     expect(response.status).toBe(403)
     expect(response.headers.get('set-cookie')).toBeNull()
@@ -244,7 +251,7 @@ describe('POST /api/sync_xero/oauth/initiate', () => {
   })
 
   it('answers 400 when no organization resolves', async () => {
-    mockGetAuthFromRequest.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: null })
+    currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: null }
     const response = await initiate(initiateRequest())
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ code: 'organization_scope_required' })
@@ -294,7 +301,9 @@ describe('GET /api/sync_xero/oauth/callback', () => {
 
   it('exchanges the code with the PKCE verifier, stores the grant and selects the only Organisation', async () => {
     const started = await startConnect()
+    mockCreateRequestContainer.mockClear()
     const response = await finishConnect(started)
+    expect(mockCreateRequestContainer).toHaveBeenCalledTimes(1)
 
     expect(resultOf(response)).toBe('connected')
     expectCookieCleared(response)
@@ -348,19 +357,19 @@ describe('GET /api/sync_xero/oauth/callback', () => {
 
   it('refuses a state from another tenant session', async () => {
     const started = await startConnect()
-    mockGetAuthFromRequest.mockResolvedValue({ sub: USER_ID, tenantId: '44444444-4444-4444-8444-444444444444', orgId: ORG_ID })
+    currentAuth = { sub: USER_ID, tenantId: '44444444-4444-4444-8444-444444444444', orgId: ORG_ID }
     expect(resultOf(await finishConnect(started))).toBe('connect_state_invalid')
   })
 
   it('refuses a state started by another user', async () => {
     const started = await startConnect()
-    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-2', tenantId: TENANT_ID, orgId: ORG_ID })
+    currentAuth = { sub: 'user-2', tenantId: TENANT_ID, orgId: ORG_ID }
     expect(resultOf(await finishConnect(started))).toBe('connect_state_invalid')
   })
 
   it('checks the feature in the state organization, not the current selection', async () => {
     const started = await startConnect()
-    mockGetAuthFromRequest.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: OTHER_ORG_ID })
+    currentAuth = { sub: USER_ID, tenantId: TENANT_ID, orgId: OTHER_ORG_ID }
     allowedOrganizations = new Set([OTHER_ORG_ID])
     expect(resultOf(await finishConnect(started))).toBe('connect_state_invalid')
     expect(rbacCalls.at(-1)?.scope).toEqual({ tenantId: TENANT_ID, organizationId: ORG_ID })
@@ -371,6 +380,16 @@ describe('GET /api/sync_xero/oauth/callback', () => {
     cache.failSet = true
     expect(resultOf(await finishConnect(started))).toBe('connect_state_invalid')
     expect(grants.calls.some((call) => call.method === 'completeConnect')).toBe(false)
+  })
+
+  it('refuses a callback when the dispatcher passes no auth, before creating a container', async () => {
+    const started = await startConnect()
+    mockCreateRequestContainer.mockClear()
+    const code = authorizationServer.issueAuthorizationCode({ redirectUri: REDIRECT_URI, scope: XERO_SCOPES, codeChallenge: started.codeChallenge })
+    const response = await callbackRoute(callbackRequest({ code, state: started.state }, started.cookie))
+    expect(resultOf(response)).toBe('connect_state_invalid')
+    expect(mockCreateRequestContainer).not.toHaveBeenCalled()
+    expect(authorizationServer.counters().token.authorizationCode).toBe(0)
   })
 
   it('refuses a callback without the state cookie', async () => {

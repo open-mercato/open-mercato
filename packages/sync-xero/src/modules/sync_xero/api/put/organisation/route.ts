@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { OAuthGrantError } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
@@ -11,7 +12,7 @@ import { XERO_GRANT_RESOURCE_ID, XERO_GRANT_RESOURCE_KIND } from '../../../lib/c
 import { decideOrganisationChange, readGuardedProviderData, toXeroProviderData, xeroProviderDataGuardPayload } from '../../../lib/organisation'
 import { ensureXeroFieldDefinitionsAfterSave } from '../../../lib/field-definitions'
 import { ensureDefaultSchedules } from '../../../lib/schedules'
-import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE } from '../../../lib/route-auth'
+import { authorizeXeroRoute, CREDENTIALS_MANAGE_FEATURE, type XeroHandlerContext } from '../../../lib/route-auth'
 import { interactiveFailureResponse, xeroErrorResponse, seamFailureResponse } from '../../../lib/route-errors'
 import { createInteractiveXeroClient, loadPreviousOrganisations, resolveXeroRouteGrant, type XeroRouteGrant } from '../../../lib/route-grant'
 import { XERO_OPENAPI_TAG, xeroErrorSchema, xeroRuleOneErrors, xeroScheduleSchema } from '../../openapi'
@@ -35,10 +36,11 @@ async function grantWriteFailureResponse(error: unknown): Promise<Response | nul
   return null
 }
 
-export async function PUT(req: Request): Promise<Response> {
-  const authorized = await authorizeXeroRoute(req)
+export async function PUT(req: Request, ctx?: XeroHandlerContext): Promise<Response> {
+  const container = await createRequestContainer()
+  const authorized = await authorizeXeroRoute(req, ctx?.auth, container)
   if (!authorized.ok) return authorized.response
-  const { container, scope, userId } = authorized.context
+  const { scope, userId } = authorized.context
 
   const body = bodySchema.safeParse(await readJsonSafe(req, null))
   if (!body.success) return xeroErrorResponse(400, 'invalid_request')

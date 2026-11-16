@@ -1,14 +1,10 @@
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
 import { createFakeContainer } from './support/fakeContainer'
 
-const mockGetAuthFromRequest = jest.fn()
 const mockResolveOrganizationScope = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
-
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
-}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => createFakeContainer({ em: { name: 'request-em' } }),
@@ -29,6 +25,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import { GET, metadata } from '../api/get/companies/[id]/route'
 
+let currentAuth: AuthContext | undefined
+
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_A = '22222222-2222-4222-8222-222222222222'
 const ORG_B = '33333333-3333-4333-8333-333333333333'
@@ -45,14 +43,14 @@ function request(): Request {
 }
 
 async function badge(id: string = COMPANY_ID) {
-  const response = await GET(request(), { params: Promise.resolve({ id }) })
+  const response = await GET(request(), { params: Promise.resolve({ id }), auth: currentAuth })
   return { status: response.status, body: await response.json() }
 }
 
 beforeEach(() => {
   company = { id: COMPANY_ID, organizationId: ORG_B, tenantId: TENANT_ID }
   mapping = { externalId: `${XERO_ORG}:${CONTACT_ID}`, lastSyncedAt: LINKED_AT }
-  mockGetAuthFromRequest.mockReset().mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: ORG_A })
+  currentAuth = { sub: 'user-1', tenantId: TENANT_ID, orgId: ORG_A }
   mockResolveOrganizationScope.mockReset().mockResolvedValue({ selectedId: ORG_A, filterIds: [ORG_A, ORG_B], allowedIds: null, tenantId: TENANT_ID })
   mockFindOneWithDecryption.mockReset().mockImplementation(async (_em: unknown, entity: unknown) => {
     if (entity === CustomerEntity) return company
@@ -113,12 +111,19 @@ describe('GET /api/sync_xero/companies/[id]', () => {
 
   it('answers 400 for an id that is not a UUID and 401 without a session', async () => {
     await expect(badge('not-a-uuid')).resolves.toMatchObject({ status: 400, body: { code: 'invalid_request' } })
-    mockGetAuthFromRequest.mockResolvedValue(null)
+    currentAuth = null
     await expect(badge()).resolves.toMatchObject({ status: 401, body: { code: 'unauthorized' } })
   })
 
+  it('answers 401 when the dispatcher passes no auth', async () => {
+    const response = await GET(request(), { params: Promise.resolve({ id: COMPANY_ID }) })
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ code: 'unauthorized' })
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+  })
+
   it('answers 400 organization_scope_required for a session without a tenant, never 401', async () => {
-    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: null, orgId: null })
+    currentAuth = { sub: 'user-1', tenantId: null, orgId: null }
     await expect(badge()).resolves.toMatchObject({ status: 400, body: { code: 'organization_scope_required' } })
     expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
   })
