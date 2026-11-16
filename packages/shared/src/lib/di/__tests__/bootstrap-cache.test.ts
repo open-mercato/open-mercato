@@ -304,3 +304,113 @@ describe('bootstrap once-guard cache', () => {
     }
   })
 })
+
+describe('request container sharing (OM_REQUEST_CONTAINER_MEMO, #2977)', () => {
+  const mikro = require('@open-mercato/shared/lib/db/mikro') as {
+    getOrm: () => Promise<{ em: { fork: (...args: unknown[]) => unknown } }>
+  }
+  let forkSpy: jest.SpyInstance | null = null
+  let forkCount = 0
+
+  beforeEach(async () => {
+    delete process.env.OM_BOOTSTRAP_CACHE
+    resetBootstrapCache()
+    registerAppDiRegistrar(null)
+    bootstrapMock.mockClear()
+    registerDiRegistrars([])
+    forkCount = 0
+    const orm = await mikro.getOrm()
+    forkSpy = jest.spyOn(orm.em, 'fork').mockImplementation(() => ({ forkNumber: ++forkCount }))
+  })
+
+  afterEach(() => {
+    forkSpy?.mockRestore()
+    forkSpy = null
+  })
+
+  async function loadModules() {
+    const container = await import('@open-mercato/shared/lib/di/container')
+    const scope = await import('@open-mercato/shared/lib/di/request-scope')
+    return { ...container, ...scope }
+  }
+
+  it('builds once for the dispatcher phases and concurrent callers, giving each caller its own child scope', async () => {
+    const registrar = jest.fn()
+    registerDiRegistrars([registrar])
+    const { createRequestContainer, runInRequestScope, getRequestScopeStats } = await loadModules()
+
+    await runInRequestScope(async () => {
+      const dispatcherAuth = await createRequestContainer()
+      const featureCheck = await createRequestContainer()
+      const crudContext = await createRequestContainer()
+      const crudAuth = await createRequestContainer()
+      const concurrent = await Promise.all([1, 2, 3].map(() => createRequestContainer()))
+      const callers = [dispatcherAuth, featureCheck, crudContext, crudAuth, ...concurrent]
+
+      expect(new Set(callers).size).toBe(7)
+      expect(new Set(callers.map((container) => container.resolve('em'))).size).toBe(1)
+      expect(bootstrapMock).toHaveBeenCalledTimes(1)
+      expect(registrar).toHaveBeenCalledTimes(1)
+      expect(forkCount).toBe(1)
+      expect(getRequestScopeStats()).toEqual({ shareContainer: true, containersBuilt: 1, containersRequested: 7 })
+    }, { shareContainer: true })
+  })
+
+  it('builds a container per call when the scope does not share', async () => {
+    const { createRequestContainer, runInRequestScope, getRequestScopeStats } = await loadModules()
+
+    await runInRequestScope(async () => {
+      const first = await createRequestContainer()
+      const second = await createRequestContainer()
+      expect(first.resolve('em')).not.toBe(second.resolve('em'))
+      expect(bootstrapMock).toHaveBeenCalledTimes(2)
+      expect(getRequestScopeStats()).toEqual({ shareContainer: false, containersBuilt: 2, containersRequested: 2 })
+    })
+  })
+
+  it('keeps a registration made on one caller scope invisible to the other callers', async () => {
+    const { createRequestContainer, runInRequestScope } = await loadModules()
+
+    await runInRequestScope(async () => {
+      const promotionsRoute = await createRequestContainer()
+      const handler = await createRequestContainer()
+      promotionsRoute.register({ auth: asValue({ orgId: 'org-override' }) })
+
+      expect(promotionsRoute.resolve('auth')).toEqual({ orgId: 'org-override' })
+      expect(handler.hasRegistration('auth')).toBe(false)
+      expect(promotionsRoute.resolve('em')).toBe(handler.resolve('em'))
+    }, { shareContainer: true })
+  })
+
+  it('builds a separate container for fresh callers and after sharing ends', async () => {
+    const { createRequestContainer, endRequestContainerSharing, runInRequestScope, getRequestScopeStats } = await loadModules()
+
+    await runInRequestScope(async () => {
+      const shared = await createRequestContainer()
+      const fresh = await createRequestContainer({ fresh: true })
+      expect(fresh.resolve('em')).not.toBe(shared.resolve('em'))
+
+      endRequestContainerSharing()
+      const afterResponse = await createRequestContainer()
+      expect(afterResponse.resolve('em')).not.toBe(shared.resolve('em'))
+      expect(getRequestScopeStats()).toEqual({ shareContainer: false, containersBuilt: 3, containersRequested: 3 })
+    }, { shareContainer: true })
+  })
+
+  it('retries the shared build after a failed one instead of replaying the failure', async () => {
+    const { createRequestContainer, runInRequestScope, getRequestScopeStats } = await loadModules()
+    const getOrmSpy = jest.spyOn(mikro, 'getOrm').mockRejectedValueOnce(new Error('[internal] database unavailable'))
+
+    try {
+      await runInRequestScope(async () => {
+        await expect(createRequestContainer()).rejects.toThrow('database unavailable')
+        const recovered = await createRequestContainer()
+        const sibling = await createRequestContainer()
+        expect(recovered.resolve('em')).toBe(sibling.resolve('em'))
+        expect(getRequestScopeStats()).toMatchObject({ containersBuilt: 2, containersRequested: 3 })
+      }, { shareContainer: true })
+    } finally {
+      getOrmSpy.mockRestore()
+    }
+  })
+})

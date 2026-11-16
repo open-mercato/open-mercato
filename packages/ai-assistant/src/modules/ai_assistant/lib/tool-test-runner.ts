@@ -189,7 +189,7 @@ async function executeReadTool(
 ): Promise<unknown> {
   // Mirror the dispatcher: resolve a fresh container per call so EM identity
   // map state is clean between tools.
-  const fresh = await createRequestContainer()
+  const fresh = await createRequestContainer({ fresh: true })
   const freshCtx: McpToolContext = { ...ctx, container: fresh, tool }
   void container // keep arg for future use
   return tool.handler(args as never, freshCtx)
@@ -205,7 +205,7 @@ async function executeMutationTool(
   // holds — the handler must NEVER write directly. We pass a destructive
   // policy so the runtime treats the call as a confirmation candidate and
   // creates a pending-action row.
-  const fresh = await createRequestContainer()
+  const fresh = await createRequestContainer({ fresh: true })
   const agent = dummyAgentForTool(tool)
   const userId = ctx.userId ?? '00000000-0000-0000-0000-000000000000'
   const { uiPart, pendingAction } = await prepareMutation(
@@ -232,7 +232,7 @@ async function executeMutationTool(
   // `prepareMutation` already enforced `tenantId` is non-null above; cast
   // here for the stricter `PendingActionExecuteContext` shape.
   const confirmTenantId = ctx.tenantId as string
-  const confirmContainer = await createRequestContainer()
+  const confirmContainer = await createRequestContainer({ fresh: true })
   const confirmation = await executePendingActionConfirm({
     action: pendingAction,
     agent,

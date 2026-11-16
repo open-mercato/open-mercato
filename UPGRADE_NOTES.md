@@ -1,5 +1,26 @@
 # Upgrade Notes
 
+## Opt-in: one DI container per API request (`OM_REQUEST_CONTAINER_MEMO`, #2977)
+
+`OM_REQUEST_CONTAINER_MEMO=on` makes the API dispatcher build the DI container once
+per request. Every `createRequestContainer()` call during that request (auth,
+authorization, CRUD context, handlers) then returns a child scope of it that shares
+one EntityManager, instead of a full rebuild per call. The flag is off by default;
+with it off nothing changes.
+
+Before enabling it, check custom modules for two patterns:
+
+- Work that runs in parallel with the request (for example `Promise.all` branches
+  that each build a container and write), or outlives it (`setImmediate`, streamed
+  responses), must call `createRequestContainer({ fresh: true })`. Callbacks that
+  run after the response settles already get a fresh container.
+- `container.register(...)` at request time stays local to that caller's child
+  scope, so it no longer reaches other code in the same request. This matches the
+  previous per-call behavior.
+
+Workers, CLI commands and server-rendered pages are unaffected. No configuration,
+database, route, event or DI-key change is required.
+
 ## Module events dispatch per request (#2963)
 
 Module emitters (`createModuleEvents().emit`) now run inline subscribers against

@@ -340,7 +340,7 @@ export async function POST(request: NextRequest) {
     setImmediate(async () => {
       try {
         // Create new container and EM for background execution
-        const bgContainer = await createRequestContainer()
+        const bgContainer = await createRequestContainer({ fresh: true })
         const bgEm = bgContainer.resolve('em')
         await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id, {
           userId: auth.sub,

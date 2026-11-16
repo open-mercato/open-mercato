@@ -245,7 +245,7 @@ The audit's candidate numbering had gaps (2–5, 7–9, 12–13, 18–19); those
 | P0.5 statement/lock timeouts | Partial | `DB_STATEMENT_TIMEOUT_MS` / `DB_LOCK_TIMEOUT_MS` wired (#2964/#3033) but unset by default |
 | P1.2 staff-auth cache | Open | `sessionIntegrity.ts` still uncached; the proposed `OM_STAFF_AUTH_TTL_MS` flag does not exist (#2978) |
 | P1.3 rate-limit breadth | Open | opt-in per route via `metadata.rateLimit`, IP-keyed at the dispatcher; only ~27 of ~685 module `api/**/route.ts` files reference rate limiting |
-| P1.4 request-container memo | Open | `createRequestContainer()` still unmemoized, no AsyncLocalStorage; the proposed `OM_REQUEST_CONTAINER_MEMO` flag does not exist (#2977) |
+| P1.4 request-container memo | Partial | Opt-in `OM_REQUEST_CONTAINER_MEMO` (default off): the API dispatcher builds one container per request and hands each caller a child scope; `{ fresh: true }` opts out (#2977). The portal's RSC builds are still unmemoized |
 | P1.5 super-admin probe | Open | instance-scoped `globalSuperAdminCache` on a `.scoped()` service (#2978) |
 | P2.1 indexing off the write thread | Partial | the heavy tail (search tokens, vectorize, fulltext) has run as a fire-and-forget deferral by default since #2549 (2026-06-05); projection write still inline, subscriber still ephemeral (`persistent: false`). #3236 added the opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` mode, which runs the whole chain inline instead |
 | P2.2 fire-and-forget | Partial | access-log writes async (#2044 Phase 1); `emit()` still awaits the global SSE taps + `pg_notify`. A focused spec for opt-in coalescing of that browser-facing half landed as [`2026-09-04-client-broadcast-sse-coalescing.md`](2026-09-04-client-broadcast-sse-coalescing.md) (#5895, merged 2026-09-24); its implementation PR #5896 is still open |
@@ -291,3 +291,4 @@ Priority implication: the benchmarked build already contained the shipped P0 fix
   - Re-pinned the mechanism line references and noted the WMS enricher cache adoption (#5894).
   - Added a `[2026-08 correction]` pointer under the Risks table for the superseded 2.1 row.
   - Spelled out the sub-item ids that were undefined before (`P2.2b`, `P2.4d`).
+- **2026-11-16** — P1.4 marked Partial: opt-in `OM_REQUEST_CONTAINER_MEMO` shares one request container across the dispatcher's auth, authorization and handler phases through the request scope added for #2963 (#2977). Default-on and the portal remain open.

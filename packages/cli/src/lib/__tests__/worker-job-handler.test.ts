@@ -3,7 +3,7 @@ import {
   getModuleResourceUsageReport,
   resetModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
-import { getRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
+import { getRequestScopeContainer, getRequestScopeStats } from '@open-mercato/shared/lib/di/request-scope'
 import { createPerJobWorkerHandler, type WorkerJobContainer } from '../worker-job-handler'
 
 type FakeContainer = WorkerJobContainer & {
@@ -130,6 +130,25 @@ describe('createPerJobWorkerHandler', () => {
 
     expect(scoped).toEqual([containers[1], containers[0]])
     expect(getRequestScopeContainer()).toBeNull()
+  })
+
+  it('never shares the request container inside a job, even when OM_REQUEST_CONTAINER_MEMO is on', async () => {
+    const originalMemo = process.env.OM_REQUEST_CONTAINER_MEMO
+    process.env.OM_REQUEST_CONTAINER_MEMO = 'on'
+    try {
+      const { factory } = makeContainerFactory()
+      const seen: unknown[] = []
+      const handler = createPerJobWorkerHandler([makeWorker('w', () => {
+        seen.push(getRequestScopeStats())
+      })], factory)
+
+      await handler({ id: 'a' }, baseCtx)
+
+      expect(seen).toEqual([expect.objectContaining({ shareContainer: false })])
+    } finally {
+      if (originalMemo === undefined) delete process.env.OM_REQUEST_CONTAINER_MEMO
+      else process.env.OM_REQUEST_CONTAINER_MEMO = originalMemo
+    }
   })
 
   it('runs every worker for the queue against the same per-job container', async () => {

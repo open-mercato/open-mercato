@@ -11,7 +11,12 @@ import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optim
 import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { createLogger } from '../logger'
-import { bindRequestScopeContainer } from './request-scope'
+import {
+  bindRequestScopeContainer,
+  noteRequestContainerBuilt,
+  noteRequestContainerRequested,
+  resolveSharedRequestRoot,
+} from './request-scope'
 
 const logger = createLogger('shared').child({ component: 'di' })
 
@@ -201,7 +206,26 @@ function toAwilixRegistrations(registrations: Record<string, unknown>): Record<s
   )
 }
 
-export async function createRequestContainer(): Promise<AppContainer> {
+export type CreateRequestContainerOptions = {
+  /**
+   * Always build a new container, even inside an API request that shares one
+   * (`OM_REQUEST_CONTAINER_MEMO`). Use it for work that runs in parallel with,
+   * or outlives, the request and therefore must not use its EntityManager.
+   */
+  fresh?: boolean
+}
+
+export async function createRequestContainer(options?: CreateRequestContainerOptions): Promise<AppContainer> {
+  noteRequestContainerRequested()
+  if (options?.fresh !== true) {
+    const sharedRoot = resolveSharedRequestRoot(buildRequestContainer)
+    if (sharedRoot) return (await sharedRoot).createScope()
+  }
+  return buildRequestContainer()
+}
+
+async function buildRequestContainer(): Promise<AppContainer> {
+  noteRequestContainerBuilt()
   const diRegistrars = getDiRegistrars()
   const orm = await getOrm()
   // Use a fresh event manager so request-level subscribers (e.g., encryption) don't pile up globally
