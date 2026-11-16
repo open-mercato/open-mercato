@@ -37,6 +37,9 @@ export type ActionLogSeed = {
   resourceId: string
   correlationKeys: string[]
   createdAt: Date
+  contextJson?: Record<string, unknown> | null
+  actorUserId?: string | null
+  onBehalfOfUserId?: string | null
 }
 
 export type SeededRunActions = {
@@ -59,8 +62,9 @@ export async function insertActionLogFixtures(rows: ActionLogSeed[]): Promise<st
       await client.query(
         `insert into action_logs (
            id, tenant_id, organization_id, command_id, action_label, resource_kind, resource_id,
-           execution_state, correlation_keys, created_at, updated_at
-         ) values ($1, $2, $3, $4, $5, $6, $7, 'done', $8::text[], $9, $9)`,
+           execution_state, correlation_keys, created_at, updated_at,
+           context_json, actor_user_id, on_behalf_of_user_id
+         ) values ($1, $2, $3, $4, $5, $6, $7, 'done', $8::text[], $9, $9, $10::jsonb, $11, $12)`,
         [
           id,
           row.tenantId,
@@ -71,6 +75,9 @@ export async function insertActionLogFixtures(rows: ActionLogSeed[]): Promise<st
           row.resourceId,
           row.correlationKeys,
           row.createdAt,
+          row.contextJson ? JSON.stringify(row.contextJson) : null,
+          row.actorUserId ?? null,
+          row.onBehalfOfUserId ?? null,
         ],
       )
     }
