@@ -72,7 +72,9 @@ export default function PortalResetPasswordPage({ params }: Props) {
           return
         }
 
-        if (result.status === 400) {
+        if (result.status === 400 && result.result?.error === 'Validation failed') {
+          setError(t('portal.password.error.policy', 'Check the password requirements and your details, then try again.'))
+        } else if (result.status === 400) {
           setError(t('portal.resetPassword.error.invalidToken', 'Invalid or expired reset token.'))
         } else {
           setError(result.result?.error || t('portal.resetPassword.error.generic', 'Password reset failed. Please try again.'))

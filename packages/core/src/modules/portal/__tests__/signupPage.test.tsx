@@ -279,4 +279,21 @@ describe('PortalSignupPage', () => {
     await findByRole('heading', { name: /check your email/i })
     expect(queryByText(/please enter a valid email address/i)).toBeNull()
   })
+
+  it('shows policy guidance for a long weak password and permits a corrected retry', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 400, result: { ok: false, error: 'Validation failed', details: { password: ['Password does not meet the requirements.'] } } })
+      .mockResolvedValueOnce({ ok: true, status: 202, result: { ok: true } })
+    const { getByLabelText, getByRole, findByText, queryByText, findByRole } = renderWithProviders(<PortalSignupPage params={{ orgSlug: 'acme' }} />)
+    fillForm(getByLabelText)
+    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'longpassword' } })
+    await act(async () => { fireEvent.click(getByRole('button', { name: /create account|sign up/i })) })
+    await findByText(/check the password requirements/i)
+    expect(queryByText(/password must be at least 8/i)).toBeNull()
+    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'Compliant-Password-123!' } })
+    await act(async () => { fireEvent.click(getByRole('button', { name: /create account|sign up/i })) })
+    await findByRole('heading', { name: /check your email/i })
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
+  })
+
 })

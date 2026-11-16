@@ -34,6 +34,10 @@ Request/cookie unit regressions cover same-second new sessions and pre-reset-ses
 
 Portal stat rows stack labels and values on narrow viewports, permit value wrapping and preserve desktop alignment. Profile email and verification badges wrap within the card instead of clipping. Existing public component props, portal spots and data behavior remain unchanged. The self-contained browser regression `TC-AUTH-066-profile-responsive-layout.spec.ts` creates its own user, verifies long email/badge/date bounds at 320, 390, 768 and 1440 pixels, and cleans up the user. Runtime QA must also repeat the Polish weak-reset and ten rapid reset/login/revocation scenarios on the final head.
 
+## Public form feedback and staff affordances (2026-11-16)
+
+Signup maps password-policy errors to localized requirement guidance rather than claiming every password is shorter than eight characters. Invitation acceptance and reset confirmation distinguish the existing validation-error response from invalid/expired-token responses, retain the token, and permit a compliant retry. Existing API response shapes and server validation are unchanged. Component regressions cover the misleading-message cases and successful same-token retries. Profile role and feature counts interpolate translated strings in all five locales, covered by rendered heading tests. Staff security controls use ready backend feature grants and the shared wildcard matcher; view-only staff retain detail/session visibility while manage-only reset, reset-link and revoke controls are hidden. Exact, module-wildcard and global-wildcard grants retain those controls; server authorization is unchanged.
+
 ## Final Compliance Report
 Source changes retain shared mechanisms and introduce no schema or dependency changes. The named compatibility exception is approved and recorded. Exact-head validation and QA remain required.
 
@@ -46,3 +50,5 @@ Source changes retain shared mechanisms and introduce no schema or dependency ch
 - 2026-11-14: Added translated admin reset validation and precise verified-session revocation checks with request/cookie and rapid-reset regressions; protected current-head QA and CI remain required.
 
 - 2026-11-16: Reconciled published localization/session repairs and added responsive portal profile wrapping with browser regression coverage.
+
+- 2026-11-16: Corrected public password-policy recovery guidance, localized profile counts and gated staff security affordances; added component regression coverage.

@@ -67,7 +67,9 @@ export default function PortalSignupPage({ params }: Props) {
             } else if (fieldKey === 'email') {
               mapped.email = t('portal.signup.error.email.invalid', 'Please enter a valid email address.')
             } else if (fieldKey === 'password') {
-              mapped.password = t('portal.signup.error.password.minLength', 'Password must be at least 8 characters.')
+              mapped.password = password.length < 8
+                ? t('portal.signup.error.password.minLength', 'Password must be at least 8 characters.')
+                : t('portal.password.error.policy', 'Check the password requirements and your details, then try again.')
             }
           }
           const hasUnmappedField = detailEntries.some(([fieldKey]) => !(fieldKey in mapped))

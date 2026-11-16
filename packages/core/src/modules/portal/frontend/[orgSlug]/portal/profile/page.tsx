@@ -81,7 +81,7 @@ export default function PortalProfilePage({ params }: Props) {
         </PortalCard>
 
         <PortalCard>
-          <PortalCardHeader label={t('portal.dashboard.roles', 'Roles')} title={`${roles.length} assigned`} />
+          <PortalCardHeader label={t('portal.dashboard.roles', 'Roles')} title={t('portal.profile.rolesAssigned', '{count} assigned', { count: roles.length })} />
           {roles.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {roles.map((role) => (
@@ -94,7 +94,7 @@ export default function PortalProfilePage({ params }: Props) {
         </PortalCard>
 
         <PortalCard className="md:col-span-2">
-          <PortalCardHeader label={t('portal.dashboard.permissions', 'Permissions')} title={`${resolvedFeatures.length} features`} />
+          <PortalCardHeader label={t('portal.dashboard.permissions', 'Permissions')} title={t('portal.profile.featuresCount', '{count} features', { count: resolvedFeatures.length })} />
           {resolvedFeatures.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {resolvedFeatures.map((feature) => (
