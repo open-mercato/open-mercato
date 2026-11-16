@@ -216,6 +216,30 @@ function expectExportSafe(resourceSpans: OtlpResourceSpansInput[]): void {
 }
 
 describe('mapAgentRunToOtlp', () => {
+  test.each(['stored', 'storage_unavailable', 'encryption_unavailable', 'disabled', 'over_cap_truncated'])(
+    'exports om.content.status = %s on the chat span unchanged',
+    (status) => {
+      const bundle = standaloneBundle()
+      const llm = bundle.spans.find((span) => span.id === LLM_SPAN_ID)!
+      llm.attributes = { ...llm.attributes, 'om.content.status': status }
+
+      const output = mapAgentRunToOtlp(bundle, OPTIONS)
+
+      expectExportSafe(output)
+      expect(attr(spanByName(output, 'chat gpt-test-2026'), 'om.content.status')).toBe(status)
+    },
+  )
+
+  test('drops an om.content.status value outside the known statuses', () => {
+    const bundle = standaloneBundle()
+    const llm = bundle.spans.find((span) => span.id === LLM_SPAN_ID)!
+    llm.attributes = { ...llm.attributes, 'om.content.status': 'not_a_status' }
+
+    const output = mapAgentRunToOtlp(bundle, OPTIONS)
+
+    expect(attr(spanByName(output, 'chat gpt-test-2026'), 'om.content.status')).toBeUndefined()
+  })
+
   test('standalone run maps run, chat, tool and system spans with the resource and scope', () => {
     const output = mapAgentRunToOtlp(standaloneBundle(), { ...OPTIONS, environment: 'staging' })
     expectExportSafe(output)
