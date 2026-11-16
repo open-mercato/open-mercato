@@ -853,7 +853,11 @@ describe('createPaymentCommand.execute — idempotent paymentReference re-check 
     expect(existingPayment.capturedAmount).toBe('100')
     expect(existingPayment.statusEntryId).toBe(CAPTURED_STATUS_ENTRY_ID)
     expect(existingPayment.status).toBe('captured')
-    expect(resolveDictionaryEntryValue).toHaveBeenCalledWith(expect.anything(), CAPTURED_STATUS_ENTRY_ID, { tenantId: TEST_TENANT_ID })
+    // The reconciled branch reuses the already-resolved `status` (looked up once,
+    // scoped by both tenant AND organization) instead of a second, separately
+    // tenant-only-scoped lookup.
+    expect(resolveDictionaryEntryValue).toHaveBeenCalledWith(expect.anything(), CAPTURED_STATUS_ENTRY_ID, { tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID })
+    expect((resolveDictionaryEntryValue as jest.Mock).mock.calls.filter(([, entryId]) => entryId === CAPTURED_STATUS_ENTRY_ID)).toHaveLength(1)
   })
 
   it('never reconciles backwards when the reused row is already captured for at least as much as requested', async () => {
@@ -930,6 +934,114 @@ describe('createPaymentCommand.execute — idempotent paymentReference re-check 
     )
 
     expect((result as any)?.paymentId).toBe(TEST_PAYMENT_ID)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// C1 (PR 8268 re-review, Blocker 1): `prepare()` is deferred into
+// `ctx.beforeTransactionalWrite` (`prepareSnapshotInsideTransaction: true`) so it
+// runs AFTER the order lock is held — the same point `execute()`'s own
+// paymentReference re-check runs. Before this fix, `prepare()` ran ahead of the
+// lock and could never observe a payment an authorization-first caller commits
+// in between: `buildLog` then minted an "update" log with an empty `before`, and
+// `undo` fell through to its destructive "delete the created row" path instead of
+// reverting the reconciliation. A real-Postgres proof of the underlying lock
+// ordering lives in `payments.create.paymentReference-race.integration.test.ts`;
+// this proves the full prepare→execute→buildLog→undo contract.
+// ---------------------------------------------------------------------------
+describe('createPaymentCommand — prepare() deferred past the order lock sees the reconciled row (C1)', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    ;(findWithDecryption as jest.Mock).mockClear()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+  })
+
+  const GATEWAY_REFERENCE = 'gateway-ref-c1-reconciliation-race'
+  const EXISTING_PAYMENT_ID = 'cccccccc-1111-4111-8111-111111111111'
+
+  async function runCreateCommand(input: Record<string, unknown>) {
+    const command = commandRegistry.get<Record<string, unknown>, CreatePaymentTestResult>('sales.payments.create')
+    if (!command) throw new Error('[internal] sales.payments.create is not registered')
+    expect(command.prepareSnapshotInsideTransaction).toBe(true)
+    const { ctx } = buildCommandCtx()
+    let snapshots: { before?: unknown } = {}
+    const executeCtx: any = {
+      ...ctx,
+      beforeTransactionalWrite: async (em: unknown) => {
+        snapshots = (await command.prepare?.(input, { ...executeCtx, transactionalEm: em })) ?? {}
+      },
+    }
+    const result = await command.execute(input, executeCtx)
+    const after = await command.captureAfter?.(input, result, executeCtx)
+    const log = await command.buildLog?.({ input, result, ctx: executeCtx, snapshots: { ...snapshots, after } } as any)
+    return { command, result, log }
+  }
+
+  it('builds an update-kind undo log whose before-snapshot is the pre-reconciliation row, and undo restores (not deletes) it', async () => {
+    const existingPayment: Record<string, unknown> = {
+      id: EXISTING_PAYMENT_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      order: TEST_ORDER_ID,
+      paymentReference: GATEWAY_REFERENCE,
+      amount: '100',
+      currencyCode: 'USD',
+      capturedAmount: '0',
+      capturedAt: null,
+      statusEntryId: null,
+      status: null,
+      allocations: [],
+    }
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(
+      async (_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+        if (filter?.id === TEST_ORDER_ID) return buildScopedOrder()
+        if (filter?.id === EXISTING_PAYMENT_ID) return existingPayment
+        if (filter?.order === TEST_ORDER_ID && filter?.paymentReference === GATEWAY_REFERENCE) return existingPayment
+        return null
+      },
+    )
+
+    const { command, result, log } = await runCreateCommand({
+      orderId: TEST_ORDER_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      amount: 100,
+      currencyCode: 'USD',
+      capturedAmount: 100,
+      paymentReference: GATEWAY_REFERENCE,
+    })
+
+    expect(result.reused).toBe(true)
+    expect(result.reconciled).toBe(true)
+    // The reconciliation did mutate the row — confirms this exercises the real path.
+    expect(existingPayment.capturedAmount).toBe('100')
+
+    expect((log as any)?.payload?.undo?.kind).toBe('update')
+    expect((log as any)?.snapshotBefore?.capturedAmount).toBe(0)
+    expect((log as any)?.snapshotAfter?.capturedAmount).toBe(100)
+
+    const { ctx: undoCtx } = buildCommandCtx()
+    await command.undo?.({ input: {}, ctx: undoCtx as any, logEntry: { payload: (log as any).payload } } as any)
+
+    // Only `restorePaymentSnapshot`'s revert path touches `capturedAmount`; the
+    // destructive delete path never does. Reverting to the pre-reconciliation
+    // value proves undo restored the row instead of deleting it.
+    expect(existingPayment.capturedAmount).toBe('0')
+    expect(existingPayment.capturedAt).toBeNull()
+  })
+
+  it('refuses to delete when an update-kind log is missing its before snapshot (defense in depth)', async () => {
+    const command = commandRegistry.get('sales.payments.create')
+    const { ctx } = buildCommandCtx()
+    const after = buildPaymentSnapshot({ id: EXISTING_PAYMENT_ID })
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+
+    await command?.undo?.({ input: {}, ctx: ctx as any, logEntry: { payload: { kind: 'update', after } } } as any)
+
+    // The early refusal returns before any lookup/mutation — never falls through
+    // to the create-undo's delete path.
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 })
 

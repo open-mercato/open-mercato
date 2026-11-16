@@ -97,6 +97,16 @@ export function createCartProposalTerminalHandler(options: TerminalStateHandlerO
       if (proposal.status !== 'published') return
 
       const now = new Date()
+      // #8268 review Major 4 (re-review): the `status !== 'published'` check above reads
+      // OUTSIDE any lock — two deliveries (a redelivered event, or a genuine
+      // accept/reject/expire race for the same proposal) can both observe `published`
+      // before either's transaction begins. Reads/checks never serialize; only a write
+      // does. Claim the published -> terminal transition atomically via a conditional
+      // `nativeUpdate` instead of a read-then-write scalar mutation — only the writer
+      // whose `WHERE status = 'published'` still matched actually flips the row, so only
+      // that one decrements the counter and emits the terminal event. Mirrors
+      // `reauthorOnMerge.ts#supersedeOldProposal`'s own atomic claim.
+      let claimed = 0
       // Review finding: `live_proposal_count` is decremented via an atomic SQL update (only
       // needs the thread's id) rather than the former in-memory `thread.liveProposalCount -
       // 1` read-modify-write, which raced every other author/withdraw/accept/reauthor path
@@ -108,27 +118,32 @@ export function createCartProposalTerminalHandler(options: TerminalStateHandlerO
         em,
         [
           async () => {
-            proposal.status = targetStatus
-            proposal.resolvedAt = now
+            const updateData: Record<string, unknown> = { status: targetStatus, resolvedAt: now, updatedAt: now }
             if (targetStatus === 'accepted') {
               const mergeLogId = readString(record, 'mergeLogId')
-              if (mergeLogId) proposal.mergeLogId = mergeLogId
+              if (mergeLogId) updateData.mergeLogId = mergeLogId
             }
-            em.persist(proposal)
+            claimed = await em.nativeUpdate(
+              AssistedSellingProposal,
+              { id: proposal.id, tenantId: proposal.tenantId, organizationId: proposal.organizationId, status: 'published' },
+              updateData,
+            )
           },
           async () => {
-            await applyLiveProposalCountDelta(em, { id: proposal.threadId }, -1)
+            if (claimed > 0) await applyLiveProposalCountDelta(em, { id: proposal.threadId }, -1)
           },
         ],
         { transaction: true, label: `assisted_selling.proposal.${targetStatus}` },
       )
 
-      await emitAssistedSellingEvent(emitEventId, {
-        threadId: proposal.threadId,
-        proposalId: proposal.id,
-        tenantId: proposal.tenantId,
-        organizationId: proposal.organizationId,
-      })
+      if (claimed > 0) {
+        await emitAssistedSellingEvent(emitEventId, {
+          threadId: proposal.threadId,
+          proposalId: proposal.id,
+          tenantId: proposal.tenantId,
+          organizationId: proposal.organizationId,
+        })
+      }
     } catch (err) {
       logger.warn(`[${subscriberId}] failed to resolve proposal`, {
         proposalCartId,

@@ -100,15 +100,24 @@ export async function POST(req: Request, context: RouteContext) {
     })
     if (!guarded.ok) return guarded.response
 
+    // #8268 review Major 5 (re-review): a registered guard that transforms the
+    // adjustment (e.g. constraining the amount) must have its transformed shape
+    // persisted — reading `parsedBody.data` below instead would silently bypass that
+    // transformation. Re-validate through the same schema since `modifiedPayload` is
+    // a loosely-typed merged record, not the zod-inferred type.
+    const adjustInput = guarded.modifiedPayload
+      ? customerCreditAdjustRequestSchema.parse(guarded.modifiedPayload)
+      : parsedBody.data
+
     const commandBus = container.resolve('commandBus') as CommandBus
     const { result, logEntry } = await commandBus.execute<AdjustCommandInput, AdjustCommandResult>(
       'customer_groups.credit.adjust',
       {
         input: {
           creditAccountId: params.data.id,
-          amount: parsedBody.data.amount,
-          note: parsedBody.data.note,
-          idempotencyKey: parsedBody.data.idempotencyKey,
+          amount: adjustInput.amount,
+          note: adjustInput.note,
+          idempotencyKey: adjustInput.idempotencyKey,
         },
         ctx,
       },

@@ -3,6 +3,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { buildTrustedCommandContext } from '@open-mercato/shared/lib/commands/trusted-context'
+import { buildScopedContainerFromResolve } from '@open-mercato/shared/lib/di/scopedContainer'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -46,7 +47,7 @@ function readString(record: Record<string, unknown>, key: string): string | null
 }
 
 type RetargetScope = { tenantId: string; organizationId: string }
-type RetargetContainer = { resolve: <T = unknown>(name: string) => T }
+type RetargetContainer = { resolve: <T = unknown>(name: string) => T; register: (registrations: Record<string, unknown>) => void }
 
 /** Mirrors the former `cart/lib/proposalRetarget.ts#buildRuntimeContext` — a trusted
  * (request-less) context plus this DI container, never a real HTTP request. */
@@ -438,7 +439,11 @@ export async function handleCartMergedForAssistedSellingReauthor(
 
   const targetCustomerId = readString(record, 'customerId')
   const targetCustomerUserId = readString(record, 'customerUserId')
-  const container = ctx.container ?? { resolve: ctx.resolve }
+  // #8268 review Major 1 (re-review): always build a scoped container — never trust
+  // `ctx.container` to already have `.register()` (its declared shape is the same
+  // resolve-only one `ctx.resolve` is), so every delivery gets the reauthoring
+  // chain's required seam, not just the ones that happen to omit `ctx.container`.
+  const container = buildScopedContainerFromResolve(ctx.container?.resolve ?? ctx.resolve)
   const scope: RetargetScope = { tenantId, organizationId }
 
   try {

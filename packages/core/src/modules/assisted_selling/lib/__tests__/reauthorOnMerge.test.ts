@@ -1,6 +1,7 @@
 jest.mock('../../events', () => ({ emitAssistedSellingEvent: jest.fn(async () => undefined) }))
 jest.mock('../../commands/proposals', () => ({ reauthorProposalForMergeRetarget: jest.fn() }))
 
+import { asValue } from 'awilix'
 import { emitAssistedSellingEvent } from '../../events'
 import { reauthorProposalForMergeRetarget } from '../../commands/proposals'
 import { AssistedSellingProposal, AssistedSellingThread } from '../../data/entities'
@@ -169,6 +170,50 @@ describe('handleCartMergedForAssistedSellingReauthor — D-R5-14 re-author / sup
     // mocked `reauthorProposalForMergeRetarget` already owns it.
     expect(commandBus.execute).not.toHaveBeenCalled()
     expect(emitAssistedSellingEvent).not.toHaveBeenCalled()
+  })
+
+  // #8268 review Major 1 (re-review): the event bus's real subscriber context NEVER
+  // populates `ctx.container` — only `ctx.resolve` (`packages/events/src/bus.ts`'s
+  // `deliver()`/`dispatchQueued()`) — so the production call this test exercises
+  // omits `container` entirely, the exact shape a real delivery has. Before the fix,
+  // the handler's `{ resolve: ctx.resolve }` fallback had no `.register()`, and the
+  // real reauthoring chain (`cart/commands/lines.ts#buildCartPromotionsAndTotalsPhases`)
+  // calls `container.register({ auth: ... })` unconditionally — a TypeError that the
+  // caller (`reauthorProposalForMergeRetarget`, mocked here at the module boundary
+  // this file already tests against) would see as a thrown rejection. This proves the
+  // container `handleCartMergedForAssistedSellingReauthor` builds and passes down
+  // actually supports `.register()`, with `.resolve()` honoring the override and
+  // falling through to the real DI resolver for everything else — without needing the
+  // full `cart` module's own command/promotions machinery (that module's own tests own
+  // proving `buildCartPromotionsAndTotalsPhases` itself).
+  test('builds a scoped container (even with no ctx.container at all) that supports register() with resolve() fallthrough', async () => {
+    const proposal = makeProposal()
+    const thread = makeThread()
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
+    const commandBus = makeCommandBus()
+    const cartService = makeCartService()
+    const container = makeContainer({ em, commandBus, cartService })
+    // Capture the container and assert on it AFTER the handler's own await resolves —
+    // asserting (or calling `.register`) INSIDE the mock would have its exception
+    // swallowed by the handler's own try/catch (the "re-author failed, superseding
+    // instead" fallback this file tests elsewhere), silently passing the test even
+    // against the pre-fix, `.register`-less container.
+    let capturedContainer: Row | undefined
+    ;(reauthorProposalForMergeRetarget as jest.Mock).mockImplementationOnce(async (params: Row) => {
+      capturedContainer = params.ctx.container
+      return { proposalId: 'proposal-2', replayed: false }
+    })
+
+    // No `container` key at all — the real event-bus delivery shape.
+    await handleCartMergedForAssistedSellingReauthor(makeMergedPayload(), { resolve: container.resolve })
+
+    expect(reauthorProposalForMergeRetarget).toHaveBeenCalledTimes(1)
+    expect(capturedContainer).toBeDefined()
+    // Mirrors `buildCartPromotionsAndTotalsPhases`'s own unconditional call.
+    capturedContainer!.register({ probe: asValue('registered-value') })
+    expect(capturedContainer!.resolve('probe')).toBe('registered-value')
+    // A key never overridden still falls through to the real DI resolver.
+    expect(capturedContainer!.resolve('em')).toBe(em)
   })
 
   test('falls back to supersede-only (no re-author) when reauthorProposalForMergeRetarget refuses — e.g. the author lost cart.proposals.author', async () => {

@@ -423,3 +423,199 @@ maybe('customerCreditService getAccountExposures batches correctly against real 
     return new DefaultCustomerCreditService(em, ALWAYS_ALLOWED_GROUPS_SERVICE)
   }
 })
+
+// #8268 review Critical 2 (re-review): `idempotencyKey` is unique per TENANT (G2), not
+// per organization, so a tenant-wide lookup in `reserveCredit`'s replay paths — or in
+// `linkCreditReservationToOrder` — could resolve a DIFFERENT organization's reservation
+// whenever the two organizations' requests happen to share currency/sourceType/sourceId
+// (or, for link, just the key). Before the fix, that resolved record was treated as a
+// match: the finder's own reservation/exposure was reported as the caller's own, and
+// `linkCreditReservationToOrder`'s account-ownership check result was discarded
+// entirely, letting it attach another organization's order to a foreign ledger row. A
+// fake EntityManager cannot prove the tenant-wide unique constraint actually fires, so
+// this runs the race against the real schema, same convention as the adjustCredit
+// cross-account suite above.
+const ORG_B_ID = '33333333-3333-4333-8333-333333333333'
+const SCOPE_B: CommerceScope = { tenantId: TENANT_ID, organizationId: ORG_B_ID }
+
+maybe('customerCreditService — organization isolation on idempotency-key replay and order-link (C2)', () => {
+  jest.setTimeout(60_000)
+  let orm: MikroORM
+
+  beforeAll(async () => {
+    orm = await MikroORM.init({
+      clientUrl: PG_URL,
+      entities: [CustomerCreditAccount, CustomerCreditLedgerEntry],
+      metadataProvider: ReflectMetadataProvider,
+      allowGlobalContext: true,
+      debug: false,
+      pool: { min: 0, max: 8 },
+    })
+    await orm.schema.refresh()
+  }, 60_000)
+
+  afterAll(async () => {
+    await orm?.close(true)
+  })
+
+  async function seedAccountForOrg(scope: CommerceScope, customerId: string): Promise<{ accountId: string }> {
+    const em = orm.em.fork()
+    const account = em.create(CustomerCreditAccount, {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      customerId,
+      currencyCode: CURRENCY,
+      creditLimit: '1000.00',
+      isOnHold: false,
+    })
+    em.persist(account)
+    await em.flush()
+    return { accountId: account.id }
+  }
+
+  function serviceForOrg(em: EntityManager): CustomerCreditService {
+    return new DefaultCustomerCreditService(em, ALWAYS_ALLOWED_GROUPS_SERVICE)
+  }
+
+  async function findEntry(idempotencyKey: string) {
+    const em = orm.em.fork()
+    return em.findOne(CustomerCreditLedgerEntry, { tenantId: TENANT_ID, idempotencyKey })
+  }
+
+  test('reserveCredit: a sequential organization-B replay of organization-A\'s key never returns A\'s reservation, even with a crafted matching currency/source tuple', async () => {
+    const customerA = randomUUID()
+    const customerB = randomUUID()
+    const { accountId: accountAId } = await seedAccountForOrg(SCOPE, customerA)
+    await seedAccountForOrg(SCOPE_B, customerB)
+    const key = `cross-org-reserve-${randomUUID()}`
+    const sharedSourceId = randomUUID()
+
+    const orgAService = serviceForOrg(orm.em.fork())
+    const orgAResult = await orgAService.reserveCredit({
+      scope: SCOPE,
+      buyer: { customerId: customerA },
+      currencyCode: CURRENCY,
+      amount: '50.00',
+      sourceType: 'checkout',
+      sourceId: sharedSourceId,
+      idempotencyKey: key,
+    })
+    expect(orgAResult.reserved).toBe(true)
+
+    const orgBService = serviceForOrg(orm.em.fork())
+    const orgBAttempt = orgBService.reserveCredit({
+      scope: SCOPE_B,
+      buyer: { customerId: customerB },
+      currencyCode: CURRENCY,
+      // Deliberately matches organization A's tuple — proves the fix rejects on
+      // organization ownership specifically, not merely on a tuple mismatch it
+      // would have caught anyway.
+      amount: '50.00',
+      sourceType: 'checkout',
+      sourceId: sharedSourceId,
+      idempotencyKey: key,
+    })
+    await expect(orgBAttempt).rejects.toBeInstanceOf(CustomerCreditServiceError)
+    await expect(orgBAttempt).rejects.toMatchObject({ code: 'idempotency_key_mismatch' })
+
+    // Organization A's entry is untouched — still the sole row for this key, still
+    // pointing at organization A's account.
+    const entry = await findEntry(key)
+    expect(entry?.creditAccountId).toBe(accountAId)
+    const allEntriesForKey = await orm.em.fork().find(CustomerCreditLedgerEntry, { tenantId: TENANT_ID, idempotencyKey: key })
+    expect(allEntriesForKey).toHaveLength(1)
+  })
+
+  test('reserveCredit: a CONCURRENT organization-B reuse of organization-A\'s key resolves through the real unique-constraint race, never returning A\'s reservation', async () => {
+    const customerA = randomUUID()
+    const customerB = randomUUID()
+    await seedAccountForOrg(SCOPE, customerA)
+    await seedAccountForOrg(SCOPE_B, customerB)
+    const key = `cross-org-race-${randomUUID()}`
+    const sharedSourceId = randomUUID()
+
+    const orgAService = serviceForOrg(orm.em.fork())
+    const orgBService = serviceForOrg(orm.em.fork())
+
+    const [orgAResult, orgBOutcome] = await Promise.all([
+      orgAService.reserveCredit({
+        scope: SCOPE,
+        buyer: { customerId: customerA },
+        currencyCode: CURRENCY,
+        amount: '50.00',
+        sourceType: 'checkout',
+        sourceId: sharedSourceId,
+        idempotencyKey: key,
+      }),
+      orgBService
+        .reserveCredit({
+          scope: SCOPE_B,
+          buyer: { customerId: customerB },
+          currencyCode: CURRENCY,
+          amount: '50.00',
+          sourceType: 'checkout',
+          sourceId: sharedSourceId,
+          idempotencyKey: key,
+        })
+        .then((value) => ({ ok: true as const, value }))
+        .catch((error) => ({ ok: false as const, error })),
+    ])
+
+    expect(orgAResult.reserved).toBe(true)
+    // Whichever of the two writers loses the real (tenant_id, idempotency_key) unique
+    // constraint race — organization A always wins here since it is awaited first in
+    // this `Promise.all`, so the DB serializes organization B's INSERT into the
+    // catch-block replay path — must reject, never silently adopt A's reservation.
+    expect(orgBOutcome.ok).toBe(false)
+    if (!orgBOutcome.ok) {
+      expect(orgBOutcome.error).toBeInstanceOf(CustomerCreditServiceError)
+      expect(orgBOutcome.error).toMatchObject({ code: 'idempotency_key_mismatch' })
+    }
+
+    const allEntriesForKey = await orm.em.fork().find(CustomerCreditLedgerEntry, { tenantId: TENANT_ID, idempotencyKey: key })
+    expect(allEntriesForKey).toHaveLength(1)
+    expect(allEntriesForKey[0]?.organizationId).toBe(ORG_ID)
+  })
+
+  test('linkCreditReservationToOrder: organization B linking organization A\'s key is a no-op, never attaching B\'s order to A\'s entry', async () => {
+    const customerA = randomUUID()
+    const { accountId: accountAId } = await seedAccountForOrg(SCOPE, customerA)
+    const key = `cross-org-link-${randomUUID()}`
+    const orderIdA = randomUUID()
+    const orderIdB = randomUUID()
+
+    const orgAService = serviceForOrg(orm.em.fork())
+    await orgAService.reserveCredit({
+      scope: SCOPE,
+      buyer: { customerId: customerA },
+      currencyCode: CURRENCY,
+      amount: '50.00',
+      sourceType: 'checkout',
+      sourceId: randomUUID(),
+      idempotencyKey: key,
+    })
+
+    const orgBService = serviceForOrg(orm.em.fork())
+    const linkResult = await orgBService.linkCreditReservationToOrder({
+      scope: SCOPE_B,
+      idempotencyKey: key,
+      orderId: orderIdB,
+    })
+    expect(linkResult).toEqual({ linked: false, entryId: null })
+
+    const entry = await findEntry(key)
+    expect(entry?.creditAccountId).toBe(accountAId)
+    expect(entry?.linkedOrderId).toBeNull()
+
+    // Organization A can still link its own reservation afterwards — the fix only
+    // refuses the FOREIGN organization's attempt, not the legitimate owner's.
+    const ownLinkResult = await orgAService.linkCreditReservationToOrder({
+      scope: SCOPE,
+      idempotencyKey: key,
+      orderId: orderIdA,
+    })
+    expect(ownLinkResult.linked).toBe(true)
+    const linkedEntry = await findEntry(key)
+    expect(linkedEntry?.linkedOrderId).toBe(orderIdA)
+  })
+})

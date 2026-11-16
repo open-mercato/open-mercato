@@ -80,6 +80,11 @@ export type PaymentSnapshot = {
 }
 
 type PaymentUndoPayload = {
+  // #8268 review Blocker 1 (re-review): explicit discriminator so `undo` below
+  // branches on what this command actually did, never on whether `before`
+  // happens to be populated — a missing `before` on an `update` log must never
+  // be misread as a `create` log and fall through to deleting the row.
+  kind?: 'create' | 'update'
   before?: PaymentSnapshot | null
   after?: PaymentSnapshot | null
   orderPaymentMethodIdBefore?: string | null
@@ -458,10 +463,19 @@ const createPaymentCommand: CommandHandler<
   { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number }; orderPaymentMethodIdBefore?: string | null; orderPaymentMethodCodeBefore?: string | null; reused?: boolean; reconciled?: boolean }
 > = {
   id: 'sales.payments.create',
+  // #8268 review Blocker 1 (re-review): defer `prepare()`'s snapshot into the
+  // locked transaction via `ctx.beforeTransactionalWrite` (see the `execute`
+  // call site below). An authorization-first/capture-second race can commit
+  // the payment row between an unlocked `prepare()` and this command's own
+  // locked re-check, so `prepare()` run before the lock can never see the
+  // row it is about to reconcile. Running it after the lock makes it observe
+  // the real, serialized state — the same pattern as
+  // `customers.tags.delete`/`customers.interactions.*`.
+  prepareSnapshotInsideTransaction: true,
   async prepare(rawInput, ctx) {
     const parsed = paymentCreateSchema.parse(rawInput ?? {})
     if (!parsed.orderId || !parsed.paymentReference) return {}
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.transactionalEm ?? ctx.container.resolve('em')) as EntityManager
     const scope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
     const existing = await findOneWithDecryption(
       em,
@@ -507,6 +521,12 @@ const createPaymentCommand: CommandHandler<
       if (order.deletedAt) {
         throw notFound('sales.payments.order_not_found')
       }
+      // #8268 review Blocker 1 (re-review): run the deferred `prepare()` now that
+      // the order's row lock is held, so its own `(order, paymentReference)`
+      // re-check observes any payment a concurrent, already-committed caller just
+      // created — giving `buildLog` below a trustworthy `snapshots.before` for the
+      // reused/reconciled branch instead of the pre-lock snapshot that raced it.
+      await ctx.beforeTransactionalWrite?.(tx, input)
       // #8268 review Major 1: both guards below must run before reconciling an
       // existing payment too — this command is reachable from ordinary
       // `POST /api/sales/payments`, not only trusted checkout repair, so a stale
@@ -563,7 +583,13 @@ const createPaymentCommand: CommandHandler<
             existingPayment.capturedAt = input.capturedAt ?? new Date()
             if (input.statusEntryId) {
               existingPayment.statusEntryId = input.statusEntryId
-              existingPayment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId, { tenantId: input.tenantId })
+              // Reuse the `status` already resolved above (same `input.statusEntryId`,
+              // validated to resolve via the `!status` guard) instead of a second,
+              // redundant lookup. The prior second call scoped by `{ tenantId }` alone,
+              // dropping the organization filter `resolveDictionaryEntryValue` applies
+              // when given one — reusing `status` (resolved with the full `scope`)
+              // keeps this org-scoped like the rest of the command.
+              existingPayment.status = status
             }
             existingPayment.updatedAt = new Date()
             tx.persist(existingPayment)
@@ -843,7 +869,7 @@ const createPaymentCommand: CommandHandler<
         organizationId: after.organizationId,
         snapshotBefore: before ?? null,
         snapshotAfter: after,
-        payload: { undo: { before, after } satisfies PaymentUndoPayload },
+        payload: { undo: { kind: 'update', before, after } satisfies PaymentUndoPayload },
       }
     }
     return {
@@ -855,12 +881,24 @@ const createPaymentCommand: CommandHandler<
       tenantId: after.tenantId,
       organizationId: after.organizationId,
       snapshotAfter: after,
-      payload: { undo: { after, orderPaymentMethodIdBefore: result.orderPaymentMethodIdBefore ?? null, orderPaymentMethodCodeBefore: result.orderPaymentMethodCodeBefore ?? null } satisfies PaymentUndoPayload },
+      payload: { undo: { kind: 'create', after, orderPaymentMethodIdBefore: result.orderPaymentMethodIdBefore ?? null, orderPaymentMethodCodeBefore: result.orderPaymentMethodCodeBefore ?? null } satisfies PaymentUndoPayload },
     }
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<PaymentUndoPayload>(logEntry)
-    if (payload?.before) {
+    // #8268 review Blocker 1 (re-review): branch on the log's own `kind`, never on
+    // whether `before` happens to be present. Legacy logs predating this field (none
+    // exist yet pre-merge, but kept as a safe fallback) fall back to the old
+    // presence check; any future `update` log is never allowed to fall through to
+    // the destructive delete path below, even if its `before` were somehow absent.
+    const isUpdateLog = payload?.kind ? payload.kind === 'update' : !!payload?.before
+    if (isUpdateLog) {
+      if (!payload?.before) {
+        logger.error('sales.payments.create undo: update log is missing its before snapshot; refusing to delete a pre-existing payment row', {
+          paymentId: payload?.after?.id ?? null,
+        })
+        return
+      }
       // #8268 review Major 2: a reconciled-reuse log carries both snapshots like a
       // normal update does — revert the row's scalar fields non-destructively, the
       // same way `sales.payments.update`'s own undo does, instead of deleting it (it

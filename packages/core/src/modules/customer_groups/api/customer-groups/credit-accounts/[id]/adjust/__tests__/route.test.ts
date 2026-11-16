@@ -121,4 +121,26 @@ describe('POST /customer-groups/credit-accounts/[id]/adjust', () => {
 
     expect(res.status).toBe(200)
   })
+
+  // #8268 review Major 5 (re-review): this route used to honor a guard's denial but
+  // ignore its `modifiedPayload` — a transforming guard's rewritten adjustment amount/
+  // note was silently discarded and the original request body dispatched instead.
+  it('dispatches the guard-transformed amount/note, never the original request body', async () => {
+    runRouteMutationGuardsMock.mockResolvedValue({
+      ok: true,
+      modifiedPayload: { amount: '10.00', note: 'constrained by guard' },
+      runAfterSuccess: async () => {},
+    })
+    commandBusExecuteMock.mockResolvedValue({ result: { entry: { creditAccountId: ACCOUNT_ID } }, logEntry: null })
+
+    const res = await POST(jsonRequest({ amount: '999.00', note: 'original note' }), routeCtx())
+
+    expect(res.status).toBe(200)
+    expect(commandBusExecuteMock).toHaveBeenCalledWith(
+      'customer_groups.credit.adjust',
+      expect.objectContaining({
+        input: expect.objectContaining({ amount: '10.00', note: 'constrained by guard' }),
+      }),
+    )
+  })
 })

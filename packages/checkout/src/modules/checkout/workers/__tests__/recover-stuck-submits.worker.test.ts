@@ -156,6 +156,37 @@ describe('checkout recover-stuck-submits worker', () => {
     expect(mockWriteSessionEvent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: 'recovery', payload: expect.objectContaining({ action: 'resumed' }) }))
   })
 
+  // #8268 review Major 2 (re-review): the real `continueOrderOutcome` → `commands/submit.ts`
+  // chain calls `container.register(...)` whenever `promotionsService` resolves, even with
+  // no promotion code applied — a TypeError against the old `{ resolve: ctx.resolve }`
+  // container (no `.register()` at all), mocked away here (as every test in this file
+  // mocks `continueOrderOutcome`) and so invisible to the rest of this suite. This proves
+  // the container the worker actually builds and passes to `continueOrderOutcome` supports
+  // `.register()` with `.resolve()` falling through to the job's real `ctx.resolve`
+  // otherwise — the exact contract that production call needs.
+  it('passes a container to continueOrderOutcome that supports register() with resolve() fallthrough', async () => {
+    const session = makeSession({ submitProgress: 'document_created', salesQuoteId: 'quote-1', salesOrderId: 'order-1' })
+    mockFindWithDecryption.mockResolvedValueOnce([session])
+    const { default: handle } = await import('../recover-stuck-submits.worker')
+
+    await handle(
+      { ...baseJob, payload: { tenantId: TENANT_ID, organizationId: ORG_ID } } as unknown as QueuedJob<RecoverStuckSubmitsJob>,
+      mockContext,
+    )
+
+    const container = mockContinueOrderOutcome.mock.calls[0]?.[0] as {
+      register: (registrations: Record<string, unknown>) => void
+      resolve: <T = unknown>(name: string) => T
+    }
+    expect(container).toBeDefined()
+    expect(typeof container.register).toBe('function')
+    const { asValue } = await import('awilix')
+    container.register({ probe: asValue('registered-value') })
+    expect(container.resolve('probe')).toBe('registered-value')
+    // A key never overridden still falls through to the job's real `resolve`.
+    expect(container.resolve('em')).toBe(mockEm)
+  })
+
   it('resumes forward for a session at finalized (no intent yet), via continueOrderOutcome', async () => {
     const session = makeSession({ submitProgress: 'finalized', salesQuoteId: 'quote-1', salesOrderId: 'order-1' })
     mockFindWithDecryption.mockResolvedValueOnce([session])

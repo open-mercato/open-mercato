@@ -824,7 +824,16 @@ const submitSessionCommand: CommandHandler<CheckoutSessionSubmitCommandInput, Ch
             organizationId: scope.organizationId,
             externalReference,
             currencyCode: session.currencyCode,
-            customerEntityId: session.customerId ?? undefined,
+            // #8268 review Major 3 (re-review): `session.customerId` is a snapshot taken
+            // when the session was CREATED. A guest cart claimed by a buyer logging in
+            // afterwards (`cart`'s merge `'replace'` strategy, see
+            // `lib/currentSessionRoute.ts#resolveSessionIdentityCustomerUserId`'s own header)
+            // updates the cart's own `customer_id`/`customer_user_id` but never rewrites this
+            // session row. Terms/payment eligibility and credit above already resolve off the
+            // LIVE, locked cart (`lockResult.cart`) — the quote's own buyer association must
+            // match, or it is created customerless (or against the stale buyer) while the new
+            // company's credit funded it.
+            customerEntityId: lockResult.cart.customerId ?? undefined,
             shippingAddressSnapshot: session.shippingAddress ?? undefined,
             billingAddressSnapshot: session.billingSameAsShipping ? session.shippingAddress ?? undefined : session.billingAddress ?? undefined,
             shippingMethodCode: shippingMethod.deliveryMethodCode,

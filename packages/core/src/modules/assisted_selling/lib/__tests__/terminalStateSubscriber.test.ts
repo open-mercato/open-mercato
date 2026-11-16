@@ -55,6 +55,17 @@ function makeFakeEm(seed: { proposals?: Row[]; threads?: Row[] } = {}) {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    // #8268 review Major 4 (re-review): the handler now claims the published -> terminal
+    // transition via a conditional `nativeUpdate` (atomic claim) instead of a scalar
+    // mutation + `persist` — mirrors the real "only rows still matching the WHERE get
+    // updated" semantics so a test can prove a lost race (status already flipped) claims
+    // zero rows.
+    nativeUpdate: jest.fn(async (Cls: unknown, where: Row, data: Row) => {
+      const rows = Cls === AssistedSellingProposal ? proposals : []
+      const matching = rows.filter((row) => matches(row, where))
+      matching.forEach((row) => Object.assign(row, data))
+      return matching.length
+    }),
     // `applyLiveProposalCountDelta` (`lib/liveProposalCount.ts`) — the only raw SQL this
     // handler issues. Mirrors the real `GREATEST(live_proposal_count + delta, 0)` update
     // against the seeded thread row by id.
@@ -240,5 +251,37 @@ describe('createCartProposalTerminalHandler — §6.6 terminal-state subscriber'
     )
 
     expect(emitAssistedSellingEvent).not.toHaveBeenCalled()
+  })
+
+  // #8268 review Major 4 (re-review): a redelivered terminal event (or a genuine
+  // accept/reject/expire race) for the SAME proposal must decrement the thread's
+  // `live_proposal_count` exactly once and emit exactly once — never twice, which
+  // would leave the counter at zero while another proposal on the same thread is
+  // still `published`. The pre-fix handler read `status !== 'published'` before any
+  // write and so unconditionally decremented on every delivery; the fix claims the
+  // transition via a conditional `nativeUpdate` (`WHERE status = 'published'`), so
+  // only the delivery whose claim actually matched a row decrements/emits.
+  test('a redelivered terminal event for the same proposal decrements the thread exactly once, never twice', async () => {
+    const proposal = makeProposal()
+    // A second, still-published proposal on the SAME thread — the counter must land
+    // on 1 (that proposal's own share), never 0.
+    const thread = makeThread({ liveProposalCount: 2 })
+    const { em } = makeFakeEm({ proposals: [proposal], threads: [thread] })
+    const handler = createCartProposalTerminalHandler({
+      targetStatus: 'accepted',
+      emitEventId: 'assisted_selling.proposal.accepted',
+      subscriberId: 'test:accepted',
+    })
+    const payload = { proposalCartId: PROPOSAL_CART_ID, tenantId: TENANT_ID, organizationId: ORG_ID, mergeLogId: 'merge-log-1' }
+    const ctx = { resolve: makeContainer(em).resolve, container: makeContainer(em) }
+
+    // Two deliveries of the SAME event for the SAME proposal, racing — exactly the
+    // "two deliveries can both observe published before either transaction begins"
+    // scenario the fix closes.
+    await Promise.all([handler(payload, ctx), handler(payload, ctx)])
+
+    expect(proposal.status).toBe('accepted')
+    expect(thread.liveProposalCount).toBe(1)
+    expect(emitAssistedSellingEvent).toHaveBeenCalledTimes(1)
   })
 })

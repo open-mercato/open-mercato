@@ -4,6 +4,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/ty
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { buildScopedContainerFromResolve } from '@open-mercato/shared/lib/di/scopedContainer'
 import type { CartService } from '@open-mercato/core/modules/cart/lib/cartService'
 import { CheckoutSession } from '../data/entities'
 import {
@@ -302,7 +303,15 @@ export default async function handle(job: QueuedJob<RecoverStuckSubmitsJob>, ctx
   const scope: RecoveryScope = { tenantId, organizationId }
   const em = (ctx.resolve('em') as EntityManager).fork()
   const cutoff = new Date(Date.now() - STUCK_THRESHOLD_MS)
-  const container = { resolve: ctx.resolve } as unknown as CommandRuntimeContext['container']
+  // #8268 review Major 2 (re-review): the queue worker's job context only ever
+  // supplies `resolve`, never a real Awilix container, but the recovery chain
+  // (`continueOrderOutcome` → `commands/submit.ts`) calls `container.register(...)`
+  // whenever `promotionsService` resolves, even with no promotion code applied — a
+  // TypeError against the old `{ resolve: ctx.resolve }` fallback (no `.register()`
+  // at all) on every real run. `buildScopedContainerFromResolve` wraps `ctx.resolve`
+  // into a container that actually supports `.register()`, falling through to
+  // `ctx.resolve` for everything else.
+  const container = buildScopedContainerFromResolve(ctx.resolve) as unknown as CommandRuntimeContext['container']
 
   const stuck = (await findWithDecryption(
     em,

@@ -610,11 +610,21 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
               if (existing.entryType !== 'reserve' || toMinorUnits(existing.amount) !== toMinorUnits(amount)) {
                 throw idempotencyMismatchError()
               }
+              // #8268 review Critical 2 (re-review): scope this fallback lookup by
+              // organization too — the idempotency key is unique per tenant (G2),
+              // not per organization, so an unscoped lookup here could resolve a
+              // DIFFERENT organization's account whose currency/source happen to
+              // match and report its reservation as this request's own success.
               const existingAccount =
                 existing.creditAccountId === account.id
                   ? account
-                  : await this.em.findOne(CustomerCreditAccount, { id: existing.creditAccountId, tenantId: scope.tenantId })
+                  : await this.em.findOne(CustomerCreditAccount, {
+                      id: existing.creditAccountId,
+                      tenantId: scope.tenantId,
+                      organizationId: scope.organizationId,
+                    })
               const sameTuple =
+                existingAccount?.organizationId === scope.organizationId &&
                 existingAccount?.currencyCode === currencyCode &&
                 existing.sourceType === input.sourceType &&
                 existing.sourceId === input.sourceId
@@ -704,8 +714,21 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
       if (!existing || existing.entryType !== 'reserve' || toMinorUnits(existing.amount) !== toMinorUnits(amount)) {
         throw idempotencyMismatchError()
       }
-      const account = await this.em.findOne(CustomerCreditAccount, { id: existing.creditAccountId, tenantId: scope.tenantId })
-      if (!account || account.currencyCode !== currencyCode || existing.sourceType !== input.sourceType || existing.sourceId !== input.sourceId) {
+      // #8268 review Critical 2 (re-review): same organization scoping as the
+      // in-transaction replay path above — a tenant-wide account lookup here could
+      // resolve a DIFFERENT organization's account for the same idempotency key.
+      const account = await this.em.findOne(CustomerCreditAccount, {
+        id: existing.creditAccountId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
+      if (
+        !account ||
+        account.organizationId !== scope.organizationId ||
+        account.currencyCode !== currencyCode ||
+        existing.sourceType !== input.sourceType ||
+        existing.sourceId !== input.sourceId
+      ) {
         throw idempotencyMismatchError()
       }
       const releaseEntry = await this.em.findOne(CustomerCreditLedgerEntry, {
@@ -1052,18 +1075,30 @@ export class DefaultCustomerCreditService implements CustomerCreditService {
           // this service — even though this call only ever touches the `reserve` entry's
           // own `linked_order_id` column, so a concurrent `releaseCredit`/`settleCredit`
           // on the SAME account can never interleave with this write.
+          // #8268 review Critical 2 (re-review): scope the entry lookup to THIS
+          // organization — the idempotency key is unique per tenant (G2), but a
+          // tenant-wide, organization-blind lookup here would let an
+          // organization-B caller resolve organization-A's reservation and (see
+          // below) silently link it to organization-B's order.
           const reserveEntry = await this.em.findOne(CustomerCreditLedgerEntry, {
             tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
             idempotencyKey: input.idempotencyKey,
             entryType: 'reserve',
           })
           if (!reserveEntry) return
 
-          await this.em.findOne(
+          // #8268 review Critical 2 (re-review): the account lookup's result was
+          // previously discarded — a foreign `creditAccountId` (the entry belongs to
+          // an account this scope does not own) resolved to `null` here but the
+          // write below ran unconditionally anyway. Treat a missing/foreign account
+          // as not-found, never as an implicit match.
+          const account = await this.em.findOne(
             CustomerCreditAccount,
             { id: reserveEntry.creditAccountId, tenantId: scope.tenantId, organizationId: scope.organizationId },
             { lockMode: LockMode.PESSIMISTIC_WRITE },
           )
+          if (!account) return
 
           if (reserveEntry.linkedOrderId === input.orderId) {
             result = { linked: false, entryId: reserveEntry.id }

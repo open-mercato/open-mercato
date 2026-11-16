@@ -228,11 +228,15 @@ function buildHarness(opts: {
     if (entity === CheckoutSession) return seededSessions.find((row) => matchesWhere(row, where)) ?? null
     return null
   })
-  mockLookupCartPeerById.mockImplementation(async () => opts.cartPeer ?? makeCartPeer())
+  const cartPeer = opts.cartPeer ?? makeCartPeer()
+  mockLookupCartPeerById.mockImplementation(async () => cartPeer)
 
   const snapshot = opts.snapshot ?? makeSnapshot()
   const cartService = {
-    lock: jest.fn(async () => ({ cart: { status: 'locked' }, priceChanges: [], extended: false })),
+    // #8268 review Major 3 (re-review): carries the LIVE cart's `customerId`, same as
+    // `cartPeer` above — `submit.ts` resolves the quote's buyer from `lockResult.cart`,
+    // never the session's own stale snapshot.
+    lock: jest.fn(async () => ({ cart: { status: 'locked', customerId: cartPeer.customerId ?? null }, priceChanges: [], extended: false })),
     unlock: jest.fn(async () => ({ cart: { status: 'active' } })),
     getSalesSnapshot: jest.fn(async () => snapshot),
     markConverted: jest.fn(async () => ({ cart: { status: 'converted' } })),
@@ -542,6 +546,12 @@ describe('checkout.session.submit (B.4, steps 1-5 of §7.2/C19)', () => {
     }))
     expect(h.commandBusExecute).toHaveBeenCalledWith('sales.quotes.convert_to_order', expect.objectContaining({ input: { quoteId: result.salesQuoteId } }))
     expect(result.salesOrderId).toBe(result.salesQuoteId)
+    // #8268 review Major 3 (re-review): the quote's buyer comes from the LIVE,
+    // locked cart — see the dedicated adoption test below for the case where this
+    // actually diverges from the session's own snapshot.
+    expect(h.commandBusExecute).toHaveBeenCalledWith('sales.quotes.create', expect.objectContaining({
+      input: expect.objectContaining({ customerEntityId: 'customer-1' }),
+    }))
     // Step 4.2 extends the SAME call through steps 6-8 — a gateway mock that returns a
     // synchronously-terminal status (the common test-gateway shape) reaches `completed`
     // within this one call, same as a real auto-capturing provider would.
@@ -806,6 +816,66 @@ describe('checkout.session.submit (B.4, steps 1-5 of §7.2/C19)', () => {
       body: expect.objectContaining({ code: 'steps_incomplete', error: '[internal] a shipping address is required before submit' }),
     })
     expect(h.cartService.lock).not.toHaveBeenCalled()
+  })
+})
+
+// #8268 review Major 3 (re-review): `session.customerId` is a snapshot taken when the
+// session was created. A guest cart later claimed by a buyer logging in (`cart`'s merge
+// `'replace'` strategy) updates the cart's own `customer_id`/`customer_user_id` but never
+// rewrites the checkout session row — so the LIVE, locked cart (`lockResult.cart`), not the
+// session, must be the quote's buyer. Terms/payment eligibility and credit already resolve
+// off the live cart peer (`cartPeer`) elsewhere in this file; this is the matching coverage
+// for the one spot that used to read the stale session snapshot instead.
+describe('checkout.session.submit — quote buyer resolution after guest cart adoption (Major 3)', () => {
+  // No `commandRegistry.clear?.()` + re-import here — only the FIRST describe block in this
+  // file does that (module imports are cached, so a second clear would empty the registry
+  // and never re-populate it, breaking every later block — see the same note further down).
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('creates the quote under the LIVE cart buyer, not the session\'s stale (guest) snapshot', async () => {
+    const h = buildHarness({
+      // The session was created as a guest — no customer association at all.
+      session: makeSession({ customerId: null, customerUserId: null }),
+      // The buyer logged in and the cart was adopted into their company BEFORE submit —
+      // the live cart (and therefore `cartService.lock`'s own result) now carries the
+      // new owner.
+      cartPeer: makeCartPeer({ customerId: 'customer-adopted', customerIds: ['customer-adopted'] }),
+    })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.commandBusExecute).toHaveBeenCalledWith('sales.quotes.create', expect.objectContaining({
+      input: expect.objectContaining({ customerEntityId: 'customer-adopted' }),
+    }))
+  })
+
+  it('creates the quote under the newly-adopted buyer even when the session still names the ORIGINAL guest/company', async () => {
+    const h = buildHarness({
+      session: makeSession({ customerId: 'customer-original' }),
+      cartPeer: makeCartPeer({ customerId: 'customer-adopted', customerIds: ['customer-adopted'] }),
+    })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.commandBusExecute).toHaveBeenCalledWith('sales.quotes.create', expect.objectContaining({
+      input: expect.objectContaining({ customerEntityId: 'customer-adopted' }),
+    }))
+  })
+
+  it('creates the quote customerless when the live cart has no buyer at all, never falling back to a stale session id', async () => {
+    const h = buildHarness({
+      session: makeSession({ customerId: 'customer-original' }),
+      cartPeer: makeCartPeer({ customerId: null, customerIds: [] }),
+    })
+
+    await getHandler().execute(BASE_INPUT, h.ctx)
+
+    expect(h.commandBusExecute).toHaveBeenCalledWith('sales.quotes.create', expect.objectContaining({
+      input: expect.objectContaining({ customerEntityId: undefined }),
+    }))
   })
 })
 

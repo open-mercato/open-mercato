@@ -81,6 +81,13 @@ export async function POST(request: Request, context: RouteContext) {
     })
     if (!guarded.ok) return guarded.response
 
+    // #8268 review Major 5 (re-review): a registered guard that transforms the
+    // mutation payload (e.g. removing an accepted line it denies) must have its
+    // transformed shape persisted — reading `body` below instead would silently
+    // bypass that transformation. Re-validate through the same schema since
+    // `modifiedPayload` is a loosely-typed merged record, not the zod-inferred type.
+    const payload = guarded.modifiedPayload ? cartProposalAcceptRequestSchema.parse(guarded.modifiedPayload) : body
+
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx = buildCommandContext(container, request, resolved.routeContext)
     const commandInput: CartProposalAcceptInput = {
@@ -88,8 +95,8 @@ export async function POST(request: Request, context: RouteContext) {
       targetCartId: basket.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      acceptanceToken: body.acceptanceToken,
-      lines: body.lines,
+      acceptanceToken: payload.acceptanceToken,
+      lines: payload.lines,
       routeContext: resolved.routeContext,
     }
     const { result } = await commandBus.execute<CartProposalAcceptInput, CartProposalAcceptResult>(acceptProposalCommand.id, {

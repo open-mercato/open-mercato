@@ -89,16 +89,25 @@ export async function POST(req: Request, routeContext: RouteContext) {
     })
     if (!guarded.ok) return guarded.response
 
+    // #8268 review Major 5 (re-review): a registered guard that transforms the
+    // decision/note (e.g. sanitizing it) must have its transformed shape persisted —
+    // reading `parsedBody.data` below instead would silently bypass that
+    // transformation. Re-validate through the same schema since `modifiedPayload` is
+    // a loosely-typed merged record, not the zod-inferred type.
+    const decisionInput = guarded.modifiedPayload
+      ? customerPurchaseApprovalDecideRequestSchema.parse(guarded.modifiedPayload)
+      : parsedBody.data
+
     const updated = await context.approvalService.decideApproval({
       scope,
       approvalId: current.id,
-      decision: parsedBody.data.decision,
+      decision: decisionInput.decision,
       actor: {
         actorType: 'customer_user',
         actorId: context.auth.sub,
         customerEntityId: context.principal.customerEntityId,
       },
-      note: parsedBody.data.note,
+      note: decisionInput.note,
     })
 
     await guarded.runAfterSuccess()
