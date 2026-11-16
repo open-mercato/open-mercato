@@ -1,0 +1,16 @@
+{
+  "ownedRuntimeProcessesGone": true,
+  "appPortClosed": true,
+  "ownedDatabaseContainers": [
+    {
+      "id": "653d609a7ac0",
+      "removed": true
+    }
+  ],
+  "privateFixtureAndEnvironmentFilesRemoved": true,
+  "trackedEmailCaptureRestoredToExactHead": true,
+  "browserContextsClosed": true,
+  "tracesRemoved": true,
+  "sourceClean": true,
+  "developerAndProductionInfrastructureUntouched": true
+}
