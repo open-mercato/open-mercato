@@ -552,6 +552,31 @@ describe('Workflow Executor (Unit Tests)', () => {
       )
     })
 
+    test('refuses retry or resume of a persisted event actor before any step', async () => {
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      const instance = {
+        id: testInstanceId, definitionId: testDefinitionId, workflowId: 'simple-workflow',
+        version: 1, status: 'RUNNING', currentStepId: 'start', context: {},
+        metadata: { initiatedBy: 'victim-user', labels: { trigger_id: 'old-trigger' } },
+        tenantId: testTenantId, organizationId: testOrgId, startedAt: new Date(),
+        retryCount: 1, createdAt: new Date(), updatedAt: new Date(),
+      } as WorkflowInstance
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: unknown) => {
+        if ((where as Record<string, unknown>)?.id === testInstanceId) return instance
+        if ((where as Record<string, unknown>)?.id === testDefinitionId) return mockDefinition as WorkflowDefinition
+        return null
+      })
+
+      await expect(workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId, { userId: 'victim-user' }))
+        .rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+
+      expect(transitionHandler.findValidTransitions).not.toHaveBeenCalled()
+      expect(transitionHandler.executeTransition).not.toHaveBeenCalled()
+    })
+
     test('should throw error if instance not found', async () => {
       mockEm.findOne.mockResolvedValue(null)
 

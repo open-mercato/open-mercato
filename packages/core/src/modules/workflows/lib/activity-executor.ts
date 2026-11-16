@@ -75,6 +75,8 @@ import type { AgentDispositionReview } from './agent-disposition-task'
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
+import { assertTrustedEventTriggerIdentity } from './event-trigger-identity'
+
 const logger = createLogger('workflows')
 
 function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
@@ -575,6 +577,8 @@ export async function executeActivity(
   activity: ActivityDefinition,
   context: ActivityContext
 ): Promise<ActivityExecutionResult> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   const retryPolicy = activity.retryPolicy || {
     maxAttempts: 1,
     initialIntervalMs: 0,
@@ -1036,6 +1040,8 @@ export async function executeUpdateEntity(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   const { commandId, input, statusDictionary } = config
 
   if (!commandId) {
@@ -1644,6 +1650,8 @@ export async function executeCallApi(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, allowlisted {{env.*}}, {{now}})
   const interpolatedConfig = interpolateActivityConfig(config, context, 'CALL_API')
 
@@ -1860,6 +1868,8 @@ export async function resolveCallApiRoleIds(
   em: any,
   instance: CallApiInstanceLike
 ): Promise<string[]> {
+  assertTrustedEventTriggerIdentity(instance)
+
   if (!instance.definitionId) return []
 
   const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
@@ -1914,6 +1924,8 @@ export async function resolveWorkflowPrincipalUserId(
   em: any,
   instance: CallApiInstanceLike
 ): Promise<string | null> {
+  assertTrustedEventTriggerIdentity(instance)
+
   const definition = await loadInstanceDefinition(em, instance)
 
   // 0. A declared execution grant outranks both — the run acts as its own
