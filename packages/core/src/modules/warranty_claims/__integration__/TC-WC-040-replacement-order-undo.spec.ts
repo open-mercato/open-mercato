@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import { createOrderLineFixture, createSalesOrderFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { createWorkflowDefinitionFixture } from '@open-mercato/core/helpers/integration/workflowsFixtures'
 import type { CodeWorkflowDefinitionData } from '@open-mercato/shared/modules/workflows'
@@ -29,21 +30,35 @@ async function createGrantedApprovalWorkflow(request: APIRequestContext, token: 
 }
 
 async function deleteApprovalWorkflow(request: APIRequestContext, token: string, workflow: { id: string; workflowId: string }) {
-  const instances = await apiRequest(request, 'GET', `/api/workflows/instances?workflowId=${encodeURIComponent(workflow.workflowId)}&limit=100`, { token })
-  expect(instances.status()).toBe(200)
-  const body = await readJsonSafe<{ data: Array<{ id: string; status: string }> }>(instances)
-  expect(body?.data).toBeDefined()
-  for (const instance of body!.data) {
-    if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(instance.status)) continue
-    const cancelled = await apiRequest(request, 'POST', `/api/workflows/instances/${instance.id}/cancel`, { token })
-    expect(cancelled.status(), await cancelled.text()).toBe(200)
+  try {
+    await expect.poll(async () => {
+      await drainIntegrationQueue('events')
+      await drainIntegrationQueue('workflow-activities')
+      const instances = await apiRequest(request, 'GET', `/api/workflows/instances?workflowId=${encodeURIComponent(workflow.workflowId)}&limit=100`, { token })
+      expect(instances.status()).toBe(200)
+      const body = await readJsonSafe<{ data: Array<{ id: string }> }>(instances)
+      expect(body?.data).toBeDefined()
+      for (const instance of body!.data) {
+        const snapshot = await apiRequest(request, 'GET', `/api/workflows/instances/${instance.id}`, { token })
+        expect(snapshot.status()).toBe(200)
+        const current = await readJsonSafe<{ data: { status: string } }>(snapshot)
+        expect(current?.data).toBeDefined()
+        if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(current!.data.status)) continue
+        if (!['RUNNING', 'PAUSED'].includes(current!.data.status)) return false
+        const cancelled = await apiRequest(request, 'POST', `/api/workflows/instances/${instance.id}/cancel`, { token })
+        if (cancelled.status() === 400) return false
+        expect(cancelled.status(), await cancelled.text()).toBe(200)
+      }
+      return true
+    }).toBe(true)
+  } finally {
+    const detail = await apiRequest(request, 'GET', `/api/workflows/definitions/${workflow.id}`, { token })
+    expect(detail.status()).toBe(200)
+    const definition = await readJsonSafe<{ data: { updatedAt: string } }>(detail)
+    expect(definition?.data.updatedAt).toBeTruthy()
+    const deleted = await requestJson(request, 'DELETE', `/api/workflows/definitions/${workflow.id}`, token, undefined, definition!.data.updatedAt)
+    expect(deleted.status(), await deleted.text()).toBe(200)
   }
-  const detail = await apiRequest(request, 'GET', `/api/workflows/definitions/${workflow.id}`, { token })
-  expect(detail.status()).toBe(200)
-  const definition = await readJsonSafe<{ data: { updatedAt: string } }>(detail)
-  expect(definition?.data.updatedAt).toBeTruthy()
-  const deleted = await requestJson(request, 'DELETE', `/api/workflows/definitions/${workflow.id}`, token, undefined, definition!.data.updatedAt)
-  expect(deleted.status(), await deleted.text()).toBe(200)
 }
 
 async function readOrder(request: APIRequestContext, token: string, orderId: string) {
@@ -129,12 +144,12 @@ test.describe('TC-WC-040: replacement-order undo after approval initialization',
         }
       } finally {
         try {
-          await cancelThenDeleteClaimIfPossible(request, token, claimId)
-          for (const orderId of replacementIds) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
-          if (sourceOrderId) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', sourceOrderId)
+          if (approvalWorkflow) await deleteApprovalWorkflow(request, token, approvalWorkflow)
         } finally {
           try {
-            if (approvalWorkflow) await deleteApprovalWorkflow(request, token, approvalWorkflow)
+            await cancelThenDeleteClaimIfPossible(request, token, claimId)
+            for (const orderId of replacementIds) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+            if (sourceOrderId) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', sourceOrderId)
           } finally {
             await restoreWarrantyClaimSettings(request, token, settings)
           }
