@@ -101,6 +101,12 @@ const mockCurrency = {
 const findIsBaseField = () =>
   mockCrudFormProps.groups.flatMap((group: any) => group.fields).find((field: any) => field.id === 'isBase')
 
+type FormFieldProps = { id: string; disabled?: boolean; description?: string }
+const findIsActiveField = (): FormFieldProps | undefined =>
+  (mockCrudFormProps.groups as Array<{ fields: FormFieldProps[] }>)
+    .flatMap((group) => group.fields)
+    .find((field) => field.id === 'isActive')
+
 describe('EditCurrencyPage', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -149,5 +155,31 @@ describe('EditCurrencyPage', () => {
     fireEvent.click(screen.getByTestId('submit-button'))
     await waitFor(() => expect(updateCrud).toHaveBeenCalled())
     expect((updateCrud as jest.Mock).mock.calls[0][1]).toMatchObject({ id: 'cur-1', isBase: true })
+  })
+
+  it('locks the active flag on an active base currency and keeps it editable elsewhere', async () => {
+    render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
+    await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
+    expect(findIsActiveField()?.disabled).toBeFalsy()
+    expect(findIsActiveField()?.description).toBeUndefined()
+
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: true,
+      result: { items: [{ ...mockCurrency, isBase: true }] },
+    })
+    render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
+    await waitFor(() => expect(findIsActiveField()?.disabled).toBe(true))
+    expect(findIsActiveField()?.description).toBe('currencies.form.field.isActiveLocked')
+  })
+
+  it('keeps the active flag editable on a base currency that is already inactive', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: true,
+      result: { items: [{ ...mockCurrency, isBase: true, isActive: false }] },
+    })
+    render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
+
+    await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
+    expect(findIsActiveField()?.disabled).toBeFalsy()
   })
 })

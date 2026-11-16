@@ -56,6 +56,7 @@
   "currencies.form.field.decimalPlaces": "Lugares Decimales",
   "currencies.form.field.decimalSeparator": "Separador Decimal",
   "currencies.form.field.isActive": "Activa",
+  "currencies.form.field.isActiveLocked": "La moneda base debe permanecer activa. Para desactivarla, establezca primero otra moneda como base.",
   "currencies.form.field.isBase": "Moneda Base",
   "currencies.form.field.isBaseLocked": "Esta es la moneda base. Para cambiarla, establezca otra moneda como base.",
   "currencies.form.field.name": "Nombre de Moneda",
