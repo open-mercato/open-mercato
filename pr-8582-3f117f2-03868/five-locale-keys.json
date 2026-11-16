@@ -1,0 +1,42 @@
+{
+  "customer_accounts/en": {
+    "customer_accounts.admin.detail.resetPassword.error.validation": "Check the password requirements and try again."
+  },
+  "customer_accounts/pl": {
+    "customer_accounts.admin.detail.resetPassword.error.validation": "Sprawdź wymagania dotyczące hasła i spróbuj ponownie."
+  },
+  "customer_accounts/es": {
+    "customer_accounts.admin.detail.resetPassword.error.validation": "Revisa los requisitos de la contraseña e inténtalo de nuevo."
+  },
+  "customer_accounts/de": {
+    "customer_accounts.admin.detail.resetPassword.error.validation": "Prüfen Sie die Passwortanforderungen und versuchen Sie es erneut."
+  },
+  "customer_accounts/ko": {
+    "customer_accounts.admin.detail.resetPassword.error.validation": "비밀번호 요구 사항을 확인한 후 다시 시도해 주세요."
+  },
+  "portal/en": {
+    "portal.password.error.policy": "Check the password requirements and your details, then try again.",
+    "portal.profile.rolesAssigned": "{count} assigned",
+    "portal.profile.featuresCount": "{count} features"
+  },
+  "portal/pl": {
+    "portal.password.error.policy": "Sprawdź wymagania dotyczące hasła oraz wprowadzone dane i spróbuj ponownie.",
+    "portal.profile.rolesAssigned": "Przypisane role: {count}",
+    "portal.profile.featuresCount": "Uprawnienia: {count}"
+  },
+  "portal/es": {
+    "portal.password.error.policy": "Revisa los requisitos de la contraseña y tus datos e inténtalo de nuevo.",
+    "portal.profile.rolesAssigned": "{count} asignados",
+    "portal.profile.featuresCount": "{count} permisos"
+  },
+  "portal/de": {
+    "portal.password.error.policy": "Prüfen Sie die Passwortanforderungen und Ihre Angaben und versuchen Sie es erneut.",
+    "portal.profile.rolesAssigned": "{count} zugewiesen",
+    "portal.profile.featuresCount": "{count} Berechtigungen"
+  },
+  "portal/ko": {
+    "portal.password.error.policy": "비밀번호 요구 사항과 입력한 정보를 확인한 후 다시 시도하세요.",
+    "portal.profile.rolesAssigned": "할당된 역할 {count}개",
+    "portal.profile.featuresCount": "권한 {count}개"
+  }
+}
