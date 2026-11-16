@@ -323,6 +323,51 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
     }
   })
 
+  test('two concurrent replaceLines updates sent with the same expected version: one succeeds, the other answers 409', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let invoiceId: string | null = null
+    try {
+      invoiceId = await createInvoice(request, token, { lines: [productLine], grandTotalGrossAmount: 123 })
+      const invoice = await readInvoice(request, token, invoiceId)
+      const expectedVersion = String(invoice?.updatedAt ?? invoice?.updated_at ?? '')
+      expect(expectedVersion, 'the invoice list should return updatedAt').not.toBe('')
+      const setA = [1, 2].map((n) => ({ ...productLine, name: `A-${n}` }))
+      const setB = [1, 2, 3].map((n) => ({ ...productLine, name: `B-${n}` }))
+      const [first, second] = await withClient(async (client) => {
+        await client.query('begin')
+        await client.query('select id from sales_invoices where id = $1 for update', [invoiceId])
+        const updates = Promise.all(
+          [setA, setB].map((lines) =>
+            apiRequest(request, 'PUT', INVOICES, {
+              token,
+              headers: { 'x-om-ext-optimistic-lock-expected-updated-at': expectedVersion },
+              data: { id: invoiceId, replaceLines: true, lines, ...totals },
+            }),
+          ),
+        )
+        await waitForLockWaiters(client, 2)
+        await client.query('commit')
+        return updates
+      })
+      const statuses = [first.status(), second.status()]
+      expect([...statuses].sort(), 'exactly one update wins').toEqual([200, 409])
+      const loser = statuses[0] === 409 ? first : second
+      const conflict = await readJsonSafe<{ code?: string }>(loser)
+      expect(conflict?.code).toBe('optimistic_lock_conflict')
+      const winnerNames = (statuses[0] === 200 ? setA : setB).map((line) => line.name).sort()
+      const names = await withClient(async (client) => {
+        const result = await client.query<{ name: string }>(
+          'select name from sales_invoice_lines where invoice_id = $1 order by name',
+          [invoiceId],
+        )
+        return result.rows.map((row) => row.name)
+      })
+      expect(names, 'only the winning update replaced the lines').toEqual(winnerNames)
+    } finally {
+      await purgeInvoice(invoiceId)
+    }
+  })
+
   test('replaces lines on an invoice with a payment allocation and leaves the allocation linked', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     let invoiceId: string | null = null

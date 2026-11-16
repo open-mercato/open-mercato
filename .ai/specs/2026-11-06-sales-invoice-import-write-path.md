@@ -144,7 +144,7 @@ Every update runs in one `withAtomicFlush(em, phases, { transaction: true })`, f
 - The scope checks at `:10047-10048` stay, and the filter keeps `parsed.organizationId`, so organization scoping does not change.
 - A missing invoice, or the lock returning false, answers 404 with `sales.documents.errors.invoiceNotFound`. Today `findOneOrFail` turns a missing row into a 500.
 - `writeLockedDocumentGraph` (`:5769`) is the model, not a dependency: it is typed to orders and quotes and builds a totals event. Invoices reuse its pattern. `prepare` keeps its check of the row's organization and tenant (`:10034-10043`), which is what answers 403, and returns `{}`. `execute` always captures `before` and `after` under the lock and stores them in an `invoiceUpdateSnapshots` WeakMap keyed by its result object, because `zod` gives `execute` a new input object. `captureAfter` and `buildLog` read that map. `buildLog` always writes `before`, because undo returns silently without it (`:10127`).
-- **Version checks** stay as they are. The `makeCrudRoute` row-level guard covers PUT, and no command-level optimistic lock is added, because `concurrency-locking.mdx` forbids a second check on a row-guarded route.
+- **Version check under the lock.** The `makeCrudRoute` row-level guard compares the `x-om-ext-optimistic-lock-expected-updated-at` header with the invoice before the transaction, so two updates sent with the same version can both pass it. Update compares the header again with the `updatedAt` of the row read under the lock, through `enforceSalesDocumentOptimisticLock` with resource kind `sales.invoice`, as `lockOrderForTotalsWrite` does for orders, and answers the same 409 on a mismatch. Both checks read the invoice row's own version, so this is not the aggregate-over-row double guard `concurrency-locking.mdx` warns against, and a request without the header is not checked.
 
 ### Undo (Phase 1)
 
@@ -263,7 +263,7 @@ Route guards stay as they are: `requireAuth` with `sales.invoices.manage` on eve
 | 400 | `replaceLines: true` without `lines`, with `lines: []` or without the required totals; a line without `quantity` or `currencyCode`; a negative line missing a total, or with a net ≤ 0 and a positive gross |
 | 403 | The invoice's organization is outside the caller's scope, from `ensureOrganizationScope` |
 | 404 | The invoice is missing, soft-deleted, or not in the request's organization (the body's `organizationId`, else the selected one). Today this is a 500 |
-| 409 | The row-level optimistic lock, as today |
+| 409 | The row-level optimistic lock, as today, and the same comparison against the row read under the lock |
 
 The OpenAPI description says `lines` has no effect without `replaceLines`.
 
@@ -320,6 +320,7 @@ Each phase adds its rows to this table and to `UPGRADE_NOTES.md`.
 | POST and PUT `/api/sales/invoices` | Custom-field values that cannot be stored, such as more than 128 keys or a non-numeric value for an integer definition, used to be dropped with a 2xx. They now answer 500 and roll the invoice back; the 500 is not retryable, because the same body fails again (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
 | PUT `/api/sales/invoices` | New optional `replaceLines`; `lines` without it stays ignored (Phase 3) | Additive |
 | GET `/api/sales/invoices` | `cf_<key>` values now appear (Phase 1); the three header amounts can be negative (Phase 2) | Additive |
+| `PUT /api/sales/invoices` with the optimistic-lock header | The version is also checked against the row read under the lock: the later of two updates sent with the same version answers 409 instead of overwriting the first (Phase 1) | Bug fix, `UPGRADE_NOTES.md` |
 | `sales.invoices.update` undo | Answers 409 when the invoice no longer matches the update's `after`, including when it was deleted or a custom field was edited through another path. Before, it overwrote the row, rewrote a soft-deleted invoice, or did nothing and reported success (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
 | `sales.invoices.create` undo | Answers 409 when the invoice no longer matches the create's `after`, when it was deleted, or when a payment allocation, credit memo or note references it, soft-deleted ones included. Before, it deleted the row and unlinked them, hard-deleted a soft-deleted invoice, or did nothing and reported success (Phase 1) | Behavior change, `UPGRADE_NOTES.md` |
 | Invoice undo side effects | Undo of create and update now runs index side effects, and replaced lines leave the index; no `sales.invoice.*` event is published (Phases 1 and 3) | Additive |
@@ -386,6 +387,7 @@ Unit tests extend `commands/__tests__/documents.undo-custom-fields.test.ts` and 
 - A failed custom-field write rolls the invoice back.
 - A missing invoice on update answers 404. An update of an invoice outside the caller's scope answers 403. An update that omits `organizationId`, of an invoice in another allowed organization than the selected one, answers 404.
 - Two concurrent writes of one invoice serialize on the row lock: an undo that loses to an update answers 409.
+- An update whose expected version no longer matches the row read under the lock answers 409 `optimistic_lock_conflict` and changes nothing.
 - A failed undo leaves the header and custom fields as they were.
 - Undo of a create leaves no custom-field value on the removed invoice and, after a reindex that puts its lines in the index, removes them.
 - Undo of a create answers 409 when a payment allocation, credit memo (soft-deleted included) or note references the invoice, and leaves everything linked.
@@ -421,6 +423,7 @@ Unit tests extend `commands/__tests__/documents.undo-custom-fields.test.ts` and 
 - Audit `snapshotBefore` and `snapshotAfter` carry the lines, and `orderLineId` stays unstored.
 - Undo of a header-only update keeps the line rows and, after a reindex that puts them there, their index entries.
 - Two concurrent updates with `replaceLines` end with exactly one line set.
+- Of two concurrent `replaceLines` updates sent with the same expected version, one replaces the lines and the other answers 409 and replaces nothing.
 - After a reindex that puts the lines in the index (create does not index them), replaced lines leave the index.
 - Undo removes the lines the update added from the index.
 - `replaceLines: true` without `lines`, with `lines: []` or without the required totals is rejected; `replaceLines: false` is accepted and leaves the lines untouched.
@@ -429,7 +432,7 @@ Unit tests extend `commands/__tests__/documents.undo-custom-fields.test.ts` and 
 
 ## Out of Scope
 
-Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, a command-level optimistic lock, invoice line custom fields, clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
+Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
 
 ## Risks & Impact Review
 
@@ -584,7 +587,7 @@ Fully compliant for Phase 1. Phases 2 and 3 follow the recommended answer to the
 
 ### Detailed Progress
 - [x] P1.1 `customFields` in the schemas, `custom` folded in the route, create writes them narrowed and sanitized in its own atomic phase
-- [x] P1.2 `sales_invoices` in `lockSalesDocumentRow`; update runs phased under the row lock, 404 with `invoiceNotFound`
+- [x] P1.2 `sales_invoices` in `lockSalesDocumentRow`; update runs phased under the row lock and checks the expected version against the locked row, 404 with `invoiceNotFound`
 - [x] P1.3 Update writes custom fields in their own phase; audit `changes` include `customFields`
 - [x] P1.4 Update undo: one transaction under the row lock, stale check, custom-field reset, index side effects, `invoice` kind of `throwDocumentUndoStale`, 409 in the undo route `openApi`
 - [x] P1.5 Create undo: `FOR UPDATE`, stale check, dependant count (allocations, credit memos incl. soft-deleted, notes), custom-field row delete, line index removal

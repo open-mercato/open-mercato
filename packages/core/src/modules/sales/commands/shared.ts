@@ -10,6 +10,7 @@ export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 /** Resource kinds used by the document-aggregate optimistic-lock check. */
 export const SALES_RESOURCE_KIND_ORDER = 'sales.order'
 export const SALES_RESOURCE_KIND_QUOTE = 'sales.quote'
+export const SALES_RESOURCE_KIND_INVOICE = 'sales.invoice'
 export const SALES_RESOURCE_KIND_RETURN = 'sales.return'
 
 /**

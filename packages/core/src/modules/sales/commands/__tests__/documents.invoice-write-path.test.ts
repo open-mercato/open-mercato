@@ -497,6 +497,34 @@ describe('sales invoice write path (#7336)', () => {
       )
     })
 
+    it('answers 409 when the expected version no longer matches the invoice read under the row lock', async () => {
+      const lockedVersion = new Date('2026-11-02T10:00:00.000Z')
+      const state = baseState({ invoice: makeInvoice({ updatedAt: lockedVersion }) })
+      const em = makeFakeEm(state)
+      const withExpectedVersion = (expected: string) =>
+        makeCtx(em, {
+          request: new Request('http://localhost/api/sales/invoices', {
+            method: 'PUT',
+            headers: { 'x-om-ext-optimistic-lock-expected-updated-at': expected },
+          }),
+        }).ctx
+
+      await expect(
+        handler('sales.invoices.update').execute(
+          { ...updateScope, taxTotalAmount: 30 } as never,
+          withExpectedVersion('2026-11-02T09:00:00.000Z'),
+        ),
+      ).rejects.toMatchObject({ status: 409, body: expect.objectContaining({ code: 'optimistic_lock_conflict' }) })
+      expect(lockMock).toHaveBeenCalledTimes(1)
+      expect(state.invoice?.taxTotalAmount).toBe('23')
+
+      await handler('sales.invoices.update').execute(
+        { ...updateScope, taxTotalAmount: 30 } as never,
+        withExpectedVersion(lockedVersion.toISOString()),
+      )
+      expect(state.invoice?.taxTotalAmount).toBe('30')
+    })
+
     it('stores header and custom fields together and records custom fields in the audit changes', async () => {
       const state = baseState()
       customFieldStore.set(INVOICE_ID, { company: 'c-1' })

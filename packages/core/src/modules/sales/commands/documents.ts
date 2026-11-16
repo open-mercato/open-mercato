@@ -119,6 +119,7 @@ import {
   lockSalesDocumentRow,
   SALES_RESOURCE_KIND_ORDER,
   SALES_RESOURCE_KIND_QUOTE,
+  SALES_RESOURCE_KIND_INVOICE,
 } from "./shared";
 import {
   loadShipmentSnapshot,
@@ -10401,6 +10402,7 @@ const updateInvoiceCommand: CommandHandler<
             scope,
           );
           if (!locked) throw notFound(missingMessage);
+          await enforceSalesDocumentOptimisticLock(ctx, locked, SALES_RESOURCE_KIND_INVOICE);
           invoice = locked;
           const lockedBefore = await loadInvoiceSnapshot(em, invoice.id);
           before = lockedBefore;
