@@ -1,5 +1,5 @@
 import type { AwilixContainer } from 'awilix'
-import { createAttachmentAccessContext } from '../access-runner'
+import { createAttachmentAccessContext, type AttachmentAccessContext } from '../access-runner'
 import { registerAttachmentAccessResolvers } from '../access-registry'
 import type { AttachmentAccessDecision, AttachmentAccessInput } from '../access-types'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -570,6 +570,22 @@ describe('DefaultAttachmentService', () => {
       auth: scopedAuth,
       items: [{ attachmentId: 'attachment-1', expectedOwner: owner, requirePrivatePartition: true }],
     }), 403)
+  })
+
+  it('resolves the access context once per batch', async () => {
+    const { em, factory } = createHarness({
+      attachments: [attachment(), attachment({ id: 'attachment-2' })],
+    })
+    const resolveAccessContext = jest.fn(() => undefined as unknown as AttachmentAccessContext)
+    const service = new DefaultAttachmentService(em, factory, () => null, resolveAccessContext)
+    const owner = { entityId: 'documents:document', recordId: 'document-1' }
+
+    await service.describeManyScoped({
+      auth: scopedAuth,
+      items: [{ attachmentId: 'attachment-1', expectedOwner: owner }, { attachmentId: 'attachment-2', expectedOwner: owner }],
+    })
+
+    expect(resolveAccessContext).toHaveBeenCalledTimes(1)
   })
 
   it('describes an empty batch without querying', async () => {

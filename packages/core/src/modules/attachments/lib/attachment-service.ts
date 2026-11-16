@@ -435,13 +435,14 @@ export class DefaultAttachmentService implements AttachmentService {
       : []
     const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
 
+    const accessContext = this.resolveAccessContext?.()
     const described: DescribedScopedAttachment[] = []
     for (const item of input.items) {
       const attachment = attachmentsById.get(item.attachmentId)
       if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
       const partition = partitionsByCode.get(attachment.partitionCode)
       if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
-      await this.assertReadableScoped({ ...item, auth }, attachment, partition)
+      await this.assertReadableScoped({ ...item, auth }, attachment, partition, accessContext)
       described.push(toDescribedScopedAttachment(attachment))
     }
     return described
@@ -474,7 +475,7 @@ export class DefaultAttachmentService implements AttachmentService {
       { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
     )
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
-    await this.assertReadableScoped(input, attachment, partition)
+    await this.assertReadableScoped(input, attachment, partition, this.resolveAccessContext?.())
     return attachment
   }
 
@@ -482,10 +483,11 @@ export class DefaultAttachmentService implements AttachmentService {
     input: DescribeScopedAttachmentInput,
     attachment: Attachment,
     partition: AttachmentPartition,
+    accessContext: AttachmentAccessContext | undefined,
   ): Promise<void> {
     const access = await evaluateAttachmentAccess({
       auth: input.auth, attachment, partition, action: 'read',
-      context: this.resolveAccessContext?.(), requireAuthForPublic: true,
+      context: accessContext, requireAuthForPublic: true,
     })
     if (!access.ok) await throwAttachmentAccessError(access.status)
     if (!partitionMatchesScope(partition, input.auth.tenantId, input.auth.orgId)) {

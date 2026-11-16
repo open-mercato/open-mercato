@@ -138,6 +138,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-008: send-as-user refuses attachments it may
     let channelId: string | null = null
     let otherOrgId: string | null = null
     let attachmentId: string | null = null
+    let ownAttachmentId: string | null = null
 
     try {
       token = await getAuthToken(request, 'admin')
@@ -165,8 +166,29 @@ test.describe('TC-CHANNEL-EMAIL-HUB-008: send-as-user refuses attachments it may
         attachments: [{ kind: 'attachment', attachmentId, owner: { entityId: OWNER_ENTITY_ID, recordId } }],
       })
       expect(result).toEqual({ status: 422, code: 'attachment_not_found' })
+
+      const ownRecordId = `hub-008-own-${stamp}`
+      const ownUpload = await uploadAttachmentFixture(request, token, {
+        entityId: OWNER_ENTITY_ID,
+        recordId: ownRecordId,
+        fileName: `own-org-${stamp}.pdf`,
+        mimeType: 'application/pdf',
+        buffer: Buffer.from('%PDF-1.4\n% own organization\n'),
+      })
+      ownAttachmentId = ownUpload.id
+
+      const mixed = await sendWithAttachments(request, token, {
+        channelId,
+        stamp,
+        attachments: [
+          { kind: 'attachment', attachmentId: ownAttachmentId, owner: { entityId: OWNER_ENTITY_ID, recordId: ownRecordId } },
+          { kind: 'attachment', attachmentId, owner: { entityId: OWNER_ENTITY_ID, recordId } },
+        ],
+      })
+      expect(mixed).toEqual({ status: 422, code: 'attachment_not_found' })
     } finally {
       await deleteChannelIfExists(request, token, channelId)
+      await deleteAttachmentIfExists(request, token, ownAttachmentId)
       if (token && attachmentId && otherOrgId) {
         await apiRequestWithSelectedOrg(request, 'DELETE', `/api/attachments?id=${encodeURIComponent(attachmentId)}`, {
           token,
