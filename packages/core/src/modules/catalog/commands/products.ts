@@ -740,14 +740,20 @@ async function restoreOffersFromSnapshot(
   snapshot: OfferSnapshot[] | null | undefined,
   baseline: OfferSnapshot[] | null | undefined,
 ): Promise<void> {
-  const existing = await em.find(
+  const scope = {
+    tenantId: product.tenantId,
+    organizationId: product.organizationId,
+  };
+  const existing = await findWithDecryption<CatalogOffer>(
+    em,
     CatalogOffer,
-    { product },
+    { product, ...scope },
     {
       lockMode: LockMode.PESSIMISTIC_WRITE,
       refresh: true,
       orderBy: { id: "asc" },
     },
+    scope,
   );
   const list = Array.isArray(snapshot) ? snapshot : [];
   const hasBaseline = Array.isArray(baseline);
@@ -791,10 +797,6 @@ async function restoreOffersFromSnapshot(
     target.isActive = snap.isActive;
   };
   const missing = restorable.filter((snap) => !findRemaining(snap.id));
-  const scope = {
-    tenantId: product.tenantId,
-    organizationId: product.organizationId,
-  };
   const presentElsewhere = missing.length
     ? await findWithDecryption(
         em,

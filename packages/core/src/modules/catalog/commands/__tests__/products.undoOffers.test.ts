@@ -103,7 +103,7 @@ function createHarness(current: OfferRow[], elsewhere: OfferRow[] = []) {
   const record = { ...productSnapshot([]), optionSchemaTemplate: null, createdAt: new Date(), updatedAt: new Date() }
   const em = {
     findOne: jest.fn().mockResolvedValue(record),
-    find: jest.fn().mockImplementation(async (entity: unknown) => {
+    find: jest.fn().mockImplementation(async (entity: unknown, _where?: unknown, _options?: unknown) => {
       const name = typeof entity === 'function' ? (entity as { name: string }).name : String(entity)
       if (name === 'CatalogOffer') return rows.slice()
       return []
@@ -146,9 +146,10 @@ function createHarness(current: OfferRow[], elsewhere: OfferRow[] = []) {
     organizationIds: null,
   }
   findOneWithDecryption.mockResolvedValue(record)
-  findWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: { id?: { $in?: string[] } }) => {
+  findWithDecryption.mockImplementation(async (manager: typeof em, entity: unknown, where: { product?: unknown; id?: { $in?: string[] } }, options?: unknown) => {
     const name = typeof entity === 'function' ? (entity as { name: string }).name : String(entity)
     if (name !== 'CatalogOffer') return []
+    if (where.product) return manager.find(entity, where, options)
     const ids = where?.id?.$in ?? []
     return [...rows, ...elsewhere].filter((row) => ids.includes(row.id))
   })
@@ -190,6 +191,9 @@ describe('catalog.products.update undo — offers', () => {
     expect(offerRead?.[2]).toEqual(
       expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }),
     )
+    const decryptedRead = findWithDecryption.mock.calls.find(([, , where]) => where.product)
+    expect(decryptedRead?.[2]).toEqual(expect.objectContaining({ tenantId, organizationId }))
+    expect(decryptedRead?.[4]).toEqual({ tenantId, organizationId })
   })
 
   it('keeps an offer that was added after the update', async () => {
@@ -260,7 +264,7 @@ describe('catalog.products.update undo — offers', () => {
     const { created, removed } = await undoUpdate([removedByUpdate], [], [], [restoredElsewhere])
     expect(created).toHaveLength(0)
     expect(removed).toHaveLength(0)
-    const offerLookup = findWithDecryption.mock.calls.find(([, entity]) => (entity as { name: string }).name === 'CatalogOffer')
+    const offerLookup = findWithDecryption.mock.calls.find(([, entity, where]) => (entity as { name: string }).name === 'CatalogOffer' && where.id?.$in)
     expect(offerLookup?.[2]).toEqual({ tenantId, organizationId, id: { $in: ['offer-a'] } })
     expect(offerLookup?.[4]).toEqual({ tenantId, organizationId })
   })
