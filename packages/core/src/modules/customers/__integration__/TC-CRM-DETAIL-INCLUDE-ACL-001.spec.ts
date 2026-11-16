@@ -36,7 +36,7 @@ function ids(items: Array<{ id: string }> | undefined): string[] {
  * the feature that guards the included entity. A caller who can read people or
  * companies but not deals must not receive linked deals via `?include=deals`,
  * and a company reader without `customers.people.view` must not receive linked
- * people via `?include=people`.
+ * people via `?include=people` or the company people list endpoint.
  */
 test.describe('TC-CRM-DETAIL-INCLUDE-ACL-001: detail includes require the included entity feature', () => {
   test('drops deals and people the caller is not allowed to view', async ({ request }) => {
@@ -100,11 +100,18 @@ test.describe('TC-CRM-DETAIL-INCLUDE-ACL-001: detail includes require the includ
       const restrictedCompany = await readDetail(request, noDealsToken, companyPath)
       expect(ids(restrictedCompany.deals), 'company deals hidden without customers.deals.view').not.toContain(dealId)
       expect(ids(restrictedCompany.people), 'people still visible with customers.people.view').toContain(personId)
+      const linkedPeoplePath = `/api/customers/companies/${companyId}/people`
+      const linkedPeople = await apiRequest(request, 'GET', linkedPeoplePath, { token: noDealsToken })
+      expect(linkedPeople.status(), 'company people list allowed with customers.people.view').toBe(200)
+      const linkedPeopleBody = await readJsonSafe<{ items?: Array<{ id: string }> }>(linkedPeople)
+      expect(ids(linkedPeopleBody?.items), 'company people list returns the linked person').toContain(personId)
 
       const noPeopleToken = await createRestrictedUser('nopeople', ['customers.companies.view', 'customers.deals.view'])
       const companyOnly = await readDetail(request, noPeopleToken, companyPath)
       expect(ids(companyOnly.people), 'people hidden without customers.people.view').not.toContain(personId)
       expect(ids(companyOnly.deals), 'deals still visible with customers.deals.view').toContain(dealId)
+      const deniedPeople = await apiRequest(request, 'GET', linkedPeoplePath, { token: noPeopleToken })
+      expect(deniedPeople.status(), 'company people list refused without customers.people.view').toBe(403)
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/deals', dealId)
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)

@@ -435,15 +435,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const includeTokens = parseIncludeParams(_req)
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
-  await dropUnauthorizedDetailIncludes({ includeTokens, container, auth, scope })
-
-  const includeActivities = includeTokens.has('activities')
-  const includeAddresses = includeTokens.has('addresses')
-  const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
-  const includeDeals = includeTokens.has('deals')
-  const includeInteractions = includeTokens.has('interactions')
-  const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
-  const includePeople = includeTokens.has('people')
   const plannedPreviewLimit = 5
 
   const em = (container.resolve('em') as EntityManager)
@@ -480,6 +471,15 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     tenantId: company.tenantId ?? auth.tenantId ?? null,
     organizationId: company.organizationId ?? resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
   }
+
+  await dropUnauthorizedDetailIncludes({ includeTokens, container, auth, recordScope: companyScope })
+  const includeActivities = includeTokens.has('activities')
+  const includeAddresses = includeTokens.has('addresses')
+  const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
+  const includeDeals = includeTokens.has('deals')
+  const includeInteractions = includeTokens.has('interactions')
+  const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
+  const includePeople = includeTokens.has('people')
 
   // Per-user email privacy (CRM email integration): exclude private email
   // interactions owned by other users from every read path that returns

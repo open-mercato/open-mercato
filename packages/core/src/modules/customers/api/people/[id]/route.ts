@@ -496,8 +496,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('container_resolved')
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
-    await dropUnauthorizedDetailIncludes({ includeTokens, container, auth, scope })
-    includeDeals = includeTokens.has('deals')
     const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
     const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
     profiler.mark('scope_resolved', {
@@ -554,6 +552,14 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       profileMeta = { reason: 'organization_not_in_scope' }
       return organizationReadDenied
     }
+
+    await dropUnauthorizedDetailIncludes({
+      includeTokens,
+      container,
+      auth,
+      recordScope: { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? null },
+    })
+    includeDeals = includeTokens.has('deals')
 
     // Gated get-then-set cache. Key on the resolved person plus the effective
     // RBAC scope (caller identity, selected/visible orgs) and the payload-shaping
