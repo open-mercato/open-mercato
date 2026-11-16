@@ -1,9 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 function uniqueIdentifier(prefix: string): string {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  return `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 12)}`
 }
 
 async function readToggle(request: APIRequestContext, token: string, toggleId: string) {
