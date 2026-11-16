@@ -8,7 +8,12 @@
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
+<<<<<<< HEAD
     "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/((communication_channels|eudr|integrations|staff)/.+\\.integration|workflows/.+\\.pg)\\.test\\.ts$'",
+=======
+    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/((catalog|communication_channels|eudr|integrations|staff)/.+\\.integration|workflows/.+\\.pg)\\.test\\.ts$'",
+    "test:tz": "cross-env TZ=Pacific/Auckland jest --config jest.config.cjs",
+>>>>>>> 0299a49079 (fix(catalog): preserve later offers during product undo and contain mobile actions (#7679) (#9662))
     "typecheck": "tsc --noEmit"
   },
   "imports": {

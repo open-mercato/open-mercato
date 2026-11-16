@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type {
@@ -13,8 +14,13 @@ import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
 } from "@open-mercato/shared/lib/commands/helpers";
+<<<<<<< HEAD
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { UniqueConstraintViolationException } from "@mikro-orm/core";
+=======
+import type { EntityManager, FilterQuery } from "@mikro-orm/postgresql";
+import { LockMode, UniqueConstraintViolationException } from "@mikro-orm/core";
+>>>>>>> 0299a49079 (fix(catalog): preserve later offers during product undo and contain mobile actions (#7679) (#9662))
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import type {
@@ -713,35 +719,74 @@ async function loadOfferSnapshots(
   return offerRecords.map((offer) => serializeOffer(offer));
 }
 
+function normalizeOfferSnapshot(snap: OfferSnapshot): OfferSnapshot {
+  return {
+    id: snap.id,
+    channelId: snap.channelId,
+    title: snap.title,
+    description: snap.description ?? null,
+    defaultMediaId: snap.defaultMediaId ?? null,
+    defaultMediaUrl: snap.defaultMediaUrl ?? null,
+    metadata: snap.metadata ?? null,
+    isActive: snap.isActive,
+  };
+}
+
+function offerSnapshotsEqual(left: OfferSnapshot, right: OfferSnapshot): boolean {
+  return isDeepStrictEqual(
+    normalizeOfferSnapshot(left),
+    normalizeOfferSnapshot(right),
+  );
+}
+
 async function restoreOffersFromSnapshot(
   em: EntityManager,
   product: CatalogProduct,
   snapshot: OfferSnapshot[] | null | undefined,
+  baseline: OfferSnapshot[] | null | undefined,
 ): Promise<void> {
-  const existing = await em.find(CatalogOffer, { product });
-  const keepIds = new Set<string>();
+  const existing = await em.find(
+    CatalogOffer,
+    { product },
+    {
+      lockMode: LockMode.PESSIMISTIC_WRITE,
+      refresh: true,
+      orderBy: { id: "asc" },
+    },
+  );
   const list = Array.isArray(snapshot) ? snapshot : [];
+  const hasBaseline = Array.isArray(baseline);
+  const baselineById = new Map(
+    (hasBaseline ? baseline : []).map((snap) => [snap.id, snap]),
+  );
+  const listIds = new Set(list.map((snap) => snap.id));
+  const isUnchangedSince = (
+    offer: CatalogOffer | undefined,
+    expected: OfferSnapshot,
+  ) => !!offer && offerSnapshotsEqual(serializeOffer(offer), expected);
+  const remaining: CatalogOffer[] = [];
   for (const offer of existing) {
-    if (!list.some((snap) => snap.id === offer.id)) {
+    const expected = baselineById.get(offer.id);
+    if (expected && !listIds.has(offer.id) && isUnchangedSince(offer, expected)) {
       em.remove(offer);
     } else {
-      keepIds.add(offer.id);
+      remaining.push(offer);
     }
   }
-  for (const snap of list) {
-    let target = existing.find((entry) => entry.id === snap.id);
-    if (!target) {
-      target = em.create(CatalogOffer, {
-        id: snap.id,
-        product,
-        organizationId: product.organizationId,
-        tenantId: product.tenantId,
-        channelId: snap.channelId,
-        title: snap.title,
-        isActive: snap.isActive,
-      });
-      em.persist(target);
-    }
+  if (remaining.length < existing.length) await em.flush();
+  const findRemaining = (id: string) =>
+    remaining.find((entry) => entry.id === id);
+  const restorable = list.filter((snap) => {
+    const expected = baselineById.get(snap.id);
+    if (!expected) return !hasBaseline || !findRemaining(snap.id);
+    if (offerSnapshotsEqual(snap, expected)) return false;
+    return isUnchangedSince(findRemaining(snap.id), expected);
+  });
+  const channelTaken = (snap: OfferSnapshot, target?: CatalogOffer) =>
+    remaining.some(
+      (entry) => entry !== target && entry.channelId === snap.channelId,
+    );
+  const applySnapshot = (target: CatalogOffer, snap: OfferSnapshot) => {
     target.channelId = snap.channelId;
     target.title = snap.title;
     target.description = snap.description ?? null;
@@ -749,13 +794,56 @@ async function restoreOffersFromSnapshot(
     target.defaultMediaUrl = snap.defaultMediaUrl ?? null;
     target.metadata = snap.metadata ? cloneJson(snap.metadata) : null;
     target.isActive = snap.isActive;
-    keepIds.add(target.id);
-  }
-  const toRemove = existing.filter((offer) => !keepIds.has(offer.id));
-  if (toRemove.length) {
-    for (const offer of toRemove) {
-      em.remove(offer);
+  };
+  const missing = restorable.filter((snap) => !findRemaining(snap.id));
+  const scope = {
+    tenantId: product.tenantId,
+    organizationId: product.organizationId,
+  };
+  const presentElsewhere = missing.length
+    ? await findWithDecryption(
+        em,
+        CatalogOffer,
+        { ...scope, id: { $in: missing.map((snap) => snap.id) } },
+        {},
+        scope,
+      )
+    : [];
+  const presentIds = new Set(presentElsewhere.map((offer) => offer.id));
+  const toCreate = missing.filter((snap) => !presentIds.has(snap.id));
+  let pending = restorable.filter((snap) => !!findRemaining(snap.id));
+  let progressed = true;
+  while (pending.length && progressed) {
+    progressed = false;
+    const blocked: OfferSnapshot[] = [];
+    for (const snap of pending) {
+      const target = findRemaining(snap.id);
+      if (!target) continue;
+      if (channelTaken(snap, target)) {
+        blocked.push(snap);
+        continue;
+      }
+      const moved = target.channelId !== snap.channelId;
+      applySnapshot(target, snap);
+      if (moved) await em.flush();
+      progressed = true;
     }
+    pending = blocked;
+  }
+  for (const snap of toCreate) {
+    if (channelTaken(snap)) continue;
+    const target = em.create(CatalogOffer, {
+      id: snap.id,
+      product,
+      organizationId: product.organizationId,
+      tenantId: product.tenantId,
+      channelId: snap.channelId,
+      title: snap.title,
+      isActive: snap.isActive,
+    });
+    applySnapshot(target, snap);
+    em.persist(target);
+    remaining.push(target);
   }
 }
 
@@ -1629,7 +1717,7 @@ const createProductCommand: CommandHandler<
         em,
         [
           () => em.flush(),
-          () => restoreOffersFromSnapshot(em, record, after.offers),
+          () => restoreOffersFromSnapshot(em, record, after.offers, []),
           () => syncCategoryAssignments(em, record, after.categoryIds),
           () => syncProductTags(em, record, after.tags),
         ],
@@ -2161,7 +2249,7 @@ const updateProductCommand: CommandHandler<
       em,
       [
         () => em.flush(),
-        () => restoreOffersFromSnapshot(em, record, before.offers),
+        () => restoreOffersFromSnapshot(em, record, before.offers, payload?.after?.offers),
         () => syncCategoryAssignments(em, record, before.categoryIds),
         () => syncProductTags(em, record, before.tags),
       ],
@@ -2349,7 +2437,26 @@ const deleteProductCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId);
     ensureOrganizationScope(ctx, before.organizationId);
     applyProductSnapshot(em, record, before);
+<<<<<<< HEAD
     await withAtomicFlush(
+=======
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          () => restoreOffersFromSnapshot(em, record, before.offers, []),
+          () => syncCategoryAssignments(em, record, before.categoryIds),
+          () => syncProductTags(em, record, before.tags),
+          ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
+        ],
+        { transaction: true },
+      );
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error);
+    }
+    const restoredPrices = await loadRestoredPricesForHistory(
+>>>>>>> 0299a49079 (fix(catalog): preserve later offers during product undo and contain mobile actions (#7679) (#9662))
       em,
       [
         () => em.flush(),
