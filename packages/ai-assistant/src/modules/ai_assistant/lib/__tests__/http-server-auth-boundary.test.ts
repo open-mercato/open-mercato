@@ -87,8 +87,21 @@ async function waitForHealth(port: number): Promise<void> {
   throw new Error(`MCP HTTP server never became healthy on port ${port}: ${String(lastError)}`)
 }
 
+const SCOPED_RECORDS: Record<string, { tenantId: string; organizationId: string }> = {
+  'record-in-scope': { tenantId: 'tenant-1', organizationId: 'org-1' },
+  'record-out-of-scope': { tenantId: 'tenant-2', organizationId: 'org-2' },
+}
+
+type ObservedToolContext = {
+  tenantId: string | null
+  organizationId: string | null
+  userId: string | null
+  apiKeySecret: string | undefined
+}
+
 let allowedToolRuns = 0
 let restrictedToolRuns = 0
+let lastAllowedToolContext: ObservedToolContext | null = null
 let port: number
 let httpServerStartupError: unknown
 
@@ -115,11 +128,33 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
       {
         name: 'allowed_tool',
         description: 'A tool the restricted employee session is authorized to call',
-        inputSchema: z.object({}),
+        inputSchema: z.object({ recordId: z.string().optional() }),
         requiredFeatures: ['allowed.feature'],
-        handler: async () => {
+        handler: async (args, ctx) => {
           allowedToolRuns += 1
-          return { ranAs: 'allowed' }
+          // Capture exactly what the session layer actually propagated into the
+          // handler's execution context, so tests can prove it is the *session*
+          // user/tenant/organization/secret — not the transport API key's.
+          lastAllowedToolContext = {
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            userId: ctx.userId,
+            apiKeySecret: ctx.apiKeySecret,
+          }
+
+          if (!args.recordId) return { ranAs: 'allowed' }
+
+          // Simulate a real record consumer: the tool's `requiredFeatures` ACL
+          // check only proves the caller holds `allowed.feature` — it says
+          // nothing about which organization/tenant the requested record
+          // belongs to. A real handler must still scope the record lookup to
+          // the caller's own tenant/organization.
+          const record = SCOPED_RECORDS[args.recordId]
+          if (!record) throw new Error(`Unknown record: ${args.recordId}`)
+          if (record.tenantId !== ctx.tenantId || record.organizationId !== ctx.organizationId) {
+            throw new Error('CROSS_ORG_DENIED')
+          }
+          return { ranAs: 'allowed', recordId: args.recordId, scopedTo: record }
         },
       },
       { moduleId: 'test-fixture' }
@@ -165,6 +200,7 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
   beforeEach(() => {
     allowedToolRuns = 0
     restrictedToolRuns = 0
+    lastAllowedToolContext = null
     loadAcl.mockClear()
   })
 
@@ -232,6 +268,63 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
     expect(loadAcl).toHaveBeenCalledWith('api_key:session-restricted-1', {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
+    })
+
+    // The handler's own execution context must carry the *session's* identity
+    // and the *session's* decrypted secret — never the transport key's.
+    expect(lastAllowedToolContext).toEqual({
+      tenantId: RESTRICTED_SESSION_RECORD.key.tenantId,
+      organizationId: RESTRICTED_SESSION_RECORD.key.organizationId,
+      userId: RESTRICTED_SESSION_RECORD.key.sessionUserId,
+      apiKeySecret: RESTRICTED_SESSION_RECORD.secret,
+    })
+    // The transport-level credential used to open the HTTP connection must
+    // never reach the tool's consuming business logic.
+    expect(lastAllowedToolContext!.apiKeySecret).not.toBe(TRANSPORT_KEY_SECRET)
+  })
+
+  it('allows a restricted session to read a record within its own organization/tenant scope', async () => {
+    const result = await callTool(
+      {
+        apiKey: TRANSPORT_KEY_SECRET,
+        args: { _sessionToken: RESTRICTED_SESSION_TOKEN, recordId: 'record-in-scope' },
+      },
+      'allowed_tool'
+    )
+
+    expect(result.isError).toBeFalsy()
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
+    expect(payload).toEqual({
+      ranAs: 'allowed',
+      recordId: 'record-in-scope',
+      scopedTo: SCOPED_RECORDS['record-in-scope'],
+    })
+    expect(allowedToolRuns).toBe(1)
+  })
+
+  it('denies a restricted session a record scoped to a different organization/tenant, even though the feature check passes', async () => {
+    const result = await callTool(
+      {
+        apiKey: TRANSPORT_KEY_SECRET,
+        args: { _sessionToken: RESTRICTED_SESSION_TOKEN, recordId: 'record-out-of-scope' },
+      },
+      'allowed_tool'
+    )
+
+    expect(result.isError).toBe(true)
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
+    // The ACL/feature gate passed — this is an EXECUTION_ERROR from the handler's
+    // own tenant/organization scoping, not an UNAUTHORIZED from `requiredFeatures`.
+    expect(payload.code).toBe('EXECUTION_ERROR')
+    expect(payload.error).toContain('CROSS_ORG_DENIED')
+    // The handler did run (proving the feature check matched) — it just refused
+    // to return the out-of-scope record.
+    expect(allowedToolRuns).toBe(1)
+    expect(lastAllowedToolContext).toEqual({
+      tenantId: RESTRICTED_SESSION_RECORD.key.tenantId,
+      organizationId: RESTRICTED_SESSION_RECORD.key.organizationId,
+      userId: RESTRICTED_SESSION_RECORD.key.sessionUserId,
+      apiKeySecret: RESTRICTED_SESSION_RECORD.secret,
     })
   })
 })
