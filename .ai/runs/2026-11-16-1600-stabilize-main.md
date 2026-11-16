@@ -46,7 +46,7 @@ PR: #9694
 
 ### Phase 2: Correct and validate
 
-- [ ] 2.1 Fix every demonstrated current CI root cause with regression coverage
+- [x] 2.1 Fix every demonstrated current CI root cause with regression coverage — 3eca32d5fd
 - [ ] 2.2 Run the configured validation gate and obtain green full-suite CI
 
 ### Phase 3: Independent review and handoff
