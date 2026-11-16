@@ -197,6 +197,7 @@
   "forms.errors.submission_not_found": "Nie znaleziono zgłoszenia.",
   "forms.errors.tenant_required": "Wymagany jest kontekst najemcy.",
   "forms.errors.unauthorized": "Brak uprawnień.",
+  "forms.errors.undo_conflict": "Ten rekord zmienił się po akcji, którą próbujesz cofnąć. Cofnięcie zostało odrzucone, aby zachować nowsze zmiany.",
   "forms.errors.version_form_mismatch": "Wersja formularza nie należy do tego formularza.",
   "forms.errors.version_is_frozen": "Opublikowane wersje są niezmienne. Utwórz nową wersję roboczą, aby wprowadzić zmiany.",
   "forms.errors.version_not_found": "Nie znaleziono wersji formularza.",
