@@ -8,7 +8,15 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
+import { attachmentAccessRequirementsSchema } from '../data/validators'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
+import {
+  collectAttachmentAccessTargets,
+  getAttachmentAccessRegistry,
+  matchesAttachmentAccessResolver,
+  matchesAttachmentAccessSelector,
+  matchesAttachmentAccessTargets,
+} from './access-registry'
 import type { StorageDriverFactory } from './drivers'
 import { buildAttachmentFileUrl } from './imageUrls'
 import { renderImageRendition, type ImageRenditionSize } from './imageRendition'
@@ -279,6 +287,27 @@ function partitionMatchesScope(
   return partitionTenantId === tenantId && partitionOrganizationId === organizationId
 }
 
+/**
+ * A principal-free owner read cannot evaluate an access resolver, so a row that
+ * a resolver protects must not be served at all. Fail closed on unreadable
+ * requirement data rather than widening the read.
+ */
+function requiresOwnerAccessResolver(attachment: Attachment, partition: AttachmentPartition): boolean {
+  const parsedRequirements = attachmentAccessRequirementsSchema.safeParse(partition.accessResolverRequirements ?? [])
+  if (!parsedRequirements.success) return true
+  const registry = getAttachmentAccessRegistry()
+  if (registry.invalid) return true
+  const targets = collectAttachmentAccessTargets(attachment)
+  const requirements = [
+    ...parsedRequirements.data,
+    ...registry.protectedTargets.filter((target) => (
+      matchesAttachmentAccessSelector(target.targetPartition, partition.code)
+    )),
+  ]
+  if (requirements.some((requirement) => matchesAttachmentAccessTargets(requirement.targetEntity, targets))) return true
+  return registry.resolvers.some((resolver) => matchesAttachmentAccessResolver(resolver, partition.code, targets, 'read'))
+}
+
 export class DefaultAttachmentService implements AttachmentService {
   /**
    * The scoped upload service is supplied as a *resolver*, not an instance:
@@ -460,6 +489,9 @@ export class DefaultAttachmentService implements AttachmentService {
     )
     if (!partition) throw new CrudHttpError(500, { error: '[internal] Attachment partition is not configured' })
     if (!partitionMatchesScope(partition, tenantId, organizationId)) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+    if (requiresOwnerAccessResolver(attachment, partition)) {
       throw new CrudHttpError(404, { error: 'Attachment not found' })
     }
     return this.serveOwnedAttachment(attachment, { ...input, expectedPartitionCode: partitionCode })

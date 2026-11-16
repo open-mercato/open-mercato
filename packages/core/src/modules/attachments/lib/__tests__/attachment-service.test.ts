@@ -951,6 +951,39 @@ describe('DefaultAttachmentService.readScopedForOwner', () => {
     expect(em.findOne).not.toHaveBeenCalled()
   })
 
+  it('refuses a row whose partition carries a matching access-resolver requirement', async () => {
+    const { service, driver } = createHarness({
+      attachment: ownedAttachment(),
+      partition: partition({
+        accessResolverRequirements: [{ resolverId: 'documents.owner-test', targetEntity: 'documents:document' }],
+      }),
+    })
+
+    await expectStatus(service.readScopedForOwner(ownerInput), 404)
+    expect(driver.read).not.toHaveBeenCalled()
+  })
+
+  it('refuses a row whose partition carries unreadable access-resolver requirements', async () => {
+    const { service, driver } = createHarness({
+      attachment: ownedAttachment(),
+      partition: partition({ accessResolverRequirements: { resolverId: 'documents.owner-test' } }),
+    })
+
+    await expectStatus(service.readScopedForOwner(ownerInput), 404)
+    expect(driver.read).not.toHaveBeenCalled()
+  })
+
+  it('serves a row whose partition requirement targets a different owner entity', async () => {
+    const { service } = createHarness({
+      attachment: ownedAttachment(),
+      partition: partition({
+        accessResolverRequirements: [{ resolverId: 'sales.owner-test', targetEntity: 'sales:sales_order' }],
+      }),
+    })
+
+    await expect(service.readScopedForOwner(ownerInput)).resolves.toMatchObject({ buffer: Buffer.from('file') })
+  })
+
 })
 
 describe('DefaultAttachmentService owner policy boundary', () => {
