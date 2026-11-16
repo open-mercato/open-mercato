@@ -33,6 +33,7 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField, type PhoneCountry } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { parseCompanyAnnualRevenue } from '../lib/parseCompanyAnnualRevenue'
 import type {
   CrudCustomFieldRenderProps,
   CrudField,
@@ -1545,9 +1546,11 @@ export const createCompanyFormGroups = (t: Translator): CrudFormGroup[] => [
   },
 ]
 
+
 export function buildCompanyPayload(
   values: CompanyFormValues | CompanyEditFormValues,
   organizationId?: string | null,
+  locale?: string,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
 
@@ -1579,11 +1582,11 @@ export function buildCompanyPayload(
 
   const rawRevenue = typeof values.annualRevenue === 'string' ? values.annualRevenue.trim() : ''
   if (rawRevenue.length) {
-    const normalized = rawRevenue.replace(/,/g, '').replace(/\s+/g, '')
-    if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+    const parsed = parseCompanyAnnualRevenue(rawRevenue, locale)
+    if (parsed === null) {
       throw new Error('ANNUAL_REVENUE_INVALID')
     }
-    payload.annualRevenue = normalized
+    payload.annualRevenue = parsed
   }
 
   const customFields = collectCustomFieldValues(values, {
@@ -2030,8 +2033,8 @@ const assignClearable = (payload: Record<string, unknown>, key: string, raw: unk
   payload[key] = trimmed.length ? trimmed : null
 }
 
-export function buildCompanyEditPayload(values: CompanyEditFormValues, organizationId?: string | null): Record<string, unknown> {
-  const payload = buildCompanyPayload(values, organizationId)
+export function buildCompanyEditPayload(values: CompanyEditFormValues, organizationId?: string | null, locale?: string): Record<string, unknown> {
+  const payload = buildCompanyPayload(values, organizationId, locale)
   payload.id = values.id
 
   assignClearable(payload, 'primaryEmail', values.primaryEmail)

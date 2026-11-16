@@ -131,6 +131,7 @@ jest.mock('@open-mercato/core/modules/customers/components/formConfig', () => ({
 jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () => ({ AddressEditor: () => <div /> }))
 jest.mock('@open-mercato/core/modules/customers/utils/addressFormat', () => ({ formatAddressString: () => '' }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en-US',
   useT: () => mockT,
 }))
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({

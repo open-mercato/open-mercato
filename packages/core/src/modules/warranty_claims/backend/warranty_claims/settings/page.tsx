@@ -23,7 +23,8 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatLocaleNumberInput } from '@open-mercato/shared/lib/number'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import {
   DictionaryForm,
@@ -50,6 +51,7 @@ import {
   type BusinessHoursFormValue,
   type BusinessHoursIntervalRow,
 } from '../../../lib/businessHoursForm'
+import { parseAutoApproveMaxAmount } from '../../../lib/parseAutoApproveMaxAmount'
 
 type WarrantyDictionaryKind =
   | 'warranty-claim-fault-code'
@@ -379,13 +381,14 @@ function normalizeEntry(item: unknown): DictionaryTableEntry | null {
   }
 }
 
-function buildGeneralFormValues(settings: GeneralSettingsResult): GeneralSettingsFormValues {
+function buildGeneralFormValues(settings: GeneralSettingsResult, locale?: string): GeneralSettingsFormValues {
   return {
     slaHours: String(settings.slaHours),
     slaPauseOnInfoRequested: settings.slaPauseOnInfoRequested,
     slaAtRiskThresholdPct: String(settings.slaAtRiskThresholdPct),
     autoApproveEnabled: settings.autoApproveEnabled,
-    autoApproveMaxAmount: settings.autoApproveMaxAmount === null ? '' : String(settings.autoApproveMaxAmount),
+    autoApproveMaxAmount:
+      settings.autoApproveMaxAmount === null ? '' : formatLocaleNumberInput(settings.autoApproveMaxAmount, locale),
     autoApproveCurrencyCode: settings.autoApproveCurrencyCode ?? '',
     autoApproveRequireInWarranty: settings.autoApproveRequireInWarranty,
     defaultWarrantyMonths: settings.defaultWarrantyMonths === null ? '' : String(settings.defaultWarrantyMonths),
@@ -436,6 +439,7 @@ function GeneralNumberField({
   max,
   step = '1',
   disabled,
+  decimal = false,
   onChange,
 }: {
   id: string
@@ -446,6 +450,7 @@ function GeneralNumberField({
   max?: number
   step?: string
   disabled?: boolean
+  decimal?: boolean
   onChange: (value: string) => void
 }) {
   return (
@@ -453,10 +458,11 @@ function GeneralNumberField({
       <Label htmlFor={id}>{label}</Label>
       <Input
         id={id}
-        type="number"
-        min={min}
-        max={max}
-        step={step}
+        type={decimal ? 'text' : 'number'}
+        inputMode={decimal ? 'decimal' : undefined}
+        min={decimal ? undefined : min}
+        max={decimal ? undefined : max}
+        step={decimal ? undefined : step}
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
@@ -1006,6 +1012,7 @@ function GeneralSettingsSubsection({
 
 export default function WarrantyClaimSettingsPage() {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -1157,9 +1164,9 @@ export default function WarrantyClaimSettingsPage() {
 
   const applyGeneralSettings = React.useCallback((settings: GeneralSettingsResult) => {
     setGeneralSettings(settings)
-    setGeneralForm(buildGeneralFormValues(settings))
+    setGeneralForm(buildGeneralFormValues(settings, locale))
     setGeneralFieldErrors({})
-  }, [])
+  }, [locale])
 
   const loadGeneralSettings = React.useCallback(async () => {
     setGeneralLoading(true)
@@ -1279,8 +1286,11 @@ export default function WarrantyClaimSettingsPage() {
 
     const slaHours = Number(generalForm.slaHours)
     const slaAtRiskThresholdPct = Number(generalForm.slaAtRiskThresholdPct)
-    const amountText = generalForm.autoApproveMaxAmount.trim()
-    const autoApproveMaxAmount = amountText.length ? Number(amountText) : null
+    const amountText = generalForm.autoApproveMaxAmount
+    const autoApproveMaxAmount = amountText.trim().length
+      ? parseAutoApproveMaxAmount(amountText, locale)
+      : null
+    const autoApproveAmountProvided = amountText.trim().length > 0
     const warrantyMonthsText = generalForm.defaultWarrantyMonths.trim()
     const defaultWarrantyMonths = warrantyMonthsText.length ? Number(warrantyMonthsText) : null
     const returnWindowDaysText = generalForm.returnWindowDays.trim()
@@ -1318,7 +1328,7 @@ export default function WarrantyClaimSettingsPage() {
       !Number.isInteger(slaAtRiskThresholdPct) ||
       slaAtRiskThresholdPct < 1 ||
       slaAtRiskThresholdPct > 100 ||
-      (autoApproveMaxAmount !== null && (!Number.isFinite(autoApproveMaxAmount) || autoApproveMaxAmount < 0)) ||
+      (autoApproveAmountProvided && (autoApproveMaxAmount === null || !Number.isFinite(autoApproveMaxAmount))) ||
       (defaultWarrantyMonths !== null && (!Number.isInteger(defaultWarrantyMonths) || defaultWarrantyMonths < 0 || defaultWarrantyMonths > 600)) ||
       (returnWindowDays !== null && (!Number.isInteger(returnWindowDays) || returnWindowDays < 1 || returnWindowDays > 3650)) ||
       (currencyCode !== null && !/^[A-Z]{3}$/.test(currencyCode))
@@ -1387,6 +1397,7 @@ export default function WarrantyClaimSettingsPage() {
     generalTranslations.saveError,
     generalTranslations.success,
     loadGeneralSettings,
+    locale,
     runMutation,
     t,
   ])
@@ -1777,6 +1788,7 @@ export default function WarrantyClaimSettingsPage() {
                       value={generalForm.autoApproveMaxAmount}
                       min={0}
                       step="0.01"
+                      decimal
                       disabled={generalSaving || !generalForm.autoApproveEnabled}
                       onChange={(value) => updateGeneralForm({ autoApproveMaxAmount: value })}
                     />

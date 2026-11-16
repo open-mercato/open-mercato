@@ -1,4 +1,4 @@
-import { formatLocaleNumberInput, parseLocaleNumber, parseNumberWithDefault, resolveLocaleNumberSeparators } from '../number'
+import { formatLocaleNumberInput, normalizeLocaleNumberInput, parseLocaleNumber, parseNumberWithDefault, resolveLocaleNumberSeparators } from '../number'
 
 describe('parseNumberWithDefault', () => {
   it('returns the fallback when raw is missing or blank', () => {
@@ -142,5 +142,25 @@ describe('formatLocaleNumberInput (issue #6309)', () => {
         expect(parseLocaleNumber(formatLocaleNumberInput(value, locale), locale)).toBe(value)
       }
     }
+  })
+})
+
+describe('normalizeLocaleNumberInput', () => {
+  it('returns the canonical dot-decimal string without a float round-trip', () => {
+    expect(normalizeLocaleNumberInput('10000000000,03', 'pl-PL')).toBe('10000000000.03')
+    expect(normalizeLocaleNumberInput('99999999999999,99', 'pl-PL')).toBe('99999999999999.99')
+    expect(normalizeLocaleNumberInput('1 234,56', 'fr-FR')).toBe('1234.56')
+    expect(normalizeLocaleNumberInput('1.234.567,89', 'de-DE')).toBe('1234567.89')
+    expect(normalizeLocaleNumberInput('1,234,567.89', 'en-US')).toBe('1234567.89')
+    expect(normalizeLocaleNumberInput('−110,70', 'pl-PL')).toBe('-110.70')
+  })
+
+  it('rejects exactly what parseLocaleNumber rejects', () => {
+    for (const input of ['', '   ', 'abc', '-', '110,70,5', '1.2.3', '12,34 PLN', '1,23,456', '1 2']) {
+      expect(normalizeLocaleNumberInput(input, 'pl-PL')).toBeNull()
+      expect(parseLocaleNumber(input, 'pl-PL')).toBeNull()
+    }
+    expect(normalizeLocaleNumberInput(null, 'pl-PL')).toBeNull()
+    expect(normalizeLocaleNumberInput(undefined, 'pl-PL')).toBeNull()
   })
 })

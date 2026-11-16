@@ -113,6 +113,7 @@ jest.mock('@open-mercato/core/modules/customers/utils/addressFormat', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en-US',
   useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))
 

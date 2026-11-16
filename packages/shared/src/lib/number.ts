@@ -60,6 +60,20 @@ function isValidGrouping(integerPart: string, separator: string): boolean {
  * numbers and MUST NOT go through it.
  */
 export function parseLocaleNumber(input: string | null | undefined, locale?: string): number | null {
+  const normalized = normalizeLocaleNumberInput(input, locale)
+  if (normalized === null) return null
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * Same parsing rules as `parseLocaleNumber`, but returns the canonical dot-decimal STRING
+ * (`'1234.56'`, `'-110.70'`, `'1e3'`) instead of a JavaScript number, so callers that must keep
+ * exact decimal digits — money columns such as `numeric(16,2)` — can validate precision and
+ * forward the value without a lossy round-trip through floating point. Returns `null` for the
+ * same inputs `parseLocaleNumber` rejects.
+ */
+export function normalizeLocaleNumberInput(input: string | null | undefined, locale?: string): string | null {
   if (input == null) return null
   const trimmed = input.trim()
   if (!trimmed) return null
@@ -97,8 +111,7 @@ export function parseLocaleNumber(input: string | null | undefined, locale?: str
 
   const normalized = `${integerPart.split(groupSeparator).join('')}${fractionParts.length ? `.${fractionParts[0]}` : ''}`
   if (!NORMALIZED_NUMBER.test(normalized)) return null
-  const parsed = Number(normalized)
-  return Number.isFinite(parsed) ? parsed : null
+  return Number.isFinite(Number(normalized)) ? normalized : null
 }
 
 /**

@@ -21,7 +21,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { DictionaryEntrySelect, type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { parseAdjustmentNumber } from './parseAdjustmentNumber'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { Settings } from 'lucide-react'
@@ -102,14 +103,7 @@ type AdjustmentDialogProps = {
   onSubmit: (payload: AdjustmentSubmitPayload) => Promise<void>
 }
 
-const normalizeNumber = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim().length) {
-    const parsed = Number(value)
-    if (!Number.isNaN(parsed)) return parsed
-  }
-  return null
-}
+const normalizeNumber = parseAdjustmentNumber
 
 const formatTaxRateLabel = (rate: TaxRateOption): string => {
   const extras: string[] = []
@@ -182,6 +176,7 @@ export function AdjustmentDialog({
   onSubmit,
 }: AdjustmentDialogProps) {
   const t = useT()
+  const locale = useLocale()
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
   const entityId = kind === 'order' ? E.sales.sales_order_adjustment : E.sales.sales_quote_adjustment
   const initialMode: 'rate' | 'amount' = resolveModeFromAdjustment(initialAdjustment)
@@ -302,7 +297,7 @@ export function AdjustmentDialog({
       }
       const rateValue = resolveTaxRateValue(values)
       if (!Number.isFinite(rateValue)) return
-      const numeric = normalizeNumber(rawValue)
+      const numeric = normalizeNumber(rawValue, locale)
       if (!Number.isFinite(numeric)) return
       if (!setFormValue) return
       if (source === 'net') {
@@ -313,7 +308,7 @@ export function AdjustmentDialog({
         setFormValue('amountNet', Number.isFinite(net) ? net.toFixed(2) : '')
       }
     },
-    [mode, resolveTaxRateValue]
+    [locale, mode, resolveTaxRateValue]
   )
 
   React.useEffect(() => {
@@ -561,14 +556,14 @@ export function AdjustmentDialog({
             const lastChanged = lastAmountChangedRef.current
             if (mode !== 'amount') return
             if (lastChanged === 'gross') {
-              const gross = normalizeNumber((values as any)?.amountGross)
+              const gross = normalizeNumber((values as any)?.amountGross, locale)
               if (Number.isFinite(gross)) {
                 const net = roundAmount(gross / (1 + rateNumeric / 100))
                 setFormValue?.('amountNet', net.toFixed(2))
               }
               return
             }
-            const net = normalizeNumber((values as any)?.amountNet)
+            const net = normalizeNumber((values as any)?.amountNet, locale)
             if (Number.isFinite(net)) {
               const gross = roundAmount(net * (1 + rateNumeric / 100))
               setFormValue?.('amountGross', gross.toFixed(2))
@@ -643,7 +638,7 @@ export function AdjustmentDialog({
         ),
       },
     ]
-  }, [applyOppositeAmount, currencyCode, loadKindOptions, mode, t, taxRates.length, taxRateMap])
+  }, [applyOppositeAmount, currencyCode, loadKindOptions, locale, mode, t, taxRates.length, taxRateMap])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     return [
@@ -683,9 +678,9 @@ export function AdjustmentDialog({
           { label: t('sales.documents.adjustments.labelRequired', 'Label is required.') }
         )
       }
-      const percentageRate = normalizeNumber(values.rate)
-      const amountNet = normalizeNumber(values.amountNet)
-      const amountGross = normalizeNumber(values.amountGross)
+      const percentageRate = normalizeNumber(values.rate, locale)
+      const amountNet = normalizeNumber(values.amountNet, locale)
+      const amountGross = normalizeNumber(values.amountGross, locale)
       if (calculationMode === 'rate') {
         if (!Number.isFinite(percentageRate)) {
           throw createCrudFormError(
@@ -773,6 +768,7 @@ export function AdjustmentDialog({
       initialAdjustment?.metadata,
       onOpenChange,
       onSubmit,
+      locale,
       resolveFormMode,
       resolveTaxRateValue,
       t,
