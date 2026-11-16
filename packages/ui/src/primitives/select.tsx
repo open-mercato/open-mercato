@@ -11,13 +11,13 @@ const selectTriggerVariants = cva(
   {
     variants: {
       size: {
-        32: 'h-8 pl-2 pr-1.5 text-sm [&_svg:not([class*=size-])]:size-5',
-        36: 'h-9 pl-2.5 pr-2 text-sm [&_svg:not([class*=size-])]:size-5',
-        40: 'h-10 rounded-lg pl-3 pr-2.5 text-sm [&_svg:not([class*=size-])]:size-5',
-        xs: 'h-7 px-2 text-xs',
-        sm: 'h-8 px-2.5 text-xs',
-        default: 'h-9 px-3 text-sm',
-        lg: 'h-10 px-3 text-sm',
+        32: 'h-8 pl-2 pr-1.5 text-base sm:text-sm [&_svg:not([class*=size-])]:size-5',
+        36: 'h-9 pl-2.5 pr-2 text-base sm:text-sm [&_svg:not([class*=size-])]:size-5',
+        40: 'h-10 rounded-lg pl-3 pr-2.5 text-base sm:text-sm [&_svg:not([class*=size-])]:size-5',
+        xs: 'h-7 px-2 text-base sm:text-xs',
+        sm: 'h-8 px-2.5 text-base sm:text-xs',
+        default: 'h-9 px-3 text-base sm:text-sm',
+        lg: 'h-10 px-3 text-base sm:text-sm',
       },
     },
     defaultVariants: {

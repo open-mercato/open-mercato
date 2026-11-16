@@ -1,11 +1,11 @@
 'use client'
 
 import * as React from 'react'
-import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
+import { Calendar, Check, ExternalLink, ListTodo, Mail, Phone, StickyNote, Users } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -28,6 +28,12 @@ type ActivityCardProps = {
   onOpen?: (activity: InteractionSummary) => void
   /** Called after a successful mark-done so the parent can refresh the timeline. */
   onChanged?: () => void
+  /**
+   * Deletion handler owned by the parent section so a single confirmation dialog is
+   * mounted per timeline instead of one per card. The delete affordance renders only
+   * when this is provided.
+   */
+  onDelete?: (activity: InteractionSummary) => void | Promise<void>
   /**
    * Optional guarded-mutation runner. When provided, mutations route through the parent's
    * `useGuardedMutation` so retry-last-mutation and the global injection contract apply.
@@ -114,7 +120,7 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
   }
 }
 
-export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
+export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutation }: ActivityCardProps) {
   const t = useT()
   const timestamp = activity.occurredAt ?? activity.scheduledAt
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
@@ -131,6 +137,9 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
   const isCanceled = isCanceledInteractionStatus(activity.status)
   const showExternalLink = Boolean(activity._integrations && Object.keys(activity._integrations).length > 0)
   const [markingDone, setMarkingDone] = React.useState(false)
+  // Re-entrancy guard only — a ref avoids a render pair per delete since
+  // nothing in the UI consumes the in-flight state.
+  const deletingRef = React.useRef(false)
 
   const handleMarkDone = React.useCallback(async () => {
     if (markingDone) return
@@ -161,6 +170,16 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
     }
   }, [activity.id, markingDone, onChanged, runMutation, t])
 
+  const handleDelete = React.useCallback(async () => {
+    if (!onDelete || deletingRef.current) return
+    deletingRef.current = true
+    try {
+      await onDelete(activity)
+    } finally {
+      deletingRef.current = false
+    }
+  }, [activity, onDelete])
+
   return (
     <div
       className={cn(
@@ -188,8 +207,8 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       </div>
 
       <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 basis-40">
             <div className="flex items-center gap-1.5">
               <h4
                 className={cn(
@@ -214,7 +233,7 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
             ) : null}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {isOpenInteractionStatus(activity.status) ? (
               <Button
                 type="button"
@@ -230,18 +249,23 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
                 {t('customers.activities.actions.markDone', 'Mark done')}
               </Button>
             ) : null}
-            <IconButton
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label={t('customers.timeline.more', 'More')}
-              onClick={(event) => {
-                event.stopPropagation()
-                onOpen?.(activity)
-              }}
-            >
-              <MoreHorizontal className="size-4" />
-            </IconButton>
+            <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} role="presentation">
+              <RowActions
+                items={[
+                  ...(onOpen ? [{
+                    id: 'edit-activity',
+                    label: t('customers.timeline.edit', 'Edit'),
+                    onSelect: () => onOpen(activity),
+                  }] : []),
+                  ...(onDelete ? [{
+                    id: 'delete-activity',
+                    label: t('customers.activities.actions.delete', 'Delete activity'),
+                    destructive: true,
+                    onSelect: () => { void handleDelete() },
+                  }] : []),
+                ]}
+              />
+            </div>
           </div>
         </div>
 

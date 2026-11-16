@@ -41,7 +41,7 @@ describe('CompactSelect primitive', () => {
     const { container } = renderCompactSelect()
     const trigger = container.querySelector('[data-slot="compact-select-trigger"]')!
     expect(trigger).toHaveClass('px-2')
-    expect(trigger).toHaveClass('text-xs')
+    expect(trigger).toHaveClass('sm:text-xs')
   })
 
   it('renders the triggerLabel prefix when provided', () => {

@@ -190,7 +190,7 @@ export function RunParameterFields({ params, values, onChange }: RunParameterFie
           <div key={param.key} className="space-y-2">
             <Label htmlFor={fieldId} className="text-sm font-medium">
               {label}
-              {param.required ? <span className="text-status-error-text"> *</span> : null}
+              {param.required ? <span className="text-accent-indigo"> *</span> : null}
             </Label>
             {param.type === 'select' ? (
               <Select

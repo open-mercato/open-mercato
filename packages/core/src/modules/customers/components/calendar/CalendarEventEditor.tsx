@@ -264,7 +264,7 @@ const EditorBody = React.memo(function EditorBody({
           options={typeSwitcherOptions}
         />
       </div>
-      <Field label={titleLabel} error={errors.title} className="lg:col-span-2">
+      <Field label={titleLabel} error={errors.title} required className="lg:col-span-2">
         <Input
           type="text"
           value={form.title}

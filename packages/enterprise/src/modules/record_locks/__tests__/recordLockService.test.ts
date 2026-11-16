@@ -495,6 +495,37 @@ describe('RecordLockService.validateMutation', () => {
     expect(serviceAny.resolveConflict).not.toHaveBeenCalled()
     expect(serviceAny.toConflictPayload).toHaveBeenCalledTimes(1)
   })
+
+  test('ignores lock headers explicitly scoped to a different resource', async () => {
+    const { service } = createService(DEFAULT_SETTINGS)
+    const serviceAny = service as any
+
+    serviceAny.findActiveLock = jest.fn().mockResolvedValue(null)
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue({
+      id: '80000000-0000-4000-8000-000000000001',
+      actorUserId: '90000000-0000-4000-8000-000000000001',
+    })
+    serviceAny.createConflict = jest.fn()
+
+    const result = await service.validateMutation({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000002',
+      method: 'DELETE',
+      headers: {
+        resourceKind: 'customers.company',
+        resourceId: '20000000-0000-4000-8000-000000000001',
+        baseLogId: '50000000-0000-4000-8000-000000000001',
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('Expected successful validation')
+    expect(result.latestActionLogId).toBe('80000000-0000-4000-8000-000000000001')
+    expect(serviceAny.createConflict).not.toHaveBeenCalled()
+  })
 })
 
 describe('RecordLockService.acquire', () => {

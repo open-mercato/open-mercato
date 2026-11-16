@@ -764,7 +764,7 @@ export function PhoneNumberField({
           aria-invalid={errorMessage ? 'true' : undefined}
           data-crud-focus-target=""
           className={cn(
-            'flex-1 min-w-0 bg-transparent px-3 py-2 text-sm leading-5 outline-none',
+            'flex-1 min-w-0 bg-transparent px-3 py-2 text-base leading-5 outline-none sm:text-sm',
             'placeholder:text-muted-foreground',
             'disabled:cursor-not-allowed disabled:text-text-disabled disabled:placeholder:text-text-disabled',
             size && 'h-full py-0 pr-2.5',

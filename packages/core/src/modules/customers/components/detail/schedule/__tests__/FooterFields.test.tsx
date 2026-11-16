@@ -20,41 +20,38 @@ describe('FooterFields — Reminder option labels (formatReminderLabel)', () => 
     )
   }
 
-  it('renders all reminder options with human-readable labels', () => {
-    renderReminder(15)
-    const reminderSelect = screen.getAllByRole('combobox')[0] as HTMLSelectElement
-    const optionTexts = Array.from(reminderSelect.options).map((opt) => opt.textContent?.trim())
-    expect(optionTexts).toEqual([
-      'None',
-      '5 min before',
-      '10 min before',
-      '15 min before',
-      '30 min before',
-      '1 hour before',
-      '4 hours before',
-      '1 day before',
-    ])
+  function reminderTrigger(): HTMLElement {
+    // The reminder DS Select renders first; visibility second.
+    return screen.getAllByRole('combobox')[0]
+  }
+
+  it.each([
+    [0, 'None'],
+    [5, '5 min before'],
+    [10, '10 min before'],
+    [15, '15 min before'],
+    [30, '30 min before'],
+    [60, '1 hour before'],
+    [240, '4 hours before'],
+    [1440, '1 day before'],
+  ])('renders the human-readable label for %i minutes', (minutes, label) => {
+    const { unmount } = renderReminder(minutes as number)
+    expect(reminderTrigger()).toHaveTextContent(label as string)
+    unmount()
   })
 
   it('selects the matching option for the per-type default 1440 (1 day)', () => {
     renderReminder(1440)
-    const reminderSelect = screen.getAllByRole('combobox')[0] as HTMLSelectElement
-    expect(reminderSelect.value).toBe('1440')
-    const selected = Array.from(reminderSelect.options).find((opt) => opt.selected)
-    expect(selected?.textContent?.trim()).toBe('1 day before')
+    expect(reminderTrigger()).toHaveTextContent('1 day before')
   })
 
   it('selects the call default 5 minutes before', () => {
     renderReminder(5)
-    const reminderSelect = screen.getAllByRole('combobox')[0] as HTMLSelectElement
-    const selected = Array.from(reminderSelect.options).find((opt) => opt.selected)
-    expect(selected?.textContent?.trim()).toBe('5 min before')
+    expect(reminderTrigger()).toHaveTextContent('5 min before')
   })
 
   it('renders None for the 0 sentinel', () => {
     renderReminder(0)
-    const reminderSelect = screen.getAllByRole('combobox')[0] as HTMLSelectElement
-    const selected = Array.from(reminderSelect.options).find((opt) => opt.selected)
-    expect(selected?.textContent?.trim()).toBe('None')
+    expect(reminderTrigger()).toHaveTextContent('None')
   })
 })

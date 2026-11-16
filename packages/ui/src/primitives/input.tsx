@@ -26,12 +26,14 @@ const inputElementVariants = cva(
   {
     variants: {
       size: {
-        sm: 'text-sm',
-        default: 'text-sm',
-        lg: 'text-sm',
-        32: 'text-sm leading-5',
-        36: 'text-sm leading-5',
-        40: 'text-sm leading-5',
+        // text-base below `sm` keeps iOS Safari from auto-zooming the page on
+        // focus (it zooms any input under 16px).
+        sm: 'text-base sm:text-xs',
+        default: 'text-base sm:text-sm',
+        lg: 'text-base sm:text-sm',
+        32: 'text-base sm:text-sm leading-5',
+        36: 'text-base sm:text-sm leading-5',
+        40: 'text-base sm:text-sm leading-5',
       },
     },
     defaultVariants: {

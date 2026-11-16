@@ -22,6 +22,12 @@ export type TimePickerProps = {
   showNowButton?: boolean
   showClearButton?: boolean
   /**
+   * Render the popover in Radix modal mode. Required for the slot list to be
+   * wheel/touch scrollable when the picker is opened from inside a modal
+   * Dialog; defaults to `false` so plain form pages keep a light popover.
+   */
+  popoverModal?: boolean
+  /**
    * Clock convention for the trigger label and the slot list. Defaults to the one the active
    * locale writes time in — `12h` for English and Korean, `24h` for Polish, German and Spanish —
    * so a tenant does not read an AM/PM clock its language never uses. Pass an explicit value to
@@ -59,6 +65,10 @@ export function TimePicker({
   // by "Clear" in most flows. Pass `showClearButton={true}` to opt back in when
   // you need an explicit "set value to null" action distinct from "dismiss".
   showClearButton = false,
+  // Modal popover mode is per-context: opt in when this picker renders inside a
+  // Dialog (the dialog scroll lock otherwise blocks the slot list), leave off on
+  // plain form pages where a background scroll lock would be too heavy.
+  popoverModal = false,
   format,
 }: TimePickerProps) {
   const t = useT()
@@ -157,6 +167,7 @@ export function TimePicker({
       open={open}
       onOpenChange={setOpen}
       disabled={disabled}
+      popoverModal={popoverModal}
     />
   )
 }
