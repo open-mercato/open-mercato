@@ -100,7 +100,7 @@ export async function POST(req: Request): Promise<Response> {
         ...(result.code ? { code: result.code } : {}),
         ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}),
       },
-      { status: result.status },
+      { status: result.status, headers: result.headers },
     )
   }
   await guard.afterSuccess()

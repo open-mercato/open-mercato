@@ -24,12 +24,26 @@ async function readCapturedEmails(): Promise<CapturedEmail[]> {
   }
 }
 
+/**
+ * Invite links come from `urlForCustomerOrg`: `<base>/<orgSlug>/portal/invite?token=` by
+ * default, but `https://<hostname>/invite?token=` once the organization has an active custom
+ * domain. Match the path suffix so the spec does not depend on the org's domain state.
+ */
+function isInviteLink(link: string): boolean {
+  try {
+    const url = new URL(link)
+    return url.pathname.endsWith('/invite') && url.searchParams.has('token')
+  } catch {
+    return false
+  }
+}
+
 async function waitForInviteEmail(to: string): Promise<CapturedEmail> {
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
     const email = (await readCapturedEmails())
       .reverse()
-      .find((entry) => entry.to?.toLowerCase() === to.toLowerCase() && entry.links?.some((link) => link.includes('/portal/invite?token=')))
+      .find((entry) => entry.to?.toLowerCase() === to.toLowerCase() && entry.links?.some(isInviteLink))
     if (email) return email
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
@@ -37,7 +51,7 @@ async function waitForInviteEmail(to: string): Promise<CapturedEmail> {
 }
 
 function extractInviteToken(email: CapturedEmail): string {
-  const inviteLink = email.links?.find((link) => link.includes('/portal/invite?token='))
+  const inviteLink = email.links?.find(isInviteLink)
   expect(inviteLink, 'captured invite email should contain a portal invite link').toBeTruthy()
   const url = new URL(inviteLink!)
   const token = url.searchParams.get('token')
@@ -83,7 +97,7 @@ test.describe('TC-AUTH-033: customer invitation email happy path', () => {
       invitation: { id: string; email: string; expiresAt: string }
     }
     expect(inviteBody.ok).toBe(true)
-    expect(JSON.stringify(inviteBody), 'raw token must not be exposed by invite API').not.toContain('/portal/invite?token=')
+    expect(JSON.stringify(inviteBody), 'raw token must not be exposed by invite API').not.toContain('/invite?token=')
 
     const capturedEmail = await waitForInviteEmail(inviteEmail)
     expect(capturedEmail.subject).toContain('invited')

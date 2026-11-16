@@ -7,7 +7,8 @@ import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimi
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
 import { normalizeCrudServerError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { ErrorMessage, LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
-import { Button } from "@open-mercato/ui/primitives/button";
+import { IconButton } from "@open-mercato/ui/primitives/icon-button";
+import { SimpleTooltip } from "@open-mercato/ui/primitives/tooltip";
 import { flash } from "@open-mercato/ui/backend/FlashMessages";
 import { Pencil, Trash2 } from "lucide-react";
 import {
@@ -40,6 +41,53 @@ import { OrderItemsInjectionContext } from "../../widgets/injection/order-items-
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+
+function DisabledActionHint({
+  label,
+  reason,
+  children,
+}: {
+  label: string
+  reason?: string
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = React.useState(false)
+  const touchOpenRef = React.useRef(false)
+  if (!reason) return <>{children}</>
+  return (
+    <SimpleTooltip
+      content={reason}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen || !touchOpenRef.current) setOpen(nextOpen)
+      }}
+    >
+      <span
+        className="inline-flex rounded-md focus-visible:outline-none focus-visible:shadow-focus"
+        tabIndex={0}
+        aria-label={`${label}: ${reason}`}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => {
+          if (event.pointerType !== 'touch') return
+          touchOpenRef.current = true
+          setOpen(true)
+          event.currentTarget.focus()
+        }}
+        onBlur={() => {
+          touchOpenRef.current = false
+          setOpen(false)
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape') return
+          touchOpenRef.current = false
+          setOpen(false)
+        }}
+      >
+        {children}
+      </span>
+    </SimpleTooltip>
+  )
+}
 
 type ResolvedUnitPriceReference = {
   grossPerReference: number;
@@ -932,11 +980,13 @@ export function SalesDocumentItemsSection({
                             {discount.amount !== null ? (
                               <span className="font-mono text-sm">
                                 {t(
-                                  "sales.documents.items.table.discountAmount",
-                                  "−{{value}}",
+                                  discount.amount < 0
+                                    ? "sales.documents.items.table.markupAmount"
+                                    : "sales.documents.items.table.discountAmount",
+                                  discount.amount < 0 ? "+{{value}}" : "−{{value}}",
                                   {
                                     value: formatMoney(
-                                      discount.amount,
+                                      Math.abs(discount.amount),
                                       item.currencyCode ??
                                         currencyCode ??
                                         undefined,
@@ -1005,30 +1055,39 @@ export function SalesDocumentItemsSection({
                     })}
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-2 justify-end">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          aria-label={t('ui.actions.edit', 'Edit')}
-                          disabled={amountsReadOnly}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleEdit(item);
-                          }}
+                        <DisabledActionHint
+                          label={t('ui.actions.edit', 'Edit')}
+                          reason={amountsReadOnly
+                            ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
+                            : undefined}
                         >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <span
-                          title={amountsReadOnly
+                          <IconButton
+                            type="button"
+                            size="default"
+                            variant="ghost"
+                            aria-label={t('ui.actions.edit', 'Edit')}
+                            disabled={amountsReadOnly}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleEdit(item);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </IconButton>
+                        </DisabledActionHint>
+                        <DisabledActionHint
+                          label={t('ui.actions.delete', 'Delete')}
+                          reason={amountsReadOnly
                             ? t('sales.documents.amountsExternalHint', 'Totals on this document come from an external system and are stored as supplied.')
                             : kind === 'order' && items.length === 1
                               ? t('sales.documents.items.errorDeleteLast', 'An order must contain at least one line item.')
                               : undefined}
                         >
-                          <Button
-                            size="icon"
+                          <IconButton
+                            type="button"
+                            size="default"
                             variant="ghost"
-                            className="h-8 w-8 text-destructive"
+                            className="text-destructive"
                             aria-label={t('ui.actions.delete', 'Delete')}
                             disabled={amountsReadOnly || (kind === 'order' && items.length === 1)}
                             onClick={(event) => {
@@ -1037,8 +1096,8 @@ export function SalesDocumentItemsSection({
                             }}
                           >
                             <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </span>
+                          </IconButton>
+                        </DisabledActionHint>
                       </div>
                     </td>
                   </tr>

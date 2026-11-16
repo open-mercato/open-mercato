@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { detectDocker, runCaptureSync } from './compose.mjs'
+import { formatInfraProblem } from './infra-preflight.mjs'
 import { probeTlsInterception, summarizeProbeResults } from './certs.mjs'
 import { CAPTURED_CA_BUNDLE, LOOPBACK_HOST, resolveStackPorts } from './constants.mjs'
 import { color, icons, printBanner } from './ui.mjs'
@@ -78,6 +79,13 @@ export function checkContainerRuntime() {
   }
   const isWindows = process.platform === 'win32'
   const isMac = process.platform === 'darwin'
+  if (docker.code && docker.code !== 'cli-missing') {
+    const [, ...remediation] = formatInfraProblem({ code: docker.code, detail: docker.reason }, { optOutCommand: 'yarn setup --no-infra' })
+    return result('runtime', 'Container runtime', 'fail', `not usable (${docker.reason})`, {
+      guide: remediation.map((line) => line.trim()),
+      it: docker.code === 'daemon-permission' ? ['Allow this user to use the Docker engine (docker group membership).'] : [],
+    })
+  }
   const guide = isWindows
     ? [
         'Install ONE of (both use the WSL2 backend):',

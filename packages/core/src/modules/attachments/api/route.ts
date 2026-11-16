@@ -1,3 +1,6 @@
+import { attachmentErrorSchema } from './openapi'
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { prepareAttachmentMutation } from '../lib/access-mutation'
@@ -43,6 +46,7 @@ import {
   detectAttachmentMimeType,
   hasDangerousExecutableExtension,
   isActiveContentAttachment,
+  sanitizeAttachmentDisplayName,
   sanitizeUploadedFileName,
 } from '../lib/security'
 import {
@@ -282,7 +286,7 @@ async function listRecordAttachments(req: Request) {
 
 export const GET = withAttachmentAccessErrors(listRecordAttachments)
 
-export async function POST(req: Request) {
+async function uploadAttachment(req: Request) {
   const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -384,7 +388,7 @@ export async function POST(req: Request) {
   if (uploadScope.denied) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const orgId = uploadScope.organizationId
   if (!orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  await ensureDefaultPartitions(em)
+  if (getAttachmentStoragePolicy() === 'legacy') await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
   let fieldMaxAttachmentSizeMb: number | null = null
@@ -441,6 +445,7 @@ export async function POST(req: Request) {
   }
   const buf = Buffer.from(await file.arrayBuffer())
   const safeName = sanitizeUploadedFileName(file.name)
+  const displayName = sanitizeAttachmentDisplayName(file.name)
   const fileMimeType = detectAttachmentMimeType(buf, safeName, (file as any).type)
   if (isActiveContentAttachment(buf, safeName, fileMimeType)) {
     return NextResponse.json({ error: t('attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
@@ -457,6 +462,7 @@ export async function POST(req: Request) {
   let partition: AttachmentPartition | null = null
   for (const code of partitionCodeCandidates) {
     const record = await em.findOne(AttachmentPartition, { code })
+    assertAttachmentStoragePartitionExists(Boolean(record))
     if (record) {
       partition = record
       break
@@ -466,6 +472,7 @@ export async function POST(req: Request) {
     partition = await em.findOne(AttachmentPartition, { code: defaultPartitionCode })
   }
   if (!partition) {
+    assertAttachmentStoragePartitionExists(false)
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
   await ensureAttachmentPartitionProtection(em, partition)
@@ -602,7 +609,7 @@ export async function POST(req: Request) {
     recordId,
     organizationId: orgId,
     tenantId: auth.tenantId!,
-    fileName: safeName,
+    fileName: displayName,
     mimeType: fileMimeType,
     fileSize: buf.length,
     partitionCode: partition.code,
@@ -678,7 +685,7 @@ export async function POST(req: Request) {
     item: {
       id: attachmentId,
       url: att.url,
-      fileName: safeName,
+      fileName: displayName,
       fileSize: buf.length,
       partitionCode: partition.code,
       thumbnailUrl: buildAttachmentImageUrl(attachmentId, {
@@ -781,7 +788,8 @@ async function deleteAttachment(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
-export const DELETE = withAttachmentAccessErrors(deleteAttachment)
+export const POST = withAttachmentAccessErrors(withAttachmentStorageErrors(uploadAttachment))
+export const DELETE = withAttachmentAccessErrors(withAttachmentStorageErrors(deleteAttachment))
 
 export const openApi: OpenApiRouteDoc = {
   summary: 'Manage entity attachments',
@@ -813,6 +821,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Attachment stored successfully', schema: uploadResponseSchema },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Payload validation error', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Attachment violates field constraints', schema: errorSchema },
@@ -827,6 +836,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'Attachment not found', schema: errorSchema },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Missing attachment identifier', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Owner policy denies access', schema: errorSchema },

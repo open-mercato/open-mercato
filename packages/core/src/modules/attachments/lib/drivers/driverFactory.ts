@@ -3,40 +3,48 @@ import type { StorageDriver } from './types'
 import { LocalStorageDriver } from './localDriver'
 import { LegacyPublicStorageDriver } from './legacyPublicDriver'
 import { AttachmentPartition } from '../../data/entities'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  AttachmentStorageConfigurationError,
+  assertAttachmentStoragePartitionExists,
+  getAttachmentStoragePolicy,
+  validateAttachmentStorageConfiguration,
+  type AttachmentStorageScope,
+  type AttachmentStorageValidationStage,
+} from './storageValidation'
 
-const logger = createLogger('attachments').child({ component: 'storage-driver-factory' })
-
-type DriverScope = { tenantId: string; organizationId: string }
+type DriverScope = AttachmentStorageScope
 type CredentialEnhancer = (config: Record<string, unknown>, scope: DriverScope) => Promise<Record<string, unknown>>
+type DriverFactory = (config: Record<string, unknown>) => StorageDriver
 
-type DriverRegistration = { factory: (config: Record<string, unknown>) => StorageDriver }
-type EnhancerRegistration = { enhancer: CredentialEnhancer }
+type ModuleRegistry = {
+  drivers: Map<string, DriverFactory>
+  enhancers: Map<string, CredentialEnhancer>
+}
+const REGISTRY_KEY = Symbol.for('@open-mercato/AttachmentStorageDrivers')
 
-const moduleDriverRegistry = new Map<string, DriverRegistration>()
-const moduleEnhancerRegistry = new Map<string, EnhancerRegistration>()
+function moduleRegistry(): ModuleRegistry {
+  const registry = globalThis as typeof globalThis & { [REGISTRY_KEY]?: ModuleRegistry }
+  return registry[REGISTRY_KEY] ??= { drivers: new Map(), enhancers: new Map() }
+}
 
-export function registerExternalStorageDriver(
-  key: string,
-  factory: (config: Record<string, unknown>) => StorageDriver,
-): void {
-  moduleDriverRegistry.set(key, { factory })
+export function registerExternalStorageDriver(key: string, factory: DriverFactory): void {
+  moduleRegistry().drivers.set(key, factory)
 }
 
 export function registerExternalCredentialEnhancer(key: string, enhancer: CredentialEnhancer): void {
-  moduleEnhancerRegistry.set(key, { enhancer })
+  moduleRegistry().enhancers.set(key, enhancer)
 }
 
 export class StorageDriverFactory {
   private readonly cache = new Map<string, StorageDriver>()
-  private readonly localDriver = new LocalStorageDriver()
-  private readonly legacyPublicDriver = new LegacyPublicStorageDriver()
-  private readonly externalDrivers = new Map<string, (config: Record<string, unknown>) => StorageDriver>()
+  private localDriver?: LocalStorageDriver
+  private legacyPublicDriver?: LegacyPublicStorageDriver
+  private readonly externalDrivers = new Map<string, DriverFactory>()
   private readonly credentialEnhancers = new Map<string, CredentialEnhancer>()
 
   constructor(private readonly em: EntityManager) {}
 
-  registerDriver(key: string, factory: (config: Record<string, unknown>) => StorageDriver): void {
+  registerDriver(key: string, factory: DriverFactory): void {
     this.externalDrivers.set(key, factory)
   }
 
@@ -44,51 +52,67 @@ export class StorageDriverFactory {
     this.credentialEnhancers.set(key, enhancer)
   }
 
-  resolveForAttachment(
-    storageDriver: string,
-    configJson?: Record<string, unknown> | null,
-  ): StorageDriver {
-    switch (storageDriver) {
-      case 'legacyPublic':
-        return this.legacyPublicDriver
-
-      case 'local':
-        return this.localDriver
-
-      default: {
-        const externalFactory =
-          this.externalDrivers.get(storageDriver) ?? moduleDriverRegistry.get(storageDriver)?.factory
-        if (externalFactory) {
-          const cacheKey = `${storageDriver}:${JSON.stringify(configJson ?? {})}`
-          const cached = this.cache.get(cacheKey)
-          if (cached) return cached
-          const driver = externalFactory(configJson ?? {})
-          this.cache.set(cacheKey, driver)
-          return driver
-        }
-        return this.localDriver
-      }
-    }
+  resolveForAttachment(storageDriver: string, configJson?: Record<string, unknown> | null): StorageDriver {
+    const config = configJson ?? {}
+    this.validate(storageDriver, config, 'configured')
+    this.validate(storageDriver, config, 'resolved')
+    return this.resolveValidated(storageDriver, config)
   }
 
   async resolveForPartition(partitionCode: string, scope?: DriverScope): Promise<StorageDriver> {
+    getAttachmentStoragePolicy()
     const partition = await this.em.findOne(AttachmentPartition, { code: partitionCode })
-    if (!partition) return this.localDriver
+    assertAttachmentStoragePartitionExists(Boolean(partition))
+    if (!partition) return this.localDriver ??= new LocalStorageDriver()
 
-    const driverKey = partition.storageDriver ?? 'local'
-    logger.debug('Resolving storage driver for partition', { partition: partitionCode, driverKey, moduleDrivers: [...moduleDriverRegistry.keys()], instanceDrivers: [...this.externalDrivers.keys()] })
     let config: Record<string, unknown> = partition.configJson ?? {}
-
-    const activeEnhancer =
-      this.credentialEnhancers.get(driverKey) ?? moduleEnhancerRegistry.get(driverKey)?.enhancer
+    this.validate(partition.storageDriver, config, 'configured', partitionCode, scope)
+    const driverKey = partition.storageDriver ?? 'local'
+    const activeEnhancer = this.credentialEnhancers.get(driverKey) ?? moduleRegistry().enhancers.get(driverKey)
     if (scope && activeEnhancer) {
-      config = await activeEnhancer(config, scope)
-      // Skip shared cache for scope-enhanced configs (credentials are per-tenant)
-      const externalFactory =
-        this.externalDrivers.get(driverKey) ?? moduleDriverRegistry.get(driverKey)?.factory
+      try {
+        config = await activeEnhancer(config, scope)
+      } catch (error) {
+        if (getAttachmentStoragePolicy() === 'strict') {
+          throw new AttachmentStorageConfigurationError('enhancement_failed')
+        }
+        throw error
+      }
+      this.validate(driverKey, config, 'resolved', partitionCode, scope)
+      const externalFactory = this.externalDrivers.get(driverKey) ?? moduleRegistry().drivers.get(driverKey)
       if (externalFactory) return externalFactory(config)
+    } else {
+      this.validate(driverKey, config, 'resolved', partitionCode, scope)
     }
+    return this.resolveValidated(driverKey, config)
+  }
 
-    return this.resolveForAttachment(driverKey, config)
+  private validate(
+    driverKey: unknown,
+    config: unknown,
+    stage: AttachmentStorageValidationStage,
+    partitionCode?: string,
+    scope?: DriverScope,
+  ): void {
+    const registered = typeof driverKey === 'string' && (
+      driverKey === 'local' || driverKey === 'legacyPublic'
+      || this.externalDrivers.has(driverKey) || moduleRegistry().drivers.has(driverKey)
+    )
+    validateAttachmentStorageConfiguration({ driverKey, config, stage, partitionCode, scope }, registered)
+  }
+
+  private resolveValidated(driverKey: string, config: Record<string, unknown>): StorageDriver {
+    if (driverKey === 'legacyPublic') return this.legacyPublicDriver ??= new LegacyPublicStorageDriver()
+    if (driverKey === 'local') return this.localDriver ??= new LocalStorageDriver()
+    const externalFactory = this.externalDrivers.get(driverKey) ?? moduleRegistry().drivers.get(driverKey)
+    if (externalFactory) {
+      const cacheKey = `${driverKey}:${JSON.stringify(config)}`
+      const cached = this.cache.get(cacheKey)
+      if (cached) return cached
+      const driver = externalFactory(config)
+      this.cache.set(cacheKey, driver)
+      return driver
+    }
+    return this.localDriver ??= new LocalStorageDriver()
   }
 }

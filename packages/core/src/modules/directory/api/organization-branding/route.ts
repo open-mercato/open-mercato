@@ -17,7 +17,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import '@open-mercato/core/modules/directory/commands/organizations'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
@@ -82,15 +82,12 @@ async function resolveCurrentOrganization(req: Request) {
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  let organizationId: string | null
-  try {
-    organizationId = resolveSingleOrganizationIdOrDeny(scope, auth)
-  } catch (error) {
-    if (isCrudHttpError(error)) {
-      return { response: NextResponse.json(error.body, { status: error.status }) }
+  if (isExplicitlyEmptyOrganizationScope(scope)) {
+    return {
+      response: NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 }),
     }
-    throw error
   }
+  const organizationId = scope.selectedId
   const tenantId = scope.tenantId ?? auth.tenantId ?? null
   if (!organizationId || !tenantId) {
     return {

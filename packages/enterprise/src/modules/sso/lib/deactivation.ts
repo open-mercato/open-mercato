@@ -10,8 +10,10 @@ type DeactivationScope = {
   ssoConfigId?: string
 }
 
+const NONMATCHING_ID = '00000000-0000-0000-0000-000000000000'
+
 export async function isSsoUserDeactivated(em: EntityManager, scope: DeactivationScope): Promise<boolean> {
-  if (!scope.organizationId) return false
+  const organizationId = scope.organizationId ?? NONMATCHING_ID
 
   const deactivation = await findOneWithDecryption(
     em,
@@ -19,43 +21,38 @@ export async function isSsoUserDeactivated(em: EntityManager, scope: Deactivatio
     {
       userId: scope.userId,
       tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
+      organizationId,
       reactivatedAt: null,
       ...(scope.ssoConfigId ? { ssoConfigId: scope.ssoConfigId } : {}),
     },
     {},
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
-  if (deactivation) return true
-  if (!scope.tenantId) return false
-
   const legacyDeactivation = await findOneWithDecryption(
     em, SsoUserDeactivation,
     {
       userId: scope.userId,
       tenantId: null,
-      organizationId: scope.organizationId,
+      organizationId,
       reactivatedAt: null,
       ...(scope.ssoConfigId ? { ssoConfigId: scope.ssoConfigId } : {}),
     },
     {},
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
-  if (!legacyDeactivation) return false
-
   const organization = await findOneWithDecryption(
     em, Organization,
-    { id: scope.organizationId, tenant: scope.tenantId },
+    { id: organizationId, tenant: scope.tenantId ?? NONMATCHING_ID },
     { fields: ['id'] },
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
-  if (!organization) return false
-
   const config = await findOneWithDecryption(
     em, SsoConfig,
-    { id: legacyDeactivation.ssoConfigId, organizationId: scope.organizationId, tenantId: null },
+    { id: legacyDeactivation?.ssoConfigId ?? NONMATCHING_ID, organizationId, tenantId: null },
     { fields: ['id'] },
     { tenantId: null, organizationId: scope.organizationId },
   )
-  return config !== null
+  return Boolean(scope.organizationId && (deactivation || (
+    scope.tenantId && legacyDeactivation && organization && config
+  )))
 }

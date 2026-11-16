@@ -7,6 +7,7 @@ import {
   deleteFeatureToggleIfExists,
 } from '@open-mercato/core/helpers/integration/featureTogglesFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 
 /**
  * TC-QIDX-5723: a declared platform-wide catalogue (`feature_toggles:feature_toggle`) is
@@ -22,6 +23,7 @@ import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integr
 
 const CATALOGUE = 'feature_toggles:feature_toggle'
 const REINDEX_TIMEOUT_MS = 60_000
+const EVENTS_QUEUE = 'events'
 
 type ScopeRow = { tenant_id: string | null; organization_id: string | null }
 
@@ -85,6 +87,9 @@ async function reindexCatalogue(request: APIRequestContext, token: string): Prom
     data: { entityType: CATALOGUE },
   })
   expect(response.ok(), `POST /api/query_index/reindex: ${response.status()}`).toBeTruthy()
+  // The route only queues a persistent `query_index.reindex` event. Lanes that run without
+  // auto-spawned workers (the standalone app) never consume it unless the spec drains it.
+  await drainIntegrationQueue(EVENTS_QUEUE)
 }
 
 test.describe('TC-QIDX-5723: platform-wide catalogue in the query index', () => {
