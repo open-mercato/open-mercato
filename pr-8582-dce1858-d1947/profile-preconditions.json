@@ -1,0 +1,14 @@
+{
+  "user": {
+    "roles": 0,
+    "features": 0,
+    "createdAtPresent": true,
+    "lastLoginAtPresent": true
+  },
+  "profileUser": {
+    "roles": 1,
+    "features": 3,
+    "createdAtPresent": true,
+    "lastLoginAtPresent": true
+  }
+}
