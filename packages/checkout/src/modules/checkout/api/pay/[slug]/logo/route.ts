@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { AttachmentOwner, AttachmentService, ReadScopedAttachmentResult } from '@open-mercato/core/modules/attachments'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -147,9 +148,14 @@ export const openApi = {
     GET: {
       summary: 'Pay link logo',
       description: 'Serves the logo of a published pay link to anonymous visitors, gated like the pay page itself.',
+      query: z.object({
+        preview: z.literal('true').optional().describe('Serve the logo of a draft link to an authorized checkout preview'),
+      }),
       errors: [
+        { status: 401, description: 'A preview request without the checkout preview context' },
         { status: 404, description: 'The link is not published, is locked, or has no servable logo' },
         { status: 429, description: 'Too many checkout page requests', schema: rateLimitErrorSchema },
+        { status: 500, description: 'The logo could not be read or rendered' },
       ],
     },
   },
