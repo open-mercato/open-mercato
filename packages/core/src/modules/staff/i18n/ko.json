@@ -273,6 +273,7 @@
   "staff.leaveRequests.detail.summary": "신청 상세 정보",
   "staff.leaveRequests.empty.profileRequired": "휴가를 신청하려면 팀원 프로필을 생성하세요.",
   "staff.leaveRequests.errors.accept": "휴가 신청을 승인하지 못했습니다.",
+  "staff.leaveRequests.errors.alreadyFinalized": "휴가 신청이 이미 처리되었습니다.",
   "staff.leaveRequests.errors.forbidden": "접근이 금지되었습니다",
   "staff.leaveRequests.errors.load": "휴가 신청 목록을 불러오지 못했습니다.",
   "staff.leaveRequests.errors.notFound": "휴가 신청을 찾을 수 없습니다.",
