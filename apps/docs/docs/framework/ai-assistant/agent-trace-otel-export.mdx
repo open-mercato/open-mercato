@@ -5,7 +5,7 @@ description: Opt-in export of Agent Orchestrator runs to any OTLP backend with G
 
 # Exporting agent traces to OpenTelemetry
 
-Agent Orchestrator can send persisted runs to any backend that accepts OTLP over HTTP with JSON or protobuf (Jaeger, Grafana Tempo, a vendor collector). Spans use the OpenTelemetry GenAI semantic conventions (`gen_ai.*`, version 1.43) plus `om.*` attributes for platform concepts. Export is opt-in, fail-open and never affects a run.
+Agent Orchestrator can send persisted runs to any backend that accepts OTLP over HTTP with JSON or protobuf (Jaeger, Grafana Tempo, [Langfuse](#langfuse), [Datadog](#datadog), a vendor collector). Spans use the OpenTelemetry GenAI semantic conventions (`gen_ai.*`, version 1.43) plus `om.*` attributes for platform concepts. Export is opt-in, fail-open and never affects a run.
 
 ## Enabling export
 
@@ -159,6 +159,53 @@ OM_AGENT_OTEL_TRACE_URL_TEMPLATE=http://127.0.0.1:16686/trace/{traceId}
 ```
 
 Open the Jaeger UI at `http://127.0.0.1:16686`.
+
+## Langfuse
+
+Langfuse accepts OTLP over HTTP (JSON or protobuf, gzip) on its OpenTelemetry endpoint. Authentication is HTTP Basic with the project's public key as user name and secret key as password:
+
+```bash
+OM_AGENT_OTEL_EXPORT=on
+OM_AGENT_OTEL_EXPORT_ENDPOINT=https://cloud.langfuse.com/api/public/otel/v1/traces
+OM_AGENT_OTEL_EXPORT_HEADERS="Authorization=Basic%20$(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64 | tr -d '\n')"
+```
+
+The value must be a single line: GNU `base64` wraps long output, and a header value with a line break is skipped, which leaves the request unauthenticated (`401`). Other regions use `https://us.cloud.langfuse.com`, `https://jp.cloud.langfuse.com` or `https://hipaa.cloud.langfuse.com` with the same `/api/public/otel/v1/traces` path; a self-hosted instance uses its own host. Header values are URL-encoded, so the space after `Basic` is written as `%20`; base64 padding (`=`) needs no encoding. A tenant destination takes the same endpoint and header list in the integration credentials. A self-hosted Langfuse on a private network must be listed in `OM_AGENT_OTEL_EXPORT_PRIVATE_HOSTS` to be used as a tenant destination.
+
+How a run appears in Langfuse:
+
+| Exported span | Langfuse observation |
+| --- | --- |
+| `invoke_agent <agent>` | Agent |
+| `chat <model>` | Generation, with model and input/output token usage |
+| `execute_tool <tool>` | Tool |
+| `invoke_workflow`, `om.*` spans | Span |
+
+With content export on, the `gen_ai.client.inference.operation.details` event becomes the generation's input (system instructions first) and output, and tool spans that carry call content show the arguments as input and the result as output. Without content, generations show model, usage and timing only. Resource attributes, including `om.tenant.id` and `om.organization.id`, and the `om.*` span attributes appear as observation metadata. A wrong key is answered with `401` and the export is dropped, not retried.
+
+Verified against a self-hosted Langfuse 4.81.0 with both `http/json` and `http/protobuf`.
+
+## Datadog
+
+Datadog's OTLP traces intake accepts `http/json` and `http/protobuf` (not gRPC) and answers `202`. Agent Observability (LLM Observability) only converts spans when conversion is switched on, which the exporter does through the `DD-LLMObs-Enabled` header:
+
+```bash
+OM_AGENT_OTEL_EXPORT=on
+OM_AGENT_OTEL_EXPORT_ENDPOINT=https://otlp.datadoghq.com/v1/traces
+OM_AGENT_OTEL_EXPORT_PROTOCOL=http/protobuf
+OM_AGENT_OTEL_EXPORT_HEADERS="dd-api-key=$DD_API_KEY,dd-otlp-source=llmobs,DD-LLMObs-Enabled=true"
+```
+
+Use the endpoint of your Datadog site (for example `https://otlp.us3.datadoghq.com/v1/traces` or `https://otlp.datadoghq.eu/v1/traces`); a wrong site is answered with `403`. Without `DD-LLMObs-Enabled=true` the spans still arrive in APM but not in Agent Observability; the exporter does not set the alternative `dd_llmobs_enabled` resource attribute.
+
+How a run appears in Agent Observability:
+
+- `ml_app` is the `service.name` resource attribute (`OM_AGENT_OTEL_SERVICE_NAME`, default `open-mercato-agents`).
+- `invoke_agent` spans are agent spans, `chat` spans are LLM spans (provider, model, token usage, request parameters) and `execute_tool` spans are tool spans; `invoke_workflow` is a workflow span.
+- With content export on, prompts and completions are read from the `gen_ai.client.inference.operation.details` event, and tool arguments and results from the tool span.
+- Spans with no `gen_ai.*` attribute (`om.*` system spans, proposal dispositions and executions) are not shown in Agent Observability; they stay in the APM trace together with every `om.*` attribute, including the tenant and organization ids.
+
+The Datadog mapping is checked by a contract test (`otel-vendor-compat.test.ts`) against Datadog's published OpenTelemetry GenAI mapping, not by a recorded run.
 
 ## Integration tests
 
