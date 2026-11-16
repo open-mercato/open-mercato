@@ -20,6 +20,8 @@ import {
   type RouteMatchParams,
 } from '@open-mercato/shared/modules/registry'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { normalizeIsoToken } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import type { AiToolDefinition, McpToolContext } from './types'
 
 export type AiApiHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -34,6 +36,13 @@ export type AiApiOperationRequest = {
   query?: Record<string, string | number | boolean | null | undefined>
   body?: Record<string, unknown>
   allowFeaturelessMutation?: boolean
+  /**
+   * The target record's `updated_at` as an ISO timestamp, which the write must
+   * still match. Sent as the optimistic-lock header so the CRUD guard answers
+   * 409 instead of overwriting a record that changed since the operator's
+   * preview. Pass only `updated_at` versions; counters or hashes never match.
+   */
+  expectedUpdatedAt?: string | null
 }
 
 export type AiApiOperationResponse<T = unknown> = {
@@ -87,6 +96,16 @@ export function normalizePath(path: string): string {
   let end = trimmed.length
   while (end > 1 && trimmed.charCodeAt(end - 1) === 47 /* '/' */) end--
   return trimmed.slice(0, end)
+}
+
+export function expectedRecordVersionFor(
+  ctx: Pick<McpToolContext, 'expectedRecordVersions'>,
+  recordId: string,
+): string | null {
+  const versions = ctx.expectedRecordVersions
+  if (!versions || typeof recordId !== 'string' || recordId.length === 0) return null
+  const version = Object.prototype.hasOwnProperty.call(versions, recordId) ? versions[recordId] : undefined
+  return typeof version === 'string' && version.length > 0 ? version : null
 }
 
 function buildUrl(path: string, query?: AiApiOperationRequest['query']): URL {
@@ -244,8 +263,17 @@ export function createAiApiOperationRunner(
         return failure(400, `Invalid path encoding for ${method} ${path}`) as AiApiOperationResponse<T>
       }
 
+      let expectedUpdatedAt: string | null = null
+      if (request.expectedUpdatedAt !== undefined && request.expectedUpdatedAt !== null) {
+        expectedUpdatedAt = normalizeIsoToken(String(request.expectedUpdatedAt))
+        if (!expectedUpdatedAt) {
+          return failure(400, `Invalid expectedUpdatedAt for ${method} ${path}`) as AiApiOperationResponse<T>
+        }
+      }
+
       const url = buildUrl(path, request.query)
       const headers = new Headers()
+      if (expectedUpdatedAt) headers.set(OPTIMISTIC_LOCK_HEADER_NAME, expectedUpdatedAt)
       const requestInit: RequestInit = { method, headers }
       if (request.body !== undefined && method !== 'GET') {
         headers.set('content-type', 'application/json')

@@ -26,6 +26,14 @@ Examples: `OMH-011` (CRUD routes), `OMH-093` (business contact-merge command),
 
 ---
 
+The executable test fixtures use a `.cjs` filename or an explicit CommonJS
+`package.json` inside the sandbox-admitted fake tool directory. Node 24 resolves
+the module type before running an extensionless executable; without that local scope it can attempt to
+read an ancestor manifest outside the sandbox and fail with
+`ERR_INVALID_PACKAGE_CONFIG`. Keep fixture scopes local rather than admitting
+ancestor directories. The evaluator regression verifies the launcher runs while
+controller reads and writes remain denied.
+
 ## Part 1 — How a code-generation case is validated (step by step)
 
 The authoritative single-case path is the evaluator's **writable branch** inside

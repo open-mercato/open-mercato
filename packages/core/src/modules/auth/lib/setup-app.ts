@@ -488,7 +488,7 @@ export async function setupInitialTenant(
           roleIds: assignedRoles.map((role) => String(role.id)),
         })
         for (const role of assignedRoles) {
-          const existingLink = await findOneWithDecryption(tem, UserRole, { user, role }, {}, { tenantId: tenantId ?? null, organizationId: null })
+          const existingLink = await findOneWithDecryption(tem, UserRole, { user, role, deletedAt: null }, {}, { tenantId: tenantId ?? null, organizationId: null })
           if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
         }
         await tem.flush()
@@ -713,7 +713,7 @@ async function ensureRoleAclFor(
   const uniqueFeatures = Array.from(new Set(features))
   await withAtomicFlush(em, [async () => {
     await lockRoleAclWriterAuthorizationState(em, [String(role.id)])
-    const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
+    const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId, deletedAt: null }, {}, { tenantId, organizationId: null })
     if (!existing) {
       const acl = em.create(RoleAcl, {
         role,

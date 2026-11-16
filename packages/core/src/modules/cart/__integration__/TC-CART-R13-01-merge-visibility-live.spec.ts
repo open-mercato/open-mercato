@@ -61,8 +61,6 @@ test.describe('TC-CART-R13-01: a restricted line merged from an exempt-channel c
   let adminScope: { tenantId: string; organizationId: string; userId: string };
 
   test.beforeAll(async ({ request }) => {
-    await bootstrapFromAppRoot(APP_ROOT);
-
     adminToken = await getAuthToken(request, 'admin');
     adminScope = getTokenScope(adminToken);
 
@@ -82,6 +80,7 @@ test.describe('TC-CART-R13-01: a restricted line merged from an exempt-channel c
   });
 
   async function execCommand<TInput, TResult>(commandId: string, input: TInput): Promise<TResult> {
+    await bootstrapFromAppRoot(APP_ROOT);
     const container = await createRequestContainer();
     const bus = container.resolve('commandBus') as CommandBus;
     const executed = await bus.execute<TInput, TResult>(commandId, {
