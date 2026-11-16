@@ -33,6 +33,10 @@ The operator's stabilize branch naming, waiting for green CI, and final cezar re
 
 Configured sequence: yarn build:packages; yarn generate; yarn build:packages; yarn i18n:check-sync; yarn i18n:check-usage; yarn typecheck; yarn test; yarn build:app. Targeted regressions accompany code fixes. Exact-head PR workflows and checks must finish successfully; intentional scope skips are reported. Preserve QA and native approval gates.
 
+## Independent audit
+
+Read-only cezar task eda194a3 independently confirmed main run 43810352873: 14 integration shards passed, only shard 13 failed its two undo cases, and other applicable CI checks passed. Exact-head workflow inventory had no other failure, while snapshot standalone integration was still running. The 25 full-suite selector tests passed independently and were rerun by the parent. Existing trusted stabilize/ and ci-full scope selects all 15 shards and unfiltered typecheck/tests; PR ref concurrency is isolated from main. The child made no edits or commits; its scoped diff is empty and no child branch was merged.
+
 ## Root cause and repair
 
 The security fix deliberately removed event payload userId/actorUserId as execution authority. The stock code approval workflow declares no grant, so UPDATE_ENTITY correctly refuses its event-triggered write. TC-WC-040 depended on that removed authority. Each undo case now creates a unique persisted copy of the stock definition with only sales.orders.manage, through the existing grant-authorized API. It retains event-driven execution and actual audited status mutation. Cleanup cancels its instances and deletes its definition with the current version header. Production authorization and stock definitions remain unchanged. Integration-only changes do not need implementation-mirroring unit tests; the existing workflow identity/definition-grant unit suites and both affected integration cases provide the relevant regression evidence.
@@ -51,7 +55,7 @@ PR: #9657
 
 ### Phase 1: Diagnose and repair
 
-- [ ] 1.1 Independently audit exact-head CI inventory and full-suite coverage.
+- [x] 1.1 Independently audit exact-head CI inventory and full-suite coverage. — 789b93a9ae (independent audit eda194a3; no child diff)
 - [x] 1.2 Trace replacement-order approval failures and implement the smallest safe repair with regression coverage. — 1fa897a46e
 
 ### Phase 2: Verify and review
