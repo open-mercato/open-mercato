@@ -790,9 +790,8 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                 {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
               </p>
             </div>
-        )}
-      </div>
-
+          )}
+        </div>
       )}
 
       <div className="rounded-lg border p-4 space-y-3">
