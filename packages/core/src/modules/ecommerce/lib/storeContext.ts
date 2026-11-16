@@ -18,6 +18,7 @@ import {
   ecommerceDomainMappingTag,
   ecommerceDomainTag,
   ecommerceResolutionCache,
+  ecommerceSalesChannelTag,
   ecommerceStoreTag,
   type CacheContainer,
 } from './cacheKeys'
@@ -145,6 +146,7 @@ type StoreCandidate = {
   store: CandidateStore
   channel: ResolvedStoreChannel | null
   binding: CandidateBinding | null
+  missingSalesChannelId?: string | null
 }
 
 type CachedStoreCandidates = { candidates: StoreCandidate[] }
@@ -187,6 +189,12 @@ type StoreResolutionDatabase = {
     require_authentication: boolean
     deleted_at: Date | null
   }
+  sales_channels: {
+    id: string
+    tenant_id: string
+    organization_id: string
+    deleted_at: Date | null
+  }
 }
 
 type StoreResolutionRow = {
@@ -207,6 +215,7 @@ type StoreResolutionRow = {
   channel_assortment_scope: unknown
   channel_price_sort_fallback: string | null
   channel_require_authentication?: boolean | null
+  channel_live_sales_channel_id?: string | null
   binding_id?: string | null
   binding_path_prefix?: string | null
   binding_is_primary?: boolean | null
@@ -230,6 +239,7 @@ const STORE_COLUMNS = [
   'c.assortment_scope as channel_assortment_scope',
   'c.price_sort_fallback as channel_price_sort_fallback',
   'c.require_authentication as channel_require_authentication',
+  'sc.id as channel_live_sales_channel_id',
 ] as const
 
 const FORCE_HOST_HEADER = 'x-force-host'
@@ -401,8 +411,10 @@ function toCandidate(row: StoreResolutionRow): StoreCandidate {
     defaultCurrencyCode: row.store_default_currency_code,
     settings: parseSettings(row.store_settings, row.store_id),
   }
+  const salesChannelMissing =
+    !!row.channel_binding_id && !!row.channel_sales_channel_id && !row.channel_live_sales_channel_id
   const channel: ResolvedStoreChannel | null =
-    row.channel_binding_id && row.channel_sales_channel_id
+    row.channel_binding_id && row.channel_sales_channel_id && !salesChannelMissing
       ? {
           channelBindingId: row.channel_binding_id,
           salesChannelId: row.channel_sales_channel_id,
@@ -415,7 +427,7 @@ function toCandidate(row: StoreResolutionRow): StoreCandidate {
   const binding: CandidateBinding | null = row.binding_id
     ? { id: row.binding_id, pathPrefix: row.binding_path_prefix ?? null, isPrimary: row.binding_is_primary === true }
     : null
-  return { store, channel, binding }
+  return { store, channel, binding, missingSalesChannelId: salesChannelMissing ? row.channel_sales_channel_id : null }
 }
 
 async function queryDomainCandidates(
@@ -439,6 +451,13 @@ async function queryDomainCandidates(
         .onRef('c.organization_id', '=', 's.organization_id')
         .on('c.is_default', '=', true)
         .on('c.deleted_at', 'is', null),
+    )
+    .leftJoin('sales_channels as sc', (join) =>
+      join
+        .onRef('sc.id', '=', 'c.sales_channel_id')
+        .onRef('sc.tenant_id', '=', 'c.tenant_id')
+        .onRef('sc.organization_id', '=', 'c.organization_id')
+        .on('sc.deleted_at', 'is', null),
     )
     .select([
       ...STORE_COLUMNS,
@@ -469,11 +488,22 @@ async function querySlugCandidates(
         .on('c.is_default', '=', true)
         .on('c.deleted_at', 'is', null),
     )
+    .leftJoin('sales_channels as sc', (join) =>
+      join
+        .onRef('sc.id', '=', 'c.sales_channel_id')
+        .onRef('sc.tenant_id', '=', 'c.tenant_id')
+        .onRef('sc.organization_id', '=', 'c.organization_id')
+        .on('sc.deleted_at', 'is', null),
+    )
     .select([...STORE_COLUMNS])
     .where('s.slug', '=', slug)
     .where('s.deleted_at', 'is', null)
   if (tenantId) query = query.where('s.tenant_id', '=', tenantId)
   return query.limit(2).execute()
+}
+
+function salesChannelTags(rows: StoreResolutionRow[]): string[] {
+  return rows.flatMap((row) => (row.channel_sales_channel_id ? [ecommerceSalesChannelTag(row.channel_sales_channel_id)] : []))
 }
 
 async function loadDomainCandidates(
@@ -490,6 +520,7 @@ async function loadDomainCandidates(
     ecommerceDomainMappingTag(mapping.domainMappingId),
     ecommerceDomainTag(mapping.hostname),
     ...candidates.map((candidate) => ecommerceStoreTag(candidate.store.id)),
+    ...salesChannelTags(rows),
   ]
   await cache.set<CachedStoreCandidates>(
     key,
@@ -516,24 +547,39 @@ async function loadSlugCandidates(
       { candidates },
       {
         ttlMs: STORE_RESOLUTION_TTL_MS,
-        tags: candidates.map((candidate) => ecommerceStoreTag(candidate.store.id)),
+        tags: Array.from(
+          new Set([...candidates.map((candidate) => ecommerceStoreTag(candidate.store.id)), ...salesChannelTags(rows)]),
+        ),
       },
     )
   }
   return candidates
 }
 
-async function reportMisconfiguredStore(container: StoreContextContainer, store: CandidateStore): Promise<void> {
+async function reportMisconfiguredStore(
+  container: StoreContextContainer,
+  store: CandidateStore,
+  missingSalesChannelId: string | null,
+): Promise<void> {
   const cache = ecommerceResolutionCache(container)
   const key = ['misconfigured', 'channel-binding-missing', store.id]
   const alreadyReported = await cache.get<{ reportedAt: string }>(key)
   if (alreadyReported) return
   await cache.set(key, { reportedAt: new Date().toISOString() }, { ttlMs: STORE_MISCONFIGURED_THROTTLE_MS })
-  logger.warn('Store has no default channel binding; answering 503', {
-    storeId: store.id,
-    tenantId: store.tenantId,
-    organizationId: store.organizationId,
-  })
+  if (missingSalesChannelId) {
+    logger.warn('Store default channel binding references a sales channel that no longer exists; answering 503', {
+      storeId: store.id,
+      tenantId: store.tenantId,
+      organizationId: store.organizationId,
+      salesChannelId: missingSalesChannelId,
+    })
+  } else {
+    logger.warn('Store has no default channel binding; answering 503', {
+      storeId: store.id,
+      tenantId: store.tenantId,
+      organizationId: store.organizationId,
+    })
+  }
   try {
     await emitEcommerceEvent(
       'ecommerce.store.misconfigured',
@@ -570,7 +616,7 @@ async function finalizeCandidate(
   }
   if (store.status === 'archived') throw new StorefrontResolutionError(410, 'store_archived')
   if (!candidate.channel) {
-    await reportMisconfiguredStore(container, store)
+    await reportMisconfiguredStore(container, store, candidate.missingSalesChannelId ?? null)
     throw new StorefrontResolutionError(503, 'store_misconfigured')
   }
   const locale = resolveStoreLocale(store, localeCandidates)

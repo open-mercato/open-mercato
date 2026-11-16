@@ -25,6 +25,8 @@ test.describe('TC-AUTH-071: session API keys require a live owner in the origina
       let destinationId: string | null = null
       let roleId: string | null = null
       let userId: string | null = null
+      let creatorRoleId: string | null = null
+      let creatorUserId: string | null = null
       const keyIds: string[] = []
 
       try {
@@ -35,11 +37,21 @@ test.describe('TC-AUTH-071: session API keys require a live owner in the origina
         userId = await createUserFixture(request, adminToken, {
           email: `auth-071-${suffix}@example.test`, password: `Auth-071-${randomUUID()}!`, organizationId, roles: [roleId],
         })
+        creatorRoleId = await createRoleFixture(request, adminToken, { name: `auth-071-creator-${suffix}` })
+        await setRoleAclFeatures(request, adminToken, {
+          roleId: creatorRoleId, features: ['api_keys.create', 'api_keys.view'], organizations: [organizationId],
+        })
+        const creatorEmail = `auth-071-creator-${suffix}@example.test`
+        const creatorPassword = `Auth-071-${randomUUID()}!`
+        creatorUserId = await createUserFixture(request, adminToken, {
+          email: creatorEmail, password: creatorPassword, organizationId, roles: [creatorRoleId],
+        })
+        const creatorToken = await getAuthToken(request, creatorEmail, creatorPassword)
 
         const secrets: string[] = []
         for (const kind of ['warm-session', 'cold-session', 'regular'] as const) {
           const response = await apiRequest(request, 'POST', '/api/api_keys/keys', {
-            token: adminToken,
+            token: creatorToken,
             data: { name: `AUTH 071 ${kind} ${suffix}`, tenantId, organizationId, roles: [roleId] },
           })
           expect(response.status()).toBe(201)
@@ -88,6 +100,8 @@ test.describe('TC-AUTH-071: session API keys require a live owner in the origina
           expect.soft(response?.status(), 'fixture key cleanup must succeed').toBe(200)
         }
         await deleteUserIfExists(request, adminToken, userId)
+        await deleteUserIfExists(request, adminToken, creatorUserId)
+        await deleteRoleIfExists(request, adminToken, creatorRoleId)
         await deleteRoleIfExists(request, adminToken, roleId)
         await deleteOrganizationIfExists(request, adminToken, destinationId)
         await deleteOrganizationIfExists(request, adminToken, organizationId)

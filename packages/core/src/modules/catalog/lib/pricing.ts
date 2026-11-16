@@ -102,7 +102,7 @@ function matchesContext(row: PriceRow, ctx: PricingContext): boolean {
   if (row.minQuantity && quantity < row.minQuantity) return false
   if (row.maxQuantity && quantity > row.maxQuantity) return false
   if (row.startsAt && date < row.startsAt) return false
-  if (row.endsAt && date > row.endsAt) return false
+  if (row.endsAt && date >= row.endsAt) return false
   if (row.channelId || (row.offer && resolvePriceChannelId(row))) {
     const channel = resolvePriceChannelId(row)
     if (channel && ctx.channelId && channel !== ctx.channelId) return false

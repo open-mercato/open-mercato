@@ -277,7 +277,8 @@ const CUSTOMER_FIELDS = ['id', 'display_name']
 /**
  * Decorate list items with `vendor_name` when they carry a `vendor_id` column
  * referencing `customers.customer_entity` by UUID only (no ORM cross-module
- * relations). Mutates `payload.items` in place.
+ * relations). No-op when the optional `customers` module is not enabled.
+ * Mutates `payload.items` in place.
  */
 export async function attachVendorLabelsToListItems(
   payload: AnyListPayload,
@@ -285,11 +286,13 @@ export async function attachVendorLabelsToListItems(
 ): Promise<void> {
   const items = Array.isArray(payload?.items) ? payload.items : []
   if (items.length === 0) return
+  const customerEntityId = E.customers?.customer_entity
+  if (!customerEntityId) return
   const ids = uniqueIdsFromKeys(items, ['vendor_id'])
   if (ids.length === 0) return
   const map = (await batchLoadById(
     ctx,
-    E.customers.customer_entity,
+    customerEntityId,
     ids,
     CUSTOMER_FIELDS,
     'vendor',

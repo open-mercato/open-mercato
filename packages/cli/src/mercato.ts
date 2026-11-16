@@ -9,7 +9,9 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
-import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { formatInitSummary } from './lib/init-summary'
+import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
+import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
 import {
   resolveAutoSpawnWorkersMode,
   resolveLazySpawnMode,
@@ -232,6 +234,39 @@ function formatCliFailureMessage(modName: string, cmdName: string, error: unknow
   return fallbackMessage
 }
 
+// Options that carry key material or credentials in every command that accepts them, so the
+// echoed command line must never reproduce their values: argv is world-readable through
+// `ps`/`/proc`, and this line additionally lands in terminal scrollback and CI logs.
+const SENSITIVE_MODULE_CLI_OPTIONS = new Set([
+  '--old-key',
+  '--oldKey',
+  '--password',
+  '--api-key',
+  '--apiKey',
+])
+
+// `--key` is ambiguous: it is a base64 encryption key in `seeds encrypt|decrypt|load` but a
+// custom-field key in `entities add-field`, so it is redacted only where it means a secret.
+const SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND = new Map<string, string[]>([
+  ['seeds:encrypt', ['--key']],
+  ['seeds:decrypt', ['--key']],
+  ['seeds:load', ['--key']],
+])
+
+function redactSensitiveModuleCliArgs(args: string[], commandKey: string): string[] {
+  const sensitive = new Set(SENSITIVE_MODULE_CLI_OPTIONS)
+  for (const option of SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND.get(commandKey) ?? []) sensitive.add(option)
+  return args.map((argument, index) => {
+    const separatorIndex = argument.indexOf('=')
+    if (separatorIndex > 0) {
+      const option = argument.slice(0, separatorIndex)
+      if (sensitive.has(option)) return `${option}=****`
+    }
+    if (index > 0 && sensitive.has(args[index - 1]!)) return '****'
+    return argument
+  })
+}
+
 function formatInitFailureMessage(error: unknown): string {
   const fallbackMessage = getFallbackErrorMessage(error)
   const databaseIssue = detectDatabaseConnectionIssue(error)
@@ -327,10 +362,12 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     ) {
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
-        fs.copyFileSync(examplePath, envPath)
+        const { createEnvFileFromExample } = await import('./lib/env-example.js')
+        createEnvFileFromExample(examplePath, envPath)
         console.log('')
         console.log('⚠️  No .env was found, so one was created from .env.example.')
         console.log(`   ${envPath}`)
+        console.log('   A unique tenant encryption key was generated; keep it — data encrypted with it is unreadable without it.')
         console.log('   It carries the example placeholders — review DATABASE_URL and secrets before continuing.')
         console.log('')
       }
@@ -923,7 +960,7 @@ export function isHelpRequest(args: string[]): boolean {
 // generic help branch. Without an entry here, `mercato init --help` runs a full install.
 const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
   init: [
-    'Usage: mercato init [--reinstall|-r] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
+    'Usage: mercato init [--reinstall|-r] [--skip-if-initialized] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
     'Initializes this app: installs dependencies, runs generators, applies migrations and seeds data.',
   ],
   'agentic:init': [
@@ -996,6 +1033,8 @@ export async function run(argv = process.argv) {
       } else if (process.env.OM_INIT_REINSTALL) {
         delete process.env.OM_INIT_REINSTALL
       }
+      const skipIfInitialized = initArgs.includes('--skip-if-initialized')
+      const credentials = skipIfInitialized && !reinstall ? undefined : resolveInitSuperadminCredentials(initArgs)
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
@@ -1149,7 +1188,12 @@ export async function run(argv = process.argv) {
               'SELECT COUNT(*)::text AS count FROM users',
             )
             const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
-            if (Number.isFinite(existingUsersCount) && existingUsersCount > 0) {
+            const existingDatabase = decideExistingDatabase(existingUsersCount, skipIfInitialized)
+            if (existingDatabase === 'skip') {
+              for (const line of formatSkipIfInitializedMessage(existingUsersCount, dbUrl)) console.log(line)
+              return 0
+            }
+            if (existingDatabase === 'abort') {
               console.error(
                 `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
               )
@@ -1167,6 +1211,8 @@ export async function run(argv = process.argv) {
           } catch {}
         }
       }
+
+      const { email, password, skipPasswordPolicy } = credentials ?? resolveInitSuperadminCredentials(initArgs)
 
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
@@ -1216,16 +1262,7 @@ export async function run(argv = process.argv) {
         }
         return fallback
       }
-      const readEnvDefault = (key: string) => {
-        const value = process.env[key]
-        if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-        return undefined
-      }
-      const defaultEmail = readEnvDefault('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
-      const defaultPassword = readEnvDefault('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret'
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
-      const email = findArgValue(['--email='], defaultEmail)
-      const password = findArgValue(['--password='], defaultPassword)
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
@@ -1235,17 +1272,30 @@ export async function run(argv = process.argv) {
       if (!skipDemoUsers && employeeEmailDerived && derivedSecrets.employeePassword) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
+      // Symmetrical with the passwords above: setupInitialTenant derives admin/employee
+      // emails from a hardcoded DEFAULT_DERIVED_EMAIL_DOMAIN ('acme.com') when these are
+      // unset, so without this the summary banner (which reads adminEmailDerived/
+      // employeeEmailDerived directly) and the actually-seeded accounts silently disagree
+      // for any --email domain other than acme.com (#5806). Skip when --no-demo-users
+      // (no accounts are created) or when the derived address equals the superadmin's
+      // own email — otherwise deactivateDemoUsersIfSelfOnboardingEnabled would treat
+      // the superadmin as a demo account and lock them out.
+      const primaryEmailLower = email.trim().toLowerCase()
+      if (
+        !skipDemoUsers &&
+        adminEmailDerived &&
+        adminEmailDerived.trim().toLowerCase() !== primaryEmailLower
+      ) {
+        process.env.OM_INIT_ADMIN_EMAIL = adminEmailDerived
+      }
+      if (
+        !skipDemoUsers &&
+        employeeEmailDerived &&
+        employeeEmailDerived.trim().toLowerCase() !== primaryEmailLower
+      ) {
+        process.env.OM_INIT_EMPLOYEE_EMAIL = employeeEmailDerived
+      }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
-      const skipPasswordPolicyRaw = initArgs.find((arg) =>
-        arg === '--skip-password-policy' ||
-        arg.startsWith('--skip-password-policy=') ||
-        arg === '--allow-weak-password' ||
-        arg.startsWith('--allow-weak-password=')
-      )
-      const skipPasswordPolicy = skipPasswordPolicyRaw
-        ? parseBooleanToken(skipPasswordPolicyRaw.split('=')[1] ?? 'true') ?? true
-        : true
-
       console.log('🔐 Setting up RBAC and users...')
       // Run auth setup command via CLI
       const setupArgs = [
@@ -1419,25 +1469,18 @@ export async function run(argv = process.argv) {
         pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
         pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
       }
-      // Simplified success message: we know which users were created
-      console.log('🎉 App initialization complete!\n')
-      console.log('╔══════════════════════════════════════════════════════════════╗')
-      console.log('║  🚀 You\'re now ready to start development!                   ║')
-      console.log('║                                                              ║')
-      console.log('║  Start the dev server:                                       ║')
-      console.log('║    yarn dev                                                  ║')
-      console.log('║                                                              ║')
-      console.log('║  Users created:                                              ║')
-      for (const entry of createdUsers) {
-        const label = `${entry.icon} ${entry.label}:`
-        const labelPad = padByCodePointWidth(label, 13)
-        const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
-        console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
-        console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
-      }
-      console.log('║                                                              ║')
-      console.log('║  Happy coding!                                               ║')
-      console.log('╚══════════════════════════════════════════════════════════════╝')
+      const summaryColor = parseBooleanToken(process.env.OM_INIT_SUMMARY_COLOR)
+      const summaryColumns = Number(process.env.OM_INIT_SUMMARY_COLUMNS ?? process.stdout.columns)
+      const summary = formatInitSummary({
+        users: createdUsers.map((entry) => ({
+          ...entry,
+          password: createdPasswords.get(entry.email.toLowerCase()) ?? password,
+        })),
+        autoStart: parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true,
+        columns: summaryColumns,
+        color: process.env.NO_COLOR === undefined && (summaryColor ?? (Boolean(process.stdout.isTTY) || parseBooleanToken(process.env.FORCE_COLOR) === true)),
+      })
+      for (const line of summary) console.log(line)
 
       return 0
     } catch (error: unknown) {
@@ -2266,7 +2309,7 @@ export async function run(argv = process.argv) {
               )
               const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
-                env: runtimeEnv,
+                env: { ...runtimeEnv, NODE_ENV: 'development' },
                 cwd: appDir,
               })
               processes.push(nextProcess)
@@ -2810,9 +2853,10 @@ export async function run(argv = process.argv) {
 
   console.log('')
   const started = Date.now()
-  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
+  const commandArgs = modName === 'deploy' && cmdName === 'railway'
     ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
     : rest
+  const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {

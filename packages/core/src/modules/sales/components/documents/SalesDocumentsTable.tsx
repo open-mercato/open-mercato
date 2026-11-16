@@ -54,6 +54,7 @@ type ApiDocument = {
   status?: string | null
   customerEntityId?: string | null
   customerSnapshot?: Record<string, unknown> | null
+  contactEmail?: string | null
   channelId?: string | null
   channelName?: string | null
   lineItemCount?: number | null
@@ -530,7 +531,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         : doc.quoteNumber ?? (item as any)?.quote_number ?? id
       const customerSnapshot = (doc.customerSnapshot ?? null) as CustomerSnapshot | null
       const customerName = resolveCustomerName(customerSnapshot, doc.customerEntityId ?? null)
-      const customerEmail = resolveCustomerEmail(customerSnapshot)
+      const customerEmail = doc.contactEmail ?? resolveCustomerEmail(customerSnapshot)
       const totalNet = toNumber(doc.grandTotalNetAmount)
       const totalGross = toNumber(doc.grandTotalGrossAmount)
       const placedAt = doc.placedAt ?? null
@@ -616,6 +617,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
 
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value)
+    setPage(1)
+  }, [])
+
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
     setPage(1)
   }, [])
 
@@ -784,8 +790,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           )}
           columns={columns}
           data={rows}
+          sortable
+          manualSorting
           sorting={sorting}
-          onSortingChange={setSorting}
+          onSortingChange={handleSortingChange}
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={handleSearchChange}

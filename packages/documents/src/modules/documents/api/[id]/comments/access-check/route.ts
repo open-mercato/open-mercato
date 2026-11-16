@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { assertTier, resolveUserAccess } from '../../../../lib/permissions'
+import { assertTier, hasUserDocumentViewPermission, resolveUserDocumentTier } from '../../../../lib/permissions'
 import {
   handleDocumentsRouteError,
   readBody,
@@ -20,6 +20,7 @@ const accessCheckSchema = z.object({
 
 const accessCheckResponseSchema = z.object({
   withoutAccess: z.array(z.string().uuid()),
+  shareableUserIds: z.array(z.string().uuid()).optional(),
   withoutAccessUsers: z.array(
     z.object({
       userId: z.string().uuid(),
@@ -48,16 +49,22 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const input = accessCheckSchema.parse(await readBody(request))
     const uniqueUserIds = Array.from(new Set(input.userIds.map((userId) => userId.toLowerCase())))
     const withoutAccess: string[] = []
+    const shareableUserIds: string[] = []
+    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
 
     for (const userId of uniqueUserIds) {
-      const tier = await resolveUserAccess(
+      const canView = await hasUserDocumentViewPermission(scope, userId, ctx.container)
+      const tier = canView ? await resolveUserDocumentTier(
         ctx.em,
         documentId,
-        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        scope,
         userId,
         ctx.container,
-      )
-      if (!tier) withoutAccess.push(userId)
+      ) : null
+      if (!tier) {
+        withoutAccess.push(userId)
+        if (canView) shareableUserIds.push(userId)
+      }
     }
     // Keep the historical response shape for clients, but never turn this
     // authorization probe into a user-directory/PII lookup. The caller
@@ -68,7 +75,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       secondary: null,
     }))
 
-    return NextResponse.json({ withoutAccess, withoutAccessUsers })
+    return NextResponse.json({ withoutAccess, withoutAccessUsers, shareableUserIds })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.comments.accessCheck')
   }

@@ -155,9 +155,9 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
 
     await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({
       roles: ['superadmin', 'employee'],
-      isSuperAdmin: true,
+      isSuperAdmin: false,
     })
-    await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({ isSuperAdmin: true })
+    await expect(getAuthFromRequest(buildRequest(secret))).resolves.toMatchObject({ isSuperAdmin: false })
 
     currentRoleIds = ['role-reader', 'role-new']
 
@@ -338,6 +338,37 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     await expect(
       getAuthFromRequest(buildRequest('foreign-creator-secret')),
     ).resolves.toBeNull()
+  })
+
+  it('never caches a role-only super-admin flag for a user-bound key', async () => {
+    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const record = {
+      id: 'bound-super-key', name: 'bound', tenantId: 'tenant-1', organizationId: null,
+      rolesJson: ['role-super'], sessionUserId: 'owner-1', createdBy: 'owner-1',
+      expiresAt: null, lastUsedAt: null,
+    }
+    findApiKeyBySecret.mockResolvedValue(record)
+    findWithDecryption.mockResolvedValue([{ role: { id: 'role-super' } }])
+    emFind.mockImplementation(async (entity: unknown) => {
+      if (entity === Role) return [{ id: 'role-super', name: 'superadmin' }]
+      if (entity === RoleAcl) return [{ isSuperAdmin: true, organizationsJson: null }]
+      return []
+    })
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    emFindOne.mockImplementation(async (entity: unknown) => {
+      if (entity === ApiKey) return record
+      if (entity === Tenant) return { id: 'tenant-1' }
+      if (entity === User) return { id: 'owner-1', tenantId: 'tenant-1', organizationId: null }
+      return null
+    })
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(getAuthFromRequest(buildRequest('bound-super-secret')))
+        .resolves.toMatchObject({ isSuperAdmin: false, userId: 'owner-1', roles: ['superadmin'] })
+    }
+    expect(findApiKeyBySecret).toHaveBeenCalledTimes(1)
+    expect(emFindOne.mock.calls.filter((call) => call[0] === Tenant)).toHaveLength(2)
   })
 
   it('accepts a tenant-scoped regular key that records no creator', async () => {
@@ -701,7 +732,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
   })
 
-  describe.each(['unbound', 'creator-bound', 'session-bound'] as const)('%s tenant liveness', (binding) => {
+  describe.each(['unbound', 'creator-bound', 'session-bound', 'mcp-bound'] as const)('%s tenant liveness', (binding) => {
     let tenant: { id: string; isActive: boolean; deletedAt: Date | null } | null
 
     beforeEach(async () => {
@@ -718,7 +749,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
         organizationId: null,
         rolesJson: [],
         sessionTokenHash: binding === 'session-bound' ? 'session-marker' : null,
-        sessionUserId: binding === 'session-bound' ? 'key-owner' : null,
+        sessionUserId: binding === 'session-bound' || binding === 'mcp-bound' ? 'key-owner' : null,
         sessionSecretEncrypted: null,
         opencodeSessionId: null,
         createdBy: binding === 'unbound' ? null : 'key-owner',

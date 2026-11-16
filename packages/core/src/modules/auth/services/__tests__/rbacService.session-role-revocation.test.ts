@@ -12,6 +12,7 @@ type MockEntityManager = {
 }
 
 type FixtureState = {
+  owner: User
   key: ApiKey
   memberships: UserRole[]
   roleAcls: RoleAcl[]
@@ -43,10 +44,11 @@ function matchesQuery(record: unknown, query: unknown): boolean {
 }
 
 function createFixture(): FixtureState {
-  const owner = Object.assign(new User(), { id: ownerId, tenantId })
+  const owner = Object.assign(new User(), { id: ownerId, tenantId, organizationId: null, deletedAt: null })
   const readRole = Object.assign(new Role(), { id: 'role-read', tenantId, deletedAt: null })
   const privilegedRole = Object.assign(new Role(), { id: 'role-privileged', tenantId, deletedAt: null })
   return {
+    owner,
     key: Object.assign(new ApiKey(), {
       id: 'key-1',
       tenantId,
@@ -85,6 +87,7 @@ function createMockEntityManager(state: FixtureState): MockEntityManager {
   const manager: MockEntityManager = {
     findOne: jest.fn(async (entity: unknown, query: Query) => {
       if (entity === ApiKey && matchesQuery(state.key, query)) return state.key
+      if (entity === User && matchesQuery(state.owner, query)) return state.owner
       return null
     }),
     find: jest.fn(async (entity: unknown, query: Query) => {
@@ -203,14 +206,15 @@ describe('RbacService session API-key role revocation', () => {
     const state = createFixture()
     state.memberships = state.memberships.filter((membership) => membership.role.id === 'role-read')
     const cache = createMemoryStrategy()
-    await cache.set(`rbac:${principalId}:${tenantId}:null`, {
+    await cache.set(`rbac:delegated-v1:${principalId}:${tenantId}:null`, {
       isSuperAdmin: true,
       features: ['*'],
       organizations: null,
     })
-    await cache.set(`rbac:feature-organizations:${principalId}:${tenantId}`, {
+    await cache.set(`rbac:feature-organizations:delegated-v1:${principalId}:${tenantId}`, {
       kind: 'api_key',
       organizationId: null,
+      ownerId,
       roleGrants: [{ isSuperAdmin: true, featuresJson: ['*'], organizationsJson: null }],
     })
     const service = new RbacService(asEntityManager(createMockEntityManager(state)), cache)
