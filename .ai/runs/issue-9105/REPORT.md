@@ -17,10 +17,11 @@ Validation for the follow-up (runner: local fallback; no GitHub checks exist for
 | Shared-config Playwright discovery, 60s bound | Timed out without listing tests |
 | Initial managed browser attempt | Initialization failed before the generated-registry rebuild; superseded by retry |
 | `TMPDIR=/tmp timeout 300 yarn test:integration:ephemeral "TC-EUDR-(020|POPUP-001)"` | Timed out during app build after database initialization, package build and generation; neither suite executed |
+| `TMPDIR=/tmp timeout 900 yarn test:integration:ephemeral "TC-EUDR-(020|POPUP-001)"` | Passed: 4/4, no skips or retries; undo API (5.9s), undo UI (4.1s), popup create/edit (5.4s), popup statement (7.6s). Playwright total 3.7m; managed run 473.7s including initialization/build/readiness |
 | `git diff --check origin/main` | Passed |
 | Undo suite comparison against `origin/main` | Identical; merge completed without conflicts |
 
-Static re-review: no additional defects found. The popup test changed only its case ID/fixture prefix; focused config and plan reference the new filename. Historical commands retain their original IDs above. Browser validation on the merged head remains incomplete; no approval or merge readiness is claimed. No project branch has been pushed by this follow-up.
+Static re-review: no additional defects found. The popup test changed only its case ID/fixture prefix; focused config and plan reference the new filename. Historical commands retain their original IDs above. Both suites pass on the merged head. The successful managed run supersedes the earlier build-timeout attempt. A parallel focused-config diagnostic failed before executing tests because Playwright cleared the temporary config from its output directory; it does not override the standard runner result. Independent re-review and current-head CI still gate merge.
 
 ## Browser evidence
 
