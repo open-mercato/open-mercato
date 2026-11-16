@@ -213,7 +213,7 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick, onPrincip
           </section>
         ) : null}
 
-        {agent.runtime === 'opencode' && agent.tokenUsage ? <TokenUsageCard agent={agent} /> : null}
+        {agent.source === 'file' && agent.tokenUsage ? <TokenUsageCard agent={agent} /> : null}
       </div>
     </div>
   )

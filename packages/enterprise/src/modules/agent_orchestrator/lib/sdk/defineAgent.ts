@@ -48,15 +48,15 @@ const logger = createLogger('agent_orchestrator').child({ component: 'define-age
 export type AgentResultKind = 'proposal' | 'research' | 'artifact'
 
 /**
- * Where an agent runs. `'native'` agents are authored with `defineAgent` and
- * execute via the Vercel AI SDK object mode inside this process on the
- * `NativeAgentRunner` (lightweight-agent-runtime spec Phase 1). `'in-process'`
- * is the accepted legacy alias for the same runner — the union stays
- * ADDITIVE-ONLY per BACKWARD_COMPATIBILITY.md, so entries registered with
- * `'in-process'` dispatch identically. `'opencode'` agents are authored as
- * `agents/<id>/` file conventions (AGENT.md + OUTCOME.md), registered via
- * `registerFileAgent`, and run on the OpenCode runtime (deprecation planned —
- * see the spec's Phase 3/6).
+ * Where an agent runs. `'native'` agents execute via the Vercel AI SDK object mode
+ * inside this process on the `NativeAgentRunner` (lightweight-agent-runtime spec
+ * Phase 1) — every `defineAgent` agent and, since Phase 3, file-defined
+ * `agents/<id>/` agents by default. `'in-process'` is the accepted legacy alias
+ * for the same runner — the union stays ADDITIVE-ONLY per
+ * BACKWARD_COMPATIBILITY.md, so entries registered with `'in-process'` dispatch
+ * identically. `'opencode'` runs on the OpenCode container: file agents that need
+ * its sandbox (file plane, artifact outcomes) or the `OM_AGENT_FILE_AGENT_RUNTIME`
+ * bridge (deprecated — see the spec's Phase 3/6).
  */
 export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
 
@@ -278,13 +278,20 @@ export interface AgentRegistryEntry {
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
   /**
+   * Where the agent is authored: `'file'` for an `agents/<id>/` directory, `'code'`
+   * (or undefined) for `defineAgent`. Independent of `runtime` — a file agent runs
+   * natively by default — so UI and APIs that show file-only surfaces (Files, Token
+   * calculator) key on this, never on `runtime`.
+   */
+  definitionSource?: 'code' | 'file'
+  /**
    * Baked token-usage estimate of the agent's construction files. File-defined
-   * (`runtime: 'opencode'`) agents only; undefined for native agents.
+   * (`definitionSource: 'file'`) agents only; undefined for code agents.
    */
   tokenUsage?: AgentTokenUsage
   /**
    * Baked raw content of the agent's construction files, for the read-only Files
-   * tab. File-defined (`runtime: 'opencode'`) agents only; undefined for native.
+   * tab. File-defined (`definitionSource: 'file'`) agents only; undefined for code agents.
    */
   sourceFiles?: FileAgentFile[]
   /**
@@ -411,17 +418,29 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
 }
 
 /**
- * Register a file-defined (OpenCode) agent directly into the SAME registry that
+ * Register a file-defined agent directly into the SAME registry that
  * `defineAgent` writes to, so file agents are discoverable via `getAgentEntry`,
- * `listAgentEntries`, and the Agents list/detail without going through
- * `defineAiAgent` (file agents don't run in-process, so they need no
- * `AiAgentDefinition`). Same dup-id guard as `defineAgent`.
+ * `listAgentEntries`, and the Agents list/detail. The loader registers a native
+ * file agent's ai-assistant definition separately (`buildFileAgentAiDefinition`).
+ * Same dup-id guard as `defineAgent`.
  */
 export function registerFileAgent(entry: AgentRegistryEntry): void {
   if (registry.has(entry.id)) {
     throw new Error(`[internal] duplicate agent id "${entry.id}"`)
   }
   registry.set(entry.id, entry)
+}
+
+/**
+ * Where an agent is authored. Entries registered before `definitionSource`
+ * existed (tests, out-of-tree `registerFileAgent` callers) fall back to the old
+ * signal: an OpenCode entry carrying baked source files is a file agent.
+ */
+export function resolveAgentDefinitionSource(
+  entry: Pick<AgentRegistryEntry, 'definitionSource' | 'runtime' | 'sourceFiles'>,
+): 'code' | 'file' {
+  if (entry.definitionSource) return entry.definitionSource
+  return entry.runtime === 'opencode' && entry.sourceFiles ? 'file' : 'code'
 }
 
 export function getAgentEntry(id: string): AgentRegistryEntry | undefined {
@@ -503,10 +522,12 @@ async function narrowRegisteredActionVocabularies(): Promise<void> {
 }
 
 /**
- * Load file-defined (OpenCode) agents from the committed, generator-owned
- * manifest (`generated/file-agents.generated.ts`). The manifest stores PLAIN
- * data (raw JSON-Schema, not a Zod instance); for each descriptor we recompile
- * the result schema via `compileOutcome` and register it with `runtime:'opencode'`.
+ * Load file-defined agents from the committed, generator-owned manifest
+ * (`generated/file-agents.generated.ts`). The manifest stores PLAIN data (raw
+ * JSON-Schema, not a Zod instance); for each descriptor we recompile the result
+ * schema via `compileOutcome` and register it. File agents run on the native
+ * runtime by default (see `resolveFileAgentRuntime` for the OpenCode exceptions);
+ * a native one also gets a read-only ai-assistant definition.
  * The import is guarded: the manifest may be absent or empty before the first
  * `yarn generate`, and a descriptor whose schema fails to compile is skipped
  * (warned) so one bad agent never blocks the rest.
@@ -516,12 +537,15 @@ async function narrowRegisteredActionVocabularies(): Promise<void> {
  * tool id, used by the load-time propose-only check below.
  *
  * This load-time check is an EARLY, advisory rejection — NOT the load-bearing
- * propose-only boundary. The actual runtime gates (which always hold) are: (1) the
- * generated OpenCode agent file's `tools` deny-by-default allowlist + its
+ * propose-only boundary. The actual runtime gates (which always hold) are, for a
+ * NATIVE file agent, its read-only ai-assistant definition (`readOnly: true` +
+ * `mutationPolicy: 'read-only'`, which strips every `isMutation` tool before the
+ * model sees it — `buildFileAgentAiDefinition`); and for an OPENCODE file agent,
+ * (1) the generated agent file's `tools` deny-by-default allowlist + its
  * `permission: { write/edit/bash: deny }` block, and (2) the per-run session-token
  * ACL the MCP server re-checks on every tool call. The MCP server does NOT strip
- * `isMutation` tools, so those two gates — not this predicate — are what enforce
- * propose-only.
+ * `isMutation` tools, so on OpenCode those two gates — not this predicate — are
+ * what enforce propose-only.
  *
  * When the registry IS loadable we await `loadAllModuleTools()` first, so a tool
  * id absent afterward is genuinely unknown (a config error): we fail CLOSED and
@@ -608,6 +632,12 @@ async function loadFileAgents(): Promise<void> {
       | undefined) ?? []
   const { compileOutcome } = await import('./outcomeSchema')
   const { registerAgentSkills } = await import('../runtime/fileAgentSkills')
+  const nativeSupport = await import('./fileAgentNative').catch((err: unknown) => {
+    logger.warn('native file-agent support unavailable; file agents stay on OpenCode', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return null
+  })
   const isMutationTool = await loadMutationToolPredicate()
   // Flatten each descriptor's nested sub-agents (Phase 4) so they register as
   // individual file agents too: they are researcher, individually runnable, and
@@ -615,16 +645,22 @@ async function loadFileAgents(): Promise<void> {
   // propose-only mutation-tool gate below; the registry dup-id guard prevents a
   // duplicate id (a sub-agent that collides with another agent's id is skipped).
   const allDescriptors = descriptors.flatMap((descriptor) => [
-    descriptor,
-    ...(descriptor.subAgentDescriptors ?? []),
+    { descriptor, moduleId: descriptor.moduleId },
+    ...(descriptor.subAgentDescriptors ?? []).map((sub) => ({
+      descriptor: sub,
+      moduleId: sub.moduleId || descriptor.moduleId,
+    })),
   ])
-  for (const descriptor of allDescriptors) {
+  const nativeDefinitions: Array<{ entry: AgentRegistryEntry; definition: AiAgentDefinition }> = []
+  for (const { descriptor, moduleId: aiModuleId } of allDescriptors) {
     if (registry.has(descriptor.id)) continue
     // Propose-only early check (contract C8): a file agent may NEVER declare a
     // tool registered with `isMutation: true`. This is defense-in-depth on top of
-    // the load-bearing runtime gates (the agent-file read-only allowlist +
-    // write/edit/bash deny, and the per-call session-token ACL — see
-    // `loadMutationToolPredicate`). When the tool registry is resolvable we fail
+    // the load-bearing runtime gates: on native, the read-only ai-assistant
+    // definition (`readOnly` + `mutationPolicy: 'read-only'` strips every mutation
+    // tool); on OpenCode, the agent-file read-only allowlist + write/edit/bash deny
+    // and the per-call session-token ACL (see `loadMutationToolPredicate`). When
+    // the tool registry is resolvable we fail
     // CLOSED: a declared tool that is `mutating` OR `unknown` (absent after
     // `loadAllModuleTools`, i.e. a config error) rejects the agent here so it never
     // reaches registration. `skip` means the registry could not be loaded at all
@@ -645,7 +681,7 @@ async function loadFileAgents(): Promise<void> {
         kind: descriptor.resultKind,
         schema: descriptor.outcomeSchema,
       })
-      registerFileAgent({
+      const entry: AgentRegistryEntry = {
         id: descriptor.id,
         moduleId: descriptor.moduleId,
         resultKind: descriptor.resultKind,
@@ -660,13 +696,29 @@ async function loadFileAgents(): Promise<void> {
         defaultModel: descriptor.model,
         loop: descriptor.maxSteps != null ? { maxSteps: descriptor.maxSteps } : undefined,
         runtime: 'opencode',
+        definitionSource: 'file',
         outcomeSchema: descriptor.outcomeSchema,
         sampleInput: descriptor.sampleInput,
         facts: descriptor.facts,
         requiredFeatures: normalizeAgentRequiredFeatures(descriptor.id, descriptor.requiredFeatures),
         tokenUsage: descriptor.tokenUsage,
         sourceFiles: descriptor.sourceFiles,
-      })
+      }
+      entry.runtime = nativeSupport ? nativeSupport.resolveFileAgentRuntime(entry) : 'opencode'
+      let definition: AiAgentDefinition | null = null
+      if (nativeSupport && entry.runtime === 'native') {
+        try {
+          definition = nativeSupport.buildFileAgentAiDefinition(entry, descriptor.skillsContent ?? [], aiModuleId)
+        } catch (err) {
+          logger.warn('could not build the native definition of a file agent; keeping it on OpenCode', {
+            agentId: entry.id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+          entry.runtime = 'opencode'
+        }
+      }
+      registerFileAgent(entry)
+      if (definition) nativeDefinitions.push({ entry, definition })
       // Phase 3: register the agent's resolved skill content into the runtime
       // lookup so `load_skill` can return it without fs access. Optional + BC: a
       // descriptor without `skillsContent` registers no skills (cleared).
@@ -677,6 +729,36 @@ async function loadFileAgents(): Promise<void> {
         error: err instanceof Error ? err.message : String(err),
       })
     }
+  }
+  await registerNativeFileAgentDefinitions(nativeDefinitions)
+}
+
+/**
+ * Hand native file agents' read-only definitions to the ai-assistant registry,
+ * which `runAiAgentObject` resolves the agent from. An agent whose definition
+ * could not be registered — the registry is unavailable, or another module
+ * already owns the id — is moved back to OpenCode: running it natively would
+ * either fail or, worse, execute that other agent's definition.
+ */
+async function registerNativeFileAgentDefinitions(
+  nativeDefinitions: Array<{ entry: AgentRegistryEntry; definition: AiAgentDefinition }>,
+): Promise<void> {
+  if (nativeDefinitions.length === 0) return
+  let registeredIds = new Set<string>()
+  try {
+    const { registerRuntimeAiAgents } = await import(
+      '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-registry'
+    )
+    registeredIds = new Set(await registerRuntimeAiAgents(nativeDefinitions.map(({ definition }) => definition)))
+  } catch (err) {
+    logger.warn('could not register native file agents with the AI agent registry', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+  for (const { entry } of nativeDefinitions) {
+    if (registeredIds.has(entry.id)) continue
+    logger.warn('file agent could not run natively; keeping it on OpenCode', { agentId: entry.id })
+    entry.runtime = 'opencode'
   }
 }
 

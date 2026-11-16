@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { getAgentEntry, ensureAgentsLoaded } from '../../../../lib/sdk/defineAgent'
+import { getAgentEntry, ensureAgentsLoaded, resolveAgentDefinitionSource } from '../../../../lib/sdk/defineAgent'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -43,10 +43,10 @@ export async function GET(req: Request, ctx: RouteContext) {
   await ensureAgentsLoaded()
   const entry = getAgentEntry(id)
   if (!entry) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
-  // The Files tab is a read-only view of a file-defined (OpenCode) agent's
-  // source. Native/in-process agents have no baked files → 404 so the UI never
+  // The Files tab is a read-only view of a file-defined agent's source, whatever
+  // runtime it executes on. Code agents have no baked files → 404 so the UI never
   // renders the tab for them.
-  if (entry.runtime !== 'opencode' || !entry.sourceFiles) {
+  if (resolveAgentDefinitionSource(entry) !== 'file' || !entry.sourceFiles) {
     return NextResponse.json({ error: 'Agent has no source files' }, { status: 404 })
   }
   return NextResponse.json({

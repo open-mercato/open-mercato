@@ -82,6 +82,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveEffectiveToolAcl } from '../identity/resolveEffectiveToolAcl'
 import { resolvePrincipalToolAclRecord } from '../identity/principalDeniedTools'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { extractFileInput } from './fileInput'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-agent-runner' })
 
@@ -141,10 +142,17 @@ export class NativeAgentRunner {
   async run(
     agentId: string,
     entry: AgentRegistryEntry,
-    input: unknown,
+    rawInput: unknown,
     ctx: AgentRunCtx,
   ): Promise<AgentResult> {
     const baseCommandCtx = buildCommandContext(this.container, ctx)
+    // The reserved `__files` envelope stages attachments into an OpenCode
+    // sandbox. Native has no sandbox, so it is dropped before the input is
+    // persisted or prompted — business data only, same as the OpenCode runner.
+    const { input, files: droppedFiles } = extractFileInput(rawInput)
+    if (droppedFiles) {
+      logger.warn('native run ignores the attachment envelope; the file plane is OpenCode-only', { agentId })
+    }
 
     const definitionHash = resolveAgentDefinitionHash(entry)
     const auditAgent = { agentId, agentVersion: resolveRunAgentVersion({ definitionHash }) }
@@ -558,6 +566,7 @@ export class NativeAgentRunner {
           ctx.source,
           resolveInvoker(ctx) ?? undefined,
           runToolCallSink,
+          agentId,
         ),
       )
       const raced = await Promise.race([

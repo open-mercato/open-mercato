@@ -253,10 +253,11 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     return <Page><PageBody><ErrorMessage label={t('agent_orchestrator.agentDetail.error')} /></PageBody></Page>
   }
 
-  // File-defined (opencode) agents surface a read-only Files browser + a Token
-  // calculator in place of Configuration; native agents keep Configuration and
-  // get neither. `activeValue` guards against a stale `?tab=` from the other set.
-  const fileDefined = agent.runtime === 'opencode'
+  // File-defined agents surface a read-only Files browser + a Token calculator in
+  // place of Configuration, whatever runtime they execute on; code agents keep
+  // Configuration and get neither. `activeValue` guards against a stale `?tab=`
+  // from the other set.
+  const fileDefined = agent.source === 'file'
   const allowedTabs: WorkspaceTab[] = fileDefined
     ? ['overview', 'activity', 'evaluation', 'files', 'tokens']
     : ['overview', 'activity', 'evaluation', 'configuration']

@@ -4,7 +4,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../../../lib/sdk/defineAgent'
+import {
+  getAgentEntry,
+  ensureAgentsLoaded,
+  resolveAgentDefinitionSource,
+  type AgentRegistryEntry,
+} from '../../../lib/sdk/defineAgent'
 import { getSkillEntry, ensureSkillsLoaded } from '../../../lib/sdk/defineSkill'
 import { getAgentSkill } from '../../../lib/runtime/fileAgentSkills'
 import { getAgentSettingRow } from '../../../lib/settings/agentSettings'
@@ -56,6 +61,9 @@ const agentDetailSchema = z.object({
   agentType: agentTypeSchema.nullable(),
   allowedActions: z.array(z.string()).nullable(),
   runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
+  // Where the agent is authored (`file` = an agents/<id>/ directory), independent
+  // of the runtime it executes on — file agents run natively by default.
+  source: z.enum(['code', 'file']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
   skillDetails: z.array(skillDetailSchema),
@@ -169,6 +177,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     agentType: entry.agentType ?? null,
     allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
     runtime: entry.runtime,
+    source: resolveAgentDefinitionSource(entry),
     tools: entry.tools,
     skills: entry.skills,
     skillDetails,
