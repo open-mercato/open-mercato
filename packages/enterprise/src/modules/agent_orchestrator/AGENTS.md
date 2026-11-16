@@ -154,7 +154,7 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 | Runtime | When to use | Authoring |
 |---------|-------------|-----------|
 | `native` (`in-process` alias) | Default for code AND file agents; in-process object mode, `delegate_agent` sub-agents | `defineAgent` in `ai-agents.ts`, or `agents/<id>/` files |
-| `opencode` | File agents using the file plane (`files`) or an `artifact` outcome; `OM_AGENT_FILE_AGENT_RUNTIME=opencode` (deprecated bridge) | File-defined `agents/<id>/` |
+| `opencode` | File agents with an `artifact` outcome; `OM_AGENT_FILE_AGENT_RUNTIME=opencode` (deprecated bridge). The file plane (`files`) is NOT supported on native: such agents run natively without it | File-defined `agents/<id>/` |
 
 ## Always
 

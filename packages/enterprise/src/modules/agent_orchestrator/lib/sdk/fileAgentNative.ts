@@ -41,10 +41,13 @@ export type FileAgentSkillSource = {
 /**
  * Pick the runtime a file-defined agent registers with.
  *
- * Native is the default. Two shapes stay on OpenCode because native has no
- * sandbox filesystem: an agent that opted into the file plane (`files.enabled`)
- * and an `artifact` agent, whose contract is "write files to `out/`". The
- * `OM_AGENT_FILE_AGENT_RUNTIME=opencode` bridge sends every file agent back to
+ * Native is the default. The file plane is not supported on native (no sandbox
+ * filesystem): a manifest-loaded agent whose AGENT.md opts into `files` runs
+ * natively WITHOUT it, and the native runner drops its `__files` envelope. The
+ * generated manifest does not carry `files`, so the `files.enabled` branch below
+ * only applies to entries registered directly via `registerFileAgent`. An
+ * `artifact` agent, whose contract is "write files to `out/`", stays on OpenCode.
+ * The `OM_AGENT_FILE_AGENT_RUNTIME=opencode` bridge sends every file agent back to
  * OpenCode and logs a deprecation warning once per process.
  */
 export function resolveFileAgentRuntime(
