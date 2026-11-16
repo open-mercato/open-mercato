@@ -39,7 +39,7 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
 
 beforeEach(() => confirmMock.mockReset())
 
-it.each(['Outside overlay', 'Close', 'Escape'])('protects a changed draft with the standard unsaved-changes confirmation when dismissed through %s', async (action) => {
+it.each(['Outside overlay', 'Close', 'Escape', 'Cancel'])('protects a changed draft with the standard unsaved-changes confirmation when dismissed through %s', async (action) => {
   const onOpenChange = jest.fn()
   renderWithProviders(<CalendarEventEditor open mode="create" typeLabels={{}} onOpenChange={onOpenChange} onSaved={() => {}} />)
   fireEvent.change(screen.getByLabelText('Draft title'), { target: { value: 'Unsaved event' } })
@@ -51,7 +51,8 @@ it.each(['Outside overlay', 'Close', 'Escape'])('protects a changed draft with t
   expect(confirmMock).toHaveBeenCalledTimes(1)
   // The draft-losing action is named and destructive; the safe one keeps editing.
   expect(confirmMock).toHaveBeenCalledWith({
-    title: 'You have unsaved changes. Are you sure you want to leave?',
+    title: 'Discard unsaved changes?',
+    description: 'Your edits will be lost if you leave now.',
     confirmText: 'Discard changes',
     cancelText: 'Keep editing',
     variant: 'destructive',
@@ -110,10 +111,9 @@ it('closes an unchanged draft without a confirmation', async () => {
   expect(onOpenChange).toHaveBeenCalledWith(false)
 })
 
-it('discards a changed draft directly when Cancel is clicked', async () => {
+it('closes an unchanged draft directly when Cancel is clicked', async () => {
   const onOpenChange = jest.fn()
   renderWithProviders(<CalendarEventEditor open mode="create" typeLabels={{}} onOpenChange={onOpenChange} onSaved={() => {}} />)
-  fireEvent.change(screen.getByLabelText('Draft title'), { target: { value: 'Unsaved event' } })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true })) })
   expect(confirmMock).not.toHaveBeenCalled()
   expect(onOpenChange).toHaveBeenCalledWith(false)
