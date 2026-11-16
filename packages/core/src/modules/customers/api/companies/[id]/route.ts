@@ -1019,6 +1019,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           industry: profile.industry,
           sizeBucket: profile.sizeBucket,
           annualRevenue: profile.annualRevenue,
+          taxId: profile.taxId ?? null,
         }
       : null,
     customFields,
@@ -1253,6 +1254,7 @@ const companyDetailResponseSchema = z.object({
       industry: z.string().nullable().optional(),
       sizeBucket: z.string().nullable().optional(),
       annualRevenue: z.number().nullable().optional(),
+      taxId: z.string().nullable().optional(),
     })
     .nullable(),
   customFields: z.record(z.string(), z.unknown()),
