@@ -67,6 +67,7 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
     recordedAt?: string
     gross?: number
     undoneCommand?: string
+    redoneCommand?: string
     tenantId?: string
     organizationId?: string
   }): Promise<string> {
@@ -86,7 +87,9 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
         lookup.currencyCode,
         input.changeType ?? 'create',
         input.recordedAt ?? '2026-06-01T00:00:00.000Z',
-        input.undoneCommand ? { undoneCommand: input.undoneCommand } : null,
+        input.undoneCommand
+          ? { undoneCommand: input.undoneCommand }
+          : input.redoneCommand ? { redoneCommand: input.redoneCommand } : null,
         input.gross ?? 5,
       ],
     )
@@ -163,6 +166,41 @@ describeWithPostgres('Omnibus create-undo history against PostgreSQL', () => {
     expect(result.inWindowIds).toEqual([restoredId])
     expect(result.inWindowIds).not.toContain(originalId)
     expect(await lowestPrice()).toBe(80)
+  })
+
+
+  it.each(['2026-05-05T00:00:00.000Z', '2026-06-01T00:00:00.000Z'])(
+    'excludes an original create undone at the same timestamp (%s)',
+    async (recordedAt) => {
+      const priceId = randomUUID()
+      await insertHistory({ priceId, recordedAt })
+      await insertHistory({ priceId, changeType: 'undo', undoneCommand: 'catalog.prices.create', recordedAt })
+      await insertHistory({ priceId: randomUUID(), gross: 100, recordedAt: '2026-06-03' })
+      expect(await lowestPrice()).toBe(100)
+    },
+  )
+
+  it.each(['2026-05-05T00:00:00.000Z', '2026-06-02T00:00:00.000Z'])(
+    'retains a redo sharing the create-undo timestamp (%s)',
+    async (recordedAt) => {
+      const priceId = randomUUID()
+      await insertHistory({ priceId, recordedAt: '2026-05-01' })
+      await insertHistory({ priceId, changeType: 'undo', undoneCommand: 'catalog.prices.create', recordedAt })
+      const restoredId = await insertHistory({ priceId, redoneCommand: 'catalog.prices.create', gross: 80, recordedAt })
+      const [result] = await fetchOmnibusWindowIds(em, [lookup])
+      expect([result.baselineId, ...result.inWindowIds]).toContain(restoredId)
+      expect(await lowestPrice()).toBe(80)
+    },
+  )
+
+  it('excludes both lifecycles after a create is undone, redone, and undone again', async () => {
+    const priceId = randomUUID()
+    await insertHistory({ priceId })
+    await insertHistory({ priceId, changeType: 'undo', undoneCommand: 'catalog.prices.create', recordedAt: '2026-06-02' })
+    await insertHistory({ priceId, redoneCommand: 'catalog.prices.create', gross: 80, recordedAt: '2026-06-03' })
+    await insertHistory({ priceId, changeType: 'undo', undoneCommand: 'catalog.prices.create', recordedAt: '2026-06-04' })
+    await insertHistory({ priceId: randomUUID(), gross: 100, recordedAt: '2026-06-05' })
+    expect(await lowestPrice()).toBe(100)
   })
 
   it.each(['tenantId', 'organizationId'] as const)('ignores a foreign %s create-undo', async (scopeKey) => {

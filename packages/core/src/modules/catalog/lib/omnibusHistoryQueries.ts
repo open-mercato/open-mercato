@@ -56,7 +56,14 @@ const NOT_CREATE_UNDONE_CLAUSE = sql`AND NOT EXISTS (
           WHERE undone.tenant_id = h.tenant_id
             AND undone.organization_id = h.organization_id
             AND undone.price_id = h.price_id
-            AND undone.recorded_at > h.recorded_at
+            AND (
+              undone.recorded_at > h.recorded_at
+              OR (
+                undone.recorded_at = h.recorded_at
+                AND h.change_type = 'create'
+                AND h.metadata->>'redoneCommand' IS DISTINCT FROM ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND}
+              )
+            )
             AND undone.recorded_at <= w.window_end
             AND undone.change_type = 'undo'
             AND undone.metadata->>'undoneCommand' = ${OMNIBUS_PRICE_REMOVING_UNDO_COMMAND}
