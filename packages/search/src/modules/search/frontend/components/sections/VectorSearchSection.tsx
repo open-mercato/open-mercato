@@ -5,6 +5,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -428,9 +431,11 @@ export function VectorSearchSection({
     }
   }
 
-  const handleVectorReindexCancel = () => {
-    setShowVectorReindexDialog(false)
-  }
+  const handleEmbeddingDialogKeyDown = useDialogKeyHandler({
+    onConfirm: handleEmbeddingConfirmChange,
+    onCancel: handleEmbeddingCancelChange,
+    disabled: embeddingSaving,
+  })
 
   // Computed values
   const savedProvider = embeddingSettings?.embeddingConfig?.providerId ?? 'openai'
@@ -494,7 +499,7 @@ export function VectorSearchSection({
   const autoIndexingDisabled = embeddingLoading || embeddingSaving || Boolean(embeddingSettings?.autoIndexingLocked)
 
   return (
-    <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+    <div className="min-w-0 rounded-lg border border-border bg-card p-5 shadow-sm">
       <h2 className="text-lg font-semibold mb-2">
         {t('search.settings.vector.sectionTitle', 'Vector Search')}
       </h2>
@@ -503,7 +508,7 @@ export function VectorSearchSection({
       </p>
 
       <Tabs defaultValue="configuration">
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 h-auto max-w-full flex-wrap">
           <TabsTrigger value="configuration">
             {t('search.settings.tabs.configuration', 'Configuration')}
           </TabsTrigger>
@@ -644,7 +649,7 @@ export function VectorSearchSection({
                                   {info.models.length} {t('search.settings.vector.modelsAvailable', 'models available')}
                                 </p>
                               ) : availability?.reason ? (
-                                <p className="mt-1 text-xs text-status-warning-text">
+                                <p className="mt-1 break-words text-xs text-status-warning-text">
                                   {availability.reason}
                                 </p>
                               ) : (
@@ -993,33 +998,27 @@ export function VectorSearchSection({
       </Tabs>
 
       {/* Vector Reindex Confirmation Dialog */}
-      {showVectorReindexDialog && (
-        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
-          <div className="mx-4 max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
-            <h3 className="text-lg font-semibold mb-2">{t('search.settings.reindex.confirmTitle', 'Confirm Reindex')}</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              {t('search.settings.reindex.confirmDescription', 'This will rebuild all vector embeddings. Existing data will be purged first.')}
-            </p>
-            <div className="flex justify-end gap-3">
-              <Button type="button" variant="outline" onClick={handleVectorReindexCancel}>
-                {t('search.settings.actions.cancel', 'Cancel')}
-              </Button>
-              <Button type="button" variant="default" onClick={handleVectorReindexConfirm}>
-                {t('search.settings.reindex.confirmButton', 'Start Reindex')}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={showVectorReindexDialog}
+        onOpenChange={setShowVectorReindexDialog}
+        onConfirm={handleVectorReindexConfirm}
+        title={t('search.settings.reindex.confirmTitle', 'Confirm Reindex')}
+        text={t('search.settings.reindex.confirmDescription', 'This will rebuild all vector embeddings. Existing data will be purged first.')}
+        confirmText={t('search.settings.reindex.confirmButton', 'Start Reindex')}
+        cancelText={t('search.settings.actions.cancel', 'Cancel')}
+        loading={vectorReindexing}
+      />
 
       {/* Embedding Provider Change Confirmation Dialog */}
       {showEmbeddingConfirmDialog && pendingEmbeddingConfig && (
-        <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/50">
-          <div className="mx-4 max-w-lg rounded-lg border border-border bg-card p-6 shadow-lg">
-            <h3 className="text-lg font-semibold mb-2">{t('search.settings.change.title', 'Confirm Provider Change')}</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              {t('search.settings.change.description', 'Changing the embedding provider will require reindexing all data.')}
-            </p>
+        <Dialog open={showEmbeddingConfirmDialog} onOpenChange={(open) => { if (!open) handleEmbeddingCancelChange() }}>
+          <DialogContent onKeyDown={handleEmbeddingDialogKeyDown}>
+            <DialogHeader>
+              <DialogTitle>{t('search.settings.change.title', 'Confirm Provider Change')}</DialogTitle>
+              <DialogDescription>
+                {t('search.settings.change.description', 'Changing the embedding provider will require reindexing all data.')}
+              </DialogDescription>
+            </DialogHeader>
             <div className="mb-4 p-3 rounded-md bg-muted/50 text-sm">
               <p className="font-medium">
                 {embeddingSettings?.embeddingConfig
@@ -1042,7 +1041,7 @@ export function VectorSearchSection({
                 <span>{t('search.settings.change.bullet2', 'Vector search will be unavailable during reindex')}</span>
               </li>
             </ul>
-            <div className="flex justify-end gap-3">
+            <DialogFooter>
               <Button type="button" variant="outline" onClick={handleEmbeddingCancelChange} disabled={embeddingSaving}>
                 {t('search.settings.actions.cancel', 'Cancel')}
               </Button>
@@ -1050,9 +1049,9 @@ export function VectorSearchSection({
                 {embeddingSaving ? <Spinner size="sm" className="mr-2" /> : null}
                 {t('search.settings.actions.confirm', 'Confirm')}
               </Button>
-            </div>
-          </div>
-        </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

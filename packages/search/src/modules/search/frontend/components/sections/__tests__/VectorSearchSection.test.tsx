@@ -7,6 +7,7 @@ import {
   VectorSearchSection,
   type VectorSearchSectionProps,
 } from '../VectorSearchSection'
+import polishTranslations from '../../../../i18n/pl.json'
 
 jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
   ...jest.requireActual('@open-mercato/ui/backend/injection/useAppEvent'),
@@ -20,6 +21,17 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 const flashMock = jest.fn()
+
+beforeAll(() => {
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value(this: HTMLDialogElement) { this.setAttribute('open', '') },
+  })
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value(this: HTMLDialogElement) { this.removeAttribute('open') },
+  })
+})
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
@@ -125,6 +137,55 @@ describe('VectorSearchSection provider controls', () => {
     expect(providerButton.getAttribute('aria-controls')).toBeNull()
     expect(providerButton.parentElement?.classList.contains('cursor-not-allowed')).toBe(true)
     expect(document.getElementById('provider-ollama-configuration')).toBeNull()
+  })
+})
+
+describe('VectorSearchSection confirmation keyboard controls', () => {
+  beforeEach(() => {
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockResolvedValue(null)
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: jest.fn(() => new Promise(() => undefined)),
+    })
+  })
+
+  it('cancels reindex with Escape without sending a mutation and can reopen', async () => {
+    renderSection()
+    fireEvent.click(screen.getByRole('tab', { name: 'Index Management' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+  })
+
+  it.each(['ctrlKey', 'metaKey'])('confirms reindex once with %s+Enter', async (modifier) => {
+    renderSection()
+    fireEvent.click(screen.getByRole('tab', { name: 'Index Management' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Full Reindex' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Enter', [modifier]: true })
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1))
+    expect(readApiResultOrThrowMock.mock.calls[0][0]).toBe('/api/search/embeddings/reindex')
+  })
+
+  it('cancels a provider change with Escape without persisting it', async () => {
+    renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Confirm' }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalled()
+  })
+
+  it.each(['ctrlKey', 'metaKey'])('confirms a provider change once with %s+Enter', async (modifier) => {
+    renderSection()
+    fireEvent.click(screen.getByRole('button', { name: /Ollama \(Local\)/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Confirm' }), { key: 'Enter', [modifier]: true })
+    await waitFor(() => expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1))
+    expect(readApiResultOrThrowMock.mock.calls[0][0]).toBe('/api/search/embeddings')
   })
 })
 
@@ -269,5 +330,44 @@ describe('VectorSearchSection store availability', () => {
     })
 
     expect(screen.queryByText('Vector store is not available')).toBeNull()
+  })
+})
+
+describe('VectorSearchSection Polish provider availability', () => {
+  beforeEach(() => {
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: jest.fn(() => new Promise(() => undefined)),
+    })
+  })
+
+  it.each([
+    ['openai', 'Set OPENAI_API_KEY to enable OpenAI', 'Ustaw OPENAI_API_KEY, aby włączyć OpenAI'],
+    ['ollama', 'Ollama not reachable at http://localhost:11434', 'Ollama jest niedostępna pod adresem http://localhost:11434'],
+    ['ollama', 'Ollama not reachable at http://localhost:11434 (timed out)', 'Ollama nie odpowiedziała pod adresem http://localhost:11434 (przekroczono limit czasu)'],
+    ['ollama', 'Ollama responded 503 at http://localhost:11434', 'Ollama zwróciła status 503 pod adresem http://localhost:11434'],
+  ] as const)('preserves server-localized %s probe messages without changing provider availability', (providerId, reason, translatedReason) => {
+    render(
+      <I18nProvider locale="pl" dict={polishTranslations}>
+        <VectorSearchSection
+          embeddingSettings={{
+            ...embeddingSettings,
+            embeddingConfig: null,
+            configuredProviders: [],
+            providerAvailability: [{ providerId, available: false, reason: translatedReason }],
+          }}
+          embeddingLoading={false}
+          vectorStoreConfig={vectorStoreConfig}
+          vectorStoreConfigLoading={false}
+          vectorReindexLock={null}
+          onEmbeddingSettingsUpdate={jest.fn()}
+          onRefreshEmbeddings={jest.fn().mockResolvedValue(undefined)}
+        />
+      </I18nProvider>,
+    )
+
+    expect(screen.getByText(translatedReason)).toBeTruthy()
+    expect(screen.queryByText(reason)).toBeNull()
+    expect(screen.getByText(translatedReason).closest('button')).toHaveProperty('disabled', true)
   })
 })
