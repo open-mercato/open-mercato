@@ -9,7 +9,6 @@ import {
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 
 test('TC-AUTH-066: portal profile keeps long values and badges inside the viewport', async ({ page, request, baseURL }) => {
-  test.setTimeout(60_000)
   if (!baseURL) throw new Error('[internal] Integration base URL is required')
   const token = await getAuthToken(request, 'admin')
   const { tenantId, organizationId } = getTokenContext(token)

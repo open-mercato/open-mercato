@@ -9,7 +9,6 @@ import {
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 
 test('TC-AUTH-3821: customer credential writes enforce the shared policy without invalidating login', async ({ request }) => {
-  test.setTimeout(60_000)
   const token = await getAuthToken(request, 'admin')
   const { tenantId } = getTokenContext(token)
   const weakCreate = await apiRequest(request, 'POST', '/api/customer_accounts/admin/users', {
@@ -44,28 +43,39 @@ test('TC-AUTH-3821: customer credential writes enforce the shared policy without
       data: { newPassword },
     })
     expect(validReset.ok()).toBeTruthy()
-    let currentSession = await portalLogin(request, { email: user.email, password: newPassword, tenantId })
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      const previousSession = currentSession
+    await portalLogin(request, { email: user.email, password: newPassword, tenantId })
+  } finally {
+    await deleteCustomerUserFixture(request, token, user.id)
+  }
+})
+
+
+for (let attempt = 1; attempt <= 10; attempt += 1) {
+  test(`TC-AUTH-3821: rapid reset cycle ${attempt} accepts the fresh session and rejects the old session`, async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { tenantId } = getTokenContext(token)
+    const user = await createCustomerUserFixture(request, token)
+    try {
+      const previousSession = await portalLogin(request, { ...user, tenantId })
       const nextPassword = `Changed-${Date.now()}-${attempt}-Aa1!`
       const reset = await apiRequest(request, 'POST', `/api/customer_accounts/admin/users/${user.id}/reset-password`, {
         token,
         data: { newPassword: nextPassword },
       })
       expect(reset.status()).toBe(200)
-      const oldProfile = await request.get('/api/customer_accounts/portal/profile', {
-        headers: portalCookieHeaders(previousSession),
-      })
-      expect(oldProfile.status()).toBe(401)
-      currentSession = await portalLogin(request, { email: user.email, password: nextPassword, tenantId })
+      const currentSession = await portalLogin(request, { email: user.email, password: nextPassword, tenantId })
       const freshProfile = await request.get('/api/customer_accounts/portal/profile', {
         headers: portalCookieHeaders(currentSession),
       })
       expect(freshProfile.status()).toBe(200)
       const profile = await readJsonSafe<{ user?: { id?: string } }>(freshProfile)
       expect(profile?.user?.id).toBe(user.id)
+      const oldProfile = await request.get('/api/customer_accounts/portal/profile', {
+        headers: portalCookieHeaders(previousSession),
+      })
+      expect(oldProfile.status()).toBe(401)
+    } finally {
+      await deleteCustomerUserFixture(request, token, user.id)
     }
-  } finally {
-    await deleteCustomerUserFixture(request, token, user.id)
-  }
-})
+  })
+}
