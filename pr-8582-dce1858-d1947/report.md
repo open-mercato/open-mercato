@@ -1,4 +1,4 @@
-## 📸 Exact-head automated complex runtime QA — PARTIAL (runtime PASS)
+## 📸 Exact-head automated complex runtime QA — PASS (runtime PASS)
 
 **QA head:** `dce185804f05cb482e73353d8d751add8c43c80d` (final base `1766b080b2`).
 
@@ -6,7 +6,7 @@ All six fixes, native12tests, liveCLI11cases and controls passed on fresh owned 
 
 | Check | Expected and observed | Evidence |
 |---|---|---|
-| Exact-head CI | PENDING / UNVERIFIED: runtime PASS, CI43901917626 still running; no green CI claim. Final update follows within bounded watch. | [ci-checks-final.json](ci-checks-final.json) |
+| Exact-head CI | Every reported check completed successfully or skipped; all15integration shards and merged coverage; Guard/Mutation green; stable dce1858 | [ci-checks-final.json](ci-checks-final.json) |
 | Live production CLI primary | Weak primary default+all4skip aliases exit2; no user/tenant/org count changes. Compliant primary exit0/login200 | [cli-results.json](cli-results.json) |
 | Live CLI derived credentials | Explicit nonproduction bypass exit0/login200; weak derived overrides refused in both modes/no writes; compliant derived logins200; strict32 generated derived both comply/login200 | [cli-results.json](cli-results.json) |
 | Native credential regression | 11passed; ten immediate reset/login fresh200/old401 cases; customer_accounts module, managed CLI | [native-password.log](native-password.log) |
