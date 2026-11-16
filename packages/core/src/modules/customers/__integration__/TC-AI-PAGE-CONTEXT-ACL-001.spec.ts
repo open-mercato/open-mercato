@@ -55,7 +55,8 @@ async function createTenant(request: APIRequestContext, token: string, name: str
  * read never comes back: a permitted control sees the linked records; a
  * caller without `customers.deals.view` / `customers.people.view` loses the
  * related deals / people and is refused the record tool; callers in an
- * excluded organization or a foreign tenant receive none of the records.
+ * excluded organization, with an empty organization scope or in a foreign
+ * tenant receive none of the records.
  */
 test.describe('TC-AI-PAGE-CONTEXT-ACL-001: customers page-context tools honor caller ACL and scope', () => {
   test('returns only the records the caller may read', async ({ request }) => {
@@ -192,6 +193,15 @@ test.describe('TC-AI-PAGE-CONTEXT-ACL-001: customers page-context tools honor ca
         visibleOrganizations: [otherOrganizationId],
       })
 
+      const emptyScopeToken = await createActor({
+        suffix: 'emptyscope',
+        token: adminToken,
+        tenantId: scope.tenantId,
+        homeOrganizationId: scope.organizationId,
+        features: ALL_CRM_READ,
+        visibleOrganizations: [],
+      })
+
       foreignTenantId = await createTenant(request, superadminToken, `QA Page Ctx Tenant ${stamp}`)
       const foreignOrganizationId = await createOrganizationFixture(request, superadminToken, {
         name: `QA Page Ctx Foreign Org ${stamp}`,
@@ -208,6 +218,7 @@ test.describe('TC-AI-PAGE-CONTEXT-ACL-001: customers page-context tools honor ca
 
       const outOfScope: Array<[string, string]> = [
         ['excluded organization', excludedOrgToken],
+        ['empty organization scope', emptyScopeToken],
         ['foreign tenant', foreignTenantToken],
       ]
       for (const [label, token] of outOfScope) {

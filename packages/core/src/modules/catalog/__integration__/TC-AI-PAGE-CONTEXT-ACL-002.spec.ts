@@ -43,12 +43,14 @@ async function createTenant(request: APIRequestContext, token: string, name: str
 /**
  * TC-AI-PAGE-CONTEXT-ACL-002: the catalog page-context hydration path
  * (`hydrateCatalogAssistantContext` / `hydrateMerchandisingAssistantContext`)
- * builds the model context from `catalog.get_product` and
- * `catalog.list_selected_products`. This spec drives those real tool handlers
+ * builds the model context from `catalog.get_product`,
+ * `catalog.get_product_bundle` and `catalog.list_selected_products`. This spec drives those real tool handlers
  * with real, isolated callers — no tool pack mocks and no model — and asserts a
  * permitted control sees the product while a caller without
  * `catalog.products.view`, a caller in an excluded organization and a caller
- * in a foreign tenant never receive the product data.
+ * in a foreign tenant never receive the product data. The empty-organization-
+ * scope case is enforced by the hydrator itself and covered in
+ * `__tests__/ai-agents-context.real-tools.integration.test.ts`.
  */
 test.describe('TC-AI-PAGE-CONTEXT-ACL-002: catalog page-context tools honor caller ACL and scope', () => {
   test('returns the product only to callers allowed to read it', async ({ request }) => {
@@ -119,6 +121,9 @@ test.describe('TC-AI-PAGE-CONTEXT-ACL-002: catalog page-context tools honor call
       const permittedList = await runTool(request, permittedToken, 'catalog.list_selected_products', listSelected)
       expect(permittedList.status, 'permitted list_selected_products succeeds').toBe(200)
       expect(permittedList.text, 'permitted control sees the selected product').toContain(productTitle)
+      const permittedBundle = await runTool(request, permittedToken, 'catalog.get_product_bundle', getProduct)
+      expect(permittedBundle.status, 'permitted get_product_bundle succeeds').toBe(200)
+      expect(permittedBundle.text, 'permitted control sees the product bundle').toContain(productTitle)
 
       const noFeatureToken = await createActor({
         suffix: 'nofeature',
@@ -168,6 +173,8 @@ test.describe('TC-AI-PAGE-CONTEXT-ACL-002: catalog page-context tools honor call
           const body = JSON.parse(product.text) as { result?: { found?: boolean } }
           expect(body.result?.found, `${label}: get_product must report found=false`).toBe(false)
         }
+        const bundle = await runTool(request, token, 'catalog.get_product_bundle', getProduct)
+        expect(bundle.text, `${label}: get_product_bundle must not disclose the product`).not.toContain(productTitle)
         const list = await runTool(request, token, 'catalog.list_selected_products', listSelected)
         expect(list.text, `${label}: list_selected_products must not disclose the product`).not.toContain(productTitle)
       }

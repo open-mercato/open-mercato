@@ -144,6 +144,9 @@ test.describe('TC-CRM-DETAIL-INCLUDE-ACL-001: detail includes require the includ
       const companyOnly = await readDetail(request, noPeopleToken, companyPath)
       expect(ids(companyOnly.people), 'people hidden without customers.people.view').not.toContain(personId)
       expect(ids(companyOnly.deals), 'deals still visible with customers.deals.view').toContain(dealId)
+      const deniedPersonDetail = await apiRequest(request, 'GET', `/api/customers/people/${personId}`, { token: noPeopleToken })
+      expect(deniedPersonDetail.status(), 'person detail refused without customers.people.view').toBe(403)
+      expect(await deniedPersonDetail.text()).not.toContain(`Include Acl ${stamp}`)
       const deniedPeople = await apiRequest(request, 'GET', linkedPeoplePath, { token: noPeopleToken })
       expect(deniedPeople.status(), 'company people list refused without customers.people.view').toBe(403)
     } finally {

@@ -36,6 +36,7 @@ import type {
 } from './ai-tools/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 const logger = createLogger('catalog')
@@ -74,6 +75,10 @@ async function buildToolContext(
   try {
     const rbac = container.resolve<RbacService>('rbacService')
     const acl = await rbac.loadAcl(userId, { tenantId, organizationId })
+    const allowedOrganizationIds = acl.organizations?.includes('__all__') ? null : acl.organizations ?? null
+    if (!isOrganizationAccessAllowed({ isSuperAdmin: acl.isSuperAdmin, allowedOrganizationIds, targetOrganizationId: organizationId })) {
+      return null
+    }
     return {
       tenantId,
       organizationId,
