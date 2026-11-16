@@ -69,7 +69,7 @@ export type GenerateWatcherOptions = {
 export type GenerateWatcherHandle = {
   /** Resolves when the watcher loop has stopped (after `close()`). */
   readonly done: Promise<void>
-  /** Stop the polling loop and resolve `done`. Idempotent. */
+  /** Stop polling, drain the active cycle, and resolve `done`. Idempotent. */
   close(): Promise<void>
 }
 
@@ -95,7 +95,7 @@ export function startInProcessGenerateWatcher(
   const pollMs = resolvePollMs(options.pollMs)
   const { changeSignal, computeStructureChecksum, runGenerators, incremental } = options
   let stopping = false
-  let pollTimer: NodeJS.Timeout | null = null
+  let pollTimer: ReturnType<typeof setTimeout> | null = null
   let previousChecksum: string | undefined
   let previousSnapshot: GenerateWatchSnapshot | undefined
   let observedChangeVersion = -1
@@ -265,10 +265,9 @@ export function startInProcessGenerateWatcher(
       pollTimer = null
     }
     try {
+      await activeCycle
       await changeSignal?.close()
     } finally {
-      // Let any active suite finish before a replacement watcher can start.
-      await activeCycle
       doneResolve()
     }
   }
