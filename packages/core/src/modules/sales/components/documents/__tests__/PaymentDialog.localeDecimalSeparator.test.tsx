@@ -227,3 +227,46 @@ describe('PaymentDialog locale decimal separator (issue #5828)', () => {
     await expectRejection('0', 'Enter a positive amount.')
   })
 })
+
+describe('PaymentDialog exact amounts', () => {
+  const EXACT_AMOUNT = '25.123456789012345678'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    capturedSubmit = null
+    mockApiCall.mockImplementation(async () => ({ ok: true, result: { items: [] } }))
+    mockCreateCrud.mockResolvedValue({ ok: true })
+    mockUpdateCrud.mockResolvedValue({ ok: true })
+  })
+
+  it('sends the exact typed amount next to the float on create', async () => {
+    renderDialog()
+    await act(async () => {
+      await capturedSubmit?.(submitValues('25,123456789012345678'))
+    })
+    const payload = mockCreateCrud.mock.calls[0][1] as FormValues
+    expect(payload.amountExact).toBe(EXACT_AMOUNT)
+    expect(payload.amount).toBe(Number(EXACT_AMOUNT))
+  })
+
+  it('keeps the stored exact amount on a reference-only edit', async () => {
+    render(
+      <PaymentDialog
+        open
+        mode="edit"
+        payment={{ id: 'payment-1', amount: EXACT_AMOUNT, paymentReference: 'old-ref' }}
+        currencyCode="ETH"
+        orderId="order-1"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        onOpenChange={() => {}}
+      />,
+    )
+    await act(async () => {
+      await capturedSubmit?.({ ...submitValues(EXACT_AMOUNT), paymentReference: 'new-ref' })
+    })
+    expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
+    const payload = mockUpdateCrud.mock.calls[0][1] as FormValues
+    expect(payload).toMatchObject({ id: 'payment-1', paymentReference: 'new-ref', amountExact: EXACT_AMOUNT })
+  })
+})
