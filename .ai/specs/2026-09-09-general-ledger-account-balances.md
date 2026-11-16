@@ -337,9 +337,13 @@ posting Dr `130-1` 100 / Cr `201` 100 with `130-1` under the syntetyk
 parent are explicitly supported (Fowler's named variant, above), so
 filtering to leaves is also wrong. The non-overlapping, complete
 population is the **root rows** — rows whose `parentAccountId` is
-`null` — which cover every posting exactly once when the account
-tree is validated acyclic and complete (every non-root account
-resolves to a root; see Risks & Impact Review). A regression test,
+`null` — which cover every posting exactly once for a well-formed,
+acyclic chart where every non-root account resolves to a root. A
+malformed or cyclic `parentAccountId` chain is a separate
+data-integrity condition: the Phase 1 cycle guard bounds the recursive
+walk and logs the detected cycle instead of silently truncating it
+(Risks & Impact Review), so the reconciliation claim is scoped to a
+well-formed tree. A regression test,
 computed independently in the test rather than derived from the
 report's own rows, asserts that the sum of `periodDebit`/
 `periodCredit` over the root rows collected across every page equals a
