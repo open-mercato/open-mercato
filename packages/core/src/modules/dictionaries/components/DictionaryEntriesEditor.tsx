@@ -42,13 +42,17 @@ type Entry = DictionaryEntryRecord
 /**
  * Message the server sent with a rejected write (for example a command interceptor or
  * mutation guard answering 422 with `{ error }`), or `null` when the failure carries none.
- * Only 4xx answers are trusted: a 5xx body holds a generic, untranslated fallback that the
- * localized flash message describes better.
+ * Only business rejections are trusted (403, 404, 409, 422). Other answers keep the localized
+ * flash message: a 5xx body holds a generic fallback, a 400 carries the untranslated
+ * "Invalid input" with zod `details`, and a 401 is handled by the session.
  */
+const SERVER_MESSAGE_STATUSES = new Set([403, 404, 409, 422])
+
 function readServerRejectionMessage(err: unknown): string | null {
   if (!err || typeof err !== 'object') return null
-  const { status, error } = err as { status?: unknown; error?: unknown }
-  if (typeof status !== 'number' || status < 400 || status >= 500) return null
+  const { status, error, details } = err as { status?: unknown; error?: unknown; details?: unknown }
+  if (typeof status !== 'number' || !SERVER_MESSAGE_STATUSES.has(status)) return null
+  if (details !== undefined) return null
   if (typeof error !== 'string') return null
   const message = error.trim()
   return message.length > 0 ? message : null

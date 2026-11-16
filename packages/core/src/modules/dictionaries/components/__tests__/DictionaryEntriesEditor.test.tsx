@@ -117,4 +117,46 @@ describe('DictionaryEntriesEditor delete feedback', () => {
       expect(mockFlash).toHaveBeenCalledWith('Failed to delete dictionary entry.', 'error')
     })
   })
+
+  it('keeps the generic message for an input error with zod details', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: false,
+      status: 400,
+      result: { error: 'Invalid input', details: [{ path: ['id'], message: 'Required' }] },
+    })
+    renderWithProviders(<DictionaryEntriesEditor dictionaryId="dictionary-1" dictionaryName="Statuses" />)
+
+    clickDelete('Both')
+
+    await waitFor(() => {
+      expect(mockFlash).toHaveBeenCalledWith('Failed to delete dictionary entry.', 'error')
+    })
+  })
+})
+
+describe('DictionaryEntriesEditor create feedback', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+    mockFlash.mockReset()
+  })
+
+  it('shows the message a rejected create returns', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: false,
+      status: 422,
+      result: { error: 'Entries of this dictionary are managed by an integration.' },
+    })
+    renderWithProviders(<DictionaryEntriesEditor dictionaryId="dictionary-1" dictionaryName="Statuses" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add entry' }))
+    fireEvent.change(screen.getByLabelText(/^Value/), { target: { value: 'new' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(mockFlash).toHaveBeenCalledWith(
+        'Entries of this dictionary are managed by an integration.',
+        'error',
+      )
+    })
+  })
 })
