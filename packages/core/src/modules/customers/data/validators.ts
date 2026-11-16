@@ -262,6 +262,7 @@ export const commentUpdateSchema = z
     id: uuid(),
   })
   .merge(commentCreateSchema.partial())
+  .extend({ authorUserId: uuid().nullable().optional() })
 
 export const addressCreateSchema = scopedSchema.extend({
   entityId: uuid(),

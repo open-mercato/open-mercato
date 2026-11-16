@@ -136,4 +136,22 @@ describe('startReindexProgressJob', () => {
     expect(jobId).toBe('new-job-1')
     expect(harness.jobs.filter((job) => job.id.startsWith('new-job-'))).toHaveLength(1)
   })
+
+  it('returns null without reading progress jobs when the progress module is disabled', async () => {
+    const harness = createHarness([{ id: 'orphan-job', status: 'running' }])
+
+    const jobId = await startReindexProgressJob({
+      em: harness.em as unknown as EntityManager,
+      progressService: null,
+      type: 'fulltext',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      supersededMessage: SUPERSEDED,
+    })
+
+    expect(jobId).toBeNull()
+    expect(harness.em.findOne).not.toHaveBeenCalled()
+    expect(harness.jobs.find((job) => job.id === 'orphan-job')?.status).toBe('running')
+  })
 })

@@ -23,6 +23,7 @@ import {
   failReindexProgress,
   startReindexProgressJob,
 } from '../../lib/reindex-progress'
+import { tryResolve } from '../../lib/tryResolve'
 import { reindexOpenApi } from '../openapi'
 
 /** Strategy with optional stats support */
@@ -93,7 +94,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = tryResolve<ProgressService>(container, 'progressService')
   const db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 
   // Check if another fulltext reindex operation is already in progress
@@ -326,7 +327,9 @@ export async function POST(req: Request) {
         }
       }
 
-      await progressService.updateProgress(progressJobId, { totalCount: result.recordsIndexed }, progressScope)
+      if (progressService && progressJobId) {
+        await progressService.updateProgress(progressJobId, { totalCount: result.recordsIndexed }, progressScope)
+      }
       const jobsEnqueued = result.jobsEnqueued ?? 0
       const lockCounts = useQueue && jobsEnqueued > 0
         ? await setReindexLockTotal(db, tenantId, 'fulltext', result.recordsIndexed, auth.orgId ?? null)
