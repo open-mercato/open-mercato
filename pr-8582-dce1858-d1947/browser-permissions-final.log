@@ -1,0 +1,106 @@
+
+Running 3 tests using 1 worker
+
+(node:3683587) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+view - main:
+  - status "Loading": Loading...
+  - text: Loading user...
+manager - main:
+  - status "Loading": Loading...
+  - text: Loading user...
+  ✓  1 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/permissions.spec.cjs:2:1 › view-only staff no security affordances and direct refusal preserves record (2.1s)
+  ✓  2 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/stale.spec.cjs:2:1 › two actors stale write preserves second actor change (12.6s)
+customer_accounts.* - main:
+  - link "Back to list":
+    - /url: /backend/customer_accounts/users
+  - heading "QA second actor saved" [level=1]
+  - paragraph: qa-long-profile-user-73585052575711-abcdefghijklmnopqrstuvwxyz0123456789@test.local
+  - button "Delete"
+  - heading "Customer Portal Access" [level=3]
+  - paragraph: This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.
+  - paragraph: "Portal URL: http://127.0.0.1:5001/[org-slug]/portal"
+  - heading "User Information" [level=2]
+  - term: Email
+  - definition: qa-long-profile-user-73585052575711-abcdefghijklmnopqrstuvwxyz0123456789@test.local
+  - term: Email Verified
+  - definition: "Yes"
+  - term: Last Login
+  - definition: 11/16/2026, 5:14:50 PM
+  - term: Created
+  - definition: 11/16/2026, 5:05:57 PM
+  - heading "CRM Links" [level=2]
+  - paragraph: Person
+  - textbox "Search people by name..."
+  - paragraph: Company
+  - textbox "Search companies by name..."
+  - paragraph: Changes to CRM links are saved when you click Save Changes below.
+  - heading "Account Settings" [level=2]
+  - text: Display Name
+  - textbox "Display Name": QA second actor saved
+  - text: Active
+  - switch "Active" [checked]
+  - paragraph: Roles
+  - button "Portal Admin"
+  - button "Buyer"
+  - button "Viewer"
+  - button "QA Profile 901e01e1890334"
+  - button "QA invite 80e592bc"
+  - button "QA invite be6f7e39"
+  - button "Save Changes"
+  - heading "Security" [level=2]
+  - button "Reset Password"
+  - button "Send Reset Link"
+  - heading "Active Sessions(1)" [level=2]
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 5:14:50 PM"
+  - button "Revoke"
+* - main:
+  - link "Back to list":
+    - /url: /backend/customer_accounts/users
+  - heading "QA second actor saved" [level=1]
+  - paragraph: qa-long-profile-user-73585052575711-abcdefghijklmnopqrstuvwxyz0123456789@test.local
+  - button "Delete"
+  - heading "Customer Portal Access" [level=3]
+  - paragraph: This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.
+  - paragraph: "Portal URL: http://127.0.0.1:5001/[org-slug]/portal"
+  - heading "User Information" [level=2]
+  - term: Email
+  - definition: qa-long-profile-user-73585052575711-abcdefghijklmnopqrstuvwxyz0123456789@test.local
+  - term: Email Verified
+  - definition: "Yes"
+  - term: Last Login
+  - definition: 11/16/2026, 5:14:50 PM
+  - term: Created
+  - definition: 11/16/2026, 5:05:57 PM
+  - heading "CRM Links" [level=2]
+  - paragraph: Person
+  - textbox "Search people by name..."
+  - paragraph: Company
+  - textbox "Search companies by name..."
+  - paragraph: Changes to CRM links are saved when you click Save Changes below.
+  - heading "Account Settings" [level=2]
+  - text: Display Name
+  - textbox "Display Name": QA second actor saved
+  - text: Active
+  - switch "Active" [checked]
+  - paragraph: Roles
+  - button "Portal Admin"
+  - button "Buyer"
+  - button "Viewer"
+  - button "QA Profile 901e01e1890334"
+  - button "QA invite 80e592bc"
+  - button "QA invite be6f7e39"
+  - button "Save Changes"
+  - heading "Security" [level=2]
+  - button "Reset Password"
+  - button "Send Reset Link"
+  - heading "Active Sessions(1)" [level=2]
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 5:14:50 PM"
+  - button "Revoke"
+  ✓  3 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/wildcards.spec.cjs:2:1 › module and global wildcard manager controls (3.1s)
+
+  3 passed (18.9s)
