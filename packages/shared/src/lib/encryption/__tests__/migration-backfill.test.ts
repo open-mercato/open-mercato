@@ -10,11 +10,14 @@ describe('buildEncryptionMapBackfillSql', () => {
 
     expect(sql.startsWith('do $$ begin if to_regclass(\'encryption_maps\') is null then return; end if;')).toBe(true)
     expect(sql.endsWith('end $$;')).toBe(true)
-    expect(sql).toContain(
-      `select gen_random_uuid(), 'demo:thing', src."tenant_id", src."organization_id", '[{"field":"secret"}]'::jsonb, true, now(), now()`,
-    )
-    expect(sql).toContain('where "is_active" = true and "deleted_at" is null')
+    expect(sql).toContain(`select gen_random_uuid(), 'demo:thing', src."tenant_id", src."organization_id"`)
     expect(sql).toContain(`where existing."entity_id" = 'demo:thing'`)
+    // A missing scope is seeded from the tenant-wide (then global) policy for this entity, never
+    // from the new rules alone; the appends below add the missing rules to the seeded row.
+    expect(sql).toContain(`and existing."tenant_id" is not distinct from src."tenant_id" and existing."organization_id" is null`)
+    expect(sql).toContain(`and global_map."tenant_id" is null and global_map."organization_id" is null`)
+    expect(sql).toContain(`coalesce("fields_json", '[]'::jsonb) || '[{"field":"secret"}]'::jsonb`)
+    expect(sql).toContain('where "is_active" = true and "deleted_at" is null')
   })
 
   test('appends each missing field rule to existing maps without replacing other rules', () => {
@@ -25,7 +28,6 @@ describe('buildEncryptionMapBackfillSql', () => {
       }),
     )
 
-    expect(sql).toContain(`'[{"field":"secret"},{"field":"email","hashField":"email_hash"}]'::jsonb`)
     expect(sql).toContain(`coalesce("fields_json", '[]'::jsonb) || '[{"field":"secret"}]'::jsonb`)
     expect(sql).toContain(`coalesce("fields_json", '[]'::jsonb) || '[{"field":"email","hashField":"email_hash"}]'::jsonb`)
     expect(sql).toContain(`where rule->>'field' = 'secret'`)
@@ -36,7 +38,7 @@ describe('buildEncryptionMapBackfillSql', () => {
     const sql = buildEncryptionMapBackfillSql({ entityId: 'demo:thing', fields: [{ field: 'secret' }, { field: 'secret' }] })
 
     expect(sql.match(/update "encryption_maps"/g)).toHaveLength(1)
-    expect(sql).toContain(`'[{"field":"secret"}]'::jsonb, true`)
+    expect(sql).toContain(`coalesce("fields_json", '[]'::jsonb) || '[{"field":"secret"}]'::jsonb`)
   })
 
   test.each([
