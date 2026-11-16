@@ -43,6 +43,12 @@ The security fix deliberately removed event payload userId/actorUserId as execut
 
 Runner: local (no running Compose app found). yarn install --immutable succeeded; 25 ci-full selection tests and TypeScript transpilation passed. Git hooks passed with TMPDIR=/tmp because the cockpit default temporary socket path exceeds the Unix socket path limit. Full executable validation is pending.
 
+## Final independent review and correction
+
+[Final cezar review](https://github.com/open-mercato/open-mercato/pull/9657#pullrequestreview-5916454454), child d94abaf7, reviewed dee39c34a0 and found one High/Major cleanup race: async EMIT_EVENT can park a run in WAITING_FOR_ACTIVITIES while cancel accepts only RUNNING/PAUSED. The reviewer made no edits; no child branch was merged. The author confirmed the endpoint contract and addressed the finding in 2a7b702d76: drain events/activities through the shared bounded integration helper, refresh each owned instance, poll transient cancellation races, cancel before deleting target orders, and attempt versioned definition deletion in finally. The existing focused cleanup lesson and index record the correction. Native self-request-changes was rejected by GitHub; the independent verdict is a transparent COMMENT and does not satisfy a native approval gate. Both allowed subtask dispatches are used; follow-up verification remains in the authoring review/autofix chain.
+
+Local commands 1–6 passed. The first unit run hit the cockpit temporary-socket limit; loose Turbo environment passthrough and TMPDIR=/tmp resolved it. The second run passed all Jest suites, including 2,807 core suites/28,535 core tests, then create-app ZIP validation reported missing system unzip. A Debian unzip package was downloaded and extracted under /tmp solely for local validation (no repository dependency or system install); test/app validation is rerunning with that tool on PATH. No tests were skipped to address either environment issue.
+
 ## Risks
 
 The latest change isolated event-triggered workflow identity; repairs must preserve trusted tenant/organization scope and fail-closed authentication. CI may expose further regressions. Local dependencies are initially absent. Existing active stabilization PRs remain separately owned.
@@ -61,5 +67,5 @@ PR: #9657
 ### Phase 2: Verify and review
 
 - [ ] 2.1 Run the configured validation gate and all 15 PR integration shards, fixing demonstrated failures.
-- [ ] 2.2 Dispatch one final independent cezar review after implementation and address its verdict.
+- [x] 2.2 Dispatch one final independent cezar review after implementation and address its verdict. — 2a7b702d76 (High cleanup finding corrected; current-head executable verification pending)
 - [ ] 2.3 Record exact-head green evidence, promote the draft, and add automerge.
