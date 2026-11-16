@@ -4,7 +4,7 @@
 > Modules: `packages/core/src/modules/attachments/`, `packages/checkout/src/modules/checkout/`
 > Related: [`2026-06-09-attachments-scope-invariant.md`](2026-06-09-attachments-scope-invariant.md),
 > [`implemented/2026-03-19-checkout-pay-links.md`](implemented/2026-03-19-checkout-pay-links.md),
-> [`2026-10-05-attachments-sanitised-vector-images.md`](2026-10-05-attachments-sanitised-vector-images.md) (separate change; see § Merge order)
+> `2026-10-05-attachments-sanitised-vector-images.md` (closed, unmerged; see § Relationship to the closed sanitised vector images branch)
 
 ## TLDR
 
@@ -74,7 +74,11 @@ Behaviour, in order:
 2. An `attachmentId` that is not a UUID (`z.string().uuid()`) is a 404 before any query.
 3. The row is looked up by `{ id, tenantId, organizationId }` at the database boundary, and the
    returned row's scope pair is re-checked (defence in depth against a regressed filter).
-4. The partition must be global or owned by exactly that tenant and organization.
+4. The partition must be global or owned by exactly that tenant and organization. A row whose
+   partition carries an access-resolver requirement matching the row's owner entity or any of its
+   assignments, or whose owner or assignment matches a registered resolver declaration, is a 404:
+   a principal-free read cannot evaluate a resolver, so it refuses rather than serves. Unreadable
+   requirement data fails closed the same way.
 5. Partition code, owner (`entityId` + `recordId`) and, when given, assignment are enforced by the
    same private helper `readScoped` now uses (`serveOwnedAttachment`). That helper also reads the
    bytes and decides inline versus download exactly as `readScoped` does.
@@ -126,21 +130,22 @@ trusted principal-free boundaries (attachment CLI deletion, OCR/text extraction 
 policies. `readScopedForOwner` is a fourth trusted boundary of a different kind: principal-free
 **and request-facing**, because its caller serves the bytes to anonymous visitors. It is trusted
 only for files the calling module has itself published, and it must never become a way around a
-resolver another module declared. The rule, binding on the implementation of #6726:
+resolver another module declared. The implemented rule:
 
-- When access resolvers ship, `readScopedForOwner` refuses — 404, like every other owner-scoped
-  refusal — a row whose partition carries a durable access-resolver requirement
-  (`accessResolverRequirements`) matching the row's owner entity or any of its assignments, or
-  whose owner or assignments match a registered resolver declaration. It does not run the resolver
-  with an anonymous subject: the resolver contract's subjects are authenticated, and refusing is
-  simpler than defining anonymous policy.
+- `readScopedForOwner` refuses — 404, like every other owner-scoped refusal — a row whose partition
+  carries a durable access-resolver requirement (`accessResolverRequirements`) matching the row's
+  owner entity or any of its assignments, or whose owner or assignments match a registered resolver
+  declaration for the partition. It does not run the resolver with an anonymous subject: the
+  resolver contract's subjects are authenticated, and refusing is simpler than defining anonymous
+  policy. Requirement data that cannot be parsed fails closed the same way.
 - A module that wants to publish files of a resolver-protected owner type must not rely on
   `readScopedForOwner`; that needs an explicit anonymous policy, which the first resolver contract
   does not provide.
-- No resolver requirement exists in the data model or code on `develop` today (the
-  `access_resolver_requirements` column and the declaration registry are part of #6726), so there
-  is nothing to check yet. The guard lands with #6726, together with a test that a matching
-  requirement refuses the read. The resolver spec's API contract table carries the matching row.
+- The mechanism is shipped on `main`: #6829 added the `access_resolver_requirements` partition
+  column, the protected-target declarations and the route-level evaluators. The guard reads the
+  loaded partition and the declaration registry through `lib/access-registry.ts`, the same helpers
+  `evaluateAttachmentAccess` uses, and a unit test with a requirement-bearing partition pins the
+  refusal. The resolver spec's API contract table carries the matching row.
 
 The checkout pay link logo is unaffected: its owners are `checkout:checkout_link` and
 `checkout:checkout_link_template`, which declare no resolver, and its files live in the default
@@ -224,7 +229,7 @@ staff keep the resized image-route preview.
 | Oversized logo served publicly | Low | bandwidth | 640×240 rendition; per-size thumbnail cache | — |
 | Extra request per pay page view | Low | load | separate rate-limit namespace, fail-open; 5-minute cache for published links | — |
 | Logo uploaded to a non-default partition | Low | UX | the partition is the attachments module's default for the owner entity, the one the upload route uses when no partition is named; the editor never names one. A logo uploaded with an explicit `partitionCode`, or after an operator maps checkout entities to another default, is a 404 rather than served from an unexpected partition | Re-upload through the editor |
-| `readScopedForOwner` bypasses a future access resolver | Medium | data exposure | classified as a trusted, request-facing boundary in both specs; when #6726 ships it refuses rows whose partition requirement or owner declaration matches a resolver, without running the resolver anonymously | Until #6726 lands there is nothing to bypass; the guard and its test are part of that change |
+| `readScopedForOwner` bypasses an access resolver | Medium | data exposure | classified as a trusted, request-facing boundary in both specs; it refuses (404) a row whose partition requirement or owner declaration matches a resolver, without running the resolver anonymously, and fails closed on unreadable requirement data; pinned by a unit test with a requirement-bearing partition | A requirement declared only per-request (outside the partition row and the registry) would not be seen; the shipped #6829 contract declares both durably |
 | Corrupt logo | Low | availability | a file Sharp cannot decode is a 422 from the service and a 404 from the route | — |
 | An operational fault hidden as a missing logo | Low | operability | only Sharp decode errors become 422; cache, storage, memory and encoder failures are logged, reported and answered 500 | A new libvips loader message format would be answered 500 until the classifier learns it, which fails loud, not silent |
 
@@ -238,45 +243,20 @@ round: the image route answers a stored image Sharp cannot decode with `422` ins
 `logoPreviewUrl` is a URL clients already render as-is, and the new URL works for exactly the
 visitors the old one failed for. `UPGRADE_NOTES.md` records the change.
 
-## Merge order with the sanitised vector images change
+## Relationship to the closed sanitised vector images branch
 
-[`2026-10-05-attachments-sanitised-vector-images.md`](2026-10-05-attachments-sanitised-vector-images.md)
-is a separate branch touching the same files. The intended order is **that change first**, then this
-branch rebased onto it.
+An earlier revision of this branch documented a merge order with the sanitised vector images
+change (#6973). That PR is closed and unmerged, and its companion spec
+`2026-10-05-attachments-sanitised-vector-images.md` does not exist in this repository. This branch
+therefore stands alone: it needs no other branch merged first.
 
-Verified with a trial merge of this branch into the vector images branch:
-
-- `lib/attachment-service.ts` merges **automatically and correctly**. Since the fourth review round
-  neither branch serves SVG inline from the service: `readScoped` and `readScopedForOwner` share the
-  owner-scoped branch's `serveOwnedAttachment` helper, which returns any SVG, trusted or not, as an
-  `application/octet-stream` download. Inline SVG lives only in `GET /api/attachments/file/{id}`.
-  The rendition path keeps requiring an inline-safe raster (`canRenderInlineAttachment`), so an SVG
-  never reaches Sharp.
-- Five files conflict, all textually:
-  - `.ai/specs/README.md` and `UPGRADE_NOTES.md`: keep both sides; they add different entries.
-  - `apps/docs/docs/api/attachments.mdx` has two hunks: keep both module-code sections, and on the
-    image route's line keep the vector branch's sentence and append "A stored image that cannot be
-    decoded returns `422`."
-  - `lib/__tests__/attachment-service.test.ts`: keep both appended `describe` blocks. Add the
-    closing `})` of the vector block, which the two sides share in the conflict hunk, between them.
-    The harness additions (`readBuffer`, identical on both sides, and the `imageRendition` mock)
-    merge automatically.
-  - `packages/core/src/modules/attachments/AGENTS.md` has two hunks: keep both `Always` blocks, and
-    in the `Never` list keep this branch's `checkAttachmentAccess` exception and
-    `readScopedForOwner` rule, then the vector rules.
-- The merged tree (re-verified on 2026-10-07 after the fifth review round) passes:
-  - core and checkout typecheck;
-  - every attachments suite and `attachment-service.test.ts`. The only failures are six in
-    `storage.test.ts` and `localDriver.test.ts`, suites neither branch touches, which fail on the
-    Windows machine used because they expect POSIX absolute paths. (Test counts are not recorded
-    here: they change with every round on either branch.) At the heads rebased onto `develop`
-    `7187041c2`, the trial merge gives the same five conflicting files and hunks;
-  - checkout's pay route suites.
-  The conflicts are the same five files and hunks as listed above.
-
-After both merge, `readScopedForOwner` returns a sanitised SVG as a download, like `readScoped`; a
-test on the owner-scoped branch pins it, and passes in the merged tree. The logo route is unaffected:
-it always asks for a raster rendition and refuses any non-raster content type, which a test pins.
+The behaviour that spec would have added is already the behaviour here, and is pinned by
+`attachment-service.test.ts`: neither `readScoped` nor `readScopedForOwner` serves SVG inline from
+the service — both share `serveOwnedAttachment`, which returns any SVG as an
+`application/octet-stream` download — while inline SVG rendering stays limited to
+`GET /api/attachments/file/{id}`. The rendition path requires an inline-safe raster
+(`canRenderInlineAttachment`), so an SVG never reaches Sharp. The logo route always asks for a
+raster rendition and refuses any non-raster content type, which a test pins.
 
 ## Testing Strategy
 
