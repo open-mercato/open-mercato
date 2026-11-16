@@ -1,0 +1,697 @@
+# Privacy coverage: forms, documents, EUDR and the assistant
+
+> **Program:** a coverage spec of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for `forms`, `documents`, `eudr` and `ai_assistant`, and for `workflows`, assigned to it after the council review.
+> **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md) and [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md), including their addenda; [`2026-11-16-privacy-table-coverage.md`](2026-11-16-privacy-table-coverage.md), [`2026-11-16-privacy-record-retention.md`](2026-11-16-privacy-record-retention.md) and [`2026-11-16-forms-retention-scheduling.md`](2026-11-16-forms-retention-scheduling.md), which adds the reason to the forms anonymized event.
+> **Cross-spec contracts:** [`privacy-verification-suite`](2026-11-16-privacy-verification-suite.md), [`tenant-exit-export`](2026-11-16-tenant-exit-export.md), [`enterprise coverage`](../enterprise/GDPR/2026-11-16-privacy-coverage-enterprise.md) and [`encryption-map-coverage-and-backfill`](2026-11-16-encryption-map-coverage-and-backfill.md).
+> **Verified at** `main` @ `08dada9624` by reading each module's entities, encryption map and services; nothing was run. Collaborative-editing attribution remains unverified; form PDF snapshots and assistant file-id storage were checked for this revision. All changes below are proposed, not implemented.
+> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+
+Extends: .ai/specs/GDPR/2026-11-16-privacy-data-class-contract.md
+Extends: .ai/specs/GDPR/2026-11-16-privacy-subject-erasure.md
+
+## 📝 TLDR
+
+Four modules hold what people wrote. A form's answers are tied to a respondent who may be a portal user or someone known only by the email an invitation went to; the one existing "anonymize" removes only the answers a form designer flagged as sensitive, and leaves the rest. A document is written by several people and kept as plaintext with a hundred versions. EUDR records name producers — often individual farmers — with no id at all. An assistant conversation holds its owner's prompts and whatever the tools said about third parties, and a deleted one is only hidden. None of the four can export or erase. **Proposed (future):** a data class for each; an erasure mode for forms that removes every answer, including those of a submission the retention job already processed; and a stated rule for the rest: personal account records are removed, documents are retained as organization work product and reported for review, and records subject to the specified statement-age rule are kept to that date and marked for explicit retention. A producer known only by a name is found one record at a time, and only the records the operator names are changed. Each module is its own phase and ships its export and its erase together; `workflows` is a fifth.
+
+**Not in this spec:** people mentioned inside a document's text or an assistant transcript; form subject types a tenant invents for itself; removing an author's marks from collaborative-editing history.
+
+## 📝 Resolved assumptions (autonomous defaults)
+
+| # | Question | Chosen | Rationale |
+|---|---|---|---|
+| 1 | Erasing a form respondent | Every answer, every uploaded file, the stored PDF copy and the respondent's details are removed. The submission's shell — which form, when, its state — and its consent record stay, and the form's statistics stop counting the submission's answers | The existing service keeps unflagged answers, which is not erasure. Consent evidence holds pseudonymous subject ids, timestamps and a clause hash, not answer values; it remains personal data and is included in export. |
+| 2 | A respondent known only by an invitation's email | The contract's identifier subject, matched on a new hash of the invitation's address. A portal user or a CRM person with the same address reaches the same submissions through their own address alias | No other record stands for them, and a forms handler cannot read another module's addresses. |
+| 3 | A staff user's documents | Kept as organization work product, with `evidence` as the retention reason; genuinely co-written/shared records use `shared_record`. Their favourites, watches and grantee shares are deleted; ownership/authorship and shares they created for colleagues stay | Decided. A document is the organization's work, usually written by several people; ownership cannot be empty and cannot be transferred today. The run reports each retained document with its reason, so the controller can answer the request and delete by the ordinary routes where it disagrees. |
+| 4 | A CRM person linked to a document | The link's copied label is replaced by a placeholder, and the document is reported as retained for a person to review | The module can insert a record's field values into the document's body, where they persist in the content and in up to a hundred versions. The handler cannot find or remove them. |
+| 5 | EUDR records | Kept while the due-diligence statement they belong to is less than five years old, and reported with that date. A retained mark and retention set act when the date passes. Outside the period evidence is anonymized; plots are hard-deleted only under `delete`, and coarsened under `anonymize` | The regulation sets five years from the statement. The date is in the module's own data. |
+| 6 | A staff user's assistant conversations | Those they own are deleted, whatever their visibility. In others' conversations only their participation is removed | Decided. Only the owner can write in a conversation, so a "shared" one is still its owner's transcript, shown to others. Deleting it removes it for them; the dry run lists every owned conversation others can see, and an enterprise hold keeps one where needed. |
+| 7 | Usage and moderation rows, and the user's pending actions | Deleted for the user | They exist only to account for or act for that user. |
+| 8 | A producer known only by a name | Each plot and each evidence record that names a producer is its own subject, of the module's kinds `eudr:plot_producer` and `eudr:evidence_producer`, with the record's id. `resolve --name` lists each as a candidate; the operator names the ones that belong to the requester | Names are not unique. A subject keyed by a name would act on every homonym's records, and it has no id that holds from the dry run to the apply. A record id is stable, and the erase command already takes only named subjects. |
+| 9 | A plot outside the period under `--prefer anonymize` | Keep a shell with centroid rounded to one decimal degree, `plot_type = point`, `area_ha` and identifying fields cleared; `delete` hard-deletes, including soft-deleted rows | Decided. Honours the parent contract without an irreversible delete under `anonymize`. One decimal degree is about 11 km at the equator, a cell that holds many holdings in producing regions, so the point no longer locates one farm's land. Residual coarse-location linkability is reported. A plot is never silently deleted under `anonymize`; an operator who wants nothing kept chooses `delete`. |
+| 10 | Workflow event immutability | Permit the privacy handler to blank only `WorkflowEvent.eventData` (`workflow_events.event_data`) in a closed subject-linked instance; ids, event type and time stay; readers show a localized cleared-event placeholder | Decided. The workflows guide currently forbids any event update, but a closed instance's event payload is a copy of the person's data with no further use, and an exception that keeps identity, type, user id and time leaves the audit trail intact. Phase 5 writes this exception into `packages/core/src/modules/workflows/AGENTS.md` in the same change that enables blanking, alongside the separate whole-graph deletion exception of enterprise coverage assumption 10 and the owner graph service below. No guide is edited in this revision. |
+
+## 📝 Problem Statement
+
+**forms**
+
+- A submission names its subject by a free-form type and an id. The code fixes two: `customer` with a portal user's id, and `forms_invitation` with the invitation's id for an anonymous respondent (`forms/lib/portal-subject-policy.ts`; `services/distribution-service.ts`).
+- Answers are in revisions, encrypted with the module's own keys; uploads are stored inline under the same keys, not in the attachments module (`forms/encryption.ts`; `services/attachment-service.ts`). Five of its tables carry an organization and no tenant.
+- The anonymize service tombstones only fields flagged sensitive, clears upload bytes and names — the stored PDF copy is one such upload — nulls the invitation's email, name and reference, and replaces the IP and user agent. It leaves other answers, the ids of who started, submitted and saved, and the access audit's IP and user agent (`services/anonymize-service.ts`). It skips any revision already marked anonymized (the same source), and retention treats that mark as final (`lib/retention.ts`). A cleared PDF copy can be regenerated (`workers/pdf-snapshot.ts`).
+- Statistics are tallied from the current revision's decoded values (`services/analytics-service.ts`).
+- An invitation holds the recipient's email and name, encrypted through the ordinary encryption map, with no hash (`forms/encryption.ts`). An invitation may have no submission yet. Nothing deletes a submission.
+
+**documents**
+
+- A document has an owner who cannot be empty, and no command transfers ownership; content is plaintext because merging and search need it; up to 100 versions and 500 comments are kept (`documents/data/entities.ts`; `lib/historyPolicy.ts`).
+- Shares, favourites and watches are per user; folders have an owner too. Links to CRM records copy a label, encrypted and not nullable (the same source). The module can insert a linked record's field values into the body (`lib/recordFieldInsertion.ts`). Comments' mentions hold user ids, not names.
+
+**eudr**
+
+- Plots hold a producer's name, encrypted, their own name, an external id, a description, an area and the plot's geometry; evidence submissions hold a producer's name, a location, a batch number, notes and a supplier copy with a display name; risk assessments hold an assessor's name as free text. There is no user or person id (`eudr/data/entities.ts`).
+- The geometry is required and must be a point or a polygon (the same source; `lib/geometry.ts`).
+- The supplier on a plot and on evidence is a CRM company, picked through `CompanySelectField` (`components/formConfig.tsx`). Companies are not subjects (contract spec, known limits), so a supplier id never finds a person.
+- Evidence files are attached to the evidence record through the attachments module under `eudr:eudr_evidence_submission` (`backend/eudr/evidence-submissions/[id]/page.tsx`), and ids may also be listed in `attachment_ids` (`data/entities.ts`).
+- Evidence lists its plots by id in `plot_ids`, with no constraint (the same source). The module's own delete leaves those ids in place, and completeness counts only live plots (`commands/plots.ts`; `lib/completeness.ts`).
+- Evidence belongs to a due-diligence statement, which records when it was submitted (the same source).
+- Plot and evidence changes are logged as `eudr.plot` and `eudr.evidence_submission` (`commands/plots.ts`; `commands/evidence-submissions.ts`).
+
+**ai_assistant**
+
+- A conversation has an owner, who cannot be empty, and a visibility — private, shared or organization-wide. Only the owner can add to it or manage its participants (`ai_assistant/data/repositories/AiChatConversationRepository.ts`).
+- Pending actions have a creator who cannot be empty, may belong to no conversation, and hold the records an action would change — which may be a customer's — encrypted (`data/entities.ts`). The scheduled worker changes pending status to expired but never deletes rows (`workers/ai-pending-action-cleanup.ts`). Deletion needs an explicit retention run.
+- Usage events and moderation flags are per user; four tables of overrides record who created and changed them.
+- Deleting a conversation hides it and its messages. No event says a conversation was deleted.
+
+## 📝 Proposed Solution
+
+### Classes
+
+| Class | Subject kinds | Finds by | On erasure |
+|---|---|---|---|
+| `forms.submissions` | `customer_accounts:user`; `customers:person`; `privacy:identifier` | Subject type `customer` with the supplied portal user's id; invitation `recipient_email_hash` against supplied `email_hashes`. CRM-person activity additionally consumes C1's per-person `linkedSubjects` envelope below; missing required attribution is incomplete, not a complete no-match | Every answer in every revision, uploads and their names, the PDF copy, the invitation's email, name, reference, `recipient_email_hash`, token hash and `last_error`, and submission IP/user agent **cleared**; invitation set `revoked`, including one without a submission. The submission, its state and its consent record **retained** as evidence |
+| `forms.staff_activity` | `auth:user` | Who started, submitted, saved, acted, or read | The access audit's IP and user agent for that user **cleared**; the ids stay |
+| `documents.documents` | `auth:user`; `customers:person` | Owner, author, sharer, watcher; `customer_entity_id` on links | Favourites, watches and shares whose `principal_type = user` and `principal_id` is the subject **deleted**; shares they created for other principals stay. Documents, folders, versions and comments **retained** as organization work product: `evidence` for a private single-author document, `shared_record` when co-written or used by others. A linked person's copied label replaced, and the linked documents **retained** and listed for review |
+| `eudr.records` | `eudr:plot_producer`; `eudr:evidence_producer` | The record's own id. `resolve --name` offers each plot and evidence record whose producer name contains the name, one candidate per record | Within the statement-based period: **retained** as `legal_retention`, with date and `retentionSetId: eudr.retained_records`. Otherwise evidence **anonymized**: producer name, notes, location, batch number, supplier display name and custom-field values cleared, its files released; commodity, country, quantity, harvest dates, status and links kept. A plot **hard-deleted** under `delete`, including soft-deleted rows, or **anonymized** under `anonymize` as assumption 9 specifies |
+| `ai_assistant.conversations` | `auth:user`; `customers:person` | Staff by owner/participant and usage/moderation/action creator; person by a pending action's typed target id or decrypted batch `records` | Conversations they own **deleted** with messages, participants, pending actions and files. Their participant rows elsewhere **deleted**. Their usage and moderation rows and their pending actions **deleted**. For a person, matching pending actions **exported** then **deleted**, including standalone actions; an executing action is retained as `open_case` until retry |
+
+Every class declaring `privacy:identifier` also declares both alias-bearing owner kinds `customers:person` and `customer_accounts:user`, following C1's identifier coverage guard and `providedAliases`. A missing required alias is incomplete, never no matches. Every class here, and `workflows.instances` below, declares `erasureGroup: 'records'`: none holds credentials or sign-in material. `eudr.records` is the only owner class here. It owns its two kinds and declares `auditResourceKinds: ['eudr.plot', 'eudr.evidence_submission']`; each held id can therefore be paired with both actual logged kinds for change-history exclusions. No other class declares them, and it leaves `anonymizeOwnerWhenRetained` at its default.
+
+`customer_accounts.users` publishes the portal user's `email_hashes`, as `customers.people` does, so that a portal user also reaches forms they were invited to by email. Direct `subject_type = customer` submissions store portal user ids, not CRM person ids. For activity attribution, C1's “Account-owned portal links for activity” now specifies `customerAccountUserPrivacyHandler.resolveLinkedPortalSubjects` and the per-person `linkedSubjects?: readonly PrivacyLinkedSubject[]` handoff, including linked accounts with a different address. Consume that envelope as described below; it does not add an erasure target or a related subject to a portal export. `customerPortalLinkResolver.resolveLinks` remains the separate customers-owned CRM-link resolver. Neither portal-user-id nor forms-invitation-id aliases are introduced, and forms never queries portal/CRM peer tables.
+
+Exports follow the same finds: respondent answers through the forms decrypting service, with retained consent records; staff document titles and their own comments, flagged `freeText`; named EUDR records/files; staff conversations and matched pending actions for a person. Document bodies, editing state and versions remain organization work product containing other people's contributions; this exclusion is explicit in the report, not a missing comment export.
+
+### The forms erasure mode
+
+The anonymize service gains a mode and the submission a second mark.
+
+- `sensitive`, the existing behaviour, is what retention uses.
+- `erasure` tombstones every answer in every revision, whether or not the revision was already anonymized, and sets `erased_at`.
+- Erasure locks the submission and its invitations, clears `recipient_email_hash`, `token_hash` and `last_error` with the recipient fields, and sets every invitation `revoked`. `erased_at` is a write barrier in `SubmissionService.save`, `submit` and `reopen`, and `AttachmentService` upload, including public and staff routes. Each write checks the mark under the same submission row lock before committing; already loaded tokens cannot bypass it. Existing actor/RBAC and optimistic revision/version checks remain.
+- `PdfSnapshotService` checks `erased_at` before reading or rendering, including canonical/download regeneration. After rendering outside the transaction, it locks and reloads the submission inside the snapshot-write transaction and refuses a marked row, discarding rendered bytes without creating/linking an attachment or emitting an upload event. A stored copy is never served for an erased submission. The worker uses the same service. Its answers are excluded from statistics.
+
+**DEC-H — The counting-period bridge** remains owned by forms-retention and operational pruners; this erasure mode does not change their opt-in minor/defaults.
+
+The forms module also supplies the connector's sanctioned in-process reader, new DI `formsProjectionService.readSubmitted({ submissionId })`. It resolves tenant/organization inside forms and returns the submitted form/version, distribution, decoded projection inputs and erased state, with an internal access-audit entry carrying no answers. It uses forms-owned decryption and grants no client access to unsliced answers. Current `SubmissionService.getCurrent` without a role returns empty answers; its restricted `unsliced` use is not a general connector API. The connector must never query forms tables directly. `privacy-projection-reader.test.ts` verifies trusted access, erased-state response, normal role slicing unchanged and tenant/organization validation. Ship this small reader with the forms phase; it is a dependency of the owned form-to-deals revision, not a claim about today's code.
+
+### R3-6 — The form-to-deals reason set
+
+The `forms.submission.anonymized` payload's optional `reason` enum is exactly `request | erasure | retention`. `erasure` mode emits `erasure`; the request route emits `request`; scheduled age-based anonymization emits `retention`. The `form_to_deals` subscriber acts on `reason` in `{request, erasure}`: both are subject-driven. Under R5-6, both reasons remove only the projections it created on the deal: the CV/file attachments, mapped deal `cf.*` answers and the deal label it wrote. It never clears or changes CRM Person fields, whether it created or deduplicated that person. A linked `customers:person` is a related subject governed by C4's review, exclusions and hold guard through the customers owner; the map's person id grants no authority to mutate that root or strip its history. It acknowledges `retention`, or a missing reason, with no writes. These are the same normative rules as the form-to-deals spec, Commands & Events. Form retention never authorizes CRM erasure. C4 erasure includes an integration case for projected deal files and mapped answers, preserving an excluded or held linked person; the forms-retention spec cites R3-6 and its worker emits `retention`.
+
+### Producers named on EUDR records
+
+The identifier subject remains **DEC-A — Subjects known only by an identifier (`privacy:identifier`)**, in C1; EUDR's record-backed kinds do not extend that design to names. A producer has no record of their own, and their name is not unique. The unit an operator can confirm is the record that names them.
+
+- **Subjects.** `eudr` owns two kinds: `eudr:plot_producer` and `eudr:evidence_producer`, "the person named as producer on this plot" and "on this evidence record". The id is the record's id. This is how the contract's `customer_accounts:invitation` stands for someone known only by an invitation.
+- **Finding.** `eudr.records` implements `resolveSubjects` for `name`. It scans the tenant's plots and evidence in keyset batches of 500, decrypting the producer name, and matches a case-insensitive substring, as the contract matches people by name. Each matching record is one candidate, labelled with the plot's name or the evidence's batch number, the supplier's display name, the origin country and the creation date, so that two producers with one name can be told apart. `--limit` applies.
+- **Acting.** Export and erasure take `--subject eudr:plot_producer:<id>` and `--subject eudr:evidence_producer:<id>`. Only named producer records are exported or changed; releasing orphan files from previously anonymized evidence is the limited last-reference sweep below. The id does not change between the dry run and the apply, so the confirmation token matches. The erase command already accepts only named subjects, so no identifier flag is needed. As the owner of both kinds, the class implements `checkErasable`, which confirms that the record exists in the tenant before any class acts.
+- **The window.** Evidence is retained until the statement's `submitted_at` plus the configured record age; a plot uses the latest date of any retained evidence listing it. `privacySettingsService.get(scope, 'retention.eudr.recordAgeYears')` reads the R3-3 setting from `module_configs`: declare `retention.eudr.recordAgeYears` in optional `privacy.ts.settings`, schema `z.number().int().min(5)`, unit calendar years, minimum 5, consumer-owned default 5. Consume the returned `.value` from `{ name, value, source, updatedAt }`; invalid/unavailable settings refuse, never silently substitute the default. This spec consumes R3-3 — Tenant privacy settings live in `module_configs` (contract spec, “Tenant privacy settings — R3-3: Tenant privacy settings live in `module_configs`”). No submitted statement means no legal window.
+- **Evidence outside the window** is anonymized under either preference. Clear producer name, notes, `geolocation`, `batch_number`, `supplier_snapshot` and custom-field values; empty `attachment_ids` and mark `anonymized_at`. Keep only commodity, product mapping, origin country, quantity, harvest dates, status, completeness, statement/plot ids and supplier id. Retained supplier ids refer to companies, not subjects.
+- **Plot preference.** Under `delete`, hard-delete the plot and its custom-field values, including an already soft-deleted row; the module's ordinary soft delete is not sufficient. Evidence may retain the non-resolving plot id. Under `anonymize`, clear producer name, external id, description, supplier snapshot, area, validation warnings and custom fields, replace required name with a localized placeholder and geometry with the one-decimal-degree centroid point, set `plot_type = point`, and mark `anonymized_at`. Keep id, supplier company id, country, status and dates. Report residual coarse location per assumption 9.
+- **Retention hand-off.** When retained, set `privacy_retained_at`, `privacy_retained_until` and `privacy_erasure_preference` on the plot/evidence, and return `retainedUntil` and `retentionSetId: 'eudr.retained_records'`. These are the existing `PrivacyErasureSectionResult.retainedUntil` and `retentionSetId` fields in the erasure spec's “Contract additions”; no replacement fields. The set declares `targets: ['records']`, `minimumDays: 1825` as a caller floor, `excludableSubjectKinds: ['eudr:plot_producer', 'eudr:evidence_producer']`, localized title/age basis and its module handler. Age basis is statement submission for evidence and the latest linked retained statement for plots, not the time the erasure mark was written. Calendar-year eligibility always uses the exact recomputed date, never the 1825-day approximation. It selects only marked records whose stored date has passed and caller window permits, rechecks current statement/evidence dates under lock, and applies the stored preference through the same blank/delete routine; successful rows clear the retained mark. A later statement date postpones the record. The default preference is never changed on retry. There is no independent scheduler: the manual record-retention command or enterprise engine invokes it; due records remain visible in dry run until invoked. Both apply **DEC-C — Retention sets and holds**: optional guard, exclusions and fail-closed hold rule. **R3-5 — Holds, honestly** keeps holds enterprise-only and OSS exclusions manual. Each later blanking batch plans its current full history footprint and runs DEC-B `applyRetention` before and after blanking in its batch transaction; exhaust pages and roll back on strip failure, so snapshots written after the original erasure cannot survive. The caller's next scheduled/manual pass is the residual timing bound.
+- **Shared files.** Consume C4's optional `attachmentService.listForRecordsForPrivacy({ scope, entityId, recordIds }, { em, after?, limit? })`, returning exactly `{ records: Array<{ attachmentId: string; ownerRecordId: string }>, next?: string, done: boolean }`. It accepts at most 100 owner record ids, page size 1–100 and opaque scope-bound keyset cursors; exhaust every page and require `done`, with a failed/unexhausted page incomplete, never no files. Pass the current transaction's manager as `em` to this read and the trailing transaction options on `releaseForRecord(entityId, recordId, scope, { origin }, { em })` and `releaseByIds(ids, scope, { expectedEntityId, expectedRecordId, origin }, { em })`. Only `drainPendingDeletions` runs after commit. This is now declared in the erasure spec, Architecture → Components; absence of the optional method in an installed runtime still refuses this affected path in pre-flight, and late loss fails the class/incompletes exit 2. No peer-table fallback. No attachment-table read occurs here. Serialize EUDR list edits, file linking, anonymization and retained-file sweeps with one tenant/organization EUDR file-reference lock. Test current committed `attachment_ids` on all evidence, including soft-deleted records; never assume another record named in a run will succeed. If any other record still lists an owned file, keep it attached and report it. Otherwise release it inside the current transaction. `releaseForRecord` is used only when none of that owner's files are shared; otherwise release safe ids individually. Foreign-owner listed ids are dropped, never released on behalf of a live owner.
+- **Last-reference sweep.** Every committed anonymization/list drop re-examines files owned by already-anonymized evidence in the same scope, including earlier runs. Release an owner's file only after no other committed row lists it; clear the last reference and enqueue deletion in the same transaction. If B fails after A commits, B's reference keeps the file. If B succeeds later, its transaction rechecks A and releases the orphan. Retained files remain discoverable by the owner's `anonymized_at`; retries and the retention set repeat the sweep, so a crash does not strand them. An unavailable metadata/release service refuses pre-flight; late failure leaves the class incomplete with exit 2. Physical deletion failures use `filesPending`, never a `pending` section outcome. Preserve origin on durable pending rows and cite R3-8 for retention's drain after each committed batch.
+- **Custom fields.** Use C4's “Custom values — `entitiesPrivacyService`”: `listCustomValuesForPrivacy({ scope, entityId, recordIds, after?, limit }, { em? })` exhausts `{ records, next?, done }` with at most 100 record ids/rows per page. Each record supplies `recordId`, `organizationId`, authorized export `values` and exact value-row `recordIdentities`. Pass the current transaction manager as `em` when planning or clearing. `clearCustomValuesForPrivacy({ scope, entityId, recordIds, dryRun }, { em })` returns `{ affected, historyRecords, recordIdentities }`; dry run supplies the complete planned history and projected survivors without writes, and apply supplies actual changed history and survivors. Use `eudr:eudr_plot` and `eudr:eudr_evidence_submission`, never the producer subject kinds. Union its planned/changed identities with the EUDR history plan before the first strip; an unplanned identity requires replan before mutation. Missing service, unreadable values or incomplete pages refuse affected apply/export; no direct custom-value table access. Legally retained custom values use only those owner-supplied row identities and the matching declaration below.
+- **History.** Return every changed record as `historyRecords`, including `eudr.plot` and `eudr.evidence_submission` and every previously anonymized evidence row whose file references the sweep changes. The erasure engine supplies the R3-1 two history passes and **DEC-B — The audit-history strip routine**; this handler writes no snapshot carrying erased values.
+- **No hash column.** Matching is a scan, so the module stores no producer-name hash and has no fill command.
+
+### Pending assistant actions
+
+Single-record actions are found by `(target_entity_type, target_record_id)`; accept the contract's recognized person type spellings, including the stored `customers.person`, never id equality alone. Batch actions are scanned through the decrypting helpers over `records[].entityType` and `recordId`, in bounded keyset batches; unknown/opaque references remain a stated limit. Export matching action contents flagged `freeText`; erase whole matched actions, including standalone ones. Serialize with confirmation/execution so a captured action cannot execute after deletion; an already executing action is `open_case` and reported for retry.
+
+Deletion by age has one home: new `ai_assistant.pending_actions` retention set in this module's `privacy.ts`, target `records`, floor 30 days, age `resolved_at`, eligible only terminal confirmed/cancelled/expired/failed actions and never pending/executing. It includes actions with no conversation. It declares `excludableSubjectKinds: ['auth:user']`, matched under R5-10 by creator `created_by_user_id`, approver/resolver `resolved_by_user_id`, or a typed staff-user target (single or batch); payload-only staff mentions are an accepted known limit; a customer hold skips this set as `hold_not_honourable`, because arbitrary customer mentions in payloads are not reliably attributable. Use `privacyRetentionService.run`, preview by default, through the manual command or enterprise engine, with DEC-C guard/exclusions and no automatic deletion on upgrade. The existing worker continues to expire actions only. Release files via the shared assistant delete routine; R3-7 — Chat file release honours other conversations (record-retention spec) protects every other message/action reference, including standalone pending actions, and R3-8 owns the post-batch drain.
+
+### Audit-history coverage (R3-1)
+
+Under **R3-1 — The audit-history rule for every erasure**, every erasing class returns all records it edits/deletes, including colleagues' rows. Dry run discovers the same record ids for the erasure spec's pre-write strip; its post-owner strip catches entries written during the run (DEC-B/R3-1). Internal clearing creates no snapshot or audit entry containing old values. Record mappings below include audit aliases and module-owned row ids even where today's live path writes no audit log: actual logged resource kind, otherwise the discovered entity id with `:` replaced by `.`, paired with each row id. Apply refuses an unplanned identity with `REPLAN_REQUIRED` before editing it; retries use the persisted pre-write plan.
+
+| Class | `historyRecords` and audit mappings |
+|---|---|
+| `forms.submissions` | Submission, every revision/upload, invitation, changed access-audit/actor row and changed related row; invitation ids as `forms.invitation` and, critically, every affected invitation's distribution id as `forms.invitation`, because invitation creation logs the recipients input under distribution id. Consent evidence is untouched |
+| `forms.staff_activity` | Every access-audit row whose IP/user agent changes; retained staff ids do not imply a write |
+| `documents.documents` | Deleted favourite/watch/grantee-share ids and every edited link id as `documents:document_entity_link`; that is the actual audit kind, not a guessed dotted name. Include any document/content/version/comment row if changed; retained content is not rewritten |
+| `eudr.records` | Changed plot/evidence ids as `eudr.plot`/`eudr.evidence_submission`, with changed custom-field/file-link records |
+| `ai_assistant.conversations` | Deleted conversation/message/participant/action/usage/moderation rows, including actions about a customer and delegated file records |
+| `workflows.instances` | Every edited instance as `workflows.instance`, user task as `workflows.user_task`, deleted draft as `workflows.definition_draft`, plus all changed step/branch/event rows; task comments/redo input and instance context are stripped |
+
+The forms save/submit routes call `SubmissionService` directly; do not invent a `forms.submission.*` command-log path. The invitation-create, document-link and task-complete command payloads/snapshots are the concrete history leak fixtures.
+
+### Invitation objections and activity attribution
+
+`forms_invitation_suppressions`, introduced by [`2026-11-16-email-unsubscribe-headers.md`](2026-11-16-email-unsubscribe-headers.md), is a forms-owned identifier-only objection table: `id`, `tenant_id`, `organization_id`, `recipient_hash`, `key_id`, `source`, `created_at`, `updated_at`. Declare it exactly once in module `privacy.ts.tables` using C5's current `reference_only` shape, with its required column reviews:
+
+```ts
+personalData: {
+  kind: 'reference_only',
+  note: 'Purpose-bound recipient identifier and minimal objection metadata; retained to continue honoring the objection after subject erasure; no address mapping',
+  reviewedColumns: {
+    id: 'Identifies the objection row; no copied address or free text',
+    tenant_id: 'Scopes the objection to its tenant',
+    organization_id: 'Scopes the objection to its organization',
+    recipient_hash: 'Purpose-bound pseudonymous recipient identifier; no copied address or free text',
+    key_id: 'Detects suppression-key mismatch; not a secret',
+    source: 'Fixed one_click/page enum; no unrestricted source text',
+    created_at: 'Records when the objection was created',
+    updated_at: 'Records when the objection was updated',
+  },
+}
+```
+
+C5's “Newly declared account and objection tables” and API Contracts specify this classification and reject `reference_only.columns`. The passing new-table guard remains an E3 Phase 2 delivery gate; no baseline/ceiling identity is added, and the table is not claimed by `forms.submissions.tables`.
+
+Apply unsubscribe assumption 8, as decided: the minimum objection is kept after subject erasure, until the recipient asks for its removal or the tenant is deleted. Deleting it with erasure would let optional invitations resume to someone who objected; the kept row holds no address or name. Neither `sensitive` nor `erasure` mode removes suppressions. `recipient_hash` is purpose-bound and installation/scope-bound, not `forms_invitation.recipient_email_hash`, an ordinary `email_hashes` alias, a `privacy:identifier` id or a B1 mapped lookup hash. Erasure still clears the invitation's `recipient_email_hash`, `token_hash` and `last_error`. Automatic subject export/erasure cannot match suppression hashes to those aliases: every forms run states this unmatched retained-objection limit without invented per-subject matched counts, `PrivacyRetainReason` values or `retainedRecords`. Unchanged suppression rows add no `historyRecords` under **R3-1 — The audit-history rule for every erasure** and **DEC-B — The audit-history strip routine**.
+
+Follow **R4-9 — Suppression state in a tenant export**, owned jointly by C5, this spec, unsubscribe and tenant exit: separate `tableExports` declares `forms_invitation_suppressions: { redact: { columns: ['recipient_hash', 'key_id'], reason: 'key_material' } }`, with the C8 forms-owned reader. The tenant export writes both columns as null, names both redactions and their reason in the manifest, and includes a row count with the remaining minimal metadata. Neither `reviewedColumns` nor `reviewedChecksums` permits either value to export; R4-9 removes the SUPPRESSION-EXPORT reviewed-checksum exception. There is no suppression handover in this version: a receiving system cannot rebuild the opt-outs from this artifact, even with the original suppression key. This is a known limit, not an unresolved export default or a safe-resumption guarantee. C8's “Forms suppression metadata” and E3's “Privacy declaration, erasure and tenant exit” consume the same decision. **DEC-G — The tenant-export reader and its declarations** keeps export metadata separate from coverage; **R3-2 — The registry carries the whole `privacy.ts` default export** owns collection. No secret is exported.
+
+The forms activity source in [`2026-11-16-inactive-subject-retention.md`](2026-11-16-inactive-subject-retention.md), “Other modules”, reuses this handler's subject/alias discovery inside forms. Consume C1's “Account-owned portal links for activity”: the privacy activity filter verifies each CRM person and exhausts the account owner's `resolveLinkedPortalSubjects` pages before supplying that person's `linkedSubjects?: readonly PrivacyLinkedSubject[]` alongside their own subject and aliases. Match direct `subject_type = customer` submissions by the supplied linked `customer_accounts:user` references, including differently addressed accounts. Match invitation `recipient_email_hash` against the root's own `email_hashes` and each linked account's supplied `aliases.email_hashes`, preserving the root aliases and each account's separate envelope. Return the newest scoped submission `created_at`, `updated_at` or `submitted_at` through `activity({ scope, subjects })`, with exactly one `{ subject, status: 'known' | 'unknown', latestAt, blocksRetention? }` per requested reference. Only exhausted, complete attribution may yield `known` with `latestAt: null`; missing/failed/incomplete owner linkage, missing aliases, unsupported subject types, decryption failure or truncated scans yield `unknown` and fail candidate evaluation closed. No portal-user-id or invitation-id alias is introduced, and forms reads only forms tables. C1 Phase 6 specifies the owner method/result; its implementation and complete handoff remain delivery prerequisites. This activity-only seam never expands an erasure target or portal export. R3-6 — The form-to-deals reason set governs event reasons independently: full erasure emits `erasure`, the request route `request`, retention `retention`.
+
+### Table coverage and retained-row proof
+
+Use C5's “Declarations and row subsets” exactly: class `tables` covers only owned tables/subsets served by both methods, module `tables` has one classification per identity, and shared seams require the owner's `{ id, handlerService, entityIds }` and consumer class `entityIds`. Do not claim attachments, custom values or audit tables from these modules. Consume C4's “Shared-store seam declarations”: `attachments.records` / `attachmentService`, `entities.custom_values` / `entitiesPrivacyService` and `audit_logs.subject_history` / `subjectHistoryService`. EUDR declares exactly `eudr:eudr_plot` and `eudr:eudr_evidence_submission` as its consuming entity subset, never the producer subject kinds. C5 `covered_via_seam` references use those exact seam ids, entity ids and `classIds: ['eudr.records']`; unresolved or unserved shared-store remainders remain on the owner's baseline. Forms inline uploads use a forms reader, not an attachments seam.
+
+| Domain | C5 declaration or remaining baseline |
+|---|---|
+| Forms | `forms_form_submission` can partition on `subject_type` into `customer` and `forms_invitation`, with tenant-defined/remainder types explicitly baselined. Relation-based revisions/actors/uploads/audit/consent/invitations stay baselined until every supported slice has export/erase coverage; never assign one whole audit table to both forms classes. Form/version/distribution configuration and encryption keys need their reviewed classifications/export redactions; objection suppression has its single declaration above |
+| Documents | Subject-owned favourites/watches/user-grantee shares and linked-person copies are handled; complex relation-based remainders stay baselined. Shared document/content/version/comment/folder retention is declared with reasons below, not a blanket `none` exemption; templates and unrelated free-text references need a reviewed classification or backlog |
+| EUDR | Plot/evidence producer rows are handled by `eudr.records`. Due-diligence statements, assessments, mitigation actions and product mappings remain explicit baseline/review items for unsearched names, notes and snapshots; no producer class silently removes their backlog |
+| Assistant | Conversation/message/participant/action/usage/moderation slices are handled; opaque customer references stay a stated gap/baseline until complete. The four configuration tables use their declarations below, with per-JSON/per-suspicious-column `reviewedColumns`; user-free `ai_token_usage_daily` needs a reviewed `none` reason, not a subject claim |
+| Workflows | Typed-instance/task matches are handled; relation-based or untyped remaining payloads stay baselined. Definitions/triggers use reviewed `tenant_configuration`, including every suspicious/JSON column; metric rollups use `none` only with the JSON metrics review reason |
+
+Consume verification's “Definition and run evidence” for retained declarations and matching, and C4's API Contracts → “Contract additions — `@open-mercato/shared/modules/privacy`” for `PrivacyRetainedRecord` and the section's `retainedRecords`/`dataClassId`. Each following table/section expands into `retained: [{ section, table, columns, reason }]` on its named class. Return `retainedRecords` for each actual surviving row with its exact `table`, `rowId`, literal allowed `columns` and matching reason; the runner stamps `dataClassId`. Split retained subsets from cleared sections. A declaration never excuses a different row or a deleted/anonymized section. C4's completion-event projection omits `retainedRecords`, while private reports/encrypted audit preserve exact evidence.
+
+| Class / section | Table: literal retained columns | Reason |
+|---|---|---|
+| `forms.submissions` / `submission_evidence` | `forms_form_submission`: `id`, `subject_id`, `subject_type`, `form_version_id`, `started_by`, `submitted_by`, `current_revision_id`; `forms_form_submission_revision`: `id`, `submission_id`, `saved_by`; `forms_form_submission_actor`: `id`, `submission_id`, `user_id`; cleared `forms_form_attachment`: `id`, `submission_id`, `uploaded_by`; `forms_form_access_audit`: `id`, `submission_id`, `revision_id`, `accessed_by`; revoked `forms_invitation`: `id`, `distribution_id`, `submission_id`, `created_by`; `forms_consent_record`: `id`, `subject_id`, `subject_type`, `submission_id`, `form_id`, `form_version_id`, `consent_field_key`, `clause_sha256`, `status`, `signed_at`, `superseded_at`, `superseded_by_record_id` | `evidence` |
+| `forms.staff_activity` / `staff_attribution` | `forms_form_submission`: `id`, `started_by`, `submitted_by`; `forms_form_submission_revision`: `id`, `submission_id`, `saved_by`; `forms_form_submission_actor`: `id`, `submission_id`, `user_id`; `forms_form_attachment`: `id`, `submission_id`, `uploaded_by`; `forms_form_access_audit`: `id`, `submission_id`, `revision_id`, `accessed_by` | `evidence` |
+| `documents.documents` / `organization_evidence` | `documents`: `id`, `owner_user_id`, `created_by_user_id`, `title`; `document_folders`: `id`, `owner_user_id`, `name`; `document_contents`: `id`, `document_id`, `content_html`, `content_text`, `yjs_state`; `document_versions`: `id`, `document_id`, `created_by_user_id`, `content_html`, `yjs_snapshot`, `label`; `document_comments`: `id`, `document_id`, `author_user_id`, `body`, `mentions`, `anchor`, `resolved_by_user_id`; retained colleague `document_shares`: `id`, `document_id`, `principal_id`, `created_by_user_id`; `document_attachments`: `id`, `document_id`, `attachment_id`, `created_by_user_id`; cleared `document_entity_links`: `id`, `document_id`, `customer_entity_id`, `created_by_user_id` | `evidence`; private single-author organization work product |
+| `documents.documents` / `shared_work` | `documents`: `id`, `owner_user_id`, `created_by_user_id`, `title`; `document_folders`: `id`, `owner_user_id`, `name`; `document_contents`: `id`, `document_id`, `content_html`, `content_text`, `yjs_state`; `document_versions`: `id`, `document_id`, `created_by_user_id`, `content_html`, `yjs_snapshot`, `label`; `document_comments`: `id`, `document_id`, `author_user_id`, `body`, `mentions`, `anchor`, `resolved_by_user_id`; retained colleague `document_shares`: `id`, `document_id`, `principal_id`, `created_by_user_id`; `document_attachments`: `id`, `document_id`, `attachment_id`, `created_by_user_id`; cleared `document_entity_links`: `id`, `document_id`, `customer_entity_id`, `created_by_user_id` | `shared_record`; co-written or other-user work |
+| `eudr.records` / `producer_legal_records` | `eudr_plots`: `id`, `producer_name`, `name`, `external_id`, `description`, `geometry`, `area_ha`, `supplier_snapshot`, `supplier_entity_id`; `eudr_evidence_submissions`: `id`, `producer_name`, `notes`, `geolocation`, `batch_number`, `supplier_snapshot`, `supplier_entity_id`, `plot_ids`, `statement_id`, `attachment_ids` | `legal_retention`; return exact `retainedUntil` and `retentionSetId: eudr.retained_records` |
+| `eudr.records` / `producer_shell` | anonymized `eudr_plots`: `id`, `geometry` (coarsened only), `supplier_entity_id`; anonymized `eudr_evidence_submissions`: `id`, `supplier_entity_id`, `plot_ids`, `statement_id` | `evidence`; separate from the cleared identifying-fields section |
+| `ai_assistant.conversations` / `executing_action` | `ai_pending_actions`: `id`, `conversation_id`, `created_by_user_id`, `resolved_by_user_id`, `target_entity_type`, `target_record_id`, `records`, `normalized_input`, `field_diff`, `failed_records`, `execution_result`, `side_effects_summary`, `attachment_ids` | `open_case`, `retainedUntil: null` |
+| `ai_assistant.conversations` / `executing_graph` | `ai_chat_conversations`: `id`, `conversation_id`, `owner_user_id`, `title`, `page_context`; `ai_chat_messages`: `id`, `conversation_id`, `created_by_user_id`, `content`, `ui_parts`, `metadata`, `files_metadata`, `attachment_ids`; `ai_chat_conversation_participants`: `id`, `conversation_id`, `user_id`; actions use the explicit `executing_action` columns above | `open_case`, `retainedUntil: null`; only the exact graph deferred for an executing action |
+| `workflows.instances` / `open_instance` | `workflow_instances`: `id`, `context`, `metadata`, `correlation_key`, `error_message`, `error_details`, `pending_transition`; `step_instances`: `id`, `workflow_instance_id`, `input_data`, `output_data`, `error_data`; `workflow_branch_instances`: `id`, `workflow_instance_id`, `context_namespace`, `pending_transition`, `error_message`, `error_details`; `workflow_events`: `id`, `workflow_instance_id`, `event_data`, `user_id`; `user_tasks`: `id`, `workflow_instance_id`, `form_data`, `form_schema`, `task_name`, `description`, `comments`, `reassign_reason`, `entity_bindings` | `open_case`, `retainedUntil: null` |
+| `workflows.instances` / `workflow_attribution` | closed `workflow_instances`: `id`, `metadata`, `correlation_key`; `step_instances`: `id`, `workflow_instance_id`, `branch_instance_id`; `workflow_branch_instances`: `id`, `workflow_instance_id`, `parent_branch_id`; `workflow_events`: `id`, `workflow_instance_id`, `step_instance_id`, `branch_instance_id`, `user_id`; `user_tasks`: `id`, `workflow_instance_id`, `step_instance_id`, `assigned_to`, `claimed_by`, `completed_by`, `escalated_to`, `reassigned_by`, reduced `entity_bindings` (ids only) | `evidence` |
+
+Retained action/file or custom-value sections keep their service-owned exact row evidence, not an allowance for arbitrary copied payloads. An executing action's conversation is not silently deleted around it: pre-flight defers that graph as `open_case` with `executing_graph` and `executing_action` row/column evidence until execution finishes; no dangling action or late restoration is allowed. Deleted assistant rows/drafts/grantee shares/favourites/watches have no surviving-row allowance. Staff-only workflow runs retain the untouched shared task/event/instance contribution as `other_party`, with separate `staff_work` declarations using the explicit open-instance columns above plus the attribution columns; no content deletion is claimed in that branch.
+
+Add file declarations per invoking class/section: documents' `organization_evidence_files` (`evidence`) and `shared_work_files` (`shared_record`), EUDR's `producer_legal_files` (`legal_retention`) and `shared_evidence_files` (`shared_record`), and assistant's `executing_files` (`open_case`) and `other_conversation_files` (`shared_record`). Each names `attachments` with literal columns `id`, `entity_id`, `record_id`, `file_name`, `storage_path`, `storage_metadata`, `url`, `content`; evidence contains only actual surviving owner-reported row ids/columns. EUDR legal custom values have a separate `producer_legal_custom_values` declaration for `custom_field_values`, columns `id`, `entity_id`, `record_id`, `field_key`, `value_text`, `value_multiline`, `value_int`, `value_float`, `value_bool`, reason `legal_retention`, as present in the canonical entities snapshot, with exact per-row evidence supplied by its owner. Exhaust C4's metadata pages to identify each exact attachment `rowId` from `attachmentId`, never from a message, evidence or document id. C4's dry-run release result supplies the complete planned `historyRecords` and projected survivor `recordIdentities`; apply supplies changed histories and actual survivors, and cannot exceed the pre-write plan. Populate retained-release evidence only from those owner-reported survivors and declared literal columns, with the section's reason. Custom-value evidence uses each listing record's `recordIdentities`, or the clearing result's actual survivor `recordIdentities`, not its owning `recordId` or decoded values. These capabilities are now specified by C4; runtime absence, malformed/incomplete metadata or missing planned/actual identities leaves the affected section incomplete for G6, and new identities require replan before mutation. No consumer invents row ids or reads those tables. Forms inline uploads instead use `forms_form_attachment` in `submission_evidence` through forms' own reader. File evidence never excuses a pending-to-delete file that still contains a marker.
+
+EUDR `producer_legal_records`, files and custom values share the exact statement-based `retainedUntil` and `retentionSetId: 'eudr.retained_records'`. Shared EUDR files use null until the last live reference is removed; the committed last-reference sweep supplies the mechanism, with no promised time for that other record. Submission/consent/staff evidence, document work/files and coarsened producer shells use `retainedUntil: null`, because this spec defines no age set ending them. Open workflow/action graphs and files use null until work terminates and erasure is retried. Shared assistant files stay until their surviving conversation/action drops the reference, without an expiry promised by this run. Staff workflow attribution/shared work also has no end set. Do not invent a retention set for these unbounded causes.
+
+Owner test helpers capture every fixture primary key and its tenant/organization before erasure and probe those exact keys afterward, even when its parent is gone. Cover forms actors/revisions/uploads/access audit/consent/invitations, document shares/favourites/watchers/links, assistant children/standalone actions and workflow children/events/drafts. Each captured row must be absent or match this run's exact retained evidence. `noSearchableText` only replaces marker checks with mandatory id/presence checks; it never waives an orphan. These test-only helpers return presence and fixture-id references, never expose an unscoped production route. Production `reader`/`scanReader` use tenant-exit's exact `PrivacyTableReader` in both modes, preserve the shared read-only transaction, 1–100 batching and stable row ids, and emit explicit ownership/decryption/table-failure gaps. Forms owns inline/key decryption. Under tenant-exit's owner-reader fallback every module registers both modes; a join to a missing parent cannot imply clean coverage.
+
+After canonical-column review, `noSearchableText` may list `forms_form_submission_actor` for the forms classes and `ai_chat_conversation_participants` for the assistant class. Capture their ids and every forms consent/upload shell, document share/favourite/watcher and workflow graph child before the run; assert exact retained evidence or absence after parent removal. Register each owning module's C8 readers before G6 runs, using `(input: { tenantId, table, trx, mode, batchSize, after? }) => AsyncIterable<PrivacyTableReadResult>` and C8's exact result fields. No production reader or test probe may substitute a foreign-table fallback for absent attachment/custom-value/workflow owner support.
+
+### Tables without a tenant
+
+Five forms tables have only an organization. The handler reaches them through their submission, whose tenant it has already checked.
+
+### Schema changes
+
+- `forms_invitation.recipient_email_hash`; `forms_form_submission.erased_at`.
+- Invitation hash is `hashForLookup` of trimmed lower-case email with no context, matching `email_hashes`/`lookupHashCandidates`; with a lookup secret the module writes it regardless of encryption, otherwise leaves it null. `mercato forms fill-privacy-hashes --tenant <id> [--after <id>] [--batch-size <1..100>] [--apply]` requires one tenant, defaults to preview and batch 100, uses UUID keysets and a transaction per batch, row locks/rechecks, and returns a last-id cursor and counts without values/hashes. Rerun from the start catches earlier-id insertions. C1's initial-coverage fill uses locked empty-only writes and never treats its own fill authorization as permission to overwrite a populated target. Non-empty stale/old-secret repair is delegated to this same owning forms command under B1 Phase D's “Coverage-owned hash refreshes” and “Maintenance write safety”: recompute `forms_invitation.recipient_email_hash` from the verified invitation address under the current secret, classify current/old-keyed/legacy-unkeyed/null/unrecognised forms, repair stale non-null hashes and leave current hashes unchanged. Old-secret precedence is `LOOKUP_HASH_OLD_PEPPER`, then `TENANT_DATA_ENCRYPTION_OLD_KEY`, never a flag. The named command routes empty targets through the C1 initial-fill writer and stale populated targets through B1's explicitly coordinated owner implementation, without an invented CLI flag. All paths retain exact tenant/null-safe organization, source-and-target compare-and-set, per-row savepoints, no `updated_at` bump or protected-value snapshot. Missing keys/secret refuse before writes; concurrent edits, collisions or unreadable ciphertext preserve the row, report opaque ids and exit non-zero. Preview writes neither database nor KMS. This module-written column is refreshed by `mercato forms fill-privacy-hashes` under **DEC-F — The B1 hand-offs**, not by B1's mapped `mercato entities rehash-lookups`, which enumerates `hashField` rules; the invitation's current map rule has no `hashField`. **R3-12 — Fill commands for module-written hashes** still names B1's separate three commands; its customers command/columns are new Phase D work, not existing tools. Erasure clears the hash. EUDR has no producer hash fill.
+- `eudr_plots` and `eudr_evidence_submissions`: `privacy_retained_at`, `privacy_retained_until`, `privacy_erasure_preference` and `anonymized_at`, nullable; due-record indexes led by tenant and organization.
+- `workflows` changes no schema. Internal marks have no user edit form; existing editable records retain `updated_at`, API `updatedAt` and optimistic locking.
+
+### Alternatives considered
+
+| Alternative | Why rejected |
+|---|---|
+| Delete submissions | A form's counts, and any consent record pointing at the submission, would break. |
+| Reuse the existing anonymize as it is | It leaves most answers. |
+| Reassign an erased user's documents to an administrator | No transfer exists, and choosing a new owner is a decision for a person. |
+| Delete an erased user's comments and versions | It rewrites history that others rely on. |
+| Keep EUDR records with no end | The period is computable; "until a policy says otherwise" is not defensible when the date is known. |
+| One subject per producer name, through the identifier subject and a name hash | Names are not unique, so it would act on every homonym's records, and the subject has no id that holds from the dry run to the apply. One farmer being several subjects is the price of naming records the operator has checked. |
+| Find EUDR records through their supplier | The supplier is a CRM company, and companies are not subjects. |
+| Keep a blanked plot's geometry and identifiers | They locate the producer's land; with the name gone they still identify a smallholder. |
+| Refuse plot anonymization under `anonymize` | It would leave the name and full geometry in place, or force an irreversible delete the operator did not choose. |
+| Keep a closed workflow instance's event payloads | They copy the person's data with no further use; the event's identity, type and time are enough for audit. |
+| Delete evidence outside the window | A statement may still list it. |
+| Keep the text of a shared conversation its owner is erased from | Only the owner wrote it. |
+| Clear a linked person's data from document bodies | The handler cannot find inserted values in content, editing state and versions. |
+| A separate `forms:respondent` kind | The identifier subject already stands for a person known only by an address. |
+
+### Known limits
+
+- A person named in a document's text, a comment, an assessment note or a transcript is not found.
+- A linked person's field values inserted into a document's body stay there; the run lists those documents for review.
+- A submission whose subject type is one the tenant invented is found only through an address.
+- Collaborative-editing state may carry marks of who typed what. This spec does not remove them.
+- A producer is found only through a name the operator types, matched as a substring of the stored name; a record whose name is spelled otherwise is not found. An assessor's name is free text and is not found.
+- A person already anonymized in the CRM has no address left to compute aliases from.
+- Forms suppressions remain unmatched by automatic subject export/erasure under E3 assumption 8. Neither anonymization mode removes them. Under R4-9 the tenant export redacts both `recipient_hash` and `key_id`, includes a row count, and cannot let a receiving system rebuild the opt-outs. No subject-specific retained count or history mutation is claimed for unchanged suppressions.
+- CRM-person activity consumes C1's specified `linkedSubjects` handoff, including different-address linked accounts; an unavailable or incomplete runtime handoff yields `unknown` and cannot publish a clean candidate.
+
+### Modules assigned after the council review
+
+**`workflows`.** DEC-J — Modules with no coverage owner (program, Roll-out) assigned it here after the council review. What its entities hold (`workflows/data/entities.ts`; the module has no encryption map):
+
+- An instance's `context` starts as the triggering event's whole payload plus mapped fields (`lib/event-trigger-service.ts`) and gathers step results. Its `(metadata.entityType, metadata.entityId)` pair names the record the instance is about, set by a trigger or by the caller of the start route, and `metadata.initiatedBy` the staff user who started it (`api/instances/route.ts`).
+- Steps keep input, output and error data; branches a context namespace; events their data and a user id (the same source, the same source).
+- User tasks keep form data entered by staff, comments, a reassign reason, bindings to the records the task is about with a copied label, and, as text, the users assigned, claiming, completing, escalated to and reassigning (the same source).
+- Drafts belong to one staff user (the same source). Definitions record who created and changed them. Triggers and metric rollups hold configuration and counts.
+- A failed instance can be retried or replayed from its stored context (`api/instances/[id]/retry/route.ts`; `lib/bulk-replay.ts`). The instances list filters `metadata` by `entityType` and `entityId` when supplied (`api/instances/route.ts`).
+
+Class design:
+
+| Class | Subject kinds | Finds by | On erasure |
+|---|---|---|---|
+| `workflows.instances` | `customers:person`; `auth:user` | Instances whose `(metadata.entityType, metadata.entityId)` matches the person kind and id; tasks whose binding `(entityType, entityId)` matches the same typed identity. Reuse `normalizeTaskEntityTypeSpelling` and `resolveAliasedTaskEntityId` from `lib/task-entity-aliases.ts`; never match an id without its type. For a staff user: tasks they were assigned, claimed, completed, were escalated to or reassigned; events with their user id; their drafts | Person, in an instance that is `COMPLETED`, `CANCELLED` or `COMPENSATED`: instance context, `error_message`, `error_details` and `pending_transition`; steps' input/output/error data; branches' `context_namespace`, `pending_transition`, `error_message` and `error_details`; events' payload `eventData` (`workflow_events.event_data`); tasks' `form_data`, `form_schema`, `task_name` (localized placeholder), `description`, comments, reassign reason and copied binding labels **cleared**. Keep instance `correlation_key` as an id-only correlation reference and report it; rows, steps, statuses and timings kept. A task bound to the person in a closed instance about another record: its form data/schema, task name, description, comments, reassign reason and that binding's label **cleared**. An instance in any other status, `FAILED` included, **retained** as `open_case`, because it can still run or be retried from its context. Staff user: their drafts **deleted**; their ids elsewhere stay |
+
+- **Group.** `erasureGroup: 'records'`. It owns no kind.
+- **Export.** Instances about the person with their context and steps; tasks bound to them with their form data; for a staff user, the tasks they handled by name, status and dates, and their drafts by definition.
+- **Tables.** The class lists `workflow_instances`, `step_instances`, `workflow_branch_instances`, `user_tasks`, `workflow_events` and `workflow_definition_drafts`. `workflow_definitions` and `workflow_event_triggers` are declared `tenant_configuration`, with `created_by` and `updated_by` noted as ids; `workflow_definition_metric_rollups` is declared `none`.
+- **Event exception.** This spec's assumption 10 is a narrow, decided exception to the current workflows guide's immutable `WorkflowEvent` rule. Only the privacy handler may blank `eventData` (`event_data`) of a closed instance; it keeps event identity, type, user id and time, and readers render a localized cleared-event placeholder. The Phase 5 change that enables this path also writes the exception into `packages/core/src/modules/workflows/AGENTS.md`.
+- **Terminal graph retention (R5-9).** Coordinate the owner implementation with enterprise coverage's assumption 10, which is a separate decided exception allowing whole-graph deletion for a terminal agent process after its policy window; Phase 5 writes it into the same guide. This spec owns `workflowPrivacyRetentionService.deleteInstanceGraph({ scope, instanceId, transaction, dryRun })` returning `{ deleted: boolean, reason?: string }` in the core workflow module; enterprise consumes it. Accept terminal graphs in `COMPLETED`, `CANCELLED` or `FAILED`, locking and rechecking the scoped instance and absence of running or retrying work. A `FAILED` graph is deleted only once it is older than the policy window; enterprise's `agent_orchestrator.processes` set owns the active-policy and `completed_at` age checks under its process lock. A running or retrying graph is never deleted. Delete tasks/events/steps/branches before the instance, preserve definitions/triggers/drafts, invalidate normal caches and write no removed-value snapshot. Missing instance is idempotent; wrong scope never matches; unsafe sharing/state or missing service retains the process locator and reports incomplete. This does not authorize general event updates/deletes or change the ordinary subject-erasure rule that retains failed instances as `open_case`. Link graph regression coverage to `TC-PRIVACY-ENT-003`; that service and exception must ship before enterprise graph retention is enabled.
+- **Owner graph evidence (R4-8 — The workflow privacy read result).** `workflowPrivacyRetentionService.readInstanceGraphForPrivacy({ scope, instanceId })` returns a flat `Array<{ table: string; rowId: string; columns: string[]; reason: PrivacyRetainReason | 'deleted' }>`, using C4's `PrivacyRetainReason` from `@open-mercato/shared/modules/privacy`. It has no `transaction` input or `found`/`complete`/`records`/`historyRecords` result envelope. This read-only owner operation enumerates the exact scoped instance, tasks, events, steps and branches in bounded pages, exhausts them, and reports exact row identities, literal column names and each row's reason without payload values. Wrong scope returns no matching entries; unreadable/ambiguous graphs or failed enumeration cannot supply complete verification evidence. Enterprise coverage owns the fixed table-to-agent-section map and retained declarations for `workflow_instances`, `step_instances`, `workflow_branch_instances`, `workflow_events` and `user_tasks` (enterprise coverage assumption 11) of process-linked graphs whose metadata does not name the customer. Agent handlers consume these entries and their reasons through that map; entries with `reason: 'deleted'` grant no retained-row permission. They cannot query workflow tables or use a process locator/aggregate count to waive graph survivors. Missing capability blocks graph verification. Workflow C8 readers remain responsible for decrypting/scanning content; this evidence seam grants no foreign-table permission.
+- **Limits.** A person copied into an instance about another record — the buyer in an order workflow's context — is not found. B1 maps workflow context and payloads in the encryption-map spec; handlers use `findWithDecryption`/`findOneWithDecryption` for current or mapped fields. Stored-plaintext assumptions are not a discovery rule. On subject erasure, an open instance is cleared by running erasure again after it closes, and a failed one is retained until it is cancelled. Separately, R5-9 permits whole-graph deletion of a terminal failed agent process after its policy window; it grants no age bound to instances outside that set.
+
+### Assistant configuration table declarations
+
+| Table | Coverage | Outcome |
+|---|---|---|
+| `ai_agent_prompt_overrides` | `tenant_configuration` | Creator id and `notes` stay; notes may contain free text about people and are an explicit unsearched/reportable limit, not PII-free configuration |
+| `ai_agent_runtime_overrides` | `tenant_configuration` | Updater id stays as reference attribution |
+| `ai_tenant_model_allowlists` | `tenant_configuration` | Updater id stays as reference attribution |
+| `ai_agent_mutation_policy_overrides` | `tenant_configuration` | Creator id and free-text `notes` stay with the same reported notes limit |
+
+These are coverage declarations separate from `tableExports` (DEC-G); R3-2 exposes both from the complete `privacy.ts` default export. No creator/updater id is silently removed.
+
+The assistant classes report unmatched opaque customer payloads and free-text override notes as limits; classification as configuration does not make those notes non-personal.
+
+## 📝 Delta
+
+### Capability: privacy-coverage-content-ai
+
+#### ADDED Requirement: Export of content records
+The system SHALL include in a subject's export their form submissions with answers, document titles and the staff user's own free-text comments, consent evidence, named EUDR records, their own assistant conversations and pending actions with a typed customer match.
+
+##### Scenario: Portal respondent
+- WHEN a portal user who submitted a form is exported
+- THEN the document has their answers in readable form
+
+##### Scenario: Invited by email
+- WHEN the address an invitation was sent to is exported
+- THEN one subject covers the submissions made under that address
+
+##### Scenario: A portal user who was also invited by email
+- WHEN a portal user whose address received an invitation is exported
+- THEN that submission is included
+
+#### MODIFIED Requirement: Removing a respondent's answers
+The system SHALL, on erasure, remove every answer and upload of a respondent's submissions, not only those flagged as sensitive, and SHALL keep the submission's shell and consent record.
+
+##### Scenario: Unflagged answer
+- WHEN a respondent with an answer in a field not flagged sensitive is erased
+- THEN that answer is gone, and the form still lists the submission
+
+##### Scenario: Already anonymized by retention
+- WHEN the retention job has already removed a submission's flagged answers and the respondent is then erased
+- THEN the remaining answers are removed too
+
+##### Scenario: No new copy
+- WHEN an erased submission's PDF copy is requested again
+- THEN none is generated
+
+##### Scenario: Retention is unchanged
+- WHEN the forms retention job anonymizes a submission by age
+- THEN only flagged answers are removed, as today
+
+Frozen by: `packages/core/src/modules/forms/__tests__/anonymize-service.characterization.test.ts`
+
+#### ADDED Requirement: Erasure with shared work
+The system SHALL remove personal account records on staff erasure and retain documents as organization work product with an accurate reason, including private single-author documents. It SHALL remove only shares granted to the erased user, preserving shares they created for colleagues.
+
+##### Scenario: A conversation they own
+- WHEN a user who owns a conversation shared with colleagues is erased
+- THEN the conversation and its messages no longer exist
+
+##### Scenario: A conversation they only joined
+- WHEN the user was a participant in someone else's conversation
+- THEN that conversation is unchanged for the others, and the user is no longer a participant
+
+##### Scenario: A document
+- WHEN the user owned a document others edited
+- THEN the document still opens for them, the run reports it as retained as a shared record, and the user's favourite on it is gone
+
+#### ADDED Requirement: EUDR records and the five-year period
+The system SHALL keep an EUDR record that belongs to a statement submitted less than five years ago, saying until when. It SHALL report `eudr.retained_records` and mark retained rows for a later explicit retention run. Outside the period it SHALL anonymize evidence and, for a plot, honour `anonymize` by coarsening its shell or `delete` by hard deletion. It SHALL initially mark/change only named records; retained-file sweeps can release orphaned files of already-anonymized records without altering live producers.
+
+##### Scenario: Within the record period
+- WHEN the evidence record naming a producer under a statement submitted two years ago is erased
+- THEN nothing is removed and the run reports the date three years on
+
+##### Scenario: A plot with no statement
+- WHEN a plot that names the producer is listed on no evidence under a submitted statement, and it is erased with `--prefer delete`
+- THEN the plot no longer exists, including if it was previously soft-deleted
+
+##### Scenario: Evidence with no statement
+- WHEN an evidence record with no submitted statement is erased
+- THEN its producer name, notes, location, batch number and supplier display name are empty, its files are gone, and the record still exists
+
+##### Scenario: Retention reaches its endpoint
+- WHEN a marked evidence record or plot reaches its statement-based date and the retention command or engine runs the set
+- THEN it rechecks the date and holds, applies its stored preference and releases eligible files without another subject-erasure request
+
+##### Scenario: Plot anonymize preference
+- WHEN a plot outside the period is erased with `--prefer anonymize`
+- THEN it remains with cleared identifiers/area and only the one-decimal centroid point; the report states the residual location
+
+##### Scenario: Shared file in separate runs
+- WHEN A owns a file B lists, A is anonymized, and B is anonymized in a later run
+- THEN A initially keeps the file and B's committed last-reference removal releases it; a failed B never permits release
+
+##### Scenario: Two producers with one name
+- WHEN a name matches records of two producers and the operator names only one producer's records
+- THEN the other producer's records are unchanged
+
+#### ADDED Requirement: Workflow instances about a person
+The system SHALL, on erasing a CRM person, clear the data of closed workflow instances about them, and SHALL retain and report an instance that can still run.
+
+##### Scenario: A completed instance
+- WHEN a person with a completed instance about them is erased
+- THEN the instance's context and its steps' data no longer hold their data, and the instance is still listed
+
+##### Scenario: A running or failed instance
+- WHEN the person has an instance that is running or failed
+- THEN it is unchanged and the run reports it as retained as an open case
+
+##### Scenario: An old failed agent graph
+- WHEN the agent retention set selects a terminal `FAILED` graph older than its active policy window, with no running or retrying work
+- THEN R5-9 permits `workflowPrivacyRetentionService.deleteInstanceGraph` to delete the scoped graph children before the instance, preserving definitions, triggers and drafts
+
+##### Scenario: An ineligible agent graph
+- WHEN a failed agent graph is not older than its policy window, or a graph is running or retrying
+- THEN retention leaves the graph and process locator intact; a `FAILED` status alone never authorizes deletion
+
+#### ADDED Requirement: Every edited record loses replayable history
+The system SHALL supply the erasure spec's R3-1 history passes with every edited record, including distribution-keyed invitation logs, link snapshots and task comments, and write no new cleared-value snapshot.
+
+##### Scenario: Old command payload
+- WHEN invitation creation, a document-link change or task completion logged the subject's marker
+- THEN erasure strips that payload/snapshot and both undo and redo refuse it under the erasure spec's execution-time check
+
+##### Scenario: A captured form write
+- WHEN erasure commits before save, submit, upload, reopen or a rendered PDF commits
+- THEN the service's locked mark check refuses the late write and no answer/file is restored
+
+#### ADDED Requirement: Pending-action deletion is explicit
+The system SHALL export and erase actions found by typed customer target and SHALL delete old terminal actions only through an explicit retention set, including standalone actions, with the shared hold rule.
+
+##### Scenario: Standalone expired action
+- WHEN an expired action has no conversation and its age exceeds thirty days
+- THEN upgrade and the expiry worker leave it; an applied retention run deletes it unless exclusions or an unhonourable hold stop the set
+
+## 📝 Architecture
+
+- Each module: C5-proven declarations, exact retained-row evidence and captured-row probes; exercise tenant-exit shared readers in both modes. Each module: `privacy.ts`, a handler and internal blanking function under `lib/privacy/`, its registration, retained declarations, table declarations.
+- `forms`: erasure mode, locked write barrier, service-level PDF race check, statistics, invitation hash/revocation, consent export and distribution-keyed history discovery. CRM-person activity consumes C1's per-person `linkedSubjects` envelope alongside the root's own aliases; its absent/incomplete runtime handoff leaves activity `unknown`. Forms reads no peer tables and invents no portal/invitation-id aliases. R3-6 governs downstream form-to-deals propagation, limited by R5-6 to the connector's deal-side projections; CRM Person fields remain with the customers owner.
+- `eudr`: two subject kinds, name resolution, calendar-year window, retained marks/set, preference-aware plot outcome and shared-file sweep through the attachments service.
+- `workflows`: the class, its status rule and its table declarations.
+- `ai_assistant`: the class shares its delete routine with the retention set of the record-retention spec. Files are released by id through the attachments seam's `releaseByIds(ids, scope, { expectedEntityId: 'ai-chat-draft', origin }, { em })`, collected from `attachment_ids` on the conversation's messages and pending actions: chat uploads are stored under `ai-chat-draft` with a browser-minted record id, so a release by conversation would find nothing. R3-7's surviving-reference scan includes every other message and pending action, soft-deleted and standalone rows included. All attachment-list writers and release paths acquire its shared tenant transaction lock; the routine also uses the conversation row/id locks and exact incarnation bounds in record-retention's “Conversation rows and concurrent writes” (`created_at` through `deleted_at` for a deleted incarnation). Ambiguous children skip with `ambiguous_conversation_children`, never remove a newer live incarnation. Erasure has no age eligibility check, but retains these reference/ownership/incarnation protections. The explicit `ai_assistant.pending_actions` set also uses this routine; the expiry worker never deletes. A chat upload never sent is reached by neither subject path and has no uploader attribution. It is covered by record-retention's `attachments.unreferenced_chat_drafts`, not an untracked follow-up: explicit invocation, caller window with a thirty-day floor, no automatic upgrade deletion, any subject hold skips it. `assistantAttachmentReferences.withUnlistedIds` supplies the tenant reference lock/scan; a missing service refuses. Staff erasure reports that unsent uploads cannot be attributed to that subject.
+- `customer_accounts`: `resolveAliases` with the portal user's `email_hashes`; C1's “Account-owned portal links for activity” specifies `customerAccountUserPrivacyHandler.resolveLinkedPortalSubjects` and the activity filter's `linkedSubjects` handoff. This is separate from `customerPortalLinkResolver.resolveLinks` and grants no extra erasure target.
+- The contract is not changed for names: `eudr` uses the existing `resolveSubjects` and candidate match.
+
+| Touchpoint | Mechanism | Absent |
+|---|---|---|
+| Run → forms answers | The forms module's own decrypting service | Forms keys unavailable: the section is reported as failed |
+| `forms` → an address | Aliases from an owner class or the identifier subject | Id results may be returned, but missing required aliases make coverage incomplete |
+| `eudr` → a name | Its own `resolveSubjects`, by a decrypting scan of its own tables | — |
+| `workflows` → a person | Its own instances' `metadata` and its tasks' `entity_bindings` | — |
+| `documents` → a CRM person | `customer_entity_id` on its own link table | — |
+| Classes → files | Erasure seam with transaction and origin; C4-owned EUDR scoped metadata read; forms clears inline uploads | Missing required method refuses pre-flight; runtime failure is incomplete exit 2; durable deletion failures use `filesPending` |
+| Forms → projected deal copies | `forms.submission.anonymized`, R3-6/R5-6; form-to-deals removes only its deal answers/label/CV/files, never CRM Person fields | Persistent event retries, never report projection files synchronously verified |
+
+## 📝 Data Models
+
+| Table | Change |
+|---|---|
+| `forms_invitation` | `recipient_email_hash`, indexed with the tenant |
+| `forms_form_submission` | `erased_at`, nullable |
+| `eudr_plots`, `eudr_evidence_submissions` | Nullable `privacy_retained_at`, `privacy_retained_until`, `privacy_erasure_preference`, `anonymized_at`; due-record index led by tenant/organization |
+
+Additive migrations and module snapshots. Retained preferences and marks are internal; existing editable records retain their version/API optimistic-lock contract.
+
+## 📝 API Contracts
+
+- **Contract**: no change. `eudr` owns the subject kinds `eudr:plot_producer` and `eudr:evidence_producer` and implements `resolveSubjects` for `name`, returning candidates only. `customer_accounts.users` implements `resolveAliases`.
+- **Forms projection reader:** the new trusted DI method above is additive; no public route or role-slicing bypass.
+- **Workflow graph reader:** the R4-8 method in “Owner graph evidence” takes only `{ scope, instanceId }` and returns the flat row/column/reason array. Enterprise coverage owns its fixed section mapping and retained declarations; the deletion method retains its separate transaction/dry-run contract.
+- **Workflow graph deletion:** R5-9 applies to `workflowPrivacyRetentionService.deleteInstanceGraph({ scope, instanceId, transaction, dryRun })` with result `{ deleted: boolean, reason?: string }`. The terminal states are `COMPLETED`, `CANCELLED` and `FAILED`; failed graphs require age beyond the policy window, and running/retrying graphs never qualify. The agent set enforces its policy/age checks and the workflow owner locks/rechecks state and active work; this is separate from subject-erasure blanking.
+- **Forms:** service `mode: 'sensitive' | 'erasure'`, default `sensitive`; the optional event `reason` enum is exactly `request | erasure | retention` under R3-6 above. The public event id and existing fields remain; all first-party emitters supply a reason, older missing-reason payloads are acknowledged by form-to-deals without writes. Service validation uses zod.
+- **Commands:** `mercato forms fill-privacy-hashes --tenant <id> [--after <id>] [--batch-size <1..100>] [--apply]`, with C1's empty-only initial-fill convention and bounded/resumable transaction/failure rules in Schema changes; non-empty repair is explicitly B1 Phase D's “Coverage-owned hash refreshes” and “Maintenance write safety”, not a new overwrite permission. Privacy retention invokes `eudr.retained_records` and `ai_assistant.pending_actions` through the existing shared command/API, not a new scheduler.
+- **Attachment metadata:** use C4's delivered design `attachmentService.listForRecordsForPrivacy({ scope, entityId, recordIds }, { em?, after?, limit? })` and exact `{ records: [{ attachmentId, ownerRecordId }], next?, done }` envelope, exhausting pages with the current transaction manager. Release methods take trailing `{ em }`, exact scope/owner/options and `origin` as specified above. Runtime capability absence still refuses affected cleanup; no foreign-table fallback. Custom values use the C4-owned `entitiesPrivacyService` methods above.
+- **Routes:** URLs, existing fields, auth features and mutation guards stay. Submission detail gains `erasedAt`. Save, submit, upload and reopen return the existing domain-error envelope with code `SUBMISSION_ERASED` (409) once marked; invalid revoked invitation tokens return the existing 410. PDF download returns 410 for an erased submission and never regenerates/serves bytes. OpenAPI and localized UI error handling cover those states; existing optimistic locking is still required. All list `pageSize` values remain at or below 100.
+
+## 📝 Edge Cases & Failure Scenarios
+
+| Case | Behaviour |
+|---|---|
+| A submission still in progress | Answers removed, invitation revoked, and every late write refused under the submission lock |
+| A form that was deleted with submissions remaining | The submissions are still found by subject |
+| A respondent who is both a portal user and was once invited by email | One run for the portal user reaches both, through their address alias |
+| An invitation that was never answered | Recipient details, email hash, token hash and last error cleared; status revoked |
+| The forms master key is not configured in the process running the command | Export and erasure of answers fail for that class and say why |
+| A private single-author document | Retained as `evidence` of organization work product, not `shared_record`; own comments included in export, body exclusion reported |
+| A share created by the erased user for a colleague | Kept; only a share whose user grantee is erased is deleted |
+| An organization-wide conversation the user owned | Deleted, as any conversation they own |
+| A pending assistant action created by the user, with or without a conversation | Deleted |
+| A name that matches records of two producers | Each record is its own candidate; only the records the operator names change |
+| A plot named alone but listed on retained evidence | Retained to that evidence's date |
+| An id in an evidence record's `attachment_ids` that belongs to another record | Not released; dropped from this record's list and reported |
+| A file attached to anonymized A and listed by B | Kept until B actually commits its list removal; the last-reference sweep rechecks A even in a later run. Planned same-run erasure is never enough |
+| An EUDR record already anonymized, named again | Reports standing outcome and repeats pending-file sweep/drain; name resolution no longer finds it |
+| A failed workflow instance about the person | Subject erasure retains it as an open case until cancellation and retry; R5-9 separately permits age-based deletion of an eligible terminal agent graph |
+| A failed agent graph at or inside its policy window | Not deleted; age must be beyond the window, and running or retrying work always prevents deletion |
+| A workflow task bound to the person and to a deal | Its form data, comments and the person's binding label are cleared once its instance is closed |
+| Evidence under a draft statement | No statement-based window; anonymized |
+| Terminal standalone assistant action with a customer hold | Retention set skipped as `hold_not_honourable`; erasure follows the erasure guard |
+| Workflow metadata with matching id under another type | Not selected; binding and metadata require kind plus id |
+| PDF render pauses before erasure commits | Locked final check discards bytes and creates no snapshot |
+| The forms retention job meets an erased submission | It skips it |
+
+## 📝 Migration & Backward Compatibility
+
+Additive marks, hashes, indexes, sets, service options, commands and two EUDR subject kinds. Register invitation hashes for B1 Phase D rotation and refresh existing old-form values. Existing sensitive anonymization/retention outcomes stay; only subject-erasure mode sets `erased_at` and revokes all future writes. Event reason is optional for compatibility, with R3-6's exact enum and missing-reason no-op. New 409/410 responses close erased-submission writes/downloads; document them and preserve existing error envelopes and UI localization. No deletion starts on upgrade: assistant age deletion requires an applied retention command or engine policy. EUDR retained rows require that later caller to reach their endpoint; no hidden scheduler. Plot deletion is explicit `delete`, never substituted for `anonymize`. Workflow event blanking ships with assumption 10's exception written into the workflows guide in the same change.
+
+## 📋 Phasing
+
+Each phase ships its module's export and erase together.
+
+| Phase | Module | Depends on |
+|---|---|---|
+| 1 | `forms` | The addenda; erasure spec, Phase 3; the forms retention spec; C1 Phase 6's account-owned `linkedSubjects` handoff before complete CRM activity attribution; C5's specified suppression classification/guard before E3 Phase 2 delivery |
+| 2 | `ai_assistant` | The same; the record-retention spec for R3-7 — Chat file release honours other conversations and R3-8 — Retention drains its own pending file deletions |
+| 3 | `documents` | The same |
+| 4 | `eudr` | The same |
+| 5 | `workflows` | The same |
+
+## 📋 Implementation Plan
+
+### Phase 1 — forms
+1. Characterize sensitive anonymization in `forms/__tests__/anonymize-service.characterization.test.ts`: unflagged answers survive and anonymized revisions are skipped.
+2. Add erasure mode, mark, invitation hash/token/error clearing, revocation and locked save/submit/upload/reopen barriers. `forms/__tests__/privacy-erasure.test.ts` checks every revision, including sensitive-then-erasure, invitation without submission, erased draft and late captured token; preserve ordinary sensitive mode.
+3. `forms/__tests__/privacy-pdf-race.test.ts` covers admin/public downloads after erasure and pauses rendering before erasure to prove no post-erasure snapshot commit. Implement the check in `services/pdf-snapshot-service.ts`, not only the worker. Check statistics before/after.
+4. Invitation normalized hash writes, tenant-scoped empty-only coverage fill and B1 “Coverage-owned hash refreshes” delegation to `mercato forms fill-privacy-hashes`; `privacy-invitation-hash.test.ts` checks normalized no-context email alias parity, encryption off/on, bounded fallback and erased hash null. Its B1 Phase D maintenance fixture changes the secret with a non-null old-secret `recipient_email_hash`, asserts current-secret recomputation, preview/no-write, rerun, tenant/organization controls, no-secret refusal, unreadable-source preservation, conditional source-and-target updates and unchanged user-visible versions. Export consent evidence and both forms classes. `privacy-invitation-history.test.ts` creates a distribution-keyed invitation payload marker, then proves both history strips and execution-time undo/redo refusal via the erasure engine.
+5. Gate E3 Phase 2 suppression delivery on C5's specified identifier-only classification and guard; test all eight `reviewedColumns` reasons, fixed `source` enum `one_click`/`page`, no copied address/name/free text, rejection of unsupported `columns`, no baseline/ceiling addition and export-only failure. Implement E3 assumption 8 and R4-9, preserve suppressions in both anonymize modes, redact both `recipient_hash` and `key_id` in `tableExports`, name both in the manifest, include a row count, and reject reviewed-checksum bypasses for either column. Test that the artifact cannot rebuild opt-outs and that no subject counts/history/evidence are fabricated. Reuse forms discovery for inactive activity with C1's per-person `linkedSubjects` and the root's unchanged aliases; absent/failed/incomplete linkage yields `unknown`. `privacy-activity.test.ts` creates a CRM person and linked portal account with different addresses, backdates their non-form activity, submits only as `subject_type = customer`, and proves the recent form blocks CRM candidacy through the supplied account reference. Also match invitations through that account's supplied aliases while preserving the root's own aliases; unavailable/incomplete handoff asserts unknown/refusal, never no activity. Implement R3-6 on all emitters and R5-6 on the form-to-deals consumer. `privacy-anonymized-reason.test.ts` covers all three reasons and absence, with persistent duplicate delivery; both active reasons clear only the connector's deal answers/label/CV/files, preserve unrelated deal fields/files and never change newly created or deduplicated CRM Person fields/history, including excluded or held related people. TC-PRIVACY-FORMS-001 and TC-PRIVACY-FORMS-DEALS-001.
+
+### Phase 2 — assistant
+1. Add staff and typed-customer discovery/export/erase with the shared retention delete routine and R3-7 file-reference protection. `privacy-pending-actions.test.ts` covers single and batch targets, standalone actions, type collision, decrypted values, execution race, exact deferred graph/action evidence and `open_case` retry.
+2. Add `ai_assistant.pending_actions` explicit records set and four configuration declarations. `privacy-pending-action-retention.test.ts` covers no deletion on upgrade/expiry worker, thirty-day boundary, terminal versus pending/executing states, standalone rows, staff exclusions, customer hold skip, guard failure and dry-run/apply. `privacy-overrides.test.ts` covers all four declarations and the notes limit. R3-8 — Retention drains its own pending file deletions (record-retention spec) owns file drains after committed retention batches.
+3. TC-PRIVACY-ASSISTANT-001 and TC-PRIVACY-ACTIONS-001; test writer/reference locks and reused conversation ids under R3-7. Report unsent uploads via `attachments.unreferenced_chat_drafts` without claiming per-user attribution.
+
+### Phase 3 — documents
+1. Add class, own-comment `freeText` export and reasoned body exclusion; preserve documents as organization work product. `privacy-documents.test.ts` covers private single-author `evidence`, co-written `shared_record`, user-grantee share deletion and colleague shares created by that user surviving.
+2. Register module-owned C8 export/scan readers and exact work/file retained declarations before G6. `privacy-document-link-history.test.ts` plants a marker in an actual link before/after snapshot and checks both strips, all changed history ids and replay refusal. Declare every table, including folders. TC-PRIVACY-DOCS-001.
+
+### Phase 4 — EUDR
+1. Add two subject kinds and decrypting name resolution. `privacy-eudr-resolution.test.ts` covers separate homonyms, soft-deleted records, bounds and tenant/organization isolation.
+2. Add retained/preference/anonymized marks, migrations/snapshots, R3-3 setting declaration and `eudr.retained_records`. `privacy-eudr-window.test.ts` checks exact calendar years, default/minimum setting, later statement date, latest evidence date, draft/no statement, exclusion/guard failure, no early deletion and expiry without another erasure. `privacy-eudr-preference.test.ts` checks anonymized centroid shell and explicit hard delete of a soft-deleted plot.
+3. Add in-transaction release with origin and last-reference sweep, consuming C4's scoped paged attachments metadata method with the same transaction manager on reads/releases. `privacy-eudr-shared-files.test.ts` tests A then B and B then A in separate runs, same-run failure, rollback, retained B, unrelated owner, missing service, process crash/retry and durable pending deletion. No release relies on another record's planned success.
+4. TC-PRIVACY-EUDR-001 and TC-PRIVACY-EUDR-FILES-001; test metadata paging to `done`, failed/unfinished cursor refusal, exact transaction propagation on reads/releases and `entitiesPrivacyService` paging/clearing/history/`recordIdentities`. Check dry-run release planning, complete pre-write history union and unplanned-identity refusal against C4's result. Assert exact legal/shared-file/custom-value survivor evidence from owner identities and missing-evidence incomplete behavior; register EUDR C8 readers before G6.
+
+### Phase 5 — workflows
+1. Implement typed metadata/binding discovery, decrypting reads, complete payload/error clearing and the status rule. `privacy-workflow-fields.test.ts` covers completed/cancelled/compensated instances, failed/running retention, a failed branch inside a closed instance, every named field, task bound to another record, type/id collision and tenant isolation.
+2. Write assumption 10's exception into `packages/core/src/modules/workflows/AGENTS.md` in the same change that enables event blanking. `privacy-workflow-events.test.ts` proves ids/type/time remain and detail/timeline render a cleared placeholder. `privacy-workflow-history.test.ts` plants an actual task-completion redo/comments marker and checks both history strips and replay refusal, including instance/task/draft history ids.
+3. Implement/test both `workflowPrivacyRetentionService.deleteInstanceGraph({ scope, instanceId, transaction, dryRun })` under R5-9 and R4-8's `readInstanceGraphForPrivacy({ scope, instanceId })`. Assert the read returns a flat array with exactly `table`, `rowId`, `columns` and `reason`, accepting only `PrivacyRetainReason` or `deleted`, without the old result envelope or a transaction input. Write enterprise assumption 10's separate whole-terminal-graph exception into the same guide with the service: child-first graph deletion for `COMPLETED`, `CANCELLED` or `FAILED`, preserved definitions/triggers/drafts, refusal with retained process locator on missing service, unsafe state/sharing or failure. With an injected clock, cover an old terminal `FAILED` graph, a failed graph exactly at and inside the policy cutoff, and running/retrying graphs, including a concurrent retry under the owner lock; only the old terminal graph with no active work is deleted. Keep the ordinary subject-erasure failed-instance `open_case` test. TC-PRIVACY-ENT-003 checks these eligibility cases, preview, deletion transaction paths, exact scoped workflow row/column/reason evidence without agent table reads, wrong scope, failure and retry. Include a process-linked graph whose metadata does not name the customer; enterprise's fixed table-to-section map must cover the five mapped tables, `user_tasks` included, with matching retained declarations and reject a wrong-table/row mapping or `deleted` entry as retained permission. Register workflow C8 readers before G6. TC-PRIVACY-WORKFLOWS-001; remove only C5-proven table/subset claims from baseline, add verification-suite markers and archive Delta only if the capability directory is adopted.
+
+| File | Action |
+|---|---|
+| `packages/core/src/modules/forms/{privacy.ts,lib/privacy/*,services/anonymize-service.ts,services/submission-service.ts,services/attachment-service.ts,services/pdf-snapshot-service.ts,services/analytics-service.ts,services/distribution-service.ts,lib/privacy/projection-reader.ts,di.ts,events-payloads.ts,data/entities.ts,migrations/*,cli.ts}` | Create / modify, including snapshot and hash write paths |
+| `packages/core/src/modules/forms/{lib/runtime-principal.ts,workers/pdf-snapshot.ts,api/submissions/[submissionId]/*,api/form-submissions/[id]/*,api/public/submissions/[id]/*}` | Locked erased-state checks, 409/410 OpenAPI and localized readers |
+| `packages/documents/src/modules/documents/{privacy.ts,lib/privacy/*,di.ts}` | Comment export, accurate retention reasons, share selection and link history |
+| `packages/core/src/modules/eudr/{privacy.ts,lib/privacy/*,di.ts,data/entities.ts,migrations/*,commands/evidence-submissions.ts}` | Retained marks/set, shared-file locks/sweep, snapshots and source-write locking |
+| `packages/core/src/modules/workflows/{privacy.ts,lib/privacy/*,di.ts,AGENTS.md}` and workflow event readers/graph service | Typed discovery, full clearing, localized event state and the guide's two event exceptions (assumption 10 and enterprise assumption 10) |
+| `packages/ai-assistant/src/modules/ai_assistant/{privacy.ts,lib/privacy/*,di.ts}` | Customer pending-action coverage, explicit retention set, shared file routine and four table declarations |
+| Each module's `__tests__/` and `__integration__/` | Named unit tests and self-contained integration tests |
+| C4 file/custom-value evidence implementation; C1 account-owned activity linkage implementation | Cross-owner delivery prerequisites: implementation of the specified delegated survivor identities and per-person `linkedSubjects` handoff; C4/C1 contracts and forms-retention R3-6 are already designed. No unowned file is edited here |
+
+## 🧪 Integration Coverage
+
+Every test creates its own tenants, users, subjects, definitions, distributions, records and files with API fixtures, shares the app's lookup secret, and cleans every surviving record/file in `finally`, including injected failure cases. No demo data. Internal assertions use scoped queries; API/UI checks use the authorized colleague or administrator after account deletion.
+
+| Test | Covers |
+|---|---|
+| TC-PRIVACY-FORMS-001 | Preserve objections in both modes, report unmatched state without fabricated subject counts/history, and verify tenant-exit redacts both recipient_hash and key_id, names both redactions in the manifest and includes the row count/minimal metadata. Reviewed-checksum bypasses fail for either column; the artifact cannot rebuild opt-outs. Submit flagged/unflagged answers and uploads through portal and invitation flows; exports include decoded answers and consent evidence. Plant invitation-create payload marker under distribution id. Erasure clears all revisions, inline files/PDF, recipient hash/token/error and audit markers; submission shell/consent remain. Public/admin detail and PDF/download paths return cleared state/410, save/submit/upload/reopen refuse even with a captured token, and respondent/admin UI shows the localized state. A second tenant is untouched |
+| TC-PRIVACY-FORMS-DEALS-001 | Create active binding, submission, linked person/deal, mapped deal answer, copied deal label and projected/unrelated files; include a pre-existing Person reused by deduplication. Both request route and privacy erasure (`erasure`) remove only the connector's deal answers/label/CV/files under R5-6, leaving unrelated deal fields/files and CRM Person fields/history unchanged. Include an excluded related person and an enterprise-held related person. Duplicate delivery is idempotent; retention/missing reason produce no CRM writes. Observe eventual consumer completion and downloads, never assume event enqueue means cleanup; clean all fixtures |
+| TC-PRIVACY-ASSISTANT-001 | Staff owns a shared conversation and joins a colleague's; erase deletes the first and participation in second. Another conversation retaining the same file id protects it under R3-7; API/colleague UI still opens that conversation. Check history and files |
+| TC-PRIVACY-ACTIONS-001 | Person-targeted single and encrypted batch actions, with/without conversations, appear in export and disappear on person erase; type collision stays. Separate standalone terminal action survives expiry worker and retention preview, then goes on applied set; customer hold or failed guard skips/refuses with no writes. Pending/executing rows stay. Test confirm path cannot execute a deleted action |
+| TC-PRIVACY-DOCS-001 | Co-written document stays readable to colleague as `shared_record`; private single-author stays as `evidence`. Staff export includes own comment as `freeText`, with body exclusion explained. Delete only subject-grantee shares/favourites/watches; a colleague's share created by subject survives. CRM link label and actual command snapshot marker clear; detail and undo/redo paths cannot restore it |
+| TC-PRIVACY-EUDR-001 | Two homonymous producers have distinct plot/evidence subjects, with current statement and no-statement fixtures. Resolve candidates and erase only named records; legal rows return exact date/set id and marks. Explicit delete hard-deletes even soft-deleted plots; anonymize keeps only specified coarse shell. Evidence text/location/files clear. Advance injected clock past statement date, run set without another erasure, and assert due rows clear under stored preference; exclusions/holds spare rows. Clean statements, plots, evidence and files |
+| TC-PRIVACY-EUDR-FILES-001 | A owns uploaded file B lists. Erase A then B and reverse order across separate runs; final last reference removal releases file and download returns 404. Inject B failure in same run and verify B's reference/file stay. Retry/drain removes durable pending objects without unrelated-owner release |
+| TC-PRIVACY-WORKFLOWS-001 | Create CRM person, definitions and completed/waiting/failed instances using `(metadata.entityType, metadata.entityId)`; include a closed instance with branch-error/task-text markers and a task-completion command payload. Erase clears every named closed payload/error and history marker; open/failed instances stay as `open_case`. Separately coordinate R5-9 coverage with TC-PRIVACY-ENT-003: old terminal FAILED graph deletes children before root, failed graphs at/inside the policy cutoff and running/retrying graphs stay, including a concurrent retry. Wrong-type/same-id and second-tenant instances stay; definitions/triggers/drafts survive graph retention. Timeline renders cleared events with ids/type/time intact; replay cannot restore stripped comments. Clean all fixtures |
+
+## 📝 Risks & Impact Review
+
+#### A forms cascade changes an excluded or held CRM Person
+- **Scenario**: the connector deduplicated a submission onto a pre-existing Person, then treats a portal-user or identifier erasure event as authority to clear that Person.
+- **Severity**: High
+- **Affected area**: related CRM subjects and their holds
+- **Mitigation**: R5-6 limits both active event reasons to deal-side copies created by the connector. Person fields/history stay outside its cleanup; C4's related-subject review, exclusions and hold guard govern the customers-owner path. TC-PRIVACY-FORMS-DEALS-001 covers deduplicated, excluded and held people.
+- **Residual risk**: the Person's own PII requires separately authorized owner erasure; asynchronous deal-copy cleanup still needs delivery completion.
+
+#### An answer survives erasure
+- **Scenario**: A revision or an upload is missed by the erasure mode.
+- **Severity**: High
+- **Affected area**: respondents
+- **Mitigation**: The mode walks every revision, anonymized or not; the PDF service rechecks under the commit lock and every mutable submission path refuses the mark; the verification suite plants a marker in an unflagged answer and scans.
+- **Residual risk**: Low.
+
+#### Shared work is kept against a person's wishes
+- **Scenario**: A former employee asks for their documents and transcripts to be erased.
+- **Severity**: Medium
+- **Affected area**: staff subjects
+- **Mitigation**: The run reports each retained item with its reason, so the controller can answer the request; assumptions 3 and 6 state the rule and why.
+- **Residual risk**: A controller who disagrees must delete by the ordinary routes.
+
+#### A colleague loses a conversation they were reading
+- **Scenario**: The owner of a shared conversation is erased.
+- **Severity**: Medium
+- **Affected area**: participants of that conversation
+- **Mitigation**: The dry run lists owned conversations that others can see; assumption 6 decides that they are deleted.
+- **Residual risk**: Accepted, or the conversation is kept by an enterprise hold.
+
+#### A linked person's data stays in a document
+- **Scenario**: Their field values were inserted into the body.
+- **Severity**: Medium
+- **Affected area**: documents linked to CRM records
+- **Mitigation**: The run lists every linked document for review and says why.
+- **Residual risk**: A reviewer who does not open them.
+
+#### The five-year rule is wrong for a tenant
+- **Scenario**: Another law, or a dispute, requires a record for longer.
+- **Severity**: Medium
+- **Affected area**: EUDR records
+- **Mitigation**: An enterprise hold; the dry run shows each record's date.
+- **Residual risk**: OSS has no hold.
+
+#### A homonym's EUDR records are changed
+- **Scenario**: Two producers in a tenant share a name, and a name match would act on both.
+- **Severity**: High
+- **Affected area**: EUDR producers
+- **Mitigation**: A name only finds candidates. Each record is its own subject, labelled with its plot or batch, supplier, country and date, and only the records the operator names are exported or changed. The dry run lists each one, and the token binds the named set. A unit test and TC-PRIVACY-EUDR-001 use two producers with one name.
+- **Residual risk**: An operator who names a record without checking its label.
+
+#### An erased producer's land and documents stay
+- **Scenario**: A record outside the window loses the producer's name but keeps the plot's geometry, identifiers, location, batch number or evidence files, and is reported as blanked.
+- **Severity**: High
+- **Affected area**: EUDR producers, often individual farmers
+- **Mitigation**: Evidence is anonymized with its location, batch number, notes, supplier display name, custom-field values and files; a plot is hard-deleted only under `delete` or coarsened under `anonymize`; the kept columns are a closed list checked by a unit test; TC-PRIVACY-EUDR-001 plants a marker and an uploaded file and checks both are gone.
+- **Residual risk**: A coarsened plot point can still narrow a producer's land to a cell of about 11 km; assumption 9 accepts this, the run reports it, and `delete` leaves nothing. A producer's details in a record that does not name them remain a free-text limit.
+
+#### A workflow keeps a copy of a person
+- **Scenario**: The person's data sits in an instance that never closes, or in the context of an instance about another record.
+- **Severity**: Medium
+- **Affected area**: workflow contexts and task form data
+- **Mitigation**: Closed instances about the person are cleared; ordinary subject erasure reports open and failed ones with their ids as open cases. R5-9 separately permits terminal failed agent graphs to end through the age-based process set; running/retrying graphs never qualify. R4-8's owner read returns exact table/row/column/reason entries; enterprise's fixed section map and retained declarations cover process-linked graphs whose metadata does not name the customer. Missing evidence, a wrong table/row mapping or a `deleted` entry cannot excuse a survivor; TC-PRIVACY-ENT-003 checks these cases.
+- **Residual risk**: Copies inside other records' instances, failed instances outside the agent set that nobody cancels, and agent graphs without an active eligible policy or successful retention invocation.
+
+#### Retention deletes a workflow that is retrying
+- **Scenario**: an agent process is old, but its failed workflow is retrying when graph deletion starts.
+- **Severity**: High
+- **Affected area**: workflow execution and recovery context
+- **Mitigation**: R5-9 requires the policy window to have passed and owner-locked terminal-state/no-active-work rechecks. Only `COMPLETED`, `CANCELLED` and eligible `FAILED` graphs are accepted; running/retrying graphs are never deleted. The agent set rechecks policy/age under its process lock. Phase 5 and TC-PRIVACY-ENT-003 cover cutoff boundaries, concurrent retry, preview, failure and preserved process locators.
+- **Residual risk**: graph deletion is irreversible after commit; it needs an active agent policy, and the whole-graph exception ships in the workflows guide with the service.
+
+#### A receiving system cannot preserve invitation objections from the export
+- **Scenario**: A controller treats tenant-export suppression metadata as a usable opt-out list.
+- **Severity**: High
+- **Affected area**: recipients of optional form invitations after tenant exit
+- **Mitigation**: R4-9 redacts both `recipient_hash` and `key_id`, includes a row count and states that this version has no suppression handover; TC-PRIVACY-FORMS-001 verifies both redactions, rejects checksum bypasses and makes no usable-list claim.
+- **Residual risk**: The receiving system cannot rebuild the opt-outs from this artifact, even with the original suppression key.
+
+#### A forms table is read without its tenant
+- **Scenario**: A handler queries a table that has only an organization.
+- **Severity**: High
+- **Affected area**: tenant isolation
+- **Mitigation**: Those tables are reached only through a submission already checked for the tenant; a unit test with two tenants.
+- **Residual risk**: Low.
+
+#### A shared evidence file is removed early or stranded
+- **Scenario**: A is cleared while B still references its file, or a later B erasure drops the last reference without rechecking A.
+- **Severity**: High
+- **Affected area**: EUDR files and other producers' evidence
+- **Mitigation**: Scoped metadata service, serialized list edits, actual committed reference checks, last-reference sweep and in-transaction durable release with origin; both orders and failure tested.
+- **Residual risk**: Missing service leaves the file section incomplete; no stored object is deleted before commit.
+
+#### A retained row never reaches its endpoint
+- **Scenario**: The EUDR date passes but no operator or engine invokes retention.
+- **Severity**: Medium
+- **Affected area**: retained producer data
+- **Mitigation**: Persist date/preference, report `eudr.retained_records`, expose due preview and use the same explicit command/engine path as the other coverage sets.
+- **Residual risk**: Time until the next configured/manual run; OSS supplies no scheduler.
+
+#### A pending action or configuration note keeps a customer copy
+- **Scenario**: A customer is mentioned inside an opaque payload or override notes without a typed record reference.
+- **Severity**: Medium
+- **Affected area**: assistant export/erasure completeness
+- **Mitigation**: Typed single/batch matching with decryption, explicit thirty-day terminal-action set, customer holds fail closed and every run reports configuration-note/opaque-reference limits.
+- **Residual risk**: Free-text mentions and actions still executing require review/retry; age deletion needs explicit invocation.
+
+#### Workflow erasure conflicts with immutable event policy
+- **Scenario**: The handler blanks more than assumption 10 allows — an open instance's events, or an event's identity, type, user id or time.
+- **Severity**: High
+- **Affected area**: workflow audit policy and readers
+- **Mitigation**: Assumption 10's narrow exception is written into the workflows guide in the same change; only the privacy handler blanks only `eventData` of a closed instance, and readers render a localized cleared-event placeholder. `privacy-workflow-events.test.ts` proves ids, type and time remain.
+- **Residual risk**: Low. A closed instance's event payloads are gone for audit, by design; event identity and timing remain.
+
+## Final Compliance Report — 2026-11-16
+
+- **Reviewed:** root and spec rules, backward compatibility, core/shared encryption and coupling, workflows immutability, attachment boundary and assistant guidance; relevant live services and commands. This is a design revision; no implementation tests were run.
+
+| Rule | Status | Notes |
+|---|---|---|
+| No cross-module table access | Compliant | Each class in its own module |
+| Tenant in every query | Compliant by route | Five forms tables through their checked parent; declared |
+| Lookups on a hash | Planned | One new invitation hash; normalized fill/rotation/clearing specified. EUDR names use a decrypting scan, not producer-name hashes |
+| Additive schema and API | Compliant | — |
+| Retain only with a listed reason | Compliant | `evidence`, `shared_record`, `legal_retention`, `open_case` |
+| A handler honours `anonymize` | Compliant | Plot shell coarsened under anonymize; hard delete only explicit; assumption 9 |
+| Integration coverage | Planned | Eight self-contained scenarios with owned fixtures/cleanup, API/UI, history, retention and races |
+| All changed history records | Aligned | R3-1 mappings include distribution ids, document link ids, task/instance ids and other edited rows |
+| Form projection boundary | Aligned with R5-6 | Both active reasons remove only connector-created deal answers/label/CV/files; CRM Person fields/history remain governed by C4's related-subject review, exclusions and hold guard |
+| Workflow immutability | Aligned | Assumption 10's narrow exception is written into the workflows guide in the same change that enables event blanking; enterprise assumption 10's whole-graph exception lands there with the graph service |
+| Workflow graph evidence | Aligned with R4-8 | Exact scope/id input and flat table/rowId/columns/reason array; enterprise owns the fixed section map and five graph-table retained declarations, `user_tasks` included; deleted entries confer no retained permission |
+| Terminal workflow graph deletion | Aligned with R5-9 | COMPLETED/CANCELLED/FAILED under the agent policy window; failed graphs only beyond cutoff; no running/retrying graph deletion; ordinary failed-instance erasure remains open_case; tests/risks cover both paths |
+| Suppression tenant export | Aligned with R4-9 | recipient_hash and key_id redacted, row count included, no reviewed-checksum exception or opt-out reconstruction claim |
+| Suppression coverage declaration | Aligned with R4-11 | reference_only uses note and reviewedColumns for all eight columns; the C5 guard rejects an unsupported columns member |
+
+**Verdict:** design decided, including assumptions 3, 6, 9 and 10. The listed cross-owner prerequisites (C1's `linkedSubjects` handoff, C4's survivor identities) remain delivery gates; no claim of implementation approval.
+
+## Changelog
+
+### 2026-11-16
+- Written autonomously with resolved assumptions.
+- Revised after independent review. The forms erasure mode would have skipped any submission the retention job had already processed, leaving its unflagged answers; it now ignores that mark and sets its own, which also stops a cleared PDF copy being regenerated and keeps erased answers out of statistics. The respondent kind is replaced by the contract's identifier subject, and portal users publish an address alias, since a forms handler cannot read another module's addresses. A conversation is its owner's transcript — only the owner can write in it — so an erased owner's conversations are deleted and nothing is "kept without an author". EUDR retention is computed from the statement's submission date instead of being indefinite, and a producer is one subject, found by a name hash. A linked person's document is reported for review, because their field values may be in its body. Pending assistant actions are cleaned by age. Every module has an integration test; the first draft wrongly said two had no fixtures.
+- Council review follow-up: the assistant class releases files by id through `releaseByIds` rather than by conversation, because chat uploads are not attached to the conversation. This aligns with the critical fix in the record-retention spec, whose delete routine this class shares.
+- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g3-05 — erasure of an EUDR producer by name could not be applied, because the name subject's id changed every run, and would have blanked every producer with the same name. Each plot and evidence record that names a producer is now its own subject, of the `eudr`-owned kinds `eudr:plot_producer` and `eudr:evidence_producer`; `resolve --name` lists each as a labelled candidate and only the records the operator names change. The supplier path is dropped (suppliers are CRM companies, not subjects), and with it the name form of the identifier subject, the two producer-name hash columns and their fill command (assumption 8). g3-07 — outside the five-year window an evidence record is now anonymized with its location, batch number, notes, supplier display name, custom-field values and files, released through the attachments seam, and a plot is deleted, since its required geometry locates the producer's land (assumption 9, marked); the kept columns are a closed list. DEC-J — added "Modules assigned after the council review" with the person data in `workflows` and a class design, `workflows.instances`, as Phase 5 with TC-PRIVACY-WORKFLOWS-001. Updated the TLDR, assumptions, problem statement, classes, schema changes, alternatives, known limits, Delta, architecture, data models, API contracts, edge cases, migration, phasing, plan, file list, integration coverage, risks and the compliance report. Coordinator follow-up: every class states `erasureGroup: 'records'`, and the one owner class, `eudr.records`, leaves `anonymizeOwnerWhenRetained` at its default.
+- Fix verification follow-up: EUDR evidence release is limited to files of the record being anonymized. Ids listed but attached elsewhere are only dropped from the list. Files another evidence record still lists are kept, so one producer's erasure cannot delete another record's retained evidence. Unit test: a file attached to retained evidence B and listed by A survives A's erasure.
+
+- Council round two fixes (GPT-6.1 Sol workers): r6-01 — all edited history records; r6-06 — EUDR retained marks and set; r6-07 — normative R3-6 reasons; r6-09 — explicit standalone-action retention; r6-10 — preference-aware plots; r6-11/r6-12 — invitation/write/PDF barriers; r6-13 — complete workflow payload/error clearing; r6-14 — accurate organization-work-product reason; r6-18/r6-21 — shared-file sweep and transactional release with origin; r6-19/r6-42 — invitation hash clearing/form/rotation; r6-20 — confirmation-marked workflow event exception; r6-33/r6-34 — four table declarations and typed matching; r6-39/r6-40/r6-41 — consent export, grantee shares and hard-delete semantics; g3-33/g3-34 — customer pending-action coverage and own-comment export; nits — decrypting workflow reads, forms test layout and exact hash-column count.
+
+- Council round two fixes, pass two (GPT-6.1 Sol workers): aligned C1 aliases/settings, R3-1 identities, EUDR audit kinds/retained fields, R3-7 locks/incarnations and unsent-draft set, enterprise workflow graph service/exception, objection suppression, R3-6 activity attribution, bounded fills and C5/verification evidence/readers/probes.
+
+- Council round two fixes, pass three (GPT-6.1 Sol workers): consumed C4 paged transactional attachment metadata and entities-owned custom values; aligned suppression classification/export with E3 assumptions 8/11; gated direct CRM forms/activity attribution on the missing owner linkage; pinned B1-owned old-secret invitation refresh tests; added exact retained file/custom-value evidence gates, owner readers/probes and the workflow graph evidence seam/terminal deletion handoff.
+- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consumed C4's existing release plans, history/survivor identities and exact seam ids; replaced stale activity-linkage prerequisites with C1's per-person linkedSubjects handoff; aligned all eight suppression column reviews with C5 and redaction/manifest/original-key limits with E3/C8 while reporting their remaining C5 conflict; delegated invitation hash refresh to B1's owning forms fill instead of mapped rehash. Workflow result/declaration design requests remain open without a new contract.
+- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): applied R4-8's flat workflow privacy read result and enterprise-owned table-to-section mapping; applied R4-9's recipient_hash/key_id redaction, row count and explicit no-handover limit across declarations, tests, risks and compliance; confirmed R4-11's existing note/reviewedColumns shape without a columns member.
+- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): apply R5-6's deal-only projection cleanup and CRM Person boundary; apply R5-9's terminal COMPLETED/CANCELLED/FAILED graph deletion after the agent policy window while preserving running/retrying graphs and ordinary failed-instance open_case handling, with aligned scenarios, tests, risks and compliance.

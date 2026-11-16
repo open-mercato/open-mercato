@@ -4,7 +4,7 @@
 - **Scope:** OSS
 - **Author:** spec-writing (auto)
 - **Date:** 2026-06-15
-- **Related:** `.ai/specs/implemented/SPEC-041-2026-02-24-search-organization-scoping.md` (scopes search **results**, not **settings**); [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md), “Tenant privacy settings” (R3-3)
+- **Related:** `.ai/specs/implemented/SPEC-041-2026-02-24-search-organization-scoping.md` (scopes search **results**, not **settings**); [`2026-11-16-privacy-data-class-contract.md`](GDPR/2026-11-16-privacy-data-class-contract.md), “Tenant privacy settings” (R3-3)
 
 ## TLDR
 
@@ -116,7 +116,7 @@ invalidate(moduleId, name?, scope?: ConfigScope): Promise<void>
 - **`setValue` with a scope** writes/updates only the scoped row (`tenant_id = scope.tenantId`); it never touches the global row. **`setValue` without a scope** keeps today's behavior (global row), so existing non-search callers are unchanged.
 - **Cache key** is already scope-aware: `module-config:v2:${moduleId}:${name}:${tenantId ?? 'global'}`. `invalidate` clears the specific scope key; module-tag invalidation is unchanged.
 
-The optional fifth `setValue` argument is the future additive extension owned by [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md), “Tenant privacy settings”; it is not claimed to exist today and this revision must not overwrite or narrow it when the changes land together. Existing callers that omit scope retain their instance-global behavior.
+The optional fifth `setValue` argument is the future additive extension owned by [`2026-11-16-privacy-data-class-contract.md`](GDPR/2026-11-16-privacy-data-class-contract.md), “Tenant privacy settings”; it is not claimed to exist today and this revision must not overwrite or narrow it when the changes land together. Existing callers that omit scope retain their instance-global behavior.
 
 **R3-3 — Tenant privacy settings live in `module_configs`.** The contract spec owns `privacySettingsService.get(scope, name)`, its `retention.<area>.<setting>` declarations and settings CLI. Its adapter deliberately accepts only `source: tenant` and discards instance fallback before applying a declared default/unset. Search's scoped → instance → env fallback remains specific to search; do not apply it to privacy retention ages. No privacy table, renamed config type or organization override is introduced here.
 

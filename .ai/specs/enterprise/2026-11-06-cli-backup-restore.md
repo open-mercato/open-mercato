@@ -8,7 +8,7 @@
 2. **Resumable both ways.** Backup and restore work in per-entity chunks recorded in a checkpoint journal. An interrupted run (crash, `SIGINT`, lost connection, full disk fixed by the operator) continues from the last durable chunk instead of starting over.
 3. **Per-entity progress, out and in.** Backup shows one progress bar per entity being read out of the source; restore shows one per entity being written into the target, plus an overall bar, rate and ETA. Machine-readable progress is available for automation.
 
-The scheduled pipeline, object storage, archive retention and status UI stay in [enterprise automated backups](2026-07-08-automated-database-backups.md); that pipeline reuses this engine. [Erasure restore replay](2026-11-16-erasure-restore-replay.md) (C9) independently owns erasure manifests, detection and manual replay for product and infrastructure restores. The backup engine and backup commands are Enterprise-only; no HTTP restore route. The separate Core rotation safety guard below adds an explicit acknowledgment without moving rotation out of Core.
+The scheduled pipeline, object storage, archive retention and status UI stay in [enterprise automated backups](2026-07-08-automated-database-backups.md); that pipeline reuses this engine. [Erasure restore replay](GDPR/2026-11-16-erasure-restore-replay.md) (C9) independently owns erasure manifests, detection and manual replay for product and infrastructure restores. The backup engine and backup commands are Enterprise-only; no HTTP restore route. The separate Core rotation safety guard below adds an explicit acknowledgment without moving rotation out of Core.
 
 Status: design ready for review; security gates (Q2, Q3) block implementation approval. This PR changes specifications only.
 

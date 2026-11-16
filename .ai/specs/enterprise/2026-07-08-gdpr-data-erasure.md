@@ -1,9 +1,9 @@
 # GDPR Data Erasure Orchestration (Enterprise)
 
 > **Superseded — design history only (2026-11-16).** Every operative section of this file is replaced: TLDR and Scope, Overview’s current-state claims, Proposed Solution and Design Decisions, User Stories, Architecture and coupling, Commands & Events, Data Model, API Contracts, durability framing, Security Considerations, Failure Scenarios, Phasing & Implementation Plan, Integration test coverage, Migration & Backward Compatibility, Risks & Impact Review and Final Compliance Report. No command, event, ledger or purge subscriber is implemented from this file.
-> **Operation successor:** [`../2026-11-16-privacy-subject-erasure.md`](../2026-11-16-privacy-subject-erasure.md) (C4) owns module-owned erasure, anonymization, audit-history stripping, the OSS command, `eraseSubjects` and the single `privacy.subject.erased` event.
-> **Governance successor:** [`2026-11-16-privacy-dsr-engine.md`](2026-11-16-privacy-dsr-engine.md) (C3/D5) owns enterprise policies, holds, the operation ledger, routes and admin UI.
-> **Restore successor:** [`2026-11-16-erasure-restore-replay.md`](2026-11-16-erasure-restore-replay.md) (C9) owns external manifests, restore detection and manual replay, including infrastructure restores. The old backup-bucket manifest is withdrawn from the companion backup spec.
+> **Operation successor:** [`../2026-11-16-privacy-subject-erasure.md`](../GDPR/2026-11-16-privacy-subject-erasure.md) (C4) owns module-owned erasure, anonymization, audit-history stripping, the OSS command, `eraseSubjects` and the single `privacy.subject.erased` event.
+> **Governance successor:** [`2026-11-16-privacy-dsr-engine.md`](GDPR/2026-11-16-privacy-dsr-engine.md) (C3/D5) owns enterprise policies, holds, the operation ledger, routes and admin UI.
+> **Restore successor:** [`2026-11-16-erasure-restore-replay.md`](GDPR/2026-11-16-erasure-restore-replay.md) (C9) owns external manifests, restore detection and manual replay, including infrastructure restores. The old backup-bucket manifest is withdrawn from the companion backup spec.
 
 Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) on 2026-07-08. The rationale below is retained as history. Successor approval gates remain binding; this annotation does not approve their implementation.
 
