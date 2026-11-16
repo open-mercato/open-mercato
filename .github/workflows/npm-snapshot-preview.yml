@@ -273,6 +273,8 @@ jobs:
       - resolve-pr
       - snapshot
     if: needs.snapshot.outputs.snapshot_version != ''
+    env:
+      NPM_PROPAGATION_VERSION: ${{ needs.snapshot.outputs.snapshot_version }}
     services:
       postgres:
         image: postgres:17

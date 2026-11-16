@@ -369,6 +369,8 @@
   "auth.acl.features.storage_providers.manage": "Zarządzaj dostawcami pamięci masowej",
   "auth.acl.features.sync_excel.run": "Przesyłaj pliki CSV i przygotowuj importy",
   "auth.acl.features.sync_excel.view": "Wyświetl przesłane pliki i podglądy importu Excel / CSV",
+  "auth.acl.features.sync_shopify.configure": "Konfiguruj synchronizację Shopify",
+  "auth.acl.features.sync_shopify.view": "Wyświetl synchronizację Shopify",
   "auth.acl.features.tillio.manage": "Zarządzaj integracją Tillio",
   "auth.acl.features.translations.manage": "Zarządzaj tłumaczeniami encji",
   "auth.acl.features.translations.manage_locales": "Konfiguruj obsługiwane ustawienia regionalne",
