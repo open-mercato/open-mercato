@@ -117,6 +117,24 @@ describe('PlannedActivitiesSection', () => {
     expect(onEdit).not.toHaveBeenCalled()
   })
 
+  it('groups Mark done with the row menu so both move to the next line together on a narrow screen (#9619)', () => {
+    renderWithProviders(
+      <PlannedActivitiesSection
+        activities={[makeActivity({ id: 'int-overdue', title: 'Overdue call', scheduledAt: localInstantAtOffset(-2, 10, 0) })]}
+        onComplete={() => {}}
+        onEdit={() => {}}
+      />,
+    )
+
+    const markDone = screen.getByRole('button', { name: 'Mark done' })
+    const menu = screen.getByRole('button', { name: 'More' })
+    const row = screen.getByText('Overdue call').closest('[role="button"]')
+
+    expect(markDone.parentElement).toBe(menu.parentElement)
+    expect(markDone.parentElement).not.toBe(row)
+    expect(row).toContainElement(markDone)
+  })
+
   it('translates the due-tomorrow label instead of rendering the English literal (#5933)', () => {
     renderWithProviders(
       <PlannedActivitiesSection
