@@ -22,6 +22,7 @@ type DealLossReasonSeed = {
 export type BackfillDealLossReasonDictionaryResult = {
   dictionaryId: string
   createdDictionary: boolean
+  revivedDictionary: boolean
   copiedLegacyEntries: number
   seededDefaultEntries: number
   existingEntries: number
@@ -46,20 +47,25 @@ async function findDealLossReasonDictionary(
   })
 }
 
+type EnsuredDealLossReasonDictionary = {
+  dictionary: Dictionary
+  created: boolean
+  revived: boolean
+}
+
 async function ensureDealLossReasonDictionary(
   em: EntityManager,
   scope: DealLossReasonScope,
-): Promise<Dictionary> {
+): Promise<EnsuredDealLossReasonDictionary> {
   const existing = await findDealLossReasonDictionary(em, scope)
   if (existing) {
-    if (existing.deletedAt) {
-      existing.deletedAt = null
-      existing.isActive = true
-      existing.updatedAt = new Date()
-      em.persist(existing)
-      await em.flush()
-    }
-    return existing
+    if (!existing.deletedAt) return { dictionary: existing, created: false, revived: false }
+    existing.deletedAt = null
+    existing.isActive = true
+    existing.updatedAt = new Date()
+    em.persist(existing)
+    await em.flush()
+    return { dictionary: existing, created: false, revived: true }
   }
   const now = new Date()
   const dictionary = em.create(Dictionary, {
@@ -76,7 +82,7 @@ async function ensureDealLossReasonDictionary(
   })
   em.persist(dictionary)
   await em.flush()
-  return dictionary
+  return { dictionary, created: true, revived: false }
 }
 
 async function ensureDealLossReasonEntry(
@@ -98,12 +104,12 @@ async function ensureDealLossReasonEntry(
   })
   if (existing) {
     let changed = false
-    if (color !== undefined && existing.color !== color) {
-      existing.color = color ?? null
+    if (color && !existing.color) {
+      existing.color = color
       changed = true
     }
-    if (icon !== undefined && existing.icon !== icon) {
-      existing.icon = icon ?? null
+    if (icon && !existing.icon) {
+      existing.icon = icon
       changed = true
     }
     if (changed) {
@@ -133,7 +139,7 @@ export async function seedDealLossReasons(
   em: EntityManager,
   scope: DealLossReasonScope,
 ): Promise<void> {
-  const dictionary = await ensureDealLossReasonDictionary(em, scope)
+  const { dictionary } = await ensureDealLossReasonDictionary(em, scope)
   for (const seed of DEAL_LOSS_REASON_DEFAULTS) {
     await ensureDealLossReasonEntry(em, scope, dictionary, seed)
   }
@@ -144,9 +150,7 @@ export async function backfillDealLossReasonDictionary(
   em: EntityManager,
   scope: DealLossReasonScope,
 ): Promise<BackfillDealLossReasonDictionaryResult> {
-  const storedDictionary = await findDealLossReasonDictionary(em, scope)
-  const existingDictionary = storedDictionary && !storedDictionary.deletedAt ? storedDictionary : null
-  const dictionary = await ensureDealLossReasonDictionary(em, scope)
+  const { dictionary, created, revived } = await ensureDealLossReasonDictionary(em, scope)
   const targetEntries = await em.find(DictionaryEntry, {
     dictionary,
     tenantId: scope.tenantId,
@@ -156,7 +160,8 @@ export async function backfillDealLossReasonDictionary(
   if (targetEntries.length > 0) {
     return {
       dictionaryId: dictionary.id,
-      createdDictionary: !existingDictionary,
+      createdDictionary: created,
+      revivedDictionary: revived,
       copiedLegacyEntries: 0,
       seededDefaultEntries: 0,
       existingEntries: targetEntries.length,
@@ -205,7 +210,8 @@ export async function backfillDealLossReasonDictionary(
 
   return {
     dictionaryId: dictionary.id,
-    createdDictionary: !existingDictionary,
+    createdDictionary: created,
+    revivedDictionary: revived,
     copiedLegacyEntries,
     seededDefaultEntries,
     existingEntries: 0,

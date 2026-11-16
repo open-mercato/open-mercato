@@ -9,6 +9,10 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { buildRecordTag } from '@open-mercato/shared/lib/crud/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  backfillDealLossReasonDictionary as backfillDealLossReasonDictionaryFromCustomers,
+  type BackfillDealLossReasonDictionaryResult as CustomersBackfillDealLossReasonDictionaryResult,
+} from '@open-mercato/core/modules/customers/lib/dealLossReasons'
 
 export type SalesDictionaryKind =
   | 'order-status'
@@ -167,11 +171,19 @@ export async function resolveCachedDictionaryEntryValue(
 }
 
 export { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon }
-/** @deprecated import from @open-mercato/core/modules/customers/lib/dealLossReasons */
-export {
-  backfillDealLossReasonDictionary,
-  type BackfillDealLossReasonDictionaryResult,
-} from '@open-mercato/core/modules/customers/lib/dealLossReasons'
+
+/**
+ * @deprecated Since 0.10.0, removal no earlier than 0.12.0. The deal loss-reason dictionary is
+ * owned by `customers`; import `backfillDealLossReasonDictionary` from
+ * `@open-mercato/core/modules/customers/lib/dealLossReasons`.
+ */
+export const backfillDealLossReasonDictionary = backfillDealLossReasonDictionaryFromCustomers
+
+/**
+ * @deprecated Since 0.10.0, removal no earlier than 0.12.0. Import
+ * `BackfillDealLossReasonDictionaryResult` from `@open-mercato/core/modules/customers/lib/dealLossReasons`.
+ */
+export type BackfillDealLossReasonDictionaryResult = CustomersBackfillDealLossReasonDictionaryResult
 
 type SalesDictionarySeed = {
   value: string

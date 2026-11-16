@@ -127,6 +127,7 @@ const backfillDealLossReasonsCommand: ModuleCli = {
           `Deal loss reasons dictionary ready for organization ${organizationId}.`,
           `dictionaryId=${result.dictionaryId}`,
           `createdDictionary=${String(result.createdDictionary)}`,
+          `revivedDictionary=${String(result.revivedDictionary)}`,
           `copiedLegacyEntries=${String(result.copiedLegacyEntries)}`,
           `seededDefaultEntries=${String(result.seededDefaultEntries)}`,
           `existingEntries=${String(result.existingEntries)}`,

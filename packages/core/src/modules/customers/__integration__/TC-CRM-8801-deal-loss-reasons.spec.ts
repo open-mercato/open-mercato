@@ -11,6 +11,28 @@ import {
 
 export const integrationMeta = { dependsOnModules: ['customers'] };
 
+type DictionarySummary = { id: string; key: string; isInherited?: boolean };
+type DictionaryEntrySummary = { id: string; value: string };
+
+async function resolveLossReasonEntryId(
+  request: APIRequestContext,
+  token: string,
+  value: string,
+): Promise<string | null> {
+  const dictionariesResponse = await apiRequest(request, 'GET', '/api/dictionaries', { token });
+  expect(dictionariesResponse.ok(), `GET dictionaries: ${dictionariesResponse.status()}`).toBeTruthy();
+  const dictionaries = (await readJsonSafe(dictionariesResponse)) as { items?: DictionarySummary[] } | null;
+  const dictionary = dictionaries?.items?.find(
+    (item) => item.key === 'sales.deal_loss_reason' && item.isInherited !== true,
+  );
+  expect(dictionary, 'the sales.deal_loss_reason dictionary should be seeded').toBeDefined();
+  if (!dictionary) return null;
+  const entriesResponse = await apiRequest(request, 'GET', `/api/dictionaries/${dictionary.id}/entries`, { token });
+  expect(entriesResponse.ok(), `GET dictionary entries: ${entriesResponse.status()}`).toBeTruthy();
+  const entries = (await readJsonSafe(entriesResponse)) as { items?: DictionaryEntrySummary[] } | null;
+  return entries?.items?.find((entry) => entry.value === value)?.id ?? null;
+}
+
 type OwnedFixture = { resource: string; id: string | null; path: string; idIn: 'query' | 'body' };
 
 async function deleteOwnedFixtures(
@@ -42,6 +64,8 @@ async function deleteOwnedFixtures(
  *
  * `customers` seeds the `sales.deal_loss_reason` dictionary itself, so this spec declares no
  * dependency on `sales` and must pass in an app without it (for example the `crm` preset).
+ * It selects the seeded "No budget" label on purpose, because the seed is what it tests. Cleanup is
+ * implemented locally instead of with the shared delete helpers so that failed deletes are reported.
  */
 test.describe('TC-CRM-8801: Mark a deal as lost with a loss reason', () => {
   test('lists the seeded loss reasons and closes the deal as lost with the chosen reason', async ({
@@ -94,7 +118,9 @@ test.describe('TC-CRM-8801: Mark a deal as lost with a loss reason', () => {
         deal?: { closureOutcome?: string | null; lossReasonId?: string | null };
       } | null;
       expect(detail?.deal?.closureOutcome).toBe('lost');
-      expect(detail?.deal?.lossReasonId).toEqual(expect.any(String));
+      const noBudgetEntryId = await resolveLossReasonEntryId(request, token, 'no_budget');
+      expect(noBudgetEntryId).toEqual(expect.any(String));
+      expect(detail?.deal?.lossReasonId).toBe(noBudgetEntryId);
       testFailed = false;
     } finally {
       const cleanupFailures = await deleteOwnedFixtures(request, token, [

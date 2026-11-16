@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
+  backfillDealLossReasonDictionary,
   DEAL_LOSS_REASON_DEFAULTS,
   DEAL_LOSS_REASON_DICTIONARY_KEY,
   seedDealLossReasons,
@@ -142,8 +143,8 @@ describe('seedDealLossReasons', () => {
       value: 'no_budget',
       normalizedValue: 'no_budget',
       label: 'Budget frozen',
-      color: '#f59e0b',
-      icon: 'lucide:wallet',
+      color: '#123456',
+      icon: 'lucide:star',
     }
     const { em, dictionaries, entries } = createFakeEntityManager({
       dictionaries: [existingDictionary],
@@ -155,7 +156,7 @@ describe('seedDealLossReasons', () => {
     expect(dictionaries).toEqual([existingDictionary])
     expect(entries).toHaveLength(DEAL_LOSS_REASON_DEFAULTS.length + 1)
     expect(entries.filter((entry) => entry.normalizedValue === 'no_budget')).toEqual([existingDefault])
-    expect(existingDefault.label).toBe('Budget frozen')
+    expect(existingDefault).toMatchObject({ label: 'Budget frozen', color: '#123456', icon: 'lucide:star' })
     expect(entries).toContain(customEntry)
     expect(entries.every((entry) => entry.dictionary === existingDictionary)).toBe(true)
   })
@@ -190,6 +191,27 @@ describe('seedDealLossReasons', () => {
     expect(entries.every((entry) => entry.dictionary === deletedDictionary)).toBe(true)
   })
 
+  it('fills a missing color and icon on an existing default entry', async () => {
+    const existingDictionary = dictionaryFor(ORGANIZATION_ID, 'sales-seeded-dictionary')
+    const bareDefault: EntryRow = {
+      id: 'bare-timing',
+      dictionary: existingDictionary,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      value: 'timing',
+      normalizedValue: 'timing',
+      label: 'Bad timing',
+      color: null,
+      icon: null,
+    }
+    const { em } = createFakeEntityManager({ dictionaries: [existingDictionary], entries: [bareDefault] })
+
+    await seedDealLossReasons(em, scope)
+
+    const timingDefault = DEAL_LOSS_REASON_DEFAULTS.find((seed) => seed.value === 'timing')
+    expect(bareDefault).toMatchObject({ color: timingDefault?.color, icon: timingDefault?.icon })
+  })
+
   it('seeds each organization separately', async () => {
     const otherDictionary = dictionaryFor(OTHER_ORGANIZATION_ID, 'other-org-dictionary')
     const { em, dictionaries, entries } = createFakeEntityManager({ dictionaries: [otherDictionary] })
@@ -200,5 +222,36 @@ describe('seedDealLossReasons', () => {
     const created = dictionaries.find((dictionary) => dictionary.organizationId === ORGANIZATION_ID)
     expect(created).toBeDefined()
     expect(entries.every((entry) => entry.dictionary === created && entry.organizationId === ORGANIZATION_ID)).toBe(true)
+  })
+})
+
+describe('backfillDealLossReasonDictionary', () => {
+  it('reports a newly created dictionary', async () => {
+    const { em } = createFakeEntityManager()
+
+    const result = await backfillDealLossReasonDictionary(em, scope)
+
+    expect(result).toMatchObject({
+      createdDictionary: true,
+      revivedDictionary: false,
+      seededDefaultEntries: DEAL_LOSS_REASON_DEFAULTS.length,
+    })
+  })
+
+  it('reports a revived soft-deleted dictionary instead of a created one', async () => {
+    const deletedDictionary: DictionaryRow = {
+      ...dictionaryFor(ORGANIZATION_ID, 'soft-deleted-dictionary'),
+      deletedAt: new Date('2026-01-01T00:00:00.000Z'),
+    }
+    const { em, dictionaries } = createFakeEntityManager({ dictionaries: [deletedDictionary] })
+
+    const result = await backfillDealLossReasonDictionary(em, scope)
+
+    expect(dictionaries).toEqual([deletedDictionary])
+    expect(result).toMatchObject({
+      dictionaryId: 'soft-deleted-dictionary',
+      createdDictionary: false,
+      revivedDictionary: true,
+    })
   })
 })
