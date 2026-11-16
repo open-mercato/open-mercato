@@ -1,0 +1,33 @@
+
+Running 2 tests using 1 worker
+
+(node:3592185) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+en - main:
+  - paragraph: Account
+  - heading "Profile" [level=1]
+  - paragraph: Profile
+  - heading "QA owned account with long display name for responsive profile" [level=3]
+  - text: Email qa-03868-d9314095-longlonglonglonglonglong@test.local Not verified Last login Never Member since Never
+  - paragraph: Roles
+  - heading "0 assigned" [level=3]
+  - paragraph: No roles assigned
+  - paragraph: Permissions
+  - heading "0 features" [level=3]
+  - paragraph: No permissions
+  ✓  1 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile-empty.spec.cjs:2:33 › empty profile localized counts and settled viewport bounds en (41.3s)
+pl - main:
+  - paragraph: Konto
+  - heading "Profil" [level=1]
+  - paragraph: Profil
+  - heading "QA owned account with long display name for responsive profile" [level=3]
+  - text: Email qa-03868-d9314095-longlonglonglonglonglong@test.local Niezweryfikowany Ostatnie logowanie Nigdy Członek od Nigdy
+  - paragraph: Role
+  - 'heading "Przypisane role: 0" [level=3]'
+  - paragraph: Brak przypisanych ról
+  - paragraph: Uprawnienia
+  - 'heading "Uprawnienia: 0" [level=3]'
+  - paragraph: Brak uprawnień
+  ✓  2 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile-empty.spec.cjs:2:33 › empty profile localized counts and settled viewport bounds pl (41.3s)
+
+  2 passed (1.4m)
