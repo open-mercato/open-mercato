@@ -8,6 +8,7 @@ import * as React from 'react'
 import { updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { useFeatureToggleItem } from "@open-mercato/core/modules/feature_toggles/components/hooks/useFeatureToggleItem";
 import { createFieldDefinitions, createFormGroups } from "@open-mercato/core/modules/feature_toggles/components/formConfig";
+import { assertNumberInputParsed } from "@open-mercato/core/modules/feature_toggles/components/LocaleNumberInput";
 
 
 export default function EditFeatureTogglePage({ params }: { params?: { id?: string } }) {
@@ -90,6 +91,7 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
           successRedirect={`/backend/feature-toggles/global`}
           onSubmit={async (values) => {
             if (!id) return
+            if (values.type === 'number') assertNumberInputParsed(values.defaultValue, 'defaultValue', t)
             const payload = {
               id: id ? String(id) : '',
               identifier: values.identifier,

@@ -5,6 +5,7 @@ import { createCrud } from "@open-mercato/ui/backend/utils/crud";
 import { useRouter } from "next/navigation";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { createFormGroups, createFieldDefinitions } from "../../../../components/formConfig";
+import { assertNumberInputParsed } from "../../../../components/LocaleNumberInput";
 
 export default function CreateFeatureTogglePage() {
   const router = useRouter();
@@ -33,6 +34,7 @@ export default function CreateFeatureTogglePage() {
           groups={formGroups}
           initialValues={initialValues}
           onSubmit={async (values) => {
+            if (values.type === 'number') assertNumberInputParsed(values.defaultValue, 'defaultValue', t)
             const payload: Record<string, unknown> = {
               identifier: values.identifier,
               name: values.name,

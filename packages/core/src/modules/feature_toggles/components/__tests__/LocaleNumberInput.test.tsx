@@ -4,7 +4,7 @@
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
-import { LocaleNumberInput } from '../LocaleNumberInput'
+import { assertNumberInputParsed, isUnparsedNumberInput, LocaleNumberInput } from '../LocaleNumberInput'
 
 function Harness({ locale, initial }: { locale: string; initial: unknown }) {
   const [value, setValue] = React.useState<unknown>(initial)
@@ -48,14 +48,31 @@ describe('LocaleNumberInput', () => {
     expect(screen.getByTestId('stored').textContent).toBe('42.75')
   })
 
-  it('stores 0 for unparseable text and shows it once the field loses focus', () => {
+  it('keeps unparseable text on screen and in form state instead of storing 0 (QA #9369 rows 4 and 8)', () => {
     render(<Harness locale="pl" initial={7} />)
     const input = screen.getByRole('textbox') as HTMLInputElement
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: 'abc' } })
-    expect(screen.getByTestId('stored').textContent).toBe('0')
+    expect(screen.getByTestId('stored').textContent).toBe('abc')
     fireEvent.blur(input)
-    expect(input.value).toBe('0')
+    expect(input.value).toBe('abc')
+  })
+
+  it('keeps a cleared field empty after blur (QA #9369 row 5)', () => {
+    render(<Harness locale="pl" initial={7} />)
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+    expect(input.value).toBe('')
+    expect(screen.getByTestId('stored').textContent).toBe('')
+  })
+
+  it('turns off autofill and spellcheck like the CrudForm number input', () => {
+    render(<Harness locale="pl" initial={1} />)
+    const input = screen.getByRole('textbox')
+    expect(input).toHaveAttribute('autocomplete', 'off')
+    expect(input).toHaveAttribute('spellcheck', 'false')
   })
 
   it('reads a numeric string as its number', () => {
@@ -63,7 +80,7 @@ describe('LocaleNumberInput', () => {
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('42,5')
   })
 
-  it.each([null, true, 'abc'])('shows 0 for a non-numeric value %p', (initial) => {
+  it.each([null, true])('shows 0 for a non-numeric value %p', (initial) => {
     render(<Harness locale="pl" initial={initial} />)
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('0')
   })
@@ -93,5 +110,25 @@ describe('LocaleNumberInput', () => {
   it('shows 0 when no number is set yet', () => {
     render(<Harness locale="pl" initial={null} />)
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('0')
+  })
+})
+
+describe('assertNumberInputParsed', () => {
+  const t = (_key: string, fallback: string) => fallback
+
+  it.each([0, 12.5, -3, '42.5', null, undefined])('lets %p through', (value) => {
+    expect(isUnparsedNumberInput(value)).toBe(false)
+    expect(() => assertNumberInputParsed(value, 'defaultValue', t)).not.toThrow()
+  })
+
+  it.each(['abc', '', '   ', '12,5x'])('refuses %p with a field error on the given field', (value) => {
+    expect(isUnparsedNumberInput(value)).toBe(true)
+    let thrown: unknown
+    try {
+      assertNumberInputParsed(value, 'overrideValue', t)
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toMatchObject({ fieldErrors: { overrideValue: 'Enter a valid number.' } })
   })
 })
