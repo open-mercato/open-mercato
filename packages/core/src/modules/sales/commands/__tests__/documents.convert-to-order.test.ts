@@ -219,6 +219,7 @@ describe('sales.quotes.convert_to_order', () => {
     const container = createContainer({ injectionMode: InjectionMode.PROXY })
     container.register({
       em: asValue(em),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
       salesDocumentNumberGenerator: asValue({
         generate: jest.fn(async () => ({ number: `SO-${createdOrderIds.length + 1}` })),
       }),
@@ -320,6 +321,7 @@ describe('sales.quotes.convert_to_order', () => {
     const container = createContainer({ injectionMode: InjectionMode.PROXY })
     container.register({
       em: asValue(containerEm),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
       salesDocumentNumberGenerator: asValue({
         generate: jest.fn(async () => ({ number: 'SO-TX-1' })),
       }),
@@ -420,6 +422,7 @@ describe('sales.quotes.convert_to_order — shipping and surcharge totals', () =
     const container = createContainer({ injectionMode: InjectionMode.PROXY })
     container.register({
       em: asValue({ fork: jest.fn() }),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
       salesDocumentNumberGenerator: asValue({ generate: jest.fn(async () => ({ number: 'SO-FEES-1' })) }),
     })
     const ctx: CommandRuntimeContext = {

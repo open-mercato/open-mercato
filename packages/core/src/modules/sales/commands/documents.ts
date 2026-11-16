@@ -6615,6 +6615,48 @@ const updateOrderCommand: CommandHandler<
   },
 };
 
+async function notifySalesOrderCreated(
+  ctx: CommandRuntimeContext,
+  order: SalesOrder,
+  commandId: string,
+): Promise<void> {
+  try {
+    const notificationService = resolveNotificationService(ctx.container);
+    const typeDef = notificationTypes.find(
+      (type) => type.type === "sales.order.created",
+    );
+    if (!typeDef) return;
+    const totalAmount =
+      order.grandTotalGrossAmount && order.currencyCode
+        ? `${order.grandTotalGrossAmount} ${order.currencyCode}`
+        : "";
+    const totalDisplay = totalAmount ? ` (${totalAmount})` : "";
+    const notificationInput = buildFeatureNotificationFromType(typeDef, {
+      requiredFeature: "sales.orders.manage",
+      bodyVariables: {
+        orderNumber: order.orderNumber,
+        total: totalDisplay,
+        totalAmount,
+      },
+      sourceEntityType: "sales:order",
+      sourceEntityId: order.id,
+      linkHref: `/backend/sales/orders/${order.id}`,
+    });
+
+    // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+    // e-mail delivery); interactive creates are unaffected.
+    if (!ctx.bulkImport?.skipNotifications) {
+      await notificationService.createForFeature(notificationInput, {
+        tenantId: order.tenantId,
+        organizationId: order.organizationId ?? null,
+      });
+    }
+  } catch (err) {
+    // Notification creation is non-critical, don't fail the command
+    logger.error(`${commandId} failed to create notification`, { err });
+  }
+}
+
 const createOrderCommand: CommandHandler<
   OrderCreateInput,
   { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
@@ -6969,43 +7011,7 @@ const createOrderCommand: CommandHandler<
       { transaction: true },
     );
 
-    // Create notification for users with sales.orders.manage feature
-    try {
-      const notificationService = resolveNotificationService(ctx.container);
-      const typeDef = notificationTypes.find(
-        (type) => type.type === "sales.order.created",
-      );
-      if (typeDef) {
-        const totalAmount =
-          order.grandTotalGrossAmount && order.currencyCode
-            ? `${order.grandTotalGrossAmount} ${order.currencyCode}`
-            : "";
-        const totalDisplay = totalAmount ? ` (${totalAmount})` : "";
-        const notificationInput = buildFeatureNotificationFromType(typeDef, {
-          requiredFeature: "sales.orders.manage",
-          bodyVariables: {
-            orderNumber: order.orderNumber,
-            total: totalDisplay,
-            totalAmount,
-          },
-          sourceEntityType: "sales:order",
-          sourceEntityId: order.id,
-          linkHref: `/backend/sales/orders/${order.id}`,
-        });
-
-        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
-        // e-mail delivery); interactive creates are unaffected.
-        if (!ctx.bulkImport?.skipNotifications) {
-          await notificationService.createForFeature(notificationInput, {
-            tenantId: order.tenantId,
-            organizationId: order.organizationId ?? null,
-          });
-        }
-      }
-    } catch (err) {
-      // Notification creation is non-critical, don't fail the command
-      logger.error("sales.orders.create failed to create notification", { err });
-    }
+    await notifySalesOrderCreated(ctx, order, createOrderCommand.id);
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
@@ -7663,16 +7669,34 @@ const convertQuoteToOrderCommand: CommandHandler<
       em.remove(quote);
       await em.flush();
 
-      return { orderId: order.id };
+      return order;
     };
-    if (callerEm) {
-      // Already inside the caller's transaction — run directly so the whole flow
-      // stays a single transaction (no nested savepoint).
-      return runConversion(callerEm);
-    }
-    return typeof transactionalEm.transactional === "function"
-      ? transactionalEm.transactional((trx) => runConversion(trx))
-      : runConversion(rootEm);
+    // Inside the caller's transaction run directly so the whole flow stays a
+    // single transaction (no nested savepoint).
+    const order = callerEm
+      ? await runConversion(callerEm)
+      : typeof transactionalEm.transactional === "function"
+        ? await transactionalEm.transactional((trx) => runConversion(trx))
+        : await runConversion(rootEm);
+
+    await notifySalesOrderCreated(ctx, order, convertQuoteToOrderCommand.id);
+
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "created",
+      entity: order,
+      identifiers: {
+        id: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+      },
+      events: orderCrudEvents,
+      indexer: { entityType: E.sales.sales_order },
+      actorUserId: ctx.auth?.sub ?? null,
+    });
+
+    return { orderId: order.id };
   },
   captureAfter: async (_input, result, ctx) => {
     // Prefer the caller's transactional EM so the just-created (still
