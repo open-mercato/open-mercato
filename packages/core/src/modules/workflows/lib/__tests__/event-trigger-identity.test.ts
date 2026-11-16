@@ -17,7 +17,8 @@ import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workfl
 import { clearCodeWorkflowRegistry, registerCodeWorkflowEntries } from '@open-mercato/shared/modules/workflows/code-registry'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowDefinition, WorkflowEventTrigger, WorkflowInstance } from '../../data/entities'
-import { executeCallApi, executeUpdateEntity } from '../activity-executor'
+import { executeActivity, executeCallApi, executeUpdateEntity, resolveCallApiRoleIds, resolveWorkflowPrincipalUserId } from '../activity-executor'
+import { executeRegistryActivity } from '../activity-worker-handler'
 import { clearWorkflowSafeCommandsForTests, registerWorkflowSafeCommands } from '../workflow-safe-commands'
 import { startWorkflow, executeWorkflow } from '../workflow-executor'
 import { invalidateTriggerCache, processEventTriggers, resetTriggerDebounceState } from '../event-trigger-service'
@@ -172,5 +173,33 @@ describe('trigger-to-activity authorization boundary', () => {
     } finally {
       clearWorkflowSafeCommandsForTests()
     }
+  })
+})
+
+
+describe('persisted pre-fix event identities', () => {
+  test.each(['legacy', 'embedded', 'code'])('refuses %s event identity before direct or queued activity dispatch', async (source) => {
+    const instance = {
+      id: 'legacy-instance', definitionId: 'legacy-definition', tenantId, organizationId,
+      metadata: {
+        initiatedBy: 'victim-user',
+        labels: { trigger_id: 'persisted-trigger', trigger_source: source },
+      },
+      context: { userId: 'victim-user' },
+    } as WorkflowInstance
+    const activityContext = { workflowInstance: instance, workflowContext: instance.context, userId: 'victim-user' }
+    const em = {} as EntityManager
+    const container = { resolve: jest.fn() } as unknown as AwilixContainer
+    const activity = { activityId: 'legacy-activity', activityType: 'SEND_EMAIL', config: {} }
+
+    await expect(executeActivity(em, container, activity, activityContext)).rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+    await expect(executeRegistryActivity({ activityType: 'SEND_EMAIL', activityConfig: {} }, activityContext, { em, container })).rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+    await expect(executeUpdateEntity(em, { commandId: 'customers.people.update', input: { id: 'person' } }, activityContext, container)).rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+    await expect(executeCallApi(em, { endpoint: '/api/auth/users' }, activityContext, container)).rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+    await expect(resolveCallApiRoleIds(em, instance)).rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+    await expect(resolveWorkflowPrincipalUserId(em, instance)).rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+    expect(container.resolve).not.toHaveBeenCalled()
+    expect(withOnetimeApiKey).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 })
