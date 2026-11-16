@@ -669,4 +669,4 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## #8328 2026-11-01
 
-STABLE translations GET 404s soft-deleted owners; no bridge. [Migrate](https://github.com/open-mercato/open-mercato/pull/8329)
+STABLE translations GET 404s soft-deleted owners; no bridge. [Migrate](UPGRADE_NOTES.md#translation-reads-after-soft-delete-8328-2026-11-16)

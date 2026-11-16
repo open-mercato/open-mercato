@@ -1,5 +1,25 @@
 # Upgrade Notes
 
+## Translation reads after soft delete (#8328, 2026-11-16)
+
+**Clients:** `GET /api/translations/:entityType/:entityId` now returns `404` while
+its owning record is soft-deleted. Previously it could return `200` when the delete
+left translation rows in place, including catalog categories. Treat `404` as no
+visible translations, as for a record without translations. After undo restores
+the owning record, the same request returns its retained translations again.
+
+**Operators:** no database migration is required. Soft-deleted owners retain their
+`entity_translations` rows; a later hard delete removes them when it emits
+`query_index.delete_one`. Direct database readers must filter by the owning
+record's `deleted_at` where appropriate. Translations already lost to an earlier
+delete and undo are not recovered. Undoing a hard delete remains outside this fix.
+
+This narrowly removes access to deleted content under the Emergency Security
+Exception. A compatibility flag retaining the former `200` response would retain
+the disclosure. The named human maintainer waiver is still required before merge;
+this note does not grant it. See the [compatibility entry](BACKWARD_COMPATIBILITY.md#8328-2026-11-01)
+and [translation spec](.ai/specs/implemented/SPEC-026-2026-02-11-catalog-localization.md).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

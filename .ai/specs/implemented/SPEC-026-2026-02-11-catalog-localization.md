@@ -697,11 +697,14 @@ One generic table, one row per entity, JSONB stores all locale translations. Thi
 
 **Operator migration.** No data migration. Rows stay in `entity_translations` while their owner is soft-deleted, so direct database readers should filter by the owner's `deleted_at` where needed. Translations already lost to an earlier delete and undo are not restored.
 
-The `UPGRADE_NOTES.md` text for this change is in the pull request description (#8329).
+The client and operator instructions are published in [UPGRADE_NOTES.md](../../../UPGRADE_NOTES.md#translation-reads-after-soft-delete-8328-2026-11-16). The named human maintainer security waiver remains required before merge.
 
 ---
 
 ## Changelog
+
+### 2026-11-16
+- Published the client/operator upgrade disclosure and linked the compatibility entry; human security-waiver approval remains required.
 
 ### 2026-11-01
 - Added the Migration & Backward Compatibility section for the soft-deleted owner `404`
