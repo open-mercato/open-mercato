@@ -1,0 +1,228 @@
+{
+  "runId": "03868c47-a0b6-4451-9c8c-3fd466d1e66e",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8582,
+    "branch": "cez/d85da487",
+    "headSha": "3f117f2d911eca91243c41739685b1f2c16e2637"
+  },
+  "depth": "complex",
+  "verdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:41735",
+    "role": "owned scoped fixtures",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "browserVersion": "1.61.1",
+    "runner": "local managed production via om-prepare-test-env",
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "Exact-head CI",
+      "expected": "Required scoped behavior passes",
+      "observed": "31 successful / 4 skipped checks; CI43887848984 includes all 15 shards and merged coverage; guard/mutation green; head stable",
+      "result": "PASS",
+      "evidence": "ci-checks-final.json",
+      "screenshot": null
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "Live production auth setup",
+      "expected": "Required scoped behavior passes",
+      "observed": "Weak primary with no alias and each of four bypass aliases: exit 2, unchanged user/tenant/organization counts. Compliant primary: exit 0, login 200",
+      "result": "PASS",
+      "evidence": "cli-results.json",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Derived/demo CLI credentials",
+      "expected": "Required scoped behavior passes",
+      "observed": "Non-production explicit weak bypass: exit 0, login 200. Weak explicit derived overrides rejected in both modes without writes. Compliant derived overrides authenticate. Both generated derived passwords satisfy min-length 32 and authenticate",
+      "result": "PASS",
+      "evidence": "cli-results.json",
+      "screenshot": null
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Production init additional DB",
+      "expected": "Required scoped behavior passes",
+      "observed": "Five missing/placeholder/weak/bypass cases: exit 1 before any tables. Compliant bootstrap: exit 0; all three min-length-32 credentials match persisted hashes. Additional DB removed",
+      "result": "PASS",
+      "evidence": "init-results.json",
+      "screenshot": null
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "Native credential regression",
+      "expected": "Required scoped behavior passes",
+      "observed": "11/11 passed, including ten immediate reset/login/fresh-profile-200/old-profile-401 cycles; customer_accounts module; managed CLI",
+      "result": "PASS",
+      "evidence": "native-password.log",
+      "screenshot": null
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Native profile regression",
+      "expected": "Required scoped behavior passes",
+      "observed": "1/1 passed at 320/390/768/1440px; portal module; managed CLI",
+      "result": "PASS",
+      "evidence": "native-profile.log",
+      "screenshot": null
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "action": "EN/PL admin weakreset and retry",
+      "expected": "Required scoped behavior passes",
+      "observed": "Localized 400; editable retry; double-click refusal; whole record unchanged; Escape/reopen; Ctrl+Enter 200; settled ten seconds",
+      "result": "PASS",
+      "evidence": "browser-core.log",
+      "screenshot": "reset-pl-weak.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Empty profile EN/PL",
+      "expected": "Required scoped behavior passes",
+      "observed": "Zero roles/features; long email/name, badge and real dates fit at all four widths after ten seconds; post-settle assertions",
+      "result": "PASS",
+      "evidence": "browser-empty-final.log",
+      "screenshot": "profile-pl-empty-320.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Populated profile EN/PL",
+      "expected": "Required scoped behavior passes",
+      "observed": "Fresh API precondition: one role/three features. Localized headings, long email/name, badge and real dates fit at all four widths after ten seconds",
+      "result": "PASS",
+      "evidence": "browser-profile-permissions-final.log",
+      "screenshot": "profile-pl-320.png"
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "action": "Signup EN/PL",
+      "expected": "Required scoped behavior passes",
+      "observed": "Weak 400 shows policy guidance rather than false minimum-eight message; editable compliant retry 202; captured verification 200 and login 200",
+      "result": "PASS",
+      "evidence": "public-pl-results.json",
+      "screenshot": "signup-pl-weak.png"
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "action": "Invitation EN/PL",
+      "expected": "Required scoped behavior passes",
+      "observed": "Real captured token: weak 400 policy guidance; same-token compliant retry 201 and login 200; invalid-token control localized 400",
+      "result": "PASS",
+      "evidence": "public-pl-results.json",
+      "screenshot": "invite-pl-weak.png"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "Reset-confirm EN/PL",
+      "expected": "Required scoped behavior passes",
+      "observed": "Real captured token: weak 400 policy guidance; same-token compliant retry 200; invalid-token control localized 400",
+      "result": "PASS",
+      "evidence": "public-pl-results.json",
+      "screenshot": "resetPassword-pl-weak.png"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "View-only staff",
+      "expected": "Required scoped behavior passes",
+      "observed": "Detail read 200; reset/reset-link/revoke/dialog hidden with active sessions; all three direct mutations 403; whole record unchanged",
+      "result": "PASS",
+      "evidence": "staff-direct-negatives.json",
+      "screenshot": "staff-view.png"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "Manager controls",
+      "expected": "Required scoped behavior passes",
+      "observed": "Exact, module-wildcard and global-wildcard grants retain reset/reset-link/revoke; wildcard actors open and Escape the dialog",
+      "result": "PASS",
+      "evidence": "browser-profile-permissions-final.log",
+      "screenshot": "manager-global-wildcard.png"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "Isolation and selfchange",
+      "expected": "Required scoped behavior passes",
+      "observed": "Owned tenant-B detail/reset 404; wrong-owner revoke 404; weak self-change 400, valid change 200; old session 401, fresh session 200",
+      "result": "PASS",
+      "evidence": "session-selfchange-results.json",
+      "screenshot": null
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "Twoactor stale write",
+      "expected": "Required scoped behavior passes",
+      "observed": "Actor B saves with 200; actor A gets 409 twice; whole B record preserved after ten seconds",
+      "result": "PASS",
+      "evidence": "stale-write-results.json",
+      "screenshot": "stale-write-conflict.png"
+    },
+    {
+      "step": 17,
+      "priority": "P0",
+      "action": "Create/loading/error boundaries",
+      "expected": "Required scoped behavior passes",
+      "observed": "Admin create: weak 400, compliant retry 201. Controlled delayed GET/loading and controlled 500/error render clearly",
+      "result": "PASS",
+      "evidence": "browser-public-boundaries.log",
+      "screenshot": "detail-error.png"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "Source scope and locales",
+      "expected": "Required scoped behavior passes",
+      "observed": "Generic PortalCard is byte-identical to base8e819a2c; changed PortalStatRow has only the profile consumer; three min-w-0 props are profile-only; values present in all five locales",
+      "result": "PASS",
+      "evidence": "source-consumer-proof.txt",
+      "screenshot": null
+    },
+    {
+      "step": 19,
+      "priority": "P0",
+      "action": "Cleanup",
+      "expected": "Required scoped behavior passes",
+      "observed": "Owned runtime processes/containers gone; additional DB removed; private environment/fixtures/traces removed; source clean; port closed",
+      "result": "PASS",
+      "evidence": "teardown-proof.json",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Evidence-only automated complex runtime QA; no manual human QA, technical acceptance or qa-approved signoff.",
+    "Init bootstrap in the additional DB was verified through actual CLI exit/persisted hashes, not HTTP authentication against that second DB. Actual auth setup primary and derived credentials authenticated against the managed production app.",
+    "No real SMTP used; invitation/reset/verification tokens were captured by the managed test transport and removed with private runtime files.",
+    "Public/selfchange/isolation direct refusals partly use API; browser flows explicitly listed were exercised.",
+    "Generic PortalCard consumers in staff/workflow/warranty use the unchanged implementation; they are outside changed-component coverage, not waived modified code.",
+    "Initial CLI count comparison overlapped fixture creation; serialized rerun replaced it. One transport failure was rerun using closed connections.",
+    "Initial populated profile attempts did not satisfy fixture preconditions (one role/zero effective features); an initial fresh fixture also selected an invitation role with no grants. Final fresh fixture used the intended role before first login; API precondition of one role/three features and final EN/PL browser assertions passed.",
+    "Money, stock, decimal amounts and balance reversal rules are inapplicable: the reviewed diff has no corresponding mutation or rendering changes."
+  ],
+  "screenshots": {
+    "count": 45,
+    "manifest": "screenshot-manifest.json"
+  },
+  "qaApproval": false
+}
