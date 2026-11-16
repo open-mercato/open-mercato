@@ -73,7 +73,7 @@ describe.each(['person', 'company'] as const)('customers %s profile search with 
     expect(calls.filter((opts) => opts.withDeleted === true)).toHaveLength(1)
   })
 
-  it('builds the source when the parent check fails', async () => {
+  it('does not build the source when the parent check fails, and builds it once the check recovers', async () => {
     const failing: QueryEngine = {
       query: jest.fn(async (_entity: string, opts: QueryOptions = {}) => {
         if (opts.withDeleted === true) throw new Error('[internal] lookup failed')
@@ -82,7 +82,12 @@ describe.each(['person', 'company'] as const)('customers %s profile search with 
     }
 
     await expect(config.isRecordExcluded!(makeContext(kind, failing))).rejects.toThrow('lookup failed')
-    await expect(config.buildSource!(makeContext(kind, failing))).resolves.toEqual(expect.objectContaining({ text: expect.any(Array) }))
+    await expect(config.buildSource!(makeContext(kind, failing))).rejects.toThrow('lookup failed')
+
+    const { engine } = makeQueryEngine('first-lookup-empty')
+    const retryCtx = makeContext(kind, engine)
+    await expect(config.isRecordExcluded!(retryCtx)).resolves.toBe(false)
+    await expect(config.buildSource!(retryCtx)).resolves.toEqual(expect.objectContaining({ text: expect.any(Array) }))
   })
 
   it('does not exclude the profile when no query engine is available', async () => {

@@ -357,14 +357,14 @@ async function shouldSkipProfileSource(ctx: SearchBuildContext, kind: CustomerPr
   try {
     return await isProfileParentGone(ctx, kind)
   } catch (error) {
-    logger.warn('Failed to check the parent customer entity of a profile; building its search source', {
+    logger.warn('Failed to check the parent customer entity of a profile; not building its search source', {
       component: 'search',
       kind,
       recordId: ctx.record.id,
       err: error,
     })
     getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.search_profile_parent_check_failed', attributes: { kind } })
-    return false
+    throw error
   }
 }
 

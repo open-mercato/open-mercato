@@ -201,15 +201,96 @@ describe('SearchIndexer honours isRecordExcluded (#8638)', () => {
     })
   })
 
-  it('keeps indexing when the exclusion check fails', async () => {
-    const { service, asSearchService } = makeSearchService()
-    const failing = () => { throw new Error('[internal] lookup failed') }
-    const indexer = new SearchIndexer(asSearchService, makeConfigs(failing), { queryEngine: makeQueryEngine() })
+  describe('when the exclusion check fails', () => {
+    const failOnceForGhost = () => {
+      let failed = false
+      return (record: Record<string, unknown>) => {
+        if (record.id === 'ghost-1' && !failed) {
+          failed = true
+          throw new Error('[internal] parent lookup failed')
+        }
+        return byParent(record)
+      }
+    }
+    const ghostParams = { entityId: ENTITY, recordId: 'ghost-1', tenantId: TENANT, organizationId: ORG, record: RECORDS[1] }
+    const bulkParams = () => RECORDS.map((record) => ({
+      entityId: ENTITY,
+      recordId: record.id,
+      tenantId: TENANT,
+      organizationId: ORG,
+      record,
+    }))
 
-    await indexer.indexRecord({ entityId: ENTITY, recordId: 'ghost-1', tenantId: TENANT, organizationId: ORG, record: RECORDS[1] })
+    it('indexRecord writes nothing, rejects, and removes the record on retry', async () => {
+      const { service, asSearchService } = makeSearchService()
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
 
-    expect(service.index).toHaveBeenCalledWith(expect.objectContaining({ recordId: 'ghost-1' }))
-    expect(service.delete).not.toHaveBeenCalled()
+      await expect(indexer.indexRecord(ghostParams)).rejects.toThrow('parent lookup failed')
+      expect(service.index).not.toHaveBeenCalled()
+      expect(service.delete).not.toHaveBeenCalled()
+
+      await indexer.indexRecord(ghostParams)
+      expect(service.index).not.toHaveBeenCalled()
+      expect(service.delete).toHaveBeenCalledWith(ENTITY, 'ghost-1', TENANT)
+    })
+
+    it('reindexEntity skips the record, reports the failure, and removes it on retry', async () => {
+      const { service, asSearchService } = makeSearchService()
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+
+      const failed = await indexer.reindexEntity({ entityId: ENTITY, tenantId: TENANT, organizationId: ORG })
+      expect(failed.success).toBe(false)
+      expect(failed.errors).toEqual([{ entityId: ENTITY, error: expect.stringContaining('ghost-1') }])
+      expect(indexedIds(service.bulkIndex.mock.calls)).toEqual(['live-1'])
+      expect(service.delete).not.toHaveBeenCalled()
+
+      const retried = await indexer.reindexEntity({ entityId: ENTITY, tenantId: TENANT, organizationId: ORG })
+      expect(retried).toEqual(expect.objectContaining({ success: true, errors: [] }))
+      expect(indexedIds(service.bulkIndex.mock.calls)).toEqual(['live-1', 'live-1'])
+      expect(service.delete).toHaveBeenCalledWith(ENTITY, 'ghost-1', TENANT)
+    })
+
+    it('reindexEntityToFulltext skips the record, reports the failure, and removes it on retry', async () => {
+      const { fulltext, asSearchService } = makeSearchService()
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+      const params = { entityId: ENTITY, tenantId: TENANT, organizationId: ORG, recreateIndex: false }
+
+      const failed = await indexer.reindexEntityToFulltext(params)
+      expect(failed.success).toBe(false)
+      expect(failed.errors).toEqual([{ entityId: ENTITY, error: expect.stringContaining('ghost-1') }])
+      expect(fulltext.delete).not.toHaveBeenCalled()
+
+      const retried = await indexer.reindexEntityToFulltext(params)
+      expect(retried).toEqual(expect.objectContaining({ success: true, errors: [] }))
+      expect(indexedIds(fulltext.bulkIndex.mock.calls)).toEqual(['live-1', 'live-1'])
+      expect(fulltext.delete).toHaveBeenCalledWith(ENTITY, 'ghost-1', TENANT)
+    })
+
+    it('bulkIndexRecords indexes only confirmed records, rejects, and removes the record on retry', async () => {
+      const { service, asSearchService } = makeSearchService()
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+
+      await expect(indexer.bulkIndexRecords(bulkParams())).rejects.toThrow('ghost-1')
+      expect(indexedIds(service.bulkIndex.mock.calls)).toEqual(['live-1'])
+      expect(service.delete).not.toHaveBeenCalled()
+
+      await expect(indexer.bulkIndexRecords(bulkParams())).resolves.toBeUndefined()
+      expect(indexedIds(service.bulkIndex.mock.calls)).toEqual(['live-1', 'live-1'])
+      expect(service.delete).toHaveBeenCalledWith(ENTITY, 'ghost-1', TENANT)
+    })
+
+    it('indexRecordsById writes nothing for the record, rejects, and removes it on retry', async () => {
+      const { service, asSearchService } = makeSearchService()
+      const indexer = new SearchIndexer(asSearchService, makeConfigs(failOnceForGhost()), { queryEngine: makeQueryEngine() })
+      const params = { items: [{ entityId: ENTITY, recordId: 'ghost-1' }], tenantId: TENANT, organizationId: ORG }
+
+      await expect(indexer.indexRecordsById(params)).rejects.toThrow('ghost-1')
+      expect(service.bulkIndex).not.toHaveBeenCalled()
+      expect(service.delete).not.toHaveBeenCalled()
+
+      await expect(indexer.indexRecordsById(params)).resolves.toEqual({ indexed: 0, skipped: 1 })
+      expect(service.delete).toHaveBeenCalledWith(ENTITY, 'ghost-1', TENANT)
+    })
   })
 
   it('leaves entities without isRecordExcluded unchanged', async () => {

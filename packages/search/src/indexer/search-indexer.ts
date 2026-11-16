@@ -27,18 +27,24 @@ type PlaintextExclusionLookup = (entityId: EntityId) => Promise<IndexableRecord[
 
 const EXCLUDED_RECORD = Symbol('search-indexer-excluded-record')
 
-type ExcludedRecordDeleteFailure = { recordId: string; error: string }
+type ExcludedRecordFailure = { recordId: string; stage: 'check' | 'delete'; error: string }
 
-function describeExcludedRecordDeleteFailure(failure: ExcludedRecordDeleteFailure): string {
-  return `Failed to remove excluded record ${failure.recordId}: ${failure.error}`
+function describeExcludedRecordFailure(failure: ExcludedRecordFailure): string {
+  return failure.stage === 'check'
+    ? `Failed to check whether record ${failure.recordId} is excluded; it was not indexed: ${failure.error}`
+    : `Failed to remove excluded record ${failure.recordId}: ${failure.error}`
 }
 
-function excludedRecordDeleteError(failures: ExcludedRecordDeleteFailure[]): Error {
+function excludedRecordFailureError(failures: ExcludedRecordFailure[]): Error {
   return new Error(
-    `[internal] Failed to remove ${failures.length} excluded record(s) from the search index: ${
-      failures.map(describeExcludedRecordDeleteFailure).join('; ')
+    `[internal] Failed to resolve or remove ${failures.length} excluded record(s) in the search index: ${
+      failures.map(describeExcludedRecordFailure).join('; ')
     }`,
   )
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -251,13 +257,13 @@ export class SearchIndexer {
     try {
       return (await config.isRecordExcluded(buildContext)) === true
     } catch (error) {
-      searchError('SearchIndexer', 'isRecordExcluded failed; indexing the record', {
+      searchError('SearchIndexer', 'isRecordExcluded failed; not indexing the record', {
         entityId,
         recordId,
         error: error instanceof Error ? error.message : error,
       })
       reportSearchError('SearchIndexer', error, 'search.record_exclusion_check_failed', { entityId })
-      return false
+      throw error
     }
   }
 
@@ -266,13 +272,13 @@ export class SearchIndexer {
     tenantId: string,
     recordIds: string[],
     remove: (recordId: string) => Promise<void>,
-  ): Promise<ExcludedRecordDeleteFailure[]> {
-    const failures: ExcludedRecordDeleteFailure[] = []
+  ): Promise<ExcludedRecordFailure[]> {
+    const failures: ExcludedRecordFailure[] = []
     for (const recordId of recordIds) {
       try {
         await remove(recordId)
       } catch (error) {
-        failures.push({ recordId, error: error instanceof Error ? error.message : String(error) })
+        failures.push({ recordId, stage: 'delete', error: errorMessage(error) })
         searchError('SearchIndexer', 'Failed to remove an excluded record from the search index', {
           entityId,
           recordId,
@@ -474,7 +480,7 @@ export class SearchIndexer {
 
     const exclusions = this.createPlaintextExclusionLookup()
     const allRecords: IndexableRecord[] = []
-    const deleteFailures: ExcludedRecordDeleteFailure[] = []
+    const exclusionFailures: ExcludedRecordFailure[] = []
     let skipped = 0
 
     for (const [entityId, recordIds] of recordIdsByEntity) {
@@ -501,7 +507,7 @@ export class SearchIndexer {
             continue
           }
 
-          const { records: built, dropped, excludedRecordIds } = await this.buildIndexableRecords(
+          const { records: built, dropped, excludedRecordIds, checkFailures } = await this.buildIndexableRecords(
             entityId,
             tenantId,
             organizationId ?? null,
@@ -511,7 +517,8 @@ export class SearchIndexer {
           )
           skipped += dropped
           allRecords.push(...built)
-          deleteFailures.push(...await this.deleteExcludedRecords(entityId, tenantId, excludedRecordIds, (excludedId) =>
+          exclusionFailures.push(...checkFailures)
+          exclusionFailures.push(...await this.deleteExcludedRecords(entityId, tenantId, excludedRecordIds, (excludedId) =>
             this.searchService.delete(entityId, excludedId, tenantId)))
         } catch (error) {
           skipped++
@@ -528,8 +535,8 @@ export class SearchIndexer {
       await this.searchService.bulkIndex(allRecords)
     }
 
-    if (deleteFailures.length > 0) {
-      throw excludedRecordDeleteError(deleteFailures)
+    if (exclusionFailures.length > 0) {
+      throw excludedRecordFailureError(exclusionFailures)
     }
 
     return { indexed: allRecords.length, skipped }
@@ -619,20 +626,23 @@ export class SearchIndexer {
         }
 
         // Build and index records
-        const { records, excludedRecordIds } = await this.buildIndexableRecords(
+        const { records, excludedRecordIds, checkFailures } = await this.buildIndexableRecords(
           params.entityId,
           params.tenantId,
           params.organizationId ?? null,
           items,
           config,
         )
-        const deleteFailures = await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
-          this.searchService.delete(params.entityId, excludedId, params.tenantId))
-        if (deleteFailures.length > 0) {
+        const exclusionFailures = [
+          ...checkFailures,
+          ...await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
+            this.searchService.delete(params.entityId, excludedId, params.tenantId)),
+        ]
+        if (exclusionFailures.length > 0) {
           result.success = false
-          result.errors.push(...deleteFailures.map((failure) => ({
+          result.errors.push(...exclusionFailures.map((failure) => ({
             entityId: params.entityId,
-            error: describeExcludedRecordDeleteFailure(failure),
+            error: describeExcludedRecordFailure(failure),
           })))
         }
 
@@ -707,13 +717,19 @@ export class SearchIndexer {
    */
   async bulkIndexRecords(params: IndexRecordParams[]): Promise<void> {
     const indexableRecords: IndexableRecord[] = []
-    const deleteFailures: ExcludedRecordDeleteFailure[] = []
+    const exclusionFailures: ExcludedRecordFailure[] = []
     const exclusions = this.createPlaintextExclusionLookup()
 
     for (const param of params) {
-      const indexableRecord = await this.buildIndexableRecord(param, exclusions)
+      let indexableRecord: Awaited<ReturnType<SearchIndexer['buildIndexableRecord']>>
+      try {
+        indexableRecord = await this.buildIndexableRecord(param, exclusions)
+      } catch (error) {
+        exclusionFailures.push({ recordId: param.recordId, stage: 'check', error: errorMessage(error) })
+        continue
+      }
       if (indexableRecord === EXCLUDED_RECORD) {
-        deleteFailures.push(...await this.deleteExcludedRecords(param.entityId, param.tenantId, [param.recordId], (excludedId) =>
+        exclusionFailures.push(...await this.deleteExcludedRecords(param.entityId, param.tenantId, [param.recordId], (excludedId) =>
           this.searchService.delete(param.entityId, excludedId, param.tenantId)))
         continue
       }
@@ -734,8 +750,8 @@ export class SearchIndexer {
       }
     }
 
-    if (deleteFailures.length > 0) {
-      throw excludedRecordDeleteError(deleteFailures)
+    if (exclusionFailures.length > 0) {
+      throw excludedRecordFailureError(exclusionFailures)
     }
   }
 
@@ -846,7 +862,7 @@ export class SearchIndexer {
         })
 
         // Build IndexableRecords for this batch
-          const { records: indexableRecords, dropped, excludedRecordIds } = await this.buildIndexableRecords(
+          const { records: indexableRecords, dropped, excludedRecordIds, checkFailures } = await this.buildIndexableRecords(
             params.entityId,
             params.tenantId,
             params.organizationId ?? null,
@@ -854,13 +870,16 @@ export class SearchIndexer {
             config,
           )
           result.recordsDropped = (result.recordsDropped ?? 0) + dropped
-          const deleteFailures = await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
-            fulltext.delete(params.entityId, excludedId, params.tenantId))
-          if (deleteFailures.length > 0) {
+          const exclusionFailures = [
+            ...checkFailures,
+            ...await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
+              fulltext.delete(params.entityId, excludedId, params.tenantId)),
+          ]
+          if (exclusionFailures.length > 0) {
             result.success = false
-            result.errors.push(...deleteFailures.map((failure) => ({
+            result.errors.push(...exclusionFailures.map((failure) => ({
               entityId: params.entityId,
-              error: describeExcludedRecordDeleteFailure(failure),
+              error: describeExcludedRecordFailure(failure),
             })))
           }
 
@@ -1222,9 +1241,10 @@ export class SearchIndexer {
     items: Record<string, unknown>[],
     config: SearchEntityConfig,
     exclusions = this.createPlaintextExclusionLookup(),
-  ): Promise<{ records: IndexableRecord[]; dropped: number; excludedRecordIds: string[] }> {
+  ): Promise<{ records: IndexableRecord[]; dropped: number; excludedRecordIds: string[]; checkFailures: ExcludedRecordFailure[] }> {
     const records: IndexableRecord[] = []
     const excludedRecordIds: string[] = []
+    const checkFailures: ExcludedRecordFailure[] = []
     const plaintextExcludedCustomFields = await exclusions(entityId)
     let dropped = 0
 
@@ -1267,7 +1287,15 @@ export class SearchIndexer {
         queryEngine: this.noReindexQueryEngine,
       }
 
-      if (await this.isRecordExcluded(config, buildContext, entityId, recordId)) {
+      let excluded: boolean
+      try {
+        excluded = await this.isRecordExcluded(config, buildContext, entityId, recordId)
+      } catch (error) {
+        checkFailures.push({ recordId, stage: 'check', error: errorMessage(error) })
+        dropped++
+        continue
+      }
+      if (excluded) {
         excludedRecordIds.push(recordId)
         dropped++
         continue
@@ -1350,6 +1378,6 @@ export class SearchIndexer {
       dropped,
     })
 
-    return { records, dropped, excludedRecordIds }
+    return { records, dropped, excludedRecordIds, checkFailures }
   }
 }
