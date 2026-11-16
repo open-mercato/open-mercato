@@ -320,6 +320,24 @@ async function hydrateProfileContext(ctx: SearchContext, kind: CustomerProfileKi
   }
 }
 
+async function isProfileParentGone(ctx: SearchBuildContext, kind: CustomerProfileKind): Promise<boolean> {
+  assertTenantContext(ctx)
+  const loaded = await loadCustomerEntityForProfile(ctx, kind)
+  if (loaded?.entity) return loaded.entity.deleted_at != null
+  const entityId = resolveCustomerEntityId(ctx.record)
+  if (!entityId || !ctx.queryEngine) return false
+  const result = await ctx.queryEngine.query('customers:customer_entity', {
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId ?? undefined,
+    filters: { id: { $eq: entityId } },
+    fields: ['id', 'deleted_at'],
+    withDeleted: true,
+    page: { page: 1, pageSize: 1 },
+  })
+  const parent = result.items[0] as Record<string, unknown> | undefined
+  return !parent || parent.deleted_at != null
+}
+
 async function loadRecord(ctx: SearchContext, entityId: string, recordId?: string | null) {
   if (!recordId || !ctx.queryEngine) return null
   const res = await ctx.queryEngine.query(entityId, {
@@ -663,8 +681,11 @@ export const searchConfig: SearchModuleConfig = {
       enabled: true,
       priority: 10,
 
+      isRecordExcluded: (ctx: SearchBuildContext) => isProfileParentGone(ctx, 'person'),
+
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        if (await isProfileParentGone(ctx, 'person')) return null
         const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record
@@ -763,8 +784,11 @@ export const searchConfig: SearchModuleConfig = {
       enabled: true,
       priority: 10,
 
+      isRecordExcluded: (ctx: SearchBuildContext) => isProfileParentGone(ctx, 'company'),
+
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
         assertTenantContext(ctx)
+        if (await isProfileParentGone(ctx, 'company')) return null
         const { t } = await resolveTranslations()
         const lines: string[] = []
         const record = ctx.record

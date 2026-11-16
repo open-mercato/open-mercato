@@ -14,7 +14,7 @@ import { reindexEntity } from '../lib/reindexer'
 import { upsertIndexBatch } from '../lib/batch'
 import { buildIndexDoc, upsertIndexRow } from '../lib/indexer'
 import { refreshCoverageSnapshot } from '../lib/coverage'
-import queryIndexCli from '../cli'
+import queryIndexCli, { findUnindexedRecordIds } from '../cli'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -26,6 +26,10 @@ jest.mock('@open-mercato/shared/lib/cli/progress', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: () => null,
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/entityIds', () => ({
+  getEntityIds: () => ({ customers: { customer_person_profile: 'customers:customer_person_profile' } }),
 }))
 
 jest.mock('../lib/batch', () => {
@@ -128,7 +132,25 @@ const countOneRow: Responder = (query) => (query.sql.startsWith('select count(*)
 const sqlTouching = (statements: CompiledQuery[], table: string) =>
   statements.filter((statement) => statement.sql.includes(`from "${table}"`)).map((statement) => statement.sql)
 
-const PARENT_ACTIVE = /exists \(select 1 from "customer_entities" as "parent_entity" where "parent_entity"\."id" = "[a-z_]+"\."entity_id" and "parent_entity"\."deleted_at" is null\)/
+const parentActiveOn = (profileRef: string) =>
+  `exists (select 1 from "customer_entities" as "parent_entity" where "parent_entity"."id" = ${profileRef}."entity_id" and "parent_entity"."deleted_at" is null)`
+
+async function runCli(name: string, args: string[]) {
+  const command = queryIndexCli.find((entry) => entry.command === name)
+  const log = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+  try {
+    await command!.run(args)
+    return { warnings: warn.mock.calls.map((call) => String(call[0])), logs: log.mock.calls.map((call) => String(call[0])) }
+  } finally {
+    log.mockRestore()
+    warn.mockRestore()
+  }
+}
+
+function useContainer(db: Kysely<Record<string, never>>) {
+  mockCreateRequestContainer.mockResolvedValue({ resolve: () => createEm(db) } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
+}
 
 describe('query index skips customer profiles whose parent entity is soft-deleted (#8638)', () => {
   beforeEach(() => {
@@ -146,7 +168,18 @@ describe('query index skips customer profiles whose parent entity is soft-delete
 
     const sourceStatements = sqlTouching(statements, table)
     expect(sourceStatements.length).toBeGreaterThanOrEqual(2)
-    for (const statement of sourceStatements) expect(statement).toMatch(PARENT_ACTIVE)
+    for (const statement of sourceStatements) expect(statement).toContain(parentActiveOn('"b"'))
+  })
+
+  it('applies the parent predicate inside a partitioned reindex', async () => {
+    const { db, statements } = createRecordingDb(countOneRow)
+
+    await reindexEntity(createEm(db), { entityType: PERSON_PROFILE, tenantId: TENANT, organizationId: ORG, force: true, partitionCount: 2, partitionIndex: 1 })
+
+    const sourceStatements = sqlTouching(statements, 'customer_people')
+    const partitionStatements = sourceStatements.filter((statement) => statement.includes('hashtext(b.id::text)'))
+    expect(partitionStatements.length).toBeGreaterThanOrEqual(1)
+    for (const statement of sourceStatements) expect(statement).toContain(parentActiveOn('"b"'))
   })
 
   it('leaves the source query of other entity types unchanged', async () => {
@@ -169,27 +202,68 @@ describe('query index skips customer profiles whose parent entity is soft-delete
 
     const baseCounts = sqlTouching(statements, 'customer_people')
     expect(baseCounts).toHaveLength(1)
-    expect(baseCounts[0]).toMatch(PARENT_ACTIVE)
+    expect(baseCounts[0]).toContain(parentActiveOn('"b"'))
   })
 
-  it('query_index rebuild selects profiles only when the parent is active', async () => {
-    const { db, statements } = createRecordingDb((query) => (
-      query.sql.includes('from "customer_people"') ? [{ count: 0 }] : undefined
-    ))
-    mockCreateRequestContainer.mockResolvedValue({ resolve: () => createEm(db) } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
-    const rebuild = queryIndexCli.find((command) => command.command === 'rebuild')
-    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined)
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
-    try {
-      await rebuild!.run(['--entity', PERSON_PROFILE, '--tenant', TENANT, '--org', ORG])
-    } finally {
-      log.mockRestore()
-      warn.mockRestore()
-    }
+  it('keeps soft-deleted parents in a withDeleted coverage count', async () => {
+    const { db, statements } = createRecordingDb()
+
+    await refreshCoverageSnapshot(createEm(db), { entityType: PERSON_PROFILE, tenantId: TENANT, organizationId: ORG, withDeleted: true })
+
+    const baseCounts = sqlTouching(statements, 'customer_people')
+    expect(baseCounts).toHaveLength(1)
+    expect(baseCounts[0]).not.toContain('customer_entities')
+  })
+
+  it('findUnindexedRecordIds lists only profiles with an active parent', async () => {
+    const { db, statements } = createRecordingDb()
+
+    await findUnindexedRecordIds(db, { entityType: PERSON_PROFILE, tableName: 'customer_people', tenantId: TENANT, organizationId: ORG, limit: 10 })
 
     const sourceStatements = sqlTouching(statements, 'customer_people')
     expect(sourceStatements).toHaveLength(1)
-    expect(sourceStatements[0]).toMatch(PARENT_ACTIVE)
+    expect(sourceStatements[0]).toContain(parentActiveOn('"b"'))
+  })
+
+  it('query_index rebuild selects profiles only when the parent is active, without a deleted_at warning', async () => {
+    const { db, statements } = createRecordingDb((query) => (
+      query.sql.includes('from "customer_people"') ? [{ count: 0 }] : undefined
+    ))
+    useContainer(db)
+
+    const { warnings } = await runCli('rebuild', ['--entity', PERSON_PROFILE, '--tenant', TENANT, '--org', ORG])
+
+    const sourceStatements = sqlTouching(statements, 'customer_people')
+    expect(sourceStatements).toHaveLength(1)
+    expect(sourceStatements[0]).toContain(parentActiveOn('"customer_people"'))
+    expect(warnings.filter((warning) => warning.includes('does not expose deleted_at'))).toEqual([])
+  })
+
+  it('query_index rebuild --withDeleted keeps profiles of soft-deleted parents', async () => {
+    const { db, statements } = createRecordingDb((query) => (
+      query.sql.includes('from "customer_people"') ? [{ count: 0 }] : undefined
+    ))
+    useContainer(db)
+
+    await runCli('rebuild', ['--entity', PERSON_PROFILE, '--tenant', TENANT, '--org', ORG, '--withDeleted'])
+
+    const sourceStatements = sqlTouching(statements, 'customer_people')
+    expect(sourceStatements).toHaveLength(1)
+    expect(sourceStatements[0]).not.toContain('customer_entities')
+  })
+
+  it('query_index rebuild-all applies the parent predicate to profile types', async () => {
+    const { db, statements } = createRecordingDb((query) => (
+      query.sql.includes('from "customer_people"') ? [{ count: 0 }] : undefined
+    ))
+    useContainer(db)
+
+    const { warnings } = await runCli('rebuild-all', ['--tenant', TENANT, '--org', ORG])
+
+    const sourceStatements = sqlTouching(statements, 'customer_people')
+    expect(sourceStatements).toHaveLength(1)
+    expect(sourceStatements[0]).toContain(parentActiveOn('"customer_people"'))
+    expect(warnings.filter((warning) => warning.includes('does not expose deleted_at'))).toEqual([])
   })
 
   describe('single-record path', () => {
@@ -236,6 +310,23 @@ describe('query index skips customer profiles whose parent entity is soft-delete
       expect(writes.some((statement) => statement.startsWith('delete from "entity_indexes"'))).toBe(true)
       expect(writes.some((statement) => statement.startsWith('delete from "search_tokens"'))).toBe(true)
       expect(writes.some((statement) => statement.startsWith('insert into "entity_indexes"'))).toBe(false)
+    })
+
+    it('query_index rebuild --record removes the projection of a profile whose parent is soft-deleted', async () => {
+      const { db, statements } = createRecordingDb((query) => {
+        if (query.sql.includes('from "customer_people"') && query.sql.includes('customer_entities')) return []
+        if (query.sql.includes('from "entity_indexes"') && query.sql.startsWith('select')) return [{ id: 'index-row', deleted_at: null }]
+        return respondWith(new Date('2026-11-01T00:00:00Z'))(query)
+      })
+      useContainer(db)
+
+      await runCli('rebuild', ['--entity', PERSON_PROFILE, '--record', PROFILE_ID, '--tenant', TENANT, '--org', ORG])
+
+      const writes = statements.map((statement) => statement.sql).filter((statement) => !statement.startsWith('select'))
+      expect(writes.some((statement) => statement.startsWith('delete from "entity_indexes"'))).toBe(true)
+      expect(writes.some((statement) => statement.startsWith('delete from "search_tokens"'))).toBe(true)
+      expect(writes.some((statement) => statement.startsWith('insert into "entity_indexes"'))).toBe(false)
+      expect(mockUpsertIndexBatch).not.toHaveBeenCalled()
     })
   })
 })

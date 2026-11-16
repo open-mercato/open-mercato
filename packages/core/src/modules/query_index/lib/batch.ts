@@ -6,6 +6,7 @@ import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-toke
 import { applyIndexDocEnrichers, type IndexDocEnrichmentTarget } from './doc-enrichers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { isCustomerProfileEntityType } from './customer-profile-parent'
 
 const logger = createLogger('query_index').child({ component: 'reindex-batch' })
 
@@ -179,8 +180,7 @@ export async function upsertIndexBatch(
     ).catch(() => undefined)
   }
 
-  const shouldMergeCustomerEntity =
-    entityType === 'customers:customer_person_profile' || entityType === 'customers:customer_company_profile'
+  const shouldMergeCustomerEntity = isCustomerProfileEntityType(entityType)
 
   let customerEntitiesById: Map<string, AnyRow> | null = null
   if (shouldMergeCustomerEntity) {

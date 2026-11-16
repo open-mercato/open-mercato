@@ -25,6 +25,8 @@ const MAX_PAGES = 10000
 
 type PlaintextExclusionLookup = (entityId: EntityId) => Promise<IndexableRecord['plaintextExcludedCustomFields']>
 
+const EXCLUDED_RECORD = Symbol('search-indexer-excluded-record')
+
 /**
  * Parameters for indexing a record.
  */
@@ -216,15 +218,58 @@ export class SearchIndexer {
    */
   async indexRecord(params: IndexRecordParams): Promise<void> {
     const indexableRecord = await this.buildIndexableRecord(params)
+    if (indexableRecord === EXCLUDED_RECORD) {
+      await this.searchService.delete(params.entityId, params.recordId, params.tenantId)
+      return
+    }
     if (indexableRecord) {
       await this.searchService.index(indexableRecord)
+    }
+  }
+
+  private async isRecordExcluded(
+    config: SearchEntityConfig,
+    buildContext: SearchBuildContext,
+    entityId: EntityId,
+    recordId: string,
+  ): Promise<boolean> {
+    if (!config.isRecordExcluded) return false
+    try {
+      return (await config.isRecordExcluded(buildContext)) === true
+    } catch (error) {
+      searchError('SearchIndexer', 'isRecordExcluded failed; indexing the record', {
+        entityId,
+        recordId,
+        error: error instanceof Error ? error.message : error,
+      })
+      return false
+    }
+  }
+
+  private async deleteExcludedRecords(
+    entityId: EntityId,
+    tenantId: string,
+    recordIds: string[],
+    remove: (recordId: string) => Promise<void>,
+  ): Promise<void> {
+    for (const recordId of recordIds) {
+      try {
+        await remove(recordId)
+      } catch (error) {
+        searchError('SearchIndexer', 'Failed to remove an excluded record from the search index', {
+          entityId,
+          recordId,
+          tenantId,
+          error: error instanceof Error ? error.message : error,
+        })
+      }
     }
   }
 
   private async buildIndexableRecord(
     params: IndexRecordParams,
     exclusions = this.createPlaintextExclusionLookup(),
-  ): Promise<IndexableRecord | null> {
+  ): Promise<IndexableRecord | typeof EXCLUDED_RECORD | null> {
     const config = this.entityConfigMap.get(params.entityId)
     if (!config || config.enabled === false) {
       return null
@@ -236,6 +281,10 @@ export class SearchIndexer {
       organizationId: params.organizationId,
       tenantId: params.tenantId,
       queryEngine: this.noReindexQueryEngine,
+    }
+
+    if (await this.isRecordExcluded(config, buildContext, params.entityId, params.recordId)) {
+      return EXCLUDED_RECORD
     }
 
     // Try buildSource first (provides text, presenter, links, checksumSource)
@@ -432,7 +481,7 @@ export class SearchIndexer {
             continue
           }
 
-          const { records: built, dropped } = await this.buildIndexableRecords(
+          const { records: built, dropped, excludedRecordIds } = await this.buildIndexableRecords(
             entityId,
             tenantId,
             organizationId ?? null,
@@ -442,6 +491,8 @@ export class SearchIndexer {
           )
           skipped += dropped
           allRecords.push(...built)
+          await this.deleteExcludedRecords(entityId, tenantId, excludedRecordIds, (excludedId) =>
+            this.searchService.delete(entityId, excludedId, tenantId))
         } catch (error) {
           skipped++
           searchError('SearchIndexer', 'Failed to load record for batch indexing', {
@@ -544,13 +595,15 @@ export class SearchIndexer {
         }
 
         // Build and index records
-        const { records } = await this.buildIndexableRecords(
+        const { records, excludedRecordIds } = await this.buildIndexableRecords(
           params.entityId,
           params.tenantId,
           params.organizationId ?? null,
           items,
           config,
         )
+        await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
+          this.searchService.delete(params.entityId, excludedId, params.tenantId))
 
         // Bulk index records via SearchService (sends to all strategies)
         if (records.length > 0) {
@@ -627,6 +680,11 @@ export class SearchIndexer {
 
     for (const param of params) {
       const indexableRecord = await this.buildIndexableRecord(param, exclusions)
+      if (indexableRecord === EXCLUDED_RECORD) {
+        await this.deleteExcludedRecords(param.entityId, param.tenantId, [param.recordId], (excludedId) =>
+          this.searchService.delete(param.entityId, excludedId, param.tenantId))
+        continue
+      }
       if (indexableRecord) {
         indexableRecords.push(indexableRecord)
       }
@@ -752,7 +810,7 @@ export class SearchIndexer {
         })
 
         // Build IndexableRecords for this batch
-          const { records: indexableRecords, dropped } = await this.buildIndexableRecords(
+          const { records: indexableRecords, dropped, excludedRecordIds } = await this.buildIndexableRecords(
             params.entityId,
             params.tenantId,
             params.organizationId ?? null,
@@ -760,6 +818,8 @@ export class SearchIndexer {
             config,
           )
           result.recordsDropped = (result.recordsDropped ?? 0) + dropped
+          await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
+            fulltext.delete(params.entityId, excludedId, params.tenantId))
 
           // Index to fulltext - either via queue or directly
           if (indexableRecords.length > 0) {
@@ -1119,8 +1179,9 @@ export class SearchIndexer {
     items: Record<string, unknown>[],
     config: SearchEntityConfig,
     exclusions = this.createPlaintextExclusionLookup(),
-  ): Promise<{ records: IndexableRecord[]; dropped: number }> {
+  ): Promise<{ records: IndexableRecord[]; dropped: number; excludedRecordIds: string[] }> {
     const records: IndexableRecord[] = []
+    const excludedRecordIds: string[] = []
     const plaintextExcludedCustomFields = await exclusions(entityId)
     let dropped = 0
 
@@ -1161,6 +1222,12 @@ export class SearchIndexer {
         organizationId,
         tenantId,
         queryEngine: this.noReindexQueryEngine,
+      }
+
+      if (await this.isRecordExcluded(config, buildContext, entityId, recordId)) {
+        excludedRecordIds.push(recordId)
+        dropped++
+        continue
       }
 
       // Try buildSource first (provides text, presenter, links, checksumSource)
@@ -1240,6 +1307,6 @@ export class SearchIndexer {
       dropped,
     })
 
-    return { records, dropped }
+    return { records, dropped, excludedRecordIds }
   }
 }

@@ -329,6 +329,8 @@ export type SearchEntityConfig = {
   priority?: number
   /** Build searchable content from record */
   buildSource?: (ctx: SearchBuildContext) => Promise<SearchIndexSource | null> | SearchIndexSource | null
+  /** Return true when a loadable record must not be searchable (e.g. its parent is soft-deleted); the indexer removes it instead of indexing it */
+  isRecordExcluded?: (ctx: SearchBuildContext) => Promise<boolean> | boolean
   /** Format result for display in Cmd+K */
   formatResult?: (ctx: SearchBuildContext) => Promise<SearchResultPresenter | null> | SearchResultPresenter | null
   /** Resolve primary URL when result is clicked */

@@ -22,6 +22,7 @@ import {
   type AnyRow,
 } from './lib/batch'
 import { reindexEntity, isTenantlessReindexTarget, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import { upsertIndexRow } from './lib/indexer'
 import type { ReindexJobResult } from './lib/reindexer'
 
 /**
@@ -238,7 +239,9 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     )
   }
 
-  const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
+  const filtersOutDeletedParents = !includeDeleted && isCustomerProfileEntityType(entityType)
+
+  const applyScopeFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
     let chain = q
     if (!global) {
       if (orgOverride !== undefined && supportsOrgFilter) {
@@ -251,10 +254,12 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     if (!includeDeleted && supportsDeletedFilter) {
       chain = chain.where('deleted_at' as any, 'is', null as any)
     }
-    if (!includeDeleted && isCustomerProfileEntityType(entityType)) {
-      chain = chain.where(customerProfileParentActive(tableName))
-    }
     return chain
+  }
+
+  const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
+    const chain = applyScopeFilters(q)
+    return filtersOutDeletedParents ? chain.where(customerProfileParentActive(tableName)) : chain
   }
 
   if (recordId) {
@@ -263,6 +268,21 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     )
       .where('id' as any, '=', recordId)
       .executeTakeFirst() as AnyRow | undefined
+    if (!row && filtersOutDeletedParents) {
+      const orphanedProfile = await applyScopeFilters(
+        db.selectFrom(tableName as any).select(['organization_id' as any, 'tenant_id' as any]) as any,
+      )
+        .where('id' as any, '=', recordId)
+        .executeTakeFirst() as { organization_id: string | null; tenant_id: string | null } | undefined
+      if (orphanedProfile) {
+        await upsertIndexRow(em, {
+          entityType,
+          recordId,
+          organizationId: orgOverride ?? orphanedProfile.organization_id ?? null,
+          tenantId: tenantOverride ?? orphanedProfile.tenant_id ?? null,
+        })
+      }
+    }
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
     const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
@@ -370,7 +390,7 @@ const MAX_TARGETED_REPAIR_RECORDS = 5000
  * List the base records in scope that have no live index row, so a repair rebuilds only
  * what is actually missing instead of re-upserting the whole entity for a one-row gap.
  */
-async function findUnindexedRecordIds(
+export async function findUnindexedRecordIds(
   db: Kysely<any>,
   options: {
     entityType: string
@@ -554,6 +574,7 @@ const rebuild: ModuleCli = {
       const supportsOrg = columns.has('organization_id')
       const supportsTenant = columns.has('tenant_id')
       const supportsDeleted = columns.has('deleted_at')
+      const skipsDeletedRows = supportsDeleted || isCustomerProfileEntityType(entity)
 
       if (!globalFlag && orgId && !supportsOrg) {
         console.warn(`[query_index] ${entity} does not expose organization_id, ignoring --org filter`)
@@ -561,7 +582,7 @@ const rebuild: ModuleCli = {
       if (!globalFlag && tenantId && !supportsTenant) {
         console.warn(`[query_index] ${entity} does not expose tenant_id, ignoring --tenant filter`)
       }
-      if (!includeDeleted && !supportsDeleted) {
+      if (!includeDeleted && !skipsDeletedRows) {
         console.warn(`[query_index] ${entity} does not expose deleted_at, cannot skip deleted rows`)
       }
 
@@ -600,7 +621,7 @@ const rebuild: ModuleCli = {
         includeDeleted,
         supportsOrg,
         supportsTenant,
-        supportsDeleted,
+        supportsDeleted: skipsDeletedRows,
       })
 
       if (result.matched === 0) {
@@ -669,6 +690,7 @@ const rebuildAll: ModuleCli = {
         const supportsOrg = columns.has('organization_id')
         const supportsTenant = columns.has('tenant_id')
         const supportsDeleted = columns.has('deleted_at')
+        const skipsDeletedRows = supportsDeleted || isCustomerProfileEntityType(entity)
 
         if (!globalFlag && orgId && !supportsOrg) {
           console.warn(`[query_index] ${entity} does not expose organization_id, ignoring --org filter`)
@@ -676,7 +698,7 @@ const rebuildAll: ModuleCli = {
         if (!globalFlag && tenantId && !supportsTenant) {
           console.warn(`[query_index] ${entity} does not expose tenant_id, ignoring --tenant filter`)
         }
-        if (!includeDeleted && !supportsDeleted) {
+        if (!includeDeleted && !skipsDeletedRows) {
           console.warn(`[query_index] ${entity} does not expose deleted_at, cannot skip deleted rows`)
         }
 
@@ -687,7 +709,7 @@ const rebuildAll: ModuleCli = {
           includeDeleted,
           supportsOrg,
           supportsTenant,
-          supportsDeleted,
+          supportsDeleted: skipsDeletedRows,
         })
 
         console.log(`[${idx + 1}/${entityIds.length}] Rebuilding ${entity}${scopeLabel}`)
