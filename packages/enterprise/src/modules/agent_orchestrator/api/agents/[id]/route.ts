@@ -4,12 +4,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import {
-  getAgentEntry,
-  ensureAgentsLoaded,
-  resolveAgentDefinitionSource,
-  type AgentRegistryEntry,
-} from '../../../lib/sdk/defineAgent'
+import { getAgentEntry, ensureAgentsLoaded, type AgentRegistryEntry } from '../../../lib/sdk/defineAgent'
+import { resolveAgentDefinitionSource } from '../../../lib/sdk/agentDefinitionSource'
 import { getSkillEntry, ensureSkillsLoaded } from '../../../lib/sdk/defineSkill'
 import { getAgentSkill } from '../../../lib/runtime/fileAgentSkills'
 import { getAgentSettingRow } from '../../../lib/settings/agentSettings'

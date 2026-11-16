@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { getAgentEntry, ensureAgentsLoaded, resolveAgentDefinitionSource } from '../../../../lib/sdk/defineAgent'
+import { getAgentEntry, ensureAgentsLoaded } from '../../../../lib/sdk/defineAgent'
+import { resolveAgentDefinitionSource } from '../../../../lib/sdk/agentDefinitionSource'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
