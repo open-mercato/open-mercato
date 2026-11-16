@@ -194,7 +194,6 @@ test.describe('TC-CRM-056: Confirm-dialog stability (#1804, #1810)', () => {
           .first()
         await expect(nameInput).toBeVisible({ timeout: 30_000 })
         await nameInput.fill(jsonName)
-        await page.locator('[data-crud-field-id="taxId"] input').first().fill('PL1234567890')
 
         // CrudForm's submit label is configured via `submitLabel` — the
         // companies create page uses `customers.companies.form.submit` =

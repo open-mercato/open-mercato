@@ -61,6 +61,8 @@ import {
 } from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import {
+  COMPANY_TAX_ID_MAX_LENGTH,
+  COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY,
   CUSTOMER_EMAIL_INVALID_MESSAGE_KEY,
   CUSTOMER_PHONE_INVALID_MESSAGE_KEY,
   CUSTOMER_URL_INVALID_MESSAGE_KEY,
@@ -89,7 +91,7 @@ export type CustomerFormFieldOptions = {
    * localizes its built-in list for the active locale.
    */
   phoneCountries?: PhoneCountry[]
-  /** The VAT ID is mandatory for a new company; edit forms keep legacy records without one saveable. */
+  /** Marks the VAT ID as required; off by default, since a company MAY have no tax ID (not VAT-registered, foreign, early-stage lead). */
   requireTaxId?: boolean
 }
 
@@ -1326,6 +1328,7 @@ export const createCompanyFormSchema = () =>
       taxId: z
         .string()
         .trim()
+        .max(COMPANY_TAX_ID_MAX_LENGTH, COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY)
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -1399,7 +1402,7 @@ export const createCompanyFormFields = (t: Translator, options?: CustomerFormFie
       label: t('customers.companies.detail.fields.taxId', 'VAT ID'),
       type: 'text',
       layout: 'half',
-      required: options?.requireTaxId ?? true,
+      required: options?.requireTaxId ?? false,
       placeholder: t('customers.companies.detail.fields.taxIdPlaceholder', 'e.g. PL1234567890'),
     },
     {
@@ -1711,10 +1714,8 @@ const clearableDomainField = () =>
 // Plain optional string fields that map to nullable columns (legal name, brand name,
 // company size, annual revenue, description). On edit a blanked value must transmit null
 // so it actually clears — create-mode keeps the '' → undefined transform. See #3050.
-const clearableTextField = () =>
-  z
-    .string()
-    .trim()
+const clearableTextField = (limit?: { maxLength: number; tooLongMessage: string }) =>
+  (limit ? z.string().trim().max(limit.maxLength, limit.tooLongMessage) : z.string().trim())
     .optional()
     .or(z.literal(''))
     .transform((val) => (val === '' ? null : val))
@@ -1742,7 +1743,7 @@ export const createCompanyEditSchema = () =>
     brandName: clearableTextField(),
     sizeBucket: clearableTextField(),
     annualRevenue: clearableTextField(),
-    taxId: clearableTextField(),
+    taxId: clearableTextField({ maxLength: COMPANY_TAX_ID_MAX_LENGTH, tooLongMessage: COMPANY_TAX_ID_TOO_LONG_MESSAGE_KEY }),
     description: clearableTextField(),
   })
 
@@ -1780,7 +1781,7 @@ const buildIndustryLabels = (t: Translator): DictionarySelectLabels => ({
 })
 
 export const createCompanyEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
-  const baseFields = createCompanyFormFields(t, { ...options, requireTaxId: options?.requireTaxId ?? false })
+  const baseFields = createCompanyFormFields(t, options)
   const industryLabels = buildIndustryLabels(t)
 
   return baseFields.map((field) => {
