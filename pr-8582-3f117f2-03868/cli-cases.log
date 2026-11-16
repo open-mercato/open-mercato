@@ -1,0 +1,11 @@
+production weak primary: exit=2 writes=false
+production weak with skip-password-policy: exit=2 writes=false
+production weak with skipPasswordPolicy: exit=2 writes=false
+production weak with allow-weak-password: exit=2 writes=false
+production weak with allowWeakPassword: exit=2 writes=false
+production compliant primary: exit=0 writes=true auth=200
+nonproduction explicit weak demo bypass: exit=0 writes=true auth=200
+production explicit weak derived overrides: exit=1 writes=false
+nonproduction explicit weak derived overrides: exit=1 writes=false
+production compliant derived overrides: exit=0 writes=true auth=200
+fetch failed
