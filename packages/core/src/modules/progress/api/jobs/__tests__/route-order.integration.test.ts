@@ -52,7 +52,7 @@ describeWithPostgres('progress jobs list paging against PostgreSQL', () => {
     if (!activeOrm) throw new Error('[internal] PostgreSQL test ORM unavailable')
     const tenantId = randomUUID()
     const organizationId = randomUUID()
-    const createdAt = new Date('2026-11-16T10:00:00.000Z')
+    const createdAt = new Date('2026-01-15T10:00:00.000Z')
     const em = activeOrm.em.fork()
     try {
       const rows = Array.from({ length: 30 }, (_, index) => em.create(ProgressJob, {
@@ -66,7 +66,7 @@ describeWithPostgres('progress jobs list paging against PostgreSQL', () => {
       await em.flush()
       await em.nativeUpdate(ProgressJob, { tenantId, organizationId }, { createdAt, updatedAt: createdAt })
       await em.getConnection().execute('analyze progress_jobs')
-      const seededIds = rows.map((row) => row.id).sort()
+      const seededIds = rows.map((row) => row.id).sort((left, right) => left.localeCompare(right))
       mockGetAuth.mockResolvedValue({ sub: randomUUID(), tenantId, orgId: organizationId })
       mockResolve.mockImplementation((key: string) => {
         if (key === 'em') return activeOrm.em.fork({ clear: true })
@@ -94,7 +94,7 @@ describeWithPostgres('progress jobs list paging against PostgreSQL', () => {
       }
 
       expect(walkedIds).toHaveLength(30)
-      expect([...walkedIds].sort()).toEqual(seededIds)
+      expect([...walkedIds].sort((left, right) => left.localeCompare(right))).toEqual(seededIds)
     } finally {
       await em.nativeDelete(ProgressJob, { organizationId, tenantId })
     }
