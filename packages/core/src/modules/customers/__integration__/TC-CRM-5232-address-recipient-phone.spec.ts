@@ -105,6 +105,20 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
       expect(updated.phone).toBe('+48 600 300 400')
       expect(updated.address_line1, 'untouched columns survive a partial update').toBe(`1 Contact St ${stamp}`)
 
+      // Clearing either contact field must clear the stored value, not keep the old one.
+      const clearRes = await apiRequest(request, 'PUT', ADDRESSES, {
+        token,
+        data: { id: addressId, recipientName: null, phone: null },
+      })
+      expect(clearRes.ok(), `clear address contact status ${clearRes.status()}`).toBeTruthy()
+      const cleared = await findAddress(request, token, companyId, addressId)
+      expect(cleared.recipient_name, 'recipientName is cleared with an explicit null').toBeNull()
+      expect(cleared.phone, 'phone is cleared with an explicit null').toBeNull()
+      expect(cleared.address_line1, 'clearing contact data leaves the postal fields intact').toBe(`1 Contact St ${stamp}`)
+      const clearedRaw = await readRawContact(addressId)
+      expect(clearedRaw.recipient_name, 'cleared recipientName is null at rest').toBeNull()
+      expect(clearedRaw.phone, 'cleared phone is null at rest').toBeNull()
+
       // The company detail payload (what the Addresses tab / edit forms hydrate from) carries both too.
       const detailRes = await apiRequest(request, 'GET', `${COMPANIES}/${companyId}?include=addresses`, { token })
       expect(detailRes.ok()).toBeTruthy()
@@ -268,6 +282,122 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
         })
       }
       await deleteEntityIfExists(request, token, COMPANIES, companyId)
+    }
+  })
+
+  test('encryption upgrade: materializing an organization scope preserves the tenant-wide address policy', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const { tenantId, organizationId } = getTokenScope(token)
+    const addressEntity = 'customers:customer_address'
+    const otherEntity = 'customers:customer_entity'
+    const stamp = Date.now()
+    let companyId: string | null = null
+    let addressId: string | null = null
+    let createdOtherMap = false
+    const startedAt = new Date()
+    let backup: { id: string } | null = null
+
+    const readMapFields = (entityId: string, organizationIdFilter: string | null) =>
+      withClient(async (client) => {
+        const result = await client.query<{ fields_json: Array<{ field: string }> | null }>(
+          `select fields_json from encryption_maps
+            where entity_id = $1 and tenant_id = $2 and organization_id is not distinct from $3
+              and deleted_at is null and is_active = true`,
+          [entityId, tenantId, organizationIdFilter],
+        )
+        return result.rows.flatMap((row) => (row.fields_json ?? []).map((rule) => rule.field))
+      })
+
+    const tenantWideFields = await readMapFields(addressEntity, null)
+    test.skip(tenantWideFields.length === 0, 'tenant data encryption is not active for this tenant')
+
+    const migration = Object.create(
+      Migration20261026180000_customers_address_contact_encryption.prototype,
+    ) as Migration20261026180000_customers_address_contact_encryption
+    const backfillStatements: string[] = []
+    Object.defineProperty(migration, 'addSql', { value: (sql: string) => backfillStatements.push(sql) })
+    await migration.up()
+
+    try {
+      // Given an org that has an encrypted address written under the tenant-wide map only ...
+      await withClient(async (client) => {
+        const existing = await client.query<{ id: string }>(
+          `select id from encryption_maps
+            where entity_id = $1 and tenant_id = $2 and organization_id = $3 and deleted_at is null`,
+          [addressEntity, tenantId, organizationId],
+        )
+        backup = existing.rows[0] ?? null
+        if (backup) {
+          await client.query('update encryption_maps set deleted_at = now() where id = $1', [backup.id])
+        }
+        const otherMap = await client.query(
+          `select 1 from encryption_maps
+            where entity_id = $1 and tenant_id = $2 and organization_id = $3 and deleted_at is null`,
+          [otherEntity, tenantId, organizationId],
+        )
+        if (otherMap.rows.length === 0) {
+          await client.query(
+            `insert into encryption_maps (id, entity_id, tenant_id, organization_id, fields_json, is_active, created_at, updated_at)
+             values (gen_random_uuid(), $1, $2, $3, '[{"field":"display_name"}]'::jsonb, true, now(), now())`,
+            [otherEntity, tenantId, organizationId],
+          )
+          createdOtherMap = true
+        }
+      })
+
+      companyId = await createCompanyFixture(request, token, `TC5232 Scope Co ${stamp}`)
+      addressId = await createAddress(request, token, {
+        entityId: companyId,
+        addressLine1: `5 Legacy Cipher Rd ${stamp}`,
+        city: 'Warsaw',
+      })
+      const beforeMigration = await readRawContact(addressId)
+      expect(beforeMigration.recipient_name, 'postal-only address has no contact ciphertext').toBeNull()
+
+      // When the migration materializes the missing organization scope
+      await withClient(async (client) => {
+        await client.query(backfillStatements[0])
+        await client.query(backfillStatements[0])
+      })
+
+      // Then the new override carries the whole tenant-wide policy, not just the new rules.
+      const orgFields = await readMapFields(addressEntity, organizationId)
+      for (const field of tenantWideFields) expect(orgFields).toContain(field)
+      expect(orgFields).toContain('recipient_name')
+      expect(orgFields).toContain('phone')
+
+      // ... and the address written before the override still reads back, with its postal column
+      // still stored as ciphertext under the materialized policy.
+      const read = await findAddress(request, token, companyId, addressId)
+      expect(read.address_line1, 'legacy postal ciphertext still decrypts').toBe(`5 Legacy Cipher Rd ${stamp}`)
+      const rawLine = await withClient(async (client) => {
+        const result = await client.query<{ address_line1: string | null }>(
+          'select address_line1 from customer_addresses where id = $1',
+          [addressId],
+        )
+        return result.rows[0]?.address_line1 ?? null
+      })
+      expect(rawLine, 'address_line1 is still encrypted at rest').not.toBe(`5 Legacy Cipher Rd ${stamp}`)
+    } finally {
+      await deleteEntityIfExists(request, token, COMPANIES, companyId)
+      await withClient(async (client) => {
+        if (backup) {
+          await client.query('update encryption_maps set deleted_at = null where id = $1', [backup.id])
+        }
+        await client.query(
+          `delete from encryption_maps
+            where entity_id = $1 and tenant_id = $2 and organization_id = $3
+              and created_at >= $4 and ($5::uuid is null or id <> $5::uuid)`,
+          [addressEntity, tenantId, organizationId, startedAt, backup?.id ?? null],
+        )
+        if (createdOtherMap) {
+          await client.query(
+            `delete from encryption_maps
+              where entity_id = $1 and tenant_id = $2 and organization_id = $3 and created_at >= $4`,
+            [otherEntity, tenantId, organizationId, startedAt],
+          )
+        }
+      })
     }
   })
 })

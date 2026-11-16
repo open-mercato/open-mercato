@@ -16,6 +16,8 @@ jest.mock('../AddressEditor', () => ({
     <>
       <input aria-label="Label" value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} />
       <input aria-label="Street" value={value.addressLine1} onChange={(event) => onChange({ ...value, addressLine1: event.target.value })} />
+      <input aria-label="Recipient name" value={value.recipientName ?? ''} onChange={(event) => onChange({ ...value, recipientName: event.target.value })} />
+      <input aria-label="Phone" value={value.phone ?? ''} onChange={(event) => onChange({ ...value, phone: event.target.value })} />
       <input aria-label="Nested selector" onKeyDown={(event) => event.preventDefault()} />
     </>
   ),
@@ -58,5 +60,44 @@ describe('AddressTiles keyboard actions', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Street' }), { target: { value: '1 Main Street' } })
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Street' }), { key: 'Enter', ctrlKey: true })
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ addressLine1: '1 Main Street' })))
+  })
+
+  it('sends null when a displayed contact field is cleared on edit', async () => {
+    const onUpdate = jest.fn(async () => undefined)
+    renderWithProviders(
+      <AddressTiles
+        addresses={[{ id: 'a1', addressLine1: '1 Main Street', recipientName: 'Alice', phone: '+1 555', isPrimary: true }]}
+        onCreate={jest.fn(async () => undefined)}
+        onUpdate={onUpdate}
+        t={(_key, fallback) => fallback ?? ''}
+        emptyLabel="No addresses"
+        showRecipientNameField
+        showPhoneField
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Edit address' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Recipient name' }), { target: { value: '' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Phone' }), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update address' }))
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledWith('a1', expect.objectContaining({ recipientName: null, phone: null })))
+  })
+
+  it('does not send contact fields a host never displays', async () => {
+    const onUpdate = jest.fn(async () => undefined)
+    renderWithProviders(
+      <AddressTiles
+        addresses={[{ id: 'a1', addressLine1: '1 Main Street', recipientName: 'Alice', phone: '+1 555', isPrimary: true }]}
+        onCreate={jest.fn(async () => undefined)}
+        onUpdate={onUpdate}
+        t={(_key, fallback) => fallback ?? ''}
+        emptyLabel="No addresses"
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Edit address' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update address' }))
+    await waitFor(() => expect(onUpdate).toHaveBeenCalled())
+    const payload = onUpdate.mock.calls[0][1] as Record<string, unknown>
+    expect(payload.recipientName).toBeUndefined()
+    expect(payload.phone).toBeUndefined()
   })
 })

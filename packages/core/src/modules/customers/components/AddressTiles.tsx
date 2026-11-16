@@ -31,8 +31,8 @@ export type Translator = (
 
 export type CustomerAddressInput = {
   name?: string
-  recipientName?: string
-  phone?: string
+  recipientName?: string | null
+  phone?: string | null
   purpose?: string
   companyName?: string
   addressLine1: string
@@ -372,8 +372,10 @@ export function CustomerAddressTiles({
     if (name !== undefined) payload.name = name
     const recipientName = normalizeOptional(draft.recipientName)
     if (recipientName !== undefined) payload.recipientName = recipientName
+    else if (editingId) payload.recipientName = null
     const phone = normalizeOptional(draft.phone)
     if (phone !== undefined) payload.phone = phone
+    else if (editingId) payload.phone = null
     const companyName = normalizeOptional(draft.companyName)
     if (companyName !== undefined) payload.companyName = companyName
     const line2 = normalizeOptional(draft.addressLine2)

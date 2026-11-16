@@ -27,8 +27,8 @@ export type Translator = (
 
 export type AddressInput = {
   name?: string
-  recipientName?: string
-  phone?: string
+  recipientName?: string | null
+  phone?: string | null
   purpose?: string
   companyName?: string
   addressLine1: string
@@ -348,10 +348,17 @@ export function AddressTiles<C = unknown>({
     try {
       const payload: AddressInput = {
         name: normalizeOptional(draft.name),
-        recipientName: normalizeOptional(draft.recipientName),
-        phone: normalizeOptional(draft.phone),
         purpose: normalizeOptional(draft.purpose),
         companyName: normalizeOptional(draft.companyName),
+        // An emptied contact field must be sent as `null` on edit to clear the stored value; only
+        // send it when the host actually renders that field, so a host without the input cannot
+        // wipe contact data it never showed. On create nothing is stored yet, so omit empties.
+        recipientName: showRecipientNameField
+          ? (normalizeOptional(draft.recipientName) ?? (editingId ? null : undefined))
+          : undefined,
+        phone: showPhoneField
+          ? (normalizeOptional(draft.phone) ?? (editingId ? null : undefined))
+          : undefined,
         addressLine1: draft.addressLine1.trim(),
         addressLine2: normalizeOptional(draft.addressLine2),
         buildingNumber: normalizeOptional(draft.buildingNumber),
@@ -618,6 +625,7 @@ export function AddressTiles<C = unknown>({
                       type="button"
                       variant="ghost"
                       size="icon"
+                      aria-label={label('editAction', 'Edit address')}
                       onClick={() => handleEdit(address)}
                       disabled={disableActions}
                     >
@@ -627,6 +635,7 @@ export function AddressTiles<C = unknown>({
                       type="button"
                       variant="ghost"
                       size="icon"
+                      aria-label={label('deleteAction', 'Delete address')}
                       onClick={() => handleDelete(address.id)}
                       disabled={disableActions}
                     >
