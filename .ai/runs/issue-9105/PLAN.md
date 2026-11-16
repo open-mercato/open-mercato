@@ -11,7 +11,7 @@ Summary: Literal popup name handling lacks real-consumer browser regression cove
 Root cause: PlotMapPreviewImpl binds createPlotMapPopupContent(name), which uses textContent. Existing integration specs exercise API geometry but never open Leaflet popups. The gap is inferred from code search, not a reproduced production vulnerability.
 
 Files to change:
-- packages/core/src/modules/eudr/__integration__/TC-EUDR-020.spec.ts — self-contained browser regressions and API fixtures/cleanup.
+- packages/core/src/modules/eudr/__integration__/TC-EUDR-POPUP-001.spec.ts — self-contained browser regressions and API fixtures/cleanup.
 
 Approach: Persist HTML-looking GeoJSON properties.name through API fixtures, reload edit and statement detail pages, click rendered map features, and assert literal text without supplied elements. Drive create/edit geometry replacement through the textarea, verifying ordinary and missing names and removal of old popups/layers. Keep production code unchanged.
 

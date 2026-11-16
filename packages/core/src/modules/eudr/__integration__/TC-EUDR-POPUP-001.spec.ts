@@ -61,13 +61,13 @@ async function replacePreview(page: Page, name?: string) {
   await expectPopup(page, name)
 }
 
-test.describe('TC-EUDR-020: Literal GeoJSON popup names in real consumers', () => {
+test.describe('TC-EUDR-POPUP-001: Literal GeoJSON popup names in real consumers', () => {
   test('create and persisted edit previews replace layers and render names as text', async ({ page, request }, testInfo) => {
     test.setTimeout(120_000)
     const token = await getAuthToken(request, 'admin')
     const cleanup: Fixture[] = []
     try {
-      const supplierId = await createCompanyFixture(request, token, `TC-EUDR-020 ${randomUUID()}`)
+      const supplierId = await createCompanyFixture(request, token, `TC-EUDR-POPUP-001 ${randomUUID()}`)
       cleanup.push({ path: '/api/customers/companies', id: supplierId })
       const plotId = await createRecord(request, token, '/api/eudr/plots', {
         supplierEntityId: supplierId, name: `Popup ${randomUUID()}`, originCountry: 'CI',
@@ -104,7 +104,7 @@ test.describe('TC-EUDR-020: Literal GeoJSON popup names in real consumers', () =
     const token = await getAuthToken(request, 'admin')
     const cleanup: Fixture[] = []
     try {
-      const supplierId = await createCompanyFixture(request, token, `TC-EUDR-020 ${randomUUID()}`)
+      const supplierId = await createCompanyFixture(request, token, `TC-EUDR-POPUP-001 ${randomUUID()}`)
       cleanup.push({ path: '/api/customers/companies', id: supplierId })
       const plotId = await createRecord(request, token, '/api/eudr/plots', {
         supplierEntityId: supplierId, name: `Popup ${randomUUID()}`, originCountry: 'CI',
