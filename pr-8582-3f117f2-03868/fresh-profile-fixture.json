@@ -1,0 +1,10 @@
+{
+  "roles": 1,
+  "resolvedFeatures": [
+    "portal.orders.view",
+    "portal.profile.view",
+    "portal.users.view"
+  ],
+  "createdAtPresent": true,
+  "lastLoginAtPresent": true
+}
