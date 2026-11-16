@@ -88,6 +88,15 @@ describe('inpostAdapterV1', () => {
         .mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.resolve(makeServiceResult('courier_c2c', resolved['courier_c2c'] ?? null)) })
     }
 
+    function parcelsByService(calls: [string, RequestInit][]): Record<string, Record<string, unknown>> {
+      const entries = calls.map(([, init]) => {
+        const body = JSON.parse(init.body as string) as { shipments: Array<{ id: string; parcels: Array<Record<string, unknown>> }> }
+        const shipment = body.shipments[0]!
+        return [shipment.id, shipment.parcels[0]!] as const
+      })
+      return Object.fromEntries(entries)
+    }
+
     it('POSTs to the calculate endpoint and returns rates with amounts in minor units', async () => {
       const input = makeShipmentInput()
       const orgId = input.credentials.organizationId as string
@@ -171,15 +180,6 @@ describe('inpostAdapterV1', () => {
       expect(rates.map((r) => r.serviceCode)).not.toContain('locker_express')
     })
 
-    function parcelsByService(calls: [string, RequestInit][]): Record<string, Record<string, unknown>> {
-      const entries = calls.map(([, init]) => {
-        const body = JSON.parse(init.body as string) as { shipments: Array<{ id: string; parcels: Array<Record<string, unknown>> }> }
-        const shipment = body.shipments[0]!
-        return [shipment.id, shipment.parcels[0]!] as const
-      })
-      return Object.fromEntries(entries)
-    }
-
     it('sends parcel dimensions derived from the first package for courier_standard', async () => {
       const pkg = makePackage()
       global.fetch = makeAllServicesOkFetch()
@@ -198,7 +198,7 @@ describe('inpostAdapterV1', () => {
       })
     })
 
-    it('sends size templates for locker_standard and courier_c2c, matching the parcel createShipment buys', async () => {
+    it('sends size templates derived from package height for locker_standard and courier_c2c', async () => {
       global.fetch = makeAllServicesOkFetch()
 
       await inpostAdapterV1.calculateRates(makeShipmentInput({ packages: [{ ...makePackage(), heightCm: 45 }] }))
