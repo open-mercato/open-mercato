@@ -320,7 +320,7 @@ export function TopbarSearchInline({
   const trimmed = query.trim()
   const tooShort = trimmed.length > 0 && trimmed.length < MIN_QUERY_LENGTH
   const showPopover =
-    open && (loading || results.length > 0 || error !== null || tooShort || showVectorWarning)
+    open && (trimmed.length > 0 || loading || results.length > 0 || error !== null || showVectorWarning)
   const showClear = query.length > 0
   // The combobox popup is the list of results. The panel also shows hints,
   // warnings and errors, which are not part of the listbox, so the field only
@@ -466,8 +466,8 @@ export function TopbarSearchInline({
             </div>
           ) : null}
 
-          {!tooShort && results.length === 0 && !loading && !error ? (
-            <div className="px-3 py-3 text-sm text-muted-foreground">
+          {trimmed.length >= MIN_QUERY_LENGTH && results.length === 0 && !loading && !error ? (
+            <div role="status" className="px-3 py-3 text-sm text-muted-foreground">
               {t('search.dialog.empty.none', 'No results')}
             </div>
           ) : null}

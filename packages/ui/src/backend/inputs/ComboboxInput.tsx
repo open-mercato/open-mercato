@@ -34,6 +34,9 @@ export type ComboboxInputProps = {
   allowCustomValues?: boolean
   clearable?: boolean
   clearLabel?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
+  'aria-required'?: boolean
 }
 
 function normalizeOptions(input?: Array<string | ComboboxOption>): ComboboxOption[] {
@@ -81,6 +84,9 @@ export function ComboboxInput({
   allowCustomValues = true,
   clearable = false,
   clearLabel,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
+  'aria-required': ariaRequired,
 }: ComboboxInputProps) {
   const t = useT()
   const resolvedPlaceholder = placeholder ?? t('ui.inputs.comboboxInput.placeholder', 'Type to search...')
@@ -449,6 +455,9 @@ export function ComboboxInput({
             // makes it a logical descendant and keeps `aria-activedescendant` below valid.
             aria-owns={listboxVisible && !loading && filteredSuggestions.length > 0 ? listboxId : undefined}
             aria-autocomplete="list"
+            aria-describedby={ariaDescribedBy}
+            aria-invalid={ariaInvalid}
+            aria-required={ariaRequired}
             aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
             onFocus={() => {
               setTouched(true)

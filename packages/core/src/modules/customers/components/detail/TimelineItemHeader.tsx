@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 
@@ -75,7 +75,6 @@ export function TimelineItemHeader({
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-foreground">{title}</span>
-          {color ? renderDictionaryColor(color, 'h-3 w-3 rounded-full border border-border') : null}
         </div>
         {resolvedTimestamp ? <div className="text-xs text-muted-foreground">{resolvedTimestamp}</div> : null}
       </div>

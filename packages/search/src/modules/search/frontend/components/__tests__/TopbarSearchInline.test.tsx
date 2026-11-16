@@ -20,6 +20,17 @@ jest.mock('next/link', () => {
   return MockLink
 })
 
+jest.mock('@open-mercato/ui/primitives/icon-button', () => ({
+  IconButton: ({ size, variant, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { size?: string; variant?: string }) => <button {...props} />,
+}), { virtual: true })
+jest.mock('@open-mercato/ui/backend/utils/api', () => ({
+  ForbiddenError: class ForbiddenError extends Error {},
+}), { virtual: true })
+jest.mock('@open-mercato/shared/lib/frontend/organizationEvents', () => ({
+  getCurrentOrganizationScope: () => ({ organizationId: null }),
+  subscribeOrganizationScopeChanged: () => () => undefined,
+}))
+
 jest.mock('../../utils', () => ({
   fetchGlobalSearchResults: (...args: unknown[]) => mockFetchResults(...args),
 }))
@@ -144,5 +155,132 @@ describe('TopbarSearchInline combobox semantics', () => {
     expect(first.getAttribute('tabindex')).toBe('-1')
     fireEvent.click(second)
     expect(mockPush).toHaveBeenCalledWith('/backend/customers/people-v2/p2')
+  })
+})
+
+// Merged from the baseline's search-feedback suite after this PR moved the
+// `listbox` role off the popover panel: the empty state, warning and error are
+// panel content, not listbox options, so those assertions look at the panel.
+describe('TopbarSearchInline search feedback', () => {
+  const dictionary = {
+    'search.dialog.empty.none': 'Brak wyników',
+    'search.dialog.empty.hint': 'Wpisz co najmniej {count} znaki',
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers()
+    mockPush.mockReset()
+    mockFetchResults.mockReset()
+    mockFetchResults.mockResolvedValue({ results: [], error: null })
+  })
+
+  afterEach(() => {
+    jest.clearAllTimers()
+    jest.useRealTimers()
+  })
+
+  function renderSearch(embeddingConfigured = true) {
+    render(
+      <I18nProvider locale="pl" dict={dictionary}>
+        <TopbarSearchInline
+          embeddingConfigured={embeddingConfigured}
+          missingConfigMessage="Configure embeddings"
+        />
+      </I18nProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Open global search' }))
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    return input
+  }
+
+  async function finishSearch() {
+    await act(async () => { jest.advanceTimersByTime(220) })
+  }
+
+  function panel() {
+    return document.getElementById('topbar-search-results')
+  }
+
+  it('keeps an empty response visible and announces the translated status', async () => {
+    const input = renderSearch()
+    fireEvent.change(input, { target: { value: 'Zielonka' } })
+    await finishSearch()
+
+    expect(mockFetchResults).toHaveBeenCalledWith(
+      'Zielonka',
+      expect.objectContaining({ limit: expect.any(Number) }),
+    )
+    expect(panel()?.contains(screen.getByRole('status'))).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('Brak wyników')
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('waits for the request to finish before announcing an empty result', async () => {
+    let resolveSearch!: (value: { results: SearchResult[]; error?: string | null }) => void
+    mockFetchResults.mockImplementation(() => new Promise((resolve) => { resolveSearch = resolve }))
+    fireEvent.change(renderSearch(), { target: { value: 'Zielonka' } })
+    await finishSearch()
+
+    expect(panel()).not.toBeNull()
+    expect(screen.queryByText('Brak wyników')).toBeNull()
+    await act(async () => { resolveSearch({ results: [] }) })
+    expect(screen.getByRole('status').textContent).toBe('Brak wyników')
+  })
+
+  it('does not show no-results feedback for a blank or short query', () => {
+    const input = renderSearch()
+    expect(screen.queryByRole('listbox')).toBeNull()
+    fireEvent.change(input, { target: { value: 'ab' } })
+    expect(screen.getByText('Wpisz co najmniej 3 znaki')).toBeTruthy()
+    expect(screen.queryByText('Brak wyników')).toBeNull()
+    fireEvent.change(input, { target: { value: '   ' } })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(mockFetchResults).not.toHaveBeenCalled()
+  })
+
+  it('shows matching records without an empty status', async () => {
+    mockFetchResults.mockResolvedValue({ results: [{
+      entityId: 'customers:customer_person_profile', recordId: 'person-1', score: 1,
+      source: 'tokens', url: '/backend/customers/people/person-1', presenter: { title: 'Zielonka' },
+    }], error: null })
+    fireEvent.change(renderSearch(), { target: { value: 'Zielonka' } })
+    await finishSearch()
+    expect(screen.getByRole('option').textContent).toContain('Zielonka')
+    expect(screen.queryByText('Brak wyników')).toBeNull()
+  })
+
+  it('shows a search error instead of the empty state', async () => {
+    mockFetchResults.mockResolvedValue({ results: [], error: 'Search unavailable' })
+    fireEvent.change(renderSearch(), { target: { value: 'Zielonka' } })
+    await finishSearch()
+    expect(screen.getByText('Search unavailable')).toBeTruthy()
+    expect(screen.queryByText('Brak wyników')).toBeNull()
+  })
+
+  it('clears the empty response and keeps the warning without claiming a blank query has no matches', async () => {
+    const input = renderSearch(false)
+    expect(screen.getByText('Configure embeddings')).toBeTruthy()
+    expect(screen.queryByText('Brak wyników')).toBeNull()
+    fireEvent.change(input, { target: { value: 'Zielonka' } })
+    await finishSearch()
+    expect(screen.getByRole('status').textContent).toBe('Brak wyników')
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(screen.getByText('Configure embeddings')).toBeTruthy()
+    expect(screen.queryByText('Brak wyników')).toBeNull()
+  })
+
+  it('dismisses an empty response with Escape or an outside click', async () => {
+    const input = renderSearch()
+    fireEvent.change(input, { target: { value: 'Zielonka' } })
+    await finishSearch()
+    expect(screen.getByRole('status')).toBeTruthy()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('status')).toBeNull()
+    fireEvent.focus(input)
+    expect(screen.getByRole('status')).toBeTruthy()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
   })
 })

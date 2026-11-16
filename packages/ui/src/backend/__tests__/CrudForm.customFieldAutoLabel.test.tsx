@@ -103,7 +103,13 @@ describe('CrudForm names the unnamed control of a custom field', () => {
     })
 
     await act(async () => { await Promise.resolve() })
-    expect(container.querySelectorAll('[data-crud-field-id="parentId"] [aria-labelledby]')).toHaveLength(0)
+    const group = container.querySelector('[data-crud-field-id="parentId"] [role="group"]')
+    expect(group).toHaveAttribute('aria-labelledby')
+    for (const control of Array.from(
+      container.querySelectorAll('[data-crud-field-id="parentId"] input, [data-crud-field-id="parentId"] select, [data-crud-field-id="parentId"] textarea'),
+    )) {
+      expect(control).not.toHaveAttribute('aria-labelledby')
+    }
   })
 
   it('names a control the field mounts later', async () => {

@@ -273,6 +273,8 @@ jobs:
       - resolve-pr
       - snapshot
     if: needs.snapshot.outputs.snapshot_version != ''
+    env:
+      NPM_PROPAGATION_VERSION: ${{ needs.snapshot.outputs.snapshot_version }}
     services:
       postgres:
         image: postgres:17
@@ -466,6 +468,7 @@ jobs:
 
       - name: Run integration tests
         env:
+          OM_INTEGRATION_TEST: 'true'
           OM_TEST_APP_ROOT: /tmp/standalone-app
           AUTO_SPAWN_WORKERS: 'false'
           BASE_URL: http://localhost:3001

@@ -10,7 +10,7 @@ type RoleWidgetScope = {
   widgetIds: string[]
 }
 
-async function findRoleByName(
+export async function findRoleByName(
   em: EntityManager,
   roleName: string,
   tenantId: string,

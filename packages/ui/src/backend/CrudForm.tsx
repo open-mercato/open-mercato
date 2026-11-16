@@ -145,6 +145,19 @@ function evaluateFieldVisibility(
   return values[visibleWhen.field] === visibleWhen.equals
 }
 
+function isVerticalScrollContainer(element: Element): boolean {
+  const { overflowY } = window.getComputedStyle(element)
+  return overflowY === 'auto' || overflowY === 'scroll'
+}
+
+function isScrolledByPaddedDialog(root: HTMLElement, dialog: HTMLElement): boolean {
+  for (let node: HTMLElement | null = root; node && node !== dialog; node = node.parentElement) {
+    if (isVerticalScrollContainer(node)) return false
+  }
+  if (!isVerticalScrollContainer(dialog)) return false
+  return Number.parseFloat(window.getComputedStyle(dialog).paddingBottom) > 0
+}
+
 function isFormControlTarget(target: EventTarget | null): boolean {
   if (!target || typeof (target as Element).tagName !== 'string') return false
   const el = target as HTMLElement
@@ -924,6 +937,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   const [customFieldDefsVersion, setCustomFieldDefsVersion] = React.useState(0)
   const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
   const [isInDialog, setIsInDialog] = React.useState(false)
+  const [scrolledByPaddedDialog, setScrolledByPaddedDialog] = React.useState(false)
   const rootRef = React.useRef<HTMLDivElement | null>(null)
 
   // Collapsible groups support
@@ -1147,7 +1161,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     navigationConfirmPendingRef.current = true
     try {
       const confirmed = await confirm({
-        title: t('ui.forms.confirmUnsavedChanges', 'You have unsaved changes. Are you sure you want to leave?'),
+        title: t('ui.forms.unsavedChangesTitle', 'Discard unsaved changes?'),
+        description: t('ui.forms.unsavedChangesDescription', 'Your edits will be lost if you leave now.'),
+        confirmText: t('ui.forms.unsavedChangesDiscard', 'Discard changes'),
+        cancelText: t('ui.forms.unsavedChangesKeep', 'Keep editing'),
+        variant: 'destructive',
       })
       if (confirmed) allowNextNavigation()
       return confirmed
@@ -1386,13 +1404,15 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   )
 
   const navigateWithGuard = React.useCallback(
-    async (target: string) => {
-      if (!target) return
+    async (target: string): Promise<boolean> => {
+      if (!target) return false
       const allowed = await canNavigateTo(target)
       if (allowed) {
         allowNextNavigation()
         router.push(target)
+        return true
       }
+      return false
     },
     [allowNextNavigation, canNavigateTo, router],
   )
@@ -1468,11 +1488,23 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     const root = rootRef.current
     if (!root) return
-    setIsInDialog(Boolean(root.closest('[data-dialog-content]')))
+    const dialog = root.closest<HTMLElement>('[data-dialog-content]')
+    setIsInDialog(Boolean(dialog))
+    setScrolledByPaddedDialog(dialog ? isScrolledByPaddedDialog(root, dialog) : false)
   }, [])
-  const dialogFooterClass = isInDialog
-    ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
-    : ''
+  // Sticky offsets resolve against the scroll container's content box, so when the
+  // padded `DialogContent` (`p-6`, `overflow-y-auto`) is the scroller a `bottom-0`
+  // footer parks 24px above the dialog edge and scrolled fields stay visible in that
+  // padding strip (#7497). Pull the footer down by the dialog padding (`-bottom-6`),
+  // let its own padding paint that strip (`pb-8` = `py-2` + 24px) and cancel the extra
+  // height in normal flow (`-mb-6`) so a short form gets no blank band below the
+  // buttons. A nested, unpadded scroller has no such strip: there `bottom-0` is flush
+  // and the compensation would hang the footer below the scrollport.
+  const dialogFooterClass = !isInDialog
+    ? ''
+    : scrolledByPaddedDialog
+      ? 'sticky -bottom-6 left-0 right-0 z-20 -mx-6 -mb-6 px-6 pt-2 pb-8 bg-card border-t border-border/70 sm:-mx-6 sm:px-6'
+      : 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
   // No bottom padding on the dialog form. The previous `pb-20` left an 80px gap below
   // the sticky footer in every dialog whose content fit the viewport (the form sized to
   // content + 80px with the footer as its last child) — visible as empty white space at
@@ -3102,6 +3134,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     if (formReadOnly) return
     if (submittingRef.current) return
     submittingRef.current = true
+    let redirectNavigationStarted = false
     try {
     setFormError(null)
     setErrors({})
@@ -3359,7 +3392,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         logger.error('Error in onSubmitSuccess', { err })
         getTelemetryRuntime()?.reportError(err, { module: 'ui', code: 'ui.form_submit_success_failed' })
       }
-      if (successRedirect) await navigateWithGuard(successRedirect)
+      if (successRedirect) redirectNavigationStarted = await navigateWithGuard(successRedirect)
     } catch (err: unknown) {
       clearSubmitNavigationBypass()
       try {
@@ -3431,10 +3464,14 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       }
       setFormError(displayMessage)
     } finally {
-      setPending(false)
+      // A successful submit that kicks off the success-redirect keeps the form
+      // "pending"/locked until it actually unmounts, so a second submit fired
+      // during router navigation (which resolves well before unmount) doesn't
+      // re-run onSubmit and create a duplicate record.
+      if (!redirectNavigationStarted) setPending(false)
     }
     } finally {
-      submittingRef.current = false
+      if (!redirectNavigationStarted) submittingRef.current = false
     }
   }
 
@@ -3576,7 +3613,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
           return (
             <FieldControl
               key={f.id}
-              formId={formId}
               field={f}
               value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
               error={errors[f.id]}
@@ -3591,6 +3627,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               entityIdForField={primaryEntityId ?? undefined}
               recordId={explicitResourceId ?? recordId}
               markRequired={widgetRequiredFieldIds.has(f.id)}
+              formId={formId}
             />
           )
         })}
@@ -3842,7 +3879,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       if ((g.column ?? 1) === 2) col2.push(g)
       else col1.push(g)
     }
-    const col1Ids = col1.map((g) => g.id)
 
     const renderGroupedCards = (items: CrudFormGroup[]) => {
       const nodes: React.ReactNode[] = []
@@ -3999,17 +4035,21 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
       return nodes
     }
 
-    const col1Nodes = renderGroupedCards(col1)
-    const col2Content = renderGroupedCards(col2)
-
-    // Wrap col1 nodes in sortable items when enabled
+    // Wrap group by group: a bare group can render nothing, so nodes and groups do not line up by index.
+    const col1Sortable = sortableGroupsEnabled
+      ? col1.flatMap((group) => {
+          const nodes = renderGroupedCards([group])
+          return nodes.length ? [{ id: group.id, nodes }] : []
+        })
+      : []
     const col1Content = sortableGroupsEnabled
-      ? col1Nodes.map((node, i) => (
-          <SortableGroupItem key={col1[i]?.id ?? i} id={col1[i]?.id ?? String(i)}>
-            {node}
+      ? col1Sortable.map(({ id, nodes }) => (
+          <SortableGroupItem key={id} id={id}>
+            {nodes}
           </SortableGroupItem>
         ))
-      : col1Nodes
+      : renderGroupedCards(col1)
+    const col2Content = renderGroupedCards(col2)
     const hasSecondaryColumn = col2Content.length > 0
 
     return (
@@ -4060,7 +4100,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
             >
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
-                  <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
+                  <SortableContext items={col1Sortable.map(({ id }) => id)} strategy={verticalListSortingStrategy}>
                     <div className={densityStackMd}>{col1Content}</div>
                   </SortableContext>
                 </DndContext>
@@ -4149,7 +4189,6 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                 return (
                   <FieldControl
                     key={f.id}
-                    formId={formId}
                     field={f}
                     value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
                     error={errors[f.id]}
@@ -4164,6 +4203,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
                     entityIdForField={primaryEntityId ?? undefined}
                     recordId={explicitResourceId ?? recordId}
                     markRequired={widgetRequiredFieldIds.has(f.id)}
+                    formId={formId}
                   />
                 )
               })}
@@ -4649,7 +4689,6 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ id, valu
 }, (prev, next) => prev.value === next.value)
 
 type FieldControlProps = {
-  formId: string
   field: CrudField
   value: unknown
   error?: string
@@ -4664,6 +4703,7 @@ type FieldControlProps = {
   entityIdForField?: string
   recordId?: string
   markRequired?: boolean
+  formId: string
 }
 
 function supportsWrapperBlurValidation(field: CrudField): boolean {
@@ -4675,6 +4715,47 @@ function supportsWrapperBlurValidation(field: CrudField): boolean {
     field.type === 'select' ||
     field.type === 'number'
   )
+}
+
+const CUSTOM_FIELD_CONTROL_SELECTOR = [
+  'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"])',
+  'select',
+  'textarea',
+  '[role="combobox"]',
+  '[role="switch"]',
+  '[role="checkbox"]',
+  '[role="spinbutton"]',
+  '[role="slider"]',
+  '[role="textbox"]',
+].join(', ')
+const AUTO_LABELLED_ATTRIBUTE = 'data-crud-auto-labelled'
+const NAME_FROM_CONTENT_ROLES = new Set(['switch', 'checkbox'])
+
+function hasOwnAccessibleName(control: HTMLElement): boolean {
+  if ((control.getAttribute('aria-label') ?? '').trim()) return true
+  if ((control.getAttribute('aria-labelledby') ?? '').trim()) return true
+  if ((control.getAttribute('title') ?? '').trim()) return true
+  if (control.closest('label')) return true
+  if (control.id && control.ownerDocument.querySelector(`label[for=${JSON.stringify(control.id)}]`)) return true
+  const role = control.getAttribute('role')
+  return Boolean(role && NAME_FROM_CONTENT_ROLES.has(role) && (control.textContent ?? '').trim())
+}
+
+function findUnnamedCustomFieldControls(root: HTMLElement, labelId: string): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(CUSTOM_FIELD_CONTROL_SELECTOR)).filter((control) => {
+    if (control.closest('[aria-hidden="true"], [inert]')) return false
+    if (control.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) {
+      if (control.getAttribute('aria-labelledby') === labelId) return true
+      control.removeAttribute(AUTO_LABELLED_ATTRIBUTE)
+    }
+    return !hasOwnAccessibleName(control)
+  })
+}
+
+function releaseAutoLabel(control: HTMLElement, labelId: string) {
+  if (!control.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) return
+  control.removeAttribute(AUTO_LABELLED_ATTRIBUTE)
+  if (control.getAttribute('aria-labelledby') === labelId) control.removeAttribute('aria-labelledby')
 }
 
 type ListboxMultiSelectProps = {
@@ -4766,49 +4847,7 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
   )
 })
 
-const CUSTOM_FIELD_CONTROL_SELECTOR = [
-  'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"])',
-  'select',
-  'textarea',
-  '[role="combobox"]',
-  '[role="switch"]',
-  '[role="checkbox"]',
-  '[role="spinbutton"]',
-  '[role="slider"]',
-  '[role="textbox"]',
-].join(', ')
-const AUTO_LABELLED_ATTRIBUTE = 'data-crud-auto-labelled'
-const NAME_FROM_CONTENT_ROLES = new Set(['switch', 'checkbox'])
-
-function hasOwnAccessibleName(control: HTMLElement): boolean {
-  if ((control.getAttribute('aria-label') ?? '').trim()) return true
-  if ((control.getAttribute('aria-labelledby') ?? '').trim()) return true
-  if ((control.getAttribute('title') ?? '').trim()) return true
-  if (control.closest('label')) return true
-  if (control.id && control.ownerDocument.querySelector(`label[for=${JSON.stringify(control.id)}]`)) return true
-  const role = control.getAttribute('role')
-  return Boolean(role && NAME_FROM_CONTENT_ROLES.has(role) && (control.textContent ?? '').trim())
-}
-
-function findUnnamedCustomFieldControls(root: HTMLElement, labelId: string): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(CUSTOM_FIELD_CONTROL_SELECTOR)).filter((control) => {
-    if (control.closest('[aria-hidden="true"], [inert]')) return false
-    if (control.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) {
-      if (control.getAttribute('aria-labelledby') === labelId) return true
-      control.removeAttribute(AUTO_LABELLED_ATTRIBUTE)
-    }
-    return !hasOwnAccessibleName(control)
-  })
-}
-
-function releaseAutoLabel(control: HTMLElement, labelId: string) {
-  if (!control.hasAttribute(AUTO_LABELLED_ATTRIBUTE)) return
-  control.removeAttribute(AUTO_LABELLED_ATTRIBUTE)
-  if (control.getAttribute('aria-labelledby') === labelId) control.removeAttribute('aria-labelledby')
-}
-
 const FieldControl = React.memo(function FieldControlImpl({
-  formId,
   field,
   value,
   error,
@@ -4823,6 +4862,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   entityIdForField,
   recordId,
   markRequired,
+  formId,
 }: FieldControlProps) {
   const t = useT()
   const fieldSetValue = React.useCallback(
@@ -4855,13 +4895,33 @@ const FieldControl = React.memo(function FieldControlImpl({
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
-  const controlId = `${formId}-${field.id}`
+  const singleSelectValue = Array.isArray(value)
+    ? String(value[0] ?? '')
+    : value == null
+      ? ''
+      : String(value)
+  const singleSelectOptionsKey = React.useMemo(
+    () => options.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
+    [options],
+  )
+  const singleSelectLabel = singleSelectValue
+    ? options.find((option) => option.value === singleSelectValue)?.label
+    : undefined
+
+  // Fields rendering a single focusable control get a real htmlFor/id pair;
+  // fields rendering a composite widget (date/time pickers, rich text, tags,
+  // relation search, multi-value selects) fall back to aria-labelledby on a
+  // group wrapper, per #5360's accessible-name requirement.
+  const controlId = `${formId}-field-${field.id}`
   const labelId = `${controlId}-label`
   const hasVisibleLabel = field.label.trim().length > 0
-  const usesContentEditableRichText =
-    field.type === 'richtext' && field.editor !== 'simple'
+  const usesContentEditableRichText = field.type === 'richtext' && builtin?.editor !== 'simple'
   const usesGroupedCheckboxes =
-    field.type === 'select' && Boolean(field.multiple) && field.listbox !== true
+    field.type === 'select' && Boolean(builtin?.multiple) && builtin?.listbox !== true
+  // A custom field renders its own control, so it is named by the label id it is
+  // handed (or by the auto-labelling effect below), not by `for`. The grouped
+  // checkboxes and the contenteditable rich text are named on a wrapper / on the
+  // editable node instead.
   const hasLabelableControl =
     field.type !== 'custom' && !usesContentEditableRichText && !usesGroupedCheckboxes
   const visibleLabelId = !hasLabelableControl && hasVisibleLabel ? labelId : undefined
@@ -4869,6 +4929,8 @@ const FieldControl = React.memo(function FieldControlImpl({
   const errorId = `${controlId}-error`
   const ownsErrorPresentation = !(field.type === 'custom' && field.rendersOwnError)
   const wrapperError = ownsErrorPresentation && error ? error : undefined
+  const fieldRootRef = React.useRef<HTMLDivElement | null>(null)
+  const isCustomField = field.type === 'custom'
 
   // Mark the control invalid and tie it to its message. This is applied to the
   // node that carries `controlId` rather than threaded through every renderer's
@@ -4898,8 +4960,6 @@ const FieldControl = React.memo(function FieldControlImpl({
   // rest: when the field holds exactly one control without a name of its own,
   // name it by the label. Several unnamed controls are left alone, because the
   // label cannot say which one it describes.
-  const fieldRootRef = React.useRef<HTMLDivElement | null>(null)
-  const isCustomField = field.type === 'custom'
   React.useEffect(() => {
     const root = fieldRootRef.current
     if (!isCustomField || !visibleLabelId || !root || typeof MutationObserver === 'undefined') return
@@ -4925,19 +4985,6 @@ const FieldControl = React.memo(function FieldControlImpl({
     }
   }, [isCustomField, visibleLabelId])
 
-  const singleSelectValue = Array.isArray(value)
-    ? String(value[0] ?? '')
-    : value == null
-      ? ''
-      : String(value)
-  const singleSelectOptionsKey = React.useMemo(
-    () => options.map((opt) => `${opt.value}:${opt.label}`).join('\0'),
-    [options],
-  )
-  const singleSelectLabel = singleSelectValue
-    ? options.find((option) => option.value === singleSelectValue)?.label
-    : undefined
-
   return (
     <div
       ref={fieldRootRef}
@@ -4953,7 +5000,7 @@ const FieldControl = React.memo(function FieldControlImpl({
     >
       {field.type !== 'checkbox' && hasVisibleLabel ? (
         <label
-          id={visibleLabelId}
+          id={labelId}
           htmlFor={labelHtmlFor}
           className="block text-sm font-medium"
           onClick={usesContentEditableRichText
@@ -5211,7 +5258,12 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'select' && builtin?.multiple && builtin.listbox !== true && (
-        <div className="flex flex-wrap gap-3" role="group" aria-labelledby={visibleLabelId} aria-describedby={wrapperError ? errorId : undefined}>
+        <div
+          className="flex flex-wrap gap-3"
+          role="group"
+          aria-labelledby={visibleLabelId}
+          aria-describedby={wrapperError ? errorId : undefined}
+        >
           {options.map((opt) => {
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
@@ -5255,7 +5307,11 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'custom' && (
-        <>
+        <div
+          role="group"
+          aria-labelledby={visibleLabelId}
+          aria-describedby={wrapperError ? errorId : undefined}
+        >
           {field.component({
             id: field.id,
             labelId: visibleLabelId,
@@ -5269,7 +5325,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             autoFocus,
             disabled,
           })}
-        </>
+        </div>
       )}
       {field.description ? (
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -5315,6 +5371,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
+  prev.formId === next.formId &&
   (prev.field.type !== 'custom' ||
     (prev.values === next.values &&
       prev.field.component === (next.field as CrudCustomField).component &&
