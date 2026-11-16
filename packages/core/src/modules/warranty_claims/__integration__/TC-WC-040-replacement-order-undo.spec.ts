@@ -18,11 +18,20 @@ async function createGrantedApprovalWorkflow(request: APIRequestContext, token: 
   expect(response.status()).toBe(200)
   const body = await readJsonSafe<{ data: { definition: CodeWorkflowDefinitionData } }>(response)
   expect(body?.data?.definition).toBeTruthy()
+  const definition = body!.data.definition
   const workflowId = uniqueLabel('replacement-undo-approval')
   const id = await createWorkflowDefinitionFixture(request, token, {
     workflowId,
     workflowName: 'Replacement undo approval fixture',
-    definition: body!.data.definition,
+    definition: {
+      ...definition,
+      transitions: definition.transitions.map((transition) => ({
+        ...transition,
+        activities: transition.activities?.map((activity) => activity.activityType === 'EMIT_EVENT'
+          ? { ...activity, async: false }
+          : activity),
+      })),
+    },
     grantedFeatures: ['sales.orders.manage'],
     enabled: true,
   })
