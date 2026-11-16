@@ -164,7 +164,7 @@ function createFakeKysely(overrides?: FakeData) {
         const localOps = this._ops
         if (localOps.table === 'information_schema.columns') {
           const infoRows = data['information_schema.columns']
-          if (!Array.isArray(infoRows)) return undefined
+          if (!Array.isArray(infoRows)) return extractEqValue(localOps.wheres, 'column_name') === 'tenant_id' ? { column_name: 'tenant_id' } : undefined
           const targetTable = extractEqValue(localOps.wheres, 'table_name')
           const targetColumn = extractEqValue(localOps.wheres, 'column_name')
           return infoRows.find((row: any) =>
@@ -1704,7 +1704,7 @@ describe('module-scoped column-existence cache (#5605)', () => {
     // ('full' and 'count') within a single `.query()` call.
     const fakeDb = createFakeKysely({
       customer_entities: [],
-      'information_schema.columns': [],
+      'information_schema.columns': [{ table_name: 'customer_entities', column_name: 'organization_id' }],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
 
@@ -1729,7 +1729,7 @@ describe('module-scoped column-existence cache (#5605)', () => {
 
     const beforeMigration = createFakeKysely({
       customer_entities: [],
-      'information_schema.columns': [],
+      'information_schema.columns': [{ table_name: 'customer_entities', column_name: 'organization_id' }],
     })
     const queryOpts = { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 10 } }
     await new BasicQueryEngine({} as any, () => beforeMigration as any).query('customers:customer_entity', queryOpts)
@@ -1769,7 +1769,7 @@ describe('module-scoped column-existence cache (#5605)', () => {
     process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES = '4'
     const fakeDb = createFakeKysely({
       customer_entities: [],
-      'information_schema.columns': [],
+      'information_schema.columns': [{ table_name: 'customer_entities', column_name: 'organization_id' }],
     })
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
 

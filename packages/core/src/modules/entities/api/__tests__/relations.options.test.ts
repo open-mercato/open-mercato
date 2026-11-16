@@ -13,8 +13,10 @@ const mockQE = {
 // Entity ids the fake ORM metadata knows about, keyed by the class name the
 // resolver derives from the id's entity segment.
 const registeredTables: Record<string, string> = {
-  CustomerEntity: 'customer_entities',
+  CustomerEntity: 'customer_entities', SalesOrder: 'sales_orders', User: 'users',
 }
+
+const mockRbac = { userHasAllFeatures: jest.fn(async () => true), loadAcl: jest.fn(async () => ({ isSuperAdmin: true })) }
 
 const mockEm = {
   // Custom (doc-storage) entities: registered rows make an id queryable.
@@ -32,16 +34,28 @@ const mockEm = {
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: (key: string) => (key === 'queryEngine' ? mockQE : mockEm) }),
+  createRequestContainer: async () => ({ resolve: (key: string) => (key === 'queryEngine' ? mockQE : key === 'rbacService' ? mockRbac : mockEm) }),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }),
+  getAuthFromRequest: () => ({ sub: 'actor', orgId: 'org', tenantId: 't1', roles: ['admin'] }),
+}))
+
+jest.mock('@open-mercato/core/modules/entities/lib/entityClassification', () => ({
+  classifyRecordsEntity: async (_em: unknown, entityId: string) => ({
+    kind: entityId.startsWith('virtual:') ? 'custom' : ['p:0', 'nosuch:thing', 'person'].includes(entityId) ? 'unknown' : 'system', restricted: entityId === 'virtual:restricted',
+  }),
+}))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  getModules: () => [{ customEntities: [{ id: 'customers:customer_entity', labelField: 'title' }, { id: 'third_party:entry', labelField: 'externalReference' }] }],
+  resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 
 describe('GET /api/entities/relations/options', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: true })
   })
 
   it('supports id-scoped lookups through the existing relation options permission surface', async () => {
@@ -99,7 +113,7 @@ describe('GET /api/entities/relations/options', () => {
     )
   })
 
-  it('caps pageSize at 200 even when more ids are requested', async () => {
+  it('caps pageSize at 100 even when more ids are requested', async () => {
     const manyIds = Array.from({ length: 300 }, (_, index) => `id-${index}`).join(',')
     mockQE.query.mockResolvedValueOnce({ items: [] })
 
@@ -113,7 +127,7 @@ describe('GET /api/entities/relations/options', () => {
     expect(mockQE.query).toHaveBeenCalledWith(
       'virtual:example',
       expect.objectContaining({
-        page: { page: 1, pageSize: 200 },
+        page: { page: 1, pageSize: 100 },
       }),
     )
   })
@@ -168,4 +182,56 @@ describe('GET /api/entities/relations/options', () => {
       }),
     )
   })
+
+  it.each(['security:user_mfa_method', 'directory:tenant', 'auth:session'])('rejects sensitive target %s before querying data', async (entityId) => {
+    const response = await GET(new Request(`http://x/api/entities/relations/options?entityId=${entityId}&labelField=secret`))
+    expect(response.status).toBe(403)
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('requires the target view feature even with the metadata feature', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=sales:sales_order&labelField=title'))
+    expect(response.status).toBe(403)
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it.each(['password_hash', 'secret', 'cf:private', 'title,title'])('rejects unsafe label %s before querying data', async (labelField) => {
+    const response = await GET(new Request(`http://x/api/entities/relations/options?entityId=virtual:example&labelField=${encodeURIComponent(labelField)}`))
+    expect(response.status).toBe(400)
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('enforces restricted custom entity ACL', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=virtual:restricted&labelField=title'))
+    expect(response.status).toBe(403)
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('does not turn a third-party declaration into an implicit system-data grant', async () => {
+    registeredTables.Entry = 'entries'
+    mockRbac.loadAcl.mockResolvedValueOnce({ isSuperAdmin: false })
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=third_party:entry&labelField=externalReference'))
+    expect(response.status).toBe(403)
+    expect(mockQE.query).not.toHaveBeenCalled()
+    delete registeredTables.Entry
+  })
+
+  it('checks mapped target permissions using the authenticated scope', async () => {
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=sales:sales_order&labelField=title&tenantId=foreign'))
+    expect(response.status).toBe(200)
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['sales.orders.view'], { tenantId: 't1', organizationId: 'org' })
+    expect(mockQE.query).toHaveBeenCalledWith('sales:sales_order', expect.objectContaining({ tenantId: 't1', organizationId: 'org' }))
+  })
+
+  it('preserves third-party declared labels', async () => {
+    registeredTables.Entry = 'entries'
+    mockQE.query.mockResolvedValueOnce({ items: [] })
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=third_party:entry&labelField=externalReference'))
+    expect(response.status).toBe(200)
+    expect(mockQE.query).toHaveBeenCalledWith('third_party:entry', expect.objectContaining({ fields: ['id', 'externalReference'] }))
+    delete registeredTables.Entry
+  })
+
 })
