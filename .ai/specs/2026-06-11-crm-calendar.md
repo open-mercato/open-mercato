@@ -393,6 +393,9 @@ None.
 - [x] Phase 7 — 2026-06-13 Figma revision: Customization modal (`1788:3701`) + week-view states (`1786:2934`) — peek popover, inline conflict badge, drag-to-create, enriched empty state, four wired preference toggles; new unit tests (preferences, grid) green; TC-CAL-007/008 added; preview-verified (settings modal, 5-day-week default, peek + selected ring, conflict badges)
 
 ## Changelog
+### 2026-11-16 — Issue #9620: full event title on hover
+- Time-grid event blocks (day and week views) carry a native `title` with the full event title and time range, the same text as their accessible name. Hovering a block whose title is cut by a narrow overlap column now shows it without opening the event. Callers can override it through the block's `title` prop.
+
 ### 2026-09-29 — Issue #6684: configurable calendar event types
 - The linked [configurable behavior](./2026-09-28-configurable-calendar-event-types.md), [module extensions](./2026-09-28-calendar-event-type-extensions.md), and [React panels](./2026-09-28-calendar-event-type-react-panels.md) specs on PR #6687 supersede the editor's fixed six-type morphology and the display-only Customization inputs. The original six stored keys, calendar views, and single interaction form remain.
 - The editor reads the scoped effective catalog, applies bounded field and fieldset rules, requires confirmation before a type change clears values, and routes type UI through one UMES panel handle. The authoritative behavior editor belongs to Customers → Dictionaries → Activity types.
