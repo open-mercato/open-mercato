@@ -39,7 +39,14 @@ For this initial documentation-only diff, use manual diff review and `git diff -
 - Runner: local for `timeout 30 node --test scripts/__tests__/ci-full-label.test.mjs` (25 passed, zero failures/skips), manual review and `git diff --check`. Runner: GitHub CI for executable validation. This change remains documentation-only; no Markdown lint command is configured, and local package builds are unnecessary for this diff.
 - Required-status-check configuration returned HTTP 404; conservatively treat every reported check as required. Pending workflows still block completion even before their checks appear.
 
-No demonstrated root cause remains to repair. Subsequent bookkeeping commits require fresh exact-head CI. Record final workflow and independent-review evidence on the PR to avoid another evidence-only push.
+- [Second PR CI](https://github.com/open-mercato/open-mercato/actions/runs/43779949008) succeeded on `8468cc310b857ac6cbde0bd98b8cf81140fde85e`: all 15 shards and coverage merge passed. The configured package build/generate/rebuild, i18n, unfiltered typecheck/tests and application build steps all succeeded.
+- [Final independent review](https://github.com/open-mercato/open-mercato/pull/9635#pullrequestreview-5914012928) approved that exact head with no findings. GitHub rejected the author App's native approval (HTTP 422); the transparent COMMENT review records the independent verdict and does not satisfy a native approval requirement. A distinct authorized identity must provide any approval required by branch protection. The reviewer made no source edits or commits and released its owned claim; no child branch was merged.
+
+No demonstrated root cause remains to repair. This final progress update adds only reviewed verification results and completion bookkeeping; it requires fresh exact-head CI. Record that final CI outcome and tracker promotion on the PR, avoiding another evidence-only push.
+
+## Finalization gate
+
+The implementation and independent review are complete. The checklist closes the recorded work, while tracker `Status: in-progress`, draft state and withholding `automerge` remain mandatory until this bookkeeping commit's exact-head workflows and checks pass. Only then mark the PR ready, set tracker status complete and apply `automerge`. The prior green SHAs do not certify a later head, and the independent COMMENT verdict never waives native approval requirements. No merge into main is performed by this run.
 
 ## Risks
 
@@ -59,5 +66,5 @@ PR: #9635
 ### Phase 2: Verify and review
 
 - [x] 2.1 Verify this draft PR's full 15-shard suite and fix any demonstrated failures. — 4c9d673e68
-- [ ] 2.2 Dispatch one final independent review task after implementation and address its findings.
-- [ ] 2.3 Record evidence, complete the PR, and apply automerge only after exact-head checks and workflows pass.
+- [x] 2.2 Dispatch one final independent review task after implementation and address its findings. — 8468cc310b
+- [x] 2.3 Record evidence, complete the PR, and apply automerge only after exact-head checks and workflows pass. (Tracker promotion is gated as described above.)
