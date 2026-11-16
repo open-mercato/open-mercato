@@ -666,3 +666,11 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 ## Comment authors (2026-11-12, #8759)
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## 2026-11-16 — Message attachment source authority (#9017)
+
+**Surface:** STABLE attachment-link helper and message draft/email authorization behavior. Link helpers gain an optional authenticated access context; nonempty links without it now fail closed. Message email attachment descriptors gain optional identity/access context so delivery reads through `attachmentService`. Route URLs, required request fields, schema and startup configuration do not change.
+
+Accepting arbitrary same-org source IDs, unowned library staging, or draft email sends without `messages.email` is the vulnerability itself. A bridge preserving those branches would preserve reparenting, deletion and external disclosure, so this narrow correction invokes the Emergency Security Exception for steps 1–3. Message references are copied or detached without deleting other owners' rows or bytes. Server-only upload provenance uses the existing metadata JSON.
+
+**Migration:** users re-upload unowned transient staging from before this fix; existing sent-message attachments are preserved. Downstream link callers supply the optional authenticated context, and direct email-helper callers supply attachment identity and access. Operators communicate the transient re-upload requirement and audit any previously suspicious draft attachments; no database migration or new settings are required. See [the security spec](.ai/specs/2026-11-16-message-attachment-source-authorization.md#migration--backward-compatibility) and UPGRADE_NOTES.md. The PR must retain `security`; named human-maintainer acknowledgment of this waiver is still required before merge and has not been supplied by automation.

@@ -111,6 +111,8 @@
   "messages.email.preview": "You received a message in Open Mercato",
   "messages.email.sentAt": "Sent",
   "messages.email.viewCta": "View message",
+  "messages.errors.emailFeatureRequired": "Sending email requires the messages.email permission.",
+  "messages.errors.attachmentAccessDenied": "You do not have access to one or more attachments. Re-upload older staged files.",
   "messages.errors.actionFailed": "Failed to execute action.",
   "messages.errors.archiveSenderMessageUnsupported": "You cannot archive messages you sent.",
   "messages.errors.conversationActionFailed": "Failed to update conversation.",

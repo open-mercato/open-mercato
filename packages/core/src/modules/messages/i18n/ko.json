@@ -111,6 +111,8 @@
   "messages.email.preview": "Open Mercato에서 메시지를 받았습니다",
   "messages.email.sentAt": "전송됨",
   "messages.email.viewCta": "메시지 보기",
+  "messages.errors.emailFeatureRequired": "이메일을 보내려면 messages.email 권한이 필요합니다.",
+  "messages.errors.attachmentAccessDenied": "하나 이상의 첨부 파일에 접근할 수 없습니다. 이전 임시 파일을 다시 업로드하세요.",
   "messages.errors.actionFailed": "작업을 실행하지 못했습니다.",
   "messages.errors.archiveSenderMessageUnsupported": "본인이 보낸 메시지는 보관할 수 없습니다.",
   "messages.errors.conversationActionFailed": "대화 업데이트에 실패했습니다.",

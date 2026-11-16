@@ -233,3 +233,22 @@ it('caps an unpaged protected record list at 100 visible rows after filtering hi
   expect(result.items[99].id).toBe('visible-99')
   expect(result.items.some((record) => record.id === firstId)).toBe(false)
 })
+
+
+it('does not allow metadata PATCH to forge or erase server upload provenance', async () => {
+  const provenance = { principalId: 'original-uploader', tenantId: 'tenant', organizationId: 'org' }
+  const record = mockRecords[0]
+  record.storageMetadata = { ...record.storageMetadata, __openMercatoUpload: provenance } as typeof record.storageMetadata
+  const response = await PATCH(request({ tags: ['updated'], __openMercatoUpload: { principalId: 'user' }, storageMetadata: { __openMercatoUpload: null }, assignments: [] }), params)
+  expect(response.status).toBe(200)
+  expect(record.storageMetadata).toMatchObject({ __openMercatoUpload: provenance, tags: ['updated'] })
+})
+
+it('keeps the original uploader through transfer even when the request supplies forged provenance', async () => {
+  const provenance = { principalId: 'original-uploader', tenantId: 'tenant', organizationId: 'org' }
+  const record = mockRecords[0]
+  record.storageMetadata = { ...record.storageMetadata, __openMercatoUpload: provenance } as typeof record.storageMetadata
+  const response = await transfer(request({ entityId: 'documents:document', attachmentIds: [firstId], toRecordId: 'destination', __openMercatoUpload: { principalId: 'user' } }, 'POST'))
+  expect(response.status).toBe(200)
+  expect(record.storageMetadata).toMatchObject({ __openMercatoUpload: provenance })
+})

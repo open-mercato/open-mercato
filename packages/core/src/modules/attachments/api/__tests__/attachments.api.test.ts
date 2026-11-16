@@ -255,7 +255,7 @@ describe('attachments API', () => {
     const file = new File([new Uint8Array([1,2,3])], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', {
       method: 'POST',
-      body: fdWith(file, { customFields: JSON.stringify({ altText: 'Product spec' }) }) as any,
+      body: fdWith(file, { customFields: JSON.stringify({ altText: 'Product spec' }), __openMercatoUpload: JSON.stringify({ principalId: 'victim', tenantId: 'other', organizationId: 'other' }) }),
     })
     const res = await upload(req)
     expect(res.status).toBe(200)
@@ -264,6 +264,7 @@ describe('attachments API', () => {
     expect(j?.item?.customFields).toEqual({ altText: 'Product spec' })
     const payload = mockEm.create.mock.calls[mockEm.create.mock.calls.length - 1]?.[1]
     expect(payload?.storageMetadata?.assignments).toEqual([{ type: 'example:todo', id: 'r1' }])
+    expect(payload?.storageMetadata?.__openMercatoUpload).toEqual({ principalId: 'user-1', tenantId: 't1', organizationId: 'org' })
     expect(mockDataEngine.setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({
         entityId: expect.any(String),
@@ -279,7 +280,7 @@ describe('attachments API', () => {
     const file = new File([new Uint8Array([1,2,3])], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', {
       method: 'POST',
-      body: fdWith(file, { customFields: JSON.stringify({ altText: 'Product spec' }) }) as any,
+      body: fdWith(file, { customFields: JSON.stringify({ altText: 'Product spec' }), __openMercatoUpload: JSON.stringify({ principalId: 'victim', tenantId: 'other', organizationId: 'other' }) }),
     })
     const res = await upload(req)
     expect(res.status).toBe(500)

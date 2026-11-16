@@ -111,6 +111,8 @@
   "messages.email.preview": "Sie haben eine Nachricht in Open Mercato erhalten",
   "messages.email.sentAt": "Gesendet",
   "messages.email.viewCta": "Nachricht anzeigen",
+  "messages.errors.emailFeatureRequired": "Zum Senden von E-Mails ist die Berechtigung messages.email erforderlich.",
+  "messages.errors.attachmentAccessDenied": "Sie haben keinen Zugriff auf mindestens einen Anhang. Laden Sie ältere zwischengespeicherte Dateien erneut hoch.",
   "messages.errors.actionFailed": "Aktion konnte nicht ausgeführt werden.",
   "messages.errors.archiveSenderMessageUnsupported": "Du kannst von dir gesendete Nachrichten nicht archivieren.",
   "messages.errors.conversationActionFailed": "Konversation konnte nicht aktualisiert werden.",

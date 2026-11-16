@@ -25,6 +25,7 @@ import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../lib/storageReferences'
 import { assertAttachmentScopeInvariant } from '../lib/access'
+import { withUploadProvenance } from '../lib/uploadProvenance'
 import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
   mergeAttachmentMetadata,
@@ -600,7 +601,7 @@ async function uploadAttachment(req: Request) {
   if (entityId !== LIBRARY_ENTITY_ID) {
     assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
   }
-  const metadata = mergeAttachmentMetadata(null, { assignments, tags })
+  const metadata = withUploadProvenance(mergeAttachmentMetadata(null, { assignments, tags }), { ...auth, orgId })
   const attachmentId = randomUUID()
   assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: orgId })
   const att = em.create(Attachment, {

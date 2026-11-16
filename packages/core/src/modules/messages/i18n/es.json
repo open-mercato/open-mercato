@@ -111,6 +111,8 @@
   "messages.email.preview": "Recibiste un mensaje en Open Mercato",
   "messages.email.sentAt": "Enviado",
   "messages.email.viewCta": "Ver mensaje",
+  "messages.errors.emailFeatureRequired": "El envío de correo requiere el permiso messages.email.",
+  "messages.errors.attachmentAccessDenied": "No tienes acceso a uno o varios archivos adjuntos. Vuelve a subir los archivos temporales antiguos.",
   "messages.errors.actionFailed": "No se pudo ejecutar la acción.",
   "messages.errors.archiveSenderMessageUnsupported": "No puedes archivar mensajes que enviaste.",
   "messages.errors.conversationActionFailed": "No se pudo actualizar la conversación.",

@@ -12,20 +12,23 @@ import {
   replyMessageSchema,
   updateDraftSchema,
 } from '../data/validators'
-import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
+import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages, detachMessageAttachments } from '../lib/attachments'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
 import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
-import { canUseChannelThreadFallback } from '../lib/routeHelpers'
+import { canUseChannelThreadFallback, canUseMessageEmailFeature } from '../lib/routeHelpers'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { assertExternalEmailBudget } from '../lib/externalEmailBudget'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
 import {
   assertOrganizationAccess,
+  getAttachmentIdsForMessage,
   loadMessageAggregateSnapshot,
   restoreMessageAggregateSnapshot,
   type MessageAggregateSnapshot,
@@ -404,6 +407,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
 
@@ -414,6 +418,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
           input.attachmentRecordId,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
 
@@ -584,6 +589,11 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
 
     const finalSendViaEmail = input.sendViaEmail ?? message.sendViaEmail
     const finalExternalEmail = input.externalEmail ?? message.externalEmail
+    if (isSending && (finalVisibility === 'public' || finalSendViaEmail)
+      && !(await canUseMessageEmailFeature(ctx, input))) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(403, { error: translate('messages.errors.emailFeatureRequired') })
+    }
     if (isSending && (finalVisibility === 'public' || finalSendViaEmail) && finalExternalEmail) {
       await assertExternalEmailBudget(
         ctx.container,
@@ -640,29 +650,20 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
 
       if (input.attachmentIds) {
-        const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-        if (input.attachmentIds.length === 0) {
-          await em.nativeDelete(Attachment, {
-            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-            recordId: message.id,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-          })
-        } else {
-          await em.nativeDelete(Attachment, {
-            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-            recordId: message.id,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-            id: { $nin: input.attachmentIds },
-          })
-        }
+        const currentIds = await getAttachmentIdsForMessage(em, message.id, {
+          tenantId: input.tenantId, organizationId: input.organizationId,
+        })
+        await detachMessageAttachments(
+          em, message.id, currentIds.filter((id) => !input.attachmentIds!.includes(id)),
+          input.organizationId, input.tenantId, { container: ctx.container, auth: ctx.auth },
+        )
         await linkAttachmentsToMessage(
           em,
           message.id,
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
 
@@ -894,6 +895,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
           input.attachmentIds,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
       if (input.attachmentRecordId) {
@@ -903,6 +905,7 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
           input.attachmentRecordId,
           input.organizationId,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
       messageId = message.id
@@ -1076,6 +1079,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
           forwardThreadSlice.map((item) => item.id),
           newMessage.id,
           input.tenantId,
+          { container: ctx.container, auth: ctx.auth },
         )
       }
       newMessageId = newMessage.id

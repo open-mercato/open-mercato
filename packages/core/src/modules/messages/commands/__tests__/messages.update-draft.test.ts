@@ -33,6 +33,7 @@ jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => (
 
 jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
   linkAttachmentsToMessage: jest.fn(),
+  detachMessageAttachments: jest.fn(),
   linkLibraryAttachmentsToMessage: jest.fn(),
   copyAttachmentsForForwardMessages: jest.fn(),
 }))
@@ -86,6 +87,7 @@ function createHarness(messageOverrides: Partial<Message> = {}, recipients: Arra
     resolve: jest.fn((name: string) => {
       if (name === 'em') return { fork: () => emFork }
       if (name === 'eventBus') return eventBus
+      if (name === 'rbacService') return { userHasAllFeatures: async () => true }
       throw new Error(`Unknown dependency: ${name}`)
     }),
   }

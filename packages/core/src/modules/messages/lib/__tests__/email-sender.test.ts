@@ -17,6 +17,7 @@ jest.mock('@open-mercato/shared/lib/email/send', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   loadDictionary: (...args: unknown[]) => loadDictionaryMock(...args),
+  resolveTranslations: async () => ({ translate: (key: string) => key }),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/translate', () => ({
@@ -41,6 +42,7 @@ const baseMessage = {
   id: 'message-1',
   subject: 'Subject',
   body: 'Body',
+  senderUserId: 'sender-1', tenantId: 'tenant-1', organizationId: 'org-1',
   sentAt: new Date('2026-02-15T10:00:00.000Z'),
 } as never
 
@@ -81,6 +83,10 @@ describe('messages email sender', () => {
     await sendMessageEmailToRecipient({
       em: em as never,
       message: baseMessage,
+      attachmentAccess: {
+        auth: { sub: 'sender-1', tenantId: 'tenant-1', orgId: 'org-1' },
+        service: { readScoped: jest.fn(async () => ({ buffer: Buffer.from('invoice'), fileName: 'invoice.pdf', mimeType: 'application/pdf' })) } as never,
+      },
       recipientUserId: 'user-2',
       recipientEmail: 'user2@example.com',
       sender: { name: 'Alice', email: 'alice@example.com' },
@@ -93,6 +99,7 @@ describe('messages email sender', () => {
       ] as never,
       attachments: [
         {
+          attachmentId: 'invoice',
           fileName: 'invoice.pdf',
           fileSize: 100,
           mimeType: 'application/pdf',
@@ -117,6 +124,17 @@ describe('messages email sender', () => {
         objectLabels: ['sales.order (order-1)'],
       }),
     )
+  })
+
+  it('rechecks attachment access before sending bytes and refuses a denied owner', async () => {
+    const readScoped = jest.fn(async () => { throw Object.assign(new Error('denied'), { status: 403 }) })
+    await expect(sendMessageEmailToExternal({
+      message: baseMessage, email: 'outside@example.com', sender: { name: null, email: null }, objects: [],
+      attachments: [{ attachmentId: 'protected', fileName: 'secret.txt', fileSize: 4, mimeType: 'text/plain', partitionCode: 'private', storagePath: 'secret', storageDriver: 'local' }],
+      attachmentAccess: { auth: { sub: 'sender-1', tenantId: 'tenant-1', orgId: 'org-1' }, service: { readScoped } as never },
+    })).rejects.toMatchObject({ status: 403 })
+    expect(readScoped).toHaveBeenCalledWith(expect.objectContaining({ expectedOwner: { entityId: 'messages:message', recordId: 'message-1' } }))
+    expect(sendEmailMock).not.toHaveBeenCalled()
   })
 
   it('sends external email without view url', async () => {

@@ -225,7 +225,7 @@ export async function canPostToChannelThread(
 }
 
 export async function canUseMessageEmailFeature(
-  ctx: Awaited<ReturnType<typeof resolveRequestContext>>['ctx'],
+  ctx: Pick<ChannelThreadCallerContext, 'container'>,
   scope: MessageScope,
 ): Promise<boolean> {
   if (!scope.userId || !scope.tenantId) return false

@@ -111,6 +111,8 @@
   "messages.email.preview": "Otrzymano wiadomość w Open Mercato",
   "messages.email.sentAt": "Wysłano",
   "messages.email.viewCta": "Zobacz wiadomość",
+  "messages.errors.emailFeatureRequired": "Wysyłanie wiadomości e-mail wymaga uprawnienia messages.email.",
+  "messages.errors.attachmentAccessDenied": "Nie masz dostępu do co najmniej jednego załącznika. Prześlij ponownie starsze pliki robocze.",
   "messages.errors.actionFailed": "Nie udało się wykonać akcji.",
   "messages.errors.archiveSenderMessageUnsupported": "Nie możesz archiwizować wysłanych przez siebie wiadomości.",
   "messages.errors.conversationActionFailed": "Nie udało się zaktualizować konwersacji.",
