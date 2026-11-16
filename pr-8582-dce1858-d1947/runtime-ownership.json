@@ -1,0 +1,11 @@
+{
+  "runId": "d19475e0",
+  "builtCommit": "dce185804f05cb482e73353d8d751add8c43c80d",
+  "baseUrl": "http://127.0.0.1:5001",
+  "ownerPid": 3668857,
+  "ownedContainers": [
+    "653d609a7ac0"
+  ],
+  "startedByThisRepo": true,
+  "sourceReadonly": true
+}
