@@ -464,7 +464,7 @@ describe('currencies base-currency invariant (exactly one live base per tenant/o
     expect(rows[0].name).toBe('Euro (base)')
   })
 
-  it('warns when deactivating the current base currency and keeps applying it until the next minor', async () => {
+  it('warns when deactivating the current base currency and still applies it during the deprecation window', async () => {
     const rows = [makeCurrency(EUR_ID, 'EUR', true), makeCurrency(USD_ID, 'USD', false)]
     const { ctx } = buildEnv(rows)
     const { update } = loadCommands()

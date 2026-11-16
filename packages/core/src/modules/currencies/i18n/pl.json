@@ -46,6 +46,7 @@
   "currencies.form.action.create": "Utwórz Walutę",
   "currencies.form.action.save": "Zapisz Zmiany",
   "currencies.form.actions.backToList": "Wróć do walut",
+  "currencies.form.errors.baseCurrencyInactive": "Waluta bazowa musi być aktywna. Zaznacz pole „Aktywna” albo odznacz „Waluta Bazowa”.",
   "currencies.form.errors.codeFormat": "Kod waluty musi składać się z dokładnie 3 wielkich liter (np. USD)",
   "currencies.form.errors.delete": "Nie udało się usunąć waluty",
   "currencies.form.errors.load": "Nie udało się załadować waluty",

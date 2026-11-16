@@ -46,6 +46,7 @@
   "currencies.form.action.create": "통화 생성",
   "currencies.form.action.save": "변경 사항 저장",
   "currencies.form.actions.backToList": "통화 목록으로 돌아가기",
+  "currencies.form.errors.baseCurrencyInactive": "기준 통화는 활성 상태여야 합니다. ‘활성’을 선택하거나 ‘기준 통화’ 선택을 해제하세요.",
   "currencies.form.errors.codeFormat": "통화 코드는 정확히 3자리 대문자여야 합니다 (예: USD)",
   "currencies.form.errors.delete": "통화 삭제에 실패했습니다",
   "currencies.form.errors.load": "통화를 불러오지 못했습니다",

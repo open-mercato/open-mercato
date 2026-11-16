@@ -304,6 +304,12 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
               })
             }
 
+            if (!isCurrentBase && values.isBase && values.isActive === false) {
+              throw createCrudFormError(t('currencies.form.errors.baseCurrencyInactive'), {
+                isActive: t('currencies.form.errors.baseCurrencyInactive'),
+              })
+            }
+
             const payload = {
               id: currency.id,
               code,

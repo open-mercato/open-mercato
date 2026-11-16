@@ -46,6 +46,7 @@
   "currencies.form.action.create": "Create Currency",
   "currencies.form.action.save": "Save Changes",
   "currencies.form.actions.backToList": "Back to currencies",
+  "currencies.form.errors.baseCurrencyInactive": "The base currency must be active. Tick Active, or leave Base Currency unticked.",
   "currencies.form.errors.codeFormat": "Currency code must be exactly 3 uppercase letters (e.g., USD)",
   "currencies.form.errors.delete": "Failed to delete currency",
   "currencies.form.errors.load": "Failed to load currency",

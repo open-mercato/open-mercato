@@ -526,7 +526,7 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, CurrencyCommand
 
           promoted = changes.isBase?.to === true
           if (changes.isActive?.to === false && (record.isBase || promoted)) {
-            logger.warn('[deprecated] Deactivating the base currency will be rejected in the next minor release', {
+            logger.warn('[deprecated] Deactivating the base currency will be rejected in a future minor release', {
               currencyId: record.id,
               tenantId: record.tenantId,
               organizationId: record.organizationId,

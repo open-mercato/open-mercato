@@ -7,6 +7,7 @@ import EditCurrencyPage from '../[id]/page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 const mockPush = jest.fn()
@@ -190,5 +191,24 @@ describe('EditCurrencyPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
     expect(findIsActiveField()?.disabled).toBeFalsy()
+
+    fireEvent.click(screen.getByTestId('submit-button'))
+    await waitFor(() => expect(updateCrud).toHaveBeenCalled())
+    expect((updateCrud as jest.Mock).mock.calls[0][1]).toMatchObject({ id: 'cur-1', isBase: true, isActive: false })
+  })
+
+  it('refuses to make a currency the base while unticking Active in the same save', async () => {
+    ;(createCrudFormError as jest.Mock).mockImplementationOnce((message: string) => new Error(message))
+    render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
+
+    await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
+    const submit = mockCrudFormProps.onSubmit as (values: Record<string, unknown>) => Promise<void>
+    await expect(submit({ ...mockCrudFormProps.initialValues, isBase: true, isActive: false })).rejects.toThrow(
+      'currencies.form.errors.baseCurrencyInactive',
+    )
+    expect(createCrudFormError).toHaveBeenCalledWith('currencies.form.errors.baseCurrencyInactive', {
+      isActive: 'currencies.form.errors.baseCurrencyInactive',
+    })
+    expect(updateCrud).not.toHaveBeenCalled()
   })
 })
