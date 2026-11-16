@@ -1,0 +1,33 @@
+
+Running 2 tests using 1 worker
+
+(node:3680889) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+en - main:
+  - paragraph: Account
+  - heading "Profile" [level=1]
+  - paragraph: Profile
+  - heading "QA Long Profile Display Name abcdefghijklmnopqrstuvwxyz" [level=3]
+  - text: Email qa-long-profile-profileuser-a10cffada865b2-abcdefghijklmnopqrstuvwxyz0123456789@test.local Not verified Last login Never Member since Never
+  - paragraph: Roles
+  - heading "0 assigned" [level=3]
+  - paragraph: No roles assigned
+  - paragraph: Permissions
+  - heading "3 features" [level=3]
+  - text: portal.orders.view portal.profile.view portal.users.view
+  ✓  1 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds en (41.1s)
+pl - main:
+  - paragraph: Konto
+  - heading "Profil" [level=1]
+  - paragraph: Profil
+  - heading "QA Long Profile Display Name abcdefghijklmnopqrstuvwxyz" [level=3]
+  - text: Email qa-long-profile-profileuser-a10cffada865b2-abcdefghijklmnopqrstuvwxyz0123456789@test.local Niezweryfikowany Ostatnie logowanie Nigdy Członek od Nigdy
+  - paragraph: Role
+  - 'heading "Przypisane role: 0" [level=3]'
+  - paragraph: Brak przypisanych ról
+  - paragraph: Uprawnienia
+  - 'heading "Uprawnienia: 3" [level=3]'
+  - text: portal.orders.view portal.profile.view portal.users.view
+  ✓  2 ../../artifacts/d19475e0-f042-4e82-baf5-7ba29061f002/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds pl (41.1s)
+
+  2 passed (1.4m)
