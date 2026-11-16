@@ -4,14 +4,32 @@
 
 `seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
 `seed:defaults` now only create a missing `regular` or `sale` price kind and no
-longer change existing price kinds. A soft-deleted `regular` or `sale` is not
-restored, so restore it before `mercato catalog seed-examples` or
-`seed-examples-bundle`. A kind an admin deleted can be undone from the action log.
-Kinds soft-deleted by earlier seed runs have no action-log entry and cannot be
-recreated through the API (the `(tenant_id, code)` constraint covers deleted rows),
-so restore them with SQL:
-`update catalog_price_kinds set deleted_at = null, is_active = true, updated_at = now() where tenant_id = '<tenant>' and code = '<code>';`
-No migration is needed.
+longer change existing price kinds. On tenants with several organizations,
+`regular`/`sale` keep their current `organization_id` instead of moving to the
+organization being seeded (relevant to `sales/api/price-kinds`, which filters by
+organization). A soft-deleted `regular` or `sale` is not restored, so restore it
+before `mercato catalog seed-examples` or `seed-examples-bundle`.
+
+A kind an admin deleted can be undone from the action log. Kinds soft-deleted by
+earlier seed runs have no action-log entry and cannot be recreated through the API
+(the `(tenant_id, code)` constraint covers deleted rows). Find them first, matching
+`deleted_at` to the times `seed:defaults` ran:
+
+```sql
+select id, code, title, is_active, deleted_at from catalog_price_kinds
+where tenant_id = '<tenant>' and deleted_at is not null;
+```
+
+Then restore each one:
+
+```sql
+update catalog_price_kinds set deleted_at = null, is_active = true, updated_at = now()
+where tenant_id = '<tenant>' and code = '<code>';
+```
+
+The earlier active state is unknown, so check `is_active` after restoring. The SQL
+bypasses cache invalidation: clear the CRUD/API cache (or restart the app)
+afterwards. No migration is needed.
 
 ## Event-triggered workflow execution identity (#9137)
 
