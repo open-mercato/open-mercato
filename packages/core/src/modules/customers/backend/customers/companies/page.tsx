@@ -107,6 +107,7 @@ type CompanyRow = {
   industry?: string | null
   sizeBucket?: string | null
   annualRevenue?: string | null
+  taxId?: string | null
   status?: string | null
   lifecycleStage?: string | null
   nextInteractionAt?: string | null
@@ -150,6 +151,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
   const websiteUrl = typeof item.website_url === 'string' ? item.website_url : null
   const industry = typeof item.industry === 'string' ? item.industry : null
   const sizeBucket = typeof item.size_bucket === 'string' ? item.size_bucket : null
+  const taxId = typeof item.tax_id === 'string' ? item.tax_id : null
   const annualRevenue =
     typeof item.annual_revenue === 'string'
       ? item.annual_revenue
@@ -185,6 +187,7 @@ function mapApiItem(item: Record<string, unknown>): CompanyRow | null {
     industry,
     sizeBucket,
     annualRevenue,
+    taxId,
     status,
     lifecycleStage,
     nextInteractionAt,
@@ -767,6 +770,15 @@ export default function CustomersCompaniesPage() {
           filterGroup: t('customers.columnGroups.profile', 'Profile'),
         },
         cell: ({ row }) => row.original.legalName || noValue,
+      },
+      {
+        accessorKey: 'taxId',
+        header: t('customers.companies.detail.fields.taxId', 'VAT ID'),
+        meta: {
+          columnChooserGroup: t('customers.columnGroups.profile', 'Profile'),
+          maxWidth: '180px',
+        },
+        cell: ({ row }) => row.original.taxId || noValue,
       },
       {
         accessorKey: 'brandName',
