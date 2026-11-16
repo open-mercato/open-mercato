@@ -180,6 +180,7 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
   const title = item.title || t('customers.calendar.grid.untitled', 'Untitled')
   const timeRange = formatTimeRange(locale, item.start, item.end)
   const visibleTime = compact ? formatTimeLabel(locale, item.start) : timeRange
+  const fullLabel = `${title}, ${timeRange}`
   const showTime = height >= SHOW_TIME_MIN_HEIGHT_PX
   const wrapTitle = height >= WRAP_TITLE_MIN_HEIGHT_PX
   const hasMetaContent = item.participants.length > 0 || (item.location !== null && item.locationKind !== null)
@@ -192,7 +193,8 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
       ref={ref}
       type="button"
       variant="ghost"
-      aria-label={`${title}, ${timeRange}`}
+      aria-label={fullLabel}
+      title={fullLabel}
       className={cn(
         'pointer-events-auto absolute h-auto flex-col items-start justify-start gap-0.5 whitespace-normal overflow-hidden rounded-md ps-3 pe-1.5 text-start outline-none hover:bg-muted/70',
         !compact && 'sm:gap-1 sm:ps-4 sm:pe-3',
