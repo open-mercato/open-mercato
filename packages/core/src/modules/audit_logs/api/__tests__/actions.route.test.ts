@@ -2,7 +2,10 @@
 import { GET } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/route'
 import { actionLogListSchema } from '@open-mercato/core/modules/audit_logs/data/validators'
 
-const mockRbac = { userHasAllFeatures: jest.fn() }
+import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+
+const mockRbac = { userHasAllFeatures: jest.fn(), getGrantedFeatures: jest.fn() }
 const mockActionLogs = { list: jest.fn() }
 const mockEm = {}
 
@@ -355,5 +358,67 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
 
     expect(res.status).toBe(200)
     expect(mockActionLogs.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-1' }))
+  })
+
+  describe('response enrichers', () => {
+    const targeted: ResponseEnricher = {
+      id: 'test.audit-flag',
+      targetEntity: 'audit_logs.action_log',
+      features: ['test.view'],
+      async enrichOne(record) {
+        return { ...record, _test: { seen: true } }
+      },
+      async enrichMany(records) {
+        return records.map((record) => ({ ...record, _test: { seen: true } }))
+      },
+    }
+    const wildcard: ResponseEnricher = {
+      id: 'test.wildcard',
+      targetEntity: '*',
+      async enrichOne(record) {
+        return { ...record, _wildcard: true }
+      },
+      async enrichMany(records) {
+        return records.map((record) => ({ ...record, _wildcard: true }))
+      },
+    }
+
+    beforeEach(async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    })
+
+    afterEach(() => {
+      registerResponseEnrichers([])
+    })
+
+    it('runs enrichers that target audit action rows for a caller holding their features, and skips wildcard ones', async () => {
+      registerResponseEnrichers([{ moduleId: 'test', enrichers: [targeted, wildcard] }])
+      mockRbac.getGrantedFeatures.mockResolvedValue(['test.view'])
+
+      const data = await (await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))).json()
+
+      expect(data.items[0]._test).toEqual({ seen: true })
+      expect(data.items[0]).not.toHaveProperty('_wildcard')
+      expect(mockRbac.getGrantedFeatures).toHaveBeenCalledWith('user-1', { tenantId: 'tenant-1', organizationId: 'org-1' })
+    })
+
+    it('skips a targeted enricher when the caller lacks its features', async () => {
+      registerResponseEnrichers([{ moduleId: 'test', enrichers: [targeted] }])
+      mockRbac.getGrantedFeatures.mockResolvedValue([])
+
+      const data = await (await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))).json()
+
+      expect(data.items[0]).not.toHaveProperty('_test')
+    })
+
+    it('does not resolve caller features when no enricher targets audit action rows', async () => {
+      registerResponseEnrichers([{ moduleId: 'test', enrichers: [wildcard] }])
+
+      const data = await (await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))).json()
+
+      expect(data.items[0]).not.toHaveProperty('_wildcard')
+      expect(mockRbac.getGrantedFeatures).not.toHaveBeenCalled()
+    })
   })
 })

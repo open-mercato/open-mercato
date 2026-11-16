@@ -2,6 +2,8 @@ import {
   buildAuditEntryHref,
   buildProposalHref,
   buildRunTraceHref,
+  isAuditEntryProposalVerified,
+  readAuditEntryAnchors,
   readAuditEntryCorrelation,
 } from '../lib/identity/auditEntryLinks'
 import runLinkWidget from '../widgets/injection/audit-run-link/widget'
@@ -11,8 +13,15 @@ import injectionTable from '../widgets/injection-table'
 const RUN_ID = '22222222-2222-4222-8222-222222222222'
 const PROPOSAL_ID = '33333333-3333-4333-8333-333333333333'
 
-function auditRow(correlation: unknown) {
-  return { id: 'log-1', commandId: 'customers.deals.update', context: { source: 'agent', correlation } }
+const INSTANCE_ID = '44444444-4444-4444-8444-444444444444'
+
+function auditRow(correlation: unknown, proposalVerified?: boolean) {
+  return {
+    id: 'log-1',
+    commandId: 'customers.deals.update',
+    context: { source: 'agent', correlation },
+    ...(proposalVerified === undefined ? {} : { _agent_orchestrator: { proposalVerified } }),
+  }
 }
 
 describe('readAuditEntryCorrelation', () => {
@@ -30,6 +39,27 @@ describe('readAuditEntryCorrelation', () => {
     })
     expect(readAuditEntryCorrelation({ id: 'log-2', context: null })).toEqual({ agentRunId: null, proposalId: null })
     expect(readAuditEntryCorrelation(null)).toEqual({ agentRunId: null, proposalId: null })
+  })
+})
+
+describe('readAuditEntryAnchors', () => {
+  it('keeps only uuid run, proposal and workflow instance ids', () => {
+    expect(
+      readAuditEntryAnchors(
+        auditRow({ agentRunId: RUN_ID, proposalId: PROPOSAL_ID, workflowInstanceId: INSTANCE_ID, agentId: 'x', other: 1 }),
+      ),
+    ).toEqual({ agentRunId: RUN_ID, proposalId: PROPOSAL_ID, workflowInstanceId: INSTANCE_ID })
+    expect(readAuditEntryAnchors(auditRow({ proposalId: 'not-a-uuid', workflowInstanceId: 7 }))).toEqual({})
+    expect(readAuditEntryAnchors(null)).toEqual({})
+  })
+})
+
+describe('isAuditEntryProposalVerified', () => {
+  it('is true only for an explicit server-set true flag', () => {
+    expect(isAuditEntryProposalVerified(auditRow({}, true))).toBe(true)
+    expect(isAuditEntryProposalVerified(auditRow({}, false))).toBe(false)
+    expect(isAuditEntryProposalVerified(auditRow({}))).toBe(false)
+    expect(isAuditEntryProposalVerified({ _agent_orchestrator: { proposalVerified: 'true' } })).toBe(false)
   })
 })
 
@@ -60,7 +90,7 @@ describe('audit table row-action widgets', () => {
 
   it('show only on rows carrying the matching correlation', () => {
     const agentRow = auditRow({ agentRunId: RUN_ID })
-    const proposalRow = auditRow({ agentRunId: RUN_ID, proposalId: PROPOSAL_ID })
+    const proposalRow = auditRow({ agentRunId: RUN_ID, proposalId: PROPOSAL_ID }, true)
     const humanRow = auditRow(undefined)
     expect(runAction.isVisible?.(agentRow)).toBe(true)
     expect(runAction.isVisible?.(humanRow)).toBe(false)
@@ -68,9 +98,19 @@ describe('audit table row-action widgets', () => {
     expect(proposalAction.isVisible?.(proposalRow)).toBe(true)
   })
 
+  it('hide the proposal link when the server did not verify the proposal id', () => {
+    const navigate = jest.fn()
+    const forged = auditRow({ proposalId: PROPOSAL_ID, workflowInstanceId: INSTANCE_ID }, false)
+    const unenriched = auditRow({ proposalId: PROPOSAL_ID, workflowInstanceId: INSTANCE_ID })
+    expect(proposalAction.isVisible?.(forged)).toBe(false)
+    expect(proposalAction.isVisible?.(unenriched)).toBe(false)
+    proposalAction.onSelect(forged, { navigate })
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
   it('navigate to the run trace and the proposal', () => {
     const navigate = jest.fn()
-    const row = auditRow({ agentRunId: RUN_ID, proposalId: PROPOSAL_ID })
+    const row = auditRow({ agentRunId: RUN_ID, proposalId: PROPOSAL_ID }, true)
     runAction.onSelect(row, { navigate })
     proposalAction.onSelect(row, { navigate })
     expect(navigate.mock.calls).toEqual([[`/backend/traces/${RUN_ID}`], [`/backend/caseload/${PROPOSAL_ID}`]])

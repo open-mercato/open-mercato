@@ -1,10 +1,21 @@
 import type { InjectionRowActionWidget } from '@open-mercato/shared/modules/widgets/injection'
-import { buildProposalHref, readAuditEntryCorrelation } from '../../../lib/identity/auditEntryLinks'
+import {
+  buildProposalHref,
+  isAuditEntryProposalVerified,
+  readAuditEntryCorrelation,
+} from '../../../lib/identity/auditEntryLinks'
+
+function verifiedProposalIdOf(row: unknown): string | null {
+  const { proposalId } = readAuditEntryCorrelation(row)
+  return proposalId && isAuditEntryProposalVerified(row) ? proposalId : null
+}
 
 /**
  * Adds an "Open proposal" row action to the core audit log actions table, shown only on
- * entries written by a proposal disposition (correlation carries a `proposalId`). Gated
- * separately from the run link because proposals and traces have their own features.
+ * entries whose `proposalId` the server verified (`_agent_orchestrator.proposalVerified`,
+ * from `data/enrichers.ts`): a proposal id copied from a user-writable workflow context is
+ * not trusted on its own. Gated separately from the run link because proposals and traces
+ * have their own features.
  */
 const widget: InjectionRowActionWidget = {
   metadata: {
@@ -17,9 +28,9 @@ const widget: InjectionRowActionWidget = {
       id: 'agent_orchestrator.open_proposal',
       label: 'agent_orchestrator.audit.links.openProposal',
       icon: 'FileCheck',
-      isVisible: (row: unknown) => readAuditEntryCorrelation(row).proposalId !== null,
+      isVisible: (row: unknown) => verifiedProposalIdOf(row) !== null,
       onSelect: (row: unknown, context: unknown) => {
-        const { proposalId } = readAuditEntryCorrelation(row)
+        const proposalId = verifiedProposalIdOf(row)
         if (!proposalId) return
         const ctx = context as { navigate?: (path: string) => void }
         ctx.navigate?.(buildProposalHref(proposalId))

@@ -1,4 +1,8 @@
-import { PROPOSAL_CORRELATION_KEY, RUN_CORRELATION_KEY } from './runActionCorrelation'
+import {
+  PROPOSAL_CORRELATION_KEY,
+  RUN_CORRELATION_KEY,
+  WORKFLOW_INSTANCE_CORRELATION_KEY,
+} from './runActionCorrelation'
 
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -29,6 +33,31 @@ export function readAuditEntryCorrelation(row: unknown): AuditEntryCorrelation {
     agentRunId: readId(correlation, RUN_CORRELATION_KEY),
     proposalId: readId(correlation, PROPOSAL_CORRELATION_KEY),
   }
+}
+
+/**
+ * The id-shaped run, proposal and workflow-instance values of an audit row's
+ * correlation, keyed like `correlation_keys`, for server-side proposal verification.
+ */
+export function readAuditEntryAnchors(row: unknown): Record<string, string> {
+  const context = isRecord(row) ? row.context : undefined
+  const correlation = isRecord(context) ? context.correlation : undefined
+  if (!isRecord(correlation)) return {}
+  const anchors: Record<string, string> = {}
+  for (const key of [RUN_CORRELATION_KEY, PROPOSAL_CORRELATION_KEY, WORKFLOW_INSTANCE_CORRELATION_KEY]) {
+    const value = readId(correlation, key)
+    if (value) anchors[key] = value
+  }
+  return anchors
+}
+
+/**
+ * Whether the server marked the audit row's proposal id as verified
+ * (`_agent_orchestrator.proposalVerified`, set by the audit-action enricher).
+ */
+export function isAuditEntryProposalVerified(row: unknown): boolean {
+  const namespace = isRecord(row) ? row._agent_orchestrator : undefined
+  return isRecord(namespace) && namespace.proposalVerified === true
 }
 
 export function buildRunTraceHref(runId: string): string {

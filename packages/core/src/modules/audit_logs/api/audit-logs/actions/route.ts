@@ -14,6 +14,10 @@ import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
+import { getEnrichersForEntity } from '@open-mercato/shared/lib/crud/enricher-registry'
+
+const AUDIT_ACTION_LOG_ENRICHER_ENTITY = 'audit_logs.action_log'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -274,14 +278,63 @@ export async function GET(req: Request) {
     context: entry.contextJson,
   }))
 
+  const enrichedItems = await enrichActionItems(items, {
+    rbac,
+    em,
+    container,
+    userId: auth.sub,
+    tenantId: auth.tenantId ?? null,
+    organizationId: organizationId ?? null,
+  })
+
   return NextResponse.json({
-    items,
+    items: enrichedItems,
     canViewTenant,
     page: list.page,
     pageSize: list.pageSize,
     total: list.total,
     totalPages: list.totalPages,
   })
+}
+
+/**
+ * Runs only the enrichers registered for `audit_logs.action_log` itself; wildcard
+ * enrichers are excluded so the audit list does not inherit unrelated per-entity work.
+ */
+async function enrichActionItems<T extends Record<string, unknown>>(
+  items: T[],
+  ctx: {
+    rbac: RbacService
+    em: EntityManager
+    container: unknown
+    userId: string
+    tenantId: string | null
+    organizationId: string | null
+  },
+): Promise<T[]> {
+  if (items.length === 0) return items
+  const entries = getEnrichersForEntity(AUDIT_ACTION_LOG_ENRICHER_ENTITY).filter(
+    (entry) => entry.enricher.targetEntity === AUDIT_ACTION_LOG_ENRICHER_ENTITY,
+  )
+  if (entries.length === 0) return items
+  let grantedFeatures: string[] | undefined
+  try {
+    grantedFeatures = await ctx.rbac.getGrantedFeatures(ctx.userId, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+  } catch {
+    grantedFeatures = undefined
+  }
+  const enriched = await applyResponseEnrichers(items, AUDIT_ACTION_LOG_ENRICHER_ENTITY, {
+    tenantId: ctx.tenantId ?? '',
+    organizationId: ctx.organizationId ?? '',
+    userId: ctx.userId,
+    em: ctx.em,
+    container: ctx.container,
+    userFeatures: grantedFeatures,
+  }, entries)
+  return enriched.items
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -291,7 +344,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Fetch action logs',
       description:
-        'Returns recent action audit log entries. Tenant administrators can widen the scope to other actors or organizations, and callers can optionally restrict results to undoable actions.',
+        'Returns recent action audit log entries. Tenant administrators can widen the scope to other actors or organizations, and callers can optionally restrict results to undoable actions. Items may carry `_`-prefixed fields added by response enrichers that explicitly target `audit_logs.action_log` (wildcard enrichers do not run here).',
       query: auditActionQuerySchema,
       responses: [
         { status: 200, description: 'Action logs retrieved successfully', schema: auditActionResponseSchema },
