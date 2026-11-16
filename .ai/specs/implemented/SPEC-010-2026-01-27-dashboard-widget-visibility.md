@@ -200,6 +200,8 @@ PUT runs the mutation guards through `runRouteMutationGuards` (registry guards p
 
 #### Migration & Backward Compatibility
 
+Client, extension and operator actions are published in [UPGRADE_NOTES.md](../../../UPGRADE_NOTES.md#dashboard-user-widget-target-scope-8281-2026-11-16). Publishing that disclosure does not grant the required human contract decision or personal isolation QA.
+
 - Before this change the row was keyed by the caller's session scope. Overrides saved for a user in another organization or tenant answered `200` but never applied. They now apply.
 - New `403` on GET and PUT for non-superadmin callers whose organization visibility excludes the target's organization, and for callers whose `dashboards.admin.assign-widgets` grant does not cover the target's organization. Before, both answered `200`. There is no bridge: keeping the old behaviour would let a restricted assigner change the dashboard of users in organizations they cannot see, now that the override takes effect.
 - Rows saved under the wrong scope are not migrated. They are ignored unless the target user later moves into that organization, when the stale override would apply. Operators can delete them from `dashboard_user_widgets`.
@@ -587,6 +589,9 @@ curl -H "Authorization: Bearer <token>" \
 ---
 
 ## Changelog
+
+### 2026-11-16
+- Published target-scope selector, permission, guard and stored-row upgrade instructions; human approvals remain required.
 
 ### 2026-10-28
 - Documented the user widget override scope: rows are keyed by the target user's own tenant and organization, and restricted assigners need organization visibility of the target and the assign feature in the target's organization. PUT mutation guards run in the target's scope.
