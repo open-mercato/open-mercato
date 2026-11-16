@@ -8,7 +8,6 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands'
 import {
   CatalogOffer,
   CatalogOptionSchemaTemplate,
-  CatalogPriceHistoryEntry,
   CatalogPriceKind,
   CatalogProduct,
   CatalogProductCategory,
@@ -238,7 +237,6 @@ describeWithPostgres('catalog product update undo against a concurrent offer wri
         CatalogProductVariantRelation,
         CatalogPriceKind,
         CatalogProductPrice,
-        CatalogPriceHistoryEntry,
       ],
       debug: false,
       pool: { min: 0, max: 8 },

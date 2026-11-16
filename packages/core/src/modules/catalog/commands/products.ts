@@ -14,13 +14,8 @@ import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
 } from "@open-mercato/shared/lib/commands/helpers";
-<<<<<<< HEAD
 import type { EntityManager } from "@mikro-orm/postgresql";
-import { UniqueConstraintViolationException } from "@mikro-orm/core";
-=======
-import type { EntityManager, FilterQuery } from "@mikro-orm/postgresql";
 import { LockMode, UniqueConstraintViolationException } from "@mikro-orm/core";
->>>>>>> 0299a49079 (fix(catalog): preserve later offers during product undo and contain mobile actions (#7679) (#9662))
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import type {
@@ -2437,30 +2432,11 @@ const deleteProductCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId);
     ensureOrganizationScope(ctx, before.organizationId);
     applyProductSnapshot(em, record, before);
-<<<<<<< HEAD
     await withAtomicFlush(
-=======
-    try {
-      await withAtomicFlush(
-        em,
-        [
-          () => em.flush(),
-          () => restoreOffersFromSnapshot(em, record, before.offers, []),
-          () => syncCategoryAssignments(em, record, before.categoryIds),
-          () => syncProductTags(em, record, before.tags),
-          ...buildProductDeleteChildrenRestorePhases(em, owner, childrenPlan),
-        ],
-        { transaction: true },
-      );
-    } catch (error) {
-      await rethrowProductUniqueConstraint(error);
-    }
-    const restoredPrices = await loadRestoredPricesForHistory(
->>>>>>> 0299a49079 (fix(catalog): preserve later offers during product undo and contain mobile actions (#7679) (#9662))
       em,
       [
         () => em.flush(),
-        () => restoreOffersFromSnapshot(em, record, before.offers),
+        () => restoreOffersFromSnapshot(em, record, before.offers, []),
         () => syncCategoryAssignments(em, record, before.categoryIds),
         () => syncProductTags(em, record, before.tags),
       ],
