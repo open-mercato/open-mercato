@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   getAttachmentExtension,
@@ -10,6 +11,8 @@ import {
 } from '@open-mercato/core/modules/attachments'
 import type { ChannelCapabilities, NormalizedAttachment } from './adapter'
 import { EMAIL_MAX_ATTACHMENT_BYTES } from './email-capabilities'
+
+const logger = createLogger('communication_channels').child({ component: 'outbound-attachments' })
 
 /**
  * Outbound attachments for `send-as-user`.
@@ -200,13 +203,14 @@ function isAttachmentServiceNotRegistered(error: unknown): boolean {
 }
 
 function reportAttachmentServiceFailure(error: unknown): void {
+  logger.warn('attachmentService could not be resolved, treating attachments as unavailable', { err: error })
   try {
     getTelemetryRuntime()?.reportError(error, {
       module: 'communication_channels',
       code: 'communication_channels.attachment_service_unavailable',
     })
-  } catch {
-    return
+  } catch (telemetryError) {
+    logger.warn('could not report an attachmentService resolution failure to telemetry', { err: telemetryError })
   }
 }
 
