@@ -1,0 +1,15 @@
+{
+  "baseUrl": "http://127.0.0.1:41735",
+  "startedAt": "2026-11-16T15:22:53.794Z",
+  "builtCommit": "3f117f2d911eca91243c41739685b1f2c16e2637",
+  "ownedContainers": [
+    "ba79f9f5b03a",
+    "5e082ebcb153",
+    "b685ebd7fa47"
+  ],
+  "ownerPid": 3500085,
+  "production": true,
+  "authenticatedColdReady": true,
+  "warmReused": true,
+  "sessionLabelsMatch": true
+}
