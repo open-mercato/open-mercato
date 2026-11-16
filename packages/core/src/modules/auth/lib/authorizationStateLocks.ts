@@ -14,8 +14,7 @@ import {
 /**
  * `api_keys` is an optional module (see module-decoupling.test.ts): its entity
  * metadata is only registered with the ORM when the module is enabled, so this
- * lookup must be skipped rather than attempted when it is disabled. Mirrors the
- * same guard in `audit_logs/api/audit-logs/display.ts`.
+ * lookup must be skipped rather than attempted when it is disabled.
  */
 function isApiKeysModuleEnabled(): boolean {
   return Boolean(getEntityIds(false).api_keys?.api_key)

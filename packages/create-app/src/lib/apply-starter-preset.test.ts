@@ -233,7 +233,7 @@ test('applyStarterPreset: classic is a no-op', () => {
   }
 })
 
-test('applyStarterPreset: empty writes 12-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: empty writes 13-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('empty', dir)
@@ -261,7 +261,7 @@ test('applyStarterPreset: empty writes 12-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 23-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 24-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
