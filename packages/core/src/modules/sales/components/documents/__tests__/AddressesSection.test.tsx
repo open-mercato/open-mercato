@@ -116,6 +116,9 @@ jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () =>
       <button type="button" onClick={() => onChange({ ...value, city: '' })}>
         Clear city
       </button>
+      <button type="button" onClick={() => onChange({ ...value, addressLine1: '1 Dock Road' })}>
+        Fill address line
+      </button>
     </>
   ),
 }))
@@ -582,5 +585,64 @@ describe('SalesDocumentAddressesSection additional addresses (#6194)', () => {
     renderSection()
     await screen.findByRole('button', { name: 'Add address' })
     expect(screen.getAllByRole('button', { name: 'Add address' })).toHaveLength(1)
+  })
+})
+
+describe('SalesDocumentAddressesSection on a document with no customer (#3531)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/customers/settings/address-format') return { ok: true, result: { addressFormat: 'line_first' } }
+      return { ok: true, result: { items: [] } }
+    })
+  })
+
+  it('lets the shipping address be defined while saving it to a customer stays unavailable', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
+    render(<SalesDocumentAddressesSection documentId="order-1" kind="order" customerId={null} />)
+
+    const defineNew = await screen.findByLabelText('Define new address')
+    expect(defineNew).not.toBeDisabled()
+    fireEvent.click(defineNew)
+    fireEvent.click(await screen.findByRole('button', { name: 'Fill address line' }))
+    expect(screen.getByLabelText('Save this address to the customer')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [url, request] = mockApiCallOrThrow.mock.calls[0]
+    expect(url).toBe('/api/sales/orders')
+    expect(JSON.parse(request.body)).toMatchObject({
+      id: 'order-1',
+      shippingAddressId: null,
+      shippingAddressSnapshot: expect.objectContaining({ addressLine1: '1 Dock Road' }),
+    })
+  })
+
+  it('keeps saving to the customer available once a customer is linked', async () => {
+    render(<SalesDocumentAddressesSection documentId="order-1" kind="order" customerId="customer-1" />)
+
+    fireEvent.click(await screen.findByLabelText('Define new address'))
+    expect(await screen.findByLabelText('Save this address to the customer')).not.toBeDisabled()
+  })
+
+  it('saves an additional address for the document without a customer address behind it', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: { id: 'document-address-1' } })
+    render(<SalesDocumentAddressesSection documentId="order-1" kind="order" customerId={null} />)
+
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add address' }))
+      expect(screen.getByText('Add a new address')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Fill address line' }))
+    const save = screen.getByRole('button', { name: 'Save address' })
+    expect(save).not.toBeDisabled()
+    fireEvent.click(save)
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [url, request] = mockApiCallOrThrow.mock.calls[0]
+    expect(url).toBe('/api/sales/document-addresses')
+    const payload = JSON.parse(request.body)
+    expect(payload).toMatchObject({ documentId: 'order-1', documentKind: 'order', addressLine1: '1 Dock Road' })
+    expect(payload).not.toHaveProperty('customerAddressId')
   })
 })

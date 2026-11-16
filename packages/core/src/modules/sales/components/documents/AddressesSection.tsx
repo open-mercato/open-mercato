@@ -634,7 +634,7 @@ export function SalesDocumentAddressesSection({
 
   const handleAddAdditionalAddress = React.useCallback(async () => {
     if (guardLocked()) return
-    if (!customerId) {
+    if (!additionalUseCustom && !customerId) {
       flash(t('sales.documents.form.address.customerRequired', 'Select a customer first'), 'error')
       return
     }
@@ -1131,7 +1131,7 @@ export function SalesDocumentAddressesSection({
               flip
               checked={useCustomShipping}
               onCheckedChange={(checked) => setUseCustomShipping(checked)}
-              disabled={customerRequired || locked}
+              disabled={locked}
             />
           </div>
           {!useCustomShipping
@@ -1209,7 +1209,7 @@ export function SalesDocumentAddressesSection({
                 flip
                 checked={useCustomBilling}
                 onCheckedChange={(checked) => setUseCustomBilling(checked)}
-                disabled={customerRequired || locked}
+                disabled={locked}
               />
 
               {useCustomBilling ? (
@@ -1267,7 +1267,7 @@ export function SalesDocumentAddressesSection({
               variant="outline"
               size="sm"
               onClick={openAdditionalForm}
-              disabled={customerRequired || locked || additionalFormOpen}
+              disabled={locked || additionalFormOpen}
             >
               <Plus className="mr-2 h-4 w-4" />
               {t('sales.documents.detail.addresses.add', 'Add address')}
@@ -1292,7 +1292,7 @@ export function SalesDocumentAddressesSection({
             action={{
               label: t('sales.documents.detail.addresses.add', 'Add address'),
               onClick: openAdditionalForm,
-              disabled: customerRequired || locked,
+              disabled: locked,
             }}
           />
         ) : null}
@@ -1462,7 +1462,7 @@ export function SalesDocumentAddressesSection({
               <Button
                 type="button"
                 onClick={handleAddAdditionalAddress}
-                disabled={additionalSaving || customerRequired || locked}
+                disabled={additionalSaving || (!additionalUseCustom && customerRequired) || locked}
               >
                 {additionalSaving
                   ? t('sales.documents.form.address.saving', 'Saving…')

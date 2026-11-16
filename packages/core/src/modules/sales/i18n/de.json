@@ -863,7 +863,7 @@
   "sales.documents.form.address.city": "Stadt",
   "sales.documents.form.address.company": "Firma (optional)",
   "sales.documents.form.address.country": "Land",
-  "sales.documents.form.address.customerRequired": "Bitte zuerst Kunden auswählen",
+  "sales.documents.form.address.customerRequired": "Bitte zuerst Kunden auswählen oder eigene Adresse festlegen",
   "sales.documents.form.address.line1": "Adresszeile 1",
   "sales.documents.form.address.line2": "Adresszeile 2",
   "sales.documents.form.address.loading": "Adressen werden geladen…",
