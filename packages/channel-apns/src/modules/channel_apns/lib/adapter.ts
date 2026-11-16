@@ -109,10 +109,8 @@ async function createProvider(credentials: ApnsResolvedCredentials): Promise<Apn
 
 /**
  * Populate an APNs `Notification` from the push envelope, branching on `silent` (background
- * content-available wake-up — no alert/sound) and applying the recognized push options. A visible push
- * with `options.image` sets `mutable-content: 1` and carries the URL as the top-level `imageUrl` key beside
- * `aps`, for the app's Notification Service Extension to download and attach. Mutates and returns `note`.
- * Extracted from the sender so it is unit-testable without `@parse/node-apn`.
+ * content-available wake-up — no alert/sound) and applying the recognized push options. Mutates and
+ * returns `note`. Extracted from the sender so it is unit-testable without `@parse/node-apn`.
  */
 export function buildApnsNotification(
   note: Record<string, unknown>,
@@ -130,7 +128,7 @@ export function buildApnsNotification(
     note.sound = options.sound ?? 'default'
     if (typeof options.badge === 'number') note.badge = options.badge
     if (options.priority === 'normal') note.priority = 5
-    if (typeof options.image === 'string' && options.image.length > 0) {
+    if (options.image) {
       note.mutableContent = true
       note.payload = { ...payload.data, imageUrl: options.image }
     }
