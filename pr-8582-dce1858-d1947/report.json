@@ -7,7 +7,7 @@
     "headSha": "dce185804f05cb482e73353d8d751add8c43c80d"
   },
   "depth": "complex",
-  "verdict": "PARTIAL",
+  "verdict": "PASS",
   "runtimeVerdict": "PASS",
   "environment": {
     "baseUrl": "http://127.0.0.1:5001",
@@ -22,9 +22,9 @@
       "step": 1,
       "priority": "P0",
       "action": "Exact-head CI",
-      "expected": "PENDING / UNVERIFIED: runtime PASS, CI43901917626 still running; no green CI claim. Final update follows within bounded watch.",
-      "observed": "PENDING / UNVERIFIED: runtime PASS, CI43901917626 still running; no green CI claim. Final update follows within bounded watch.",
-      "result": "PARTIAL",
+      "expected": "Every reported check completed successfully or skipped; all15integration shards and merged coverage; Guard/Mutation green; stable dce1858",
+      "observed": "Every reported check completed successfully or skipped; all15integration shards and merged coverage; Guard/Mutation green; stable dce1858",
+      "result": "PASS",
       "evidence": "ci-checks-final.json"
     },
     {
