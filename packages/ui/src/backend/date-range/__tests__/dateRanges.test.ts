@@ -114,6 +114,8 @@ describe('dateRanges', () => {
   })
 
   describe('getPreviousPeriod', () => {
+    const isoDay = (date: Date) => date.toISOString().slice(0, 10)
+
     it('returns previous day for today/yesterday presets', () => {
       const range = resolveDateRange('today', referenceDate)
       const previous = getPreviousPeriod(range, 'today')
@@ -151,6 +153,42 @@ describe('dateRanges', () => {
       const currentDuration = range.end.getTime() - range.start.getTime()
       const previousDuration = previous.end.getTime() - previous.start.getTime()
       expect(currentDuration).toBe(previousDuration)
+    })
+
+    it('returns the same-length window immediately before a custom range', () => {
+      const previous = getPreviousPeriod(
+        {
+          start: new Date('2024-03-01T00:00:00.000Z'),
+          end: new Date('2024-03-03T23:59:59.999Z'),
+        },
+        'previous_period',
+      )
+
+      expect(isoDay(previous.start)).toBe('2024-02-27')
+      expect(isoDay(previous.end)).toBe('2024-02-29')
+    })
+
+    it('returns the previous calendar year for range-based previous_year comparisons', () => {
+      const previous = getPreviousPeriod(
+        {
+          start: new Date('2024-03-01T00:00:00.000Z'),
+          end: new Date('2024-03-31T23:59:59.999Z'),
+        },
+        'previous_year',
+      )
+
+      expect(isoDay(previous.start)).toBe('2023-03-01')
+      expect(isoDay(previous.end)).toBe('2023-03-31')
+    })
+
+    it('keeps preset previous_period behavior unchanged', () => {
+      const range = resolveDateRange('this_month', referenceDate)
+      const previous = getPreviousPeriod(range, 'this_month')
+
+      expect(previous.start.getMonth()).toBe(4)
+      expect(previous.start.getDate()).toBe(1)
+      expect(previous.end.getMonth()).toBe(4)
+      expect(previous.end.getDate()).toBe(30)
     })
   })
 

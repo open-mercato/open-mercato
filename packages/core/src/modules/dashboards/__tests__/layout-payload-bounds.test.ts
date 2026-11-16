@@ -34,6 +34,18 @@ describe('dashboardLayoutSchema — items array bounds', () => {
     expect(result.success).toBe(false)
   })
 
+  test('rejects an oversized saved-view layout', () => {
+    const result = dashboardLayoutSchema.safeParse({
+      items: [],
+      presets: [{
+        id: 'preset-a',
+        name: 'Oversized view',
+        items: buildItems(MAX_DASHBOARD_LAYOUT_ITEMS + 1),
+      }],
+    })
+    expect(result.success).toBe(false)
+  })
+
   test('accepts an items array at the cap', () => {
     const result = dashboardLayoutSchema.safeParse({
       items: buildItems(MAX_DASHBOARD_LAYOUT_ITEMS),

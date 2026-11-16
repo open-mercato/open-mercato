@@ -1,0 +1,337 @@
+/**
+ * @jest-environment jsdom
+ */
+
+import * as React from 'react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { getDashboardWidgets, loadDashboardWidgetModule } from '../widgetRegistry'
+import { DashboardHeader } from '../v2/DashboardHeader'
+import { DashboardScreenV2, reorderLayoutItems } from '../v2/DashboardScreenV2'
+import { sizeToSpanClass } from '../v2/GridLayout'
+import type { DashboardWidgetComponentProps, DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: jest.fn(),
+}))
+
+jest.mock('@open-mercato/ui/backend/detail', () => ({
+  ErrorMessage: ({ label, action }: { label: string; action?: React.ReactNode }) => <div role="alert">{label}{action}</div>,
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({
+    runMutation: ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+    retryLastMutation: jest.fn(),
+  }),
+}))
+
+jest.mock('../../injection/InjectionSpot', () => ({
+  InjectionSpot: () => null,
+}))
+
+jest.mock('../widgetRegistry', () => ({
+  getDashboardWidgets: jest.fn(),
+  loadDashboardWidgetModule: jest.fn(),
+}))
+
+let mockOrganizationScopeVersion = 0
+
+jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
+  useOrganizationScopeVersion: () => mockOrganizationScopeVersion,
+}))
+
+const dict = {
+  'dashboard.v2.greeting.morning': 'Morning {name}',
+  'dashboard.v2.greeting.afternoon': 'Afternoon {name}',
+  'dashboard.v2.greeting.evening': 'Evening {name}',
+  'dashboard.v2.customize': 'Customize',
+  'dashboard.v2.done': 'Done',
+  'dashboard.v2.refreshAll': 'Refresh all',
+  'dashboard.v2.addWidget': 'Add widget',
+  'dashboard.v2.resetLayout': 'Reset layout',
+  'dashboard.v2.legacyLink': 'Switch to legacy dashboard',
+  'dashboard.v2.emptyTitle': 'No widgets',
+  'dashboard.v2.emptyCta': 'Add widgets',
+  'dashboard.v2.removeWidget': 'Remove widget',
+  'dashboard.v2.widgetSettings': 'Widget settings',
+  'dashboard.v2.sizeLabel': 'Size',
+  'dashboard.v2.saveFailed': 'Save failed',
+  'dashboard.v2.widgetLoadFailed': 'Widget failed',
+  'dashboard.v2.presets.delete': 'Delete view',
+  'dashboard.v2.dateRange.preset.last_30_days': 'Last 30 days',
+  'dashboard.widgets.foo.title': 'Widget Foo',
+}
+
+const range = {
+  preset: 'custom' as const,
+  from: '2026-06-01',
+  to: '2026-06-30',
+  compare: 'previous_year' as const,
+}
+
+const layoutResponse = {
+  layout: {
+    items: [{ id: 'item-1', widgetId: 'foo', order: 0, size: 'md' }],
+    preferences: { dateRange: range },
+  },
+  widgets: [{
+    id: 'foo',
+    title: 'Widget Foo',
+    description: null,
+    defaultSize: 'md',
+    defaultEnabled: true,
+    defaultSettings: null,
+    features: [],
+    moduleId: 'example',
+    icon: null,
+    loaderKey: 'foo.loader',
+    supportsRefresh: false,
+  }],
+  allowedWidgetIds: ['foo'],
+  canConfigure: true,
+  context: {
+    userId: 'user-1',
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+    userName: 'Ada',
+    userEmail: 'ada@example.com',
+    userLabel: 'Ada Lovelace',
+  },
+}
+
+describe('DashboardScreenV2', () => {
+  beforeEach(() => {
+    jest.resetAllMocks()
+    jest.useRealTimers()
+    mockOrganizationScopeVersion = 0
+    ;(getDashboardWidgets as jest.Mock).mockReturnValue([{ key: 'foo.loader', loader: jest.fn() }])
+  })
+
+  it('maps dashboard widget sizes to static grid spans', () => {
+    expect(sizeToSpanClass('sm')).toBe('md:col-span-3 xl:col-span-3')
+    expect(sizeToSpanClass('md')).toBe('md:col-span-6 xl:col-span-6')
+    expect(sizeToSpanClass('lg')).toBe('md:col-span-6 xl:col-span-9')
+    expect(sizeToSpanClass('full')).toBe('md:col-span-6 xl:col-span-12')
+  })
+
+  it('keeps other widgets visible when a saved settings hydrator throws', async () => {
+    const brokenMeta = { ...layoutResponse.widgets[0], id: 'broken', loaderKey: 'broken.loader', title: 'Broken widget' }
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: {
+      ...layoutResponse,
+      layout: { ...layoutResponse.layout, items: [
+        ...layoutResponse.layout.items,
+        { id: 'item-broken', widgetId: 'broken', order: 1, size: 'md' },
+      ] },
+      widgets: [...layoutResponse.widgets, brokenMeta],
+    } })
+    ;(loadDashboardWidgetModule as jest.Mock).mockImplementation(async (key: string) => ({
+      metadata: { id: key === 'broken.loader' ? 'broken' : 'foo', title: 'Widget' },
+      Widget: () => <div>{key === 'broken.loader' ? 'Broken content' : 'Healthy content'}</div>,
+      ...(key === 'broken.loader' ? { hydrateSettings: () => { throw new Error('[internal] stale settings') } } : {}),
+    }))
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+
+    expect(await screen.findByText('Healthy content')).toBeInTheDocument()
+    expect(await screen.findByText('Broken content')).toBeInTheDocument()
+    expect(screen.getByText('Widget Foo')).toBeInTheDocument()
+  })
+
+  it('retains a failed module load until the user explicitly retries', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: layoutResponse })
+    ;(loadDashboardWidgetModule as jest.Mock)
+      .mockRejectedValueOnce(new Error('[internal] chunk unavailable'))
+      .mockResolvedValue({ metadata: { id: 'foo', title: 'Widget Foo' }, Widget: () => <div>Recovered widget</div> })
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+
+    expect(await screen.findByText('Widget failed')).toBeInTheDocument()
+    await act(async () => { await Promise.resolve() })
+    expect(loadDashboardWidgetModule).toHaveBeenCalledTimes(1)
+    const card = screen.getByText('Widget Foo').closest('section')
+    expect(card).not.toBeNull()
+    fireEvent.click(within(card!).getByRole('button', { name: 'Refresh all' }))
+    expect(await screen.findByText('Recovered widget')).toBeInTheDocument()
+    expect(loadDashboardWidgetModule).toHaveBeenCalledTimes(2)
+  })
+
+  it('explicitly clears the last saved View in the PUT payload', async () => {
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: {
+      ...layoutResponse,
+      layout: { ...layoutResponse.layout, presets: [{
+        id: 'view-1', name: 'Executive', items: layoutResponse.layout.items,
+      }], activePresetId: 'view-1' },
+    } })
+    ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue({ metadata: { id: 'foo', title: 'Widget Foo' }, Widget: () => null })
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+    fireEvent.click(await screen.findByRole('button', { name: 'Executive' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete view' }))
+
+    await waitFor(() => {
+      const saves = (apiCall as jest.Mock).mock.calls.filter(([, options]) => options?.method === 'PUT')
+      expect(saves).toHaveLength(1)
+      expect(JSON.parse(saves[0][1].body)).toMatchObject({ presets: [] })
+    })
+  })
+
+  it('renders mocked registry widgets with the active global date range in context', async () => {
+    const seenRanges: unknown[] = []
+    function MockWidget(props: DashboardWidgetComponentProps) {
+      seenRanges.push(props.context.dateRange)
+      return <div data-testid="widget-range">{props.context.dateRange?.from}</div>
+    }
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: layoutResponse })
+    ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue({
+      metadata: { id: 'foo', title: 'Widget Foo' },
+      Widget: MockWidget,
+    })
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+
+    expect(await screen.findByText('Widget Foo')).toBeInTheDocument()
+    expect(await screen.findByTestId('widget-range')).toHaveTextContent('2026-06-01')
+    await waitFor(() => {
+      expect(seenRanges).toContainEqual(range)
+    })
+  })
+
+  it('preserves the selected widget when another module finishes loading in the add dialog', async () => {
+    const firstWidget = {
+      ...layoutResponse.widgets[0],
+      id: 'dashboards.analytics.aiInsights',
+      title: 'AI insights',
+      loaderKey: 'insights.loader',
+    }
+    const customMetric = {
+      ...layoutResponse.widgets[0],
+      id: 'dashboards.analytics.customMetric',
+      title: 'Custom metric',
+      loaderKey: 'metric.loader',
+    }
+    let finishInsightsLoad!: (module: DashboardWidgetModule) => void
+    const pendingInsights = new Promise<DashboardWidgetModule>((resolve) => { finishInsightsLoad = resolve })
+    ;(apiCall as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      result: { ...layoutResponse, widgets: [firstWidget, customMetric, ...layoutResponse.widgets] },
+    })
+    ;(loadDashboardWidgetModule as jest.Mock).mockImplementation((loaderKey: string) => {
+      if (loaderKey === firstWidget.loaderKey) return pendingInsights
+      return Promise.resolve({
+        metadata: { id: loaderKey === customMetric.loaderKey ? customMetric.id : 'foo', title: 'Widget' },
+        Widget: () => null,
+        ...(loaderKey === customMetric.loaderKey ? {
+          SetupWizard: () => <div role="dialog" aria-label="Create custom metric" />,
+        } : {}),
+      })
+    })
+
+    renderWithProviders(<DashboardScreenV2 />, { dict })
+    fireEvent.click(await screen.findByRole('button', { name: 'Customize' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add widget' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Custom metric' }))
+
+    await act(async () => {
+      finishInsightsLoad({ metadata: { id: firstWidget.id, title: firstWidget.title }, Widget: () => null })
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add widget' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Create custom metric' })).toBeInTheDocument()
+    expect((apiCall as jest.Mock).mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false)
+  })
+
+  it('preserves an open wizard draft throughout a background layout reload', async () => {
+    function MockWizard() {
+      const [draft, setDraft] = React.useState('')
+      return <input aria-label="Metric draft" value={draft} onChange={(event) => setDraft(event.target.value)} />
+    }
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, status: 200, result: layoutResponse })
+    ;(loadDashboardWidgetModule as jest.Mock).mockResolvedValue({
+      metadata: { id: 'foo', title: 'Widget Foo', supportsMultipleInstances: true },
+      Widget: () => <div>Ready widget</div>,
+      SetupWizard: MockWizard,
+    })
+    const { rerender } = renderWithProviders(<DashboardScreenV2 />, { dict })
+    await screen.findByText('Ready widget')
+    fireEvent.click(await screen.findByRole('button', { name: 'Customize' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add widget' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add widget' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add widget' }))
+    const draft = await screen.findByRole('textbox', { name: 'Metric draft' })
+    fireEvent.change(draft, { target: { value: 'Orders by day' } })
+
+    let finishReload!: () => void
+    ;(apiCall as jest.Mock).mockReturnValueOnce(new Promise((resolve) => {
+      finishReload = () => resolve({ ok: true, status: 200, result: layoutResponse })
+    }))
+    mockOrganizationScopeVersion += 1
+    rerender(<DashboardScreenV2 />)
+
+    expect(apiCall).toHaveBeenCalledTimes(2)
+    expect(draft).toBeInTheDocument()
+    expect(draft).toHaveValue('Orders by day')
+    await act(async () => { finishReload() })
+    expect(screen.getByRole('textbox', { name: 'Metric draft' })).toBe(draft)
+    expect(draft).toHaveValue('Orders by day')
+  })
+
+  it.each([
+    [9, 'Morning Ada'],
+    [13, 'Afternoon Ada'],
+    [19, 'Evening Ada'],
+  ])('selects the greeting key for local hour %i', (hour, expected) => {
+    jest.useFakeTimers().setSystemTime(new Date(2026, 6, 2, hour))
+    renderWithProviders(
+      <DashboardHeader
+        context={layoutResponse.context}
+        dateRange={{ ...range }}
+        canConfigure
+        editing={false}
+        presets={[]}
+        activePresetId={null}
+        maxPresets={12}
+        onSelectPreset={jest.fn()}
+        onSavePreset={jest.fn()}
+        onDeletePreset={jest.fn()}
+        onDateRangeChange={jest.fn()}
+        onRefreshAll={jest.fn()}
+        onResetLayout={jest.fn()}
+        onToggleCustomize={jest.fn()}
+      />,
+      { dict },
+    )
+
+    expect(screen.getByText(expected)).toBeInTheDocument()
+    jest.useRealTimers()
+  })
+})
+
+describe('reorderLayoutItems', () => {
+  const items = [
+    { id: 'a', widgetId: 'w.a', order: 0, priority: 0 },
+    { id: 'b', widgetId: 'w.b', order: 1, priority: 1 },
+    { id: 'c', widgetId: 'w.c', order: 2, priority: 2 },
+  ]
+
+  it('moves the active item to the over position and reindexes order/priority', () => {
+    const next = reorderLayoutItems(items, 'a', 'b')
+    expect(next.map((item) => item.id)).toEqual(['b', 'a', 'c'])
+    expect(next.map((item) => item.order)).toEqual([0, 1, 2])
+    expect(next.map((item) => item.priority)).toEqual([0, 1, 2])
+  })
+
+  it('survives the order-based re-sort applied by updateLayout', () => {
+    const next = reorderLayoutItems(items, 'a', 'c')
+    const resorted = [...next].sort((x, y) => (x.order ?? 0) - (y.order ?? 0))
+    expect(resorted.map((item) => item.id)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('returns the input untouched when either id is unknown', () => {
+    expect(reorderLayoutItems(items, 'a', 'missing')).toBe(items)
+    expect(reorderLayoutItems(items, 'missing', 'b')).toBe(items)
+  })
+})

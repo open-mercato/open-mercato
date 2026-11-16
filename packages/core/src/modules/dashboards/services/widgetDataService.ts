@@ -7,6 +7,7 @@ import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import {
+  type DateRange,
   type DateRangePreset,
   resolveDateRange,
   getPreviousPeriod,
@@ -51,6 +52,10 @@ const WIDGET_DATA_SEGMENT_KEY = 'widget-data:__segment__'
 const ENCRYPTED_GROUP_SCAN_LIMIT = 20_000
 
 const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const DAY_MS = 86_400_000
+const MAX_CUSTOM_DATE_RANGE_DAYS = 366
+const GROUP_KEY_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export class WidgetDataValidationError extends Error {
   constructor(message: string) {
@@ -88,6 +93,41 @@ type EncryptedGroupSource = {
 function assertSafeIdentifier(value: string, name: string): void {
   if (!SAFE_IDENTIFIER_PATTERN.test(value)) {
     throw new Error(`Invalid ${name}: ${value}`)
+  }
+}
+
+function isPresetDateRange(dateRange: NonNullable<WidgetDataRequest['dateRange']>): dateRange is { field: string; preset: DateRangePreset } {
+  return 'preset' in dateRange
+}
+
+function isoDateToUtcMs(value: string): number | null {
+  if (!ISO_DATE_PATTERN.test(value)) return null
+  const [yearPart, monthPart, dayPart] = value.split('-')
+  const year = Number(yearPart)
+  const month = Number(monthPart)
+  const day = Number(dayPart)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null
+  }
+  return date.getTime()
+}
+
+function daysInclusive(from: string, to: string): number | null {
+  const fromTime = isoDateToUtcMs(from)
+  const toTime = isoDateToUtcMs(to)
+  if (fromTime === null || toTime === null || fromTime > toTime) return null
+  return Math.floor((toTime - fromTime) / DAY_MS) + 1
+}
+
+function resolveCustomDateRange(from: string, to: string): DateRange {
+  return {
+    start: new Date(`${from}T00:00:00.000Z`),
+    end: new Date(`${to}T23:59:59.999Z`),
   }
 }
 
@@ -193,6 +233,10 @@ export type WidgetDataRequest = {
   dateRange?: {
     field: string
     preset: DateRangePreset
+  } | {
+    field: string
+    from: string
+    to: string
   }
   comparison?: {
     type: 'previous_period' | 'previous_year'
@@ -278,9 +322,17 @@ export class WidgetDataService {
     let comparisonRange: { start: Date; end: Date } | undefined
 
     if (request.dateRange) {
-      dateRangeResolved = resolveDateRange(request.dateRange.preset, now)
+      dateRangeResolved = isPresetDateRange(request.dateRange)
+        ? resolveDateRange(request.dateRange.preset, now)
+        : resolveCustomDateRange(request.dateRange.from, request.dateRange.to)
       if (request.comparison) {
-        comparisonRange = getPreviousPeriod(dateRangeResolved, request.dateRange.preset)
+        if (request.comparison.type === 'previous_year') {
+          comparisonRange = getPreviousPeriod(dateRangeResolved, 'previous_year')
+        } else {
+          comparisonRange = isPresetDateRange(request.dateRange)
+            ? getPreviousPeriod(dateRangeResolved, request.dateRange.preset)
+            : getPreviousPeriod(dateRangeResolved, 'previous_period')
+        }
       }
     }
 
@@ -446,8 +498,20 @@ export class WidgetDataService {
       throw new WidgetDataValidationError(`Invalid aggregate function: ${request.metric.aggregate}`)
     }
 
-    if (request.dateRange && !isValidDateRangePreset(request.dateRange.preset)) {
-      throw new WidgetDataValidationError(`Invalid date range preset: ${request.dateRange.preset}`)
+    if (request.dateRange) {
+      if (isPresetDateRange(request.dateRange)) {
+        if (!isValidDateRangePreset(request.dateRange.preset)) {
+          throw new WidgetDataValidationError(`Invalid date range preset: ${request.dateRange.preset}`)
+        }
+      } else {
+        const rangeDays = daysInclusive(request.dateRange.from, request.dateRange.to)
+        if (rangeDays === null) {
+          throw new WidgetDataValidationError('Invalid custom date range')
+        }
+        if (rangeDays > MAX_CUSTOM_DATE_RANGE_DAYS) {
+          throw new WidgetDataValidationError('Custom date range must not exceed 366 days')
+        }
+      }
     }
 
     if (request.groupBy) {
@@ -458,6 +522,8 @@ export class WidgetDataService {
         if (!baseMapping || baseMapping.type !== 'jsonb') {
           throw new WidgetDataValidationError(`Invalid groupBy field: ${request.groupBy.field}`)
         }
+      } else if (groupMapping.encrypted) {
+        throw new WidgetDataValidationError(`Cannot group by encrypted field: ${request.groupBy.field}`)
       }
     }
   }
@@ -705,10 +771,9 @@ export class WidgetDataService {
     if (!config) {
       return data.map((item) => {
         if (item.groupKey == null || item.groupKey === '') return { ...item, groupLabel: undefined }
-        const label = String(item.groupKey)
-        // A ciphertext group key has no meaningful label; echoing it would render encrypted data
-        // into the chart legend (#4622).
-        return { ...item, groupLabel: this.isEncryptedPayload(label) ? undefined : label }
+        const key = String(item.groupKey)
+        const opaque = GROUP_KEY_UUID_PATTERN.test(key) || this.isEncryptedPayload(key)
+        return { ...item, groupLabel: opaque ? undefined : key }
       })
     }
 
@@ -716,7 +781,7 @@ export class WidgetDataService {
       .map((item) => item.groupKey)
       .filter((id): id is string => {
         if (typeof id !== 'string' || id.length === 0) return false
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+        return GROUP_KEY_UUID_PATTERN.test(id)
       })
 
     if (ids.length === 0) {
