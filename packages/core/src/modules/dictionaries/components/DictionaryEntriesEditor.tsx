@@ -39,6 +39,21 @@ const logger = createLogger('dictionaries').child({ component: 'DictionaryEntrie
 
 type Entry = DictionaryEntryRecord
 
+/**
+ * Message the server sent with a rejected write (for example a command interceptor or
+ * mutation guard answering 422 with `{ error }`), or `null` when the failure carries none.
+ * Only 4xx answers are trusted: a 5xx body holds a generic, untranslated fallback that the
+ * localized flash message describes better.
+ */
+function readServerRejectionMessage(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null
+  const { status, error } = err as { status?: unknown; error?: unknown }
+  if (typeof status !== 'number' || status < 400 || status >= 500) return null
+  if (typeof error !== 'string') return null
+  const message = error.trim()
+  return message.length > 0 ? message : null
+}
+
 type DictionaryEntriesEditorProps = {
   dictionaryId: string
   dictionaryName: string
@@ -201,8 +216,11 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
               },
             )
             if (!call.ok) {
-              throw new Error(
-                typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
+              throw Object.assign(
+                new Error(
+                  typeof call.result?.error === 'string' ? call.result.error : 'Failed to create dictionary entry',
+                ),
+                { status: call.status, ...(call.result && typeof call.result === 'object' ? call.result : {}) },
               )
             }
             return call
@@ -227,7 +245,10 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         return
       }
       logger.error('Failed to save dictionary entry', { err })
-      flash(t('dictionaries.config.entries.error.save', 'Failed to save dictionary entry.'), 'error')
+      flash(
+        readServerRejectionMessage(err) ?? t('dictionaries.config.entries.error.save', 'Failed to save dictionary entry.'),
+        'error',
+      )
     } finally {
       setIsSaving(false)
     }
@@ -284,7 +305,10 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           return
         }
         logger.error('Failed to delete dictionary entry', { err })
-        flash(t('dictionaries.config.entries.error.delete', 'Failed to delete dictionary entry.'), 'error')
+        flash(
+          readServerRejectionMessage(err) ?? t('dictionaries.config.entries.error.delete', 'Failed to delete dictionary entry.'),
+          'error',
+        )
       } finally {
         setIsDeleting(false)
       }

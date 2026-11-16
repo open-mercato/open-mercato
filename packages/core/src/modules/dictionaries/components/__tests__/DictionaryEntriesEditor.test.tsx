@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import type { DictionaryEntryRecord } from '../hooks/useDictionaryEntries'
 
@@ -32,6 +32,21 @@ jest.mock('@open-mercato/core/modules/translations/components/TranslationManager
   TranslationManager: () => null,
 }))
 
+const mockApiCall = jest.fn()
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
+  withScopedApiRequestHeaders: async <T,>(_headers: unknown, run: () => Promise<T>) => run(),
+}))
+
+const mockFlash = jest.fn()
+jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
+  flash: (...args: unknown[]) => mockFlash(...args),
+}))
+
+jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
+  useConfirmDialog: () => ({ confirm: async () => true, ConfirmDialogElement: null }),
+}))
+
 import { DictionaryEntriesEditor } from '../DictionaryEntriesEditor'
 
 function appearanceCell(rowLabel: string): HTMLElement {
@@ -57,5 +72,49 @@ describe('DictionaryEntriesEditor appearance column', () => {
     renderWithProviders(<DictionaryEntriesEditor dictionaryId="dictionary-1" dictionaryName="Statuses" />)
 
     expect(appearanceCell('Neither')).toHaveTextContent('None')
+  })
+})
+
+describe('DictionaryEntriesEditor delete feedback', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+    mockFlash.mockReset()
+  })
+
+  function clickDelete(rowLabel: string) {
+    const row = screen.getByRole('cell', { name: rowLabel }).closest('tr') as HTMLElement
+    const buttons = within(row).getAllByRole('button')
+    fireEvent.click(buttons[buttons.length - 1])
+  }
+
+  it('shows the message a rejected delete returns', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: false,
+      status: 422,
+      result: { error: 'This entry is still used by 3 records.' },
+    })
+    renderWithProviders(<DictionaryEntriesEditor dictionaryId="dictionary-1" dictionaryName="Statuses" />)
+
+    clickDelete('Both')
+
+    await waitFor(() => {
+      expect(mockFlash).toHaveBeenCalledWith('This entry is still used by 3 records.', 'error')
+    })
+    expect(mockApiCall).toHaveBeenCalledWith('/api/dictionaries/dictionary-1/entries/entry-1', { method: 'DELETE' })
+  })
+
+  it('falls back to the generic message when a server error carries no usable message', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: false,
+      status: 500,
+      result: { error: 'Failed to delete dictionary entry' },
+    })
+    renderWithProviders(<DictionaryEntriesEditor dictionaryId="dictionary-1" dictionaryName="Statuses" />)
+
+    clickDelete('Both')
+
+    await waitFor(() => {
+      expect(mockFlash).toHaveBeenCalledWith('Failed to delete dictionary entry.', 'error')
+    })
   })
 })
