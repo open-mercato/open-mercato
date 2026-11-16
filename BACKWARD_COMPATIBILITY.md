@@ -667,6 +667,6 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
-## Dashboard target scope (2026-11-16, #8281)
+## #8281 (2026-11-16)
 
-STABLE API: caller-scoped overrides and unchecked target grants permit cross-organization writes; a bridge retains that bypass. Target scope is now authoritative. Clients stop selecting override scope; operators remove misplaced rows ([migration](UPGRADE_NOTES.md#dashboard-user-widget-target-scope-8281-2026-11-16)). Named human waiver of steps 1–3 is pending; selector compatibility requires explicit acceptance.
+STABLE users/widgets API: caller scope bypasses org grants; bridging retains it. Named human waiver/selector decision pending. [Migration](UPGRADE_NOTES.md).
