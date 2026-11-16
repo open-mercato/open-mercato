@@ -7,9 +7,14 @@ import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type { CommandHandler, CommandRuntimeContext } from "@open-mercato/shared/lib/commands";
 import { withAtomicFlush } from "@open-mercato/shared/lib/commands/flush";
 import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+} from "@open-mercato/shared/lib/commands/transaction-lifetime";
+import {
   buildChanges,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
+  flushCrudSideEffects,
   requireId,
   type CrudEventsConfig,
 } from "@open-mercato/shared/lib/commands/helpers";
@@ -7679,22 +7684,34 @@ const convertQuoteToOrderCommand: CommandHandler<
         ? await transactionalEm.transactional((trx) => runConversion(trx))
         : await runConversion(rootEm);
 
-    await notifySalesOrderCreated(ctx, order, convertQuoteToOrderCommand.id);
-
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
-    await emitCrudSideEffects({
-      dataEngine,
-      action: "created",
-      entity: order,
-      identifiers: {
-        id: order.id,
-        organizationId: order.organizationId,
-        tenantId: order.tenantId,
-      },
-      events: orderCrudEvents,
-      indexer: { entityType: E.sales.sales_order },
-      actorUserId: ctx.auth?.sub ?? null,
-    });
+    const emitOrderCreated = async () => {
+      await notifySalesOrderCreated(ctx, order, convertQuoteToOrderCommand.id);
+      await emitCrudSideEffects({
+        dataEngine,
+        action: "created",
+        entity: order,
+        identifiers: {
+          id: order.id,
+          organizationId: order.organizationId,
+          tenantId: order.tenantId,
+        },
+        events: orderCrudEvents,
+        indexer: { entityType: E.sales.sales_order },
+        actorUserId: ctx.auth?.sub ?? null,
+      });
+    };
+
+    if (callerEm && getTransactionLifetime(callerEm)) {
+      onTransactionLifetimeComplete(callerEm, async (outcome) => {
+        if (outcome !== "committed") return;
+        await emitOrderCreated();
+        await flushCrudSideEffects(dataEngine, ctx.bulkImport);
+      });
+      return { orderId: order.id };
+    }
+
+    await emitOrderCreated();
 
     return { orderId: order.id };
   },

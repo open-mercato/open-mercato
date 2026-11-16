@@ -11,6 +11,11 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ReactElement } from 'react'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+  type TransactionOutcome,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
 const registeredGuards: MutationGuard[] = []
@@ -816,12 +821,6 @@ describe('accept - TOCTOU concurrency guard', () => {
       updatedAt: new Date(),
     }
 
-    let transactionalCallbackExecuted = false
-    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
-      transactionalCallbackExecuted = true
-      return callback(mockEm)
-    }) as any
-
     const findOneOptions: Array<Record<string, unknown>> = []
     mockEm.findOne.mockImplementation(async (cls: any, _where: any, opts?: any) => {
       if (opts) findOneOptions.push(opts)
@@ -836,8 +835,8 @@ describe('accept - TOCTOU concurrency guard', () => {
     const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
     expect(res.status).toBe(200)
 
-    expect(transactionalCallbackExecuted).toBe(true)
-    expect(mockEm.transactional).toHaveBeenCalled()
+    expect(mockEm.begin).toHaveBeenCalledTimes(1)
+    expect(mockEm.commit).toHaveBeenCalledTimes(1)
 
     const lockOption = findOneOptions.find(opt => opt.lockMode !== undefined)
     expect(lockOption).toBeDefined()
@@ -855,10 +854,6 @@ describe('accept - TOCTOU concurrency guard', () => {
       validUntil: new Date(Date.now() + 60_000),
       updatedAt: new Date(),
     }
-
-    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
-      return callback(mockEm)
-    }) as any
 
     mockEm.findOne.mockImplementation(async (cls: any) => {
       if (cls === SalesQuote) return quote
@@ -904,14 +899,13 @@ describe('accept - atomic conversion (fix: #1415, #2114)', () => {
     // write is gone.
     let insideTransaction = false
     let convertCalledInsideTransaction = false
-    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
+    const outcomes: TransactionOutcome[] = []
+    mockEm.begin.mockImplementationOnce(async () => {
       insideTransaction = true
-      try {
-        return await callback(mockEm)
-      } finally {
-        insideTransaction = false
-      }
-    }) as any
+    })
+    mockEm.rollback.mockImplementationOnce(async () => {
+      insideTransaction = false
+    })
 
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
       if (cls === SalesQuote) {
@@ -924,21 +918,27 @@ describe('accept - atomic conversion (fix: #1415, #2114)', () => {
       return null
     })
 
-    mockCommandBus.execute.mockImplementation(async () => {
+    mockCommandBus.execute.mockImplementation(async (_commandId: string, options: { ctx: { transactionalEm: any } }) => {
       convertCalledInsideTransaction = insideTransaction
+      onTransactionLifetimeComplete(options.ctx.transactionalEm, (outcome) => {
+        outcomes.push(outcome)
+      })
       throw new Error('Conversion failed')
     })
 
     const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
     expect(res.status).toBe(400)
     expect(convertCalledInsideTransaction).toBe(true)
-    expect(mockEm.transactional).toHaveBeenCalledTimes(1)
+    expect(mockEm.begin).toHaveBeenCalledTimes(1)
+    expect(mockEm.rollback).toHaveBeenCalledTimes(1)
+    expect(mockEm.commit).not.toHaveBeenCalled()
+    expect(outcomes).toEqual(['rolled_back'])
     // Only the in-transaction status-flip flush ran; the removed compensating
     // path would have produced a second flush.
     expect(mockEm.flush).toHaveBeenCalledTimes(1)
   })
 
-  test('passes the transactional EM to convert_to_order so the command joins the same transaction', async () => {
+  test('passes the transactional EM to convert_to_order and completes its lifetime only after commit', async () => {
     const quote = {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       tenantId: '00000000-0000-4000-8000-000000000000',
@@ -950,8 +950,10 @@ describe('accept - atomic conversion (fix: #1415, #2114)', () => {
       updatedAt: new Date(),
     }
 
-    const trxSentinel: Record<string, unknown> = { __trx: true }
-    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => callback(trxSentinel)) as any
+    const callOrder: string[] = []
+    mockEm.commit.mockImplementationOnce(async () => {
+      callOrder.push('commit')
+    })
 
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
       if (cls === SalesQuote) return where?.acceptanceToken ? quote : null
@@ -960,18 +962,23 @@ describe('accept - atomic conversion (fix: #1415, #2114)', () => {
       if (cls === SalesOrder) return { id: quote.id, orderNumber: 'SO-ATOMIC-1', deletedAt: null }
       return null
     })
-    // The route flips the quote and flushes through the transactional EM.
-    trxSentinel.findOne = mockEm.findOne
-    trxSentinel.persist = mockEm.persist
-    trxSentinel.flush = mockEm.flush
-    mockCommandBus.execute.mockResolvedValue({ result: { orderId: quote.id } })
+    let lifetimeActiveDuringCommand = false
+    mockCommandBus.execute.mockImplementation(async (_commandId: string, options: { ctx: { transactionalEm: any } }) => {
+      lifetimeActiveDuringCommand = getTransactionLifetime(options.ctx.transactionalEm) !== null
+      onTransactionLifetimeComplete(options.ctx.transactionalEm, (outcome) => {
+        callOrder.push(`lifetime:${outcome}`)
+      })
+      return { result: { orderId: quote.id } }
+    })
 
     const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
     expect(res.status).toBe(200)
 
     const [commandId, options] = mockCommandBus.execute.mock.calls[0]
     expect(commandId).toBe('sales.quotes.convert_to_order')
-    expect(options.ctx.transactionalEm).toBe(trxSentinel)
+    expect(options.ctx.transactionalEm).toBe(mockEm)
+    expect(lifetimeActiveDuringCommand).toBe(true)
+    expect(callOrder).toEqual(['commit', 'lifetime:committed'])
   })
 })
 
@@ -1316,7 +1323,7 @@ describe('quote editing invalidates sent token', () => {
 // Regression: quote double-acceptance prevention — no non-transactional fallback (issue #1414)
 // ---------------------------------------------------------------------------
 
-describe('accept - always uses em.transactional (no fallback)', () => {
+describe('accept - always opens a transaction (no fallback)', () => {
   const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-0000000014a0'
 
   beforeEach(async () => {
@@ -1329,7 +1336,7 @@ describe('accept - always uses em.transactional (no fallback)', () => {
     ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
   })
 
-  test('accept calls em.transactional unconditionally — no non-transactional fallback path', async () => {
+  test('accept opens a transaction unconditionally — no non-transactional fallback path', async () => {
     const quote = {
       id: '99999999-9999-4999-8999-999999999999',
       tenantId: '00000000-0000-4000-8000-000000000000',
@@ -1340,12 +1347,6 @@ describe('accept - always uses em.transactional (no fallback)', () => {
       validUntil: new Date(Date.now() + 60_000),
       updatedAt: new Date(),
     }
-
-    let transactionalUsed = false
-    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
-      transactionalUsed = true
-      return callback(mockEm)
-    }) as any
 
     mockEm.findOne.mockImplementation(async (cls: any) => {
       if (cls === SalesQuote) return quote
@@ -1358,7 +1359,8 @@ describe('accept - always uses em.transactional (no fallback)', () => {
 
     const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
     expect(res.status).toBe(200)
-    expect(transactionalUsed).toBe(true)
+    expect(mockEm.begin).toHaveBeenCalledTimes(1)
+    expect(mockEm.commit).toHaveBeenCalledTimes(1)
     expect(mockEm.findOne).not.toHaveBeenCalledWith(
       SalesQuote,
       expect.anything(),

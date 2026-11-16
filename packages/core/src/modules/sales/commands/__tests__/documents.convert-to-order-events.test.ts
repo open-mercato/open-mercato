@@ -3,6 +3,10 @@
 import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
+import {
+  beginTransactionLifetime,
+  completeTransactionLifetime,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
@@ -125,6 +129,9 @@ function setup(options: { existingOrder?: boolean; callerTransaction?: boolean }
       timeline.push('side-effect:marked')
       marked.push(change)
     }),
+    flushOrmEntityChanges: jest.fn(async () => {
+      timeline.push('side-effect:flushed')
+    }),
   }
 
   const container = createContainer({ injectionMode: InjectionMode.PROXY })
@@ -221,6 +228,41 @@ describe('sales.quotes.convert_to_order — sales.order.created side effect (#64
 
     expect(em.transactional).not.toHaveBeenCalled()
     expect(orderCreatedChanges(marked)).toHaveLength(1)
+  })
+
+  test('defers the mark, flush and notification until the caller transaction commits (quote acceptance)', async () => {
+    const { ctx, em, marked, timeline, dataEngine } = setup({ callerTransaction: true })
+    const transactionEm = em as unknown as Parameters<typeof beginTransactionLifetime>[0]
+    const lifetime = beginTransactionLifetime(transactionEm)
+
+    await getHandler().execute({ quoteId: QUOTE_ID, orderId: ORDER_ID }, ctx)
+
+    expect(marked).toHaveLength(0)
+    expect(dataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+    expect(mockCreateForFeature).not.toHaveBeenCalled()
+
+    timeline.push('caller:commit')
+    await completeTransactionLifetime(transactionEm, lifetime, 'committed')
+
+    expect(orderCreatedChanges(marked)).toHaveLength(1)
+    expect(orderCreatedChanges(marked)[0].identifiers.id).toBe(ORDER_ID)
+    expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+    expect(mockCreateForFeature).toHaveBeenCalledTimes(1)
+    expect(timeline.indexOf('side-effect:marked')).toBeGreaterThan(timeline.indexOf('caller:commit'))
+    expect(timeline.indexOf('side-effect:flushed')).toBeGreaterThan(timeline.indexOf('side-effect:marked'))
+  })
+
+  test('emits nothing when the caller transaction rolls back (quote acceptance)', async () => {
+    const { ctx, em, marked, dataEngine } = setup({ callerTransaction: true })
+    const transactionEm = em as unknown as Parameters<typeof beginTransactionLifetime>[0]
+    const lifetime = beginTransactionLifetime(transactionEm)
+
+    await getHandler().execute({ quoteId: QUOTE_ID, orderId: ORDER_ID }, ctx)
+    await completeTransactionLifetime(transactionEm, lifetime, 'rolled_back')
+
+    expect(marked).toHaveLength(0)
+    expect(dataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+    expect(mockCreateForFeature).not.toHaveBeenCalled()
   })
 
   test('marks nothing when the conversion fails', async () => {
