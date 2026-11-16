@@ -321,23 +321,32 @@ which is what `zeroSumCheck` and the per-row invariant in Testing
 Strategy actually verify.
 
 **Turnover reconciling against the journal (art. 18) is definitional,
-not a separate criterion this document has to verify.** Art. 18
-requires the ZSiO's turnover to "zgadzać się z zapisami dziennika" —
-but there is no separately computed "journal total" anywhere in this
-system for a trial-balance figure to disagree with:
-`periodDebit`/`periodCredit` already *are* `SUM(debit)`/`SUM(credit)`
-taken directly from `JournalEntryLine` — the exact rows that
-constitute the dziennik — for the same period and scope, with no
-intermediate figure computed any other way. There is nothing to add a
-`journalTotal`/`journalReconciles` field to reconcile against; the
-turnover figures already are the journal's own totals, read once.
-What is worth a regression test — not to prove the identity, which
-can't fail without a bug in the shared query since both sides would
-draw from the same rows, but to guard against future divergence (a
-filter or join added to one path and not the other) — is asserting
-that `rows`' `periodDebit` total for a period matches a direct
-`SUM(JournalEntryLine.debit)` over the same scope, computed
-independently in the test (see Testing Strategy).
+but it must be summed over a non-overlapping population — the root
+rows, not every row.** Art. 18 requires the ZSiO's turnover to
+"zgadzać się z zapisami dziennika", and `periodDebit`/`periodCredit`
+already *are* `SUM(debit)`/`SUM(credit)` taken directly from
+`JournalEntryLine` — the exact rows that constitute the dziennik — for
+the same period and scope. There is no separately computed "journal
+total" to add a `journalTotal`/`journalReconciles` field to. The
+hierarchy is the subtlety: because all six `TrialBalanceRowDto`
+figures roll up descendants (above), summing `periodDebit`/
+`periodCredit` across *every* row double-counts — for a balanced
+posting Dr `130-1` 100 / Cr `201` 100 with `130-1` under the syntetyk
+`130`, the debit rows are `130 = 100` and `130-1 = 100`, summing to
+200 while the journal debit is 100. Direct postings to a syntetyk
+parent are explicitly supported (Fowler's named variant, above), so
+filtering to leaves is also wrong. The non-overlapping, complete
+population is the **root rows** — rows whose `parentAccountId` is
+`null` — which cover every posting exactly once when the account
+tree is validated acyclic and complete (every non-root account
+resolves to a root; see Risks & Impact Review). A regression test,
+computed independently in the test rather than derived from the
+report's own rows, asserts that the sum of `periodDebit`/
+`periodCredit` over the root rows collected across every page equals a
+direct `SUM(JournalEntryLine.debit)`/`SUM(JournalEntryLine.credit)`
+over the same organization/tenant/date scope, and includes the
+parent-plus-child counterexample where the all-rows sum differs (see
+Testing Strategy).
 
 **The account-hierarchy and posting-side decisions above were checked
 against the standard literature, not invented from scratch.**
@@ -668,26 +677,38 @@ wiring):
 
 ### Backend Pages (`backend/ledger/reports/`)
 
-- `trial-balance/page.tsx` — a read-only `<DataTable entityId="ledger.trialBalanceRow" apiPath="/api/ledger/reports/trial-balance" />`,
-  one row per `LedgerAccount`, sorted by account code — syntetyk and
-  analityk rows appear in that same flat order, with no indentation by
-  hierarchy depth in Phase 1: `packages/ui/src/backend/DataTable.tsx`
-  has no tree/indentation support to build on today (checked directly;
-  no such "existing hierarchical-list convention" exists), so
-  visually distinguishing syntetyk rows by depth is deferred (see Out
-  of scope) rather than assumed free. `DataTable` drives `page`/
-  `pageSize` against the route's own pagination — `DataTable`'s
-  actual, offset-based contract (`page`/`pageSize`/`total`/
-  `totalPages`; no custom pagination code in this page), capped at
-  `pageSize ≤ 100` per root `AGENTS.md` → UI & HTTP; a stable
-  `entityId` keeps future widget injection (columns/filters) working.
-  `zeroSumCheck` comes from whichever page response the table already
-  has in hand — every response carries it (API Contracts) — rather
-  than a second, separate `apiCallOrThrow` call; the summary
+- `trial-balance/page.tsx` — a read-only page whose **page component,
+  not `DataTable`, owns fetching and pagination state**.
+  `packages/ui/src/backend/DataTable.tsx` requires `columns` and `data`
+  and accepts a controlled `pagination` object
+  (`page`/`pageSize`/`total`/`totalPages`) with an `onPageChange`
+  callback; it has no `apiPath` prop and performs no request of its
+  own, so this page must drive the load. The page holds `periodId`,
+  `page`, `pageSize`, the response `rows`, `total`, `totalPages` and
+  `zeroSumCheck` in state, and loads
+  `GET /api/ledger/reports/trial-balance?periodId=<id>&page=<n>&pageSize=<n>`
+  through `apiCallOrThrow` from
+  `@open-mercato/ui/backend/utils/apiCall` — not a second request and
+  not a shared-component extension. It renders `LoadingMessage` /
+  `ErrorMessage` from `@open-mercato/ui/backend/detail` while the load
+  is pending or fails, and the table's own empty state when `rows` is
+  empty; `onPageChange` (and the period picker, a `FiscalPeriod`
+  select) updates the corresponding state and reloads. The response is
+  passed straight into `<DataTable entityId="ledger.trialBalanceRow"
+  columns={columns} data={rows} pagination={{ page, pageSize, total,
+  totalPages, onPageChange }} />`, capped at `pageSize ≤ 100` per root
+  `AGENTS.md` → UI & HTTP, and a stable `entityId` keeps future widget
+  injection (columns/filters) working. One row per `LedgerAccount`,
+  sorted by account code — syntetyk and analityk rows appear in that
+  same flat order, with no indentation by hierarchy depth in Phase 1:
+  `DataTable` has no tree/indentation support to build on today
+  (checked directly; no such "existing hierarchical-list convention"
+  exists), so visually distinguishing syntetyk rows by depth is
+  deferred (see Out of scope) rather than assumed free. The summary
   `<StatusBadge>` (`success` variant when `zeroSumCheck` is `true`,
-  `error` when `false`) re-renders from the table's own data, with no
-  independent network round trip. A period picker (`FiscalPeriod`
-  select) drives the `periodId` query param. All labels (column headers, the
+  `error` when `false`) is rendered by the page from that same
+  response — every response carries `zeroSumCheck` (API Contracts) —
+  with no independent summary request. All labels (column headers, the
   period picker, the zero-sum badge text) go through `useT()`, not
   hard-coded strings — see Internationalization. No create/edit UI, no
   icon-only controls, no dialogs — this page has no mutation surface.
@@ -847,8 +868,11 @@ top of the live query.
    exporting `openApi`.
 5. Add the "Balance" panel to the existing `accounts/[id]/page.tsx`.
 6. Implement `backend/ledger/reports/trial-balance/page.tsx`
-   (`DataTable`, period picker, indentation by hierarchy depth, summary
-   row via `<StatusBadge>`).
+   (page-owned `apiCallOrThrow` loading plus `periodId`/`page`/`pageSize`
+   state, loading/error/empty states, a flat `DataTable` sorted by
+   account code with the response's `rows` and pagination, the period
+   picker, and the `<StatusBadge>` summary rendered from the same
+   response — no hierarchy-depth indentation in Phase 1).
 7. Add `ledger.reports.*` keys to `i18n/en.json` and `i18n/pl.json`
    (see Internationalization).
 8. Integration tests for both routes (400 on a malformed `asOf`/
@@ -924,8 +948,8 @@ top of the live query.
   SUM(JournalEntryLine.credit)` directly (organization/tenant-scoped,
   `posted_at < periodEnd + 1 day` (UTC)) and is independent of `rows`
   — a ZSiO
-  requested with `limit=1` returns the same `zeroSumCheck` value as
-  one requested with `limit=100` (Design decisions, "`zeroSumCheck`
+  requested with `pageSize=1` returns the same `zeroSumCheck` value as
+  one requested with `pageSize=100` (Design decisions, "`zeroSumCheck`
   is a direct ledger aggregate").
 - Post a balanced entry to a leaf account under a syntetyk parent
   that also has a direct posting of its own (mirroring the
@@ -933,12 +957,21 @@ top of the live query.
   `true` — the parent row's double-counted rollup figure must not
   leak into `zeroSumCheck` (Design decisions, "`zeroSumCheck` is a
   direct ledger aggregate").
-- Assert `rows`' `periodDebit`/`periodCredit` totals for a period
-  match a direct `SUM(JournalEntryLine.debit)`/`SUM(JournalEntryLine.
-  credit)` over the same organization/tenant/date scope, computed
-  independently in the test (Design decisions, "Turnover reconciling
-  against the journal (art. 18) is definitional") — the regression
-  guard for this document's art. 18 journal-reconciliation claim.
+- Assert the **root rows'** `periodDebit`/`periodCredit` totals for a
+  period — every row whose `parentAccountId` is `null`, collected
+  across all pages — match a direct `SUM(JournalEntryLine.debit)`/
+  `SUM(JournalEntryLine.credit)` over the same
+  organization/tenant/date scope, computed independently in the test
+  (Design decisions, "Turnover reconciling against the journal
+  (art. 18) is definitional") — the regression guard for this
+  document's art. 18 journal-reconciliation claim.
+- Add the parent-plus-child counterexample to that reconciliation
+  test: post Dr `130-1` 100 / Cr `201` 100 with `130-1` under the
+  syntetyk `130`, then assert the **root-row** sum still equals the
+  journal debit/credit (100/100) while summing `periodDebit` across
+  every returned row yields 200 — pinning the reconciliation
+  population to the roots rather than all rows (Design decisions,
+  "Turnover reconciling against the journal").
 - Assert `ytdDebit`/`ytdCredit` for a period in month 3 of a fiscal
   year correctly include months 1–3, not just month 3 — specifically,
   with 24 consecutive monthly `FiscalPeriod` rows spanning two
@@ -1428,3 +1461,14 @@ Not yet re-reviewed by `om-auto-review-pr`.
   foreign-currency ledger accounts (bank, cash)", decision R4, which reads both
   balances from this function.
 
+
+### 2026-11-16 — PR #6013 re-review response (carry-forward, `om-auto-fix-pr`)
+
+Addressed the 2026-11-09 CHANGES REQUESTED re-review on the carried-forward branch:
+
+- **Blocker — merge conflict against `main`** — resolved on the carry branch, retaining both `.ai/specs/README.md` index contributions (this document's row plus the newer rows merged from `main`).
+- **Major — journal reconciliation double-counted descendants** — the art. 18 reconciliation population is now the **root rows** (`parentAccountId = null`, collected across every page) under a validated acyclic, complete tree instead of every row; direct parent postings are supported, so leaves-only is not a valid population. The regression test now asserts the root-row sum against an independent `JournalEntryLine` aggregate and adds the parent-plus-child counterexample (`130-1` under `130`; all-rows debit 200 vs journal 100).
+- **Major — `DataTable` does not own route fetching or pagination** — Backend Pages now specifies a page-owned `apiCallOrThrow` load with `periodId`/`page`/`pageSize` state, loading/error/empty states, and a controlled `pagination` object; the page keeps the response, passes `columns`/`data`/`pagination` to `DataTable`, and renders `zeroSumCheck` from that same response. No `apiPath` prop, no shared-component extension, no extra summary request.
+- **Minor — implementation step and test parameters contradicted the revised scope** — step 6 now specifies the flat, code-sorted table (no hierarchy-depth indentation) and the zero-sum pagination regression uses `pageSize=1`/`pageSize=100`, matching the route's validated `pageSize`.
+
+The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and is not part of Phase 1.
