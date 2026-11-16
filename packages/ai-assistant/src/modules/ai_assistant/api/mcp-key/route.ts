@@ -25,9 +25,8 @@ const bodySchema = z.object({
  * Creates a persistent MCP API key (`omk_...`) for use in `.mcp.json`. Unlike a
  * raw `POST /api/api_keys/keys` call — which assigns no roles unless the client
  * passes them — this endpoint resolves the **caller's own roles** server-side
- * and attaches them to the key, so the key inherits the current user's ACL.
- * The user cannot escalate: they only ever grant their own roles to their own
- * key.
+ * and binds the key to the caller, so its role grants remain bounded by the
+ * user's effective ACL.
  */
 export async function POST(req: NextRequest) {
   const auth = await getAuthFromRequest(req)
@@ -51,6 +50,7 @@ export async function POST(req: NextRequest) {
       organizationId: auth.orgId ?? null,
       roles: roleIds,
       createdBy: auth.sub,
+      sessionUserId: auth.sub,
     })
 
     return NextResponse.json({

@@ -352,10 +352,16 @@ async function readPortalSession(request: Request) {
   return getCustomerAuthFromRequest(request)
 }
 
+export type ResolveBuyerContextOptions = {
+  /** Bypasses the 60 s buyer-context cache and re-resolves the buyer directly (D-R4-22). */
+  fresh?: boolean
+}
+
 export async function resolveBuyerContext(
   container: BuyerContextContainer,
   store: ResolvedStore,
   request: Request | null,
+  opts: ResolveBuyerContextOptions = {},
 ): Promise<BuyerContext> {
   const auth = request ? await readPortalSession(request) : null
   if (auth && (auth.tenantId !== store.tenantId || auth.orgId !== store.organizationId)) {
@@ -364,8 +370,10 @@ export async function resolveBuyerContext(
   }
   const customerUserId = auth?.sub ?? null
   const cache = buyerContextCache(container, { tenantId: store.tenantId, storeId: store.store.id })
-  const cached = await cache.get(customerUserId)
-  if (cached && cached.customerUserId === customerUserId) return cached
+  if (!opts.fresh) {
+    const cached = await cache.get(customerUserId)
+    if (cached && cached.customerUserId === customerUserId) return cached
+  }
   const identity = customerUserId
     ? await loadBuyerIdentity(requireService<EntityManager>(container, 'em'), customerUserId, store)
     : ANONYMOUS_IDENTITY

@@ -146,6 +146,63 @@ describe('toggleOutboundReactionCommand per-user ownership gate', () => {
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
 
+  it('reports a message that does not resolve in scope as not_found (#3833)', async () => {
+    mockFindOneWithDecryption.mockResolvedValueOnce(null)
+    const result = await toggleOutboundReactionCommand.execute(
+      {
+        messageId,
+        emoji: '👍',
+        action: 'add',
+        reactedByUserId: attacker,
+        scope: { tenantId, organizationId: null },
+      } as never,
+      ctxWithEm(),
+    )
+    expect(result).toEqual({ status: 'not_found', reason: expect.any(String) })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('refuses a deleted personal mailbox of another user as not_owner (#3833)', async () => {
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce({ id: messageId, threadId: messageId })
+      .mockResolvedValueOnce({ id: 'link-1', providerKey: 'imap', channelType: 'email' })
+      .mockResolvedValueOnce({ channelId: 'ch-owner' })
+      .mockResolvedValueOnce({ id: 'ch-owner', userId: owner, capabilities: null, deletedAt: new Date() })
+    const result = await toggleOutboundReactionCommand.execute(
+      {
+        messageId,
+        emoji: '👍',
+        action: 'add',
+        reactedByUserId: attacker,
+        scope: { tenantId, organizationId: null },
+      } as never,
+      ctxWithEm(),
+    )
+    expect(result).toEqual({ status: 'not_owner', reason: expect.any(String) })
+    expect(mockFindOneWithDecryption.mock.calls[3][2]).not.toHaveProperty('deletedAt')
+  })
+
+  it('reports the owner\'s own deleted channel as no_channel_link', async () => {
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce({ id: messageId, threadId: messageId })
+      .mockResolvedValueOnce({ id: 'link-1', providerKey: 'imap', channelType: 'email' })
+      .mockResolvedValueOnce({ channelId: 'ch-owner' })
+      .mockResolvedValueOnce({ id: 'ch-owner', userId: owner, capabilities: null, deletedAt: new Date() })
+    const result = await toggleOutboundReactionCommand.execute(
+      {
+        messageId,
+        emoji: '👍',
+        action: 'add',
+        reactedByUserId: owner,
+        scope: { tenantId, organizationId: null },
+      } as never,
+      ctxWithEm(),
+    )
+    expect(result).toEqual({ status: 'no_channel_link', reason: expect.any(String) })
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
   it('lets the channel OWNER react (passes the ownership gate)', async () => {
     primeResolution({ id: 'ch-owner', userId: owner })
     // Owner passes the gate and proceeds into the add path, which touches the

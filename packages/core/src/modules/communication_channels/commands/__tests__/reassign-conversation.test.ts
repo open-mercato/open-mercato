@@ -3,7 +3,21 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
 }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (key: string, fallback: string) =>
+      key === 'communication_channels.errors.threadNotFound' ? 'Wątek nie znaleziony' : fallback,
+  }),
+}))
+
+import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import reassignConversationCommand, {
   COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID,
 } from '../reassign-conversation'
@@ -77,21 +91,40 @@ describe('reassignConversationCommand schema', () => {
   })
 })
 
+function ctxFor(
+  tenantId: string,
+  actor: { userId?: string | null; features?: string[]; aclFails?: boolean },
+) {
+  const em: { flush: jest.Mock; transactional: jest.Mock } = {
+    flush: jest.fn(async () => undefined),
+    transactional: jest.fn(async (callback: (tem: unknown) => Promise<unknown>) => callback(em)),
+  }
+  const rbacService = {
+    loadAcl: jest.fn(async () => {
+      if (actor.aclFails) throw new Error('rbac unavailable')
+      return { isSuperAdmin: false, features: actor.features ?? [] }
+    }),
+  }
+  const services: Record<string, unknown> = { em: { fork: () => em }, rbacService }
+  const ctx = {
+    container: { resolve: (name: string) => services[name] ?? null } as any,
+    auth: actor.userId ? ({ sub: actor.userId, tenantId, orgId: null } as any) : null,
+    organizationScope: null,
+    selectedOrganizationId: null,
+    organizationIds: null,
+  }
+  return { ctx, em, rbacService }
+}
+
 describe('reassignConversationCommand execute (assignee tenant validation)', () => {
   const TENANT = '22222222-2222-4222-8222-222222222222'
   const THREAD = '11111111-1111-4111-8111-111111111111'
   const ASSIGNEE = '33333333-3333-4333-8333-333333333333'
+  const ACTOR = '44444444-4444-4444-8444-444444444444'
+  const sharedChannel = { id: 'channel-1', userId: null }
 
   function ctxWithEm() {
-    const em = { flush: jest.fn(async () => undefined) }
-    const ctx = {
-      container: { resolve: (name: string) => (name === 'em' ? { fork: () => em } : null) } as any,
-      auth: null,
-      organizationScope: null,
-      selectedOrganizationId: null,
-      organizationIds: null,
-    }
-    return { ctx, em }
+    return ctxFor(TENANT, { userId: ACTOR, features: ['communication_channels.assign'] })
   }
 
   beforeEach(() => {
@@ -100,7 +133,8 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
 
   it('returns invalid_assignee when the target user is not a member of the tenant', async () => {
     mockFindOne
-      .mockResolvedValueOnce({ assignedUserId: null, externalConversationId: 'conv-1' } as never)
+      .mockResolvedValueOnce({ assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1' } as never)
+      .mockResolvedValueOnce(sharedChannel as never)
       .mockResolvedValueOnce(null)
     const { ctx, em } = ctxWithEm()
     const result = await reassignConversationCommand.execute(
@@ -113,7 +147,7 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
     })
     expect(em.flush).not.toHaveBeenCalled()
     expect(mockFindOne).toHaveBeenNthCalledWith(
-      2,
+      3,
       expect.anything(),
       'User',
       expect.objectContaining({ id: ASSIGNEE, tenantId: TENANT, deletedAt: null }),
@@ -124,8 +158,10 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
 
   it('reassigns when the target user belongs to the tenant and captures an undo snapshot', async () => {
     mockFindOne
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(sharedChannel as never)
       .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
       .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
     const { ctx, em } = ctxWithEm()
     const result = await reassignConversationCommand.execute(
@@ -144,6 +180,268 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
     })
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
+
+  it('takes the previous owner from the row locked inside the transaction', async () => {
+    const LOCKED_OWNER = '77777777-7777-4777-8777-777777777777'
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(sharedChannel as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: LOCKED_OWNER, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: LOCKED_OWNER } as never)
+    const { ctx, em } = ctxWithEm()
+    const result = await reassignConversationCommand.execute(
+      { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
+      ctx,
+    )
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(mockFindOne).toHaveBeenNthCalledWith(
+      4,
+      em,
+      expect.anything(),
+      { id: 'mapping-1', tenantId: TENANT, organizationId: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      expect.anything(),
+    )
+    expect(result).toMatchObject({
+      status: 'reassigned',
+      previousAssignedUserId: LOCKED_OWNER,
+      undo: { previousAssignedUserId: LOCKED_OWNER, newAssignedUserId: ASSIGNEE },
+    })
+  })
+
+  it('returns noop when the locked row already holds the requested owner', async () => {
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(sharedChannel as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: ASSIGNEE, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+    const { ctx, em } = ctxWithEm()
+    const result = await reassignConversationCommand.execute(
+      { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
+      ctx,
+    )
+    expect(result).toEqual({ status: 'noop', reason: 'assigned user unchanged' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('returns no_channel_link when the mapping is gone by the time it is locked', async () => {
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(sharedChannel as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce(null as never)
+    const { ctx, em } = ctxWithEm()
+    const result = await reassignConversationCommand.execute(
+      { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
+      ctx,
+    )
+    expect(result).toMatchObject({ status: 'no_channel_link' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('reassignConversationCommand execute (personal-mailbox privacy, #3832)', () => {
+  const TENANT = '22222222-2222-4222-8222-222222222222'
+  const THREAD = '11111111-1111-4111-8111-111111111111'
+  const ASSIGNEE = '33333333-3333-4333-8333-333333333333'
+  const OWNER = '55555555-5555-4555-8555-555555555555'
+  const OTHER = '66666666-6666-4666-8666-666666666666'
+  const ASSIGN = ['communication_channels.assign']
+
+  function mapping() {
+    return { id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT }
+  }
+
+  function run(actor: { userId?: string | null; features?: string[]; aclFails?: boolean }, extraInput: Record<string, unknown> = {}) {
+    const { ctx, em, rbacService } = ctxFor(TENANT, actor)
+    const promise = reassignConversationCommand.execute(
+      { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null }, ...extraInput } as never,
+      ctx,
+    )
+    return { promise, em, rbacService }
+  }
+
+  beforeEach(() => {
+    mockFindOne.mockReset()
+  })
+
+  it('denies a non-owner reassigning a thread on another user\'s personal mailbox, even with every feature', async () => {
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+    const { promise, em } = run({ userId: OTHER, features: ['*'] })
+    expect(await promise).toEqual({
+      status: 'access_denied',
+      reason: 'Channel is a personal mailbox owned by another user',
+    })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockFindOne).toHaveBeenCalledTimes(2)
+    expect(mockFindOne).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.anything(),
+      { id: 'channel-1', tenantId: TENANT },
+      undefined,
+      expect.anything(),
+    )
+  })
+
+  it('denies before the no-op check so a non-owner cannot probe the current assignee', async () => {
+    mockFindOne
+      .mockResolvedValueOnce({ ...mapping(), assignedUserId: ASSIGNEE } as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+    const { promise } = run({ userId: OTHER, features: ASSIGN })
+    expect(await promise).toMatchObject({ status: 'access_denied' })
+  })
+
+  it('checks the context actor, ignoring any actor carried in the input', async () => {
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+    const { promise, em } = run({ userId: OTHER, features: ['*'] }, { actorUserId: OWNER })
+    expect(await promise).toMatchObject({ status: 'access_denied' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('lets the mailbox owner reassign their own personal-mailbox thread', async () => {
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    const { promise, em } = run({ userId: OWNER, features: ASSIGN })
+    expect(await promise).toMatchObject({ status: 'reassigned', nextAssignedUserId: ASSIGNEE })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('still lets the owner reassign a thread on a soft-deleted personal mailbox', async () => {
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER, deletedAt: new Date() } as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    const { promise } = run({ userId: OWNER })
+    expect(await promise).toMatchObject({ status: 'reassigned' })
+  })
+
+  it('lets an assign holder reassign a shared-channel thread', async () => {
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: null } as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    const { promise, em, rbacService } = run({ userId: OTHER, features: ['communication_channels.*'] })
+    expect(await promise).toMatchObject({ status: 'reassigned' })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(rbacService.loadAcl).toHaveBeenCalledWith(OTHER, { tenantId: TENANT, organizationId: null })
+  })
+
+  it('denies a shared-channel thread to a caller without assign', async () => {
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: null } as never)
+    const { promise, em } = run({ userId: OTHER, features: ['communication_channels.view'] })
+    expect(await promise).toMatchObject({ status: 'access_denied' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('denies a shared-channel thread when the ACL lookup fails and reports the failure', async () => {
+    mockReportError.mockClear()
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: null } as never)
+    const { promise, em } = run({ userId: OTHER, aclFails: true })
+    expect(await promise).toMatchObject({ status: 'access_denied' })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'rbac unavailable' }),
+      expect.objectContaining({
+        module: 'communication_channels',
+        code: 'communication_channels.reassign_acl_lookup_failed',
+        attributes: expect.objectContaining({ actorUserId: OTHER, tenantId: TENANT }),
+      }),
+    )
+  })
+
+  it('still fails closed when reporting the ACL lookup failure itself throws', async () => {
+    mockReportError.mockImplementationOnce(() => {
+      throw new Error('sink down')
+    })
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: null } as never)
+    const { promise, em } = run({ userId: OTHER, aclFails: true })
+    expect(await promise).toMatchObject({ status: 'access_denied' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the context carries no actor', async () => {
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+    const { promise, em } = run({})
+    expect(await promise).toMatchObject({ status: 'access_denied' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('returns no_channel_link when the mapping\'s channel is gone', async () => {
+    mockFindOne
+      .mockResolvedValueOnce(mapping() as never)
+      .mockResolvedValueOnce(null)
+    const { promise, em } = run({ userId: OWNER, features: ASSIGN })
+    expect(await promise).toMatchObject({ status: 'no_channel_link' })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('reassignConversationCommand redo (personal-mailbox privacy, #3832)', () => {
+  const TENANT = '22222222-2222-4222-8222-222222222222'
+  const THREAD = '11111111-1111-4111-8111-111111111111'
+  const ASSIGNEE = '33333333-3333-4333-8333-333333333333'
+  const OWNER = '55555555-5555-4555-8555-555555555555'
+  const OTHER = '66666666-6666-4666-8666-666666666666'
+
+  function redo(actor: { userId?: string | null; features?: string[] }) {
+    const { ctx, em } = ctxFor(TENANT, actor)
+    const promise = reassignConversationCommand.redo!({
+      input: { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
+      ctx,
+      logEntry: { id: 'log-1' } as never,
+    })
+    return { promise, em }
+  }
+
+  beforeEach(() => {
+    mockFindOne.mockReset()
+  })
+
+  it('throws a masked, translated 404 domain error when a non-owner redoes a personal-mailbox reassignment', async () => {
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+    const { promise, em } = redo({ userId: OTHER, features: ['*'] })
+    const error = await promise.then(() => null, (err: unknown) => err)
+    expect(isCrudHttpError(error)).toBe(true)
+    expect(error).toMatchObject({ status: 404, body: { error: 'Wątek nie znaleziony' } })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('replays the reassignment when the mailbox owner redoes it', async () => {
+    mockFindOne
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    const { promise, em } = redo({ userId: OWNER })
+    expect(await promise).toMatchObject({ status: 'reassigned', nextAssignedUserId: ASSIGNEE })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('reassignConversationCommand undo', () => {
@@ -153,20 +451,116 @@ describe('reassignConversationCommand undo', () => {
     mockFindOne.mockReset()
   })
 
-  it('restores the previous owner on both the mapping and the conversation', async () => {
-    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner' }
+  const OWNER = '55555555-5555-4555-8555-555555555555'
+  const OTHER = '66666666-6666-4666-8666-666666666666'
+
+  function undoEntry() {
+    // The shared `extractUndoPayload` helper unwraps the snapshot from
+    // `logEntry.commandPayload.undo`.
+    return {
+      commandPayload: {
+        undo: {
+          threadMappingId: 'mapping-1',
+          conversationId: 'conv-1',
+          tenantId: TENANT,
+          previousAssignedUserId: 'old-owner',
+          newAssignedUserId: 'new-owner',
+        },
+      },
+    } as never
+  }
+
+  function undo(actor: { userId?: string | null; features?: string[] }) {
+    const { ctx, em } = ctxFor(TENANT, actor)
+    const promise = reassignConversationCommand.undo!({
+      input: { threadId: 'thread-1' } as never,
+      ctx,
+      logEntry: undoEntry(),
+    })
+    return { promise, em }
+  }
+
+  function seedRows(channel: { id: string; userId: string | null }) {
+    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner', channelId: channel.id, organizationId: null }
     const conversation = { id: 'conv-1', assignedUserId: 'new-owner' }
     mockFindOne
       .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce(channel as never)
+      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(conversation as never)
-    const em = { flush: jest.fn(async () => undefined) }
-    const ctx = {
-      container: {
-        resolve: ((name: string) => (name === 'em' ? { fork: () => em } : null)) as <T>(name: string) => T,
-      },
-    } as never
-    // The shared `extractUndoPayload` helper unwraps the snapshot from
-    // `logEntry.commandPayload.undo`.
+    return { mapping, conversation }
+  }
+
+  it('restores the previous owner on both the mapping and the conversation for the mailbox owner', async () => {
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    const { promise, em } = undo({ userId: OWNER })
+    await promise
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mapping.assignedUserId).toBe('old-owner')
+    expect(conversation.assignedUserId).toBe('old-owner')
+    expect(mockFindOne).toHaveBeenNthCalledWith(
+      3,
+      em,
+      expect.anything(),
+      { id: 'mapping-1', tenantId: TENANT, organizationId: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      expect.anything(),
+    )
+    expect(mockFindOne).toHaveBeenNthCalledWith(
+      4,
+      em,
+      expect.anything(),
+      { id: 'conv-1', tenantId: TENANT, organizationId: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      expect.anything(),
+    )
+  })
+
+  it('restores an unassigned thread when the action being undone assigned it', async () => {
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    const { ctx, em } = ctxFor(TENANT, { userId: OWNER })
+    await reassignConversationCommand.undo!({
+      input: { threadId: 'thread-1' } as never,
+      ctx,
+      logEntry: {
+        commandPayload: {
+          undo: {
+            threadMappingId: 'mapping-1',
+            conversationId: 'conv-1',
+            tenantId: TENANT,
+            previousAssignedUserId: null,
+            newAssignedUserId: 'new-owner',
+          },
+        },
+      } as never,
+    })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mapping.assignedUserId).toBeNull()
+    expect(conversation.assignedUserId).toBeNull()
+  })
+
+  it('refuses with a 409 and keeps the newer owner when the thread was reassigned again after the action', async () => {
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    mapping.assignedUserId = 'newer-owner'
+    conversation.assignedUserId = 'newer-owner'
+    const { promise, em } = undo({ userId: OWNER })
+    const error = await promise.then(() => null, (err: unknown) => err)
+    expect(isCrudHttpError(error)).toBe(true)
+    expect(error).toMatchObject({
+      status: 409,
+      body: { code: 'communication_channels.errors.reassignUndoConflict' },
+    })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mapping.assignedUserId).toBe('newer-owner')
+    expect(conversation.assignedUserId).toBe('newer-owner')
+  })
+
+  it('restores when the action being undone was sent with an uppercase assignee id', async () => {
+    const UPPER_ASSIGNEE = 'ABCDEFAB-1234-4ABC-8DEF-ABCDEFABCDEF'
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    mapping.assignedUserId = UPPER_ASSIGNEE.toLowerCase()
+    conversation.assignedUserId = UPPER_ASSIGNEE.toLowerCase()
+    const { ctx, em } = ctxFor(TENANT, { userId: OWNER })
     await reassignConversationCommand.undo!({
       input: { threadId: 'thread-1' } as never,
       ctx,
@@ -177,7 +571,7 @@ describe('reassignConversationCommand undo', () => {
             conversationId: 'conv-1',
             tenantId: TENANT,
             previousAssignedUserId: 'old-owner',
-            newAssignedUserId: 'new-owner',
+            newAssignedUserId: UPPER_ASSIGNEE,
           },
         },
       } as never,
@@ -185,6 +579,86 @@ describe('reassignConversationCommand undo', () => {
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(mapping.assignedUserId).toBe('old-owner')
     expect(conversation.assignedUserId).toBe('old-owner')
+  })
+
+  it('throws the masked 404 and writes nothing when the mapping is gone by the time it is locked', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner', channelId: 'channel-1', organizationId: null }
+    mockFindOne
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce(null as never)
+    const { promise, em } = undo({ userId: OWNER })
+    await expect(promise).rejects.toMatchObject({ status: 404 })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('restores the mapping alone when the conversation row no longer exists', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: 'new-owner', channelId: 'channel-1', organizationId: null }
+    mockFindOne
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce(null as never)
+    const { promise, em } = undo({ userId: OWNER })
+    await promise
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mapping.assignedUserId).toBe('old-owner')
+  })
+
+  it('refuses with a 409 when the conversation row no longer exists and the mapping owner changed', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: 'newer-owner', channelId: 'channel-1', organizationId: null }
+    mockFindOne
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
+      .mockResolvedValueOnce(mapping as never)
+      .mockResolvedValueOnce(null as never)
+    const { promise, em } = undo({ userId: OWNER })
+    await expect(promise).rejects.toMatchObject({ status: 409 })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mapping.assignedUserId).toBe('newer-owner')
+  })
+
+  it('refuses with a 409 when only the conversation owner changed after the action', async () => {
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    conversation.assignedUserId = 'newer-owner'
+    const { promise, em } = undo({ userId: OWNER })
+    await expect(promise).rejects.toMatchObject({ status: 409 })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mapping.assignedUserId).toBe('new-owner')
+    expect(conversation.assignedUserId).toBe('newer-owner')
+  })
+
+  it('throws a masked, translated 404 and writes nothing when a non-owner undoes a personal-mailbox reassignment', async () => {
+    const { mapping, conversation } = seedRows({ id: 'channel-1', userId: OWNER })
+    const { promise, em } = undo({ userId: OTHER, features: ['*'] })
+    const error = await promise.then(() => null, (err: unknown) => err)
+    expect(isCrudHttpError(error)).toBe(true)
+    expect(error).toMatchObject({ status: 404, body: { error: 'Wątek nie znaleziony' } })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mapping.assignedUserId).toBe('new-owner')
+    expect(conversation.assignedUserId).toBe('new-owner')
+  })
+
+  it('lets an assign holder undo a shared-channel reassignment', async () => {
+    const { mapping } = seedRows({ id: 'channel-1', userId: null })
+    const { promise, em } = undo({ userId: OTHER, features: ['communication_channels.assign'] })
+    await promise
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mapping.assignedUserId).toBe('old-owner')
+  })
+
+  it('denies a shared-channel undo to a caller without assign', async () => {
+    seedRows({ id: 'channel-1', userId: null })
+    const { promise, em } = undo({ userId: OTHER, features: [] })
+    await expect(promise).rejects.toMatchObject({ status: 404 })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('throws a masked 404 when the mapping no longer exists', async () => {
+    mockFindOne.mockResolvedValueOnce(null)
+    const { promise, em } = undo({ userId: OWNER })
+    await expect(promise).rejects.toMatchObject({ status: 404 })
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('refuses to resolve when the snapshot lacks a tenantId', async () => {
