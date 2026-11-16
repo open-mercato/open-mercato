@@ -131,6 +131,7 @@ import {
   type PaymentSnapshot,
 } from "./payments";
 import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
+import { resequenceLinesForUpsert } from "../lib/lineOrdering";
 import type { SalesCalculationService } from "../services/salesCalculationService";
 import type { TaxCalculationService } from "../services/taxCalculationService";
 import type {
@@ -8166,14 +8167,17 @@ const orderLineUpsertCommand: CommandHandler<
         lineSnapshots.length + 1,
       );
       const lineId = updatedSnapshot.id;
-      let nextLines = parsed.id
+      const mergedLines = parsed.id
         ? lineSnapshots.map((line) =>
             line.id === parsed.id ? updatedSnapshot : line,
           )
         : [...lineSnapshots, updatedSnapshot];
-      nextLines = nextLines
-        .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-        .map((line, index) => ({ ...line, lineNumber: index + 1 }));
+      const nextLines = resequenceLinesForUpsert(
+        mergedLines,
+        lineId,
+        parsed.lineNumber ?? null,
+        existingSnapshot?.lineNumber ?? null,
+      );
 
       const sourceInputs = nextLines.map((line, index) => ({
         ...line,
@@ -8830,14 +8834,17 @@ const quoteLineUpsertCommand: CommandHandler<
         (existingSnapshot as any)?.promotionSnapshot ??
         null;
 
-      let nextLines = parsed.id
+      const mergedLines = parsed.id
         ? lineSnapshots.map((line) =>
             line.id === parsed.id ? updatedSnapshot : line,
           )
         : [...lineSnapshots, updatedSnapshot];
-      nextLines = nextLines
-        .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-        .map((line, index) => ({ ...line, lineNumber: index + 1 }));
+      const nextLines = resequenceLinesForUpsert(
+        mergedLines,
+        lineId,
+        parsed.lineNumber ?? null,
+        existingSnapshot?.lineNumber ?? null,
+      );
 
       const sourceInputs = nextLines.map((line, index) => ({
         ...line,
