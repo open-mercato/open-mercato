@@ -165,7 +165,7 @@ describe('RbacService per-tenant module availability', () => {
     expect(provider.getUnavailableModuleIds).toHaveBeenCalledWith({ tenantId: TENANT_A })
   })
 
-  it('leaves a tenantless super admin evaluated without a tenant unrestricted and never asks the provider', async () => {
+  it('adds no availability restriction to a tenantless principal and never asks the provider', async () => {
     const systemAdmin: Principal = {
       userId: 'system-admin',
       homeTenantId: null,
@@ -174,10 +174,13 @@ describe('RbacService per-tenant module availability', () => {
     wirePrincipal(em, systemAdmin)
     const service = createService()
 
+    // main's tenantless-principal policy grants nothing without an owning tenant
+    // (`isGlobalSuperAdmin` refuses a tenantless principal); this feature must
+    // not ask the provider on top of that baseline.
     await expect(service.userHasAllFeatures(systemAdmin.userId, ['sales.orders.view'], {
       tenantId: null,
       organizationId: null,
-    })).resolves.toBe(true)
+    })).resolves.toBe(false)
     expect(provider.getUnavailableModuleIds).not.toHaveBeenCalled()
   })
 
