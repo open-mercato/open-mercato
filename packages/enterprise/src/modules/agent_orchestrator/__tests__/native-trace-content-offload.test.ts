@@ -296,7 +296,7 @@ describe('offloadModelCallContent', () => {
     expect(encrypted).toEqual(expect.arrayContaining([ARTIFACT_REFS.llmRequest, ARTIFACT_REFS.llmResponse]))
     expect(result[1]).toBe(bare)
   })
-  it('uploads nothing and reports storage_unavailable when tenant encryption passes content through', async () => {
+  it('uploads nothing and reports encryption_unavailable when tenant encryption passes content through', async () => {
     const { service } = storageContainer(sequentialKeys())
     const container = containerOf({
       storageService: { _resolveService: async () => service },
@@ -308,12 +308,12 @@ describe('offloadModelCallContent', () => {
 
     expect(service.upload).not.toHaveBeenCalled()
     const attributes = llmAttributes(buildNativeTracePayload(prepared))
-    expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('storage_unavailable')
+    expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('encryption_unavailable')
     expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toBeUndefined()
     expect(attributes[OM_LLM_ATTRIBUTES.contentResponseKey]).toBeUndefined()
   })
 
-  it('uploads nothing when no tenant encryption service is registered', async () => {
+  it('uploads nothing and reports encryption_unavailable when no tenant encryption service is registered', async () => {
     const { service } = storageContainer(sequentialKeys())
     const container = containerOf({
       storageService: { _resolveService: async () => service },
@@ -324,8 +324,41 @@ describe('offloadModelCallContent', () => {
 
     expect(service.upload).not.toHaveBeenCalled()
     expect(llmAttributes(buildNativeTracePayload(prepared))[OM_LLM_ATTRIBUTES.contentStatus]).toBe(
-      'storage_unavailable',
+      'encryption_unavailable',
     )
+  })
+
+  it('reports encryption_unavailable when only one part could not be sealed, keeping the stored key', async () => {
+    const { service } = storageContainer(sequentialKeys())
+    const container = containerOf({
+      storageService: { _resolveService: async () => service },
+      tenantEncryptionService: {
+        encryptEntityPayload: async (entityId: string, payload: Record<string, unknown>) =>
+          entityId === ARTIFACT_REFS.llmRequest.entityId && 'input' in payload
+            ? testEncryption.service.encryptEntityPayload(entityId, payload)
+            : payload,
+        decryptEntityPayload: testEncryption.service.decryptEntityPayload,
+      },
+      em: { fork: () => ({}) },
+    })
+
+    const [call] = await offloadModelCallContent(container, SCOPE, [buildCall('call-1', 0)], { redactPii: false })
+
+    expect(service.upload).toHaveBeenCalledTimes(1)
+    expect(call.contentOutcome?.status).toBe('encryption_unavailable')
+    expect(call.contentOutcome?.requestKey).toEqual(expect.any(String))
+    expect(call.contentOutcome?.responseKey).toBeNull()
+  })
+
+  it('keeps storage_unavailable when the storage write fails even though encryption works', async () => {
+    const { container, service } = storageContainer(async () => {
+      throw new Error('[internal] storage down')
+    })
+
+    const [call] = await offloadModelCallContent(container, SCOPE, [buildCall('call-1', 0)], { redactPii: false })
+
+    expect(service.upload).toHaveBeenCalledTimes(2)
+    expect(call.contentOutcome?.status).toBe('storage_unavailable')
   })
 })
 

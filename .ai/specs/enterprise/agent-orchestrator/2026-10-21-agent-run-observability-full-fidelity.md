@@ -253,7 +253,7 @@ export function reportRetrieval(entry: { source: string; queryHash: string; k: n
 | `om.latency.ms` | `responseTimeMs` | metadata |
 | `om.cost.micros`, `om.cost.currency`, `om.cost.pricing_source` (`default|env_override|unknown`) | `computeCostMicros(responseModel ?? requestModel, …)` | metadata |
 | `om.prompt.system.sha256`, `om.tools.sha256`, `om.tools.count`, `om.messages.count` | hashes over the canonical JSON | metadata |
-| `om.content.request.key` / `.sha256` / `.bytes`, `om.content.response.key` / `.sha256` / `.bytes`, `om.content.status` (`stored|storage_unavailable|disabled|over_cap_truncated`), `om.content.redactions` | artifact offload | full |
+| `om.content.request.key` / `.sha256` / `.bytes`, `om.content.response.key` / `.sha256` / `.bytes`, `om.content.status` (`stored|storage_unavailable|encryption_unavailable|disabled|over_cap_truncated`), `om.content.redactions` | artifact offload | full |
 | `om.capture.fidelity` (`exact|reconstructed|reported`) | runtime | all |
 
 Request artifact shape (`llm_request.v1`): `{ schema: 'om.llm_request.v1', provider, modelId, system, messages, tools: [{ name, description, inputSchema }], responseFormat, params, providerBody? }`. Response artifact (`llm_response.v1`): `{ schema, finishReason, content, object?, usage, providerMetadata? }`.
@@ -618,3 +618,6 @@ Phase 0 spike results (installed `ai` 7.0.83, `@ai-sdk/provider` 4.0.8, pinned `
   - **The default compare target is the re-run source, else the previous run of the same agent.** "Same subject" is not matched. Finding the previous run needed a new additive `createdBefore` filter on `GET /runs`.
   - **Long message lists are not virtualized:** the Request tab renders the first 200 messages with a "show more" control, so no new dependency is needed.
   - **"Copy run" with content fetches the artifacts at click time,** four at a time, and only when the caller holds `trace.view_content`.
+
+### 2026-11-16
+- **Content capture fails closed on encryption (#9648, B-6).** Content is never uploaded unencrypted. When tenant data encryption is unavailable, the step records the new `om.content.status = encryption_unavailable` value instead of `storage_unavailable`, and the trace UI names the cause.

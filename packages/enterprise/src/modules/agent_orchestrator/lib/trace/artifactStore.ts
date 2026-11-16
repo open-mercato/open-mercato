@@ -131,6 +131,53 @@ async function resolveStorageService(
   }
 }
 
+export type ArtifactPutResult =
+  | { status: 'stored'; key: string }
+  | { status: 'storage_unavailable' }
+  | { status: 'encryption_unavailable' }
+
+/**
+ * Offload one full payload to encrypted storage and report the outcome:
+ * `stored` with its key, `encryption_unavailable` when the payload could not be
+ * sealed (nothing is uploaded), or `storage_unavailable` when storage is
+ * unconfigured or the write fails. Never throws.
+ */
+export async function putArtifactResult(
+  container: MinimalContainer,
+  scope: ArtifactScope,
+  ref: ArtifactEncryptionRef,
+  value: unknown,
+  namespace: string = AGENT_TRACE_ARTIFACT_NAMESPACE,
+): Promise<ArtifactPutResult> {
+  try {
+    const svc = await resolveStorageService(container, scope)
+    if (!svc) return { status: 'storage_unavailable' }
+    const serialized = JSON.stringify(value ?? null)
+    const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
+    const wrapper = await sealArtifactPayload(enc, scope, ref, serialized)
+    if (!wrapper) {
+      logger.warn('artifact offload skipped; tenant data encryption is unavailable', {
+        entityId: ref.entityId,
+        field: ref.field,
+      })
+      return { status: 'encryption_unavailable' }
+    }
+    const { key } = await svc.upload({
+      namespace,
+      fileName: `${ref.entityId.replace(/[^a-zA-Z0-9_-]+/g, '_')}-${ref.field}.json`,
+      buffer: Buffer.from(JSON.stringify(wrapper), 'utf8'),
+      contentType: 'application/json',
+      scope,
+    })
+    return key ? { status: 'stored', key } : { status: 'storage_unavailable' }
+  } catch (error) {
+    logger.warn('artifact offload failed; keeping inline summary', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return { status: 'storage_unavailable' }
+  }
+}
+
 /**
  * Offload one full payload to encrypted storage and return its key, or `null`
  * when storage is unavailable, the payload cannot be encrypted, or the write
@@ -143,33 +190,8 @@ export async function putArtifact(
   value: unknown,
   namespace: string = AGENT_TRACE_ARTIFACT_NAMESPACE,
 ): Promise<string | null> {
-  try {
-    const svc = await resolveStorageService(container, scope)
-    if (!svc) return null
-    const serialized = JSON.stringify(value ?? null)
-    const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
-    const wrapper = await sealArtifactPayload(enc, scope, ref, serialized)
-    if (!wrapper) {
-      logger.warn('artifact offload skipped; tenant data encryption is unavailable', {
-        entityId: ref.entityId,
-        field: ref.field,
-      })
-      return null
-    }
-    const { key } = await svc.upload({
-      namespace,
-      fileName: `${ref.entityId.replace(/[^a-zA-Z0-9_-]+/g, '_')}-${ref.field}.json`,
-      buffer: Buffer.from(JSON.stringify(wrapper), 'utf8'),
-      contentType: 'application/json',
-      scope,
-    })
-    return key || null
-  } catch (error) {
-    logger.warn('artifact offload failed; keeping inline summary', {
-      error: error instanceof Error ? error.message : String(error),
-    })
-    return null
-  }
+  const result = await putArtifactResult(container, scope, ref, value, namespace)
+  return result.status === 'stored' ? result.key : null
 }
 
 function isMissingObjectError(error: unknown): boolean {

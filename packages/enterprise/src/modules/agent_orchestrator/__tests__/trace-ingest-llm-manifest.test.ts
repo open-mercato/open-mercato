@@ -15,7 +15,7 @@ import { GEN_AI_ATTRIBUTES, LEGACY_LLM_ATTRIBUTES, OM_LLM_ATTRIBUTES } from '../
 import { LLM_REQUEST_ARTIFACT_SCHEMA } from '../lib/trace/contentCapture'
 import type { RunManifestCapture } from '../lib/trace/runManifest'
 import type { NativeModelCallContent } from '../lib/runtime/nativeModelCallRecorder'
-import { createTestArtifactEncryption } from './support/artifactEncryption'
+import { createTestArtifactEncryption, passThroughArtifactEncryption } from './support/artifactEncryption'
 
 function createFakeEm() {
   const stores = new Map<unknown, Array<Record<string, unknown>>>()
@@ -350,6 +350,33 @@ describe('trace ingest — llm content at full', () => {
     const attributes = spanAttributes(storeFor, 'llm-1') ?? {}
     expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('stored')
     expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toMatch(/^agent-trace-content\//)
+  })
+
+  it('records encryption_unavailable and uploads nothing when tenant encryption passes content through', async () => {
+    const upload = jest.fn(async () => ({ key: 'never' }))
+    const getRecord = jest.fn(async () => ({ value: { level: 'full', redactPii: true }, source: 'tenant' }))
+    const registry: Record<string, unknown> = {
+      moduleConfigService: { getRecord },
+      storageService: { _resolveService: async () => ({ upload, download: jest.fn(), delete: jest.fn() }) },
+      tenantEncryptionService: passThroughArtifactEncryption,
+      em: { fork: () => ({}) },
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (!(name in registry)) throw new Error(`[internal] unexpected resolve("${name}")`)
+        return registry[name]
+      },
+    } as unknown as AwilixContainer
+    const payload = traceIngestSchema.parse(payloadWith({ llm: llmBlock() }))
+
+    const captureOptions = await resolveIngestContentCapture(container, SCOPE, payload)
+    const { em, storeFor } = createFakeEm()
+    await ingestTrace(em, SCOPE, payload, captureOptions)
+
+    expect(upload).not.toHaveBeenCalled()
+    const attributes = spanAttributes(storeFor, 'llm-1') ?? {}
+    expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('encryption_unavailable')
+    expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toBeUndefined()
   })
 
   it('resolves a metadata policy without wiring an offloader', async () => {

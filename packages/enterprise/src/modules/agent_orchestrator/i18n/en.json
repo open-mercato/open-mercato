@@ -1578,6 +1578,7 @@
   "agent_orchestrator.trace.contentParts": "Content parts",
   "agent_orchestrator.trace.contentSha256": "SHA-256 hash",
   "agent_orchestrator.trace.contentStatus.disabled": "Content capture is off for this run.",
+  "agent_orchestrator.trace.contentStatus.encryption_unavailable": "Not stored because tenant data encryption was unavailable.",
   "agent_orchestrator.trace.contentStatus.over_cap_truncated": "Content exceeded the size cap and was truncated.",
   "agent_orchestrator.trace.contentStatus.storage_unavailable": "Storage was unavailable when the run finished.",
   "agent_orchestrator.trace.contentStatus.stored": "Content was stored.",

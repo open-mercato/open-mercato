@@ -6,6 +6,7 @@ import {
   deleteArtifact,
   getArtifact,
   putArtifact,
+  putArtifactResult,
   readArtifact,
 } from '../lib/trace/artifactStore'
 import { createTestArtifactEncryption, passThroughArtifactEncryption } from './support/artifactEncryption'
@@ -285,5 +286,61 @@ describe('artifactStore — deleteArtifact', () => {
       },
     })
     await expect(deleteArtifact(container, SCOPE, 'k')).rejects.toThrow('access denied')
+  })
+})
+
+describe('artifactStore — putArtifactResult reports why nothing was stored', () => {
+  it('returns stored with the key', async () => {
+    const { proxy } = makeStorage()
+    const container = makeContainer({ storageService: proxy, tenantEncryptionService: encryption })
+    expect(await putArtifactResult(container, SCOPE, ARTIFACT_REFS.llmRequest, { a: 1 })).toEqual({
+      status: 'stored',
+      key: 'k-1',
+    })
+  })
+
+  it('returns encryption_unavailable without uploading when the payload cannot be sealed', async () => {
+    for (const registrations of [{}, { tenantEncryptionService: passThroughArtifactEncryption }]) {
+      const { proxy, blobs } = makeStorage()
+      const container = makeContainer({ storageService: proxy, ...registrations })
+      expect(await putArtifactResult(container, SCOPE, ARTIFACT_REFS.llmRequest, { a: 1 })).toEqual({
+        status: 'encryption_unavailable',
+      })
+      expect(blobs.size).toBe(0)
+    }
+  })
+
+  it('returns storage_unavailable when storage is absent or the upload fails', async () => {
+    expect(
+      await putArtifactResult(makeContainer({ tenantEncryptionService: encryption }), SCOPE, ARTIFACT_REFS.llmRequest, {}),
+    ).toEqual({ status: 'storage_unavailable' })
+    const failing = makeContainer({
+      tenantEncryptionService: encryption,
+      storageService: {
+        _resolveService: async () => ({
+          upload: async () => {
+            throw new Error('[internal] s3 down')
+          },
+        }),
+      },
+    })
+    expect(await putArtifactResult(failing, SCOPE, ARTIFACT_REFS.llmRequest, {})).toEqual({
+      status: 'storage_unavailable',
+    })
+  })
+
+  it('returns storage_unavailable when encryption throws', async () => {
+    const { proxy } = makeStorage()
+    const container = makeContainer({
+      storageService: proxy,
+      tenantEncryptionService: {
+        encryptEntityPayload: async () => {
+          throw new Error('[internal] kms down')
+        },
+      },
+    })
+    expect(await putArtifactResult(container, SCOPE, ARTIFACT_REFS.llmRequest, {})).toEqual({
+      status: 'storage_unavailable',
+    })
   })
 })

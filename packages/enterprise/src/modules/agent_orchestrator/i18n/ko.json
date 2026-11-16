@@ -1578,6 +1578,7 @@
   "agent_orchestrator.trace.contentParts": "콘텐츠 파트",
   "agent_orchestrator.trace.contentSha256": "SHA-256 해시",
   "agent_orchestrator.trace.contentStatus.disabled": "이 실행에서는 콘텐츠 캡처가 꺼져 있었습니다.",
+  "agent_orchestrator.trace.contentStatus.encryption_unavailable": "테넌트 데이터 암호화를 사용할 수 없어 저장하지 않았습니다.",
   "agent_orchestrator.trace.contentStatus.over_cap_truncated": "콘텐츠가 크기 한도를 넘어 잘렸습니다.",
   "agent_orchestrator.trace.contentStatus.storage_unavailable": "실행이 끝났을 때 스토리지를 사용할 수 없었습니다.",
   "agent_orchestrator.trace.contentStatus.stored": "콘텐츠가 저장되었습니다.",

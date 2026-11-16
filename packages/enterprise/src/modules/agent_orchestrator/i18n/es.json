@@ -1578,6 +1578,7 @@
   "agent_orchestrator.trace.contentParts": "Partes del contenido",
   "agent_orchestrator.trace.contentSha256": "Hash SHA-256",
   "agent_orchestrator.trace.contentStatus.disabled": "La captura de contenido estaba desactivada en esta ejecución.",
+  "agent_orchestrator.trace.contentStatus.encryption_unavailable": "No se guardó porque el cifrado de datos del inquilino no estaba disponible.",
   "agent_orchestrator.trace.contentStatus.over_cap_truncated": "El contenido superó el límite de tamaño y se truncó.",
   "agent_orchestrator.trace.contentStatus.storage_unavailable": "El almacenamiento no estaba disponible al terminar la ejecución.",
   "agent_orchestrator.trace.contentStatus.stored": "El contenido se almacenó.",

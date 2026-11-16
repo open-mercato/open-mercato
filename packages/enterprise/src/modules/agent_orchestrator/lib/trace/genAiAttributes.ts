@@ -87,7 +87,13 @@ export const LEGACY_LLM_ATTRIBUTES = {
 export const CAPTURE_FIDELITIES = ['exact', 'reconstructed', 'reported'] as const
 export type CaptureFidelity = (typeof CAPTURE_FIDELITIES)[number]
 
-export const CONTENT_STATUSES = ['stored', 'storage_unavailable', 'disabled', 'over_cap_truncated'] as const
+export const CONTENT_STATUSES = [
+  'stored',
+  'storage_unavailable',
+  'encryption_unavailable',
+  'disabled',
+  'over_cap_truncated',
+] as const
 export type ContentStatus = (typeof CONTENT_STATUSES)[number]
 
 export const PRICING_SOURCES = ['default', 'env_override', 'reported', 'unknown'] as const

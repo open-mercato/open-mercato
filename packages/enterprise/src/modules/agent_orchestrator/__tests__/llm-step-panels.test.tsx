@@ -212,6 +212,25 @@ describe('LlmStepPanels', () => {
     expect(apiCallMock).not.toHaveBeenCalled()
   })
 
+  it('names encryption as the reason when content was not stored because encryption was unavailable', () => {
+    renderWithProviders(
+      <LlmStepPanels
+        runId={RUN_ID}
+        row={row({
+          content: {
+            status: 'encryption_unavailable',
+            request: { key: null, sha256: REQUEST_HASH, bytes: 10 },
+            response: { key: null, sha256: null, bytes: null },
+          },
+        })}
+        canViewContent
+      />,
+    )
+    expect(screen.getByTestId('llm-content-not-captured')).not.toBeNull()
+    expect(screen.getByText('agent_orchestrator.trace.contentStatus.encryption_unavailable')).not.toBeNull()
+    expect(apiCallMock).not.toHaveBeenCalled()
+  })
+
   it('copies the loaded payload as JSON', async () => {
     const writeText = jest.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })

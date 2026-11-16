@@ -1578,6 +1578,7 @@
   "agent_orchestrator.trace.contentParts": "Części treści",
   "agent_orchestrator.trace.contentSha256": "Skrót SHA-256",
   "agent_orchestrator.trace.contentStatus.disabled": "Przechwytywanie treści było wyłączone dla tego uruchomienia.",
+  "agent_orchestrator.trace.contentStatus.encryption_unavailable": "Nie zapisano, ponieważ szyfrowanie danych najemcy było niedostępne.",
   "agent_orchestrator.trace.contentStatus.over_cap_truncated": "Treść przekroczyła limit rozmiaru i została obcięta.",
   "agent_orchestrator.trace.contentStatus.storage_unavailable": "Magazyn był niedostępny w chwili zakończenia uruchomienia.",
   "agent_orchestrator.trace.contentStatus.stored": "Treść została zapisana.",

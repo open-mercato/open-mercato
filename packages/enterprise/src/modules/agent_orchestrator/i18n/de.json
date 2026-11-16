@@ -1578,6 +1578,7 @@
   "agent_orchestrator.trace.contentParts": "Inhaltsteile",
   "agent_orchestrator.trace.contentSha256": "SHA-256-Hash",
   "agent_orchestrator.trace.contentStatus.disabled": "Die Inhaltserfassung war für diesen Lauf deaktiviert.",
+  "agent_orchestrator.trace.contentStatus.encryption_unavailable": "Nicht gespeichert, weil die Mandanten-Datenverschlüsselung nicht verfügbar war.",
   "agent_orchestrator.trace.contentStatus.over_cap_truncated": "Der Inhalt überschritt die Größengrenze und wurde gekürzt.",
   "agent_orchestrator.trace.contentStatus.storage_unavailable": "Der Speicher war beim Abschluss des Laufs nicht verfügbar.",
   "agent_orchestrator.trace.contentStatus.stored": "Der Inhalt wurde gespeichert.",
