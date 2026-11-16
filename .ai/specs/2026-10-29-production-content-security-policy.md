@@ -67,6 +67,14 @@ sources, wildcards, paths, queries, fragments and credentials are rejected with
 a generic internal configuration error. Provider-owned wildcard declarations
 remain narrowly scoped to the documented provider's subdomains.
 
+For an integration requiring consent, follow E5's **Adding a non-essential
+integration** recipe in `apps/docs/docs/deployment/gdpr/index.mdx#adding-a-non-essential-integration`
+once shipped, as specified by [`2026-11-16-consent-gate-hook.md`](2026-11-16-consent-gate-hook.md),
+**Phase 2 — The gate**. Allowing an origin does not obtain consent: create its
+script or invoke its dynamic loader only inside the granted branch. The existing
+origin controls and nonce behavior apply; this adds no per-visitor CSP or
+consent-specific CSP variable.
+
 Module-authored inline assets need a trusted nonce, from `headers()` on the server
 or `useContentSecurityPolicyNonce()` on the client. Optional provider props and
 new helper import paths are additive; existing ThemeProvider APIs are unchanged.
@@ -151,3 +159,4 @@ results remain required before calling the implementation merge-ready.
   create-app parity exception manifest and added a redacted warning when a
   configured collaboration endpoint cannot safely become a CSP source. A
   re-review bounds that warning to once per process, including repeated proxy calls.
+- Council round two fixes, pass three (GPT-6.1 Sol workers): linked E5's forthcoming non-essential integration recipe beside the operator-origin controls; consent-dependent loading stays inside the granted branch while the existing nonce and origin policy remains unchanged.

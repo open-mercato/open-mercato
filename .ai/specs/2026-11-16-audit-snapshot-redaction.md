@@ -10,25 +10,25 @@ Extends: .ai/specs/2026-07-28-protected-roles-and-audit-seam.md
 
 ## 📝 TLDR
 
-The command audit log stores, for every logged action, the input the command was called with, so that the action can be redone. Nothing filters that input, and it is stored even for commands that can never be undone or redone. As a result the log holds the plaintext old and new passwords of every password change made through the enterprise security module, pay-link passwords, raw push tokens, a cart merge token, and a deleted staff user's password hash — indefinitely, and in clear on installations without tenant encryption. **Proposed (future):** the bus stops storing replay input for commands that cannot be replayed; the commands that can be replayed stop recording credentials, without losing undo; and a migration clears what is already stored.
+The command audit log stores, for every logged action, the input the command was called with, so that the action can be redone. Nothing filters that input, and it is stored even for commands that can never be undone or redone. As a result the log holds the plaintext old and new passwords of every password change made through the enterprise security module, pay-link passwords, raw push tokens, a cart merge token, and a deleted staff user's password hash — indefinitely, and in clear on installations without tenant encryption. **Proposed (future):** the bus stops storing replay input for commands that cannot be replayed; the commands that can be replayed stop recording credentials, while keeping safe undo; protected rows that no longer exist cannot be recreated without their password; and a migration strips historical entries that may contain credentials.
 
-**Not in this spec:** a name-based credential check in the command bus for unknown and third-party commands, which becomes its own child spec (`command-audit-credential-check`); personal data in snapshots, which undo needs while an action can be undone (removal on erasure is the data-class coverage spec, by age is retention); who may view snapshots (PR #8978); MFA secrets (PR #9578).
+**Not in this spec:** a name-based credential check in the command bus for unknown and third-party commands, which becomes its own child spec (`command-audit-credential-check`); personal data in snapshots, which undo needs while an action can be undone (removal on erasure is `actionLogService.applyRetention` and its `subjectHistoryService` wrapper in [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md), by age is enterprise retention); who may view snapshots (PR #8978); MFA secrets (PR #9578).
 
 ## 📝 Overview
 
-> **Market reference.** Rails' `filter_parameters` strips credential-named parameters from what gets recorded at one central point; PaperTrail, the Rails versioning library, makes each model declare what to skip. This spec takes the PaperTrail half now — each known command declares what it records — plus one structural rule that needs no names at all. The central name-based half is deferred to its own spec because its matcher and its effect on third-party undo need a design of their own.
+> **Market reference.** Rails' `filter_parameters` strips credential-named parameters from what gets recorded at one central point; PaperTrail, the Rails versioning library, makes each model declare what to skip. This spec takes the PaperTrail half now — each known command declares what it records — plus one structural rule that needs no names at all. The [credential-check child spec](2026-11-16-command-audit-credential-check.md) defines the central name-based check as report-only; rewriting stored data and its effect on third-party undo remain deferred there.
 
 ## 📝 Resolved assumptions (autonomous defaults)
 
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
 | 1 | Does this spec remove personal data from snapshots? | No. Credentials and secrets only | Undo re-creates a deleted record from its snapshot, so names and emails cannot leave while the action is undoable. The program's wording for C2 is narrowed to match. |
-| 2 | Scope after review | Command fixes and history cleanup only; the central check is split out | The reviewer's verdict was SPLIT: the fixes are urgent and small, the check is a new contract with a two-release roll-out. |
+| 2 | Scope after review | Command fixes and history cleanup only; the central check is split out | The reviewer's verdict was SPLIT: the fixes are urgent and small; the child now defines report-only matching with opt-in test failure. |
 | 3 | Root-cause fix in the bus | Do not store replay input for a command that has no undo handler | Redo needs a row that was undone, and undo needs a handler. For such commands the stored input is dead data. This fixes the password-change case with no change to the enterprise command. |
-| 4 | Pay links | Undo is kept. The undo payload and replay input stop carrying the password and its hash, and restoring a link never touches its stored hash | Delete is a soft delete, so the hash never leaves the row. Removing undo, as first drafted, was unnecessary — and dropping the hash from the payload without fixing restore would have nulled a live link's password on an unrelated undo. |
+| 4 | Pay links and templates | Keep undo on existing rows without touching their hash. Store only a `passwordProtected` boolean; refuse replay that must recreate a protected or unknown-protection row | Normal deletes are soft. A physically missing row has lost its hash, so recreation must fail closed. |
 | 5 | What undo of a deleted staff user restores | Everything except the password; the user resets it | Already the shipped behaviour for redo of a user creation. |
-| 6 | How history is cleaned | A data-only migration that clears the replay payload on existing rows of the affected resource kinds | ⚠ NEEDS HUMAN CONFIRMATION. It is the mechanism PR #9578 uses for MFA rows: a NULL write needs no tenant key, runs for every installation without an operator step, and one mechanism for one class of defect is easier to reason about. The cost is that past actions of those kinds can no longer be undone or redone. |
-| 7 | Compatibility route | No exception is claimed for the command fixes; the user-delete change follows the ordinary protocol; the history migration is argued as PR #9578 argues its own | ⚠ NEEDS HUMAN CONFIRMATION, for the migration only. |
+| 6 | How history is cleaned | A data-only migration strips existing entries of the affected resource kinds, using the erasure spec's `stripped_at` mark | ⚠ NEEDS HUMAN CONFIRMATION. Default: remove stored content and replay for the vulnerable historical kinds without tenant keys. Fallback: block release until the security exception is approved; never preserve a vulnerable replay branch. |
+| 7 | Compatibility route | Emergency Security Exception for staff-delete password restoration, password replay changes and historical cleanup | ⚠ NEEDS HUMAN CONFIRMATION. Default: release only with a named human maintainer's waiver, `security` label, qualifying argument, dated compatibility entry and client/operator upgrade instructions. Fallback: hold the affected changes for approval; no credential-retaining bridge. |
 | 8 | Retention of the log | Not addressed | The maintainer's comment on #2980 (2026-11-12) places it in Enterprise. |
 
 ## 📝 Problem Statement
@@ -58,8 +58,8 @@ The command audit log stores, for every logged action, the input the command was
 
 1. **The bus** stops storing replay input for a command with no undo handler.
 2. **Each affected command** declares a replay input without the credential, and an undo payload without the hash.
-3. **Restore paths** stop writing a credential they were not given.
-4. **A migration** clears the replay payload on existing rows of the affected kinds.
+3. **Restore paths** keep the hash on existing links and templates; refuse recreating protected rows when the hash is unavailable.
+4. **A migration** strips existing rows of the affected kinds and disables both undo and redo. It depends on the OSS erasure spec's column and replay guards.
 5. **A test per package** asserts that its credential-bearing commands log none.
 
 ### What each command records afterwards
@@ -67,9 +67,9 @@ The command audit log stores, for every logged action, the input the command was
 | Command | Change | Undo and redo afterwards |
 |---|---|---|
 | Change password | None in the command; the bus rule applies | As today: never undoable |
-| Pay link and template — create, update, delete | Replay input without `password`; undo payload without `passwordHash`; restore leaves the stored hash alone on an existing row | Undo and redo work. Undoing a password change does not bring the old password back; the link keeps its current one |
-| Device — register, update | Replay input without the token | Undo works as today. Redo re-creates the device without a token, which is what undo already does |
-| Cart merge | Replay input without the source token and route context | Redo is not offered for a merge whose token is gone |
+| Pay link and template — create, update, delete | Replay input without `password`; undo payload without `passwordHash`, with `passwordProtected` instead; restore never assigns a hash to an existing row | Unrelated edit, password-change and soft-delete undo keep the current hash. Recreating a row whose snapshot is protected or lacks the boolean is refused with 409 `checkout.protected_replay_unavailable` before writes |
+| Device — register, update | Replay input without the token | Undo works as today. Undo and redo preserve the live token on an existing row and never recover a lost token from history; a physically new row has no token until the app registers one |
+| Cart merge | Replay input without the source token and route context; explicit `redo` handler | Undo is preserved; redo refuses with typed 409 `cart.merge_redo_unavailable` before any write. It never falls back to `execute` with missing credentials |
 | Delete staff user | Undo payload without `passwordHash` | Undo restores the account, roles and ACL with no password; the user resets it |
 
 ### Design decisions
@@ -79,14 +79,14 @@ The command audit log stores, for every logged action, the input the command was
 | A structural rule in the bus instead of a name list | It cannot miss a name and cannot remove anyone's undo. |
 | Restore never writes a credential it was not given | Otherwise removing the hash from the payload turns an unrelated undo into a way to strip a password. |
 | Undo is kept wherever the record can be restored without the secret | Losing undo is a cost; the review showed it was avoidable for pay links. |
-| The cleanup clears the whole replay payload of the affected kinds | The column is encrypted per tenant; a selective edit would need every tenant's key and a decrypt-edit-encrypt pass. Clearing needs neither. |
+| Historical cleanup strips whole entries and marks them | Encrypted content cannot be edited selectively without keys. Clearing content and setting `stripped_at` makes history honest and disables both replay directions. |
 | Kinds are selected by `resource_kind` | It is stored in clear; `command_id` is encrypted. |
 
 ### Alternatives considered
 
 | Alternative | Why rejected |
 |---|---|
-| A central name-based filter now | Deferred to its own spec: the matcher's word rules, tenant-defined custom-field keys, and the effect on third-party undo are unresolved. |
+| A central name-based filter now | The child defines matcher rules and tenant-data exclusions for a report-only check; rewriting stored data and its effect on third-party undo remain deferred. |
 | Make credential-carrying actions non-undoable | First draft. Unnecessary for pay links, and unsafe without fixing restore. |
 | A resumable CLI that decrypts, edits and re-encrypts | Operators who never run it stay exposed with no signal; it must handle plaintext, encrypted, mixed and undecryptable rows; a second mechanism beside PR #9578's. |
 | Stop recording input by default for every command | Redo of every existing undoable command depends on it. |
@@ -113,8 +113,8 @@ The system SHALL restore a deleted staff user on undo without a password, and SH
 
 Frozen by: `packages/core/src/modules/auth/commands/__tests__/users.delete-undo.characterization.test.ts`
 
-#### MODIFIED Requirement: Undo of pay-link changes
-The system SHALL NOT store a pay link's password or its hash in the audit log, and undoing any change to a link SHALL leave the link's current password in place.
+#### MODIFIED Requirement: Undo of pay-link and template changes
+The system SHALL NOT store a link or template password or its hash in the audit log. Undo on an existing row SHALL keep its current hash; replay SHALL refuse recreating a protected row without its hash.
 
 ##### Scenario: Undo an unrelated edit
 - WHEN a protected link's title is edited and the edit is undone
@@ -124,7 +124,21 @@ The system SHALL NOT store a pay link's password or its hash in the audit log, a
 - WHEN a protected link is deleted and the delete is undone
 - THEN the link is back and still protected
 
-Frozen by: `packages/checkout/src/modules/checkout/commands/__tests__/links.audit.characterization.test.ts`
+##### Scenario: Undo a password change
+- WHEN a protected link changes its password and that action is undone
+- THEN its other settings are restored and its current password remains in force
+
+##### Scenario: Template restore
+- WHEN an unrelated edit, a soft delete or a password change of a protected template is undone
+- THEN the template is restored with its current hash unchanged, and a newly created link from it still requires that password
+
+##### Scenario: Missing protected row
+- WHEN a protected link or template is created, creation is undone, its row is physically removed, and redo is requested
+- THEN redo returns 409 `checkout.protected_replay_unavailable`, creates no row and publishes no unprotected page
+- WHEN undo of a delete must recreate a protected row, or a legacy snapshot lacks `passwordProtected`
+- THEN the same refusal occurs before any write
+
+Frozen by: `packages/checkout/src/modules/checkout/commands/__tests__/links.audit.characterization.test.ts`, `packages/checkout/src/modules/checkout/commands/__tests__/templates.audit.characterization.test.ts`
 
 #### MODIFIED Requirement: Replay of device and cart actions
 The system SHALL NOT store a push token or a cart merge token in the audit log.
@@ -133,37 +147,45 @@ The system SHALL NOT store a push token or a cart merge token in the audit log.
 - WHEN a device is registered with a push token
 - THEN the audit entry's replay input holds no token
 
+##### Scenario: Cart merge replay
+- WHEN a cart merge is undone and its action is redone
+- THEN undo has restored the carts, redo returns 409 `cart.merge_redo_unavailable`, and neither cart changes
+
 Frozen by: `packages/core/src/modules/devices/commands/__tests__/register.audit.characterization.test.ts`, `packages/core/src/modules/cart/commands/__tests__/merge.audit.characterization.test.ts`
 
 #### ADDED Requirement: Stored credentials are cleared
-The system SHALL clear the replay payload of existing audit entries of the affected kinds when it is upgraded.
+The system SHALL strip stored content of existing audit entries of the affected kinds and make undo and redo unavailable when it is upgraded.
 
 ##### Scenario: After upgrade
 - WHEN the upgrade's migrations have run
-- THEN no entry of those kinds created before the upgrade holds a replay payload or offers undo
+- THEN no entry of those kinds created before the upgrade holds snapshots, change values, context or replay payload; each has `strippedAt`, keeps existing field names, and offers neither undo nor redo
+- WHEN a pre-upgrade entry was already `undone` and redo is requested directly
+- THEN redo returns 410 `audit_logs.history_stripped` after authorization
 
 ## 📝 Architecture
 
 - **Command bus** (`packages/shared/src/lib/commands/command-bus.ts`): when building the log payload, the replay envelope is written only if the handler is undoable. The bus already has that predicate for undo.
 - **Commands**: `checkout` links, templates and their shared restore helper; `devices` register and update; `cart` merge; `auth` user delete. Each uses the existing `redoInput` seam and its own `buildLog`.
-- **Migration** in `audit_logs`: sets `command_payload` and `undo_token` to NULL for rows whose `resource_kind` is in the affected list and whose `created_at` precedes the migration. It works tenant by tenant, in bounded batches, because the table's indexes lead with the tenant.
-- **Per-package tests**: `core`, `checkout` and `enterprise` each assert on their own commands. Core cannot import the other two.
+- **Historical cleanup** in `audit_logs`: new exported internal helper `stripCredentialHistory({ tenantId, before, limit, after, dryRun })` in `lib/credentialHistoryCleanup.ts`, called by the data-only migration. It selects unstripped rows of the closed affected-kind list before an explicit cutoff, one tenant at a time, in keyset batches. Already stripped rows do not match. The migration pins its cutoff once, and retries reuse that value; the helper returns matched/changed/skipped counts, next cursor and done. A skipped live replay leaves the migration incomplete, never silently successful; drain/retry is required before the upgrade gate clears. `tenantId: null` means only installation rows, never every tenant. Tests pass their fixture tenant and cutoff; the migration enumerates scopes. It uses the erasure spec's replay exclusion locks and row locks, clears `command_payload`, `undo_token`, `snapshot_before`, `snapshot_after`, `changes_json` and `context_json`, preserves existing projected field names and sets `stripped_at`. No tenant key is needed. A NULL context retains no credential; actor id/time columns remain. This is an explicit security-cleanup caller of the same strip state, not a second meaning for `stripped_at`.
+- **Deployment prerequisite**: erasure Phase 2's column, conditional strip/delete tests, locked execution-time undo/redo checks, stripped readers and TC-AUD-STRIPPED-OSS-001 land before the migration. The erasure spec owns those contracts and tests; this cleanup consumes the same replay lease/row locks and does not redefine them. Drain old command executors during upgrade; do not run a nulling migration beside binaries that still replay stale in-memory payloads.
+- **Per-package tests**: `core` and `checkout` assert on their own commands. `shared` tests the no-undo bus rule with a recording service, including an old/new-password input. No enterprise code or new enterprise test is needed; core never imports checkout or enterprise.
 
 | Touchpoint | Mechanism | Absent |
 |---|---|---|
 | Commands → log | Their own `buildLog` and `redoInput` | A disabled module logs nothing |
 | Migration → rows | SQL on plaintext columns only | Kinds a deployment never used match nothing |
 
-**Affected resource kinds.** Each is read from the command's `buildLog` during implementation and listed in the migration: the security profile, pay links, pay-link templates, user devices, carts (merge), and staff users. Clearing every staff-user entry also removes the legacy plaintext passwords.
+**Affected resource kinds.** Verified in today's `buildLog` methods: `security.profile`, `checkout.link`, `checkout.template`, `devices.user_device`, `cart.cart_merge_log` and `auth.user`. The migration uses exactly this closed list. Clearing every staff-user entry also removes the legacy plaintext passwords.
 
 ## 📝 Data Models
 
-No entity, table or column changes. Row values change: `command_payload` and `undo_token` become NULL on historical rows of the affected kinds. The data-model graph is skipped because the schema is untouched.
+No schema is introduced here. This spec consumes `action_logs.stripped_at`, its index and migration from the OSS erasure spec under DEC-B — “The audit-history strip routine” and R3-1 — “The audit-history rule for every erasure”. Historical rows lose all content columns listed above and their undo token, keep existing projections and actor/time columns, and receive the strip mark. The graph is omitted because this spec adds no entity.
 
 ## 📝 API Contracts
 
-- **No new surface.** No type, route, command or setting is added.
-- **Audit list API** — unchanged in shape. Historical entries of the affected kinds return a null `undoToken`.
+- **No new route, command or setting.** Add only the internal fixture-scoped cleanup helper and non-secret `passwordProtected` snapshot flag. Existing handler and service signatures stay compatible.
+- **Audit list API** — uses the erasure spec's additive `strippedAt` and `changedFields` fields; historical entries return a null `undoToken`. Its list, details and redo controls honour the mark.
+- **Replay routes** — undo and redo use erasure Phase 2's stripped-entry refusal; authorized redo of a stripped entry returns 410. Cart merge redo returns 409 `cart.merge_redo_unavailable`; protected-row recreation returns 409 `checkout.protected_replay_unavailable`, both translated through existing CRUD error handling.
 - **Behaviour of undo** for staff-user delete changes as described; it is tracked as a contract in `BACKWARD_COMPATIBILITY.md`.
 
 ## 📝 Edge Cases & Failure Scenarios
@@ -172,27 +194,29 @@ No entity, table or column changes. Row values change: `command_payload` and `un
 |---|---|
 | Undo of a staff-user delete made before the upgrade | Not offered: the migration cleared it |
 | Undo of a title edit on a protected link, after a later password change | Title restored; current password kept |
-| Undo of a link *creation* | The link is removed, as today |
-| Redo of a device registration | Device restored without a token; the app re-registers its token on next start |
+| Undo of a link or template creation | Soft-deletes as today; redo keeps the surviving hash. If the row is gone, protected or unknown-protection snapshots refuse recreation |
+| Legacy snapshot without `passwordProtected` | Cannot recreate a missing row; never assume it was unprotected |
+| Cart merge after undo | Explicit redo handler refuses with typed 409 and leaves both carts unchanged |
+| Redo of a device registration | Existing token stays authoritative, as `devices/commands/shared.ts:applySnapshot` already does; a missing row is recreated without a token and the app registers one |
 | A command with no undo handler that a module later makes undoable | Its earlier rows have no replay payload and cannot be redone; new rows can |
 | A third-party command with no undo handler | Its input is no longer stored. Nothing could replay it before |
 | A third-party undoable command that logs a secret | Unchanged, and still stored. The deferred check is what addresses it |
 | An older entry of the same record becoming "latest undoable" | Cannot happen through this change: the migration clears every earlier entry of the affected kinds together |
 | Migration interrupted | Batches are independent; re-running continues, and cleared rows match nothing |
-| Backups and any query-index copy of audit rows | Still hold the old values; the upgrade note says so |
+| Backups | Still hold old values until expiry; the upgrade note says so. Audit action/access logs are excluded from query-index token generation (`packages/core/src/modules/query_index/lib/search-tokens.ts:18`); no index cleanup or reindex is prescribed here |
 
 ## 📝 Migration & Backward Compatibility
 
 | Change | Route |
 |---|---|
 | No replay input for commands without an undo handler | Behaviour-neutral: the data could not be used. Dated entry |
-| Pay-link, device and cart commands record no credential | Defect fixes; undo behaviour preserved except that a password change cannot be undone |
-| Staff-user delete: undo restores no password | Ordinary protocol. That undo's behaviour is a tracked contract; announced in the release that ships it, with an upgrade note |
-| Historical rows lose their replay payload | Irreversible. Argued as PR #9578 argues its own migration; needs a named maintainer |
+| Link/template credentials and cart redo | Narrow credential fixes; disclose password undo/recreation refusal and typed cart redo refusal. Obtain the security waiver for removed vulnerable replay behavior; do not retain a credential-carrying bridge |
+| Staff-user delete: undo restores no password | Emergency Security Exception, steps 1–3 only. The logged reusable hash and its restoration are the vulnerability; an old-behavior bridge would keep both reachable. Requires named human approval and `security` label |
+| Historical rows lose content and replay | Emergency Security Exception, steps 1–3 only; old credential-bearing content remains exploitable if retained. Narrow affected-kind list, dated entry, named human approval and disclosure; irreversible |
 
-- **`UPGRADE_NOTES.md`:** which past actions can no longer be undone; that a restored staff user must reset their password; that installations without tenant encryption have held these values in clear; that backups taken before the upgrade remain sensitive and a reindex should follow.
-- **`BACKWARD_COMPATIBILITY.md`:** PR #9578 reports the file within ten bytes of its size budget. The dated entry here must fit, or the budget is raised in a change of its own first.
-- **Coordination with PR #9578:** it clears MFA rows by the same mechanism. The two migrations select different resource kinds and can land in either order; both append to the same two documents.
+- **`UPGRADE_NOTES.md`:** which past actions can no longer be undone; that a restored staff user must reset their password; that installations without tenant encryption have held these values in clear; that backups taken before the upgrade remain sensitive until they expire. No query-index rebuild is required for these audit rows. Client instructions cover both new replay error codes and 410; operator instructions cover password resets, upgrade order, lost historical values and rollback limits.
+- **`BACKWARD_COMPATIBILITY.md`:** append a dated entry naming each removed credential-bearing surface, its STABLE classification, the qualifying argument, narrow scope and migration path. Steps 4–5 remain mandatory. The implementing PR names the approving human maintainer and links their explicit waiver; an automated review cannot supply it.
+- **Coordination with PR #9578:** it clears MFA rows by the same mechanism. The two migrations select different resource kinds; this migration additionally requires the OSS erasure Phase 2 strip state and replay guards first. Both append to the same two documents.
 
 ## 📋 Phasing
 
@@ -207,20 +231,20 @@ Phase 2 ships as one PR per package (`shared`, `core`, `checkout`); the enterpri
 ## 📋 Implementation Plan
 
 ### Phase 1 — Prove it
-1. **Characterize.** Add the six tests named under Delta. Each runs the command against a recording log service and asserts what is stored today. Commit them alone, green. A row whose assertion cannot be made true leaves the Problem Statement.
+1. **Characterize.** Add the six characterization test files named under Delta (bus, staff delete, links, templates, device register and cart merge). Each runs the command against a recording log service and asserts what is stored today. Commit them alone, green. A row whose assertion cannot be made true leaves the Problem Statement.
 
 ### Phase 2 — Stop it
 1. Bus: write the replay envelope only for an undoable handler. Update the bus characterization test. Unit test that an undoable command is unaffected.
-2. Pay links and templates: replay input without the password; undo payload without the hash; restore leaves the stored hash alone on an existing row and sets none on a re-created one. Unit tests for both Delta scenarios and for undoing a password change.
+2. Pay links and templates: replay input without the password; undo payload without the hash, with `passwordProtected`. Both restore helpers omit hash assignment on existing rows. Both creation helpers refuse a missing protected or unknown-protection row before writes. Add `links.audit.test.ts` and `templates.audit.test.ts`: unrelated edit undo, soft-delete undo, password-change undo, create/undo/redo with a surviving row, and physical removal before redo; delete-undo recreation also refuses. Test template-propagated links keep their current passwords.
 3. Devices: replay input without the token, for register and update.
-4. Cart merge: replay input without the source token and route context.
+4. Cart merge: replay input without the source token and route context; add explicit `redo` that throws `CrudHttpError(409, { code: 'cart.merge_redo_unavailable', error: translatedMessage })` before any write. Unit-test merge, undo and typed refusal; do not set `replayable: false`, which would remove undo too.
 5. Staff-user delete: undo payload without the hash; undo restores without it.
-6. Per-package tests listing each package's credential-bearing commands and asserting no credential key in what they log.
+6. Per-package credential tests in core and checkout, including device update; shared bus tests for no-undo handlers. Assert no plaintext password, hash, source token or push token in all logged content. No enterprise test imports.
 7. `UPGRADE_NOTES.md`, the dated compatibility entry, the audit-log docs page.
-8. Integration tests TC-AUDIT-SECRETS-001 and 002.
+8. Integration tests TC-AUDIT-SECRETS-001, 002 and 004. Human security sign-off is a release gate for the changed replay behavior in this phase.
 
 ### Phase 3 — Clean it
-1. Add the migration with the resource kinds confirmed from each `buildLog`. Unit-test the batch statement against a database with rows of affected and unaffected kinds, encrypted and plaintext, with and without a tenant.
+1. After erasure Phase 2, including its OSS-only TC-AUD-STRIPPED-OSS-001 gate, add `stripCredentialHistory` and its migration caller. `credentialHistoryCleanup.test.ts` runs database-level fixtures of affected/unaffected kinds, encrypted/plaintext rows, done/undone states, other tenants and installation scope. Pass an explicit cutoff and fixture tenant; assert idempotence, pagination, all cleared columns and the strip mark. Never rerun a migration against the shared test database.
 2. Integration test TC-AUDIT-SECRETS-003.
 3. Archive this Delta into `.ai/specs/capabilities/command-audit-secrets.md` if that directory has been adopted by then; it does not exist today.
 
@@ -231,24 +255,25 @@ Phase 2 ships as one PR per package (`shared`, `core`, `checkout`); the enterpri
 | `packages/shared/src/lib/commands/command-bus.ts` | Modify |
 | `packages/checkout/src/modules/checkout/commands/{links,templates,shared}.ts` | Modify |
 | `packages/core/src/modules/devices/commands/{register,update}.ts` | Modify |
-| `packages/core/src/modules/cart/commands/merge.ts` | Modify |
+| `packages/core/src/modules/cart/commands/merge.ts`, cart and checkout `i18n/*.json` | Modify — explicit typed redo refusal and translated replay errors |
 | `packages/core/src/modules/auth/commands/users.ts` | Modify |
-| `packages/core/src/modules/audit_logs/migrations/*` and the module snapshot | Create |
+| `packages/core/src/modules/audit_logs/{lib/credentialHistoryCleanup.ts,lib/__tests__/credentialHistoryCleanup.test.ts,migrations/*}` | Create — fixture-scoped cleanup and migration; consumes the erasure column |
 | The six characterization tests; per-package credential tests in `core` and `checkout` | Create |
-| `packages/core/src/modules/audit_logs/__integration__/TC-AUDIT-SECRETS-00{1..3}.spec.ts` | Create |
+| `packages/core/src/modules/audit_logs/__integration__/TC-AUDIT-SECRETS-00{1..4}.spec.ts` | Create |
 | `UPGRADE_NOTES.md`, `BACKWARD_COMPATIBILITY.md`, audit-log docs page | Modify |
 
 ## 🧪 Integration Coverage
 
-The replay payload is never returned by the API and is encrypted at rest, so the tests assert behaviour. Each creates its fixtures through the API and removes them.
+The replay payload is never returned by the API and is encrypted when tenant encryption is enabled, so the tests assert behavior and use scoped direct fixtures for historical storage. Each owns a fixture tenant and actor, creates records through APIs except the explicit legacy audit fixture, and removes records, audit rows, uploads and tenant in `finally`. No seeded/demo data or global migration re-application.
 
 | Test | Path | Covers |
 |---|---|---|
 | TC-AUDIT-SECRETS-001 | `DELETE /api/auth/users`, the audit undo route, `POST /api/auth/login` | Delete a staff user, undo; the account exists again; the old password does not sign in; after `mercato auth set-password` the new one does |
-| TC-AUDIT-SECRETS-002 | Checkout link routes, the audit undo route, the public link route | A protected link's title edit is undone and the link still demands its password; a protected link is deleted, the delete undone, and it still demands its password |
-| TC-AUDIT-SECRETS-003 | Audit list API | An entry of an affected kind, inserted directly with an earlier timestamp before the migration is re-applied to the test database, returns a null `undoToken` afterwards; an entry of an unaffected kind is unchanged |
+| TC-AUDIT-SECRETS-002 | Checkout link/template CRUD routes, audit undo route, public pay route | For a link and a template: undo an unrelated edit, a soft delete and a password change; verify the live row retains its current password. A link created from the restored template still demands that password. Test UI fixture cleanup owns every generated link |
+| TC-AUDIT-SECRETS-003 | Audit list API, audit redo route and audit list/details UI | Insert done and undone legacy entries in the fixture tenant, call `stripCredentialHistory` with that tenant and explicit cutoff, and read them through the list API: `strippedAt`, existing field names, no content and null token. Redo of the undone entry returns 410; the UI shows the stripped line and no redo. Unaffected kinds and another fixture tenant remain unchanged. Never rerun the migration |
+| TC-AUDIT-SECRETS-004 | Cart merge route, audit undo and redo routes | Create two fixture carts and merge with a fixture token, undo successfully, then redo returns typed 409 `cart.merge_redo_unavailable`; both carts remain in their post-undo state |
 
-Password change is covered by the bus unit tests, since the rule lives there. Device and cart replay input is unit-tested, because redo of those actions is not observable through the API. The Undo control in the audit-log list is unchanged for new actions.
+Password change is covered by the bus unit tests, since the rule lives there. Device replay input is unit-tested; cart redo refusal is observed through the real audit redo route in TC-004. Missing protected link/template rows are exercised in unit tests at the creation helpers. The Undo control in the audit-log list is unchanged for new actions.
 
 ## 📝 Risks & Impact Review
 
@@ -256,7 +281,7 @@ Password change is covered by the bus unit tests, since the rule lives there. De
 - **Scenario**: An administrator wants to undo a staff-user deletion made the day before the upgrade.
 - **Severity**: Medium
 - **Affected area**: historical entries of the affected kinds
-- **Mitigation**: The upgrade note says so before the upgrade; the snapshot columns are untouched, so the history still shows what changed.
+- **Mitigation**: The upgrade note says so before the upgrade; the entries retain actor, time and existing field names and show the erasure spec's stripped line, without content. Human waiver and upgrade disclosure are required.
 - **Residual risk**: The undo is gone. That is the cost of clearing an encrypted column without every tenant's key.
 
 #### A restored user cannot sign in
@@ -270,8 +295,15 @@ Password change is covered by the bus unit tests, since the rule lives there. De
 - **Scenario**: One of the restore helpers keeps assigning a hash from a payload that no longer has one, and nulls a live password.
 - **Severity**: High
 - **Affected area**: pay links and templates
-- **Mitigation**: The restore rule is part of the same step as the payload change; both Delta scenarios are tested at unit and integration level.
+- **Mitigation**: The restore rule is part of the same step as the payload change; link and template edit, delete and password-change undo are tested at unit and integration level; unit tests also cover physical disappearance and unknown legacy protection state.
 - **Residual risk**: Low once those tests exist.
+
+#### Protected-row replay publishes an unprotected page
+- **Scenario**: A protected link or template row is physically removed between undo and replay.
+- **Severity**: High
+- **Affected area**: checkout links and templates
+- **Mitigation**: Non-secret protection marker; creation helpers refuse protected or unknown-protection snapshots before writes. Unit tests cover create/undo/remove/redo and delete undo for both kinds.
+- **Residual risk**: The operator must recreate the configuration with a new password; old replay cannot recover it.
 
 #### A leaking command was missed
 - **Scenario**: Another command stores a secret in its replay input.
@@ -288,9 +320,9 @@ Password change is covered by the bus unit tests, since the rule lives there. De
 - **Residual risk**: Upgrade time grows with the number of affected rows.
 
 #### Old copies remain elsewhere
-- **Scenario**: Backups and any index copy of audit rows still hold the values.
+- **Scenario**: A backup taken before upgrade still holds credentials.
 - **Severity**: Medium
-- **Affected area**: backups, `query_index`
+- **Affected area**: backup storage and restores
 - **Mitigation**: Stated in the upgrade note.
 - **Residual risk**: Backups cannot be rewritten.
 
@@ -300,7 +332,7 @@ Password change is covered by the bus unit tests, since the rule lives there. De
 - `AGENTS.md` (root), `.ai/specs/AGENTS.md` — in full
 - `BACKWARD_COMPATIBILITY.md` — protocol, Emergency Security Exception
 - `.ai/qa/AGENTS.md` — test placement
-- Not reviewed: `packages/shared/AGENTS.md`, the `auth`, `cart` and `checkout` module guides; the implementer reads them.
+- Reviewed relevant shared, auth, checkout and telemetry guide sections and current replay/restore source; cart/devices implementation still requires the implementer's full module-guide review. No implementation validation was run for this spec revision.
 
 ### Compliance Matrix
 
@@ -310,29 +342,31 @@ Password change is covered by the bus unit tests, since the rule lives there. De
 | root AGENTS.md | Never commit or log credentials | Compliant | This is the fix |
 | root AGENTS.md | Ask before touching multiple modules | Needs approval | `shared`, `auth`, `devices`, `cart`, `checkout`, `audit_logs` |
 | root AGENTS.md | Migration workflow | Compliant | Data-only migration with the module snapshot |
-| `BACKWARD_COMPATIBILITY.md` | Protocol | Compliant | Ordinary route for the tracked undo; the migration needs a named maintainer; the size budget is flagged |
+| `BACKWARD_COMPATIBILITY.md` | Emergency Security Exception | Conditional | No vulnerable bridge. Named human waiver, `security` label, qualifying argument, dated entry and client/operator disclosure gate affected Phase 2 changes and Phase 3 |
 | `.ai/qa/AGENTS.md` | Integration tests self-contained | Compliant | Fixtures created and removed per test |
 
 ### Internal Consistency Check
 
 | Check | Status | Notes |
 |---|---|---|
-| Problem table matches the fix table | Pass | Seven rows; one delegated to PR #9578, one covered by the migration |
+| Problem table matches the fix table | Pass | Seven evidence rows; known MFA work remains external; historical rows are stripped by the cleanup |
 | Delta scenarios map to tests | Pass | TC or unit test for each |
 | Each MODIFIED requirement has a characterization test | Pass | Six, in Phase 1 |
 | Every step leaves the app working | Pass | The payload and restore changes ship in the same step |
 
 ### Non-Compliant Items
-None in the document. Two items need a person: the history migration's waiver, and approval to touch six modules.
+None in the document. The security waiver is pending for the affected Phase 2 replay changes and Phase 3 cleanup, together with approval to touch the listed modules. This document does not claim that a human has granted either.
 
 ### Verdict
-**Approved for implementation of Phases 1 and 2.** Phase 3 needs the waiver.
+**Ready for review.** Characterization and additive preparation may proceed. The affected replay behavior and historical cleanup cannot ship before the named human security waiver and erasure Phase 2 prerequisite.
 
 ## Changelog
 
 ### 2026-11-16
 - Written autonomously with resolved assumptions.
 - Revised after independent review. The review confirmed every stored-credential claim by tracing each command's route, and found: the first draft's pay-link design could strip a live link's password through an unrelated undo; three missed leaks (device update, cart merge, legacy user rows); a structural fix for commands that cannot be replayed; and that the central name-based check was not buildable as specified. The check is split into its own spec; pay links keep undo; history is cleared by migration instead of a CLI.
+
+- Council round two fixes (GPT-6.1 Sol workers): r3e-09 — explicit cart redo refusal; r3e-14 — Emergency Security Exception and release gate; r3e-15 — strip historical done/undone entries and disable redo; r3e-21 — template undo scenarios and tests; r3e-22 — fixture-scoped cleanup helper instead of migration re-application; r3e-28 — six named characterization files and consistent package tests; r3e-34 — erasure owner link; g2-10 — protected recreation fails closed; F-71 — remove unsupported query-index cleanup advice.
 
 ### Review — 2026-11-16
 - **Reviewer**: Agent (fresh context, spec path only), then author revision
@@ -342,3 +376,9 @@ None in the document. Two items need a person: the history migration's waiver, a
 - **Commands**: Replay and undo semantics specified per command
 - **Risks**: Restore-path risk added
 - **Verdict**: Revised; the revision has not been independently re-read
+
+- Council round two fixes, pass two (GPT-6.1 Sol workers): checked the C2 program/child scope and protected-role replay seam; cited the exact DEC-B/R3-1 owners and made the erasure Phase 2 conditional-state, locked-replay and OSS integration gate explicit prerequisites for historical cleanup. The named human security waiver remains pending; this revision grants none.
+
+- Council round two fixes, pass three (GPT-6.1 Sol workers): checked the merged C2 program/child and C4 references; cleanup still consumes the exact OSS strip state, replay lease/locked checks and Phase 2 integration gate. No additional command or migration change was needed; the named-human security waiver remains pending.
+
+- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): replaced stale unresolved-matcher/two-release wording with the child spec's existing report-only matcher, tenant-data exclusions and opt-in test-failure contract; credential filtering remains deferred and the security waiver remains pending.

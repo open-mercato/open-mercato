@@ -1,158 +1,187 @@
 # What a model is given: withholding fields from model input
 
-> **Program:** second part of package F1 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593). Split from [`2026-11-16-ai-data-protection.md`](2026-11-16-ai-data-protection.md) after its review.
-> **Status: direction not settled.** The first design was judged false comfort by its reviewer. This spec records what the code allows, proposes the narrowest design that is honest, and asks whether it is worth building.
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run.
-> **Written autonomously.** No question was put to a person.
+> **Program:** second part of F1, [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md), issue open-mercato/open-mercato#8593.
+> **Status:** direction awaits human confirmation. Option B is the chosen default; option A below is a conditional design, not authorization to implement it. Current-code claims were checked in the read-only repository; tests are proposed.
 
 Extends: .ai/specs/2026-11-15-gdpr-ready-deployments-program.md
 
 ## 📝 TLDR
 
-Whatever an assistant tool returns — decrypted names, emails, notes — goes to the model provider whole. The program asked for "masking in tool results". A general mask does not survive contact with the code: results reach a model by at least four routes, key names are generic, and the place every tool passes through also serves people. **Proposed (future), if wanted at all:** a tenant may list fields that are never sent to a model; the list applies only to tools that declare which entities they return, at the point where a result is formatted for a model and nowhere else; everything it cannot cover is stated on the settings page. The alternative, set out below, is to build nothing here and rely on the provider policy and the tenant's choice of whether to use the assistant.
+Tools and page-context builders can send decrypted record data to a model. A field filter would cover only declared record shapes on selected paths. The default is to ship no field-level control and document exactly what is sent. The narrower optional control remains specified below with its gaps, including OpenCode over MCP.
 
-## 📝 Open question for a person
+## 📝 Resolved assumptions (autonomous defaults)
 
-**Q1. Build the narrow control below, or record "no field-level control" as the program's position?**
+| # | Question | Chosen default | Fallback |
+|---|---|---|---|
+| Q1 | Build a narrow field-withholding control, or record no field-level control? | ⚠ NEEDS HUMAN CONFIRMATION. B: no control; retain provider policy and document tool results, page contexts, search text, attachments and user input as model input | A: implement the conditional design below only after explicit approval; do not describe it as comprehensive masking |
+| Q2 | Does option A preserve unmasked chat transcripts? | ⚠ NEEDS HUMAN CONFIRMATION. No: the typed chat transcript, its UI parts and stored tool output carry the masked/truncated result too | A separate model/UI output design needs its own approval and tests; the execute API and underlying business rows remain unchanged |
 
-| Option | What the controller gets | Cost |
-|---|---|---|
-| A. Narrow control | A list of fields that first-party tools will not hand to a model | A declaration on every first-party tool; a settings section; a filter with stated gaps |
-| B. Nothing | The provider policy; the ability to switch the assistant off; documentation of what is sent | None |
+The program's **Decisions — DEC-11**, **Phase 0 — Assumptions and hygiene** and **Known limits** already record Q1=B, its pending human confirmation and the disclosure gate. Under B, the carrier is `apps/docs/docs/deployment/gdpr/impact-assessment-notes.mdx#what-the-assistant-sends-to-a-model`, section **What the assistant sends to a model**, specified by [`2026-11-16-gdpr-deployment-docs.md`](2026-11-16-gdpr-deployment-docs.md), **Proposed Solution** and **Implementation Plan — Stage 1**, step 1. That design requires the section to state that decrypted tool outputs, page-context records, search titles/snippets, attachments, module-built prompts and user text may leave the installation, including through legacy OpenCode over MCP; provider permission is not field minimisation. The program's **Known limits** links that delivery artifact and states **No field-level model-input control**. These are established design requirements, not evidence that the page has shipped. B is not complete until the statement ships and Q1 is confirmed before #8593 closes.
 
-Recommended: **B for now**, with A kept as a ready design. The reasons are the limits below: a control that covers some routes and is easy to misread as covering all of them can do more harm than a plain statement.
+## 📝 Overview
+
+Option B has no code change or new API. Option A withholds values only where a declared result is formatted. A controller must be able to see the uncovered paths beside the setting, rather than infer that a field cannot ever reach a model.
 
 ## 📝 Problem Statement
 
-**Routes by which record data reaches a model**
-
-| Route | Passes `executeTool` | Shape |
+| Route | Current behavior and evidence | Option A coverage |
 |---|---|---|
-| Typed-agent tools | Yes; then formatted for the model at `ai_assistant/lib/agent-tools.ts:145-154, 319` | Objects, serialised whole, with no size limit |
-| Code mode | Yes | A string already serialised and truncated (`codemode-tools.ts:645-657, 754-764`); a walk over keys sees nothing |
-| Page-context hydration | No. Handlers are called directly and their output goes into the system prompt | `customers/ai-agents-context.ts:99`; `catalog/ai-agents-context.ts:120` |
-| Search tools | Yes | `presenter.title` and `subtitle`, not field names (`ai-tools/search-pack.ts:279`) |
-| Attachment file parts; inbox and warranty prompts | No | Free text and files |
+| Typed-agent tools | Private `formatToolResult` serializes the handler result; the tool returns that string to the AI SDK (`packages/ai-assistant/src/modules/ai_assistant/lib/agent-tools.ts:145-154`, `:315-319`) | Declared object records only; chat transcript receives the same filtered result |
+| Page-context hydration | Direct tool-handler calls in `packages/core/src/modules/customers/ai-agents-context.ts:88-105` and `catalog/ai-agents-context.ts:108-127` | Declared records, through the new exported formatter |
+| Legacy OpenCode over MCP | `docker/opencode/opencode.jsonc.example` points to the app MCP endpoint; `ai_assistant/lib/mcp-server.ts:142-170` serializes `executeTool` output for OpenCode's model | Not covered; MCP is a model path as well as an interactive client path |
+| Code mode | Preformatted string output in assistant `lib/codemode-tools.ts` | Not covered |
+| Search | Presenter titles/subtitles in assistant `lib/ai-tools/search-pack.ts` | Not covered |
+| Attachments, inbox/warranty prompts, user text | Free text/files, without result-entity declarations | Not covered |
 
-**Why a filter in `executeTool` is the wrong place**
+`executeTool` also serves the human-facing execute route, so global filtering there changes a separate API contract. Typed chat output is different: `api/ai/chat/route.ts:268-284` extracts UI parts from the streamed tool output. Filtering the tool's returned string also filters the transcript/UI output and persisted representation. Option A explicitly accepts that effect; it makes no promise that chat users see the unmasked result.
 
-- It also serves people: the tools execute route (`api/tools/execute/route.ts:78`), stored tool-call rows and MCP clients. An authorised user would see the marker in place of data they may read.
-- The two paths that call a handler without it do not send results to a model: a confirmed action returns a record id to the confirming user (`pending-action-executor.ts:114-123`), and the other is a diagnostic for super-administrators. Routing them through `executeTool` would also change how empty inputs and thrown errors are handled (`tool-executor.ts:13-21, 91-98`).
+The current formatter is private. Page builders cannot call it without a new package export. A tool's generic keys do not identify an entity, so declarations must carry that information; key-name heuristics are not a substitute.
 
-**Why key names are a weak handle**
+## 📝 Proposed Solution (option A only)
 
-- Encryption maps name fields `name`, `description`, `title`, `body`, `city`, `metadata` (`customers/encryption.ts:7-56`; `sales/encryption.ts:18`). Applied without knowing the entity, they would blank product names and schema descriptions.
-- Custom fields are in no encryption map.
-- A tool definition carries no entity (`lib/types.ts:46-54, 116-185`).
+1. Add optional `resultEntities` declarations to first-party tools. A declaration identifies record roots by a JSON Pointer, lists the exact record properties it returns as `fields`, and says whether that root is one record or an array of records. A tool with no declaration is unfiltered and listed as uncovered.
+2. Add `withheldFields`, an empty-by-default list of `{ entityId, field }`, to `ai_tenant_model_allowlists`. Extend the loaded result of `AiTenantModelAllowlistRepository.getEffectivePolicy(scope)` from [`2026-11-16-ai-data-protection.md`](2026-11-16-ai-data-protection.md), **Policy loading and selection**, with `withheldFields`; keep the existing `AiTenantModelAllowlistSnapshot`, `getForTenant` and `getSnapshot` contracts unchanged. Organization row wins, then tenant row; an explicit empty withheld list on an organization row wins too. Formatting callers load this policy even when `enforceForCalls` is false: provider permission and field withholding are separate settings. `none` means an empty list; `unavailable` refuses model formatting with `ai_policy_unavailable` before content leaves, never an empty-policy fallback. Settings validate choices against declared fields, use feature ACL and return `updatedAt` for optimistic locking.
+3. Add `formatModelToolResult` in `ai_assistant/lib/model-tool-result.ts`, exported through the assistant package. Typed-agent execution and both page-context builders call it after authorized execution. They pass the actual tool definition and server-derived scope, not a guessed entity or browser-supplied policy. Only the model-formatting paths change; execute API responses and underlying business records do not.
+4. An empty withheld list delegates to the existing formatter unchanged: no new JSON envelope, validation substitution or byte ceiling. A non-empty list activates the formatter: mask matching declared fields with `[withheld]`, then apply the structure-preserving size rule below. For typed agents this exact value is also the chat transcript's tool output and UI-part source. No unfiltered copy is persisted beside it by this formatter.
+5. Beside the list show code mode, search, attachments, module-built prompts, user text, undeclared tools and **legacy OpenCode over MCP: not covered**. MCP clients cannot reliably be classified as people; option A leaves their output unchanged and states that it may go to a model.
 
-**What exists**
+### Paths and size budget
 
-- The enterprise orchestrator has a masker for its context bundles, where the entity is known. It is flat, deletes keys, adds a pattern rule for personal data and returns an enterprise type (`agent_orchestrator/lib/context/redactor.ts:20-23, 111-140`). Only its helper for snake- and camel-case variants is reusable.
-- Tenant AI settings are per-table rows read on every turn; there is no settings service or cache.
+`path` uses RFC 6901 JSON Pointer: empty string is the result root; `/records` selects a property; `~0` and `~1` escape tilde and slash; numeric segments address array indices. No dots, wildcards, recursive descent or implicit array expansion. `cardinality: 'many'` means the selected value must be an array and each element is a record of the declared entity; `one` means a record object. `field` is an exact record property name, including a custom-field property where the tool declares it. Nested record locations use additional declarations, for example `/result/people` with `many`; declarations may not overlap ambiguously.
 
-## 📝 Proposed Solution (option A)
+A declared root with the wrong shape is replaced at that root by `[withheld: invalid declaration]`, and recorded as a bounded code without values. An absent pointer is reported as absent, never searched heuristically. Pack tests must cover each declared shape; absence is a coverage gap visible in settings, not proof of filtering.
 
-1. **Tools declare what they return.** A tool definition gains `resultEntities`: the entity ids whose records appear in its result, and for each the path at which they appear. A tool that declares nothing is not filtered — and is listed on the settings page as "not covered".
-2. **A tenant lists withheld fields**, as `entity:field`, chosen from the fields those tools actually return. The list is a column on the tenant's AI settings row.
-3. **The filter runs where a result is formatted for a model** — `formatToolResult` in the typed-agent path, and the same function called by page-context hydration — and replaces the value at each declared path with a fixed marker. Results shown to people, stored rows and MCP clients are untouched.
-4. **Code mode and search tools are not covered**, and the settings page says so in the same place as the list. A tenant that needs certainty turns code mode off for agents that touch personal data; that switch exists per agent.
-5. **A size limit** on a formatted result goes in the same function.
+With a non-empty withheld list, the budget is **32,768 UTF-8 bytes of serialized JSON per formatted result**, after masking. These active-policy results are always valid JSON; empty-policy calls retain their legacy representation and limits. When over budget, remove whole trailing array items or object properties in stable order, preserving the largest prefix that fits, and wrap as `{ "result": <retained structure>, "truncated": true, "marker": "[truncated]" }`; include envelope bytes in the budget. If an oversized scalar or first member cannot fit, use `{ "result": null, "truncated": true, "marker": "[truncated]" }`. Never slice serialized JSON or split a UTF-8 sequence. Results below budget are serialized unchanged except for masking. This is a byte ceiling, not a model-token budget.
 
 ### Known limits, shown beside the control
 
-- Free text: a name inside a note is not a field.
-- Code mode, search results, attachments and prompts built by other modules.
-- Third-party tools that declare nothing.
-- Anything a user types into the chat.
+A name in a note, a search snippet or a file is not a declared field. OpenCode can retrieve that same data over MCP. Undeclared third-party tools are untouched. Typed-agent chat transcripts are masked too. Withholding a field in one covered route is not a guarantee that it cannot reach a model by another route.
 
-## 📝 Delta
+## 📝 Delta (option A only)
 
 ### Capability: ai-model-input-minimisation
 
-#### ADDED Requirement: Withheld fields
-The system SHALL replace the value of a field a tenant has listed as withheld in the result of a tool that declares it returns that entity, before the result is given to a model, and SHALL leave the result unchanged for people.
+#### ADDED Requirement: Withheld fields on declared paths
+The system SHALL replace listed field values on declared record paths before model formatting. The same filtered output SHALL appear in the typed-agent transcript and its stored tool output. The direct execute API and underlying business rows SHALL remain unchanged. Uncovered routes SHALL be stated beside the setting.
 
-##### Scenario: Withheld
-- WHEN a tenant withholds a person's primary email and a people tool that declares its result returns a person to an agent
-- THEN the model receives the marker in place of the email
+##### Scenario: Model and transcript
+- WHEN a tenant withholds a declared person's primary email and runs a typed-agent tool
+- THEN the model input and the transcript tool output contain `[withheld]`, including UI parts sourced there, while the execute API still returns the authorized email
 
-##### Scenario: The same tool, called by a person
-- WHEN an authorised user runs the same tool through the execute route
-- THEN they see the email
+##### Scenario: Page context
+- WHEN a context builder uses the same declared tool and policy
+- THEN its prompt text contains the same replacement, using the exported formatter
 
-##### Scenario: An undeclared tool
-- WHEN a tool declares nothing
-- THEN its result is unchanged, and the settings page lists it as not covered
+##### Scenario: OpenCode over MCP
+- WHEN OpenCode calls that tool over MCP
+- THEN its output is unchanged, and the settings coverage explicitly lists this path as uncovered
 
-##### Scenario: Another entity's field of the same name
-- WHEN a customer field named `description` is withheld and a product tool returns a product
-- THEN the product's description is not replaced
+##### Scenario: Entity and byte limits
+- WHEN another entity has a field of the same name
+- THEN it is unchanged unless separately listed
+- WHEN an active non-empty withholding policy formats JSON exceeding 32,768 UTF-8 bytes
+- THEN the result remains valid JSON, within the budget, with `truncated: true` and `[truncated]`
 
 ## 📝 Architecture
 
-- `ai_assistant/lib/agent-tools.ts`: the filter and the size limit in the formatting function.
-- `ai_assistant/lib/types.ts`: `resultEntities` on the tool definition.
-- The two page-context builders in `customers` and `catalog`: call the same formatting function.
-- The tenant AI settings entity, route and page: the list and the coverage table.
-- First-party tool packs: declarations.
+OSS helper, optional tool declarations, scoped allow-list repository and settings page. Customers and catalog call the exported helper through a package import; the helper never reads their tables. `executeTool`, MCP output and authorization contracts remain unchanged. Use shared settings components, `apiCall`, guarded writes, i18n and semantic tokens. The formatter does not broaden the tool's ACL or mutation approval.
 
 ## 📝 Data Models
 
-One JSON column on the tenant AI settings row, with a migration.
+Option B: none. Option A: `ai_tenant_model_allowlists.withheld_fields jsonb NOT NULL DEFAULT '[]'`, with migration and snapshot. Reuse its `updated_at`; API responses include `updatedAt` and writes use the shared optimistic-lock header/conflict UI. No generic unnamed tenant-settings table.
 
-## 📝 API Contracts
+## 📝 API Contracts (option A)
 
-- `resultEntities?: Array<{ entityId: string; path: string }>` on the tool definition. Additive.
-- The AI settings route accepts and returns `withheldFields`, validated against what declared tools return.
+```ts
+resultEntities?: Array<{ entityId: string; path: string; cardinality: 'one' | 'many'; fields: string[] }>
+formatModelToolResult(input: {
+  tool: AiToolDefinition
+  scope: { tenantId: string; organizationId?: string | null }
+  withheldFields: ReadonlyArray<{ entityId: string; field: string }>
+  result: unknown
+}): string
+```
 
-## 📝 Implementation Plan (if option A is chosen)
+The formatter is synchronous and pure, receives the already-loaded scoped policy, and returns legacy text unchanged when that list is empty. With an active non-empty list it validates declarations using Zod and returns JSON text. It never resolves another tenant's policy. Export its input type additively. `PUT /api/ai_assistant/settings/allowlist`, the provider-policy sibling's existing route, accepts optional `withheldFields`; the settings read returns the list, coverage and `updatedAt`, and requires the existing settings feature. Both specs use the same scope and repository method; no second endpoint or loader is introduced. Lists have `pageSize` at most 100. No change to MCP's result type.
 
-1. Add `resultEntities`; declare it on the people, companies and deals tool packs. Unit tests that each declared path exists in a sample result.
-2. The filter and size limit in the formatting function; the page-context builders call it. Unit tests: nothing listed; a listed field; nested and array paths; an undeclared tool; a same-named field of another entity.
-3. The settings column, route and page, with the coverage table and the limits text.
-4. Integration test: with a field withheld, a typed-agent turn against the test environment's stub provider records a model input containing the marker, and the execute route returns the value. The step confirms that the integration environment has a stub provider that records its input; if it has none, this stays a unit test and the section is corrected.
-5. Declare the remaining first-party packs.
+## 📝 Migration & Backward Compatibility
 
-## 🧪 Integration Coverage
+B ships documentation only. A adds optional declarations and an empty default; existing tools keep their output unless the administrator selects withholding. Its opt-in transcript masking and size ceiling must appear in the upgrade note; do not claim that people using chat are unaffected. Old `formatToolResult` call signatures remain usable internally during migration. No frozen tool id, route, result API or declaration member is removed.
 
-One test, described in step 4, conditional on a recording stub provider. Otherwise unit tests only, stated as a gap.
+## 📋 Phasing
+
+| Phase | Outcome | Gate |
+|---|---|---|
+| B | Model-input statement and Known limits link | Confirm Q1 and deliver the two carrier edits before #8593 closes |
+| A1 | Formatter/declarations/settings and mandatory recording test | Only if Q1 selects A; same change includes all tests below |
+| A2 | Remaining first-party tool declarations | Each pack ships its declaration and shape tests together |
+
+## 📋 Implementation Plan
+
+### Default B
+1. Program owner records Q1 and outcome in the decision list and Phase 0; deployment-docs owner writes **What the assistant sends to a model**; Known limits links it.
+2. Verify statement against the route inventory and shipped provider-policy coverage. Do not close the documentation task with an empty placeholder.
+
+### Conditional A
+1. Add exported types/formatter and JSON Pointer validation. Unit tests `model-tool-result.test.ts`: empty policy, field match, other entity, escaped keys, nested arrays, absent/wrong shapes, no declaration, UTF-8 budget, oversized scalar, valid JSON and exact marker.
+2. Declare people/companies/deals tools and route both context builders through the helper. Shape tests per pack and context tests prove actual definition, scope and withheld list arrive at the shared helper. Policy tests cover organization override, tenant fallback, explicit empty override, no row and unavailable storage; withholding remains active with `enforceForCalls=false`.
+3. Add settings column, migration, validators, optimistic locking and UI coverage/limits. Keep the execute route and MCP untouched. Unit tests pin masked chat UI parts and stored tool output.
+4. Add a deterministic **test-only recording model adapter** before integration delivery. Register only under `OM_TEST_MODE=1` and a lane-owned adapter setting, absent in production; no network or vendor keys. Expose recorded inputs only through a test-authenticated fixture facility, scoped to test tenant/run, with explicit cleanup. Both integration environment blocks enable the lane. Adapter absence fails the lane; it never downgrades coverage to unit tests.
+5. Deliver TC-AI-MIN-001 and TC-AI-MIN-002 in A1; remaining packs follow in A2. Archive Delta only after implementation if the capability directory exists.
+
+| File | Action under A |
+|---|---|
+| `packages/ai-assistant/src/modules/ai_assistant/lib/{model-tool-result.ts,types.ts,agent-tools.ts}` and package exports | Add formatter/type and route typed output |
+| Assistant `data/entities.ts`, repositories, settings API/UI, migrations and locale files | Scoped list and coverage |
+| `packages/core/src/modules/{customers,catalog}/ai-agents-context.ts`; first-party tool packs | Pass actual tool declarations and shared policy |
+| Assistant test-adapter fixture, CLI integration environment, unit suites and `__integration__/TC-AI-MIN-00{1,2}.spec.ts` | Deterministic mandatory coverage |
+
+## 🧪 Integration Coverage (mandatory if A is selected)
+
+Both tests create their own tenant, organization, authorized users, person and settings through APIs, and delete fixtures and recordings in `finally`. No demo records or external provider. The recording adapter is an implementation deliverable, not assumed existing infrastructure.
+
+| Test | Covers |
+|---|---|
+| TC-AI-MIN-001 | Settings API write/read and stale edit conflict; settings UI selects a field and lists OpenCode/MCP as uncovered; with provider enforcement off and withholding selected, typed-agent turn invokes declared people tool; recorded model input and saved/streamed chat output contain marker and no email; direct tool execute API still returns email; another tenant's output is unchanged |
+| TC-AI-MIN-002 | Customer/catalog page context passes the same withheld policy; adapter records masked prompt; arrays/nested data and oversized result yield valid bounded JSON with marker; legacy MCP result is unchanged and explicitly uncovered; test-authenticated recordings cannot be read across tenants |
+
+B has no new API/UI path; its gate is documentation review against the inventory.
+
+## 📝 Edge Cases & Failure Scenarios
+
+| Case | Behavior |
+|---|---|
+| Undeclared tool or absent path | No invented entity mapping; coverage gap is visible |
+| Declared path has wrong shape | Replace selected root with invalid-declaration marker, no values in diagnostic |
+| Another route carries the withheld value | Uncovered paths listed; no whole-system guarantee |
+| Withholding removes UI-part data | Typed transcript reflects filtered result; explicit Q2 tradeoff |
+| Test recording adapter missing | Conditional A integration lane fails; no skip to unit-only coverage |
 
 ## 📝 Risks & Impact Review
 
-#### The control is read as a guarantee
-- **Scenario**: A controller withholds a field and assumes no model ever sees it.
-- **Severity**: High
-- **Affected area**: any tenant relying on the list
-- **Mitigation**: The coverage table and limits beside the list; undeclared tools named.
-- **Residual risk**: This is the reason option B is recommended.
-
-#### The assistant becomes less useful
-- **Scenario**: An administrator withholds names and the assistant cannot say who a customer is.
-- **Severity**: Medium
-- **Affected area**: that tenant
-- **Mitigation**: Nothing is withheld by default.
-- **Residual risk**: The administrator's choice.
-
-#### Declarations go stale
-- **Scenario**: A tool's result shape changes and its declared path no longer exists.
-- **Severity**: Medium
-- **Affected area**: that tool's coverage
-- **Mitigation**: A unit test per pack checks each declared path against a sample result.
-- **Residual risk**: Third-party packs.
+| Scenario | Severity | Affected area | Mitigation | Residual risk |
+|---|---|---|---|---|
+| Narrow control read as complete protection | High | Tenants choosing A | Uncovered OpenCode/MCP and other paths beside setting | Reason B is default; same value can leave another route |
+| No control but documentation omitted | High | B deployments | Named docs section and program closure decision | Other owners must deliver carrier edits |
+| Masking damages transcript/UI parts | Medium | A chat users | Q2 explicitly accepts it; integration checks actual saved output | Administrator chooses reduced usefulness |
+| Declaration shape drifts | Medium | Covered tools | Shape tests, invalid-root marker and visible absent paths | Third-party declarations still require review |
 
 ## Final Compliance Report — 2026-11-16
 
-- **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, `packages/ai-assistant/AGENTS.md` (through the review).
-
 | Rule | Status | Notes |
 |---|---|---|
-| Open questions resolved before design | Not met | Q1 is open by design; the autonomous default is option B |
-| Additive type change | Compliant | One optional field |
-| Tenant scoping | Compliant | The list is per tenant |
+| Direction decision recorded | Defaulted, pending confirmation | Q1=B with concrete carrier; Q2 conditional only |
+| Additive contracts and tenant scope | Compliant design | Optional declarations, scoped settings, old execute/MCP contracts preserved |
+| Integration coverage | Required if A | Recording adapter ships in A1; no conditional unit-only fallback |
+| Honest limits | Compliant design | OpenCode/MCP and masked transcript explicitly covered in inventory and UI text |
 
-**Verdict:** not approved. Waits for Q1.
+**Verdict:** B is the default subject to Q1 confirmation and carrier delivery. A remains unapproved.
 
 ## Changelog
 
 ### 2026-11-16
 - Split from the AI data-protection spec after independent review. The first design filtered in the tool executor by key name. The review showed that the executor also serves people and stored rows, that code mode returns a string a key walk cannot see, that page-context hydration bypasses it, that search results carry titles not field names, and that field names such as `name` and `description` would blank unrelated data. This version filters only where a result is formatted for a model, only for tools that declare what they return, and puts the question of building it at all to a person.
+
+- Council round two fixes (GPT-6.1 Sol workers): r2iqa-13 — inventory and disclose OpenCode over MCP; r2iqa-37 — Q1 default and named docs/program carriers; r2iqa-38 — exported scoped formatter; r2iqa-39 — mandatory recording adapter and integrations; r2iqa-40 — JSON Pointer and byte/truncation rules; g6-28 — masked typed transcript stated and tested.
+- Council round two fixes, pass two (GPT-6.1 Sol workers): bound option B to the deployment-docs carrier's actual Stage 1 and marked its missing section explicitly; synchronized the sibling's effective-policy method, result member, settings route and version name; kept conditional withholding active independently of provider enforcement, with matching failure and test requirements.
+- Council round two fixes, pass three (GPT-6.1 Sol workers): recognized program DEC-11 and G5's already-specified model-input section and Stage 1 carrier; retained Q1 confirmation and actual statement delivery as closure gates.

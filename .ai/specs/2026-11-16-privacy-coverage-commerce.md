@@ -1,335 +1,520 @@
 # Privacy coverage: commerce
 
-> **Program:** a coverage spec of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for `sales`, `cart`, `checkout`, `payment_gateways` and `warranty_claims`.
-> **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md), including its addendum on aliases and identifier subjects; [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md), including its addendum; and [`2026-11-16-privacy-table-coverage.md`](2026-11-16-privacy-table-coverage.md).
-> **Verified at** `main` @ `08dada9624` by reading each module's entities, encryption map and delete commands; nothing was run. Not read: what a payment provider echoes into stored metadata, whether clearing it breaks a later refund, cart event payloads, and the status rules on warranty-claim updates.
-> **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
+> **Program:** a coverage spec of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593), for `sales`, `cart`, `checkout`, `payment_gateways`, `warranty_claims`, `shipping_carriers`, `promotions`, `customer_groups` and `packages/carrier-*`.
+> **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md), [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md), [`2026-11-16-privacy-table-coverage.md`](2026-11-16-privacy-table-coverage.md), [`2026-11-16-privacy-record-retention.md`](2026-11-16-privacy-record-retention.md) and [`2026-11-16-privacy-doctor-cli.md`](2026-11-16-privacy-doctor-cli.md).
+> **Verified at** the supplied read-only repository: the named entity fields, gateway session, poll, webhook, capture and refund paths, Autopay and Stripe adapters, carrier tracking, cart merge undo, warranty intake and portal creation. No application or tests were run. External provider storage and the contents of printed carrier labels were not inspected.
+> **Written autonomously.** Product defaults below require confirmation before implementation.
 
 Extends: .ai/specs/2026-11-16-privacy-data-class-contract.md
 Extends: .ai/specs/2026-11-16-privacy-subject-erasure.md
 
 ## 📝 TLDR
 
-When a customer asks what a company holds about them, or asks for it to be erased, the answer today stops at the CRM record. Their name and address are also on every order and quote, as a copy made when the document was written; in baskets; on payments made through a pay link, where they are known only by an email address; and on warranty claims. None of these modules can export or erase anything, and deleting a CRM person the ordinary way clears the one link by which an order could later be found. **Proposed (future):** each module gets a data class that finds the person's records, exports them, and on erasure does one of three things per record — deletes it, blanks the personal parts, or keeps the minimum a commercial record needs and says until when. Each module is its own phase and ships its export and its erase together.
+Customer data also lives on orders, quotes, baskets, pay-link payments and warranty records. **Proposed (future):** module-owned classes export these records and delete, blank or retain their personal parts with an explicit reason. Marked records have a follow-up through retention sets. Provider writes use the same row locks as privacy writes, so a poll cannot restore cleared data. Each phase ships export and erase together.
 
-**Not in this spec:** invoices and credit memos, which hold nothing about a customer; card data, which is never stored; sales channels' and vendors' business contact details, which are configuration.
+Invoices and credit memos have no customer column, but their free text and metadata are covered through the order. Card details held only at a provider and tenant configuration with no subject link are outside this design.
 
 ## 📝 Resolved assumptions (autonomous defaults)
 
-| # | Question | Chosen | Rationale |
+| # | Question | Chosen default and fallback | Rationale |
 |---|---|---|---|
-| 1 | An order with an invoice, a completed payment, or a shipment that was not cancelled | Kept, with a reduced buyer block — name, company, billing and shipping address, tax id — and reported as retained. Email, phone, the contact's title and department, comments and internal notes are cleared | ⚠ NEEDS HUMAN CONFIRMATION. The invoice stores no customer; the order's copy is the only place the buyer exists. Record-keeping law needs who bought and where it went, not how to reach them. |
-| 2 | Until when | Until the order is older than a number of years the tenant sets. With none set, it is kept and the run says no end is defined | ⚠ NEEDS HUMAN CONFIRMATION. The period differs by country. An OSS default of "for ever" is not defensible; a default number would be a guess. |
-| 3 | Other orders and quotes | Personal parts blanked; the document, its number and totals stay | Numbers are unique and sequences must not have holes. |
-| 4 | How a kept order is found again | The CRM person is anonymized, not deleted, whenever a commerce class keeps something, so the order's link to them survives. Orders and quotes also get a hash of the buyer's email | The erasure spec already anonymizes the owner when a dependant retains. The hash finds documents whose link was cleared by an ordinary delete, or that never had one. |
-| 5 | People known only by an email address | The contract's identifier subject | A payer through a pay link, a guest basket and a claim opened by email have no id anywhere. |
-| 6 | A completed pay-link payment | Kept with the payer's name, reported as retained; email, phone, client address and user agent cleared; the provider's data kept, because a refund may need it | ⚠ NEEDS HUMAN CONFIRMATION. A completed payment is a financial record and carries the payer's acceptance of the terms. |
-| 7 | Baskets | Deleted where nothing forbids it; otherwise blanked. One that is locked for a checkout in progress is left and reported as pending | Two foreign keys forbid deleting a basket that another row points to. |
-| 8 | Warranty claims | A closed claim is kept with name, contact address and free text cleared. An open one is kept whole and reported as retained until it closes | Blanking an open claim removes the address needed to finish it. |
-| 9 | Staff named on these records | Left as ids | Authorship is a reference. |
+| 1 | Which orders must survive identified | ⚠ NEEDS HUMAN CONFIRMATION. An order with an invoice, a completed payment, a non-cancelled sales shipment or a non-cancelled carrier shipment retains a reduced buyer block: name, company, billing and shipping postal addresses and tax id. Fallback: retain and report the document for manual review before applying erasure | A carrier shipment counts even when no `sales_shipments` row exists. Phone, email, contact title, department, comments and internal notes are unnecessary for this block. A retained carrier label is a separately reported evidence copy under the rule below |
+| 2 | Until when | ⚠ NEEDS HUMAN CONFIRMATION. The tenant sets whole calendar years, minimum 1, counted from `placed_at`, falling back to `created_at`. Unset means `retainedUntil: null` and the legal-retention set refuses. Fallback: explicit retained records pending an operator's setting | No jurisdiction-specific period is guessed; OSS operators must run the set |
+| 3 | Other orders and quotes | Blank personal copies and free text; keep numbers, system references and totals | Numbering and arithmetic survive without the buyer |
+| 4 | Finding retained records again | Keep the owner's anonymized root and document link where available; keep the buyer-email hash only while a record is retained | The hash also reaches guest records and records orphaned by ordinary customer deletion |
+| 5 | Identifier-only and portal subjects | Use DEC-A and the contract's “A subject that is only an identifier”; also declare `customer_accounts:user` on email-keyed classes | An unlinked portal account still reaches its own email-keyed records through its aliases |
+| 6 | Completed pay-link payments | ⚠ NEEDS HUMAN CONFIRMATION. Retain name, consents and email hash until the tenant's checkout age, clearing contact and client data and reducing gateway data to refund/reconciliation fields. Fallback: report retained for manual review if a provider has no verified reducer; refuse apply before any write | Refunds need provider identifiers and amounts, not the whole provider response |
+| 7 | Baskets | Delete where allowed; otherwise blank. A locked checkout basket is `retained` / `open_case` and retried after unlock | Four restrict foreign keys can prevent deletion: `carts.proposed_to_cart_id` and the merge log's source, target and proposal |
+| 8 | Warranty claims | Mark an open claim, retain it as `open_case`, and blank it through `warranty_claims.retained_open_claims` after it closes or is cancelled. Closed claims are blanked immediately | A contact point is needed while a case is being worked; a later run must not need the email typed again |
+| 9 | Staff authorship | Leave staff ids on commercial records unless that staff user is the erasure subject; cart merge replay records are the explicit exception and always lose `merged_by_actor_id` when stripped | Authorship alone is not a buyer copy, but the replay record must not retain its actor copy |
+| 10 | Pending and processing payments | Retain payment and gateway contents as `open_case`; set the host's retention and open-case marks. `checkout.finished_open_payments` handles terminal payments later | An in-flight provider may still complete the financial record |
+| 11 | Existing coverage bundle or split | Keep the commerce spec and its per-module release phases | Module phases ship independently |
 
 ## 📝 Problem Statement
 
-**sales**
+The following are current-code observations, not implemented privacy behaviour. Paths under `sales`, `cart`, `payment_gateways`, `shipping_carriers` and `warranty_claims` are under `packages/core/src/modules/`.
 
-- Orders and quotes carry `customer_snapshot` — display name, email, phone, names, company, and the contact's name, title and department — billing and shipping address copies, comments and internal notes, all encrypted (`sales/data/entities.ts:362-374, 431, 880-892`; `commands/documents.ts:818-852`). A caller may pass a snapshot with no customer id (`:1242-1244`). `metadata` may hold references back to inbox proposals (`sales/inbox-actions.ts:71`).
-- They link to a person by `customer_entity_id` — indexed for orders (`:329`), not for quotes — and to a contact by `customer_contact_id`, which holds the contact's *profile* id and has no index (`commands/documents.ts:809-815`).
-- Invoices, credit memos, payments, shipments and returns have no customer column; they are reached through the order.
-- The update command refuses customer and address changes by status and writes a new before-copy (`commands/documents.ts:1168-1192`). Delete is hard, cascades, and keeps a full copy in the audit log under the document's id for undo (`:5473, 6431, 7080`).
-- When a person or company is deleted the ordinary way, a subscriber clears `customer_entity_id` and nothing else — not the contact id, not the copy (`subscribers/reconcileOnCustomerDelete.ts:25-36`; `reconcileOnCompanyDelete.ts`). Every customer already deleted that way has left copies that nothing can find.
-- The customer's name is copied into the search index (`search.ts:137, 152`).
-
-**cart**
-
-- A basket holds an encrypted email and note with no hash, a customer id (indexed), a list of customer ids in JSON, a portal user id (not indexed) and metadata (`cart/data/entities.ts:93-188`). Merge records hold a copy of the source basket.
-- Two foreign keys forbid deleting a basket that a merge record or another basket's proposal points to (`:117, 566-592`). A daily job deletes resolved baskets after 90 days and skips those.
-
-**checkout**
-
-- A transaction holds first and last name, email, phone, free-form customer data, accepted legal consents and the client address, encrypted with no hash, and the user agent in clear (`packages/checkout/…/data/entities.ts:278-308`). It links to no person, portal user or order and has no delete path. Name and email are in the search index and are sent to the payment provider.
-
-**payment_gateways**
-
-- A gateway transaction has no person column. It keeps the provider's data, the client secret and a webhook log, linked by `payment_id` — for a pay link, the checkout transaction's id (`payment_gateways/data/entities.ts:14, 38-53`). A later webhook or poll merges the provider's data back in (`lib/gateway-service.ts:611-651, 729, 784`).
-
-**warranty_claims**
-
-- A claim holds `contact_email` (encrypted, no hash), `customer_name` (in clear, searchable), notes and a resolution summary; lines hold fault descriptions; events hold a body and the acting customer's entity id. On email intake the name falls back to the email address, in clear (`lib/emailIntake.ts:101`).
-- It links to a CRM person or company by `customer_id`. Nothing records which portal user wrote it, though their display name is copied into `customer_name` (`api/portal/claims/route.ts:438`).
-
-**What the contract's hash rule means here.** A hash column declared in an encryption map is filled only when a value is encrypted, never for a value already stored as ciphertext. Every address above is already encrypted, so the modules must write and fill their hashes themselves.
+| Area | Verified current store or path | Gap |
+|---|---|---|
+| Sales | `sales/data/entities.ts`: order and quote customer/address snapshots, `external_reference`, `customer_reference`, line descriptions, metadata, invoice/credit-memo metadata and credit-memo reason; `sales_document_addresses` also holds coordinates | Blanking only the header leaves customer copies in child records |
+| Sales history | `sales/commands/documents.ts`, `shipments.ts`, `payments.ts`, `returns.ts` write before/after snapshots; `sales/subscribers/reconcileOnCustomerDelete.ts` nulls `customer_entity_id` | Ordinary deletion loses the lookup link, and later edits create new undo copies |
+| Cart | `cart/data/entities.ts`: buyer ids, email, note, metadata, `cart_merge_logs.source_snapshot`, `merged_by_actor_id`, and `cart_idempotency_keys.response_body`; `cart/commands/merge.ts` restores buyer context from the snapshot | A merge undo or replay can restore erased identity |
+| Checkout | `packages/checkout/src/modules/checkout/data/entities.ts`: email, name, phone, customer data, consents, IP and user agent; status includes pending, processing, completed, failed, cancelled and expired | Pending does not mean safe to anonymize |
+| Gateway | `payment_gateways/lib/gateway-service.ts`: `createGatewayTransaction` stores `session.providerData`; `getPaymentStatus` merges after a provider call without a fresh write lock; webhook application locks the row | A poll can restore data cleared while the call was in flight |
+| Gateway coverage | `payment_gateways/api/sessions/route.ts` creates a random `paymentId`; `createGatewayTransaction` does not persist the supplied `orderId` | Those transactions cannot be reached through a checkout id or a sales order |
+| Providers | `packages/gateway-autopay/src/modules/gateway_autopay/lib/adapters/v1.ts` stores a form post, launch grant and return targets; Stripe adapter versions under `packages/gateway-stripe/src/modules/gateway_stripe/lib/adapters/` return intent, charge and presentation data | Provider data cannot be assumed to contain no payer details or secrets |
+| Carriers | `shipping_carriers/lib/shipping-service.ts` creates only a carrier shipment and `refreshTracking` replaces its tracking events; `lib/shipment-idempotency.ts` hashes the whole request with SHA-256 | Locations can be restored; the request digest is pseudonymous data |
+| Warranty | `warranty_claims/data/entities.ts`: claims, lines, events and `warranty_claim_registrations` with customer, serial, dates, notes and proof attachment; `lib/emailIntake.ts` uses the email as a name fallback; `api/portal/claims/route.ts` copies the portal display name | Registrations and email-only claimants need explicit outcomes and open claims need a closure follow-up |
 
 ## 📝 Proposed Solution
 
-### Classes
+### Classes and discovery
 
 | Class | Subject kinds | Finds by |
 |---|---|---|
-| `sales.documents` | `customers:person`; `privacy:identifier` | `customer_entity_id`; `customer_contact_id` through the `profile_ids` alias; a new buyer-email hash through `email_hashes` |
-| `cart.baskets` | `customers:person`; `customer_accounts:user`; `privacy:identifier` | Customer id, including the JSON list; portal user id; a new email hash |
-| `checkout.payments` | `customers:person`; `privacy:identifier` | A new email hash |
-| `payment_gateways.transactions` | The same as `checkout.payments` | `payment_id` equal to a checkout transaction the checkout class reports as related |
-| `warranty_claims.claims` | `customers:person`; `customer_accounts:user`; `privacy:identifier` | `customer_id`; the new author column; a new contact-email hash |
+| `sales.documents` | `customers:person`; `customer_accounts:user`; `privacy:identifier` | `customer_entity_id`; `customer_contact_id` through `profile_ids`; buyer-email hash through `email_hashes` |
+| `cart.baskets` | `customers:person`; `customer_accounts:user`; `privacy:identifier` | Customer id and JSON customer-id list; portal user id; email hash |
+| `checkout.payments` | `customers:person`; `customer_accounts:user`; `privacy:identifier` | Email hash, then its own transaction ids passed to `paymentGatewayService` |
+| `warranty_claims.claims` | `customers:person`; `customer_accounts:user`; `privacy:identifier` | `customer_id`; new `created_by_customer_user_id`; contact-email hash; registrations by `customer_id` |
+| `promotions.usages` | `customers:person` | `customer_id` |
+| `customer_groups.memberships` | `customers:person` | `customer_id` |
 
-A CRM person reaches their own guest baskets, pay-link payments and email claims through their `email_hashes` alias. Someone with no CRM record reaches them as an identifier subject.
+All are `erasureGroup: 'records'`; none owns a subject kind. The owner rule comes from the erasure spec. CRM and portal owners publish their own `email_hashes`; a portal user with no CRM person reaches orders and pay-link payments by that alias. There is no separate gateway class: the checkout class calls the gateway's service by payment id. The contract's `providedAliases` / Identifier coverage guard validates every address-keyed class against all owners publishing `email_hashes` or `phone_hashes`: currently `customers:person` and `customer_accounts:user`, in addition to `privacy:identifier`. Reject a future missing kind during collection; do not hard-code today's owner list as the entire rule.
+
+DEC-A — “Subjects known only by an identifier (`privacy:identifier`)” — remains owned by the contract and erasure specs: identifier derivation, normalized aliases, re-supplying the same identifier for apply, redacted CLI flags, and refusal without a lookup secret. This design does not introduce another identifier format.
 
 ### What erasure does
 
-| Record | Outcome |
+| Record | Outcome and follow-up |
 |---|---|
-| Order under assumption 1, younger than the tenant's age or with none set | **Retained**: the reduced buyer block. The rest of the copy, comments and notes cleared. The run reports the date it may be erased, or that none is defined |
-| The same order, older than the tenant's age | **Anonymized** |
-| Other orders and quotes | **Anonymized**: customer copy, addresses, comments, notes and the two free-text reference columns cleared; number, lines, totals and the link to the anonymized person kept |
-| A contact on a company's document, retained or not | The contact's part of the copy **cleared** |
-| Shipments, returns, payments under a document | Follow the document; their notes are cleared, tracking numbers kept with a retained order |
-| Basket | **Deleted**; **anonymized** when a foreign key forbids it; left as pending when locked |
-| Completed pay-link payment | **Retained**: name and consents. Email, phone, customer data, client address and user agent cleared |
-| Other pay-link payment | **Anonymized** |
-| Gateway transaction of an anonymized payment | Provider data, client secret, webhook log and operation results **cleared**, and the row marked so that a later webhook or poll does not refill it |
-| Gateway transaction of a retained payment | **Retained** |
-| Closed warranty claim | **Anonymized**: name, contact email, notes, fault descriptions and event bodies cleared; the claim, its lines and its links kept |
-| Open warranty claim | **Retained** until closed |
+| Protected order inside the tenant age, or with no age set | `retained` / `legal_retention`: reduced buyer block and email hash; `privacy_retained_at` set, `retainedUntil` date or null, `retentionSetId: sales.retained_orders` |
+| Protected order already past the age, or other order or quote | `anonymized`: snapshots, email hash, comments, internal notes where present, `external_reference`, `customer_reference` and personal line/metadata fields cleared; numbers and totals kept |
+| `sales_document_addresses` | For an anonymized document delete its rows and clear its address ids/snapshots; for a retained order keep only the billing/shipping rows of the reduced block, clear `customer_address_id` and latitude/longitude, then delete those rows when the set blanks the order |
+| Contact on a company's document | Clear only that contact's copy and link; the company's buyer record stays. Do not blank the company's postal address for its contact's erasure |
+| Sales child records | Shipments, returns, payments, invoices, credit memos and their lines follow the order's retention decision; clear personal notes, descriptions, metadata and credit-memo `reason`. Retained billing numbers, amounts and dates stay |
+| Basket not locked | Delete it and its owned line/application rows where FKs allow; otherwise blank buyer ids, email/hash, note, personal line data and metadata. Sanitize related merge logs and delete its idempotency rows in both branches |
+| Locked basket | `retained` / `open_case`, `retainedUntil: null`; retry after unlock. No invented `pending` outcome |
+| Pending or processing pay-link payment | `retained` / `open_case`, `retainedUntil: null`, `retentionSetId: checkout.finished_open_payments`; set `privacy_retained_at` and `privacy_open_case_at` without clearing personal data or touching its gateway rows |
+| Completed pay-link payment inside its age, or with none set | `retained` / `legal_retention`: name, consents and email hash kept; email, phone, customer data, IP and user agent cleared; mark set; gateway data reduced; name `checkout.retained_payments` and its end |
+| Completed payment past its age, or failed/cancelled/expired payment | `anonymized`: name, consents, all contact/client data and email hash cleared; gateway personal data cleared |
+| Gateway rows for an anonymized payment | Clear provider blobs, redirect URL, client secret, webhook log and operation personal payloads; mark `anonymized_at`. Keep only operational ids, amounts, status and safe operation replay envelopes |
+| Gateway rows for a legally retained payment | Reduce through the provider-owned mapper below, set `privacy_reduced_at`; never keep an unfiltered provider blob merely because the payment is retained |
+| Closed or cancelled warranty claim | `anonymized`: clear name, email/hash, notes, resolution summary, fault/inspection text, event bodies and customer actor copies, return label and personal tracking data; release its files |
+| Open warranty claim | `retained` / `open_case`, `retainedUntil: null`, `retentionSetId: warranty_claims.retained_open_claims`; set `privacy_retained_at` and keep working data until terminal |
+| Warranty registration | Export product, variant/SKU, serial, purchase/warranty dates and notes. Delete the registration on erasure and release `proof_attachment_id` through `releaseByIds`; claim lines keep their own existing product/serial copies, whose personal free text follows the claim |
 
-Blanking is done by an internal function of each module that writes through the entity and emits the module's index events, as the erasure spec's addendum describes. Each handler returns the records it touched as history records, so that the copies kept for undo — including a deleted order's full copy — are stripped. Files on shipments, returns, payments and claims are released through the attachments seam where the record is anonymized.
+**Free text policy.** For anonymized sales documents and their children, clear custom descriptions, free-text names, comments and references; use the shared placeholder for required textual fields. Clear metadata except a typed allowlist of system ids, enum codes and numeric totals; arbitrary strings and unknown keys do not survive. Apply this to order/quote lines, invoice/credit-memo lines, invoice metadata and credit-memo reason/metadata. For retained records clear these fields on initial erasure too; only the stated reduced buyer block is kept in sales tables. The carrier-label evidence exception below is a separate retained section. Tests put a name in a line description, metadata and a credit-memo reason. No `anonymized` section may retain those names under a known-limit footnote.
 
-### Schema and behaviour changes
+Custom values consume C4's “Custom values — `entitiesPrivacyService`”. `listCustomValuesForPrivacy({ scope, entityId, recordIds, after?, limit }, { em? })` returns `{ records: Array<{ recordId: string; organizationId: string | null; values: Record<string, unknown>; recordIdentities: Array<{ table: 'custom_field_values'; rowId: string; columns: string[] }> }>, next?: string, done: boolean }`. Prove the served entity/record ids from commerce's own rows, include soft-deleted values and removed definitions, and exhaust scoped pages with at most 100 record ids and a page limit of 100. With `em`, listing uses the caller's transaction and the same scoped value locks as clearing. `clearCustomValuesForPrivacy({ scope, entityId, recordIds, dryRun }, { em })` returns `{ affected: number, historyRecords: PrivacyHistoryRecord[], recordIdentities: Array<{ table: 'custom_field_values'; rowId: string; columns: string[] }> }` and clears only those values in the caller's transaction without a nested commit. Dry run supplies the complete planned history identities and projected survivors; apply returns actual changed history identities and actual survivors, normally `[]` after hard deletion. The listing's exact value-row ids/columns and clearing's survivor identities are owner evidence, never permission to retain fields this policy clears. Union its planned/actual `entities.custom_field_value` histories and containing owner snapshots into R3-1's footprint; schedule the owning field/index/cache side effects after commit. Missing service, malformed/unexhausted pages, ambiguous tenant-less values or failed decryption refuse affected apply or make export incomplete; no class reads entities tables.
 
-- **Hashes**, written by each module in its own write path and filled for existing rows by a one-off command per module, with the contract's fallback scan until it has run: `sales_orders` and `sales_quotes` buyer email; `carts.email`; `checkout_transactions.email`; `warranty_claims.contact_email`.
-- **Indexes**: `sales_quotes.customer_entity_id`; `customer_contact_id` on orders and quotes; `carts.customer_user_id`; each hash, led by the tenant.
-- **`warranty_claims.created_by_customer_user_id`**, filled from now on. Existing claims cannot be attributed to a portal user.
-- **`gateway_transactions.anonymized_at`**, read by the code that merges provider data.
-- **The intake fallback** stops writing an address into `customer_name`.
-- **A tenant setting in `sales`**: the number of years a commercial record is kept. Unset by default.
-- **The ordinary-delete subscriber is unchanged.** The buyer-email hash is what finds the copies it orphans, past and future.
+Attachment releases consume C4's attachments contract: `releaseForRecord` and `releaseByIds` take trailing `{ em, dryRun?: boolean }` options, return planned/actual `historyRecords: PrivacyHistoryRecord[]` and survivor `recordIdentities: Array<{ table: string; rowId: string; columns: string[] }>` alongside released/pending/retained/skipped files, and use the caller's transaction without a nested commit. Union every owner-returned attachment history identity into the class footprint; current assignments are embedded in `attachments.storage_metadata` and use `attachments.attachment`, never an inferred assignment id. Map surviving row ids/columns only to the matching declared retained-file section and reason. Missing/truncated identities or changed ownership require replan before writes; pending bytes remain incomplete. No commerce class reads attachment tables.
+
+**Cart replay stores.** Find merge logs by source, target or proposal cart, including the survivor buyer context nested in `source_snapshot`. Remove all buyer ids/contact fields, personal line snapshots, metadata and replay payloads, null `merged_by_actor_id`, and set new `privacy_stripped_at`. Preserve only merge topology and numeric dispositions. `restoreCartMerge` and the merge-undo command re-read that mark under the same locks as privacy and refuse a stripped merge with 410, including an undo that loaded the row earlier. Delete all idempotency rows for the affected carts, including their response bodies. These edited merge logs are history records even if another person's basket survives the merge. A locked basket keeps its replay stores until it can be processed.
+
+### Provider services, export and concurrent writes
+
+`paymentGatewayService` gains the following additive methods. All accept `PrivacyScope`, enforce tenant plus the optional organization rule, and use the caller's transactional manager for mutations. No class reads a provider table directly.
+
+| Method | Contract |
+|---|---|
+| `exportForPayments({ scope, paymentIds, maxRecords })` | Returns `{ records, truncated, recordIdentities }` with transaction ids, provider, status, amounts, dates, provider-owned exported payer fields, sanitized webhook entries and safe operation results. Secrets, authentication material and launch grants never leave the service |
+| `reduceForRetention({ scope, paymentIds, dryRun })` | Reduces provider metadata, webhook copies and operation results to the verified refund/reconciliation allowlist; clears client secret and redirect URL; sets `privacy_reduced_at`; returns `{ affected, historyRecords, recordIdentities }` |
+| `clearForErasure({ scope, paymentIds, dryRun })` | Clears personal copies and sets `anonymized_at`; returns `{ affected, historyRecords, recordIdentities }` for every changed transaction/operation |
+
+Add optional `exportForPrivacy` and `reduceForPrivacy` adapter methods to `GatewayAdapter` in `packages/shared/src/modules/payment_gateways/types.ts`; provider packages implement them. They are local, pure mappings over stored metadata, operation results and webhook entries, with zod-validated outputs. `exportForPrivacy` includes stored payer-related fields while removing provider secrets; it does not call the provider. `reduceForPrivacy` allowlists only provider/session/charge/refund ids, typed status, amount and currency fields. Unknown keys, arbitrary notes, form posts, launch grants, URLs and embedded presentation payloads are dropped. Safe operation replay envelopes preserve typed ids, status and amounts, without personal blobs. Stripe's existing adapters use the intent id to refund; Autopay's adapter resolves its remote id from the session id through its status lookup. Unit tests verify both refund paths after reduction with fake clients. No provider-specific policy goes into core.
+
+For these host service methods, `recordIdentities` is an array of `{ table: string, rowId: string, columns: string[] }` over the service's actual scoped transaction/operation rows, including unchanged rows whose personal subset remains open. It contains identifiers/column names only. Read-only export supplies the pre-write inventory for the open-payment branch; dry-run reduction/clearing supplies its full planned `historyRecords` and survivor inventory without writes; apply returns actual history and surviving row identities. Checkout intersects the survivor columns with its branch's retained declarations, stamps the reason/section, and produces `retainedRecords`; the identity inventory alone grants no permission. A truncated export or incomplete identity inventory refuses erasure planning rather than silently omitting a row. Ordinary subject exports serialize only the safe `records` sections, not this internal planning member.
+
+Both optional adapter methods receive `{ providerData: unknown, webhookLog: unknown, operationResults: unknown }` and return `{ providerData: Record<string, unknown>, webhookLog: Array<Record<string, unknown>>, operationResults: Array<Record<string, unknown>> }`. Provider-owned zod schemas validate each allowed output field; the generic shape alone is not the safety boundary. Reduction is idempotent, so already-reduced input yields the same output.
+
+An installed provider without its mapper causes export to report a class failure and aggregate `complete: false`; its omitted provider store is a named export limit, never a complete gateway section. Erasure's `checkErasable` refuses before any writes when reduction/export support required for matched rows is absent. Optional adapter methods leave ordinary payment calls unchanged.
+
+Every metadata, operation-result or webhook-log write in session finalization, polling, webhooks, capture, refund and cancellation re-reads the transaction under `PESSIMISTIC_WRITE` with refresh immediately before writing. Privacy reduction/clearing takes that same lock. Network calls may run outside it; their stale entity is never flushed back. A reduced row accepts only mapper-approved fields; an anonymized row accepts no personal data. Both marks preserve allowed status transitions, amount accounting, webhook deduplication and safe replay ids. Re-check in-flight operation completion too. Thus a successful webhook or poll racing an open payment's erasure still completes it; a later poll cannot refill a cleared payment.
+
+**Coverage gap kept visible.** Only checkout-originated gateway rows are reached by this seam. `gateway_transactions` and `gateway_payment_operations` remain on the coverage baseline for `POST /api/payment_gateways/sessions` and other callers until a caller persists a subject/order link and supplies a class. Do not emit a whole-table coverage or exemption declaration for either table. Keep both on the baseline, with the sessions-route backlog documented here; the checkout export section describes relation-based service coverage; use C5’s existing subset/seam metadata only where expressible, with the full unresolved remainder still baselined. No sales-payment-to-gateway link is claimed.
+
+**Pre-flight.** `checkout.payments.checkErasable` and `sales.documents.checkErasable` resolve the required provider seams and inspect method availability for matched records. A disabled peer with no persisted dependants needs no seam. An enabled peer lacking a method, an unavailable provider mapper, or an unavailable service needed to establish whether dependants exist refuses the subject before the host's hash or aliases are cleared. Unexpected runtime failures roll back the batch and leave the subject incomplete (exit 2), rather than inventing a section outcome. File deletion failures are counted in `filesPending` through the attachments contract.
+
+### History records and later retention
+
+Use R3-1 — “The audit-history rule for every erasure”, owned by the erasure spec — and DEC-B — “The audit-history strip routine” — in that spec's “Contract additions” and `applyRetention` sections. The erasure orchestrator owns the two passes and execution-time undo/redo checks. Internal blanking functions create no snapshot or audit payload containing cleared values.
+
+| Class | `historyRecords` returned |
+|---|---|
+| `sales.documents` | Every changed order/quote; document address; line; invoice/credit memo and line; shipment, payment, return and note; carrier rows returned by its service |
+| `cart.baskets` | Every deleted/blanked cart, line, promotion application, edited merge log and deleted idempotency row, including logs connected to another surviving basket |
+| `checkout.payments` | Every marked/reduced/blanked checkout transaction and every gateway transaction/operation changed through the service |
+| `warranty_claims.claims` | Every marked/blanked claim, changed line/event, deleted registration and cleared attachment link |
+| `promotions.usages` | Every changed code usage/promotion usage and deleted reservation |
+| `customer_groups.memberships` | Every deleted membership |
+
+Every `eraseSubject({ dryRun: true })` returns the complete would-change `{ resourceKind, resourceId }` identities in `historyRecords`, including retention-marker-only writes, other-owner rows, delegated gateway/carrier rows and attachment/link rows actually edited by the attachments owner. Apply returns its actual footprint. Resolve logged kinds from the owning commands; for an unlogged row use R3-1's discovered module entity id with `:` replaced by `.`, never a guessed table-name singular. Include containing parents when their snapshots carry a child. Plan without silent truncation, persist the pre-write identities, and refuse a new unplanned identity with `REPLAN_REQUIRED` before editing it. Both orchestrator passes use `includeSubjects` and `includeRecords`; the second uses the planned/journaled/returned union. Stripping another person's shared record also removes its unrelated historical values, which the dry-run report discloses. Internal blankers write neither undo snapshots nor audit payloads carrying cleared values.
+
+A later retention batch must strip history written since the original erasure. Before blanking it collects its whole record footprint, calls OSS `actionLogService.applyRetention` with `mode: 'strip'`, `includeRecords`, scope and `dryRun`, exhausts its bounded pages, blanks through the internal function, then strips again before committing. No cross-module table access is used. The owning module resolves the audit service with the batch transaction; failure rolls back the blanking. This also applies to gateway, carrier, warranty child snapshots if present. Retention audit entries contain counts and ids only. R3-8 — “Retention drains its own pending file deletions”, in the record-retention spec, owns draining pending file deletions after committed batches under `origin: privacy:retention:<setId>` and retrying that origin at apply entry. Handlers enqueue releases in their transaction; preview never drains and neither the handler nor an enterprise caller adds a second drain.
+
+Sales command entries written from this change carry `relatedResourceKind: 'customers.person'` and the person id where a customer person exists. Include order/quote and address, shipment, payment, return and note entries. Existing entries are not rewritten. Entries for already-deleted documents with no related person remain a reported limit.
+
+### Run-bound retained declarations and evidence
+
+Consume [`2026-11-16-privacy-verification-suite.md`](2026-11-16-privacy-verification-suite.md), “1. Run-bound retained declarations” and “Definition and run evidence”. Its `PrivacyRetainedDeclaration` has `{ section, table, columns, reason }`; the enclosing class supplies the class id. Populate `privacy.ts.dataClasses[].retained` with the exact entries below. They allow only the listed identifier/personal columns on the actual selected rows, not an entire table or JSON policy waiver. Numeric accounting fields/dates may remain under the stated outcomes; every captured fixture row still needs row-presence evidence. JSON columns additionally obey the existing typed reducers; column-level permission never permits a cleared email/name to survive inside a different key.
+
+Consume R3-14 — “The `eraseSubjects` entry point” — and C4's “Contract additions — `@open-mercato/shared/modules/privacy`”. Import `PrivacyRetainedRecord` from `@open-mercato/shared/modules/privacy`: every section carries runner-stamped `dataClassId`, and each retained section returns `retainedRecords: PrivacyRetainedRecord[]`. For each selected surviving row, emit one record for each applicable row below, using its actual primary key (the exit reader's stable `rowId` encoding), the listed columns that really survive this branch, and the same reason as `retainReason`. Never include another row, a deleted row or a column cleared in this branch. Deduplicate identical records. Dry run predicts these same identities; apply reports only committed, verified standing survivors. `affected` is not row evidence; unchanged standing retained rows still need evidence with zero changes. Non-retained sections emit no retained permission. Split anonymized content and retained structural/other-party subsets into separate sections with the keys below. Keep the existing `retainedUntil` and `retentionSetId` on time-bounded/open-case sections; indefinite structural sections have null end and no invented set.
+
+C4 now defines optional `PrivacyErasureSectionResult.dataClassId` / `retainedRecords` and `PrivacyRetainedRecord` for compatibility, and requires stamped exact evidence for new verified runs. Populate every retained sales/checkout/warranty/carrier section below from its scoped selected-row inventory; include zero-change survivors, the exact surviving column subset, reason, end and set. The runner preserves these fields on flattened `PrivacyErasureRunResult.subjects[].sections`, its private report and encrypted completed audit, so verification consumes the applied run rather than asking the handler to excuse a leftover later. No completion-event field or new reason is introduced; the event omits retained-row evidence.
+
+| Class | Section | Reason | Table | Exact retained identifier/personal columns |
+|---|---|---|---|---|
+| `sales.documents` | `buyer_block` | `legal_retention` | `sales_orders` | `id`, `tenant_id`, `organization_id`, `customer_entity_id`, `customer_contact_id`, `customer_snapshot`, `billing_address_id`, `shipping_address_id`, `billing_address_snapshot`, `shipping_address_snapshot`, `tax_info`, `customer_email_hash` |
+| `sales.documents` | `buyer_addresses` | `legal_retention` | `sales_document_addresses` | `id`, `tenant_id`, `organization_id`, `document_id`, `document_kind`, `order_id`, `quote_id`, `purpose`, `name`, `company_name`, `address_line1`, `address_line2`, `building_number`, `flat_number`, `city`, `region`, `postal_code`, `country` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_orders` | `id`, `tenant_id`, `organization_id`, `customer_entity_id`, `customer_contact_id`, `billing_address_id`, `shipping_address_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_quotes` | `id`, `tenant_id`, `organization_id`, `customer_entity_id`, `customer_contact_id`, `converted_order_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_order_lines` | `id`, `tenant_id`, `organization_id`, `order_id`, `product_id`, `product_variant_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_quote_lines` | `id`, `tenant_id`, `organization_id`, `quote_id`, `product_id`, `product_variant_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_order_adjustments` | `id`, `tenant_id`, `organization_id`, `order_id`, `order_line_id`, `promotion_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_quote_adjustments` | `id`, `tenant_id`, `organization_id`, `quote_id`, `quote_line_id`, `promotion_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_invoices` | `id`, `tenant_id`, `organization_id`, `order_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_invoice_lines` | `id`, `tenant_id`, `organization_id`, `invoice_id`, `order_line_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_credit_memos` | `id`, `tenant_id`, `organization_id`, `order_id`, `invoice_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_credit_memo_lines` | `id`, `tenant_id`, `organization_id`, `credit_memo_id`, `order_line_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_shipments` | `id`, `tenant_id`, `organization_id`, `order_id`, `shipping_method_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_shipment_items` | `id`, `tenant_id`, `organization_id`, `shipment_id`, `order_line_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_payments` | `id`, `tenant_id`, `organization_id`, `order_id`, `payment_method_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_payment_allocations` | `id`, `tenant_id`, `organization_id`, `order_id`, `invoice_id`, `payment_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_returns` | `id`, `tenant_id`, `organization_id`, `order_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_return_lines` | `id`, `tenant_id`, `organization_id`, `return_id`, `order_line_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_notes` | `id`, `tenant_id`, `organization_id`, `order_id`, `quote_id`, `context_id`, `author_user_id` |
+| `sales.documents` | `document_structure` | `shared_record` | `sales_document_tag_assignments` | `id`, `tenant_id`, `organization_id`, `document_id`, `order_id`, `quote_id`, `tag_id` |
+| `sales.documents` | `carrier_labels` | `evidence` | `carrier_shipments` | `id`, `tenant_id`, `organization_id`, `order_id`, `label_data`, `label_url` |
+| `sales.documents` | `carrier_structure` | `shared_record` | `carrier_shipments` | `id`, `tenant_id`, `organization_id`, `order_id`, `carrier_shipment_id`, `tracking_number` |
+| `sales.documents` | `carrier_request_evidence` | `evidence` | `carrier_shipment_idempotency_keys` | `id`, `tenant_id`, `organization_id`, `shipment_id`, `request_hash` |
+| `sales.documents` | `carrier_structure` | `shared_record` | `carrier_shipment_idempotency_keys` | `id`, `tenant_id`, `organization_id`, `shipment_id` |
+| `cart.baskets` | `locked_basket` | `open_case` | `carts` | `id`, `tenant_id`, `organization_id`, `customer_id`, `customer_ids`, `customer_user_id`, `email`, `email_hash`, `note`, `metadata`, `buyer_digest`, `token_hash`, `checkout_session_id`, `approval_id`, `merged_into_cart_id`, `proposed_to_cart_id` |
+| `cart.baskets` | `locked_basket` | `open_case` | `cart_lines` | `id`, `tenant_id`, `organization_id`, `cart_id`, `added_by_actor_id`, `configuration`, `configuration_hash`, `name`, `metadata`, `option_values`, `uom_snapshot` |
+| `cart.baskets` | `locked_basket` | `open_case` | `cart_promotion_applications` | `id`, `tenant_id`, `organization_id`, `cart_id`, `cart_line_id`, `code_id`, `code_reservation_id`, `promotion_id`, `code` |
+| `cart.baskets` | `locked_basket` | `open_case` | `cart_merge_logs` | `id`, `tenant_id`, `organization_id`, `source_cart_id`, `target_cart_id`, `proposal_cart_id`, `source_snapshot`, `merged_by_actor_id` |
+| `cart.baskets` | `locked_basket` | `open_case` | `cart_idempotency_keys` | `id`, `tenant_id`, `organization_id`, `cart_id`, `request_digest`, `response_body` |
+| `cart.baskets` | `basket_structure` | `shared_record` | `carts` | `id`, `tenant_id`, `organization_id`, `merged_into_cart_id`, `proposed_to_cart_id` |
+| `cart.baskets` | `basket_structure` | `shared_record` | `cart_lines` | `id`, `tenant_id`, `organization_id`, `cart_id`, `product_id`, `variant_id`, `promotion_id` |
+| `cart.baskets` | `basket_structure` | `shared_record` | `cart_promotion_applications` | `id`, `tenant_id`, `organization_id`, `cart_id`, `cart_line_id`, `code_id`, `code_reservation_id`, `promotion_id` |
+| `cart.baskets` | `basket_authorship` | `other_party` | `cart_lines` | `id`, `tenant_id`, `organization_id`, `added_by_actor_id` |
+| `cart.baskets` | `basket_structure` | `shared_record` | `cart_merge_logs` | `id`, `tenant_id`, `organization_id`, `source_cart_id`, `target_cart_id`, `proposal_cart_id` |
+| `checkout.payments` | `open_payment` | `open_case` | `checkout_transactions` | `id`, `tenant_id`, `organization_id`, `link_id`, `gateway_transaction_id`, `email`, `first_name`, `last_name`, `phone`, `customer_data`, `accepted_legal_consents`, `ip_address`, `user_agent`, `email_hash` |
+| `checkout.payments` | `payer_evidence` | `legal_retention` | `checkout_transactions` | `id`, `tenant_id`, `organization_id`, `first_name`, `last_name`, `accepted_legal_consents`, `email_hash` |
+| `checkout.payments` | `payment_structure` | `shared_record` | `checkout_transactions` | `id`, `tenant_id`, `organization_id`, `link_id`, `gateway_transaction_id` |
+| `checkout.payments` | `open_gateway` | `open_case` | `gateway_transactions` | `id`, `tenant_id`, `organization_id`, `payment_id`, `gateway_metadata`, `webhook_log`, `redirect_url`, `client_secret`, `provider_session_id`, `gateway_payment_id`, `gateway_refund_id` |
+| `checkout.payments` | `open_gateway` | `open_case` | `gateway_payment_operations` | `id`, `tenant_id`, `organization_id`, `transaction_id`, `result`, `request_hash` |
+| `checkout.payments` | `gateway_structure` | `shared_record` | `gateway_transactions` | `id`, `tenant_id`, `organization_id`, `payment_id`, `provider_session_id`, `gateway_payment_id`, `gateway_refund_id`, `gateway_metadata`, `webhook_log` |
+| `checkout.payments` | `gateway_structure` | `shared_record` | `gateway_payment_operations` | `id`, `tenant_id`, `organization_id`, `transaction_id`, `result` |
+| `warranty_claims.claims` | `open_claim` | `open_case` | `warranty_claims` | `id`, `tenant_id`, `organization_id`, `customer_id`, `created_by_customer_user_id`, `customer_name`, `contact_email`, `contact_email_hash`, `notes`, `resolution_summary`, `return_label_url`, `return_tracking_number`, `external_ref`, `intake_message_ref`, `vendor_name`, `vendor_ref`, `order_id`, `order_number`, `source_claim_id` |
+| `warranty_claims.claims` | `open_claim` | `open_case` | `warranty_claim_lines` | `id`, `tenant_id`, `organization_id`, `claim_id`, `fault_description`, `inspection_notes`, `assessment_payload`, `condition_on_receipt`, `product_name`, `serial_number`, `lot_number`, `vendor_name` |
+| `warranty_claims.claims` | `open_claim` | `open_case` | `warranty_claim_events` | `id`, `tenant_id`, `organization_id`, `claim_id`, `body`, `payload`, `actor_customer_id`, `actor_user_id` |
+| `warranty_claims.claims` | `claim_structure` | `shared_record` | `warranty_claims` | `id`, `tenant_id`, `organization_id`, `customer_id`, `order_id`, `sales_return_id`, `credit_memo_id`, `replacement_order_id`, `source_claim_id`, `assignee_user_id` |
+| `warranty_claims.claims` | `claim_structure` | `shared_record` | `warranty_claim_lines` | `id`, `tenant_id`, `organization_id`, `claim_id`, `product_id`, `variant_id`, `order_line_id`, `vendor_claim_line_id`, `serial_number`, `lot_number` |
+| `warranty_claims.claims` | `claim_structure` | `shared_record` | `warranty_claim_events` | `id`, `tenant_id`, `organization_id`, `claim_id`, `actor_user_id` |
+| `promotions.usages` | `usage_totals` | `shared_record` | `promotion_code_usages` | `id`, `tenant_id`, `organization_id`, `code_id` |
+| `promotions.usages` | `usage_totals` | `shared_record` | `promotion_usages` | `id`, `tenant_id`, `organization_id`, `promotion_id`, `order_id` |
+
+`locked_basket`, `open_payment`, `open_gateway` and `open_claim` are emitted only while that branch remains open; `buyer_block`, `buyer_addresses`, `payer_evidence`, `carrier_labels` and `carrier_request_evidence` only while that reduced/evidence block is actually retained. Carrier and gateway services return their exact survivor inventory to the consuming sales/checkout class; those classes stamp their own section/class evidence, without claiming ownership of provider tables. `gateway_structure` JSON contains only the verified operational mapper output. Final clearing empties `gateway_transactions.gateway_metadata` and `webhook_log`; `gateway_payment_operations.result` may keep only the typed safe replay envelope specified above, with no personal payload. `basket_structure` does not excuse a residual buyer id, merge actor id, replay body, configuration digest or personal line value after blanking. Blanking also clears `carts.buyer_digest` / `token_hash` and a cleared line configuration’s `configuration_hash`; unrelated staff `added_by_actor_id` may survive only under that actual line’s `basket_authorship` / `other_party` evidence, as assumption 9 specifies. `claim_structure` does not excuse remaining customer-name/email, portal-author id, customer actor, label, tracking or event-body copies. A final warranty blanker preserves only the declared product/serial, topology and numeric fields; unknown personal assessment/event payloads and vendor free text clear. `customer_groups.memberships` declares `retained: []`. Deleted registrations and memberships, deleted carts/children, all deleted idempotency keys and promotion reservations have no retained row evidence. Promotion usage `effects_snapshot` is reduced to typed numeric/enum discount facts; it grants no arbitrary-text retention.
+
+For example, a retained order's `buyer_block` section returns `{ dataClassId: 'sales.documents', section: 'buyer_block', outcome: 'retained', retainReason: 'legal_retention', retainedUntil, retentionSetId: 'sales.retained_orders', retainedRecords }`, where `retainedRecords` contains the actual order id and that declaration's surviving columns. Its invoice is a distinct `document_structure` record with that invoice id, `[id, tenant_id, organization_id, order_id]` and `reason: 'shared_record'`. This never allows buyer text in invoice metadata or a different invoice row. An erased quote's structural evidence cannot excuse an undeleted address row.
+
+`buyer_block`, `buyer_addresses`, `carrier_labels` and `carrier_request_evidence` carry the selected order's actual end (null if unset) and `sales.retained_orders`; `payer_evidence` carries its checkout end and `checkout.retained_payments`. `open_payment` / `open_gateway` carry null end and `checkout.finished_open_payments`; `open_claim` carries null end and `warranty_claims.retained_open_claims`. `locked_basket` carries null end and no set: the reported follow-up is retrying subject erasure after unlock. Structural/authorship/usage sections carry null end and no set. Emit these fields on each applicable section, rather than relying on another section's expiry to authorize its rows.
+
+
+Use C4's owner-returned attachment `historyRecords` and survivor `recordIdentities` described under “Free text policy” for every file branch. Exact history planning and matching retained-file evidence remain required; missing or truncated results refuse affected apply or leave the section incomplete. The owner already specifies that support, so it is no longer a missing-design handoff.
+
+### Settings and retention sets
+
+Consume R3-3 — “Tenant privacy settings live in `module_configs`”, owned by the contract spec. These declarations belong in each module's `privacy.ts`; the privacy module owns storage, validation dispatch, CLI writes, ACL, settings audit and optimistic locking. Read through `privacySettingsService.get(scope, name)`. No sales or checkout settings table, route or page is added here.
+
+| Setting name | Type and validation | Unit/minimum | Default |
+|---|---|---|---|
+| `retention.sales.orderAgeYears` | `type: 'integer'`; `z.number().int().min(1)` | `unit: 'years'`; calendar years; `minimum: 1` | None; unset refuses legal-retention pruning |
+| `retention.checkout.paymentAgeYears` | `type: 'integer'`; `z.number().int().min(1)` | `unit: 'years'`; calendar years; `minimum: 1` | None; unset refuses legal-retention pruning |
+
+Set with `mercato privacy settings set --tenant <id> <name> <value>` and inspect with `mercato privacy settings list --tenant <id>`, as R3-3 specifies. Values are tenant-only, never inherited from an instance setting. Add locale labels `sales.privacy.orderAgeYears` and `checkout.privacy.paymentAgeYears`. The shared settings command owns the feature guard, scoped audit entry and version-conflict handling; the enterprise page consumes the same service.
+
+Declare these entries in `privacy.ts.settings` using the contract's `PrivacySettingDefinition`: name, `type: 'integer'`, `unit: 'years'`, `minimum: 1`, and no `default` member. `privacySettingsService.get(scope, name)` returns an envelope; use its validated `value`, not the envelope as a number. Missing values refuse legal pruning.
+
+Declare `sales.retention_age_unset` and `checkout.retention_age_unset` in the owning modules' `privacy.ts.doctorChecks`, each with `needs: 'database'`, under DEC-I, R3-4 and R4-7. Each async check constructs C1's `createReadOnlyPrivacySettingsService({ em, definitions, tenantIds })` with its owning module's validated setting definitions and the doctor's transaction-bound manager and allowed tenant list, then tallies its own missing/invalid age through `get(scope, name)`. Count `source: 'unset'` and `SETTING_INVALID`; other service/database failures become `doctor.check_failed`. Return aggregate counts only, never values, versions or tenant ids. C1's “Bootstrap-free settings reads — R3-3” defines that factory, returning `Pick<PrivacySettingsService, 'get'>` through the configs-owned `createModuleConfigPrivacyReader({ em })`. R4-7 permits these get-only settings reads alongside counting queries; the shared `privacy.retention_settings_unset` check complements the domain checks. No new doctor context member or general application DI bootstrap is needed, and no coverage class reads configs tables. Only `mercato privacy doctor --database` runs these checks; the default configuration-only run lists them as `database_not_requested`, without constructing the reader or a database connection. Selecting only `sales.retention_age_unset` or `checkout.retention_age_unset` with `--database` must construct the same reader independently. R3-2 — “The registry carries the whole `privacy.ts` default export” — owns collecting optional members from that object.
+
+| Set | Matches and age | Effect | Floor / excludable kinds |
+|---|---|---|---|
+| `sales.retained_orders` | Marked orders, from `placed_at` or `created_at`, past the tenant age and caller window | Blank reduced block, address rows, buyer hash and provider copies through the carrier seam; strip current history; remove mark | `targets: ['records']`; `minimumDays: 365`; `excludableSubjectKinds: ['customers:person']` |
+| `checkout.retained_payments` | Marked completed payments, from `created_at`, past the tenant age and caller window | Blank name, consents and hash, clear gateway copies, strip current history and remove both checkout privacy marks | `targets: ['records']`; `minimumDays: 365`; `excludableSubjectKinds: []` |
+| `checkout.finished_open_payments` | Payments with `privacy_open_case_at` set, now terminal, from the stable `privacy_open_case_at` marker, older than the caller window | Completed: apply the retained-payment reduction, clear the open-case mark and leave `privacy_retained_at` for the legal set, or blank if already due. Failed/cancelled/expired: blank and clear both marks. Pending/processing never match | `targets: ['records']`; `minimumDays: 1`; `excludableSubjectKinds: []` |
+| `warranty_claims.retained_open_claims` | Marked closed/cancelled claims, from `closed_at` or, when it is absent, the stable `privacy_retained_at` marker, older than the caller window | Same blanker as closed-claim erasure, history strip and file release; remove mark | `targets: ['records']`; `minimumDays: 1`; `excludableSubjectKinds: []` |
+
+These are `records` sets under DEC-C — “Retention sets and holds”, owned by the record-retention spec. The legal sets refuse every window when their setting is unset, and refuse a window shorter than the `365 * configuredYears` days. Exact eligibility still uses calendar anniversaries in UTC, clamping 29 February to 28 February in a non-leap year; require both that date and the caller's cutoff. The finished-open set can hand a completed payment into legal retention with an unset age, reporting no end; it must not blank it then. Closure sets need no guessed legal period. Their stable marker fallback prevents ordinary polls or terminal-record edits from resetting eligibility; current terminal status is still rechecked under lock.
+
+All sets consult `privacyRetentionGuard` through `privacyRetentionService`; a failing registered guard refuses. Sales excludes linked orders by held person id and, conservatively, all orders without a customer link whenever a person is excluded. It declares no `privacy:identifier`: any identifier exclusion, including one for a linked retained order, makes the whole set skip with `hold_not_honourable`. Derived identifier ids carry no lookup aliases and cannot be compared to the kept email hash. The other three sets declare no excludable kinds, so any exclusion skips them. OSS has only explicit `--exclude-subject`; legal holds require the enterprise guard (R3-5 — “Holds, honestly”, program Known limits). A held claim stays marked after closure and can be handled when the hold ends.
+
+Each batch locks and rechecks the record's current status, age and marker before writing. The count returned as `deleted` is the number of roots whose personal block was blanked or reduced in place, not a physical delete. Clearing `privacy_open_case_at` makes the completed-payment hand-off idempotent; the finished-open set cannot select it again. OSS operators run these sets; the enterprise engine may schedule them. Reports name the set and `retainedUntil`, using the erasure spec's existing additive fields.
+
+### Modules assigned after the council review
+
+DEC-J — “Modules with no coverage owner” — assigns the following coverage here.
+
+| Module | Person data found | Design |
+|---|---|---|
+| `shipping_carriers` | `carrier_shipments` holds label data/URL and tracking locations; the request digest in `carrier_shipment_idempotency_keys` covers destination/contact fields | `shippingCarrierService.exportForOrders` returns status, dates, tracking, stored location fields and stored label data/URL as a sensitive evidence section for the same reviewed order. `reduceForRetention` clears locations, sets `privacy_reduced_at` and returns the label-evidence history records. `clearForErasure` clears label and locations, sets `carrier_shipments.anonymized_at`, clears `request_hash` to an empty sentinel on shipment idempotency claims, keeping the claim so a replay still conflicts instead of creating a second shipment; it returns all changed shipment and idempotency records for history. `retentionForOrders` reports whether a non-cancelled carrier shipment exists for the order-retention decision. All methods take scope and order ids. Carrier webhook receipt rows are idempotency/event ids only |
+| `packages/carrier-*` (currently `carrier-inpost`) | The adapter passes receiver name, address, phone and email to InPost in `packages/carrier-inpost/src/modules/carrier_inpost/lib/adapters/v1.ts`; no entity table is supplied by that package | Exempt from local table erasure; carrier-side copies are an external limit. Future packages declare their own tables |
+| `promotions` | `promotion_code_reservations`, `promotion_code_usages`, `promotion_usages` link through `customer_id`; usages include discount information | Export use, code, date and discount. Delete subject reservations and clear subject id on usage rows, retaining budget/count data. Return all changed rows for history. Add tenant-led usage lookup indexes. Other tables are tenant promotion/rule/benefit/code configuration |
+| `customer_groups` | Membership rows carry customer id, validity, assigning user and notes (`customer_groups/data/entities.ts`) | Export group, source, validity and notes; delete memberships and return history records. Groups and terms are tenant configuration |
+
+Carrier privacy clearing and every tracking/webhook/label write serialize on the shipment row with refresh. For `anonymized_at` rows, omit label, locations and any personal event text in persisted data and returned poll responses, while applying status and dates. A carrier call started before clearing must use the refreshed mark. Assumption 1 also retains the existing label as an evidence copy, pending the same human confirmation. A retained order keeps its label as `retained` / `evidence` until its set blanks it; report that section with the same end and set id. Clear tracking locations on initial erasure even for retained orders. The existing label may repeat contact fields beyond the reduced buyer block: assumption 1 explicitly retains this evidence copy rather than calling it minimized or anonymized. Mark `carrier_shipments.privacy_reduced_at` at initial retained processing; refresh/webhook paths then drop locations and personal event text while preserving that existing label and status. Final blanking sets `anonymized_at` and clears the label too. Clear `request_hash` to an empty sentinel on final blanking; a replay uses the existing idempotency-conflict response and cannot create a duplicate shipment. Before that clearing the digest is pseudonymous, not anonymous. Carrier seams, marks and write guards ship with sales in Phase 1; promotions and customer groups ship in Phase 5. Each unhandled table or remainder stays on the baseline until its actual coverage ships.
+
+### Coverage metadata and shared-store remainders
+
+Use C5's “Declarations and row subsets” and `PrivacyTableClaim`, `PrivacyTableEntry` and `seams` shapes, not a local partial-coverage member. Each `tables` map is owned by the module whose canonical snapshot contains the table. A class may name only its own tables; it must not put carrier/gateway tables in `sales.documents.tables` or `checkout.payments.tables`. Record relation-based service coverage in owner seam metadata `{ id, handlerService, entityIds }` and consuming `entityIds`, but it removes no baseline identity unless C5 can express a disjoint finite discriminator subset with a separately accounted `remainder`.
+
+| Owner / store | Exact declaration or remaining backlog |
+|---|---|
+| Sales documents and children | Candidate tables are the sales rows in the retained inventory, plus deleted `sales_document_addresses`; match the actual order/quote relation. Root-id/customer-owned slices are not finite discriminator values, so orphaned or unattributed rows keep these tables baselined until a whole-table reviewed plan covers the remainder. Tag vocabulary and sales/channel configuration need per-column reasons, including JSON; no blanket exemption |
+| Cart | Candidate own tables are `carts`, `cart_lines`, `cart_promotion_applications`, `cart_merge_logs`, `cart_idempotency_keys`; carts without an attributable buyer and relation-only remainders remain baseline entries. A merge-log seam is not full-table coverage |
+| Checkout → gateway | Checkout owns `checkout_transactions`; unresolved guest/hash attribution stays explicit. Gateway owner declares `id: 'payment_gateways.checkout_payments'`, `handlerService: 'paymentGatewayService'`, `entityIds: ['checkout:checkout_transaction']`; `checkout.payments.entityIds` includes that discovered id. `gateway_transactions` / `gateway_payment_operations` remain whole-table baseline entries because checkout versus sessions callers is a relation-based slice; session-initialization and webhook-receipt tables need their own reviewed classification |
+| Sales → carrier | Carrier owner declares `id: 'shipping_carriers.sales_orders'`, `handlerService: 'shippingCarrierService'`, `entityIds: ['sales:sales_order']`; `sales.documents.entityIds` includes that discovered id. Order-linked carrier rows are covered by the service, but unmatched/orphaned `carrier_shipments` and idempotency rows stay on the baseline until reviewed; webhook receipt classification needs its per-column review |
+| Warranty | Candidate tables are `warranty_claims`, `warranty_claim_lines`, `warranty_claim_events`, `warranty_claim_registrations`; unlinked/orphaned rows and remaining SLA signals/configuration/reference tables require named baseline entries until their exact review or handler ships |
+| Promotions and customer groups | Only matched reservation/usage and membership rows are handled by the classes. Null/unattributed usage and shared configuration/terms stay baselined pending a reviewed same-module classification, including JSON and suspicious columns |
+| Entities / attachments / history | Only discovered entity ids actually exported/erased by consuming classes may be named in `covered_via_seam` with exact `seam`, `entityIds` and `classIds`; the owning shared module declares the seam. Every unserved entity/resource kind and snapshot-only remainder stays baselined. `tableExports` under DEC-G — “The tenant-export reader and its declarations” — is separate and never proves coverage |
+
+Seam metadata validates references and declared capabilities; unit tests with the owning DI registrar assert actual methods. It is not an authorization to read a peer's tables. Do not remove a baseline entry on the strength of the outcome/retained inventory alone. Every new entity id above must resolve through entity discovery; absent metadata is a failing reference and leaves coverage open.
 
 ### Alternatives considered
 
 | Alternative | Why rejected |
 |---|---|
-| Delete orders | Document numbers and totals must survive, and invoices would lose their buyer. |
-| Keep the whole customer copy on a retained order | Phone, email and a contact's job title are not what record-keeping needs. |
-| Keep retained orders with no end | See assumption 2. |
-| `sales` reading the CRM to translate a person into a profile id | A cross-module read; the alias gives the same result. |
-| One subject per payment or basket | One person would be dozens of subjects, each with its own audit entries. |
-| Stop the subscriber from clearing the link | The link would then point at a row that no longer exists. |
-| Clear provider data on a retained payment | A refund may need it. |
+| Delete numbered commercial documents | Their totals and numbering must survive |
+| Retain whole provider blobs for refunds | Verified adapters refund through operational ids; personal echoed fields and launch grants are unnecessary |
+| Match an identifier hold to an email hash | DEC-A ids match no stored lookup column; exclusion carries no alias |
+| Finish retained records through a second subject erasure | An email-only claimant may never be requested again; marked-record sets need no identifier input |
+| Treat every non-completed payment as safe to blank | Pending/processing can still complete at the provider |
+| Report an absent peer method as a pending section | It is outside the closed outcome set and may orphan provider data after the host hash is cleared |
 
 ### Known limits
 
-- A person already anonymized has no address left to compute aliases from. A commerce class released after that cannot find their address-keyed records; their id-keyed ones still are.
-- Two people who used the same address share its hash. The dry run shows how many records were found by address.
-- A claim written by a portal user on a company's account before this change cannot be tied to them.
-- Free text in line descriptions and in order metadata may still name a person.
-- `payment_gateways` covers transactions that belong to a pay-link payment. One created by another caller is reached only if that caller's class reports it.
+- A class released after its owner was already anonymized cannot recover old email aliases. Id-linked records are still reachable.
+- Address-only subjects sharing an address remain indistinguishable. Never override a known other person's id link merely because the address matches.
+- Old company-account claims cannot be attributed to a portal author whose id was never stored.
+- Sessions-route gateway rows remain an explicit baseline/backlog gap. Export reports identify that installation-level gap; no full gateway coverage is claimed.
+- Sales history for documents deleted before related-person stamps existed, deleted guest documents, and a company's contact copies cannot all be found. Reports state the history gap; enterprise age retention may bound it.
+- Unsupported provider export mappers make exports incomplete. External provider copies and carrier-side labels are outside local erasure.
+- Identifier holds freeze the sales set; any hold freezes the other three sets. Without an OSS scheduler, retained records remain until the operator runs the relevant set.
+- A legally retained order or completed payment may keep an email hash after its source email has been cleared. R5-7 cannot re-derive that hash without a recoverable source; handling those source-less retained hashes remains open design in this spec, coordinated with B1.
 
 ## 📝 Delta
 
 ### Capability: privacy-coverage-commerce
 
-#### ADDED Requirement: Export of commerce records
-The system SHALL include in a subject's export their orders, quotes, baskets, pay-link payments and warranty claims, whether they are tied to the subject by id or by email address.
+#### ADDED Requirement: Export every reachable commerce store
+The system SHALL export records tied by id or owner aliases, including warranty registrations and provider-owned payer fields, and SHALL report unsupported provider stores as incomplete.
 
-##### Scenario: A customer with an order
-- WHEN a person with an order is exported
-- THEN the document has a sales section with the order's number, dates, totals and the customer copy
+##### Scenario: Unlinked portal account
+- WHEN a portal user without a CRM person used their own email on an order and pay link
+- THEN both are included, along with gateway copies through the checkout seam
 
-##### Scenario: A contact
-- WHEN a person who is only the contact on a company's order is exported
-- THEN that order appears, with the contact's part of the copy
+##### Scenario: Unsupported provider export
+- WHEN a matched gateway provider has no safe export mapper
+- THEN the export reports that class failure and `complete: false`
 
-##### Scenario: A payer with no CRM record
-- WHEN an email address used on a pay link is exported
-- THEN one subject covers every payment, basket and claim under that address
+#### ADDED Requirement: Refresh commerce lookup hashes after a secret change
+Under R5-7, the owning fill commands SHALL recognise current and old hash forms and refresh stale non-null hashes from verified decrypted source through B1 Phase D's “Coverage-owned hash refreshes” and “Maintenance write safety”.
 
-##### Scenario: A customer who also paid as a guest
-- WHEN a CRM person whose address was used on a pay link is exported
-- THEN that payment is included
+##### Scenario: Populated hash uses the old secret
+- WHEN a commerce row has a non-null old-secret email hash and a readable source email, and its owning fill runs under the current secret
+- THEN preview writes nothing, apply refreshes the hash so current `email_hashes` aliases find the row, and a repeated run leaves the current hash unchanged
 
 #### MODIFIED Requirement: Erasure with commerce records
-The system SHALL, on erasure, keep a reduced record of a document that was invoiced, paid or shipped and say until when, SHALL blank the personal parts of other documents, and SHALL keep the person findable while anything is retained.
+The system SHALL retain only the stated blocks and open cases, name a follow-up for marked records, clear replay/history copies, and refuse unavailable provider seams before writing.
 
-##### Scenario: Invoiced order
-- WHEN a person with an invoiced order is erased
-- THEN the order still loads with the buyer's name and address and without their email or phone, the run reports it as retained, the person is anonymized and not deleted, and the order's link to the person remains
+##### Scenario: Open claim closes
+- WHEN erasure marks an email-only open claim and it later closes
+- THEN the closure set blanks it without receiving the address again, unless exclusions block that set
 
-##### Scenario: Past the tenant's age
-- WHEN the tenant has set an age and the invoiced order is older
-- THEN the order is blanked like any other
+##### Scenario: Identifier hold on a linked order
+- WHEN an identifier exclusion names the address of a marked order linked to an anonymized person
+- THEN `sales.retained_orders` skips with `hold_not_honourable` and blanks no order
 
-##### Scenario: Open quote
-- WHEN a person with only a draft quote is erased
-- THEN the quote still loads, with no name, address or comment
+##### Scenario: An edit after erasure
+- WHEN a retained order is edited and its retention set later blanks it
+- THEN the newer header and child audit copies are stripped in that batch and cannot undo or redo
 
-##### Scenario: Undo copies
-- WHEN an order is blanked
-- THEN its audit entries no longer hold the earlier copy
+##### Scenario: Provider completion races erasure
+- WHEN a pending payment's erasure races a successful poll or webhook
+- THEN the refreshed locked status chooses the branch: still pending/processing is `open_case`, already completed uses the completed-payment rule. Completion still applies, and any open-case mark is handled by the terminal follow-up
 
-##### Scenario: Basket
-- WHEN a person with a basket is erased
-- THEN the basket is gone, or blanked if another row points to it
+##### Scenario: Provider data returns late
+- WHEN a poll, webhook or operation result started before provider data was cleared
+- THEN its refreshed write preserves the mark, keeps personal fields empty and applies valid status/accounting changes
 
-##### Scenario: A late webhook
-- WHEN a provider's webhook arrives for a payment that was blanked
-- THEN the cleared provider data stays cleared
+##### Scenario: A carrier shipment on a draft order
+- WHEN the draft order has a non-cancelled carrier shipment
+- THEN it is retained with its label; after the age its set clears the label and future polls cannot refill locations
 
-##### Scenario: Open claim
-- WHEN a person with an open warranty claim is erased
-- THEN the claim is untouched and reported as retained
+##### Scenario: Personal free text and replay
+- WHEN an order has a name in line descriptions/metadata or a basket has identity in a merge snapshot and idempotency response
+- THEN these copies are cleared, and the stripped merge cannot be undone
 
-Frozen by: `packages/core/src/modules/sales/__integration__/TC-SALES-CUSTOMER-DELETE.characterization.spec.ts` (to be added: today, deleting a person clears the order's link and leaves the copy)
+##### Scenario: Missing seam
+- WHEN a matched gateway or carrier dependency lacks a privacy method in pre-flight
+- THEN the subject is refused before host, provider or hash changes
+
+Frozen by: `packages/core/src/modules/sales/__integration__/TC-SALES-CUSTOMER-DELETE.characterization.spec.ts` and `packages/core/src/modules/cart/__tests__/merge-privacy.characterization.test.ts` (to be added before changing those paths).
 
 ## 📝 Architecture
 
-- Each module: `privacy.ts` with its class, tables, retained declarations; a handler and the internal blanking function under `lib/privacy/`; the hash in its write path; a fill command.
-- `customers`: `resolveAliases` with `profile_ids` and `email_hashes`.
-- `sales`: the tenant setting, read through the module-configuration service.
+Each module owns its classes, hashes, blankers and `privacy.ts` declarations. Collectors use the whole default export under R3-2. Module settings consume R3-3; the module-owned database checks consume R3-4/R4-7 and complement `privacy.retention_settings_unset`, without module-specific storage. Aliases and owner locking remain in the contract/erasure specs. Aliases/identifiers require contract Phase 6; the age declarations/service require its “Phase 7 — Settings and bounded export evidence”. Provider packages supply pure export/reduction mappings; hosts use DI seams. No cross-module ORM/table access is introduced.
 
-| Touchpoint | Mechanism | Absent |
+| Touchpoint | Mechanism | Failure |
 |---|---|---|
-| A module → a contact's or an address's records | Aliases from the owner class or the identifier subject | Found by person id only |
-| `payment_gateways` → a payer | The checkout class reports its transactions as related records | The gateway class finds nothing |
-| Classes → undo copies | History records returned to the run | Reported as retained in audit |
-| Classes → files | The attachments seam | Reported as pending |
+| Checkout → gateway | Three scoped service methods above | Pre-flight refusal, or runtime rollback/incomplete class |
+| Sales → carrier | `exportForOrders`, `reduceForRetention`, `clearForErasure`, `retentionForOrders` | Same pre-flight rule |
+| Classes → history/files | Erasure spec R3-1/DEC-B and attachments `releaseByIds`/`releaseForRecord` | An erasure history-pass failure leaves the subject incomplete and cannot roll back earlier committed modules; a transactional retention batch rolls back only its own writes. File failures use `filesPending` |
+| Sets → exclusions | Record-retention spec DEC-C, optional guard plus explicit CLI exclusions | Guard failure refuses; unsupported kind skips |
 
 ## 📝 Data Models
 
-| Table | Change |
+| Table | Additive change |
 |---|---|
-| `sales_orders`, `sales_quotes` | `customer_email_hash`; indexes for it and for the two customer columns that lack one |
-| `carts` | `email_hash`; index on `customer_user_id` |
-| `checkout_transactions` | `email_hash` |
-| `warranty_claims` | `contact_email_hash`; `created_by_customer_user_id`, nullable |
-| `gateway_transactions` | `anonymized_at`, nullable |
+| `sales_orders`, `sales_quotes` | `customer_email_hash`, tenant-led hash/contact lookup indexes; missing quote customer-id index |
+| `sales_orders` | Nullable `privacy_retained_at` with tenant-led partial index |
+| `carts` | `email_hash` and portal-user lookup index |
+| `cart_merge_logs` | Nullable internal `privacy_stripped_at`; merge undo checks it under lock |
+| `checkout_transactions` | `email_hash`, nullable `privacy_retained_at` and `privacy_open_case_at`, with tenant-led partial indexes |
+| `warranty_claims` | `contact_email_hash`, nullable `created_by_customer_user_id`, nullable `privacy_retained_at` and tenant-led partial index |
+| `gateway_transactions` | Nullable `anonymized_at` and `privacy_reduced_at` |
+| `carrier_shipments` | Nullable `anonymized_at` and `privacy_reduced_at` |
+| `promotion_code_usages`, `promotion_usages` | Tenant-led `customer_id` lookup indexes |
 
-Additive, with migrations and snapshots. Indexes on large tables are created concurrently.
+Use generated migrations plus reviewed snapshots, concurrent non-transactional migrations for large indexes, and no local migration application in this task. New author ids are scalar links. Existing editable entities keep `updated_at` and return `updatedAt`; new marker fields do not disable optimistic locking. Sensitive reads use `findWithDecryption`/`findOneWithDecryption` with explicit scope predicates, and changed personal fields retain their encryption-map coverage. Hashes are written with the contract's helper on every write, encryption on or off. DEC-F — “The B1 hand-offs” — and R3-12 — “Fill commands for module-written hashes” — remain owned by [`2026-11-16-encryption-map-coverage-and-backfill.md`](2026-11-16-encryption-map-coverage-and-backfill.md), “Phase D — Lookup hashes and system-scope rotation”. `mercato customers fill-lookup-hashes` and the customer hash columns do not exist today; Phase D item 1 introduces them. The commerce `fill-privacy-hashes` commands below fill their own module columns and do not substitute for that prerequisite.
+
+Under R5-7, register these owning commands and columns in B1 Phase D's “Coverage-owned hash refreshes” and the [key-guard spec](2026-11-16-runtime-encryption-key-guard.md)'s maintenance list. Re-run each enabled, delivered module's fill for every tenant after a lookup-secret change, including a change to the encryption-key fallback. All use the contract's trimmed lower-case email normalization and `hashForLookup` without context, matching `email_hashes`/`lookupHashCandidates`.
+
+| Owning command | Hash columns |
+|---|---|
+| `mercato sales fill-privacy-hashes` | `sales_orders.customer_email_hash`, `sales_quotes.customer_email_hash` |
+| `mercato cart fill-privacy-hashes` | `carts.email_hash` |
+| `mercato checkout fill-privacy-hashes` | `checkout_transactions.email_hash` |
+| `mercato warranty_claims fill-privacy-hashes` | `warranty_claims.contact_email_hash` |
 
 ## 📝 API Contracts
 
-- Uses the contract's `resolveAliases`, `aliases` and `privacy:identifier`, and the erasure addendum's `historyRecords`. Adds no new contract member.
-- **Setting** in `sales`: commercial-record retention, in years, per tenant.
-- **Commands**: `mercato sales fill-privacy-hashes`, and the same for `cart`, `checkout` and `warranty_claims`.
-- The warranty claim response gains `createdByCustomerUserId`.
+- Use the erasure spec's existing `retainedUntil?: string | null` and `retentionSetId?: string` on retained sections, in dry run, completed audit and CLI output. No separate `retainUntil` spelling or new local outcome. `open_case` without a date uses null.
+- Settings, sets, provider methods and optional adapter mappings are the additive contracts specified above. Validate every new input/output with zod and bound record batches/pages to at most 100.
+- Carrier signatures are `exportForOrders({ scope, orderIds, maxRecords })` → `{ records, truncated, recordIdentities }`, `retentionForOrders({ scope, orderIds })` → `{ orders: Array<{ orderId: string, hasNonCancelledShipment: boolean }> }`, and `reduceForRetention({ scope, orderIds, dryRun })` / `clearForErasure({ scope, orderIds, dryRun })` → `{ affected, historyRecords, recordIdentities }`; all use zod-validated bounded ids and outputs. Carrier `recordIdentities` uses the same identity-only shape above for actual shipment/idempotency rows; dry-run gives the planned history/survivors and apply the actual survivors, which sales maps into its declared sections.
+- Gateway/carrier methods receive full `PrivacyScope`: tenant required; organization absent means all in the tenant, present means it plus organization-less rows. Mutations use the caller's transaction through DI, never an independently committed inner transaction.
+- New `mercato {sales,cart,checkout,warranty_claims} fill-privacy-hashes --tenant <id> [--after <id>] [--batch-size <1..100>] [--apply]` commands require one explicit tenant. No implicit all-tenant decryption. Preview is default and writes neither database nor KMS; apply uses UUID keyset batches and a bounded transaction per batch with row locks/rechecks. Empty targets use C1's initial-fill writer; stale populated targets use the B1 maintenance updater below under R5-7, without an extra CLI flag. Resume returns an opaque last-id cursor and per-tenant scanned/filled/skipped counts, never plaintext or hashes. A new invocation from the start catches earlier-id rows inserted during a fill. Missing keys or lookup secret fail before mutation. The contract's bounded empty-hash fallback remains until initial fill completes; it cannot repair stale populated hashes after a secret change.
+- **Non-empty hash maintenance:** classify current, old-keyed, legacy-unkeyed, null and unrecognised forms from verified decrypted source. Preserve current hashes and repair stale non-null hashes under the current secret. Old-secret precedence is B1's `LOOKUP_HASH_OLD_PEPPER`, then `TENANT_DATA_ENCRYPTION_OLD_KEY`, never a flag. Apply B1's “Maintenance write safety”: each conditional update compares the primary key, exact tenant, null-safe actual organization and every read source/target column; use per-row savepoints, preserve `updated_at` and write no protected-value command snapshot. Unreadable ciphertext, collision or concurrent change preserves the row and leaves maintenance incomplete with a non-zero exit. Ordinary application, queue, scheduler and token writers stay stopped through the fills and B1's verification gates; verify a repeat report from the beginning before traffic resumes. The source-less retained-hash limit above remains unresolved; no new source-retention policy is introduced here.
+- The warranty claim response/OpenAPI gains `createdByCustomerUserId`; portal POST sets it from authenticated customer-user identity, never client input. Email intake uses a shared non-address placeholder instead of email as `customer_name`.
+- All new user-visible labels, refusal and settings messages use locale keys. No new UI page is added by this spec.
 
 ## 📝 Edge Cases & Failure Scenarios
 
 | Case | Behaviour |
 |---|---|
-| The fill command has not run for a tenant | Rows with no hash are scanned by decrypting, within the contract's bound; the run says the scan was used |
-| A person who is the customer on one order and the contact on another | Each document is handled for the part that is theirs |
-| A company's document | Not the person's; only the contact part is touched |
-| An order with only a cancelled payment and a cancelled shipment | Not retained |
-| A retained order when the tenant later sets an age | The next erasure run blanks it if it is older |
-| A basket locked by a checkout in progress | Left; reported as pending; a re-run finishes it |
-| A payment the provider still reports on | The mark stops provider data being merged back |
-| The run's process has a different lookup secret from the app | Hashes do not match and nothing is found by address; the doctor's check of the lookup secret applies, and the dry run prints how many records were matched by address |
-| An order whose customer was deleted the ordinary way years ago | Found by the buyer-email hash once filled |
+| Retention setting unset or window too short | Legal set refuses; report names exact setting/command; `doctor --database` warns |
+| Lookup secret changes with populated commerce hashes | R5-7 re-runs each deployed owning fill through B1 maintenance, refreshing stale non-null hashes from readable sources; incomplete work keeps traffic stopped |
+| Pending payment becomes terminal during apply | Lock/re-read determines current branch; never suppress provider completion |
+| Held closed claim | Stays marked; later set invocation can process it after exclusions end |
+| Claim reopens during pruning | Lock/re-read sees nonterminal state and skips; no generic status write or lifecycle bypass |
+| Provider unavailable in pre-flight | Refuse before clearing lookup hashes or host records |
+| Late provider or carrier response | Re-read under lock and apply the current privacy mark to stored and returned data |
+| Audit-strip failure in a later set | Roll back blanking and retain mark for retry |
+| File deletion failure | Logical release is durable; count `filesPending`, using record-retention R3-8 for draining |
+| Four cart restrict FKs block deletion | Blank the basket; strip merge replay stores and refuse their undo |
+| Portal user with no linked person | Its email aliases still reach sales/checkout; unrelated id-linked buyer is excluded |
 
 ## 📝 Migration & Backward Compatibility
 
-Additive columns, indexes, one setting and four commands. The ordinary delete and its subscriber behave as before. Until a module's fill command has run, address lookups in that module use the slower scan.
+Columns, indexes, optional adapter methods, service methods, settings declarations and commands are additive. Keep existing `GatewayAdapter` required signatures, event ids, routes and payload fields. Ordinary payment calls and ordinary sales deletes retain their behaviour. Privacy-marked rows intentionally reject restoration of cleared data; the upgrade note explains this explicit erasure consequence, and the merge undo response after privacy stripping. Under R5-7 the same owning fill commands also refresh stale populated hashes during B1 maintenance, without a new flag or an `updated_at` change. No production dependency is added.
+
+Keep the erasure spec's temporary sales referencing-document count seam as an additive fallback while `sales.documents` is unavailable. Once that class is active, the owner consumes its result and does not double-count the seam. Do not remove or rename a shipped DI/service contract; any later removal needs the normal deprecation bridge. Characterize both paths.
+
+Upgrade notes list the settings CLI, bounded hash fills, four sets, manual OSS scheduling, pending-payment hand-off, provider mapper requirements, partial sessions-route coverage and the history limits. Nothing prunes on upgrade. This is OSS ownership; enterprise adds scheduling/holds through the shared contracts only.
 
 ## 📋 Phasing
 
-Each phase is one module, ships its export and erase together, and can be released alone.
-
-| Phase | Module | Depends on |
+| Phase | Ships together | Dependencies |
 |---|---|---|
-| 1 | `sales` | The contract's and the erasure spec's addenda; erasure spec, Phase 3 |
-| 2 | `cart` | The same |
-| 3 | `checkout` with `payment_gateways` | The same |
-| 4 | `warranty_claims` | The same |
+| 1 | Sales export/erase, carrier seams/marks/write guards, settings declarations, `sales.retention_age_unset`, retained-orders set and history changes | Contract Phase 6 aliases/identifier and Phase 7 settings/read-only doctor adapter under R3-2/R3-3; erasure Phase 4 plus R3-1/DEC-B; record-retention DEC-C; doctor R3-4/R4-7 |
+| 2 | Cart export/erase, merge stripping, undo check and hash fill | Contract and erasure dependencies above |
+| 3 | Checkout/gateway export/erase, provider mappings, concurrency guards, setting/`checkout.retention_age_unset` and both payment sets | Same shared dependencies; fake provider harness, verified Autopay/Stripe mappings |
+| 4 | Warranty export/erase, registrations, author field, intake fallback and closure set | Contract/erasure, record-retention DEC-C and attachments release seam |
+| 5 | Promotions and customer groups | Contract and erasure foundations; carrier-dependent sales already ships all four methods in Phase 1 |
 
 ## 📋 Implementation Plan
 
-For each phase:
+1. Consume the verification suite’s retained-declaration types and the erasure-owner retained-row evidence extension before verified handler delivery. Characterize ordinary customer deletion, cart merge restoration, gateway polling and carrier tracking before modifying their behaviour. Read each module guide and stable contract first.
+2. Per phase add schema/snapshots, encryption-map coverage where needed, indexes and bounded hash fill. Register all four owning fills and their columns with B1/key-guard maintenance under R5-7. Unit suites `privacy-hashes.test.ts` cover encryption on/off, empty initial fill, scope, resume and concurrent edits. For every listed hash column, change the lookup secret with a non-null old hash and readable source present; preview writes nothing, apply produces the current no-context hash and current-alias match, rerun leaves it unchanged, and other tenants stay untouched while each write retains the row's actual organization predicate. Cover old-secret precedence, legacy/unrecognised forms, missing secret, unreadable ciphertext, savepoint collision, source/target comparison failure and unchanged `updated_at`/history.
+3. Add C5-compatible module declarations/classes, retained inventories and read-only `checkErasable` before blankers. `privacy-discovery.test.ts` covers unlinked portal aliases, known-other-person exclusion, cross-tenant/org isolation and missing seams with all rows unchanged.
+4. Add internal blankers and history footprints. `sales-privacy.test.ts` covers both reference columns on orders/quotes, every address field/coordinates, line descriptions/metadata, invoice/credit-memo copies and preserved totals. `cart-privacy.test.ts` covers all four restrict FKs, locked `open_case`, merge snapshots, actor id, idempotency response deletion and execution-time 410 on stale undo.
+5. `gateway-privacy.test.ts` covers payer-field export, safe replay envelopes, dry run, missing mapper, a completed open-case hand-off selected once despite repeated status polls, and two-contender poll/webhook/capture/refund versus clearing. Provider `privacy-mapping.test.ts` covers Autopay form/launch data and all shipped Stripe adapter versions, with refunds still working after reduction. `carrier-privacy.test.ts` covers row marks, in-flight tracking/webhooks, status preservation, response redaction and request-digest clearing with duplicate replay blocked.
+6. Add settings declarations, locale keys and the module-owned database checks using C1 Phase 7's get-only factory, as permitted by R4-7. `privacy-settings.test.ts` covers whole-year validation, unset/invalid values, no instance fallback, tenant isolation, settings/database failure and each `--only <module>.retention_age_unset --database` finding with no PII. Shared command authorization/audit/version-conflict behaviour is tested by its owner; integration tests below exercise the actual command.
+7. `retained-commerce.test.ts` covers calendar boundaries, unset age, short windows, per-batch transactions, newer audit snapshots stripped, identifier hold on a linked order, conservative guest exclusion, all-hold closure-set skip and registered guard failure. `warranty-privacy.test.ts` covers terminal/open/reopened claims, proof release and all registration fields.
+8. Run the self-contained integration cases below and focused suites in each package, then generation/build/typecheck checks appropriate to implementation. Tables leave the baseline only to the extent actually covered; gateway sessions rows remain listed. Add captured owner-row probes, wrong-row/wrong-reason/cleared-column negative cases, the no-text/orphan case and the combined deal-plus-invoice fixture to the verification suite, whose owner validates index cleanup. Archive the Delta after implementation if the capabilities directory is adopted.
 
-1. The schema change, the hash in the write path and the fill command. Unit tests: written with encryption on and off; the fill; the fallback scan.
-2. The class: tables, export sections, resolution for an identifier subject and by alias. Unit tests per section and a cross-tenant test.
-3. The internal blanking function and the erase method, with the outcomes above and the history records. Unit tests per outcome.
-4. Integration test for the module; its tables leave the coverage baseline; its fixture joins the verification suite.
-
-Module-specific steps:
-
-- **`sales`**: first, **characterize** that deleting a person clears an order's link and leaves the copy; commit alone. The tenant setting. The reduced buyer block.
-- **`cart`**: the two foreign keys; the locked basket.
-- **`checkout` / `payment_gateways`**: the mark on gateway transactions and the merge code's check; the checkout class reports its gateway transactions.
-- **`warranty_claims`**: the author column; the intake fix; open and closed claims.
-
-Before Phase 1: `customers` implements `resolveAliases`. After Phase 4: archive this Delta into `.ai/specs/capabilities/privacy-coverage-commerce.md` if that directory has been adopted by then.
-
-| File | Action |
+| Planned files | Action |
 |---|---|
-| `packages/core/src/modules/customers/lib/privacy/*` | Modify |
-| `packages/core/src/modules/{sales,cart,payment_gateways,warranty_claims}/{privacy.ts,lib/privacy/*,di.ts,cli.ts,data/entities.ts,migrations/*}` | Create / modify |
-| `packages/checkout/src/modules/checkout/{privacy.ts,lib/privacy/*,di.ts,cli.ts,data/entities.ts,migrations/*}` | Create / modify |
-| `packages/core/src/modules/payment_gateways/lib/gateway-service.ts`; `packages/core/src/modules/warranty_claims/lib/emailIntake.ts` | Modify |
-| `packages/core/src/helpers/integration/{salesFixtures,cartFixtures,warrantyClaimsFixtures}.ts`; a checkout fixture in its own package | Modify / create |
-| One integration test per module, in that module's package | Create |
+| `packages/core/src/modules/{sales,cart,payment_gateways,warranty_claims,shipping_carriers,promotions,customer_groups}/{privacy.ts,lib/privacy/*,di.ts,cli.ts,data/entities.ts,data/validators.ts,encryption.ts,i18n/*,migrations/*}` | Create/modify class, schema, set, mapping declarations and tests as needed |
+| `packages/checkout/src/modules/checkout/{privacy.ts,lib/privacy/*,di.ts,cli.ts,data/entities.ts,data/validators.ts,i18n/*,migrations/*}` | Create/modify |
+| `packages/shared/src/modules/payment_gateways/types.ts`; `packages/gateway-{autopay,stripe}/src/modules/*/lib/{privacy.ts,adapters/*}` | Add optional mappings and provider implementations/tests |
+| `packages/core/src/modules/payment_gateways/lib/gateway-service.ts`; `packages/core/src/modules/shipping_carriers/lib/shipping-service.ts`; `packages/core/src/modules/cart/commands/merge.ts` | Guard every replay/provider write |
+| `packages/core/src/modules/warranty_claims/{lib/emailIntake.ts,api/portal/claims/route.ts}` and claim response/OpenAPI serializers | Author field and intake fallback |
+| `packages/core/src/modules/sales/commands/{documents,documentAddresses,shipments,payments,returns,notes}.ts` | Related-person history stamps |
+| Module `__tests__` and `__integration__`; `packages/core/src/helpers/integration/{salesFixtures,cartFixtures,warrantyClaimsFixtures}.ts`; checkout package fixtures | Unit/self-contained integration coverage, captured row probes and reusable combined deal/invoice fixture |
+| `UPGRADE_NOTES.md` | Settings/fills, sets, mapper/row-evidence prerequisites, explicit erasure behaviour and limits |
 
 ## 🧪 Integration Coverage
 
-The shared helpers have fixtures for quotes, orders, lines and shipments only. Each phase adds what it needs — an invoice and a payment, a basket, a claim, a pay-link payment — and the checkout test lives in the checkout package. The commands run as existing tests run commands, in a process that shares the app's lookup secret.
+Every case creates its own tenant-scoped users/customers/provider fixtures through APIs or a named test-only seam, uses synthetic contact values and fake providers, restores settings and cleans up all remaining records in `finally`. Backdating is a scoped test query, never reliance on demo data. Include another subject and another tenant as controls. CLI children share the app's lookup secret. Erasure tests use dry run plus apply with the same subject/token; direct queries and administrator reads assert physical/replay/history state.
 
-| Test | Covers |
+| Test | API and key UI/read coverage |
 |---|---|
-| TC-PRIVACY-SALES-001 | Export lists a person's order and quote, and a company's order for its contact. After erasure, an invoiced order returns the buyer's name and no email, and is reported retained; a draft quote returns no name; the person is returned as anonymized; the order's audit entries hold no earlier copy |
-| TC-PRIVACY-CART-001 | A basket tied to a person is exported and then gone; one tied only to an email address is found through an identifier subject |
-| TC-PRIVACY-CHECKOUT-001 | An address used on a pay link exports its payment as one subject; an uncompleted payment is blanked and a completed one keeps its payer's name |
-| TC-PRIVACY-CLAIMS-001 | A closed claim returns no name or contact address after erasure; an open one is unchanged and reported retained |
+| TC-PRIVACY-SALES-001 | Create/read order, quote, lines, document addresses, invoice and credit memo through sales routes; include the same person linked to a CRM deal for TC-PRIVACY-VERIFY-004; put a name in description, metadata, references and credit-memo reason. Export buyer/contact and an unlinked portal buyer; erase; inspect detail pages/API for reduced versus blanked copies, totals and all address fields; verify history and deleted-order related stamps |
+| TC-PRIVACY-SALES-002 | Set/list `retention.sales.orderAgeYears` through the R3-3 command; reject zero/fractional input; retain and then edit an invoiced order/child to create new history, backdate and preview/apply the set; assert addresses/hash and newer history stripped; test a linked order under an identifier exclusion and no changes |
+| TC-PRIVACY-CART-001 | Create buyer/guest and source/target/proposal carts, merge through actual routes, seed response replay through a line write, export and erase by id/email; assert snapshots/actor ids removed and idempotency rows gone; attempt merge undo and expect 410; locked cart reports retained/open_case and succeeds after unlock |
+| TC-PRIVACY-CHECKOUT-001 | Submit pay-link fixtures for failed, pending, processing and completed payments, including an unlinked portal account. Export gateway payer fields with no secret; erase pending/processing without data loss, then send a successful fake-provider webhook and poll through their real routes. Backdate only the fixture open-case mark past one day and run the retention command with `--set checkout.finished_open_payments --older-than-days 1`; a second run selects none. Set/list checkout age through R3-3, backdate and run legal retention; assert gateway stores cleared. Send a late webhook and poll again; provider fields remain empty while a valid subsequent status update applies |
+| TC-PRIVACY-CLAIMS-001 | Create closed/open claims and registrations with proof attachments; create via `POST /api/warranty_claims/portal/claims`, assert `createdByCustomerUserId`, export/erase that portal author; create email-intake fixture via the real intake function behind a test-only route and check name fallback is not the address; erase email in dry run/apply. Close the retained claim using its transition route, backdate only its terminal `closed_at` (or marker fallback) past one day, run the closure set with `--older-than-days 1`, and assert names/hash, notes, line/event text and proof links cleared without retyping the email |
+| TC-PRIVACY-SHIP-001 | Create/export a `mock_carrier` shipment on a draft order: its label evidence is exported, it makes the order retained and label stays with an evidence end, but tracking locations are reduced. Set age/backdate/run sales retention and verify label, URL, locations and request digest empty and replay still conflicting; invoke tracking refresh and webhook, status updates but personal fields stay empty. A separate cancelled-shipment draft order anonymizes on initial erasure |
+| TC-PRIVACY-PROMO-001 | Register usage through promotion routes; export/erase; reservation removed, usage customer cleared and promotion count unchanged |
+| TC-PRIVACY-GROUPS-001 | Create group membership with note, export/erase and read group detail/list: subject membership absent, control member preserved |
+| TC-PRIVACY-COMMERCE-DOCTOR-001 | Set/unset ages with R3-3 CLI in disposable tenants, run default doctor and `doctor --database`, plus each `--only sales.retention_age_unset` / `--only checkout.retention_age_unset` with `--database`; only the database tier reports missing/invalid counts, without personal values; a failed settings adapter is an error. Fixture sessions-route gateway transaction remains a coverage baseline finding |
+
+### Captured owner fixtures and row probes
+
+Verification's “3. Erase-everywhere test”, steps 2–7, is normative for the proof. Owner test helpers capture `{ table, rowId, tenantId, organizationId, dataClassId, section }` for every created root/child/junction before erasure, together with subject/profile/account/user ids, fixture network identifiers and exact FK references. Keep that inventory in test memory. A module-local test helper accepts only that captured inventory and probes its own rows by captured primary key after the run, even if the parent has been deleted; an inner join to the removed parent is not evidence of absence. For a row without tenant columns, the pre-erasure captured owner proof limits this test-only probe. It returns presence and surviving references to captured fixture ids, never row values and never a production unscoped API. The production owner reader instead reports globally ambiguous orphans as `not_scanned`, per tenant exit's “The reader and scan mode”.
+
+Register the provider, cart replay/idempotency, claim-registration/proof and carrier-label/tracking fixture builders with G6's suite-owned index barriers. G6 drains the actual normal cleanup/indexing work before both scans, requires positive pre-erasure marker hits and checks post-erasure absence or exact applied retained evidence in token/query-index and configured fulltext/vector stores. The captured primary-key probes still run after parent deletion. A local handler test or empty index cannot substitute for that barrier; TC-PRIVACY-VERIFY-011's parked delayed/failed jobs remain excluded from those drains. Carriers register with commerce Phase 1, promotions/groups with Phase 5; sessions-route gateway rows remain on the whole-table baseline until their caller persists a subject/order link and supplies a full class.
+
+Each selected surviving fixture row must match its applied class/section/table/row/column/reason evidence above; every expected-deleted fixture row must be absent. Put `noSearchableText` entries only on classes for exact no-text tables below; they waive the planted-text requirement only, never row-presence/FK assertions. Make a negative test deliberately leave an id-only fixture child orphaned after parent deletion and assert verification fails. Do not create retained evidence or manually delete that leak to pass the assertion. Control users/rows/tenants survive untouched; clean all captured rows in `finally` after assertions, using owner helpers even for orphans.
+
+Sales owner fixtures export their captured inventory to TC-PRIVACY-VERIFY-004. Reuse C4's `customersFixtures` with commerce's `salesFixtures` to create the same CRM person, linked deal, order, invoice, line and address graph in one disposable tenant; create/read the deal through its owning customers helper/API and the financial graph through sales helpers/APIs. Configure a finite sales age, keep the order inside it, warm deal/order/invoice reads, run the normal reviewed erasure and assert the person is anonymized while both deal and fiscal document remain readable. Use C4's “Root retained declarations and fixture proof” sections `person_tombstone`, `profile_tombstone` and `linked_deals` for exact customer root/profile/deal/link evidence, and only this spec's `buyer_block` / `buyer_addresses` / `document_structure` evidence for sales; neither dependants' existence nor `affected` counts waive any other row. Plant text in the customer-deal link's `role` and assert it clears with its history stripped, as C4 requires. Missing root/deal evidence blocks this acceptance test. `salesFixtures` owns sales row probes; `customersFixtures` owns deal/root probes. Keep the fixture importable by TC-PRIVACY-SALES-001 and TC-PRIVACY-VERIFY-004 without relying on demo invoices.
+
+Use `noSearchableText: ['sales_return_lines', 'sales_document_tag_assignments']` for `sales.documents` and `['promotion_code_usages']` for `promotions.usages`; assert their captured ids/FKs independently. Other tables with text still need planted markers, including replay/idempotency bodies and provider/carrier payloads. Gateway/carrier owner test helpers probe captured seam rows rather than sales/checkout reading their tables. Deleted proof registrations and cart idempotency rows must be absent even when their parent has gone. A marker in any undeclared column, a different retained row or a cleared JSON key fails the proof.
 
 ## 📝 Risks & Impact Review
 
-#### A record that should have been kept is blanked
-- **Scenario**: An order with no invoice in this system was invoiced in another.
-- **Severity**: High
-- **Affected area**: the tenant's commercial records
-- **Mitigation**: The dry run lists each document and its outcome before anything changes; assumption 1 is marked.
-- **Residual risk**: The rule looks only at what this product knows.
-
-#### A record is kept longer than it should be
-- **Scenario**: No age is set and retained orders accumulate.
-- **Severity**: High
-- **Affected area**: storage limitation
-- **Mitigation**: Only the reduced block is kept; the run reports that no end is defined; the setting is in OSS; the doctor reports it unset.
-- **Residual risk**: A tenant who never sets it.
-
-#### Address lookups find nothing
-- **Scenario**: The fill command was not run, or the command and the app disagree on the lookup secret.
-- **Severity**: High
-- **Affected area**: guests, payers, email claimants, orphaned orders
-- **Mitigation**: The fallback scan; the dry run prints how many records were matched by address; the doctor's secret check.
-- **Residual risk**: A changed secret between writing and lookup, which the key-guard spec warns about.
-
-#### The wrong person's records are cleared
-- **Scenario**: Two people used one address.
-- **Severity**: Medium
-- **Affected area**: address-keyed records
-- **Mitigation**: The dry run shows the count found by address; records tied to another CRM person by id are left out of an address match.
-- **Residual risk**: Two people with no CRM record sharing an address are one subject.
-
-#### A refund fails
-- **Scenario**: Provider data was cleared on a payment that is later refunded.
-- **Severity**: Medium
-- **Affected area**: uncompleted payments only, by design
-- **Mitigation**: Provider data is kept on completed payments.
-- **Residual risk**: A payment marked uncompleted here that the provider considers complete; the step reads how completion is decided.
+| Scenario | Severity | Affected area | Mitigation | Residual risk |
+|---|---|---|---|---|
+| Externally invoiced order has no in-product evidence | High | Commercial records | Reviewed dry run; assumption 1 default and manual-review fallback | System cannot infer an outside invoice |
+| Setting unset, closure set not run or held records accumulate | High | Storage limitation | Exact settings CLI/checks, four marked-record sets, dates/set ids in reports | Operator action is still needed in OSS; holds can freeze a tenant set |
+| Lookup-secret rotation leaves old commerce hashes | High | Address-based discovery and erasure | R5-7 owning fills recognise old/current forms and refresh stale non-null targets under B1's maintenance safety; secret-change tests cover every column | Source-less legally retained hashes cannot be re-derived; their handling remains open design in this spec with B1 |
+| Identifier hold targets a linked retained order | High | Legal holds | Sales cannot declare identifier excludable; skip whole set; DEC-C guard failure refuses | No automatic holds in OSS; explicit exclusion must be supplied |
+| New audit snapshot outlives final blanking | High | History/undo | Both retention passes with full record footprint and transactional rollback; R3-1 execution checks | Old already-deleted/unattributed records remain the stated history gap |
+| Stale provider/carrier call rewrites personal data | High | Payment and shipment copies | Shared row locks, fresh mark check, safe provider reducer and carrier response filtering | A new unguarded write path would reopen the gap; concurrency tests enumerate paths |
+| Retained label contains extra contact fields | Medium | Carrier evidence | Explicit evidence section, shared age/end, initial location reduction and final marked clearing; assumption 1 needs confirmation | Label contents were not parsed or independently minimized; a provider label replacement would need a later design |
+| Provider reducer removes a required field | Medium | Refund/reconciliation | Provider-owned typed allowlists and fake refund tests for Autopay/Stripe; unsupported provider refuses before writes | Provider API changes need new mapper validation |
+| Two guests share an email | Medium | Identifier-only records | Dry-run counts; exclude records linked to a known other person | Address-only subjects are not distinguishable |
+| Sessions-route gateway data is unreachable | High | Coverage/export | Keep whole-table baseline/backlog and report partial coverage | These rows need a later caller link/class; this spec does not claim complete coverage |
+| Open case never terminates | Medium | Warranty/payment storage | Explicit `open_case`, mark, follow-up set and reported null end | A permanently open claim or provider status still needs operator resolution |
 
 ## Final Compliance Report — 2026-11-16
 
-- **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, the contract's handler obligations and addendum. Not reviewed in full: the `sales`, `cart` and `warranty_claims` guides.
-
 | Rule | Status | Notes |
 |---|---|---|
-| No cross-module table access | Compliant | Aliases and related records; `sales` already reads CRM entities to build its copies, which is existing and not extended |
-| Lookups on a hash | Compliant | Written by each module itself |
-| Additive schema | Compliant | — |
-| Tenant scoping | Compliant | Every lookup is led by the tenant |
-| Integration coverage | Compliant | One test per module, with new fixtures |
+| Module ownership / OSS placement | Compliant design | DI provider/history/file seams; no cross-module table access; enterprise scheduling/holds remain external |
+| Tenant and organization scope | Compliant design | Full `PrivacyScope` on methods, predicates and fixtures |
+| Closed outcomes / honest export | Compliant design | `retainedUntil` from erasure contract; no pending outcome; unsupported exports incomplete; sessions baseline kept |
+| Encryption, zod and i18n | Required by plan | Existing encrypted reads and typed scoped mappers; locale keys and bounded input |
+| Settings doctor | Aligned design | R4-7 permits C1 get-only reads; sales/checkout database checks complement the aggregate and work under isolated selection with counts-only output |
+| Lookup-secret rotation | Designed; source-less retained hashes unresolved | R5-7 registers four owning fills and all listed columns for B1/key-guard maintenance; stale non-null refresh uses B1 safety and secret-change tests; no policy is invented for cleared source emails |
+| Optimistic locking / replay | Required by plan | Preserve `updatedAt`; privacy row locks; stripped merge/history execution checks |
+| Retained records end | Conditional | Four sets defined; unset ages, absent operator and active holds remain explicit limits |
+| Backward compatibility | Additive design | Optional adapter methods, service identity inventories and new fields; retain temporary read seam and ordinary routes/events |
+| Coverage | Designed, not executed | Named unit/concurrency tests and self-contained integration paths; baseline exclusions are explicit |
 
-**Verdict:** not approved until assumptions 1, 2 and 6 are answered. The design is otherwise ready, one module at a time.
+**Verdict:** spec revision complete; implementation is not approved until marked product defaults and shared prerequisites are confirmed and source-less retained-hash handling is resolved. No implementation or runtime validation is claimed.
 
 ## Changelog
 
 ### 2026-11-16
 - Written autonomously with resolved assumptions.
 - Rewritten after independent review. Hashes declared in an encryption map would never have been filled for existing, already-encrypted rows, so each module writes and fills its own. Export and erase now ship together per module: shipping export first would have made `customers:person` non-erasable. Aliases and the address-only subject moved into the contract; one subject per payment was replaced by one per address. Retention is reduced to a minimal buyer block, limited to documents with a real invoice, payment or shipment, and given an end the tenant sets. Orders gain a buyer-email hash, which also finds copies orphaned by ordinary deletes. Undo copies are stripped by record, since sales logs under the document. Blanking uses internal functions, because the update command refuses it. Gateway data is kept on completed payments and protected from being refilled on the others. Open claims are retained. Not split into four files as the reviewer suggested: each module is a separate phase and release.
+- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: **g3-02** — the gateway class depended on a record hand-off the contract does not have; it is removed, and the checkout class exports and clears its gateway rows through two new `paymentGatewayService` methods keyed by its own transaction id, with the gateway tables declared as covered through that seam. **g3-03** — guests, payers and email claimants are erased with `erase --email`/`--phone` through the contract's derived identifier id, which survives from dry run to apply; every phase now depends on the contract spec's "A subject that is only an identifier" and the erasure spec's "Erasing by email or phone", and the cart and checkout tests erase an address in two invocations. **g3-04** — retained orders and completed payments are marked `privacy_retained_at` and blanked by the `sales.retained_orders` and `checkout.retained_payments` retention sets once past the tenant's age; completed payments get their own `checkout` age; the buyer-email hash is cleared on anonymized records and kept on retained ones until blanked; the sets declare `excludableSubjectKinds` and honour the retention guard. **g3-08** — the claim that a deleted order's undo copy is stripped was false; order and quote entries now carry the customer person as related resource, so copies of documents deleted after this change are reached, and the cases still out of reach are stated in the run report and the risks. Also added "Modules assigned after the council review": `shipping_carriers` through a seam called by the sales class, classes for `promotions` and `customer_groups`, and a reasoned exemption for `packages/carrier-*`, as Phase 5. From the other fixers: every class states `erasureGroup: 'records'`, the person's owner keeps the default `anonymizeOwnerWhenRetained`, and identifier subjects cite the contract and erasure specs' sections and exit 1 with no lookup secret.
+- Fix verification follow-up (g3-08): the related-person stamp now covers the entries of a document's children too: addresses, shipments, payments, returns and notes. Before, only order and quote entries carried it, so a deleted document's address snapshot and shipment entries stayed out of reach despite the claim that every later entry was reached.
+
+- Council round two fixes (GPT-6.1 Sol workers): r5-01 claim closure set; r5-02 identifier-hold skip; r5-04 settings and database doctor; r5-06 later history stripping; r5-09 open payment follow-up; r5-10 provider reduction/export; r5-11 registrations; r5-12 sessions baseline; r5-13 free text; r5-23 closed outcomes; r5-24 cart replay; r5-25 locked gateway writes; r5-26 carrier marks; r5-27 pre-flight seams; r5-28 late webhook coverage; r5-29 carrier retention decision; r5-30 portal/email claim coverage; r5-40 address rows; r5-41 named references; r5-42 pseudonymous digest deletion; r5-43 invoice/credit-memo copies; g3-21 existing retainedUntil contract; g3-27 portal aliases; g3-43 scoped bounded fills; nits: four restrict FKs and preserved temporary sales seam.
+- Council round two fixes, pass two (GPT-6.1 Sol workers): consume every planned/actual history identity and both R3-1 passes; align R3-3 declaration fields, settings envelopes and the privacy-owned doctor check; use C5 seam/subset metadata with honest remainders; declare exact run-bound retained rows/columns and identity-only gateway/carrier inventories; add captured no-text/orphan probes and the combined deal-plus-invoice fixture; move carrier prerequisites into sales Phase 1; cite B1 Phase D as introducing the customer fill command; retain explicit erasure/attachments evidence handoffs.
+- Council round two fixes, pass three (GPT-6.1 Sol workers): consume C4's named paged/transactional custom-value methods and delivered retained-row result extension; require exact evidence for every standing retained section; distinguish incomplete erasure from retention-batch rollback; align sales/checkout doctor ids with the doctor owner and retain the C1 adapter handoff; bind provider/replay/claim/carrier fixtures to G6's index barriers and preserve the sessions-route baseline.
+- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consume C4's exact transactional custom-value and attachment history/survivor results and shared `PrivacyRetainedRecord` type; match `salesFixtures` to C4's `customersFixtures` root/deal sections; preserve existing row/column/reason inventories, owner probes and the distinction between incomplete erasure and current-batch retention rollback; replace the obsolete C1 adapter handoff with its specified get-only factory and report the unresolved doctor-context conflict.
+- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): remove the stale doctor-context conflict under R4-7; implement R5-7's commerce fill registration, old/current-form recognition and stale non-null refresh through B1 maintenance safety; require per-column secret-change tests and record the source-less retained-hash design gap.

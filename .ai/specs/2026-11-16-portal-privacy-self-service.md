@@ -1,8 +1,8 @@
 # Portal privacy self-service
 
 > **Program:** package C7 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
-> **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md) for export and [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md) for deletion. It asks both for a small addition, listed under "Changes this spec needs in its two parents".
-> **Verified at** `main` @ `08dada9624` by reading code; nothing was run.
+> **Builds on:** [`2026-11-16-privacy-data-class-contract.md`](2026-11-16-privacy-data-class-contract.md) for export and [`2026-11-16-privacy-subject-erasure.md`](2026-11-16-privacy-subject-erasure.md) for deletion. The consumed contracts and remaining prerequisites are listed under "Changes this spec needs in its two parents".
+> **Source verification:** read-only repository @ `9e09023483`; code was read, no app or implementation test was run. The original design used `08dada9624`.
 > **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
 
 Extends: .ai/specs/2026-11-15-gdpr-ready-deployments-program.md
@@ -12,9 +12,9 @@ Extends: .ai/specs/2026-08-14-storefront-customer-account.md
 
 ## 📝 TLDR
 
-A customer-portal user can see their email, last login and roles on a read-only profile page. They cannot change anything there, download what is held about them, or close their account; the one delete route in the portal refuses a user who tries to remove themselves. **Proposed (future):** a Privacy page in the portal where a signed-in user can download their account data as a file and ask for their account to be deleted. Deletion takes effect after a grace period, during which they can still sign in and cancel, and during which the company's staff are told and can cancel it too. The profile page also gains a form for the display name.
+A customer-portal user can see their email, last login and roles on a read-only profile page. They cannot change anything there, download what is held about them, or close their account; the colleague-removal route refuses a user who tries to remove themselves. **Proposed (future):** a Privacy page in the portal where a signed-in user can download their account data as a file and ask for their account to be deleted. Deletion takes effect after a grace period, during which they can still sign in and cancel, and during which the company's staff are told and can cancel it too. The profile page also gains a form for the display name.
 
-**Status.** Phase 1 (display name) depends on nothing and can ship. Phases 2 and 3 are not approved: the program's decision DEC-2b says that if maintainers keep subject rights in the Enterprise edition, this whole package moves there.
+**Status.** Phase 1 (display name) includes the profile-route hardening below and can ship independently of the privacy module. Phases 2 and 3 are not approved: the program's decision DEC-2b says that if maintainers keep subject rights in the Enterprise edition, the download and deletion phases move there.
 
 **Not in this spec:** changing the account's email, which needs a verified flow of its own (`portal-email-change`, added to the program); the CRM record a tenant keeps about the person, which stays under the tenant's control; data in modules that do not yet register a data class; portal MFA.
 
@@ -30,49 +30,52 @@ A customer-portal user can see their email, last login and roles on a read-only 
 | 2 | What "delete my account" removes | The portal account. Every related subject, including the linked CRM person, is excluded | Same reason. The confirmation says so in plain words. |
 | 3 | Grace period | 14 days, configurable, minimum 1 | Long enough to notice a hijack or change one's mind; the reference products use 7 to 30. |
 | 4 | Re-authentication | The current password, when the account has one. Otherwise the session row must have been created by a sign-in in the last 15 minutes | Portal passwords are optional; magic-link users have none. |
-| 5 | Sole company administrator | Refused while other active users exist in the company | Nothing today stops a company being left without an administrator except the refusal this spec replaces. |
-| 6 | Who may use it | Any signed-in portal user, when the tenant has not switched it off | ⚠ NEEDS HUMAN CONFIRMATION. A right to one's own data should not depend on a role. The tenant is the controller, so it gets a switch; the default is on. |
-| 7 | Does the tenant's staff learn of a request | Yes: an in-app notification to staff who manage portal users, and a cancel action on the user's admin page | ⚠ NEEDS HUMAN CONFIRMATION. The controller answers for the deletion and may have a reason to stop it. |
+| 5 | Sole company administrator | Refused while other active users exist in the company | The colleague-removal route keeps its self-target refusal. The new request route adds a separate, serialized administrator check. |
+| 6 | Who may use it | Any signed-in portal user, when the tenant has not switched it off | ⚠ NEEDS HUMAN CONFIRMATION. A right to one's own data should not depend on a role. Default: the tenant switch is on. Fallback: hide the self-service actions and direct the user to the company; accepted requests still run. |
+| 7 | Does the tenant's staff learn of a request | Yes: an in-app notification to staff with `customer_accounts.manage`, and a cancel action requiring a reason on the user's admin page | ⚠ NEEDS HUMAN CONFIRMATION. Default: staff may cancel an unclaimed request with a reason and an email to the user. Fallback: remove staff cancellation and leave staff notification only. |
 | 8 | Edition | OSS, pending DEC-2b. If refused, Phases 2 and 3 move to Enterprise as a whole | The program's wording. |
-| 9 | A request that cannot be completed | After seven daily attempts it is marked failed; the user and the staff are told | A date that passes in silence is worse than a stated failure. |
+| 9 | A request that cannot be completed | After seven distinct daily attempts mark it failed and notify staff; under R5-1 any open portal-origin journal enters `failed_handoff` for operator recovery; email the user while their address remains, otherwise require staff follow-up | Never retain an extra delivery address after erasure just to promise an automated notice. |
+| 10 | Existing-route security rollout | ⚠ NEEDS HUMAN CONFIRMATION. Default: all implemented writes run guards and cross-site checks; block release of narrowed existing profile/password behaviour until the named maintainer compatibility decision | Fallback: keep that phase unshipped until an ordinary deprecation/bridge design is approved. Never ship an unguarded form or use a toggle to bypass the registry. New routes remain guarded from their first release. |
+| 11 | Tenant-wide erasure for an organization-authenticated request | Resolved by R4-2: the portal deletion worker runs with `origin: 'portal'` and actor `{ kind: 'system', worker: 'portal-self-service' }`, for exactly the requesting `customer_accounts:user` in the account's tenant, with every related subject excluded; R5-1 permits operator recovery only for a journal in `failed_handoff` | The data subject's own verified request is the authority; the worker needs no staff authorization. The erasure parent owns this boundary and its sole R5-1 exception. Its resolved assumption 16 still rejects `organizationId` in both modes; portal and staff HTTP authorization stays organization-scoped, and the worker validates the accepted account's tenant and organization before constructing tenant-only scope. The authority design is complete; implementation remains a prerequisite. Never strip an HTTP caller's organization restriction to bypass the refusal. |
 
 ## 📝 Problem Statement
 
-- **The profile page is read-only.** It renders email, last login, roles and features with no form (`packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx:46-111`). A profile update route exists and accepts only `displayName` (`customer_accounts/api/portal/profile.ts:74-86`; `data/validators.ts:52-54`), and no page calls it.
-- **Self-deletion is refused.** `customer_accounts/api/portal/users/[id].ts:33-35` returns 400 when a user targets themselves. That route is for a company administrator removing a colleague.
-- **Nothing exports.** No portal route returns the user's data as a file. The staff-side forms export is the only precedent: a synchronous JSON response with an attachment header (`forms/api/subjects/[subjectType]/[subjectId]/export/route.ts:80-104`).
-- **No re-authentication exists** for any portal action. Password change checks the current password, without counting or throttling failures (`customer_accounts/api/portal/password-change.ts:42-45`). `passwordHash` is nullable.
-- **A token's age proves nothing.** The refresh route mints a new eight-hour token on the same session row from the thirty-day cookie, with no credentials (`sessions-refresh.ts:44-57`; `customerSessionService.ts:90-103`). Only the session row's creation time is trustworthy; rows are created by password login, magic-link verification and invitation acceptance. Older tokens carry an empty session id (`customerAuth.ts:180-181`).
-- **Login lockout is shared.** Five wrong passwords lock sign-in for fifteen minutes behind a generic 401 (`customerUserService.ts:8-9, 91-106`). A re-authentication prompt that counted against it would let a session thief keep the owner out.
-- **Rate limiting fails open**, is keyed by address and identifier, and is off in test mode (`auth/lib/rateLimitCheck.ts:28-59`).
+- **The profile page is read-only.** It renders email, last login, roles and features with no form (`packages/core/src/modules/portal/frontend/[orgSlug]/portal/profile/page.tsx`). A profile update route exists and accepts only `displayName` (`customer_accounts/api/portal/profile.ts`; `data/validators.ts`), and no page calls it.
+- **Self-deletion is refused.** `customer_accounts/api/portal/users/[id].ts` returns 400 when a user targets themselves. That route is for a company administrator removing a colleague.
+- **Nothing exports.** No portal route returns the user's data as a file. The staff-side forms export is the only precedent: a synchronous JSON response with an attachment header (`forms/api/subjects/[subjectType]/[subjectId]/export/route.ts`).
+- **No shared re-authentication counter exists** for portal actions. Password change checks the current password, without counting or throttling failures (`customer_accounts/api/portal/password-change.ts`). `passwordHash` is nullable.
+- **A token's issue time does not prove recent authentication.** The refresh route mints a new eight-hour token on the same session row from the thirty-day cookie, with no credentials (`sessions-refresh.ts`; `customerSessionService.ts`). Only the session row's creation time is trustworthy; rows are created by password login, magic-link verification and invitation acceptance. Older tokens carry an empty session id (`customerAuth.ts`).
+- **Login lockout is shared.** Five wrong passwords lock sign-in for fifteen minutes behind a generic 401 (`customerUserService.ts`). A re-authentication prompt that counted against it would let a session thief keep the owner out.
+- **Rate limiting fails open**, is keyed by IP and hashed identifier, and can be bypassed in the test runner's opt-in rate-limit mode (`auth/lib/rateLimitCheck.ts`).
 - **No rule protects a company's last administrator.** "Administrator" is any user holding `portal.users.manage` in the same company.
-- **A soft-deleted portal user keeps email, hash and name** (`customerUserService.ts:156-167`), and the deletion event carries the email. The erasure spec changes both.
-- **A new account with the same email is linked back to the retained CRM person** (`autoLinkCrm.ts:94-125`).
+- **A soft-deleted portal user keeps email, hash and name** (`customerUserService.ts`), and the deletion event carries the email. The erasure spec changes both.
+- **A new account with the same email is linked back to the retained CRM person** (`autoLinkCrm.ts`).
 
 ## 📝 Proposed Solution
 
-One new page, five routes, a few columns, one daily job.
+One new page, seven new HTTP handlers across five route files, account-state columns, and one daily job. Phase 1 also hardens the existing profile write.
 
 | Action | What happens |
 |---|---|
-| Edit display name | A form on the profile page calls the existing update route |
+| Edit display name | A versioned form calls the hardened profile update command through the existing route |
 | Download | After re-authentication the browser receives one JSON file: the export document for the user's own account, from the account class only |
 | Request deletion | After re-authentication the account is marked, a confirmation email is sent, staff are notified, and the page shows the date and a cancel button |
-| Cancel | The user, or staff from the admin page, clears the mark |
+| Cancel | The user, or staff with a reason, clears an unclaimed request; a claimed request returns 409 |
 | Grace period ends | A daily job runs the erasure operation for the account alone |
 
 ### Design decisions
 
 | Decision | Rationale |
 |---|---|
-| The account stays fully usable during the grace period | Blocking login would make cancelling impossible from inside the portal. |
+| The account stays usable during the grace period unless staff deactivate it | Blocking login would make cancelling impossible from inside the portal. |
 | New columns carry the pending state | `is_active` and `deleted_at` both block login. |
 | The request outlives a deactivation or soft delete by staff | Otherwise an administrator's soft delete would quietly replace an erasure with a row that keeps the email and name. |
+| Only a complete erase result closes a request | The erase run keeps the row, anonymized and soft-deleted (erasure spec, three roots). A mark left set would run the erasure again every day and show a pending deletion with a cancel button for ever. |
 | The download names its data class explicitly | Fan-out is by subject kind, so a class added later would otherwise join the download unreviewed. |
 | Re-authentication has its own failure counter | So that it cannot be used to lock the owner out of sign-in, and so that password change stops being an unthrottled oracle. |
 | New routes for self-service; the colleague-removal route keeps its refusal | That route is authorized by a company-administration feature and must stay distinct. |
-| The cross-site check is added to the new mutating routes | They are the most damaging portal mutations. |
-| The privacy service is reached through a DI key, softly | Without the `privacy` module the page shows neither download nor deletion. |
+| Every write uses server mutation guards and the cross-site check | The browser hook alone cannot protect a direct HTTP request. Phase 1 hardens the existing profile route too. |
+| The privacy service is reached through a DI key, softly | Download needs `privacySubjectService`; deletion also needs `subjectHistoryService` and its schedule, so interrupted erasure can recover. |
 
 ### Alternatives considered
 
@@ -86,13 +89,16 @@ One new page, five routes, a few columns, one daily job.
 
 ### Changes this spec needs in its two parents
 
-Both parents are unreleased, so these are edits to their text, made with this spec.
+Both parents are unreleased. Their merged designs specify runtime registration, account-only publication and its internal-field allowlist, soft-deleted roots, persisted exclusions and two-stage field clearing; implementation must deliver those contracts before the dependent portal phase ships. R4-2 — Authority for a portal-initiated erasure (program spec, "Council-review cross-spec decisions"), owned by the erasure parent, completes assumption 11's account-only worker authority design and fixes its actor. R3-14 — The `eraseSubjects` entry point (parent erasure API Contracts → The `eraseSubjects` entry point (R3-14)), R3-1 — The audit-history rule for every erasure (parent erasure → The audit-history rule for every erasure (R3-1), The run and API Contracts → Audit history — `audit_logs`), and R3-2 — The registry carries the whole `privacy.ts` default export (parent contract API Contracts → Types, Export shape and Collectors) supply the consumed contracts; R4-2 governs the portal caller and authority boundary. R5-1 resolves the operator-recovery conflict with the sole exception for a journal in `failed_handoff`, as recorded under Daily worker and recovery; the erasure parent owns its implementation.
 
 | Parent | Change |
 |---|---|
-| Contract | The export operation is callable in process as `privacySubjectService.exportSubjects`, taking the subjects, `followRelated` (default true), an optional list of data-class ids, an actor and a reference. The command passes `system:privacy-cli` and `--reference`; the portal passes the user and a generated reference |
+| Contract | Consume its existing `privacy/di.ts` registration of `privacySubjectService`, collected at operation time from runtime `getModules()` under R3-2. Call `exportSubjects` with authenticated tenant and organization scope, the own account subject, `followRelated: false`, the class list restricted to `customer_accounts.users`, the portal actor, and a generated reference. Follow its started/terminal audit lifecycle and check returned `auditStatus`; do not forward the class handler's related-subject ids or labels into the portal file |
 | Contract | The account class exports only invitations addressed to the user's own email. Invitations the user sent carry another person's email and name and are left out |
-| Erasure | The run is callable in process as `privacySubjectService.eraseSubjects`, taking the subjects, the excluded related subjects, an actor, a reference and `mode` (`dry-run` or `apply`). The confirmation token stays in the command, which is the only caller with a person at a terminal |
+| Erasure | Cite API Contracts → The `eraseSubjects` entry point (R3-14) for the input members and `PrivacyErasureRunResult`, without a second signature here. For initial execution and ordinary retries, R4-2 requires the portal deletion worker to supply tenant-only `scope` for the account's tenant, `subjects` containing exactly the requesting `customer_accounts:user`, explicit `excludedRelated` excluding every related subject, `prefer: 'delete'`, `origin: 'portal'`, actor `{ kind: 'system', worker: 'portal-self-service' }`, a stable request `reference`, and `mode`. Match the account entry in `subjects[]` and require its `status: 'complete'`, `filesPending: 0` and the run's `complete: true`; incomplete/refused results keep the request open until the bounded failure transition |
+| Erasure | The portal worker checks the account id against its accepted tenant and organization before invoking the tenant-wide parent. The `customer_accounts.users` owner check and erase include tenant-matching soft-deleted roots. A soft-deleted account still exists and is erasable; `not_found` under R3-14 means the root row is absent, not merely soft-deleted. Unit test `portalUserErasure.softDeletedRoot.test.ts` freezes this |
+| Erasure | Consume R4-2's authority boundary in the parent's Resolved assumption 16 and Phase 1: the subject's own verified request authorizes the named worker's account-only run, with no staff authorization required. The actor and origin alone grant an HTTP or staff caller no authority. C4 → Origin-preserving portal recovery owns `privacySubjectService.resumeErasureRun({ scope, runId, actor, mode })` and `mercato privacy erase --tenant <id> --resume-run <runId> [--out <file>] [--apply --confirm <token>]`. Under R5-1, only a journal in `failed_handoff` permits operator recovery through that command or the enterprise page with `data_erasure.subjects.erase`; preserve the portal origin, original single subject and exclusions, and audit the operator as `resumedBy`. The accepted journal intent and run id remain authoritative after account marks are cleared |
+| Contract and erasure | Implement the parents' account class export and erase field lists when the columns below ship. Preserve request fencing until completion; follow R3-1 for all changed account and dependent history records |
 
 ## 📝 Delta
 
@@ -106,8 +112,8 @@ The system SHALL let a signed-in portal user download the data held in their por
 - THEN they receive a file containing their profile, sessions, roles and the invitations addressed to them
 
 ##### Scenario: Another person's data
-- WHEN the user has a colleague and has invited someone
-- THEN the file contains neither the colleague's email nor the invitee's
+- WHEN the user has a colleague, has invited someone, and is linked to a CRM person with a distinctive note
+- THEN the file contains neither the colleague's email, the invitee's email, the CRM note nor the linked person's id
 
 ##### Scenario: Wrong password
 - WHEN the password is wrong
@@ -122,7 +128,7 @@ The system SHALL let a signed-in portal user request deletion of their own accou
 
 ##### Scenario: Grace period ends
 - WHEN the period ends without a cancel
-- THEN signing in fails, the email can be used for a new account, and the linked CRM person still exists
+- THEN signing in fails, the email can be used for a new account, the linked CRM person still exists, and the request is closed: the account shows as erased, nothing is pending, and a later run of the job changes nothing
 
 ##### Scenario: Staff remove the user during the period
 - WHEN an administrator soft-deletes the user before the period ends
@@ -132,11 +138,35 @@ The system SHALL let a signed-in portal user request deletion of their own accou
 - WHEN the only active user with user-management rights in a company that has other active users requests deletion
 - THEN the request is refused with an explanation
 
+##### Scenario: Concurrent administrators
+- WHEN two administrators in one company request deletion together
+- THEN the company lock serializes acceptance and at least one request is refused
+
+##### Scenario: Cancel races with apply
+- WHEN a cancel commits after the dry run but before the worker claims the request
+- THEN the worker makes no apply call; once claimed, either cancel route returns 409
+
+##### Scenario: Failed request
+- WHEN seven attempts fail
+- THEN any open portal-origin journal enters `failed_handoff` under R5-1, the pending and claimed marks are cleared, the failure is shown before any anonymized state, an active user may request again, and either authorized cancel route may dismiss the failure
+
+##### Scenario: Operator resumes a failed erasure
+- WHEN an operator resumes a journal in `failed_handoff` through `mercato privacy erase --resume-run <runId>` or the enterprise page with `data_erasure.subjects.erase`
+- THEN R5-1 permits recovery of that same run with origin `portal`, the original single subject and exclusions, and the operator recorded as `resumedBy` in audit entries; a journal outside `failed_handoff` cannot use this exception
+
+##### Scenario: Tenant disables self-service
+- WHEN staff turn the tenant switch off while an accepted request exists
+- THEN new requests and downloads return 403, cancellation stays available, and the worker still processes the accepted request
+
+##### Scenario: Grace setting changes
+- WHEN the grace setting changes after acceptance
+- THEN the stored effective date, status and due selection stay unchanged
+
 ##### Scenario: Removing a colleague is unchanged
 - WHEN a company administrator targets themselves on the colleague-removal route
 - THEN it is still refused
 
-Frozen by: `packages/core/src/modules/customer_accounts/__integration__/TC-PORTAL-005.spec.ts`
+Frozen by: `packages/core/src/modules/customer_accounts/__integration__/TC-PORTAL-004.spec.ts`
 
 #### ADDED Requirement: Edit own display name
 The system SHALL let a portal user change their display name from the portal.
@@ -147,29 +177,66 @@ The system SHALL let a portal user change their display name from the portal.
 
 ## 📝 Architecture
 
-- **`customer_accounts`**: five routes; `lib/reauth.ts`; the columns; a worker on its own queue; the email templates; the events; a notification type; the tenant setting.
-- **`portal`**: the Privacy page and the profile form.
-- **`privacy`**: registers `privacySubjectService` in its `di.ts` for in-app callers.
+- **`customer_accounts`**: the self-service and settings routes; profile hardening; `lib/reauth.ts`; deletion-state service and columns; a worker on its own queue; templates, events and notification.
+- **`portal`**: the Privacy page and versioned profile form.
+- **`privacy`**: supplies `privacySubjectService` through DI. `subjectHistoryService` is an additional required capability for portal deletion, resolved softly. No portal code reads another module's tables.
 
-**Re-authentication** (`lib/reauth.ts`), used by the two new routes and by password change:
+**Shared service and export audit.** C1 owns `privacy/di.ts` and `privacy/lib/subjectService.ts`; C7 consumes that registration and never creates a second service or registry. Definitions come from operation-time runtime `getModules()` and `Module.privacy` through `getPrivacyDataClasses`, as R3-2 specifies, not `getCliModules()` or an early cached class list. Export follows C1's Architecture → Subject kinds and the subject set (In-process callers), API Contracts → Export document (version 1) and Audit entries. Omit `publish` for this in-process call. The service must write a started entry before resolution/reads and terminal evidence after assembly, before returning. The route inspects data `complete` and the returned terminal `auditStatus`; only `complete: true` with `auditStatus: 'complete'` permits an attachment response. A document's `auditStatus: 'started'` is a lifecycle marker, not successful terminal evidence. Missing/failed start, failed terminal evidence, incomplete data or no applicable classes returns a sanitized 503 with no file. The portal adds no duplicate audit lifecycle or separate evidence store; C1 owns export-evidence expiry.
 
-1. If the user's re-authentication lock has not expired, refuse with 429.
-2. With a password on the account, verify it. A failure increments the re-authentication counter; five failures lock re-authentication for fifteen minutes. The login counter is not touched.
-3. Without a password, load the session row named by the token's session id. Refuse when the id is empty or the row was created more than fifteen minutes ago.
+**Profile write, Phase 1.** `GET` and `PUT /api/customer_accounts/portal/profile` retain existing response fields and add `user.updatedAt`. Initialize `customer_users.updated_at` on creation and backfill null versions from `created_at` in the scoped migration. The form sends `buildOptimisticLockHeader(record.updatedAt)` through `withScopedApiRequestHeaders` and shows `surfaceRecordConflict` on 409. The route rejects cross-site requests, runs the registry described below, and dispatches a profile-update command. Under the scoped user row lock the command calls `enforceCommandOptimisticLock`, writes the display name through the managed entity and advances `updated_at`. After commit it emits `customer_accounts.user.updated` with `{ id, recipientUserId, tenantId, organizationId }` only. No email or display name is copied into the event. Existing callers omitting the lock header remain accepted; the new form always supplies it.
 
-**The worker** runs daily on a system-scoped cron schedule. For each account whose request is older than the grace period — whatever its `is_active` and `deleted_at` — it:
+**Server write guards.** Every new `POST`, `PUT` and `DELETE`, the profile `PUT`, and the password-change route run `runMutationGuards` before mutation. Collect `getAllMutationGuardInstances()` plus `bridgeLegacyGuard(container)` when present, use the closest create/update/delete operation, and pass the authenticated realm's effective grants as `{ userFeatures }`. Return `errorBody` and `errorStatus` on refusal; merge and revalidate `modifiedPayload`. Run every `afterSuccessCallbacks` item after commit, and log and report callback failures without failing a committed response. Export's POST uses an update action for its access/audit side effects. All these handlers call `isCrossSiteBrowserRequest` from `@open-mercato/shared/lib/url` before writes. The UI uses `apiCall`, `useGuardedMutation` and `retryLastMutation` in its injection context.
 
-1. Re-checks the sole-administrator rule. If it now applies, it leaves the request pending and notifies the user and staff.
-2. Calls the erase run in `dry-run` mode for the account, collects the related subjects it reports, and calls it again in `apply` mode with all of them excluded.
-3. On success, nothing remains to update: the row is gone.
-4. On a refusal or an incomplete run, increments the attempt count. At seven it sets the failed mark, emails the user and notifies staff. A failed request is not retried; staff clear it or a new request replaces it.
+**Re-authentication** (`lib/reauth.ts`) is shared by export, deletion request, email change and password change. Its columns and migration ship once, in whichever portal spec lands first.
+
+1. Load the scoped user under a row lock in a short transaction. If `reauth_locked_until > now`, refuse with 429 without extending the lock or incrementing.
+2. When a lock expires, atomically reset `reauth_failed_attempts` to 0 and clear `reauth_locked_until` before evaluating this attempt.
+3. With a password, verify it while holding that lock. A failure atomically increments the counter; the fifth failure sets a fifteen-minute lock. That failure retains the action's invalid-password response; further attempts get 429. A successful verification resets both fields in the same transaction. Parallel failures cannot lose increments; a success cannot clear a lock set by another committed attempt.
+4. Without a password, require a live scoped session row named by the token, created by sign-in in the last fifteen minutes; an empty session id is refused. A successful check resets the re-authentication fields. Login counters are never read or changed by this helper. Operational counter writes do not advance the profile's edit version.
+
+### Deletion request state and cancellation
+
+Acceptance takes `withAdvisoryXactLock` on `customer_accounts:deletion_company:<tenant>:<organization>:<company>` when a company exists, then locks the scoped user row. It rechecks the current ACL through `customerRbacService`, the administrator floor and pending state. Count only active, undeleted administrators who are neither pending nor claimed; count all other active company users for the floor. The feature is `portal.users.manage`, including wildcard and portal-admin semantics. Two simultaneous requests cannot both pass using one another as the remaining administrator.
+
+A new request stores `deletion_requested_at = now` and `deletion_effective_at = now + configured grace`, resets attempts, last-attempt date and failure, and leaves `deletion_claimed_at` and `deletion_excluded_related` null. The effective date is immutable for that request. The request reference is derived from the user id and stored request time, never from free text.
+
+| State | Stored marks | Request route | User and staff cancel |
+|---|---|---|---|
+| Idle | No requested, effective, claimed, failed or last-attempt date; attempts 0 | Accept | 404 |
+| Pending | Requested and effective date, no claim or failure; no stored exclusions yet | 409 with existing effective date | Lock the scoped row, compare the supplied version, clear request/effective/last-attempt dates, stored exclusions and attempts, return 200 |
+| Claimed or partially applied | Requested, effective and claimed date; immutable stored related-subject exclusions | 409 | Lock the same row and return 409 `deletion_in_progress`; never report a successful cancel |
+| Failed | Requested, effective and claimed dates null; failed date set; attempts 7 | An active authenticated user may replace it, resetting all state | Dismiss the failure, clear the last-attempt date and reset attempts, return 200; this restores no erased data or disabled account |
+| Anonymized, no open portal request | `anonymized_at` set; no request/last-attempt marks or attempts | Unavailable to the anonymized account | 404; this state alone does not assert that files, event and history work completed |
+
+Both cancels take the same user row lock used by claiming, including for staff-soft-deleted accounts. Staff must supply a zod reason code (`duplicate_request`, `identity_review` or `controller_review`) and hold `customer_accounts.manage` in the target's tenant and organization. After commit send a cancellation/dismissal email while the account still has a non-placeholder address, even if deactivated. For an anonymized account no address is retained: send staff an explicit follow-up task through the controller's independent verified contact/case channel instead; never try to email a placeholder. For a deliverable cancellation notice, include the reason's translated explanation, company contact and how to complain to the relevant supervisory authority. Emit `deletion_cancelled` with ids, `cancelledByKind: 'self' | 'staff'` and the reason code, with no free-text reason. Self-cancel uses `user_cancelled`. Dismissing a failed request is labelled as dismissal in the UI and email; it does not claim that an incomplete erasure was reversed.
+
+### Daily worker and recovery
+
+The system-scoped schedule scans due `deletion_effective_at <= now` accounts in bounded batches of at most 100, excluding failed requests but including inactive and soft-deleted accounts. It ignores the tenant switch for accepted requests. For each account:
+
+**Scope boundary.** Export keeps the authenticated `{ tenantId, organizationId }` scope. Deletion HTTP routes authorize only the authenticated account, or the staff target in the staff member's tenant and organization, and persist a local request. Under R4-2 only the portal deletion worker may run `eraseSubjects` with `origin: 'portal'` and actor `{ kind: 'system', worker: 'portal-self-service' }`, except for R5-1's operator recovery of a journal in `failed_handoff` below. The subject's own verified request is the authority; this worker needs no staff authorization. It independently reloads that exact accepted account scope and constructs erasure `scope: { tenantId }` for the account's tenant, with no `organizationId`. It supplies exactly the requesting `customer_accounts:user`, never browser-selected ids, and excludes every related subject. This may erase that account's dependent records across the tenant's organizations; it grants the HTTP caller no general tenant-wide erasure authority. A scope mismatch refuses the attempt. Supplying the actor and origin does not authorize another caller. The design is complete; until the parent implements R4-2, report `deletionAvailable: false`, refuse new deletion requests with 503 and make no dry-run or apply call; the tenant switch cannot enable it. Never catch `TENANT_WIDE_SCOPE_REQUIRED` and retry after removing `organizationId`.
+
+**Restore replay is a separate caller.** [`erasure-restore-replay`](enterprise/2026-11-16-erasure-restore-replay.md), Proposed Solution → Apply, already consumes R3-14 with `scope: { tenantId }` only for a manifest whose stored organization is explicitly null. Historical non-null scopes remain pending as `scope_unsupported`, with no erase call; they are never widened. That restore operation uses `origin: 'engine:replay'` and does not replace the origin-preserving recovery of an open portal run. Both callers require established authority before constructing their service input.
+
+1. Acquire a per-account worker advisory lock, `customer_accounts:deletion_worker:<tenant>:<organization>:<user>`, using `withAdvisoryXactLock`. Hold it for the whole attempt. The lock transaction never holds a user row lock during the erase call, whose transactions belong to the privacy service. Redelivery waits and re-reads; no second worker applies concurrently. A crash releases the database lock; the next job resumes the persistent claim without a lease timeout.
+2. Re-read the scoped state. With no pending request, a future effective date, or `deletion_last_attempt_at` already in this UTC day, stop. A crash before recording an outcome leaves that day uncounted and may resume immediately. Run `eraseSubjects` with `mode: 'dry-run'` using R3-14 and the tenant-only scope above; collect the matching account entry's `relatedSubjects`. Pass its single subject, `excludedRelated` (empty on first discovery, the stored exclusions on retry), `prefer: 'delete'`, `origin: 'portal'`, actor and the stable reference. Dry-run completion is a planning result only, never grounds to close a request. No CLI confirmation token is invented for this in-process caller.
+3. For an unclaimed request, a refused, incomplete, absent or `not_found` account planning result takes the failure path without claim/apply. A claimed retry keeps its stored exclusions and lets the parent's apply resume pending work; an explicit pre-flight refusal still stops it. Otherwise take the company advisory lock, then the user row lock, and recheck the same request timestamp, due date and administrator floor. Conditionally set `deletion_claimed_at` and persist the sorted/deduplicated dry-run exclusions as `deletion_excluded_related` only while the request still matches, is not failed and has no claim. If a cancel committed during the dry run, do not apply. A sole-administrator deferral counts as an attempt by the atomic request/day rule below; do not send daily deferral notices. On the seventh deferral use the failure transition and its one notification.
+4. Immediately before apply, re-read the matching request, claim and stored exclusions under the same user row lock; then release that short transaction. Both cancel routes refuse a committed claim. Call `eraseSubjects` with `mode: 'apply'` and the stored exclusion set. On retry keep the original scope, subject, exclusions, preference and origin, as the parent's The run → Serialize and journal requires; a stable reference alone does not establish a matching resume. A newly discovered related subject or `RESUME_REQUEST_MISMATCH` leaves the request incomplete for staff review, never expands or silently rewrites its input. Per R3-1 the service owns both history-strip passes; the worker adds no strip.
+5. Find exactly the requested kind/id in `subjects[]` and require its `status: 'complete'`, `filesPending: 0`, and the run's `complete: true`. Interpret its `sections` as `PrivacyErasureSectionResult[]`; there is no section-level pending/status field to invent, and the parent's verified retained/anonymized outcomes may be complete. Then lock the row and clear requested, effective, claimed, failed and last-attempt dates, stored exclusions and attempts. A root `not_found` is not silently treated as portal success; the parent must return a verified standing `complete` result from its durable journal, otherwise staff must investigate. An `anonymized_at` flag or aggregate `runId` alone never closes a request.
+6. Count an attempt for planning/guard failures that steps 2–3 stop, administrator deferral, an apply error, or an apply result with `refused`, `incomplete` or `not_found`, a missing account entry, or `complete: false`. The incomplete planning result explicitly allowed to proceed on a claimed retry is not itself a failed attempt: evaluate that retry's subsequent apply outcome. Lock the row and conditionally increment attempts only if the same request timestamp is still present and `deletion_last_attempt_at` is before this UTC day or null; set that timestamp in the same update. An already-counted redelivery does no apply or increment until the next day. Keep the claim while an apply has been attempted, so a partial erasure cannot be cancelled. At seven, follow C4's R5-1 handoff: any open portal-origin journal enters `failed_handoff`; clear requested, effective and claimed dates and stored exclusions, retain the last-attempt date, set `deletion_failed_at`, and notify staff once. Email the user only when a non-placeholder delivery address still exists; after owner anonymization no such address is retained, so the staff notice explicitly requires follow-up through the controller's independently held case/contact channel. Active users may request again. After this terminal transition, a partial run uses C4's R5-1 recovery below; a failed row is never automatically selected. Staff may dismiss the failed mark without asserting completion or restoring erased data.
+
+**Recovery after bounded failure.** Consume R5-1 through the erasure parent's “Origin-preserving portal recovery”: after the worker's seventh failed attempt, any open portal-origin journal enters `failed_handoff` while the worker clears the account's request marks as above. Only a journal in `failed_handoff` permits an operator to resume through `mercato privacy erase --tenant <id> --resume-run <runId> [--out <file>] [--apply --confirm <token>]`, or through the enterprise page with `data_erasure.subjects.erase`. This is the sole exception to R4-2's worker-only rule; ordinary portal execution and retries retain the exact worker actor. C4 owns `privacySubjectService.resumeErasureRun({ scope, runId, actor, mode }): Promise<PrivacyErasureRunResult>`, with tenant-wide scope and `mode: 'dry-run' | 'apply'`. Its service owns journal reads and preserves the accepted scope, original single account subject, exclusions, preference, reference, `origin: 'portal'` and exact `runId`; audit entries record the operator as `resumedBy`. No journal outside `failed_handoff`, or a failure that opened no journal, gains the operator-recovery exception. Never reconstruct intent from the cleared account marks, supply replacement subject/identifier/exclusion/preference/reference flags with `--resume-run`, or start a fresh CLI/replay-origin run to replace it. Unknown, expired, malformed, ambiguous or mismatching journal evidence refuses. Recovery recreates no account request and does not reselect a failed row; staff retain the failed-state/dismissal rules and independent case channel. A verified complete result may support failure dismissal, never restoration of cleared data. Implementation of C4's R5-1 handoff and recovery remains a Phase 3 prerequisite.
+
+The account owner erase clears its re-authentication fields. It preserves request fencing, stored exclusions and retry metadata until the worker's complete-result finalizer clears them; clearing those fields in the owner transaction would lose recovery after a failed emit, pending files or the second history strip. If apply completed but finalization failed, the next job resumes the same request and the parent's durable started/completed entries through `eraseSubjects`, then clears it. Deletion is offered only when `subjectHistoryService`, `actionLogService`, `privacySubjectService`, the required `attachmentService`, an erasable account class and the registered schedule are available. The POST repeats those checks; capability loss after acceptance is reported as failure after bounded attempts. The service owns journal reads; the portal never reads audit tables or treats `subjectHistoryService.stripSubject` as a journal-query API.
 
 | Touchpoint | Mechanism | Absent |
 |---|---|---|
-| `customer_accounts` → `privacy` | `privacySubjectService` by DI key, resolved softly | Download and deletion are not offered; the status route says so |
-| `portal` page → routes | `apiCall` and `useGuardedMutation` | — |
-| Worker → scheduler | `schedulerService`, guarded by `hasRegistration` | Deletion is not offered: the status route reports it available only when the schedule is registered |
-| Erasure not available for the account kind | The erase run's pre-flight | Deletion is not offered; an existing request fails after seven attempts |
+| `customer_accounts` → `privacy` | Soft DI resolution of `privacySubjectService` | No download or deletion; status says unavailable |
+| Deletion → durable erasure history | Soft DI resolution of `subjectHistoryService` and `actionLogService`, per DEC-B — The audit-history strip routine and R3-1 — The audit-history rule for every erasure (parent erasure spec, API Contracts → Audit history — `audit_logs` and Audit entries); the parent service owns the journal | No new deletion request; existing requests count a refused attempt |
+| Deletion → required file wiring | Soft DI resolution of `attachmentService`, as the erasure parent's The run → Pre-flight requires for its portal root | No new deletion request; accepted work counts refusal; no attachment-table fallback |
+| Account setting → configs | DI `moduleConfigService`, never another module's table | New downloads and deletion requests fail closed with 503 |
+| Portal page → routes | `apiCall`, `useGuardedMutation`, scoped version headers | — |
+| Worker → scheduler | Soft DI `schedulerService`; verify that the specific enabled schedule exists | No new deletion request; status says unavailable |
 
 ### Frontend architecture contract
 
@@ -194,35 +261,45 @@ The system SHALL let a portal user change their display name from the portal.
 | Hydration and interaction test | Required: TC-PORTAL-PRIVACY-005 |
 | Evidence | `yarn check:client-boundaries` output |
 
-No provider or bootstrap registry is touched. The dialog primitive has no keyboard handler and no portal page uses a dialog today, so both dialogs implement submit on Cmd/Ctrl+Enter and cancel on Escape themselves. All strings are locale keys in the five existing portal locales.
+No provider or bootstrap registry is touched. Both dialogs use the shared dialog primitive, add submit on Cmd/Ctrl+Enter, and retain Escape cancellation; integration tests cover both shortcuts. All strings are locale keys in the five existing portal locales.
 
 ## 📝 Data Models
 
 | Entity | Change |
 |---|---|
-| `customer_users` | Add nullable `deletion_requested_at` and `deletion_failed_at` (`timestamptz`), `deletion_attempts` (`int`, default 0), `reauth_failed_attempts` (`int`, default 0), `reauth_locked_until` (`timestamptz`, nullable); a partial index where `deletion_requested_at` is not null |
+| `customer_users` | Add nullable `deletion_requested_at`, `deletion_effective_at`, `deletion_claimed_at`, `deletion_last_attempt_at` and `deletion_failed_at` (`timestamptz`), nullable `deletion_excluded_related` (`jsonb`, zod-validated `PrivacySubjectReference[]`, null before claim), `deletion_attempts` (`int`, default 0), `reauth_failed_attempts` (`int`, default 0) and nullable `reauth_locked_until` (`timestamptz`); a partial due-date index on `deletion_effective_at` where requested is not null and failed is null |
+| `customer_users.updated_at` | Existing nullable edit version: initialize on creation, backfill nulls from `created_at`, return it on profile and privacy status responses, and advance it for profile, deletion-state and staff state writes |
+| `module_configs` | Existing table, no new entity: tenant row with `module_id = 'customer_accounts'`, `name = 'privacy.selfServiceEnabled'`, JSON boolean, `organization_id = null`; absence defaults to true |
 
-Additive, with a migration and the module snapshot. Staff-side user responses gain `deletionRequestedAt` and `deletionFailedAt`. The data-model graph is omitted: nullable columns on one existing table.
+Additive migrations and `migrations/.snapshot-open-mercato.json` changes ship with their phase. The re-authentication columns are identical to the email-change spec and are migrated once. Staff-side user responses gain `deletionRequestedAt`, `deletionEffectiveAt`, `deletionClaimedAt`, `deletionFailedAt` and `updatedAt`; `anonymizedAt` comes from the erasure spec. The graph is omitted: columns on existing entities only. Existing staff `GET /api/customer_accounts/admin/users/:id` gains an explicit `includeDeleted=true` query option requiring `customer_accounts.manage` in the target organization; that option returns pending/failed privacy metadata and `updatedAt` for deactivated, soft-deleted or anonymized rows without changing the default undeleted-only response. The staff privacy line uses it, so failed erasure and cancellation remain inspectable after a staff soft delete.
+
+**Account class field lists.** Export the own account's `deletionRequestedAt`, `deletionEffectiveAt`, `deletionFailedAt`, `deletionAttempts`, `reauthFailedAttempts` and `reauthLockedUntil`; do not export the internal `deletionClaimedAt` fencing mark, `deletionLastAttemptAt` daily-delivery marker or `deletionExcludedRelated`. C1 Data Models → Account additions specifies this same allowlist and omits the internal fields, including their database-name variants; the portal projection must omit them before publication. Stored exclusions contain ids only, never aliases, labels or identifier values, and are internal recovery metadata. Clear them on cancellation, completed finalization or terminal failure; the last-attempt marker may remain on a terminal failure only until failure dismissal or re-request. Consume C1's existing CRM-free portal projection and addressed-only invitation rule. Erasure clears re-authentication fields in the owner transaction and all deletion fields on complete-result finalization, as specified above. During an incomplete run only the minimum request/fencing fields remain for recovery, including `deletion_excluded_related`, which C4's Portal recovery fields explicitly preserves alongside the other marks. Each changed row is a history record under R3-1. Unit test `portalPrivacyFields.test.ts` asserts the export allowlist, exclusion of all internal metadata, both clearing stages and the absence of CRM data.
 
 ## 📝 API Contracts
 
-All authenticate in the handler as the other routes of their kind do, and use `{ ok, error }` response bodies. Inputs are zod schemas in `customer_accounts/data/validators.ts`.
+All authenticate in the handler, validate with zod in `customer_accounts/data/validators.ts`, export OpenAPI entries, and use `{ ok, error }` bodies where they do not return a file. Tenant and organization come only from auth. Staff user actions load `{ id, tenantId: auth.tenantId, organizationId: auth.orgId }`, including soft-deleted rows for cancellation; a mismatched organization returns 404. Feature checks use the realm RBAC service. Every write follows the server guard and cross-site rules above.
 
 | Route | Request | Response | Errors |
 |---|---|---|---|
-| `GET /api/customer_accounts/portal/privacy` | — | `{ downloadAvailable, deletionAvailable, deletionRequestedAt, deletionEffectiveAt, deletionFailedAt, graceDays }` | 401 |
-| `POST …/portal/privacy/export` | `{ password? }` | The export document, with an attachment header | 401; 403 re-authentication failed; 429; 503 privacy service absent |
-| `POST …/portal/privacy/deletion-request` | `{ password? }` | `{ ok, deletionEffectiveAt }` | 401; 403; 409 sole administrator or already requested; 429; 503 |
-| `DELETE …/portal/privacy/deletion-request` | — | `{ ok }` | 401; 404 nothing pending |
-| `DELETE /api/customer_accounts/users/:id/deletion-request` (staff) | — | `{ ok }` | 401; 403 without the portal-user management feature; 404 |
+| Existing `GET /api/customer_accounts/portal/profile` | — | Existing shape plus `user.updatedAt` | 401; 404 |
+| Existing staff `GET /api/customer_accounts/admin/users/:id?includeDeleted=true` | `customer_accounts.manage`, authenticated tenant and organization | Existing user fields plus the stated deletion status/version, including soft-deleted rows | 400; 401; 403; 404 outside scope |
+| Existing `PUT …/portal/profile` | `{ displayName? }`, optional legacy lock header; new form always sends it | Existing shape plus `user.updatedAt` | 400; 401; 403 feature, cross-site or guard; 409 stale version |
+| `GET /api/customer_accounts/portal/privacy` | — | `{ downloadAvailable, deletionAvailable, deletionRequestedAt, deletionEffectiveAt, deletionClaimedAt, deletionFailedAt, graceDays, updatedAt }` | 401 |
+| `POST …/portal/privacy/export` | `{ password? }` | Account-only export document, `followRelated: false`, class list `['customer_accounts.users']`, attachment header only after complete data and returned `auditStatus: 'complete'` | 401; 403 switch off, cross-site, guard or re-authentication; 429; 503 dependencies, data or terminal audit incomplete |
+| `POST …/portal/privacy/deletion-request` | `{ password? }`, expected user version header | `{ ok, deletionEffectiveAt, updatedAt }` | 401; 403; 409 sole administrator, stale or already requested; 429; 503 |
+| `DELETE …/portal/privacy/deletion-request` | Expected user version header | `{ ok, updatedAt }`; pending cancel or failure dismissal | 401; 403 cross-site or guard; 404 idle or anonymized with no open request; 409 claimed or stale |
+| `DELETE /api/customer_accounts/admin/users/:id/deletion-request` | `{ reasonCode }`, expected user version header | `{ ok, updatedAt }` | 400 invalid or missing reason; 401; 403 without `customer_accounts.manage`, cross-site or guard; 404 outside scope, idle or anonymized with no open request; 409 claimed or stale |
+| `GET /api/customer_accounts/admin/privacy-settings` | Staff `customer_accounts.manage`, unrestricted organization visibility | `{ selfServiceEnabled, updatedAt }` | 401; 403; 503 settings service absent |
+| `PUT …/admin/privacy-settings` | `{ selfServiceEnabled: boolean }`, expected setting version header | `{ selfServiceEnabled, updatedAt }` | 400; 401; 403; 409; 503 |
 
-- **Cross-site.** The portal's three mutating routes reject a cross-site browser request with the helper login uses.
-- **Rate limits.** Export and deletion request get their own entries in the module's rate-limit configuration. They are a second line: the re-authentication counter is stored on the row and does not fail open.
-- **Sole administrator.** Counted among users of the same company that are active, not deleted and not themselves pending deletion. A user with no company is never refused.
-- **Settings.** `OM_PORTAL_ACCOUNT_DELETION_GRACE_DAYS`, default 14, minimum 1, in both `.env.example` files. A per-tenant switch for self-service, default on; the step picks the existing tenant settings store and names the key.
-- **Events.** `customer_accounts.user.deletion_requested`, `…deletion_cancelled` and `…deletion_failed`, carrying ids only.
-- **Notification.** One type, to staff holding the portal-user management feature, on request and on failure.
-- **Email.** Two templates: "deletion requested", with the effective date and how to cancel; "deletion could not be completed", telling the user to contact the company.
+- **Versions.** New update/delete actions return `updatedAt` and enforce the expected version under the row lock with `enforceCommandOptimisticLock`; the UI supplies `withScopedApiRequestHeaders(buildOptimisticLockHeader(record.updatedAt), …)` and `surfaceRecordConflict`. The tenant-setting command takes `withAdvisoryXactLock` on `customer_accounts:privacy_settings:<tenant>`, calls the config service's `invalidate` before `getRecord`, then compares and writes through `setValue` while holding that same lock; all writers of this new key use it. It serializes first creation too; null means no tenant row yet, and a global fallback record is not a tenant row. No module queries `module_configs` directly.
+- **Rate limits.** Export and deletion request get dedicated entries in `lib/rateLimiter.ts`. The row-backed re-authentication counter remains authoritative if the outer limiter fails open.
+- **Grace setting.** `OM_PORTAL_ACCOUNT_DELETION_GRACE_DAYS`, integer days, default 14, minimum 1, in both `.env.example` files; changing it affects only new requests. Status uses the stored effective date and reports that request's grace duration while pending.
+- **Tenant switch.** Boolean `privacy.selfServiceEnabled` in `module_configs` as declared above, read with DI `moduleConfigService.getRecord('customer_accounts', 'privacy.selfServiceEnabled', { tenantId })`: use a validated boolean only when the returned `source` is `tenant`; an absent tenant row defaults to true even if the service returns an instance fallback. A corrupt value refuses new self-service actions with 503. Writes use `setValue` with the authenticated tenant and null organization. The staff Portal Settings screen at `/backend/customer_accounts/settings` reads and edits it through the two new routes, restricted to `customer_accounts.manage` and unrestricted organization visibility (`isUnrestrictedOrganizationScope` from shared auth). Scoped staff may still manage users in their own organization but cannot change a tenant-wide switch. The switch disables new downloads and deletion requests, never cancellation or the worker.
+- **Settings boundary.** R3-3 — Tenant privacy settings live in `module_configs` governs C1's numeric retention settings under `module_id = 'privacy'` and `retention.<area>.<setting>`, read with `privacySettingsService.get(scope, name)`. This account-owned boolean and the grace-period environment variable are separate controls; neither is registered as a numeric retention age or silently moved to that service.
+- **Events.** `customer_accounts.user.deletion_requested`, `…deletion_cancelled` and `…deletion_failed` carry ids and enumerated state/reason codes only. Cancellation also carries `cancelledByKind` and `reasonCode`; no email, dates or free-text reason enters the event. The parent erasure event carries the exclusions under R3-14, and no free-text reference.
+- **Notification.** One type sent to staff with `customer_accounts.manage` on request and terminal failure, once per transition. Sole-administrator deferral is not notified daily.
+- **Email.** Three templates: requested (stored effective date and cancel instructions), failed (company contact), and cancelled by staff (reason, company contact, complaint instructions). Delivery failure is logged and reported with sanitized codes, never an address or capability; the state and staff UI keep the reason code without storing free-text personal data.
 
 ## 📝 UI/UX
 
@@ -230,83 +307,110 @@ All authenticate in the handler as the other routes of their kind do, and use `{
 - **Privacy page**, in the account navigation group:
   - *Your data* — one paragraph on what the file contains and what it does not, and a button that opens the download dialog.
   - *Delete account* — one paragraph stating that the portal account is removed; that records the company holds about the person are not, and whom to ask about those; and that signing up again with the same email reconnects the new account to those records. A button opens the confirmation dialog. When a request is pending the section shows the date and a cancel button; when it failed, it says so.
-- **Staff user page:** a line with the pending date or the failure, and a cancel action.
+- **Staff user page:** a line with the stored pending date or the failure, and a reason-select cancel or failure-dismiss action. State precedence is failed, then pending/claimed processing, then account-anonymized, then idle. `deletionFailedAt` therefore remains visible even if `anonymizedAt` is set, and staff can dismiss the failure without restoring data. With no pending/failed marks show only “account anonymized” with the `anonymizedAt` date and no cancel, never an “erasure complete” badge inferred from those fields. This remains true after dismissing a partial-erasure failure; completion evidence belongs to the parent erasure run/history.
+- **Staff Portal Settings:** a translated self-service toggle, with its `updatedAt`, visible to `customer_accounts.manage` callers with unrestricted organization visibility; saves use guarded mutation and surface 409 conflicts.
 - States: loading, self-service unavailable (the page says these options are not available here), and errors through the shared flash messages.
 
 ## 📝 Edge Cases & Failure Scenarios
 
 | Case | Behaviour |
 |---|---|
-| Account with no password, session row older than 15 minutes, or a token with no session id | 403 with a code; the page asks the user to sign in again |
-| Deletion requested twice | 409 with the existing date |
-| Staff deactivate or soft-delete the user during the period | The request stands and the erasure runs. The user can no longer sign in to cancel; staff can cancel for them |
-| The user becomes the sole administrator after requesting | The worker leaves the request pending and notifies the user and staff |
-| The erase run is refused by a guard, or a class for the account kind cannot erase | Counted as an attempt; failed after seven |
-| Scheduler absent, or its schedule not registered on an upgraded installation | Deletion is not offered |
-| Privacy module disabled during a grace period | The worker counts attempts and the request fails |
-| Email delivery fails | The request still stands; the page shows the same information |
-| Linked CRM person | Excluded from the run; named in the audit entry |
-| Company with a single user | The sole-administrator rule does not apply |
-| Tenant switch turned off with requests pending | Existing requests run; new ones are refused |
+| No password; old session row or empty session id | 403; ask the user to sign in again |
+| Five concurrent wrong re-authentication passwords | All increments count; the fifth locks for fifteen minutes; attempts while locked get 429; login still works |
+| Re-authentication succeeds or its lock expires | Reset its counter and lock atomically; login state stays separate |
+| Deletion requested twice | 409 with the stored effective date |
+| Grace configuration changes | Existing request dates and due selection do not change |
+| Staff deactivate or soft-delete the user | The request survives; owner erase includes the row; staff in the same organization may cancel before claim |
+| Two company administrators request together | The company lock makes the second see the first's pending mark; at least one is refused |
+| User becomes the sole administrator later | Count one daily attempt; after seven distinct UTC-day deferrals fail and notify once |
+| Cancel during dry run | If cancel commits first, claim fails and apply is never called |
+| Cancel after claim or partial apply | Both routes return 409 `deletion_in_progress`; no successful cancellation notice |
+| Seven refused or incomplete attempts | Under R5-1 any open portal-origin journal enters `failed_handoff`; clear requested/effective/claimed, keep failure with attempts 7, notify staff once and email only while an address remains; active user may re-request; either authorized cancel dismisses the failure |
+| Failure after partial erasure | Claimed worker retries retain R4-2's caller and actor. After the seventh failure, R5-1 permits operator recovery only of a journal in `failed_handoff`, through `erase --resume-run` or the enterprise page with `data_erasure.subjects.erase`; preserve journal scope, original single subject, exclusions, `origin: 'portal'` and `runId`, and audit the operator as `resumedBy`; dismissal never restores data or asserts completion |
+| Scheduler, erasable account class, audit/history or required attachment service absent | No new deletion request; capability loss after acceptance counts as refusal |
+| Privacy or config service absent | No new download or deletion request; status reports unavailable; accepted work does not depend on the switch |
+| Mail delivery fails | State transition remains committed; the page shows status; log and report delivery failure; staff must deliver a failed cancellation notice through another channel |
+| Linked CRM person | Excluded; `privacy.subject.erased` carries the exclusion and C4's typed audit intent preserves `excludedRelated` for matching recovery |
+| Company has a single active user | No other active user can be stranded; the administrator floor does not apply |
+| Tenant switch off with a pending request | New requests/downloads return 403; cancellation and worker continue |
+| Duplicate worker delivery after an attempt was counted | `deletion_last_attempt_at` fences that request for the UTC day; no second increment/apply; a crash before the outcome update can resume |
+| Terminal failure after the owner removed the email | No extra email copy is kept; notify staff, whose case workflow must deliver the outcome through an independently verified channel |
+| Worker crashes before or after apply | Database advisory lock releases; persistent claim is resumed with the same reference and durable erasure run; no lease expiry can start a second apply |
+| Related subjects change after claim | Keep stored `excludedRelated` unchanged; parent refuses mismatching resume or verification; no automatic inclusion or replacement of the reviewed set |
+| Organization-scoped HTTP caller reaches erasure | Refuse; R4-2 permits the portal deletion worker with actor `{ kind: 'system', worker: 'portal-self-service' }` to construct tenant-only input for exactly the requesting account; its own verified request supplies authority without staff authorization. R5-1's operator-recovery exception requires tenant-wide scope and a journal in `failed_handoff`; never widen an HTTP caller's scope |
+| Another caller, actor, subject or tenant attempts a portal run | Refuse under R4-2 unless R5-1 authorizes recovery of the same journal in `failed_handoff`; no extra subject, related-subject inclusion or foreign tenant is authorized by either path |
+| Apply completed, finalizing the request fails | Next run obtains the standing complete outcome and clears marks; a second successful job selects nothing |
+| Owner committed but files, event or history remain | Anonymized flag is insufficient; resume the parent run and R3-1 history handling; clear only on complete |
+| Staff erase the account through the parent run | Next due worker checks durable completion and closes its request |
+| Same tenant, other organization staff | Cancellation returns 404 and changes nothing, including for soft-deleted users |
 
 ## 📝 Migration & Backward Compatibility
 
-All additive: columns, five routes, three events, one notification type, two settings, one page, one DI key. The colleague-removal route and its refusal are unchanged. Password change gains the re-authentication counter, so a sixth wrong current password in fifteen minutes now returns 429 instead of another 400. `UPGRADE_NOTES.md` names the settings, the upgrade action that registers the daily job, and the fact that deletion is offered only once that job is registered and the `privacy` module is enabled.
+New columns, seven handlers in five new route files, three deletion events, one notification type, three templates, two settings and the Privacy page are additive. Re-authentication schema is shared with the email-change spec and must migrate once. New module files require `yarn generate`; migrations and snapshots ship without applying a local migration. Both `.env.example` copies and the create-app template stay in sync.
+
+R5-1's `failed_handoff` journal state and `resumedBy` audit attribution are C4-owned additions. The portal consumes that handoff and the existing resume operation; R5-1 adds no portal route or portal-owned recovery DI seam.
+
+Profile GET/PUT response fields are retained and `user.updatedAt` is additive. New forms send the version header; legacy profile callers without it keep working for at least one minor. New staff/deletion forms always version their writes. Registry guards and cross-site rejection harden profile and password-change writes. Password change keeps its invalid-current-password 400 for the first five failures, then returns 429 during the re-authentication lock; the sign-in lockout is unchanged. These behavioural narrowings are not declared additive. Default: ship no unguarded branch; require the named maintainer security exception before releasing the changed existing-route behaviour, with client/operator `UPGRADE_NOTES.md` and the dated compatibility entry. The PR must argue why a bridge retains the vulnerability. If that argument is not accepted, hold the affected phase until an ordinary deprecation/bridge design is approved. This is a release decision, not authorization to bypass guards. New handlers enforce guards and cross-site checks immediately.
+
+The program's DEC-13 — C7 existing-write compatibility and Migration → C7 proposed waiver (DEC-13), separate from A1/C2, now specify the separate proposed Emergency Security Exception for these narrowed existing writes and its ordinary-bridge/unshipped-phase fallback. This consumes that release gate; the affected PR still requires the qualifying argument, dated compatibility entry, client/operator notes and named security-maintainer sign-off. No maintainer approval is claimed here.
+
+`UPGRADE_NOTES.md` documents the setting key, default, ACL and UI; grace changes affect new requests only; the daily-job registration upgrade action; and the history dependency. Deletion is unavailable without durable erasure history. Phases 2 and 3 follow DEC-2b's edition decision; account profile hardening remains an OSS fix. No frozen API, event field, import or feature id is removed.
 
 ## 📋 Phasing
 
 | Phase | Outcome | Depends on |
 |---|---|---|
-| 1 | Display-name form | — |
+| 1 | Hardened, versioned display-name form and profile command | Compatibility rollout above |
 | 2 | Privacy page with download | Contract spec, Phase 4, with the changes above; DEC-2b |
-| 3 | Deletion request, cancel, the daily job | Erasure spec, Phase 3, with the change above; DEC-2b |
+| 3 | Deletion state machine, staff switch, cancellation, daily job | Phase 2; erasure Phases 1–3 including its seams, tenant-only R3-14 input, R4-2's complete worker authority design and soft-deleted-root handling; durable history per DEC-B/R3-1; DEC-2b; C4 implementation of R5-1's `failed_handoff` transition and operator recovery |
 
 ## 📋 Implementation Plan
 
 ### Phase 1 — Edit
-1. Add `DisplayNameForm` to the profile page, with locale keys in every portal locale. Integration test TC-PORTAL-PRIVACY-001.
+1. Add `user.updatedAt` to GET/PUT, initialize and backfill existing null user versions, and add the profile command with the provided-header check under the scoped row lock. Unit tests `profile.writeGuards.test.ts` and `profile.optimisticLock.test.ts`: registry refusal, modified-payload revalidation, callbacks after commit, cross-site rejection, stale header, legacy missing header, ids-only event, and encrypted managed-entity writes.
+2. Add `DisplayNameForm`, locale keys and conflict handling. TC-PORTAL-PRIVACY-001 covers the UI and both profile methods. Do not release changed existing-route defaults without the compatibility decision above.
 
 ### Phase 2 — Download
-1. Register `privacySubjectService` in the `privacy` module's `di.ts`, with an entry in the DI seam test; add `followRelated`, the class list, actor and reference to the export operation, with unit tests.
-2. Add the re-authentication columns and `lib/reauth.ts`. Unit tests: password right; wrong; locked; no password with a fresh row, an old row and an empty session id; the login counter untouched.
-3. Route password change through it. Unit test for the lock.
-4. Add the status and export routes with their schemas, OpenAPI entries, cross-site check and rate limits. Unit tests for each error.
-5. Add the Privacy page and the download dialog.
-6. Integration tests TC-PORTAL-PRIVACY-002 and 005.
+1. Consume C1 Phase 4's existing `privacy/di.ts` registration and operation-time runtime registry under R3-2; add no service registration or generator changes. Call its export operation with authenticated scope, `followRelated: false`, only `customer_accounts.users`, actor and reference, without `publish`. Require complete data and returned terminal `auditStatus: 'complete'` before responding with a file. Parent owner adds tests that portal output omits related references and CRM ids.
+2. Add the shared re-authentication columns and helper once. `reauth.test.ts` tests right/wrong passwords, all counter resets, five parallel failures, success racing with a failure, fixed lock expiry, old/fresh/empty-session cases, and login state untouched.
+3. Route password change through the helper, registry and cross-site check with the compatible rollout; `passwordChange.reauth.test.ts` asserts 400 then 429 and a reset after expiry. Include POST password-change integration in TC-PORTAL-PRIVACY-002.
+4. Add status/export schemas, OpenAPI, guards and rate limits; `portalPrivacy.routes.test.ts` covers every error and dependency combination, including download available but deletion unavailable without history. Cover runtime registry refresh, no applicable classes, failed audit start with no read, failed terminal audit with no HTTP attachment, the document's started marker versus the returned terminal status, and the account-only projection after successful audit.
+5. Add the Privacy page and dialog; TC-PORTAL-PRIVACY-002 and 005.
 
 ### Phase 3 — Deletion
-1. **Characterize** in the existing portal user test that self-targeting the colleague-removal route returns 400. Commit alone.
-2. Add the deletion columns, their migration, and the two fields on the staff-side user response.
-3. Add the request and cancel routes, the staff cancel route, the sole-administrator rule, the tenant switch, the events, the notification and the email templates. Unit tests.
-4. Add the queue, the worker, its registration and the upgrade action. Unit tests with a fake clock: inside the period; past it; cancelled; soft-deleted by staff; refused seven times; sole administrator.
-5. Add the deletion section, the dialog and the staff page line.
-6. Integration tests TC-PORTAL-PRIVACY-003 and 004; `UPGRADE_NOTES.md`; both `.env.example` files; the portal docs page.
-7. Archive this Delta into `.ai/specs/capabilities/portal-privacy-self-service.md` if that directory has been adopted by then.
+1. Reuse the existing TC-PORTAL-004 characterization of colleague-removal self-refusal. Add only the new TC-PORTAL-PRIVACY-003 transition cases; no duplicate baseline test.
+2. Add deletion columns, index, migration, snapshot and staff response fields; extend the account class export/erase lists through its owner. Unit `portalPrivacyFields.test.ts` and parent `portalUserErasure.softDeletedRoot.test.ts` cover field clearing and soft-deleted roots.
+3. Implement the deletion-state command/service, conditional claim, both cancellation paths with one row lock, company-floor serialization, reason codes, staff email and failure transitions. `portalDeletionState.test.ts` interleaves cancel between dry-run and claim/apply, both cancellation routes after claim, two workers, two administrators, seven deferrals, seven failures, re-request, failure dismissal, version conflicts and other-organization staff.
+4. Implement the tenant switch through the config service, settings GET/PUT and existing staff Portal Settings page. `portalPrivacySettings.test.ts` covers boolean validation, tenant-wide ACL, serialized first write, stale version and missing service.
+5. Add the worker, queue metadata (concurrency 1), stable daily schedule registration and idempotent upgrade action. `portalDeletionWorker.test.ts` uses a fake clock: immutable due date after env change, cancelled request, staff-soft-deleted root, missing audit/history/attachment refusal, interrupted apply, finalizer failure, pending files/history/event, once-only terminal notification, same-day duplicate deliveries after the increment committed, no email after owner anonymization with required staff follow-up, failed-state UI precedence over anonymized state, claimed retry after crash and a second job after success. Assert the R3-14 input members with R4-2's caller boundary: accepted tenant/organization check, tenant-only worker scope for the account's tenant, actor `{ kind: 'system', worker: 'portal-self-service' }`, `origin: 'portal'`, exactly the requesting `customer_accounts:user`, every related subject excluded, unchanged persisted exclusions across retry, drift refusal and each subject status. A verified accepted request runs without staff authorization. Outside R5-1's sole operator-recovery exception, HTTP/staff callers, other workers or actors refuse. Extra subjects, other subject kinds, related-subject inclusion and another tenant always refuse. Test the seventh failure moving an open portal-origin journal to `failed_handoff` while account marks/exclusions clear, without automatic reselection. Consume the parent's `portalErasureRecovery.test.ts` coverage: CLI and enterprise operator recovery require `failed_handoff`, enterprise callers hold `data_erasure.subjects.erase`, the same run id/origin/single subject/exclusions survive, and audit entries carry `resumedBy`; other journal states, a missing journal, changed intent and foreign tenant refuse. Failure dismissal grants no recovery authority or completion evidence. Before the parent implements R4-2, status/POST refuse deletion and neither mode is called; a direct organization-scoped call refuses in both modes with no tenant-only retry. Related subjects in another organization remain excluded, and unrelated accounts are unchanged. Non-complete status, nonzero `filesPending`, an absent matching result or aggregate `complete: false` must never close a request. Exercise local and async queue strategies; no worker depends on single delivery.
+6. Add the dialogs, processing/failure states and staff reason-select action. TC-PORTAL-PRIVACY-003/004/005; `UPGRADE_NOTES.md`, both env examples, template sync and portal docs.
+7. Archive the Delta into `.ai/specs/capabilities/portal-privacy-self-service.md` if adopted.
 
 ### File manifest
 
 | File | Action |
 |---|---|
-| `packages/core/src/modules/customer_accounts/api/portal/privacy/{route.ts,export.ts,deletion-request.ts}`, `api/users/[id]/deletion-request.ts` | Create |
-| `packages/core/src/modules/customer_accounts/{lib/reauth.ts,lib/rateLimiter.ts,api/portal/password-change.ts,data/validators.ts,data/entities.ts,migrations/*,events.ts,notifications.ts,setup.ts,workers/*,emails/*,i18n/*.json}` | Create / modify |
+| `packages/core/src/modules/customer_accounts/api/portal/privacy/{route.ts,export.ts,deletion-request.ts}`, `api/admin/users/[id]/deletion-request.ts`, `api/admin/privacy-settings.ts` | Create |
+| `packages/core/src/modules/customer_accounts/{lib/reauth.ts,lib/rateLimiter.ts,api/portal/profile.ts,api/portal/password-change.ts,api/admin/users/[id].ts,services/customerDeletionRequestService.ts,commands/*,data/validators.ts,data/entities.ts,migrations/*,events.ts,notifications.ts,setup.ts,workers/*,emails/*,i18n/*.json}` | Create / modify |
 | `packages/core/src/modules/portal/frontend/[orgSlug]/portal/privacy/{page.tsx,page.meta.ts}`, the two dialogs, `DisplayNameForm.tsx`, `i18n/*.json` | Create / modify |
-| The staff portal-user detail page | Modify |
-| `packages/core/src/modules/privacy/{di.ts,lib/subjectService.ts}` | Create / modify |
+| `packages/core/src/modules/customer_accounts/backend/customer_accounts/users/[id]/page.tsx`, `backend/customer_accounts/settings/CustomerAccountsSettingsPageClient.tsx` | Modify |
+| `packages/core/src/modules/customer_accounts/__tests__/{profile.writeGuards,profile.optimisticLock,reauth,passwordChange.reauth,portalPrivacy.routes,portalPrivacyFields,portalDeletionState,portalPrivacySettings,portalDeletionWorker}.test.ts` | Create |
+| `packages/core/src/modules/privacy/{di.ts,lib/subjectService.ts}` | Consume C1-owned runtime registration/export and C4-owned R3-14 erase operation; no second registration or portal-owned implementation |
 | `packages/core/src/modules/configs/lib/upgrade-actions.ts` | Modify |
 | `packages/core/src/modules/customer_accounts/__integration__/TC-PORTAL-PRIVACY-00{1..5}.spec.ts` | Create |
 | `apps/mercato/.env.example`, template copy, `UPGRADE_NOTES.md`, docs | Modify |
 
 ## 🧪 Integration Coverage
 
-Fixtures come from `packages/core/src/helpers/integration/customerAccountsFixtures.ts` (role, company, user, portal login) and are removed in teardown. The confirmation email is read from the test email capture file.
+Every test creates its own tenant/organization, staff grants, portal role/company/user and any CRM records through shared integration helpers, and removes them in `finally`, including anonymized rows, request marks, config overrides, jobs and captured email. Use `packages/core/src/helpers/integration/customerAccountsFixtures.ts` where applicable; no seeded business records. Tests restore prior configuration. The queue helper drains only the test's jobs. Backdate both stored request/effective dates explicitly; changing the environment never makes an old request due.
 
 | Test | Paths | Covers |
 |---|---|---|
-| TC-PORTAL-PRIVACY-001 | Profile page, `PUT …/portal/profile` | A user edits their display name in the page and sees it after reload |
-| TC-PORTAL-PRIVACY-002 | `POST …/portal/privacy/export` | The file holds the user's own email and sessions; it holds neither a colleague's email nor that of someone the user invited; a wrong password returns 403 and sign-in still works afterwards; no cookie returns 401; a cross-site request is rejected |
-| TC-PORTAL-PRIVACY-003 | `POST` and `DELETE …/deletion-request`, `GET …/privacy`, login, the staff cancel route | Request, see the date and the email, sign in again during the period, cancel, status clears; a second request is cancelled by staff |
-| TC-PORTAL-PRIVACY-004 | The worker's job, enqueued and drained through the integration queue helper after backdating the request | Sign-in fails; a new account with the same email works; the linked CRM person is still returned by `GET /api/customers/people`; a user soft-deleted by staff during the period is erased too; a sole administrator with a colleague gets 409 |
-| TC-PORTAL-PRIVACY-005 | Privacy page | The page loads, both dialogs open, submit on Cmd/Ctrl+Enter and close on Escape |
+| TC-PORTAL-PRIVACY-001 | Profile page, `GET`/`PUT …/portal/profile` | Edit/reload display name; return and submit `updatedAt`; a second form's stale write gets 409 and conflict UI; cross-site write and registry refusal leave name unchanged; ids-only update event; legacy no-header compatibility |
+| TC-PORTAL-PRIVACY-002 | `GET …/portal/privacy`, `POST …/portal/privacy/export`, `POST …/portal/password-change` | Own account email/sessions only; link a CRM person with a distinctive note and assert the serialized file contains neither that note nor the person id; also exclude colleague and invitee emails; wrong password 403 with login still working, missing cookie 401, cross-site refusal; password-change wrong attempts retain 400, locked attempt gets 429, post-expiry success resets; history service absent disables deletion while export remains available; successful export correlates started/terminal audit evidence by `requestId`, while failed start reads no class and failed terminal returns no attachment |
+| TC-PORTAL-PRIVACY-003 | `POST`/`DELETE …/portal/privacy/deletion-request`, status GET, staff user GET with `includeDeleted=true`, staff `DELETE …/admin/users/:id/deletion-request`, settings `GET`/`PUT …/admin/privacy-settings`, both staff screens | Request/date/captured email; user cancellation; staff cancellation requires reason and sends the third email with explanation/contact/complaint instructions and event reason; same-tenant other-organization staff get 404 even for soft-deleted users; no-manage callers get 403; terminal failure allows re-request/reset and either cancel dismisses it; an anonymized partial failure stays visible and staff-dismissable; after dismissal only account anonymization is shown, with no complete-erasure claim and staff follow-up instead of email; claimed requests return 409 on both routes; tenant-wide settings ACL and stale-version conflict; switch off refuses new requests/downloads while existing requests still run and cancel works |
+| TC-PORTAL-PRIVACY-004 | Enqueue/drain worker, staff user response, action-log list, login/signup, CRM people GET; `mercato privacy erase --resume-run <runId>` and enterprise erasure page | R4-2's portal deletion worker runs the verified account request without staff authorization, with actor `{ kind: 'system', worker: 'portal-self-service' }`, account-tenant scope, exactly one requesting account and every related subject excluded; due erasure closes marks and resets attempts; sign-in fails; signup with released email works; linked person remains; second job leaves history unchanged; staff-soft-deleted account is erased too; missing durable history refuses acceptance; interrupted apply resumes same run; seven distinct-day deferrals notify once; same-day redelivery consumes no extra attempt; post-owner failure produces staff follow-up rather than an impossible email; seventh failure moves an open portal-origin journal to `failed_handoff` as account marks clear; R5-1 CLI/enterprise recovery preserves run id, origin, single subject and exclusions, and audits the operator as `resumedBy`; enterprise recovery without `data_erasure.subjects.erase`, recovery outside `failed_handoff`, foreign tenant and replacement intent refuse; dismissal alone never asserts completion; concurrent administrators cannot both become pending; effective date survives a grace-setting change |
+| TC-PORTAL-PRIVACY-005 | Privacy page, download/deletion dialogs, staff cancellation dialog and settings toggle | Hydrates and opens dialogs; Cmd/Ctrl+Enter submits and Escape cancels; processing disables cancel; failed state offers retry/dismiss as allowed; toggle saves with translated success/error/conflict states |
 
 ## 📝 Risks & Impact Review
 
@@ -328,15 +432,22 @@ Fixtures come from `packages/core/src/helpers/integration/customerAccountsFixtur
 - **Scenario**: A section includes a colleague, an invitee, or a record keyed to the company.
 - **Severity**: High
 - **Affected area**: the export
-- **Mitigation**: One named data class; related subjects not followed; sent invitations left out; a test asserts a colleague's and an invitee's email are absent.
+- **Mitigation**: One named data class; related subjects not followed; sent invitations left out; TC-PORTAL-PRIVACY-002 asserts a colleague's and an invitee's email, a linked CRM note and the person id are absent from the serialized file.
 - **Residual risk**: A later change to the account class itself. Its handler tests are the control.
 
 #### Requests never take effect
 - **Scenario**: The worker stops after requests were accepted, or every attempt is refused.
 - **Severity**: Medium
 - **Affected area**: installations whose background processing breaks
-- **Mitigation**: Deletion is offered only when the schedule exists; after seven attempts the user and staff are told.
-- **Residual risk**: A stopped worker counts no attempts, so the date passes with nothing sent until it runs again. The doctor's scheduler check is the control.
+- **Mitigation**: Require the enabled schedule and durable history before acceptance; count refusal, incomplete runs and administrator deferrals; after seven attempts notify staff once and email the user while an address remains; after owner anonymization staff must deliver the outcome through their independent case channel. Under R5-1 any open portal-origin journal enters `failed_handoff`, allowing an operator to resume the same intent through the CLI or the enterprise page with `data_erasure.subjects.erase`, audited as `resumedBy`. Failed requests have explicit re-request and dismissal transitions; dismissing an anonymized failure records no claim that the erasure finished.
+- **Residual risk**: A stopped worker counts no attempts, so the date passes with nothing sent until it runs again. The [`privacy-doctor-cli`](2026-11-16-privacy-doctor-cli.md) check `scheduler.module_absent` warns only when the module is absent; `pruners.unscheduled` is an opt-in database counting check for declared pruners under R3-4 — An opt-in database tier for the doctor, not proof that this deletion job or any scheduler process is running. Monitor this job's execution and overdue requests separately.
+
+#### A completed request never closes
+- **Scenario**: The erase run keeps the account row, anonymized, and the worker leaves `deletion_requested_at` set. It then runs a dry run and an apply on every erased account every day, and the staff page shows a pending deletion with a past date and a cancel button.
+- **Severity**: Medium
+- **Affected area**: the deletion worker, the action log, the staff user page
+- **Mitigation**: The worker clears the request only when the erase run reports the subject complete. For an account that already carries `anonymized_at` it still calls the idempotent erase run, so an erasure that stopped after the owner committed is finished and its event emitted before the request closes. The staff line and cancellation apply failed/processing precedence before `anonymizedAt`. Unit tests and TC-PORTAL-PRIVACY-004 check that a second run does nothing; the staff UI never infers full erasure completion from `anonymizedAt` alone.
+- **Residual risk**: A failed or disabled worker delays finalization, and capability removal after acceptance can leave partial erasure requiring staff. Claims block cancellation from the start of apply; a terminal failure or failure dismissal does not restore already erased data.
 
 #### Re-authentication becomes a way to guess a password
 - **Scenario**: A session thief uses the prompt to try passwords.
@@ -345,28 +456,60 @@ Fixtures come from `packages/core/src/helpers/integration/customerAccountsFixtur
 - **Mitigation**: Five tries per fifteen minutes, stored on the row, shared by the two new routes and password change.
 - **Residual risk**: 480 guesses a day against one account for as long as the session lives.
 
+#### Staff cancel or cross-organization access defeats a request
+- **Scenario**: Staff cancel with no explanation, or another organization's staff cancel by id.
+- **Severity**: High
+- **Affected area**: deletion rights and tenant/organization isolation
+- **Mitigation**: Scope the target by both tenant and organization; require `customer_accounts.manage`, a reason, the shared row lock, a version and a cancellation email. TC-PORTAL-PRIVACY-003 covers refusal and notice.
+- **Residual risk**: Email can fail or be ignored; staff must follow up through another verified channel. Staff cancellation remains a product default needing confirmation.
+
+#### An account request becomes general tenant erasure authority
+- **Scenario**: A caller supplies `origin: 'portal'` to erase another account, includes a related subject or substitutes another tenant.
+- **Severity**: High
+- **Affected area**: the erasure entry point and tenant isolation
+- **Mitigation**: Consume C4's R4-2 boundary: the portal deletion worker with actor `{ kind: 'system', worker: 'portal-self-service' }` runs for exactly the requesting `customer_accounts:user` in the account's tenant, excluding every related subject. Its verified request supplies authority without staff authorization; HTTP routes retain their organization checks. R5-1 is the sole exception: operator recovery requires a journal in `failed_handoff`, preserves its original scope, single subject, exclusions and portal origin, and records `resumedBy`; enterprise recovery requires `data_erasure.subjects.erase`. Unit tests and TC-PORTAL-PRIVACY-004 cover permitted worker/recovery calls and refusal for other journal states, callers, scopes and replacement intent.
+- **Residual risk**: Correct accepted-request and handoff-state validation depends on parent enforcement. A wrongly authorized operator or incorrect journal-state check could misuse recovery; audit attribution does not itself authorize a broader erasure.
+
+#### Cancel reports success while erasure proceeds
+- **Scenario**: A worker selected an account before cancel, or a queue redelivers while the first worker applies.
+- **Severity**: Medium
+- **Affected area**: worker and cancellation routes
+- **Mitigation**: Per-account worker advisory lock, conditional durable claim, final row-lock re-read, and both cancels refusing a claim. Company locks serialize acceptance; deferrals are bounded.
+- **Residual risk**: Cancellation is unavailable after a committed claim, including an interrupted run; the UI states processing and staff must resolve terminal partial failures and deliver the outcome through another verified channel when the email has already been erased.
+
 ## Final Compliance Report — 2026-11-16
 
-- **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, `packages/ui/AGENTS.md` → Portal Extension (through the research), `packages/create-app/AGENTS.md` (template sync), the frontend architecture contract. Not reviewed: `packages/core/src/modules/customer_accounts/AGENTS.md` in full; the implementer reads it.
+- **Reviewed:** root and specs rules, `BACKWARD_COMPATIBILITY.md`, core API/encryption/coupling/config rules, the customer-accounts guide, UI Portal Extension and guarded writes, shared scoping/encryption rules, queue contract and QA fixture rules. This is a spec review; no implementation tests were run.
 
 | Rule | Status | Notes |
 |---|---|---|
-| Portal pages declare `requireCustomerAuth` | Compliant | Page metadata |
-| Never use raw `fetch`; non-form writes through `useGuardedMutation` | Compliant | Named in the contract |
-| Dialogs: Cmd/Ctrl+Enter and Escape | Compliant | Implemented in the dialogs; tested |
-| No hard-coded strings | Compliant | Five locales |
-| Validate inputs with zod | Compliant | — |
-| Optimistic locking on new editable entities | N/A | No new entity; the display-name form uses the existing route |
-| Cross-module access by sanctioned mechanisms | Compliant | DI key, resolved softly |
-| Never expose cross-tenant or other users' data | Compliant | One class, own subject, sent invitations excluded |
-| Background work through the worker contract | Compliant | Own queue |
-| Frontend architecture contract | Compliant | Included |
-| Template sync for env vars | Compliant | Named |
+| Portal pages declare `requireCustomerAuth` | Compliant design | Page metadata |
+| Never use raw `fetch`; non-form writes through `useGuardedMutation` | Compliant design | Named in the contract |
+| Dialogs: Cmd/Ctrl+Enter and Escape | Compliant design | Required in the dialogs; named integration cases, implementation pending |
+| No hard-coded strings | Compliant design | Five locales |
+| Validate inputs with zod | Compliant design | — |
+| Optimistic locking | Compliant design | Profile, new deletion-state and settings forms return/use `updatedAt`; locks compare versions; the legacy profile missing-header path is bridged |
+| Server mutation guards and cross-site checks | Compliant design | Every affected write, callback handling and compatibility rollout are explicit |
+| Cross-module access by sanctioned mechanisms | Compliant design | DI key, resolved softly |
+| Never expose cross-tenant or other users' data | Compliant design | One class, own subject, sent invitations excluded |
+| Portal erasure authority — R4-2 | Compliant design | Portal deletion worker, actor `{ kind: 'system', worker: 'portal-self-service' }`, exactly the requesting account, account-tenant scope and every related subject excluded; the verified request supplies authority without staff authorization; only R5-1's `failed_handoff` operator recovery is excepted; C4 implementation is required |
+| Bounded-failure operator recovery — R5-1 | Compliant design; C4 implementation required | Seventh failure moves an open portal-origin journal to `failed_handoff`; only that state permits CLI or enterprise recovery with `data_erasure.subjects.erase` on the enterprise page; preserve run id, portal origin, original single subject and exclusions, and audit the operator as `resumedBy`; tests cover the exception and refusal elsewhere |
+| Background work through the worker contract | Compliant design | Own queue |
+| Frontend architecture contract | Compliant design | Included |
+| Template sync for env vars | Compliant design | Named |
 
-**Verdict:** Phase 1 approved. Phases 2 and 3 wait for DEC-2b and for the three parent changes.
+**Verdict:** Phase 1 design includes route hardening and waits for the existing-route compatibility decision. Phases 2 and 3 wait for DEC-2b and implementation of the parent account contracts, whose internal export allowlist and persisted exclusions now agree with this spec. Phase 2 consumes C1's registration and audit lifecycle under R3-2; Phase 3 consumes the complete R4-2 worker authority design, soft-deleted roots, R3-1 and R3-14. Assumption 11 no longer has a missing authority design: the subject's verified request authorizes its account's portal deletion worker, without staff authorization. R5-1 resolves the recovery conflict: after the seventh failure an open portal-origin journal enters `failed_handoff`, and only that state permits operator recovery through C4's `privacySubjectService.resumeErasureRun({ scope, runId, actor, mode })` / `erase --resume-run` or the enterprise page with `data_erasure.subjects.erase`. C4 implementation remains a Phase 3 prerequisite. Recovery preserves the original intent, portal origin and run id, audits the operator as `resumedBy`, and leaves the account's failed-state/finalization rules in force.
 
 ## Changelog
 
 ### 2026-11-16
 - Written autonomously with resolved assumptions.
 - Revised after independent review. The download now names one data class and does not follow related subjects, which needed an addition to the contract's export operation. The erase run gets an in-process entry point. Re-authentication checks the session row instead of the token's age and keeps its own failure counter, shared with password change. A request survives a staff soft delete, fails visibly after seven attempts, and is offered only when its schedule exists. Staff are notified and can cancel; the tenant gets a switch. Approval narrowed to Phase 1.
+- Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g4-03 — the worker assumed the erased account row disappears, but the erase run keeps it anonymized, so `deletion_requested_at` stayed set and the account was erased again every day with a pending deletion shown for ever; the worker now clears the request and the attempt count after a successful apply, closes any due request whose account already carries `anonymized_at` without running the erasure, and skips failed requests; the staff line shows an erased account and the cancel route answers 404 for it. Updated the design decisions, the Delta, the worker steps, data models, the staff route, UI, edge cases, unit tests, TC-PORTAL-PRIVACY-004 and a new risk entry.
+- Fix verification follow-up: the worker no longer closes a request just because the account carries `anonymized_at`. An erasure that stopped after the owner committed (failed emit, pending files, unstripped history) would otherwise have been closed without its event. The worker now always calls the idempotent erase run and clears the request only when that run reports the subject complete.
+- Council round two fixes (GPT-6.1 Sol workers): r7-14 — serialized claims, daily-delivery fencing and cancellation; r7-15 — failed-state retry and dismissal; r7-16 — company lock and bounded deferrals; r7-17 — tenant switch store, ACL and screen; r7-20 — server guards, cross-site checks, versioned profile and explicit release default; r7-26 — soft-deleted owner requirement; r7-27 — CRM export negative fixture; r7-34 — atomic re-authentication counters; r7-35 — admin cancellation namespace; r7-45 — durable-history prerequisite; r7-46 — explicit export/erase fields; r7-47 — correct frozen test; r7-48 — exclusions on event; g4-09 — stored effective date; g4-10 — staff reason and notice; g4-22 — R3-14 scoped portal origin; wording nits corrected.
+- Council round two fixes, pass two (GPT-6.1 Sol workers): consume C1's runtime DI registration and R3-2 registry, honor started/terminal export audit and returned `auditStatus`, cite C4's exact R3-14 entry point/results, default the independently authorized tenant-only worker boundary with a refusal fallback, persist reviewed exclusions for matching retries, require all parent apply wiring, distinguish account settings from R3-3 retention ages, correct erasure phase dependencies and doctor limits, and report remaining parent projection/recovery and program waiver gaps.
+- Council round two fixes, pass three (GPT-6.1 Sol workers): require the erasure parent's approved account-only worker authority before either mode can run, retain organization-scoped HTTP authorization and replay's `scope_unsupported` refusal, consume merged parent projection/root contracts, identify the remaining internal-field/exclusion and staff-recovery handoffs, correct `pruners.unscheduled` under R3-4, and align the program waiver description.
+- Council round two fixes, pass four alignment (GPT-6.1 Sol workers): consume C4's Origin-preserving portal recovery method and confirmed `--resume-run` path after seven-attempt cleanup, preserve tenant-wide authority and account failed-state/finalization rules, align C1's internal-field allowlist and C4's persisted/audited exclusions, and cite the program's existing DEC-13 release gate; account-only worker delegation remains an open parent design.
+- Council round two fixes, pass five gap closing (GPT-6.1 Sol workers): cite R4-2's complete portal-worker authority boundary and exact system actor, resolve assumption 11, align account-only tenant scope, related-subject exclusions, implementation prerequisites, tests, risks and compliance; report C4's operator-recovery actor conflict as OPEN_DESIGN without introducing a handoff or exception.
+- Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): consume R5-1's `failed_handoff` transition after the seventh failed attempt and sole operator-recovery exception to R4-2; preserve portal origin, run id, original single subject and exclusions, require `data_erasure.subjects.erase` on the enterprise page, record `resumedBy` in audit entries, and align scenarios, worker handling, tests, risks, dependencies and compliance without a new portal-owned recovery contract.

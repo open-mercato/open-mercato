@@ -4,7 +4,8 @@ Companion to [`2026-11-15-gdpr-ready-deployments-program.md`](../2026-11-15-gdpr
 
 - **Subject:** the "Current state" table and plan in open-mercato/open-mercato#8593 (audit dated 2026-11-03, `main` @ `73c4a2b06`).
 - **Verified at:** `main` @ `08dada9624`, 2026-11-15.
-- **Method:** read-only code reading and `git grep`; tracker state via `gh`. Nothing was built or run.
+- **Original method (2026-11-15):** read-only code reading and `git grep`; tracker state via `gh`. Nothing was built or run.
+- **Council recheck (2026-11-16):** read-only `rg`, `sed` and `cat` against the supplied full-code checkout (`9e09023483`). The earlier `08dada9624` baseline and tracker/branch states are dated observations; no tracker status was refreshed for this revision and no runtime reproduction was performed.
 - **Limits:** absence claims are grep-based over `packages/**` and `apps/mercato/src`. `external/official-modules` is not checked out and was not covered. Runtime behaviour (e.g. whether a subscriber actually no-ops) is inferred from code unless marked otherwise. The audit file the issue cites (`.ai/specs/analysis/ANALYSIS-2026-11-03-gdpr-deployment-readiness.md`) is not in the repository or on any fetched branch, so this record checks the issue text, not that file.
 
 Paths: `core/…` = `packages/core/src/modules/…`, `ent/…` = `packages/enterprise/src/modules/…`, `ai/…` = `packages/ai-assistant/src/modules/ai_assistant/…`.
@@ -13,8 +14,8 @@ Paths: `core/…` = `packages/core/src/modules/…`, `ent/…` = `packages/enter
 
 | Issue claim | Verdict | What is true | Evidence |
 |---|---|---|---|
-| 27 modules ship encryption maps | Wrong | 25 modules export `defaultEncryptionMaps`; two of the 27 `encryption.ts` files are a route and the type file | `packages/shared/src/modules/encryption.ts`, `core/entities/api/encryption.ts` |
-| Public fallback key in production compose/templates (#7231) | Fixed, with a gap | Compose and both `.env.example` ship blank keys; a Compose `encryption-preflight` service rejects missing, short (<32 bytes) and denylisted keys. The refusal exists **only in Compose** — `kms.ts` accepts any key, so Kubernetes or bare `mercato server start` deployments are unguarded | `docker-compose.fullapp.yml:18-45`, `packages/shared/src/lib/encryption/kms.ts:119-135`, `packages/starter/src/encryption-preflight.mjs` |
+| 27 modules ship encryption maps | Wrong | 25 definition files export `defaultEncryptionMaps`: 24 packaged module sources and the create-app example template; the other `encryption.ts` files are not map declarations | `packages/shared/src/modules/encryption.ts`, `core/entities/api/encryption.ts` |
+| Public fallback key in production compose/templates (#7231) | Fixed, with a gap | Compose and both `.env.example` ship blank keys; a Compose `encryption-preflight` service rejects missing, short (<32 bytes) and denylisted keys. The refusal exists **only in Compose** — `kms.ts` accepts any key, so Kubernetes or bare `mercato server start` deployments are unguarded | Inline `encryption-preflight` services in `docker-compose.fullapp.yml`, `starters/docker/compose.fullapp.yml`, `packages/create-app/template/docker-compose.fullapp.yml`; `packages/shared/src/lib/encryption/kms.ts:119-135`. The starter `encryption-preflight.mjs` is a ciphertext-compatibility probe, not the published-key policy |
 | `sendEmail` is Resend-only (#5556) | Stale | Transport is pluggable; `channel-resend`, `channel-ses`, `channel-smtp` ship, Resend is the default. Brevo/Mailjet packages do not exist | `packages/shared/src/lib/email/send.ts:124-150` |
 | Moderation hard-coded to `api.openai.com` | Partly | It is a fallback base URL; the chat provider's URL is passed in. Moderation is off by default | `ai/lib/moderation.ts:20,107-110`, `ai/lib/moderation-policy.ts:52-62` |
 | No access-log retention | Wrong | Access logs rotate inline after writes: 7 days (core resources) / 8 hours (rest), instance-wide env, at most once a minute per process | `core/audit_logs/services/accessLogService.ts:33-40,396-416` |
@@ -22,7 +23,7 @@ Paths: `core/…` = `packages/core/src/modules/…`, `ent/…` = `packages/enter
 | Portal self-service delete/download is "explicitly refused" | Partly | Self-delete is refused; download has no route at all | `core/customer_accounts/api/portal/users/[id].ts:33-35` |
 | pgvector `presenter` is plaintext PII | Partly | Built from already-encrypted title/subtitle/icon; only `badge` is plain — unless the tenant lacks the `vector:vector_search` map | `packages/search/src/vector/services/vector-index.service.ts:501-519` |
 | No backfill for new encryption maps (#7644) | Partly | The ai_assistant gap is real, but a generic helper exists (`buildEncryptionMapBackfillSql`), used only by checkout and staff | `packages/shared/src/lib/encryption/migration-backfill.ts:49` |
-| No logger redaction | Partly | Secret-key redaction exists; emails are scrubbed only on OTLP attributes, not stdout messages. New Relic captures `request.*` | `packages/shared/src/lib/logger/transport.server.ts:5-16`, `newrelic.js:36-40` |
+| No logger redaction | Partly | Secret-key redaction exists; OTLP redacts emails in attributes, message bodies and exception fields, but stdout message strings are not redacted. New Relic captures `request.*` | `packages/shared/src/lib/logger/transport.server.ts:5-16`, `packages/telemetry/src/provider/otlp-provider.ts:325-339`, `newrelic.js:36-40` |
 | Next.js telemetry on | Partly | Disabled in Dockerfiles and Railway env; not in `.env.example`, not injected by `mercato server dev`/`start` | `Dockerfile:6`, `packages/cli/src/mercato.ts:2310-2312` |
 | #5557 has "no CI on head" | Stale | CI ran and fails: `guard`, `docker-build`, `test`, five integration shards | PR checks, 2026-11-15 |
 | #7231, #7239 open | Stale | Both closed (#8377; #7447). Their `release/v0.9.x` backports (#9348 draft, #8479) are still open | tracker |
@@ -47,7 +48,7 @@ Paths: `core/…` = `packages/core/src/modules/…`, `ent/…` = `packages/enter
 | Consent / unsubscribe | Only a `newsletter_opt_in` custom field. `SendEmailOptions` has no headers field, so no `List-Unsubscribe` | `core/customers/customFieldDefaults.ts:15-19`, `packages/shared/src/lib/email/send.ts:18-30` |
 | Map tiles | Deals map defaults to OSM tiles; build-time global override only | `core/customers/backend/customers/deals/map/components/DealsMapCanvasImpl.tsx:28-57` |
 | Security audit trail | `auth.login.*` is fire-and-forget, carries no IP/UA, and has no subscriber. Staff `sessions` has no IP/UA columns | `core/auth/api/login.ts:162-210`, `core/auth/events.ts:20-24` |
-| Docs / CLI | One docs page mentions GDPR (`user-guide/encryption.mdx`). No `doctor`, preflight or `privacy` CLI command | `packages/cli/src/mercato.ts` |
+| Docs / CLI | One docs page mentions GDPR (`user-guide/encryption.mdx`). No `mercato` privacy/deployment-readiness doctor. The starter separately ships `yarn om doctor` and setup ciphertext-compatibility checks | `packages/cli/src/mercato.ts`, `packages/starter/src/doctor.mjs`, `packages/starter/src/steps.mjs:720` |
 | MFA | Staff MFA is enterprise-only (`security` module, flag-gated). Portal has none | `apps/mercato/src/modules.ts:246,260-262` |
 | Auth baseline | bcrypt cost 10 (staff and portal). Staff minimum 6 chars + complexity; portal 8–128. No breached-password check. Portal locks after 5 failures; staff has no lockout. Rate limiter defaults to memory, including production Compose | `core/auth/services/authService.ts:192`, `packages/shared/src/lib/auth/passwordPolicy.ts:29-34` |
 
@@ -63,9 +64,9 @@ Paths: `core/…` = `packages/core/src/modules/…`, `ent/…` = `packages/enter
 **Third-party data flows**
 - Attachment OCR is hard-wired to OpenAI with no provider choice; default-enabled, skipped without `OPENAI_API_KEY` (`core/attachments/lib/ocrService.ts:75,88`).
 - AI tools decrypt and return CRM PII to whichever LLM is configured; `x-om-sensitive` exists only in `forms` (`core/customers/ai-tools/people-pack.ts:111`).
-- Embedding config is global per database — a tenant cannot pick its own embedding sub-processor. There is no AI region field.
+- Embedding configuration supports a tenant setting with instance/environment fallbacks (`packages/search/src/modules/search/lib/embedding-config.ts:167-214`, `packages/search/src/modules/search/api/embeddings/route.ts:147-149,307-331`). Provider credentials remain environment-wide and vector dimension is constrained across the database. There is no general AI processing-region assurance; Bedrock uses the configured AWS region.
 - The EUDR plot map has the same OSM default as the deals map (`core/eudr/components/PlotMapPreviewImpl.tsx:12-13`).
-- Forms captcha forwards the respondent IP to Turnstile/reCAPTCHA (opt-in).
+- Forms captcha is an opt-in server-side siteverify call: the token goes to Turnstile or reCAPTCHA, while `remoteip` is added only for Turnstile (`core/forms/services/captcha-verifier.ts:41-44,98-103`). No built-in widget loader was found in app/package source; a widget in an operator frontend requires that operator’s cookie/transfer disclosure.
 - The cookie bar is informational: Accept and Dismiss do the same thing and gate nothing (`apps/mercato/src/components/GlobalNoticeBars.tsx:46-55`).
 
 **Unmapped person data (no encryption-map coverage)**
@@ -77,22 +78,22 @@ Paths: `core/…` = `packages/core/src/modules/…`, `ent/…` = `packages/enter
 **Erasure / export reach** — modules holding person data that the issue's data-class list omits: `checkout` (transactions), `cart`, `phone_calls`, `warranty_claims`, `staff`, `documents`, `onboarding` (requests), `sso` (identities), `security` (MFA), `promotions` (usages), `payment_gateways` and `shipping_carriers` (webhook events), `workflows`, `integrations` (logs), custom-field values, `audit_logs` itself.
 
 **Retention**
-- A fourth unscheduled pruner: `SudoChallengeService.cleanupExpired()` has no caller (`ent/security/services/SudoChallengeService.ts:565`).
+- A fifth unscheduled pruner (after forms, integrations and the two portal workers): `SudoChallengeService.cleanupExpired()` has no caller (`ent/security/services/SudoChallengeService.ts:565`).
 - No delete path found for: `webhook_inbound_receipts`, `webhook_ingestions`, `external_messages`, `external_conversations`, `channel_ingest_dead_letters`, `push_notification_deliveries`, `sync_runs`, `scim_provisioning_log`, `onboarding_requests`, `message_access_tokens`, `phone_calls`, `ai_moderation_flags`, agent-orchestrator runs/spans/tool calls.
 - Scheduler UI can only target workers flagged `schedulerSafe: true`; none of the pruners is, so an admin cannot wire them by hand (`packages/queue/src/types.ts:384`).
 - Forms retention anonymizes and never deletes; portal cleanup is instance-wide, not per tenant.
 
 **Queues and cache**
-- Most jobs carry ids only. Four carry content: inbound channel job (whole message), payment webhook event, external-email job (address), and the persistent event queue (whole event payload). Storage is plaintext (`.mercato/queue/<name>/queue.json` or Redis); BullMQ keeps the last 1000 failed jobs.
+- Many jobs carry ids only. Content-bearing examples include the inbound channel job, payment and shipping webhook events, external-email address, persistent event payloads, and workflow activity configuration with workflow/step context (`core/workflows/lib/activity-executor.ts:372-398`, `core/shipping_carriers/api/webhook/[provider]/route.ts:127-134`). This is not an exhaustive count. Storage is plaintext (`.mercato/queue/<name>/queue.json` or Redis); BullMQ keeps the last 1000 failed jobs.
 - The CRUD list cache stores decrypted payloads but is off by default (`ENABLE_CRUD_API_CACHE=false`).
 
-**Probable defect (inferred, not run)**
-- `auth.user.deleted` is emitted as `{ id, organizationId, tenantId }` (`core/auth/commands/users.ts:214-222`), but the channel and SSO cascades read `payload.userId`. The channel cascade returns early without it (`core/communication_channels/subscribers/user-deleted-cascade.ts:54`). The SSO cleanup has no guard and runs its update and deletes with an undefined id (`ent/sso/subscribers/user-deleted-cleanup.ts:21-35`); what that matches was not run or tested.
+**A9 source verification — 2026-11-16 (not a runtime reproduction)**
+- `auth.user.deleted` is emitted as `{ id, organizationId, tenantId }` (`core/auth/commands/users.ts:214-222`), but the channel and SSO cascades read `payload.userId`. The channel cascade returns early without it (`core/communication_channels/subscribers/user-deleted-cascade.ts:54`). The SSO cleanup has no guard and runs its update and deletes with an undefined id (`ent/sso/subscribers/user-deleted-cleanup.ts:21-35`); the generated SQL and matching behavior have not been reproduced in this record. The channel query also filters by payload organization (`:72-74`), while connect stores the organization selected at connect time (`commands/connect-credential-channel.ts:241`). Deletion undo can recreate the user (`core/auth/commands/users.ts:1210-1260`), and both subscribers are persistent. A9 therefore requires a trusted-scope check, an auth-service absence check before mutation, cross-organization channel matching, and regression tests. No stub, execution log or SQL output was retained for the program’s earlier reproduction claim, so that claim is withdrawn rather than treated as evidence.
 
 ## 4. Already automatic — not to be re-specified
 
 - Scheduled: AI pending-action expiry (5 min), AI token-usage prune (90 days), cart abandon/expire/lock release and 90-day hard delete, payment-session claim prune, promotion reservation sweep, checkout transaction expiry.
-- Inline or event-driven: access-log rotation, record-lock history cleanup, document version cap, BullMQ `removeOnComplete`, delete cascades for `query_index`, vector index, translations and SSO.
+- Inline or event-driven: access-log rotation, record-lock history cleanup, document version cap, BullMQ `removeOnComplete`, delete cascades for `query_index`, vector index and translations. The intended SSO cascade is broken as described in section 3; it is not an already-working cleanup.
 - Retention env that exists: `AUDIT_LOGS_CORE_RETENTION_DAYS`, `AUDIT_LOGS_NON_CORE_RETENTION_HOURS`, `AUDIT_LOGS_ROTATE_INTERVAL_MS`, `AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS`. The only tenant-level stored retention setting is per-form `retention_days`.
 
 ## 5. Dependency state
@@ -101,7 +102,7 @@ Paths: `core/…` = `packages/core/src/modules/…`, `ent/…` = `packages/enter
 
 | Spec | Scope | Status |
 |---|---|---|
-| `enterprise/2026-07-08-gdpr-data-erasure.md` | Enterprise | Spec-only. Anonymization out of scope; linked deals fail with guidance |
+| `enterprise/2026-07-08-gdpr-data-erasure.md` | Enterprise | Historical design only; all operative sections now point to C4 (operation), C3 (governance) and C9 (replay); the old out-of-scope anonymization and linked-deal failure design is withdrawn |
 | `enterprise/2026-07-08-automated-database-backups.md`, `enterprise/2026-11-06-cli-backup-restore.md` | Enterprise | Spec-only; code in open #9333 |
 | `2026-08-18-tenant-legal-documents-and-consent-versioning.md` | OSS dir, tracker #5423 labelled `enterprise` | Spec-only |
 | `2026-10-22-crm-contact-permissions-and-consent-history.md` | OSS | Spec-only. Covers consent history and suppression; names public preference centres as a non-goal and does not mention `List-Unsubscribe`. No dedicated tracker: #7700 is the CRM field-model Phase 1 umbrella, and #8779 states only Phase 1 is tracked |
@@ -119,6 +120,17 @@ Its `enterprise/2026-08-21-privacy-retention-dsr-engine.md` **supersedes** the 0
 
 **Backups direction conflict:** #4030 (open) records a decision that backups belong at the infra layer and the 07-08 spec is "not to be implemented as an app module"; spec PR #8910 (merged 2026-11-06) and open PR #9333 design and build an enterprise `backups` module. #9333 is in the merge queue with automerge (2026-11-15), so the question is being settled by merge. PR #8472 (bounded access-log writes) is QA-approved with automerge.
 
-**Compatibility:** `BACKWARD_COMPATIBILITY.md` has no category for an env-default flip; precedent treats it as a dated entry + `UPGRADE_NOTES.md`. Boot refusal and fail-closed KMS fit the Emergency Security Exception (`:13-27`), which needs a named maintainer sign-off and forbids a retained toggle. Patch releases carry no `UPGRADE_NOTES.md` window (`CONTRIBUTING.md:246`), which matters for `release/v0.9.x` backports.
+**Compatibility:** `BACKWARD_COMPATIBILITY.md` has no separate category for an env-default flip; the program also applies the ordinary notice/bridge protocol. The published encryption-key refusal (A1) argues the Emergency Security Exception (`:13-27`) and still needs a named human waiver; #7231’s dated entry does too. The merged key-guard design separately defaults the later task **Refuse unsafe lookup secrets after B1 Phase D** to a fresh published-lookup waiver, pending human confirmation, with the ordinary bridge if declined (program DEC-12). C2's redaction carrier separately requests a security waiver for vulnerable replay behavior and historical cleanup. Program DEC-13 now separately proposes the C7 existing-profile/password-change/reset-confirm waiver, including registry/cross-site checks and shared re-authentication 429, with ordinary-bridge/unshipped-phase fallback. No such approval is evidenced here. Short/missing/unconfigured keys and insecure Vault addresses (A2) use the ordinary `warn`/`enforce` bridge with deprecated explicit `warn` retained; A3 keeps its separate ordinary bridge. No A3 exception has been established by this source review. Patch releases carry no `UPGRADE_NOTES.md` window (`CONTRIBUTING.md:246`), which matters for `release/v0.9.x` backports.
+
+**Merged-design handoff (pass two, not current code).** R3-12 — Fill commands for module-written hashes corrects the earlier premise: `mercato customers fill-lookup-hashes` and `customer_entities.primary_email_hash` / `primary_phone_hash` are new work in B1 Phase D, not existing remedies. The companion Phase C commands are `mercato sso fill-lookup-hashes` and `mercato communication_channels fill-lookup-hashes`. DEC-F — The B1 hand-offs keeps mapped rehash and system-scope rotation in that phase. A1 release needs verified ORM plus search-owned old-key vector rotation with search enabled through B4's `searchVectorDisplayMaintenance`. A2's later tasks additionally wait for the exact three R3-12 fills, every required deployed coverage-owned fill, system rotation, forced every-tenant/entity and tenantless token rebuilds and `mercato query_index purge-legacy-tokens` full reports showing zero legacy/old-key rows, with ordinary writers stopped throughout. These future designs do not alter this audit's dated implementation findings.
 
 **Scope policy:** `CONTRIBUTING.md:108-135` bars external PRs under `packages/enterprise/` only. The 2026-11-12 maintainer comment on #8593 ("planned for Open Mercato Enterprise… won't accept community contributions") is broader than that path rule, and no document covers a capability whose contracts are MIT while the feature is declared enterprise.
+
+## Changelog
+
+### 2026-11-16
+- Council round two fixes (GPT-6.1 Sol workers): r0-16 cites all three inline Compose key policies; r0-22 removes SSO from working automatic cleanup; r0-23 limits the proposed exception to published keys with a pending named waiver; r0-24 records source-only A9 evidence and withdraws the undocumented reproduction; nits: fifth pruner, precise map count, tenant embedding settings, OTLP redaction, non-exhaustive queue examples and starter doctor distinction.
+
+- Council round two fixes, pass two (GPT-6.1 Sol workers): corrected R3-12's new-command premise, separated future A1/published-lookup/C2 waiver gates from source evidence, and cited verified ORM/vector/hash/token recovery prerequisites without refreshing dated tracker states.
+
+- Council round two fixes, pass three (GPT-6.1 Sol workers): aligned future-design A1 versus A2 maintenance gates with B1/B4, exact query_index purge ownership and tenantless/coverage-fill obligations; retained the dated source-audit baseline.
