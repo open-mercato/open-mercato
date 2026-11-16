@@ -833,10 +833,17 @@ describe('ambient run correlation for tool writes', () => {
     await createService(orm).run(AGENT_ID, { subjectId: SUBJECT_ID }, { ...baseCtx, correlationId: 'corr-1' })
 
     const runId = String(onlyRun(orm).id)
-    expect(ambientSeenByTool).toEqual({ agentRunId: runId, correlationId: 'corr-1' })
+    expect(ambientSeenByTool).toEqual({
+      agentRunId: runId,
+      correlationId: 'corr-1',
+      agentId: AGENT_ID,
+      agentVersion: expect.stringMatching(/^sha256:[0-9a-f]{16}$/),
+    })
     expect(actionLog).toHaveBeenCalledTimes(1)
     const logged = actionLog.mock.calls[0][0]
-    expect(logged.context).toEqual({ correlation: { agentRunId: runId, correlationId: 'corr-1' } })
+    expect(logged.context).toEqual({
+      correlation: { agentRunId: runId, correlationId: 'corr-1', agentId: AGENT_ID, agentVersion: expect.stringMatching(/^sha256:[0-9a-f]{16}$/) },
+    })
     expect(getAmbientAuditCorrelation()).toBeNull()
   })
 })

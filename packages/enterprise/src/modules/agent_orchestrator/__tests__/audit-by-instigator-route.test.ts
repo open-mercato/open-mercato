@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { GET } from '../api/audit/by-instigator/[humanUserId]/route'
-import { AgentRun } from '../data/entities'
+import { AgentProposal, AgentRun } from '../data/entities'
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
@@ -132,14 +132,22 @@ function seedRow(overrides: Partial<Row>): Row {
 }
 
 type RunRow = { id: string; agentId: string; agentVersion: string | null; organizationId: string }
+type ProposalRow = { id: string; runId: string; agentId: string; workflowInstanceId: string | null; organizationId: string }
 
-async function setup(rows: Row[], decrypt: (row: Row) => Partial<Row> = () => ({}), runs: RunRow[] = []) {
+async function setup(
+  rows: Row[],
+  decrypt: (row: Row) => Partial<Row> = () => ({}),
+  runs: RunRow[] = [],
+  proposals: ProposalRow[] = [],
+) {
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
   const { findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
   ;(findWithDecryption as jest.Mock).mockImplementation(
     async (_em: unknown, entity: unknown, where: { id: { $in: string[] }; organizationId?: string }) =>
-      entity === AgentRun
-        ? runs.filter((run) => where.id.$in.includes(run.id) && (!where.organizationId || run.organizationId === where.organizationId))
+      entity === AgentRun || entity === AgentProposal
+        ? (entity === AgentRun ? runs : proposals).filter(
+            (record) => where.id.$in.includes(record.id) && (!where.organizationId || record.organizationId === where.organizationId),
+          )
         : rows
         .filter((row) => where.id.$in.includes(row.id))
         .map((row) => {
@@ -277,6 +285,36 @@ describe('GET /api/agent_orchestrator/audit/by-instigator/:humanUserId', () => {
     expect(byId.get('human-1')).toMatchObject({ agentId: null, agentVersion: null })
     const runCall = (findWithDecryption as jest.Mock).mock.calls.find((call) => call[1] === AgentRun)
     expect(runCall?.[2]).toMatchObject({ tenantId: TENANT_A, organizationId: ORG_A })
+  })
+
+  it('attributes an effector write only through a proposal of the same workflow instance', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: HUMAN, tenantId: TENANT_A, orgId: ORG_A })
+    const runId = '77777777-7777-4777-8777-777777777777'
+    const proposalId = '88888888-8888-4888-8888-888888888888'
+    const instanceId = '99999999-9999-4999-8999-999999999999'
+    const otherInstanceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+
+    await setup(
+      [
+        seedRow({ id: 'effector-ok', correlation_keys: [`proposalId:${proposalId}`, `workflowInstanceId:${instanceId}`] }),
+        seedRow({ id: 'effector-forged', correlation_keys: [`proposalId:${proposalId}`, `workflowInstanceId:${otherInstanceId}`] }),
+      ],
+      () => ({}),
+      [{ id: runId, agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef', organizationId: ORG_A }],
+      [{ id: proposalId, runId, agentId: 'support.triage', workflowInstanceId: instanceId, organizationId: ORG_A }],
+    )
+
+    const body = await (await GET(makeRequest(), { params })).json()
+    const byId = new Map(body.items.map((item: { id: string }) => [item.id, item]))
+
+    expect(byId.get('effector-ok')).toMatchObject({
+      proposalId,
+      agentRunId: null,
+      agentId: 'support.triage',
+      agentVersion: 'sha256:0123456789abcdef',
+    })
+    expect(byId.get('effector-forged')).toMatchObject({ proposalId, agentId: null, agentVersion: null })
   })
 
   it('is org-scoped: a row in another org for the same human is excluded (tenant isolation)', async () => {

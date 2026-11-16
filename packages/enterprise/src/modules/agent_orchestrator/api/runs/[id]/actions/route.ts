@@ -6,9 +6,8 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentProposal, AgentRun } from '../../../../data/entities'
+import { resolveActionAgentAttribution } from '../../../../lib/identity/actionAgentAttribution'
 import {
-  AGENT_CORRELATION_KEY,
-  AGENT_VERSION_CORRELATION_KEY,
   buildRunActionCorrelationKeys,
   parseCorrelationKeys,
   RUN_ACTIONS_MAX_PAGE_SIZE,
@@ -68,8 +67,8 @@ const actionItemSchema = z.object({
   onBehalfOfUserId: z.string().nullable(),
   sourceKey: z.string().nullable(),
   correlation: z.record(z.string(), z.string()),
-  /** The agent and version that produced the entry: stamped on the entry, else the run's own. */
-  agentId: z.string(),
+  /** The agent behind the entry: stamped on it, else its run, else a proposal of the same workflow instance; null when unverifiable. */
+  agentId: z.string().nullable(),
   agentVersion: z.string().nullable(),
   createdAt: z.string(),
 })
@@ -128,7 +127,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   const proposals = await em.find(
     AgentProposal,
     { runId: run.id, tenantId: run.tenantId, organizationId: run.organizationId },
-    { fields: ['id'] },
+    { fields: ['id', 'runId', 'agentId', 'workflowInstanceId'] },
   )
   const keys = buildRunActionCorrelationKeys(run.id, proposals.map((proposal) => proposal.id))
   const result = await service.listByCorrelationKeys({
@@ -139,9 +138,25 @@ export async function GET(req: Request, ctx: RouteContext) {
     pageSize,
   })
 
+  const correlations = result.items.map((entry) => parseCorrelationKeys(entry.correlationKeys))
+  const attributions = await resolveActionAgentAttribution(
+    em,
+    { tenantId: run.tenantId, organizationId: run.organizationId },
+    correlations,
+    {
+      runs: [{ id: run.id, agentId: run.agentId, agentVersion: run.agentVersion ?? null }],
+      proposals: proposals.map((proposal) => ({
+        id: proposal.id,
+        runId: proposal.runId,
+        agentId: proposal.agentId,
+        workflowInstanceId: proposal.workflowInstanceId ?? null,
+      })),
+    },
+  )
+
   return NextResponse.json({
-    items: result.items.map((entry) => {
-      const correlation = parseCorrelationKeys(entry.correlationKeys)
+    items: result.items.map((entry, index) => {
+      const correlation = correlations[index] ?? {}
       return {
         id: entry.id,
         commandId: entry.commandId,
@@ -152,8 +167,8 @@ export async function GET(req: Request, ctx: RouteContext) {
         onBehalfOfUserId: entry.onBehalfOfUserId ?? null,
         sourceKey: entry.sourceKey ?? null,
         correlation,
-        agentId: correlation[AGENT_CORRELATION_KEY] ?? run.agentId,
-        agentVersion: correlation[AGENT_VERSION_CORRELATION_KEY] ?? run.agentVersion ?? null,
+        agentId: attributions[index]?.agentId ?? null,
+        agentVersion: attributions[index]?.agentVersion ?? null,
         createdAt: toIsoString(entry.createdAt),
       }
     }),
@@ -170,7 +185,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List action-log entries correlated with an agent run',
       description:
-        'Returns the decrypted action-log entries whose correlation carries this run id (`agentRunId`) or the id of one of its proposals (`proposalId`, effector writes after approval), newest first. `correlation` is the id-shaped correlation subset recorded on the entry; `agentId` / `agentVersion` name the agent and version that produced it (stamped on the entry, else the run record). Org-scoped (404 for a run outside the caller organization); requires agent_orchestrator.trace.view and audit_logs.view_tenant; pageSize is capped at 100.',
+        'Returns the decrypted action-log entries whose correlation carries this run id (`agentRunId`) or the id of one of its proposals (`proposalId`, effector writes after approval), newest first. `correlation` is the id-shaped correlation subset recorded on the entry; `agentId` / `agentVersion` name the agent and version behind it: stamped on the entry, else its run, else a proposal of this run that belongs to the same workflow instance as the entry; null when none can be verified. Org-scoped (404 for a run outside the caller organization); requires agent_orchestrator.trace.view and audit_logs.view_tenant; pageSize is capped at 100.',
       query: querySchema,
       responses: [{ status: 200, description: 'Run actions', schema: responseSchema }],
       errors: [

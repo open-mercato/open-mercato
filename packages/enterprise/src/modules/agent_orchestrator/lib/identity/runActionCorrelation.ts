@@ -4,6 +4,7 @@ export const RUN_CORRELATION_KEY = 'agentRunId'
 export const PROPOSAL_CORRELATION_KEY = 'proposalId'
 export const AGENT_CORRELATION_KEY = 'agentId'
 export const AGENT_VERSION_CORRELATION_KEY = 'agentVersion'
+export const WORKFLOW_INSTANCE_CORRELATION_KEY = 'workflowInstanceId'
 
 export function buildRunActionCorrelationKeys(runId: string, proposalIds: readonly string[]): string[] {
   const keys = [`${RUN_CORRELATION_KEY}:${runId}`]

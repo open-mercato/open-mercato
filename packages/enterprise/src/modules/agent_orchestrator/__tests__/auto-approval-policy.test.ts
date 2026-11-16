@@ -412,7 +412,7 @@ describe('DispositionService applies the rule', () => {
     expect(execute).toHaveBeenCalledWith(
       'agent_orchestrator.proposals.dispose',
       expect.objectContaining({
-        ctx: expect.objectContaining({ auditCorrelation: { proposalId: 'proposal-1', agentRunId: 'run-1' } }),
+        ctx: expect.objectContaining({ auditCorrelation: { proposalId: 'proposal-1', agentRunId: 'run-1', agentId: 'deal_enricher' } }),
       }),
     )
   })
