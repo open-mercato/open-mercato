@@ -53,7 +53,7 @@ export default function PortalProfilePage({ params }: Props) {
       <InjectionSpot spotId={extensionPoints.hosts.profileBefore.spotId} context={injectionContext} />
 
       <div className="grid gap-5 md:grid-cols-2">
-        <PortalCard>
+        <PortalCard className="min-w-0">
           <PortalCardHeader label={t('portal.dashboard.profile', 'Profile')} title={user.displayName} />
           <div className="flex flex-col">
             <PortalStatRow
@@ -80,7 +80,7 @@ export default function PortalProfilePage({ params }: Props) {
           </div>
         </PortalCard>
 
-        <PortalCard>
+        <PortalCard className="min-w-0">
           <PortalCardHeader label={t('portal.dashboard.roles', 'Roles')} title={t('portal.profile.rolesAssigned', '{count} assigned', { count: roles.length })} />
           {roles.length > 0 ? (
             <div className="flex flex-wrap gap-2">
@@ -93,7 +93,7 @@ export default function PortalProfilePage({ params }: Props) {
           )}
         </PortalCard>
 
-        <PortalCard className="md:col-span-2">
+        <PortalCard className="min-w-0 md:col-span-2">
           <PortalCardHeader label={t('portal.dashboard.permissions', 'Permissions')} title={t('portal.profile.featuresCount', '{count} features', { count: resolvedFeatures.length })} />
           {resolvedFeatures.length > 0 ? (
             <div className="flex flex-wrap gap-2">

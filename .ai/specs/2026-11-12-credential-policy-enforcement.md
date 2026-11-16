@@ -32,7 +32,7 @@ Request/cookie unit regressions cover same-second new sessions and pre-reset-ses
 
 ## Responsive profile repair (2026-11-16)
 
-Portal stat rows stack labels and values on narrow viewports, permit value wrapping and preserve desktop alignment. Profile email and verification badges wrap within the card instead of clipping. Existing public component props, portal spots and data behavior remain unchanged. The self-contained browser regression `TC-AUTH-066-profile-responsive-layout.spec.ts` creates its own user, verifies long email/badge/date bounds at 320, 390, 768 and 1440 pixels, and cleans up the user. Runtime QA must also repeat the Polish weak-reset and ten rapid reset/login/revocation scenarios on the final head.
+Portal stat rows stack labels and values on narrow viewports, permit value wrapping and preserve desktop alignment. The minimum-width rule is applied through the existing className prop only to the three profile cards; the generic PortalCard implementation is unchanged from the base branch. PortalStatRow has only the profile consumer. Profile email and verification badges wrap within the card instead of clipping. Existing public component props, portal spots and data behavior remain unchanged. The self-contained browser regression `TC-AUTH-066-profile-responsive-layout.spec.ts` creates its own user, verifies long email/badge/date bounds at 320, 390, 768 and 1440 pixels, and cleans up the user. Runtime QA must also repeat the Polish weak-reset and ten rapid reset/login/revocation scenarios on the final head.
 
 ## Public form feedback and staff affordances (2026-11-16)
 
@@ -52,3 +52,5 @@ Source changes retain shared mechanisms and introduce no schema or dependency ch
 - 2026-11-16: Reconciled published localization/session repairs and added responsive portal profile wrapping with browser regression coverage.
 
 - 2026-11-16: Corrected public password-policy recovery guidance, localized profile counts and gated staff security affordances; added component regression coverage.
+
+- 2026-11-16: Confined minimum-width styling to profile card call sites; unrelated PortalCard consumers use the unchanged base implementation.

@@ -13,7 +13,7 @@ type PortalCardProps = {
  */
 export function PortalCard({ children, className }: PortalCardProps) {
   return (
-    <div className={`min-w-0 rounded-xl border bg-card p-5 sm:p-6 ${className ?? ''}`}>
+    <div className={`rounded-xl border bg-card p-5 sm:p-6 ${className ?? ''}`}>
       {children}
     </div>
   )
