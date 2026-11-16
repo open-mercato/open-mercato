@@ -25,16 +25,21 @@ No product redesign, unrelated cleanup, production changes, base-branch merges, 
 - Delegate at most one read-only integration investigation and one final review using cezar. Implementation and CI coordination stay together; no child changes are merged without review.
 - Source context: .ai/specs/implemented/2026-04-10-ci-cd-performance.md; .github/workflows/ci.yml; CONTRIBUTING.md, Stabilization CI.
 
+## Validation evidence
+- Runner: local (no Compose app container running).
+- Reproduced the exact catalog failure before the fix; all 5 catalog regressions and `yarn lessons:check` equivalent pass after correcting 186 to 187.
+
 ## Risks
 CI may reveal additional failures beyond the baseline. Local dependencies and service availability must be established; document actual validation limits. Keep draft and withhold automerge until full exact-head checks pass. Existing older stabilization PRs have active claims; leave them untouched.
 
 ## Progress
+PR: #9729
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Root-cause repairs
 
-- [ ] 1.1 Investigate and repair script-test failures with focused regression coverage.
+- [x] 1.1 Investigate and repair script-test failures with focused regression coverage. — 52b52b13bf
 - [ ] 1.2 Independently investigate integration shard 8/15 and repair demonstrated defects.
 
 ### Phase 2: Verification and handoff
