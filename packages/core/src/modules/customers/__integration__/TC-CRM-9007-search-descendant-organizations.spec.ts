@@ -1,13 +1,10 @@
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture,
   createRoleFixture,
   createUserFixture,
-  deleteOrganizationIfExists,
-  deleteRoleIfExists,
-  deleteUserIfExists,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -24,6 +21,28 @@ const RESOURCES: Record<'deals' | 'companies' | 'people', Resource> = {
     path: '/api/customers/people',
     build: (label) => ({ firstName: label.split(' ')[0], lastName: label.split(' ')[1], displayName: label }),
   },
+}
+
+type CleanupFailure = { resource: string; id: string; status: string }
+
+async function attemptCleanup(
+  failures: CleanupFailure[],
+  resource: string,
+  id: string,
+  remove: () => Promise<APIResponse>,
+): Promise<void> {
+  try {
+    const response = await remove()
+    if (!response.ok() && response.status() !== 404) {
+      failures.push({ resource, id, status: `HTTP ${response.status()}` })
+    }
+  } catch (error) {
+    failures.push({ resource, id, status: error instanceof Error ? error.message : String(error) })
+  }
+}
+
+function deleteOrganization(request: APIRequestContext, token: string, organizationId: string): Promise<APIResponse> {
+  return apiRequest(request, 'DELETE', '/api/directory/organizations', { token, data: { id: organizationId } })
 }
 
 function scopeHeaders(tenantId: string, organizationId: string | null): Record<string, string> {
@@ -101,6 +120,7 @@ test.describe('TC-CRM-9007: customer list search covers descendant organizations
     const records: Array<{ path: string; id: string; organizationId: string }> = []
     let roleId: string | null = null
     let userId: string | null = null
+    const cleanupFailures: CleanupFailure[] = []
 
     try {
       const parentId = await createOrganizationFixture(request, superadminToken, { name: `QA 9007 parent ${stamp}`, tenantId })
@@ -164,17 +184,32 @@ test.describe('TC-CRM-9007: customer list search covers descendant organizations
         expect(parentAttempt, `${key}: child-only user selecting the parent`).not.toContain(expected[key].parent)
       }
     } finally {
-      await deleteUserIfExists(request, superadminToken, userId)
-      await deleteRoleIfExists(request, superadminToken, roleId)
+      if (userId) {
+        const id = userId
+        await attemptCleanup(cleanupFailures, '/api/auth/users', id, () =>
+          apiRequest(request, 'DELETE', `/api/auth/users?id=${encodeURIComponent(id)}`, { token: superadminToken }),
+        )
+      }
+      if (roleId) {
+        const id = roleId
+        await attemptCleanup(cleanupFailures, '/api/auth/roles', id, () =>
+          apiRequest(request, 'DELETE', `/api/auth/roles?id=${encodeURIComponent(id)}`, { token: superadminToken }),
+        )
+      }
       for (const record of records.reverse()) {
-        await apiRequest(request, 'DELETE', `${record.path}?id=${encodeURIComponent(record.id)}`, {
-          token: superadminToken,
-          headers: scopeHeaders(tenantId, record.organizationId),
-        }).catch(() => undefined)
+        await attemptCleanup(cleanupFailures, record.path, record.id, () =>
+          apiRequest(request, 'DELETE', `${record.path}?id=${encodeURIComponent(record.id)}`, {
+            token: superadminToken,
+            headers: scopeHeaders(tenantId, record.organizationId),
+          }),
+        )
       }
       for (const organizationId of organizations.reverse()) {
-        await deleteOrganizationIfExists(request, superadminToken, organizationId)
+        await attemptCleanup(cleanupFailures, '/api/directory/organizations', organizationId, () =>
+          deleteOrganization(request, superadminToken, organizationId),
+        )
       }
+      expect.soft(cleanupFailures, 'fixture cleanup must delete every created record').toEqual([])
     }
   })
 
@@ -186,6 +221,7 @@ test.describe('TC-CRM-9007: customer list search covers descendant organizations
     const term = `kappa${stamp}`
     const organizations: string[] = []
     const deals: Array<{ id: string; organizationId: string }> = []
+    const cleanupFailures: CleanupFailure[] = []
 
     try {
       const parentId = await createOrganizationFixture(request, superadminToken, { name: `QA 9007 agg parent ${stamp}`, tenantId })
@@ -211,14 +247,19 @@ test.describe('TC-CRM-9007: customer list search covers descendant organizations
       expect(await aggregateSearchCount(request, superadminToken, scopeHeaders(tenantId, null), term)).toBe(2)
     } finally {
       for (const deal of deals.reverse()) {
-        await apiRequest(request, 'DELETE', `${RESOURCES.deals.path}?id=${encodeURIComponent(deal.id)}`, {
-          token: superadminToken,
-          headers: scopeHeaders(tenantId, deal.organizationId),
-        }).catch(() => undefined)
+        await attemptCleanup(cleanupFailures, RESOURCES.deals.path, deal.id, () =>
+          apiRequest(request, 'DELETE', `${RESOURCES.deals.path}?id=${encodeURIComponent(deal.id)}`, {
+            token: superadminToken,
+            headers: scopeHeaders(tenantId, deal.organizationId),
+          }),
+        )
       }
       for (const organizationId of organizations.reverse()) {
-        await deleteOrganizationIfExists(request, superadminToken, organizationId)
+        await attemptCleanup(cleanupFailures, '/api/directory/organizations', organizationId, () =>
+          deleteOrganization(request, superadminToken, organizationId),
+        )
       }
+      expect.soft(cleanupFailures, 'fixture cleanup must delete every created record').toEqual([])
     }
   })
 })

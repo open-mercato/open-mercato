@@ -4,6 +4,7 @@ import {
   findMatchingEntityIdsWithQueryEngine,
 } from '../utils'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 
 const translate = (key: string, fallback?: string) => fallback ?? key
 
@@ -238,13 +239,20 @@ describe('customers api utils - search organization scope (#9007)', () => {
     return { db, queries }
   }
 
-  function createScopedCtx(db: unknown, scope: { selectedOrganizationId: string | null; organizationIds: string[] | null }) {
+  type OrganizationScopeFixture = Pick<CrudCtx, 'selectedOrganizationId' | 'organizationIds'>
+  type ScopedCtxFixture = OrganizationScopeFixture & {
+    auth: { tenantId: string }
+    container: { resolve: (key: string) => unknown }
+  }
+
+  function createScopedCtx(db: unknown, scope: OrganizationScopeFixture): CrudCtx {
     const em = { getKysely: () => db }
-    return {
+    const fixture: ScopedCtxFixture = {
       auth: { tenantId: 'tenant-1' },
       ...scope,
       container: { resolve: (key: string) => (key === 'em' ? em : undefined) },
-    } as any
+    }
+    return fixture as unknown as CrudCtx
   }
 
   const personSources = [
