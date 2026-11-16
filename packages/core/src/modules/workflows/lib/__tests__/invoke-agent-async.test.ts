@@ -108,6 +108,62 @@ describe('executeInvokeAgent (enqueue + park)', () => {
     })
   })
 
+  it('carries the step callSettings on the job and omits them when the step declares none', async () => {
+    const container = { resolve: jest.fn(() => ({})) } as unknown as AwilixContainer
+    await executeInvokeAgent(
+      {
+        agentId: 'claims.liability.policy_check',
+        input: {},
+        onResult: { alwaysAsk: true },
+        callSettings: { temperature: 0, seed: 9 },
+      },
+      makeContext(),
+      container,
+    )
+    await executeInvokeAgent(
+      { agentId: 'claims.liability.policy_check', input: {}, onResult: { alwaysAsk: true } },
+      makeContext(),
+      container,
+    )
+    const [withSettings] = enqueueMock.mock.calls[0] as [WorkflowActivityJobInvokeAgent]
+    const [withoutSettings] = enqueueMock.mock.calls[1] as [WorkflowActivityJobInvokeAgent]
+    expect(withSettings.callSettings).toEqual({ temperature: 0, seed: 9 })
+    expect(withoutSettings).not.toHaveProperty('callSettings')
+  })
+
+  it('passes callSettings to the bridge on the inline parallel-branch path', async () => {
+    const invokeAgentForWorkflow = jest.fn().mockResolvedValue({ kind: 'research', data: {} })
+    const container = {
+      resolve: jest.fn((name: string) => (name === 'agentWorkflowBridge' ? { invokeAgentForWorkflow } : {})),
+    } as unknown as AwilixContainer
+    await executeInvokeAgent(
+      { agentId: 'a', input: {}, onResult: { alwaysAsk: true }, callSettings: { topK: 40 } },
+      { ...makeContext(), branchInstanceId: 'branch-1' },
+      container,
+    )
+    expect(enqueueMock).not.toHaveBeenCalled()
+    const [args] = invokeAgentForWorkflow.mock.calls[0] as [{ ctx: Record<string, unknown> }]
+    expect(args.ctx.callSettings).toEqual({ topK: 40 })
+    expect(args.ctx.tenantId).toBe(tenantId)
+    expect(args.ctx.organizationId).toBe(organizationId)
+  })
+
+  it.each([
+    ['providerOptions', { providerOptions: { openai: { store: true } } }],
+    ['an unknown key', { notASetting: 1 }],
+    ['an out-of-range temperature', { temperature: 5 }],
+  ])('refuses a step whose callSettings carry %s, before enqueueing', async (_label, callSettings) => {
+    const container = { resolve: jest.fn(() => ({})) } as unknown as AwilixContainer
+    await expect(
+      executeInvokeAgent(
+        { agentId: 'a', input: {}, onResult: { alwaysAsk: true }, callSettings },
+        makeContext(),
+        container,
+      ),
+    ).rejects.toThrow(/INVOKE_AGENT config invalid: callSettings/)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
   it('fails fast when agent_orchestrator is not installed', async () => {
     const container = { resolve: jest.fn(() => { throw new Error('not registered') }) } as unknown as AwilixContainer
     await expect(
@@ -247,6 +303,18 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     expect(options.agentOutcome).toBe('researcher')
     expect(options.payload.disposition).toBe('researcher')
     expect(options.payload[`${stepId}_agent`]).toEqual({ coverage: 'OC' })
+  })
+
+  it('forwards the job callSettings to the bridge ctx', async () => {
+    const { em, container, invokeAgentForWorkflow } = makeDeps(
+      { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
+      { kind: 'research', data: {} },
+    )
+    await handleInvokeAgentJob(em, container, { ...makeJob(), callSettings: { maxOutputTokens: 64 } })
+    const [args] = invokeAgentForWorkflow.mock.calls[0] as [{ ctx: Record<string, unknown> }]
+    expect(args.ctx.callSettings).toEqual({ maxOutputTokens: 64 })
+    expect(args.ctx.tenantId).toBe(tenantId)
+    expect(args.ctx.organizationId).toBe(organizationId)
   })
 
   it('resumes via signal with the proposal payload for an auto_approved outcome', async () => {

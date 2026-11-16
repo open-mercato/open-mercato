@@ -38,6 +38,7 @@ const RUN_ERROR_MESSAGE_KEYS: Readonly<Record<string, string>> = {
   api_key_missing: 'agent_orchestrator.errors.api_key_missing',
   provider_rejected: 'agent_orchestrator.errors.provider_rejected',
   agent_run_failed: 'agent_orchestrator.errors.agent_run_failed',
+  call_settings_unsupported: 'agent_orchestrator.errors.call_settings_unsupported',
 }
 
 export function runErrorMessageKeyForCode(code: unknown): string | null {

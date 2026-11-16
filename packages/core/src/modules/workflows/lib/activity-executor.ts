@@ -10,6 +10,7 @@
  * Functional API (no classes) following Open Mercato conventions.
  */
 
+import type { InvokeAgentCallSettings } from '../data/activity-config-schemas'
 import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
@@ -1578,6 +1579,8 @@ type AgentWorkflowBridgeLike = {
       // proposal this step raises, and by when. Absent means the unassigned
       // task the disposition service raised before the section existed.
       review?: AgentDispositionReview
+      // Optional per-call model settings (invokeAgentConfigSchema.callSettings).
+      callSettings?: InvokeAgentCallSettings
     }
   }) => Promise<
     | { kind: 'research'; data: unknown }
@@ -1614,7 +1617,7 @@ export async function executeInvokeAgent(
       .join('; ')
     throw new Error(`INVOKE_AGENT config invalid: ${issues}`)
   }
-  const { agentId, input, onResult, outputMapping, subject, review } = parsed.data
+  const { agentId, input, onResult, outputMapping, subject, review, callSettings } = parsed.data
 
   // The Review section is resolved HERE, against the context the step ran with,
   // for the same reason a USER_TASK's assignment is resolved at creation rather
@@ -1675,6 +1678,7 @@ export async function executeInvokeAgent(
         ...(context.stepInstanceId ? { invocationId: context.stepInstanceId } : {}),
         ...(subject ? { subject } : {}),
         ...(dispositionReview ? { review: dispositionReview } : {}),
+        ...(callSettings ? { callSettings } : {}),
       },
     })
     if (outcome.kind === 'research') {
@@ -1723,6 +1727,7 @@ export async function executeInvokeAgent(
     ...(outputMapping ? { outputMapping } : {}),
     ...(subject ? { subject } : {}),
     ...(dispositionReview ? { review: dispositionReview } : {}),
+    ...(callSettings ? { callSettings } : {}),
     tenantId: context.workflowInstance.tenantId,
     organizationId: context.workflowInstance.organizationId,
     userId: effectiveUserId,

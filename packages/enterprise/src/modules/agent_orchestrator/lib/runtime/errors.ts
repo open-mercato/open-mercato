@@ -95,6 +95,38 @@ export function isAgentPrincipalMissingError(
 }
 
 /**
+ * The caller passed per-call model settings to an agent whose runtime cannot
+ * apply them (file-defined agents on the OpenCode runtime). The run refuses
+ * instead of silently running with the agent's defaults.
+ */
+export class AgentCallSettingsUnsupportedError extends Error {
+  readonly code = 'call_settings_unsupported'
+  readonly agentId: string
+  constructor(agentId: string) {
+    super(`[internal] agent "${agentId}" runs on a runtime that does not accept per-call model settings`)
+    this.name = 'AgentCallSettingsUnsupportedError'
+    this.agentId = agentId
+  }
+}
+
+export const AGENT_CALL_SETTINGS_UNSUPPORTED_CODE = 'call_settings_unsupported' as const
+
+/** Structural match, like {@link isAgentInvokeDeniedError}. */
+export function isAgentCallSettingsUnsupportedError(
+  err: unknown,
+): err is { code: typeof AGENT_CALL_SETTINGS_UNSUPPORTED_CODE; agentId?: string } {
+  if (err instanceof AgentCallSettingsUnsupportedError) return true
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: unknown }).code === AGENT_CALL_SETTINGS_UNSUPPORTED_CODE
+}
+
+/** True when at least one per-call model setting is set. */
+export function hasCallSettings(settings: Record<string, unknown> | null | undefined): boolean {
+  if (!settings) return false
+  return Object.values(settings).some((value) => value !== undefined)
+}
+
+/**
  * The in-process wall-clock deadline (`OM_AGENT_RUN_TIMEOUT_MS`, default 5 min —
  * symmetric with the OpenCode runner's `OM_OPENCODE_RUN_TIMEOUT_MS`) expired
  * before the model finished. The run is already marked failed via `failRun`

@@ -10,6 +10,10 @@ import type { AgentRuntimeService } from './agentRuntime'
 import type { AgentRunAs } from './persistence'
 import { resolveRunAsForAgent } from '../identity/resolveRunAsForAgent'
 import { withProcessSubject } from '../processes/subjectContext'
+import {
+  aiAgentHttpCallSettingsSchema,
+  type AiAgentHttpCallSettings,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-call-contract'
 import type {
   AgentDispositionReview,
   DispositionService,
@@ -54,6 +58,13 @@ export type InvokeAgentForWorkflowArgs = {
      * only carries the answer onto the task it creates.
      */
     review?: AgentDispositionReview
+    /**
+     * The INVOKE_AGENT node's per-call model settings, merged over the agent's
+     * `modelSettings` for this run only. Re-validated here because it crosses
+     * the queue boundary; an invalid value fails the step rather than being
+     * dropped.
+     */
+    callSettings?: unknown
   }
 }
 
@@ -165,6 +176,7 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     // reason to refuse the run — the projection then simply lists the process
     // by workflow name with no business facets.
     const subject = this.parseSubject(ctx.subject)
+    const callSettings = this.parseCallSettings(ctx.callSettings)
 
     // The run this call caused, learned from the run itself rather than guessed
     // afterwards. `onRunPersisted` fires again for each nested sub-agent
@@ -185,6 +197,7 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
           if (!topLevelRunId) topLevelRunId = runId
         },
         ...(runAs ? { runAs } : {}),
+        ...(callSettings ? { callSettings } : {}),
       }),
     )
 
@@ -287,6 +300,18 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     if (!raw || typeof raw !== 'object') return null
     const parsed = processSubjectSchema.safeParse(raw)
     return parsed.success ? parsed.data : null
+  }
+
+  private parseCallSettings(raw: unknown): AiAgentHttpCallSettings | null {
+    if (raw === undefined || raw === null) return null
+    const parsed = aiAgentHttpCallSettingsSchema.safeParse(raw)
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((issue) => `${issue.path.join('.') || 'callSettings'}: ${issue.message}`)
+        .join('; ')
+      throw new Error(`[internal] INVOKE_AGENT callSettings are invalid: ${issues}`)
+    }
+    return Object.keys(parsed.data).length > 0 ? parsed.data : null
   }
 
   /**

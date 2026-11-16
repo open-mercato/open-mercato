@@ -15,6 +15,7 @@ import {
   agentRunSuccessResponse,
   agentRunSuccessResponseSchema,
   createRunIdObserver,
+  callSettingsUnsupportedErrorSchema,
   guardrailBlockedErrorSchema,
   modelUnavailableErrorSchema,
   parseAgentRunRequest,
@@ -81,6 +82,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     invoker: invokerFromAuth(auth),
     entryPoint: 'run_api',
     onRunPersisted: runIdObserver.onRunPersisted,
+    ...(parsed.callSettings ? { callSettings: parsed.callSettings } : {}),
   }
 
   let result: unknown
@@ -122,7 +124,8 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: {
         contentType: 'application/json',
         schema: agentRunRequestSchema,
-        description: 'Agent input payload (shape is agent-specific).',
+        description:
+          'Agent input payload (shape is agent-specific) plus optional `callSettings` (temperature 0–2, topP 0–1, topK 1–1000, maxOutputTokens 1–32768, seed, at most 4 stopSequences of up to 64 characters, penalties -2–2), merged over the agent\'s `modelSettings`. Unknown keys, `providerOptions` and out-of-range values are rejected with 422.',
       },
       responses: [
         {
@@ -150,8 +153,8 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid input, invalid model output, run wall-clock timeout — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason and `ruleId` (the integrity rule that blocked, null otherwise)',
-          schema: z.union([errorSchema, guardrailBlockedErrorSchema]),
+            'Invalid input or `callSettings`, invalid model output, run wall-clock timeout, `callSettings` sent to an agent whose runtime cannot apply them (`code: "call_settings_unsupported"`, file-defined OpenCode agents) — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason and `ruleId` (the integrity rule that blocked, null otherwise)',
+          schema: z.union([errorSchema, guardrailBlockedErrorSchema, callSettingsUnsupportedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
         {
