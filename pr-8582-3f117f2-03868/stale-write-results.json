@@ -1,0 +1,7 @@
+{
+  "actorBSave": 200,
+  "actorAStaleSave": 409,
+  "actorARepeatedStaleSave": 409,
+  "settledTenSeconds": true,
+  "wholeRecordPreserved": true
+}
