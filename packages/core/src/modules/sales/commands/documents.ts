@@ -151,6 +151,7 @@ import {
   assertRecurringOrderStatusAllowed,
   assertRecurringQuoteConvertible,
 } from "../lib/recurringOrderGuard";
+import { resequenceLinesForUpsert } from "../lib/lineOrdering";
 import type { SalesCalculationService } from "../services/salesCalculationService";
 import type { TaxCalculationService } from "../services/taxCalculationService";
 import type {
@@ -1520,14 +1521,21 @@ async function applyDocumentUpdate({
         });
       }
     }
-    (entity as any).shippingMethodId = input.shippingMethodId ?? null;
-    (entity as any).shippingMethod = shippingMethod ?? null;
-    (entity as any).shippingMethodCode =
-      input.shippingMethodCode ?? shippingMethod?.code ?? null;
+    if (input.shippingMethodId !== undefined) {
+      entity.shippingMethodId = input.shippingMethodId ?? null;
+      entity.shippingMethod = shippingMethod ?? null;
+    }
+    if (
+      input.shippingMethodId !== undefined ||
+      input.shippingMethodCode !== undefined
+    ) {
+      entity.shippingMethodCode =
+        input.shippingMethodCode ?? shippingMethod?.code ?? null;
+    }
     if (input.shippingMethodSnapshot !== undefined) {
       (entity as any).shippingMethodSnapshot =
         input.shippingMethodSnapshot ?? null;
-    } else {
+    } else if (input.shippingMethodId !== undefined) {
       (entity as any).shippingMethodSnapshot = shippingMethod
         ? {
             id: shippingMethod.id,
@@ -1578,14 +1586,21 @@ async function applyDocumentUpdate({
         });
       }
     }
-    (entity as any).paymentMethodId = input.paymentMethodId ?? null;
-    (entity as any).paymentMethod = paymentMethod ?? null;
-    (entity as any).paymentMethodCode =
-      input.paymentMethodCode ?? paymentMethod?.code ?? null;
+    if (input.paymentMethodId !== undefined) {
+      entity.paymentMethodId = input.paymentMethodId ?? null;
+      entity.paymentMethod = paymentMethod ?? null;
+    }
+    if (
+      input.paymentMethodId !== undefined ||
+      input.paymentMethodCode !== undefined
+    ) {
+      entity.paymentMethodCode =
+        input.paymentMethodCode ?? paymentMethod?.code ?? null;
+    }
     if (input.paymentMethodSnapshot !== undefined) {
       (entity as any).paymentMethodSnapshot =
         input.paymentMethodSnapshot ?? null;
-    } else {
+    } else if (input.paymentMethodId !== undefined) {
       (entity as any).paymentMethodSnapshot = paymentMethod
         ? {
             id: paymentMethod.id,
@@ -6133,7 +6148,7 @@ const updateQuoteCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.quote as unknown as Record<string, unknown>,
           after.quote as unknown as Record<string, unknown>,
           buildDocumentUpdateChangeKeys("quote", parsed),
@@ -6484,7 +6499,7 @@ const updateOrderCommand: CommandHandler<
     if (!after) return null;
     const { translate } = await resolveTranslations();
     const changes = before
-      ? buildChanges(
+      ? buildAuditChanges(
           before.order as unknown as Record<string, unknown>,
           after.order as unknown as Record<string, unknown>,
           buildDocumentUpdateChangeKeys("order", parsed),
@@ -8265,14 +8280,17 @@ const orderLineUpsertCommand: CommandHandler<
         lineSnapshots.length + 1,
       );
       const lineId = updatedSnapshot.id;
-      let nextLines = parsed.id
+      const mergedLines = parsed.id
         ? lineSnapshots.map((line) =>
             line.id === parsed.id ? updatedSnapshot : line,
           )
         : [...lineSnapshots, updatedSnapshot];
-      nextLines = nextLines
-        .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-        .map((line, index) => ({ ...line, lineNumber: index + 1 }));
+      const nextLines = resequenceLinesForUpsert(
+        mergedLines,
+        lineId,
+        parsed.lineNumber ?? null,
+        existingSnapshot?.lineNumber ?? null,
+      );
 
       const sourceInputs = nextLines.map((line, index) => ({
         ...line,
@@ -8931,14 +8949,17 @@ const quoteLineUpsertCommand: CommandHandler<
         (existingSnapshot as any)?.promotionSnapshot ??
         null;
 
-      let nextLines = parsed.id
+      const mergedLines = parsed.id
         ? lineSnapshots.map((line) =>
             line.id === parsed.id ? updatedSnapshot : line,
           )
         : [...lineSnapshots, updatedSnapshot];
-      nextLines = nextLines
-        .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
-        .map((line, index) => ({ ...line, lineNumber: index + 1 }));
+      const nextLines = resequenceLinesForUpsert(
+        mergedLines,
+        lineId,
+        parsed.lineNumber ?? null,
+        existingSnapshot?.lineNumber ?? null,
+      );
 
       const sourceInputs = nextLines.map((line, index) => ({
         ...line,

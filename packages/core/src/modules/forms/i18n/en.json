@@ -197,6 +197,7 @@
   "forms.errors.submission_not_found": "Submission not found.",
   "forms.errors.tenant_required": "Tenant context is required.",
   "forms.errors.unauthorized": "Unauthorized.",
+  "forms.errors.undo_conflict": "This record changed after the action you are undoing. Undo was refused to keep the newer changes.",
   "forms.errors.version_form_mismatch": "The form version does not belong to this form.",
   "forms.errors.version_is_frozen": "Published versions are immutable. Fork a new draft to make changes.",
   "forms.errors.version_not_found": "Form version not found.",
