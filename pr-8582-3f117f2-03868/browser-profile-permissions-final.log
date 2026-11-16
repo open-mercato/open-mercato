@@ -1,0 +1,163 @@
+
+Running 4 tests using 1 worker
+
+(node:3607459) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+view - main:
+  - status "Loading": Loading...
+  - text: Loading user...
+manager - main:
+  - status "Loading": Loading...
+  - text: Loading user...
+  ✓  1 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/permissions.spec.cjs:2:1 › view-only staff no security affordances and direct refusal preserves record (2.2s)
+en - main:
+  - paragraph: Account
+  - heading "Profile" [level=1]
+  - paragraph: Profile
+  - heading "QA owned account with long display name for responsive profile" [level=3]
+  - text: Email qa-03868-profile-3ed8320c02-longlonglonglonglonglonglonglong@test.local Not verified Last login Never Member since Never
+  - paragraph: Roles
+  - heading "0 assigned" [level=3]
+  - paragraph: No roles assigned
+  - paragraph: Permissions
+  - heading "3 features" [level=3]
+  - text: portal.orders.view portal.profile.view portal.users.view
+  ✓  2 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds en (41.1s)
+pl - main:
+  - paragraph: Konto
+  - heading "Profil" [level=1]
+  - paragraph: Profil
+  - heading "QA owned account with long display name for responsive profile" [level=3]
+  - text: Email qa-03868-profile-3ed8320c02-longlonglonglonglonglonglonglong@test.local Niezweryfikowany Ostatnie logowanie Nigdy Członek od Nigdy
+  - paragraph: Role
+  - 'heading "Przypisane role: 0" [level=3]'
+  - paragraph: Brak przypisanych ról
+  - paragraph: Uprawnienia
+  - 'heading "Uprawnienia: 3" [level=3]'
+  - text: portal.orders.view portal.profile.view portal.users.view
+  ✓  3 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/profile.spec.cjs:2:33 › profile localized counts and settled viewport bounds pl (41.1s)
+customer_accounts.* - main:
+  - link "Back to list":
+    - /url: /backend/customer_accounts/users
+  - heading "QA owned account with long display name for responsive profile" [level=1]
+  - paragraph: qa-03868-d9314095-longlonglonglonglonglong@test.local
+  - button "Delete"
+  - heading "Customer Portal Access" [level=3]
+  - paragraph: This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.
+  - paragraph: "Portal URL: http://127.0.0.1:41735/[org-slug]/portal"
+  - heading "User Information" [level=2]
+  - term: Email
+  - definition: qa-03868-d9314095-longlonglonglonglonglong@test.local
+  - term: Email Verified
+  - definition: "Yes"
+  - term: Last Login
+  - definition: 11/16/2026, 4:34:07 PM
+  - term: Created
+  - definition: 11/16/2026, 4:23:13 PM
+  - heading "CRM Links" [level=2]
+  - paragraph: Person
+  - textbox "Search people by name..."
+  - paragraph: Company
+  - textbox "Search companies by name..."
+  - paragraph: Changes to CRM links are saved when you click Save Changes below.
+  - heading "Account Settings" [level=2]
+  - text: Display Name
+  - textbox "Display Name": QA owned account with long display name for responsive profile
+  - text: Active
+  - switch "Active" [checked]
+  - paragraph: Roles
+  - button "Portal Admin"
+  - button "Buyer"
+  - button "Viewer"
+  - button "QA invite eda98378"
+  - button "QA invite 027c8bad"
+  - button "QA long profile role bb1a926e9345"
+  - button "Save Changes"
+  - heading "Security" [level=2]
+  - button "Reset Password"
+  - button "Send Reset Link"
+  - heading "Active Sessions(5)" [level=2]
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:34:07 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:33:35 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:33:01 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:32:29 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:32:24 PM"
+  - button "Revoke"
+* - main:
+  - link "Back to list":
+    - /url: /backend/customer_accounts/users
+  - heading "QA owned account with long display name for responsive profile" [level=1]
+  - paragraph: qa-03868-d9314095-longlonglonglonglonglong@test.local
+  - button "Delete"
+  - heading "Customer Portal Access" [level=3]
+  - paragraph: This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.
+  - paragraph: "Portal URL: http://127.0.0.1:41735/[org-slug]/portal"
+  - heading "User Information" [level=2]
+  - term: Email
+  - definition: qa-03868-d9314095-longlonglonglonglonglong@test.local
+  - term: Email Verified
+  - definition: "Yes"
+  - term: Last Login
+  - definition: 11/16/2026, 4:34:07 PM
+  - term: Created
+  - definition: 11/16/2026, 4:23:13 PM
+  - heading "CRM Links" [level=2]
+  - paragraph: Person
+  - textbox "Search people by name..."
+  - paragraph: Company
+  - textbox "Search companies by name..."
+  - paragraph: Changes to CRM links are saved when you click Save Changes below.
+  - heading "Account Settings" [level=2]
+  - text: Display Name
+  - textbox "Display Name": QA owned account with long display name for responsive profile
+  - text: Active
+  - switch "Active" [checked]
+  - paragraph: Roles
+  - button "Portal Admin"
+  - button "Buyer"
+  - button "Viewer"
+  - button "QA invite eda98378"
+  - button "QA invite 027c8bad"
+  - button "QA long profile role bb1a926e9345"
+  - button "Save Changes"
+  - heading "Security" [level=2]
+  - button "Reset Password"
+  - button "Send Reset Link"
+  - heading "Active Sessions(5)" [level=2]
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:34:07 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:33:35 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:33:01 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:32:29 PM"
+  - button "Revoke"
+  - paragraph: Unknown IP
+  - paragraph: node
+  - paragraph: "Last used: 11/16/2026, 4:32:24 PM"
+  - button "Revoke"
+  ✓  4 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/wildcards.spec.cjs:2:1 › module and global wildcard manager controls (3.1s)
+
+  4 passed (1.5m)
