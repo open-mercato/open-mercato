@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
@@ -7,7 +8,8 @@ import { assertAttachmentScopeInvariant } from '@open-mercato/core/modules/attac
 import { withUploadProvenance } from '@open-mercato/core/modules/attachments/lib/uploadProvenance'
 import { mergeAttachmentMetadata, readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { assertMessageAttachmentSource, denyMessageAttachmentAccess, type MessageAttachmentAccess } from './attachmentAccess'
+import { buildAttachmentFileUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { assertMessageAttachmentSources, denyMessageAttachmentAccess, type MessageAttachmentAccess } from './attachmentAccess'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from './constants'
 const LIBRARY_ATTACHMENT_ENTITY_ID = 'attachments:library'
 
@@ -35,9 +37,7 @@ export async function linkAttachmentsToMessage(
     }, { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } }, { tenantId, organizationId })
 
     if (attachments.length !== new Set(attachmentIds).size) return denyMessageAttachmentAccess()
-    for (const attachment of attachments) {
-      await assertMessageAttachmentSource(em, attachment, organizationId, tenantId, access)
-    }
+    await assertMessageAttachmentSources(em, attachments, organizationId, tenantId, access)
 
     for (const attachment of attachments) {
       if (attachment.entityId === MESSAGE_ATTACHMENT_ENTITY_ID && attachment.recordId === messageId) continue
@@ -47,8 +47,11 @@ export async function linkAttachmentsToMessage(
       } else {
         assertAttachmentScopeInvariant({ tenantId: attachment.tenantId, organizationId: attachment.organizationId })
         const { id: _id, createdAt: _createdAt, ...values } = attachment
+        const attachmentId = randomUUID()
         em.persist(em.create(Attachment, {
           ...values,
+          id: attachmentId,
+          url: buildAttachmentFileUrl(attachmentId),
           entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
           recordId: messageId,
           storageMetadata: withUploadProvenance(attachment.entityId === MESSAGE_ATTACHMENT_ENTITY_ID
@@ -153,9 +156,7 @@ export async function linkLibraryAttachmentsToMessage(
 
     if (!attachments.length) return
 
-    for (const attachment of attachments) {
-      await assertMessageAttachmentSource(em, attachment, organizationId, tenantId, access)
-    }
+    await assertMessageAttachmentSources(em, attachments, organizationId, tenantId, access)
 
     for (const attachment of attachments) {
       attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
@@ -199,9 +200,7 @@ export async function copyAttachmentsForForwardMessages(
   if (sourceAttachments.length === 0) {
     return 0
   }
-  for (const attachment of sourceAttachments) {
-    await assertMessageAttachmentSource(em, attachment, access?.auth?.orgId ?? null, tenantId, access, 'read')
-  }
+  await assertMessageAttachmentSources(em, sourceAttachments, access?.auth?.orgId ?? null, tenantId, access, 'read')
 
   const dedupedById = new Map<string, typeof sourceAttachments[number]>()
   for (const sourceAttachment of sourceAttachments) {
@@ -218,7 +217,9 @@ export async function copyAttachmentsForForwardMessages(
     const scope = resolveAttachmentScopePair(sourceAttachment)
     if (!scope) continue
 
+    const attachmentId = randomUUID()
     const copy = em.create(Attachment, {
+      id: attachmentId,
       entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
       recordId: targetMessageId,
       organizationId: scope.organizationId,
@@ -229,7 +230,7 @@ export async function copyAttachmentsForForwardMessages(
       storageDriver: sourceAttachment.storageDriver,
       storagePath: sourceAttachment.storagePath,
       storageMetadata: withUploadProvenance(sourceAttachment.storageMetadata, access!.auth!),
-      url: sourceAttachment.url,
+      url: buildAttachmentFileUrl(attachmentId),
       partitionCode: sourceAttachment.partitionCode,
     })
 
@@ -257,9 +258,7 @@ export async function detachMessageAttachments(
       entityId: MESSAGE_ATTACHMENT_ENTITY_ID, recordId: messageId, tenantId, organizationId,
       ...(attachmentIds ? { id: { $in: attachmentIds } } : {}),
     }, { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } }, { tenantId, organizationId })
-    for (const attachment of attachments) {
-      await assertMessageAttachmentSource(em, attachment, organizationId, tenantId, access, 'read')
-    }
+    await assertMessageAttachmentSources(em, attachments, organizationId, tenantId, access, 'read')
     for (const attachment of attachments) {
       attachment.entityId = LIBRARY_ATTACHMENT_ENTITY_ID
       attachment.recordId = `messages-detached:${messageId}`

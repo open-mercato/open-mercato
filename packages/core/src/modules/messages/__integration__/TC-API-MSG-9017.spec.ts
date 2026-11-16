@@ -139,6 +139,33 @@ test.describe('TC-API-MSG-9017: message attachment source authorization', () => 
     expect(send.ok(), await send.text()).toBe(true)
   })
 
+  test('copied draft and forward attachments remain downloadable after source deletion', async ({ request }) => {
+    const sourceFile = await upload(request, adminToken)
+    const sourceId = await compose(request, adminToken, { isDraft: false, recipients: [{ userId, type: 'to' }], attachmentIds: [sourceFile.id] })
+    const draftId = await compose(request, actorToken, { attachmentIds: [sourceFile.id] })
+    const forward = await apiRequest(request, 'POST', `/api/messages/${sourceId}/forward`, {
+      token: actorToken, data: { recipients: [{ userId: scope.userId, type: 'to' }], includeAttachments: true, sendViaEmail: false },
+    })
+    expect(forward.ok(), await forward.text()).toBe(true)
+    const forwardId = expectId((await readJsonSafe<{ id?: string }>(forward))?.id, 'forward id')
+    messages.set(forwardId, actorToken)
+    const copies = await withClient(async (client) => (await client.query<{ id: string; url: string }>(
+      'select id, url from attachments where tenant_id = $1 and organization_id = $2 and entity_id = $3 and record_id = any($4::text[])',
+      [scope.tenantId, scope.organizationId, 'messages:message', [draftId, forwardId]],
+    )).rows)
+    expect(copies).toHaveLength(2)
+    const deletion = await apiRequest(request, 'DELETE', `/api/attachments?id=${sourceFile.id}`, { token: adminToken })
+    expect(deletion.ok(), await deletion.text()).toBe(true)
+    expect(await readAttachment(sourceFile.id)).toBeUndefined()
+    for (const copy of copies) {
+      expect(copy.id).not.toBe(sourceFile.id)
+      expect(copy.url).toBe(`/api/attachments/file/${copy.id}`)
+      const download = await apiRequest(request, 'GET', copy.url, { token: actorToken })
+      expect(download.ok(), `${copy.url}: ${download.status()}`).toBe(true)
+      expect(await download.text()).toBe('private attachment security fixture')
+    }
+  })
+
   test('enforces scope boundaries and refuses draft email sends using both new and persisted settings', async ({ request }) => {
     const original = await upload(request, adminToken)
     for (const column of ['tenant_id', 'organization_id']) {

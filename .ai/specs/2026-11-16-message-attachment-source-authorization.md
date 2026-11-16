@@ -62,3 +62,7 @@ Implementation and focused regression coverage are complete. Parent reproduced 1
 ## Changelog
 
 - 2026-11-16: scoped #9017 security correction; parent authorized upload provenance and fail-closed legacy transient staging.
+
+## Review follow-up: reference URLs and bounded authorization
+
+Copied and forwarded references receive fresh IDs and download URLs together. Integration coverage deletes the original source row and downloads both surviving copies. Linking, forwarding and detach operations share one policy context, batch partition/message/recipient reads, and retain individual owner-policy decisions. Existing single-record owner assertions remain compatible; the additive batch helper keeps partition entities inside attachments. The optional preloaded recipient argument preserves existing message-read callers. Twenty files from one source require four ORM read calls (attachment list, partitions, messages, recipients), with twenty policy decisions; A local MikroORM query logger against the managed disposable PostgreSQL fixture measured the write helper at four SELECTs and seven SQL statements total (BEGIN, four SELECTs, one batched INSERT, COMMIT) for both one file and twenty files; API/owner-resolver overhead is outside that scoped measurement. Hosted/API evidence is recorded separately.

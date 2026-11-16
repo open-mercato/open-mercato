@@ -8,12 +8,12 @@ import {
   detachMessageAttachments,
 } from '../attachments'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
-import { assertMessageAttachmentSource } from '../attachmentAccess'
+import { assertMessageAttachmentSources } from '../attachmentAccess'
 
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({ Attachment: class Attachment {} }))
 jest.mock('../attachmentAccess', () => ({
   ...jest.requireActual('../attachmentAccess'),
-  assertMessageAttachmentSource: jest.fn(async () => undefined),
+  assertMessageAttachmentSources: jest.fn(async () => undefined),
 }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (em: { find: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.find(...args.slice(0, 3)),
@@ -48,7 +48,7 @@ it('links authorized staging under an exact scope', async () => {
   const em = createEm([row])
   await linkLibraryAttachmentsToMessage(em as never, 'target', 'source', 'org', 'tenant', access)
   expect(em.find).toHaveBeenCalledWith(Attachment, expect.objectContaining({ organizationId: 'org', tenantId: 'tenant' }), expect.any(Object))
-  expect(assertMessageAttachmentSource).toHaveBeenCalled()
+  expect(assertMessageAttachmentSources).toHaveBeenCalled()
   expect(row.recordId).toBe('target')
   expect(row.entityId).toBe('messages:message')
 })
@@ -94,4 +94,16 @@ it('detaches a draft reference without deleting its row or provider bytes', asyn
   expect(row.recordId).toBe('messages-detached:draft')
   expect(row.storagePath).toBe('blob')
   expect(em.find).toHaveBeenCalledWith(Attachment, expect.objectContaining({ recordId: 'draft', entityId: 'messages:message', id: { $in: ['file'] } }), expect.any(Object))
+})
+
+it.each(['link', 'forward'] as const)('assigns copied %s rows a download URL bound to their new identity', async (operation) => {
+  const row = source({ url: '/api/attachments/file/source-file' })
+  const em = createEm([row])
+  if (operation === 'link') await linkAttachmentsToMessage(em as never, 'target', ['file'], 'org', 'tenant', access)
+  else await copyAttachmentsForForward(em as never, 'source', 'target', 'tenant', access)
+
+  const copy = em.create.mock.calls[0][1] as { id: string; url: string }
+  expect(copy.id).not.toBe(row.id)
+  expect(copy.url).toBe(`/api/attachments/file/${copy.id}`)
+  expect(row.url).toBe('/api/attachments/file/source-file')
 })

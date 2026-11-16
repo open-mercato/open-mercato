@@ -1,4 +1,5 @@
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage } from '../attachments'
+import { Message, MessageRecipient } from '../../data/entities'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 
 const mockPolicy = jest.fn(async () => ({ ok: true, protected: false }))
@@ -25,7 +26,10 @@ function fixture(entityId = 'attachments:library', principalId = 'actor') {
     storageMetadata: { __openMercatoUpload: { ...provenance.__openMercatoUpload, principalId } },
   }
   const em = {
-    find: jest.fn(async () => [attachment]),
+    find: jest.fn(async (entity: unknown) => entity === AttachmentPartition
+      ? [{ code: 'private', isPublic: false }]
+      : entity === Message ? [{ id: 'source', senderUserId: 'sender', tenantId: 'tenant', organizationId: 'org' }]
+      : entity === MessageRecipient ? [] : [attachment]),
     findOne: jest.fn(async (entity: unknown) => entity === AttachmentPartition
       ? { code: 'private', isPublic: false }
       : { id: 'source', senderUserId: 'sender', tenantId: 'tenant', organizationId: 'org' }),
@@ -134,4 +138,38 @@ it.each([
   Object.assign(attachment, scope)
   await expect(link(em, 'draft', ['file'], 'org', 'tenant', access)).rejects.toMatchObject({ status: 403 })
   expect(attachment.recordId).toBe('source')
+})
+
+it('batches multi-file source reads and retains a policy decision for every attachment', async () => {
+  const { em, access, attachment } = fixture('messages:message')
+  const attachments = Array.from({ length: 20 }, (_value, index) => ({ ...attachment, id: `file-${index}` }))
+  em.find.mockImplementation(async (entity: unknown) => entity === AttachmentPartition
+    ? [{ code: 'private', isPublic: false }]
+    : entity === Message ? [{ id: 'source', senderUserId: 'sender', tenantId: 'tenant', organizationId: 'org' }]
+    : entity === MessageRecipient ? [] : attachments)
+
+  await link(em, 'draft', attachments.map((row) => row.id), 'org', 'tenant', access)
+
+  expect(em.find).toHaveBeenCalledTimes(4)
+  expect(em.findOne).not.toHaveBeenCalled()
+  expect(mockPolicy).toHaveBeenCalledTimes(20)
+  const contexts = new Set(mockPolicy.mock.calls.map((args) => (args[0] as { context: unknown }).context))
+  expect(contexts.size).toBe(1)
+  expect(mockCanRead).toHaveBeenCalledTimes(1)
+  expect(em.persist).toHaveBeenCalledTimes(20)
+})
+
+it('does not let a shared policy context authorize a second denied file', async () => {
+  const { em, access, attachment } = fixture('messages:message')
+  const attachments = [attachment, { ...attachment, id: 'denied-file' }]
+  const find = em.find.getMockImplementation()!
+  em.find.mockImplementation(async (entity: unknown) => entity === Attachment ? attachments : find(entity))
+  mockPolicy.mockResolvedValueOnce({ ok: true, protected: true })
+    .mockResolvedValueOnce({ ok: false, protected: true, status: 403 })
+
+  await expect(link(em, 'draft', attachments.map((row) => row.id), 'org', 'tenant', access)).rejects.toMatchObject({ status: 403 })
+
+  expect(mockPolicy).toHaveBeenCalledTimes(2)
+  expect(em.persist).not.toHaveBeenCalled()
+  expect(em.flush).not.toHaveBeenCalled()
 })

@@ -1,7 +1,7 @@
 import { ensureAttachmentPartitionProtection } from './access-protection'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AttachmentPartition, type Attachment } from '../data/entities'
 import { attachmentAccessRequirementsSchema } from '../data/validators'
 import { getAttachmentAccessRegistry } from './access-registry'
@@ -21,7 +21,7 @@ export function requiresAttachmentAccessScan(partitions: readonly AttachmentPart
     })
 }
 
-export async function assertAttachmentOwnerAccess(input: {
+type AttachmentOwnerAccessInput = {
   em: EntityManager
   context: AttachmentAccessContext
   auth: NonNullable<AuthContext>
@@ -29,10 +29,19 @@ export async function assertAttachmentOwnerAccess(input: {
   action: AttachmentAccessAction
   persistProtection?: boolean
   requireProtected?: boolean
-}): Promise<void> {
+}
+
+export async function assertAttachmentOwnerAccess(input: AttachmentOwnerAccessInput): Promise<void> {
   const partition = await findOneWithDecryption(input.em, AttachmentPartition, { code: input.attachment.partitionCode }, undefined, {
     tenantId: input.attachment.tenantId, organizationId: input.attachment.organizationId,
   })
+  await assertOwnerAccessWithPartition(input, partition)
+}
+
+async function assertOwnerAccessWithPartition(
+  input: AttachmentOwnerAccessInput,
+  partition: AttachmentPartition | null,
+): Promise<void> {
   if (!partition) {
     if (input.action === 'delete') assertAttachmentStoragePartitionExists(false)
     await throwAttachmentAccessError(404)
@@ -41,6 +50,31 @@ export async function assertAttachmentOwnerAccess(input: {
   const result = await evaluateAttachmentAccess({ ...input, partition: partition!, requireAuthForPublic: true })
   if (!result.ok) await throwAttachmentAccessError(result.status)
   if (input.requireProtected && !result.protected) await throwAttachmentAccessError(403)
+}
+
+export async function assertAttachmentOwnersAccess(input: {
+  em: EntityManager
+  context: AttachmentAccessContext
+  auth: NonNullable<AuthContext>
+  requests: ReadonlyArray<Pick<AttachmentOwnerAccessInput, 'attachment' | 'action' | 'requireProtected'>>
+}): Promise<void> {
+  const scopes = new Map<string, typeof input.requests[number][]>()
+  for (const request of input.requests) {
+    const key = JSON.stringify([request.attachment.tenantId, request.attachment.organizationId])
+    const requests = scopes.get(key) ?? []
+    requests.push(request)
+    scopes.set(key, requests)
+  }
+  for (const requests of scopes.values()) {
+    const first = requests[0].attachment
+    const partitions = await findWithDecryption(input.em, AttachmentPartition, {
+      code: { $in: [...new Set(requests.map((request) => request.attachment.partitionCode))] },
+    }, undefined, { tenantId: first.tenantId, organizationId: first.organizationId })
+    const byCode = new Map(partitions.map((partition) => [partition.code, partition]))
+    for (const request of requests) {
+      await assertOwnerAccessWithPartition({ ...input, ...request }, byCode.get(request.attachment.partitionCode) ?? null)
+    }
+  }
 }
 
 export async function scanAuthorizedAttachments(input: {

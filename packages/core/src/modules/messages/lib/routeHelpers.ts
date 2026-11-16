@@ -144,9 +144,10 @@ export async function resolveMessageReadAccess(
   ctx: ChannelThreadCallerContext,
   scope: MessageScope,
   message: Pick<Message, 'id' | 'senderUserId' | 'visibility' | 'threadId' | 'sourceEntityType'>,
+  preloaded?: { recipient: MessageRecipient | null },
 ): Promise<MessageReadAccess> {
   const em = ctx.container.resolve('em') as EntityManager
-  const recipient = await em.findOne(MessageRecipient, {
+  const recipient = preloaded ? preloaded.recipient : await em.findOne(MessageRecipient, {
     messageId: message.id,
     recipientUserId: scope.userId,
     deletedAt: null,
