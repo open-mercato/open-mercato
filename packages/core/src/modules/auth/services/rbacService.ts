@@ -1192,7 +1192,6 @@ export class RbacService {
         return { unrestricted: true, filterOrganizationIds: allowAll }
       }
     }
-    }
 
     const grants = await this.loadFeatureOrganizationGrants(userId, input.tenantId)
     if (grants.kind === 'none') return { unrestricted: false, filterOrganizationIds: denyAll }
