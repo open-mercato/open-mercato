@@ -48,7 +48,7 @@ function createFakeEm(rows: PriceKindRow[]) {
     }),
     flush: jest.fn(async () => undefined),
   }
-  return { em: em as unknown as EntityManager, persisted }
+  return { em: em as unknown as EntityManager, find: em.find, persisted }
 }
 
 describe('seedCatalogPriceKinds', () => {
@@ -74,10 +74,12 @@ describe('seedCatalogPriceKinds', () => {
     })
     const sale = makeRow({ id: 'sale', code: 'sale', title: 'Promo', isPromotion: true, deletedAt: CREATED_AT, isActive: false })
     const snapshot = [contract, regular, sale].map((row) => ({ ...row }))
-    const { em, persisted } = createFakeEm([contract, regular, sale])
+    const { em, find, persisted } = createFakeEm([contract, regular, sale])
 
     await seedCatalogPriceKinds(em, { tenantId: TENANT_ID, organizationId: ORG_B })
 
+    expect(find).toHaveBeenCalledTimes(1)
+    expect(find.mock.calls[0]?.[1]).toStrictEqual({ tenantId: TENANT_ID })
     expect([contract, regular, sale]).toEqual(snapshot)
     expect(persisted).toEqual([])
   })

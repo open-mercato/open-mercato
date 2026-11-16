@@ -5,9 +5,13 @@
 `seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
 `seed:defaults` now only create a missing `regular` or `sale` price kind and no
 longer change existing price kinds. A soft-deleted `regular` or `sale` is not
-restored: restore it manually before `mercato catalog seed-examples`. Price kinds
-soft-deleted by earlier seed runs stay deleted and must be restored manually. No
-migration is needed.
+restored, so restore it before `mercato catalog seed-examples` or
+`seed-examples-bundle`. A kind an admin deleted can be undone from the action log.
+Kinds soft-deleted by earlier seed runs have no action-log entry and cannot be
+recreated through the API (the `(tenant_id, code)` constraint covers deleted rows),
+so restore them with SQL:
+`update catalog_price_kinds set deleted_at = null, is_active = true, updated_at = now() where tenant_id = '<tenant>' and code = '<code>';`
+No migration is needed.
 
 ## Event-triggered workflow execution identity (#9137)
 
