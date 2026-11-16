@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { ArrowLeft, Check, CircleAlert, Info, Paperclip, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react'
 import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
@@ -339,6 +340,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const locale = useLocale()
   const { auth } = usePortalContext()
   const { user, loading } = auth
+  const canManage = hasFeature(auth.resolvedFeatures, 'portal.warranty_claims.manage')
   const guardedMutation = useGuardedMutation<Record<string, unknown>>({
     contextId: DETAIL_MUTATION_CONTEXT_ID,
     blockedMessage: t('warranty_claims.portal.detail.blocked'),
@@ -358,6 +360,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const [attachmentMutationId, setAttachmentMutationId] = React.useState<string | null>(null)
   const [claimAction, setClaimAction] = React.useState<PortalClaimAction | null>(null)
   const [actionSubmitting, setActionSubmitting] = React.useState(false)
+  const claimActionTriggerRef = React.useRef<HTMLButtonElement | null>(null)
   const replacementInputRef = React.useRef<HTMLInputElement | null>(null)
   const replacementTargetRef = React.useRef<PortalAttachment | null>(null)
   const claimRequestSequenceRef = React.useRef(0)
@@ -451,7 +454,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   }, [user])
 
   const submitComment = React.useCallback(async () => {
-    if (!claim || commentSubmitting) return
+    if (!claim || !canManage || commentSubmitting) return
     const body = comment.trim()
     if (!body) return
     setCommentSubmitting(true)
@@ -482,16 +485,16 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
       }
       setComment('')
       flash(t('warranty_claims.portal.detail.commentSuccess'), 'success')
-      await refreshEvents(claim.id)
+      await loadClaim(false)
     } catch {
       setError(t('warranty_claims.portal.detail.commentError'))
     } finally {
       setCommentSubmitting(false)
     }
-  }, [claim, comment, commentSubmitting, guardedMutation, refreshEvents, t])
+  }, [canManage, claim, comment, commentSubmitting, guardedMutation, loadClaim, t])
 
   const uploadAttachment = React.useCallback(async (file: File, replacementTarget?: PortalAttachment) => {
-    if (!claim || uploading) return
+    if (!claim || !canManage || uploading) return
     const validationError = await validateAttachmentFile(file, t)
     if (validationError) {
       setError(validationError)
@@ -551,10 +554,10 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
       setAttachmentMutationId(null)
       setFileInputKey((current) => current + 1)
     }
-  }, [claim, guardedMutation, refreshAttachments, t, uploading])
+  }, [canManage, claim, guardedMutation, refreshAttachments, t, uploading])
 
   const deleteAttachment = React.useCallback(async (attachment: PortalAttachment) => {
-    if (!claim || uploading) return
+    if (!claim || !canManage || uploading) return
     const confirmed = await confirm({
       title: t('warranty_claims.portal.detail.attachmentDelete', 'Delete attachment'),
       text: t(
@@ -600,16 +603,16 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
       setUploading(false)
       setAttachmentMutationId(null)
     }
-  }, [claim, confirm, guardedMutation, refreshAttachments, t, uploading])
+  }, [canManage, claim, confirm, guardedMutation, refreshAttachments, t, uploading])
 
   const requestAttachmentReplacement = React.useCallback((attachment: PortalAttachment) => {
-    if (uploading) return
+    if (!canManage || uploading) return
     replacementTargetRef.current = attachment
     replacementInputRef.current?.click()
-  }, [uploading])
+  }, [canManage, uploading])
 
   const runClaimAction = React.useCallback(async (action: PortalClaimAction) => {
-    if (!claim || actionSubmitting) return
+    if (!claim || !canManage || commentSubmitting || uploading || actionSubmitting) return
     setActionSubmitting(true)
     setError(null)
     try {
@@ -667,7 +670,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     } finally {
       setActionSubmitting(false)
     }
-  }, [actionSubmitting, claim, guardedMutation, loadClaim, t])
+  }, [actionSubmitting, canManage, claim, commentSubmitting, guardedMutation, loadClaim, t, uploading])
 
   const handleSelectedFileChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null
@@ -754,8 +757,8 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
 
       <div className="w-full overflow-hidden rounded-lg border border-border bg-card">
         <div className="flex w-full flex-col gap-3 px-6 pb-5 pt-6">
-          <div className="flex w-full items-center gap-2">
-            <div className="flex items-center gap-2 rounded-sm border border-border bg-background px-3 py-1">
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 rounded-sm border border-border bg-background px-3 py-1">
               <span className="text-xs font-medium text-muted-foreground">
                 {t(`warranty_claims.claimType.${claim.claimType}`)}
               </span>
@@ -764,25 +767,31 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               </span>
             </div>
             <div className="min-w-px flex-1" />
-            {isDraft ? (
+            {canManage && isDraft ? (
               <Button
                 type="button"
                 size="sm"
                 className={DARK_BUTTON_CLASS}
-                onClick={() => setClaimAction('submit')}
-                disabled={actionSubmitting}
+                onClick={(event) => {
+                  claimActionTriggerRef.current = event.currentTarget
+                  setClaimAction('submit')
+                }}
+                disabled={actionSubmitting || commentSubmitting || uploading}
               >
                 {t('warranty_claims.portal.submit')}
               </Button>
             ) : null}
-            {canWithdraw ? (
+            {canManage && canWithdraw ? (
               <Button
                 type="button"
                 size="sm"
                 variant="destructive"
                 className="rounded-md px-3 py-2 text-sm font-medium"
-                onClick={() => setClaimAction('withdraw')}
-                disabled={actionSubmitting}
+                onClick={(event) => {
+                  claimActionTriggerRef.current = event.currentTarget
+                  setClaimAction('withdraw')
+                }}
+                disabled={actionSubmitting || commentSubmitting || uploading}
               >
                 {t('warranty_claims.portal.detail.withdraw', 'Withdraw claim')}
               </Button>
@@ -915,7 +924,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                       >
                         {entry.description}
                       </a>
-                      {entry.attachment ? (
+                      {entry.attachment && canManage ? (
                         <div className="flex items-center gap-1">
                           <Button
                             type="button"
@@ -967,7 +976,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               {t('warranty_claims.portal.detail.timelineEmpty.description')}
             </p>
           )}
-          <input
+          {canManage ? <input
             ref={replacementInputRef}
             type="file"
             accept={ATTACHMENT_ACCEPT_TYPES}
@@ -975,10 +984,10 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
             disabled={uploading}
             className="sr-only"
             aria-label={t('warranty_claims.portal.detail.attachmentChooseReplacement', 'Choose replacement file')}
-          />
+          /> : null}
         </div>
 
-        <div className={SECTION_CLASS}>
+        {canManage ? <div className={SECTION_CLASS}>
           <p className={SECTION_HEADING_CLASS}>{t('warranty_claims.portal.tracker.message')}</p>
           <form id="warranty-claim-comment-box" className="flex w-full flex-col gap-3" onSubmit={handleCommentSubmit}>
             <Textarea
@@ -1019,7 +1028,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               </Button>
             </div>
           </form>
-        </div>
+        </div> : null}
       </div>
 
       <Dialog
@@ -1030,6 +1039,10 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
       >
         <DialogContent
           className="max-w-lg"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            claimActionTriggerRef.current?.focus()
+          }}
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
@@ -1057,7 +1070,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               type="button"
               variant="outline"
               onClick={() => setClaimAction(null)}
-              disabled={actionSubmitting}
+              disabled={actionSubmitting || commentSubmitting || uploading}
             >
               {t('warranty_claims.portal.detail.dialogCancel', 'Cancel')}
             </Button>
@@ -1067,7 +1080,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               onClick={() => {
                 if (claimAction) void runClaimAction(claimAction)
               }}
-              disabled={actionSubmitting}
+              disabled={actionSubmitting || commentSubmitting || uploading}
             >
               {claimAction === 'withdraw'
                 ? (actionSubmitting

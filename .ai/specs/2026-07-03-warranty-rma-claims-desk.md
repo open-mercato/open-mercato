@@ -493,6 +493,8 @@ Fully compliant — implemented and verified against the full validation gate.
 
 ## Migration & Backward Compatibility
 
+Portal detail controls reflect the effective wildcard-aware `portal.warranty_claims.manage` grant; viewers retain claim, attachment and timeline reads without unavailable write controls. Draft actions wrap at narrow widths in English and Polish. Action dialogs restore focus to the invoking button after cancellation or refused submission, and successful own comments refresh the claim version before the next lifecycle action. `portal-claim-tracker-page.test.tsx` and `TC-WC-9110-portal-role-features.spec.ts` cover these UI regressions, real viewer write refusals and no-conflict comment-to-submit recovery. These UI repairs preserve existing server authorization and API contracts.
+
 ### Portal customer-role enforcement (#9110)
 
 Portal claim reads now require `portal.warranty_claims.view`; create, submit, withdraw, comment and attachment writes require `portal.warranty_claims.manage`. The order picker and line lookup require `portal.orders.view`. All checks use live customer RBAC before data access and keep the existing tenant/org/company predicates. Buyer defaults grant claim view/manage and viewer defaults grant view. Existing deployments must run `yarn mercato customer_accounts sync-customer-role-acls` and explicitly grant the new features to custom roles as appropriate; otherwise those users receive 403. This is an operator permission migration, with no schema, startup, environment variable or architecture change.
@@ -506,6 +508,10 @@ Live line numbers must be unique within a claim. Initial claim creation, explici
 Number allocation, explicit renumbering, and line undo validation serialize on the tenant/org-scoped claim lock before checking live siblings or changing lines. Aggregate undo validates its projected live numbers before restoring any fields. The TC-WC-040 integration scenario covers delete/add/undo refusal and retry, explicit/batch duplicate input, and concurrent creates. Command tests also cover snapshot restoration, nonconflicting operations, and scope isolation.
 
 ## Changelog
+
+### 2026-11-16 — Portal detail permission and recovery fixes
+- Hide unavailable viewer mutations; preserve wildcard-aware management controls.
+- Wrap narrow actions, restore refused-dialog focus, and refresh the version after own comments, with unit and native browser regressions.
 
 ### 2026-11-15 — Portal customer-role enforcement (#9110)
 - Add portal claim view/manage features with buyer/viewer defaults, localized central permission labels, and live feature checks on all 15 portal endpoint methods plus page metadata.
