@@ -27,7 +27,7 @@ test.describe('TC-SEC-003: OTP email challenge attempts', () => {
     await deleteUserFixture(request, adminToken ?? null, userId)
   })
 
-  test('enrolls OTP email, rejects repeated invalid codes, and accepts a fresh valid challenge', async ({ request, page }) => {
+  test('accepts valid OTP email and keeps fresh challenges locked after account exhaustion', async ({ request, page }) => {
     const firstLogin = await loginViaApi(request, userEmail, userPassword)
     const userToken = firstLogin.token
 
@@ -71,6 +71,34 @@ test.describe('TC-SEC-003: OTP email challenge attempts', () => {
     )
     expect(prepared.status).toBe(200)
     expect(prepared.emailHint).toBeTruthy()
+    expect(typeof prepared.code).toBe('string')
+
+    const successResponse = await fetchJson<{ ok?: boolean; redirect?: string }>(
+      request,
+      'POST',
+      '/api/security/mfa/verify',
+      {
+        token: pendingLogin.token,
+        data: {
+          challengeId: pendingLogin.challenge_id,
+          methodType: 'otp_email',
+          payload: { code: prepared.code },
+        },
+      },
+    )
+    expect(successResponse.status).toBe(200)
+    expect(successResponse.body.ok).toBe(true)
+    expect(successResponse.body.redirect).toBe('/backend')
+
+    const invalidLogin = await loginViaApi(request, userEmail, userPassword)
+    const invalidPrepared = await prepareOtpEmailChallenge(
+      request,
+      invalidLogin.token,
+      invalidLogin.challenge_id as string,
+    )
+    expect(invalidPrepared.status).toBe(200)
+    expect(typeof invalidPrepared.code).toBe('string')
+    const invalidCode = invalidPrepared.code === '000000' ? '000001' : '000000'
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const invalidResponse = await fetchJson<{ error?: string }>(
@@ -78,11 +106,11 @@ test.describe('TC-SEC-003: OTP email challenge attempts', () => {
         'POST',
         '/api/security/mfa/verify',
         {
-          token: pendingLogin.token,
+          token: invalidLogin.token,
           data: {
-            challengeId: pendingLogin.challenge_id,
+            challengeId: invalidLogin.challenge_id,
             methodType: 'otp_email',
-            payload: { code: '000000' },
+            payload: { code: invalidCode },
           },
         },
       )
@@ -95,11 +123,11 @@ test.describe('TC-SEC-003: OTP email challenge attempts', () => {
       'POST',
       '/api/security/mfa/verify',
       {
-        token: pendingLogin.token,
+        token: invalidLogin.token,
         data: {
-          challengeId: pendingLogin.challenge_id,
+          challengeId: invalidLogin.challenge_id,
           methodType: 'otp_email',
-          payload: { code: '000000' },
+          payload: { code: invalidCode },
         },
       },
     )
@@ -112,7 +140,7 @@ test.describe('TC-SEC-003: OTP email challenge attempts', () => {
       {
         token: userToken,
         data: {
-          challengeId: pendingLogin.challenge_id,
+          challengeId: invalidLogin.challenge_id,
           methodType: 'otp_email',
           payload: { code: '123456' },
         },
@@ -134,7 +162,7 @@ test.describe('TC-SEC-003: OTP email challenge attempts', () => {
     expect(freshPrepared.status).toBe(200)
     expect(typeof freshPrepared.code).toBe('string')
 
-    const successResponse = await fetchJson<{ ok?: boolean; redirect?: string }>(
+    const lockedResponse = await fetchJson<{ error?: string }>(
       request,
       'POST',
       '/api/security/mfa/verify',
@@ -147,8 +175,7 @@ test.describe('TC-SEC-003: OTP email challenge attempts', () => {
         },
       },
     )
-    expect(successResponse.status).toBe(200)
-    expect(successResponse.body.ok).toBe(true)
-    expect(successResponse.body.redirect).toBe('/backend')
+    expect(lockedResponse.status).toBe(401)
+    expect(lockedResponse.body.error).toContain('Invalid MFA verification code')
   })
 })

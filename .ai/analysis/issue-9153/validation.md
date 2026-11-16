@@ -49,10 +49,33 @@ The complete affected security suite additionally passed with `TMPDIR=/tmp NODE_
 
 Historical failures corrected during this run: Korean locale key ordering; missing notification-map row/count; and two shared bootstrap tests failing when Turbo strict mode discarded `TMPDIR`, producing an overlong `tsx` socket path. None is treated as a successful run. The corrected full test command is the serial equivalent `TMPDIR=/tmp NODE_OPTIONS=--max-old-space-size=1024 yarn turbo run test --concurrency=1 --env-mode=loose`.
 
+## Hosted CI continuation: OTP integration semantics
+
+The original head `b5a74178f64ebffd5f7a201678b2d134a0980501` failed [ephemeral integration](https://github.com/open-mercato/open-mercato/actions/runs/43781116468/job/133019833018) because TC-SEC-003 still expected success after exhausting the account. TC-SEC-014 had been updated, but the email OTP counterpart was missed. Production correctly returned 401; changing the security control to satisfy that expectation would be wrong.
+
+TC-SEC-003 now verifies a successful OTP response (`200`, `ok`, redirect) on its newly created, unlocked fixture before failures. It then exhausts another challenge and requires 401/error when the exhausted account submits the correct code on a fresh challenge. The existing non-pending-token refusal, exhausted-challenge check, enrollment/UI and cleanup coverage remain. The invalid proof is deliberately different from the generated OTP, removing the random chance of choosing a valid negative-test code. No production source, API, migration or configuration changes accompany this follow-up.
+
+| Failure | Diagnosis / owner | Evidence / disposition |
+| --- | --- | --- |
+| Hosted TC-SEC-003 expected 200, received 401 (including retry) | Stale test semantics; Agent/QA, high confidence | Hosted log plus downloaded error-context artifacts identify the post-exhaustion success assertion. Fixed without weakening production behavior or removing positive coverage. |
+| First local managed run stopped before tests, app build could not find `cross-env` | Local launcher environment; Agent, high confidence | The direct CLI launcher lacked the root dependency-bin path normally supplied by Yarn. Repaired its temporary PATH; no dependency or committed launcher/config change. |
+
+The actual scoped repository CLI was rerun with an isolated Postgres database, full runner-provided environment and owned teardown:
+
+```sh
+PATH="/tmp/9153-testbin:$PWD/node_modules/.bin:$PATH" TMPDIR=/tmp NODE_OPTIONS=--max-old-space-size=4096 OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true OM_TEST_MODE=true OM_ENABLE_TEST_CHANNEL_SEEDING=true OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1 SELF_SERVICE_ONBOARDING_ENABLED=true OM_OPTIMISTIC_LOCK=all OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS=180 MOCK_INBOUND_WEBHOOK_SECRET=ephemeral-9153-webhook-secret timeout --kill-after=15s 1200 node packages/cli/dist/bin.js test:integration TC-SEC-003
+```
+
+`/tmp/9153-testbin/yarn` is an uncommitted resource adapter that forwards Yarn and adds only existing `--concurrency=1 --env-mode=loose` flags to package builds launched by the CLI. The root dependency-bin PATH preserves normal script resolution. The CLI owns the disposable database initialization, application build, complete Playwright environment injection and teardown; no project database migration command was run.
+
+**PASS: 1 test, 0 skipped, 0 flaky/unexpected, 4.871 seconds in the test.** Playwright took 221.372 seconds including discovery; the full cold CLI run took 460.039 seconds, including an application build of 161 seconds. The configured Email OTP methods page screenshot was inspected and contains no proof/secret data; it is retained in the cockpit artifacts as `mfa-otp-after.png`. This is scoped browser/API evidence, not broad manual QA or approval. The CLI removed its ephemeral state and stopped its environment. Test-created tracked email-capture output was restored without publishing it.
+
+The follow-up must start CI on its own exact new head; prior-head green checks are historical, not a signoff for the new commit. The historical full local unit timeout remains reported, and `automerge`, `needs-qa` and review/native gates remain unchanged under parent assessment.
+
 ## Review and QA limits
 
 The implementing task performed the installed code-review checklists and compatibility review. The parent independently read the production, migration and spec diff and found no additional source defect; it owns final assessment and automerge eligibility. No self-review is represented as independent native approval.
 
-No rendering component changed, so the UI-rendering branch of `om-auto-qa-pr` does not apply. Manual QA remains required for the schema/authentication change (`needs-qa`): exercise login and MFA-backed sudo with fresh codes, lockout/unlock and separate accounts, inspect notification UI/email delivery without publishing QR/proof material, and rehearse migration/rollback in a disposable environment. TC-SEC-014 now rejects fresh challenges after exhaustion; the integration helper uses a fresh next-window code within the existing default tolerance after enrollment. Live Playwright/API/UI execution and screenshots are not claimed; the scoped discovery attempt exceeded its 90-second bound without output.
+No rendering component changed, so the UI-rendering branch of `om-auto-qa-pr` does not apply. Manual QA remains required for the schema/authentication change (`needs-qa`): exercise login and MFA-backed sudo with fresh codes, lockout/unlock and separate accounts, inspect notification UI/email delivery without publishing QR/proof material, and rehearse migration/rollback in a disposable environment. TC-SEC-014 now rejects fresh challenges after exhaustion; the integration helper uses a fresh next-window code within the existing default tolerance after enrollment. Initial publication did not claim live Playwright/API/UI evidence (its discovery attempt exceeded 90 seconds). The continuation above now supplies actual scoped TC-SEC-003 API/browser execution and an inspected screenshot; broader manual QA remains unclaimed.
 
 Required CI, QA approval and current-head independent review continue to gate merge. The parent subsequently authorized the guarded `automerge` intent label after scoped independent assessment: existing startup/configuration/architecture are preserved. The label does not supply native review, full-gate or QA approval; `needs-qa` and the validation block remain. No remote merge is performed by this task.

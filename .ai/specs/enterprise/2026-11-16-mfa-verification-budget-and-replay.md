@@ -57,7 +57,7 @@ Real PostgreSQL Jest coverage in `MfaVerificationService.postgres.test.ts` uses 
 
 Unit coverage verifies both synchronous and asynchronous provider validation errors, configured thresholds, skewed TOTP counters and provider-instance replacement. Subscriber coverage verifies scoped recipients, invalid events, idempotent notification grouping and absence of proof variables.
 
-The API fixture submits the next-window code for verification after enrollment, within the existing default one-step tolerance, so it uses a fresh proof without real-time sleeps; TC-SEC-014 now expects fresh challenges to remain locked after exhaustion. Existing login/sudo route suites cover the unchanged service call sites and rejection contracts. Manual QA must exercise both API paths with disposable accounts, plus the existing notification UI/email delivery and migration rollout/rollback. No rendering component changes; no screenshot evidence has been claimed.
+The API fixture submits the next-window code for verification after enrollment, within the existing default one-step tolerance, so it uses a fresh proof without real-time sleeps; TC-SEC-014 now expects fresh challenges to remain locked after exhaustion. TC-SEC-003 preserves a successful OTP verification on a new unlocked fixture before exhausting its budget, then requires rejection of a fresh correct challenge; its scoped disposable API/browser run passed without skips. Existing login/sudo route suites cover the unchanged service call sites and rejection contracts. Manual QA must exercise both API paths with disposable accounts, plus the existing notification UI/email delivery and migration rollout/rollback. No rendering component changes; the scoped OTP run includes an inspected configured-methods-page screenshot, while broad manual QA remains pending.
 
 ## Risks & Impact Review
 
@@ -80,3 +80,5 @@ Scoped migration generated with `yarn db:generate`; unrelated generated drift re
 ## Changelog
 
 - 2026-11-16: Added account budget, transactional replay consumption, notification and additive migration design, compatibility/rollback instructions and integration coverage for #9153.
+
+- 2026-11-16: Corrected the missed OTP email integration expectation after hosted CI; preserved positive verification and verified account lock persistence in an actual disposable API/browser run.
