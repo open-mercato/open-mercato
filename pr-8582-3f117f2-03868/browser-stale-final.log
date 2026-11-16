@@ -1,0 +1,8 @@
+
+Running 1 test using 1 worker
+
+(node:3618338) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 ../../artifacts/03868c47-a0b6-4451-9c8c-3fd466d1e66e/spec/stale.spec.cjs:2:1 › two actors stale write preserves second actor change (13.1s)
+
+  1 passed (14.2s)
