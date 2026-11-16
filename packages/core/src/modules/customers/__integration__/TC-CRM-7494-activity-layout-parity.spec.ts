@@ -31,6 +31,9 @@ import {
  *      status and leave out done and canceled ones.
  *   8. A failed planned read on a person or company shows an error, keeps the rows
  *      already loaded and recovers on retry.
+ *   9. With an overdue planned activity and logged history, the person and company
+ *      tabs fit 390 px and 360 px screens: no sideways scroll, and "Mark done" never
+ *      sits on top of an activity title (#9619).
  */
 
 type InteractionInput = {
@@ -255,6 +258,88 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
       expect(overflow, 'activity tab must not overflow a phone-width viewport').toBeLessThanOrEqual(1)
     } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('person and company tabs with an overdue activity fit a phone screen without overlaps (#9619)', async ({ page, request }) => {
+    test.slow()
+    const stamp = Date.now()
+    const interactionIds: string[] = []
+    let token: string | null = null
+    let companyId: string | null = null
+    let personId: string | null = null
+    try {
+      token = await getAuthToken(request, 'admin')
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-9619 Co ${stamp}`)
+      personId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: `TC9619-${stamp}`,
+        displayName: `QA TC-CRM-9619 Person ${stamp}`,
+        companyEntityId: companyId,
+      })
+      const records = [
+        { entityId: personId, path: `/backend/customers/people-v2/${personId}?tab=activities&zone=activity`, label: 'person' },
+        { entityId: companyId, path: historyPath(companyId), label: 'company' },
+      ]
+      const overdueTitleFor = (label: string) => `QA 9619 ${label} overdue reactivation meeting ${stamp}`
+      for (const record of records) {
+        interactionIds.push(await createInteraction(request, token, {
+          entityId: record.entityId, interactionType: 'meeting', title: overdueTitleFor(record.label), body: 'Overdue', status: 'planned',
+          scheduledAt: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
+        }))
+        interactionIds.push(await createInteraction(request, token, {
+          entityId: record.entityId, interactionType: 'call', title: `QA 9619 ${record.label} logged call ${stamp}`, body: 'Logged', status: 'done',
+          occurredAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        }))
+      }
+
+      await login(page, 'admin')
+      for (const record of records) {
+        const overdueTitle = overdueTitleFor(record.label)
+        await page.setViewportSize({ width: 390, height: 844 })
+        await page.goto(record.path, { waitUntil: 'domcontentloaded' })
+        await expect(plannedRow(page, overdueTitle)).toBeVisible({ timeout: 30_000 })
+        await expect(historyTitle(page)).toBeVisible({ timeout: 30_000 })
+        const markDone = page.getByRole('button', { name: /^Mark done$/ })
+        await expect.poll(() => markDone.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(2)
+        await expect(page.getByText('AI:', { exact: true }).first()).toBeVisible({ timeout: 30_000 })
+
+        for (const width of [390, 360]) {
+          await page.setViewportSize({ width, height: 844 })
+          const label = `${record.label} @ ${width}px`
+          await expect.poll(
+            () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+            { message: `${label}: activity tab must not scroll sideways`, timeout: 10_000 },
+          ).toBeLessThanOrEqual(1)
+          const covered = await page.evaluate((title) => {
+            const buttons = Array.from(document.querySelectorAll('button'))
+              .filter((button) => button.textContent?.trim() === 'Mark done')
+              .map((button) => button.getBoundingClientRect())
+            // The element box, not the text range: a truncated title's text runs past its clipped box.
+            const titleRects: DOMRect[] = []
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              if (!node.textContent?.includes(title) || !node.parentElement) continue
+              titleRects.push(node.parentElement.getBoundingClientRect())
+            }
+            const intersects = (first: DOMRect, second: DOMRect) =>
+              first.left < second.right - 0.5 && first.right > second.left + 0.5
+              && first.top < second.bottom - 0.5 && first.bottom > second.top + 0.5
+            return {
+              buttons: buttons.length,
+              titles: titleRects.filter((rect) => rect.width > 0).length,
+              overlaps: titleRects.filter((rect) => rect.width > 0 && buttons.some((button) => intersects(rect, button))).length,
+            }
+          }, overdueTitle)
+          expect(covered.buttons, `${label}: planned and history rows both offer Mark done`).toBeGreaterThanOrEqual(2)
+          expect(covered.titles, `${label}: the overdue title is rendered`).toBeGreaterThanOrEqual(2)
+          expect(covered.overlaps, `${label}: Mark done must not cover the activity title`).toBe(0)
+        }
+      }
+    } finally {
+      for (const id of interactionIds) await deleteInteraction(request, token, id)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })

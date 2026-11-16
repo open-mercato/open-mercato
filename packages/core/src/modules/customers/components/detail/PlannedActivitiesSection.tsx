@@ -112,8 +112,8 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
       {loadFailure}
       <div className="rounded-lg border bg-card">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b">
-          <div className="flex items-center gap-2 text-sm font-medium">
+        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
             <CalendarClock className="size-4 text-muted-foreground" />
             {t('customers.timeline.planned.title', 'Planned activities')}
             <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
@@ -127,7 +127,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
             )}
           </div>
           {onSchedule && (
-            <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={onSchedule}>
+            <Button type="button" variant="outline" size="sm" className="ml-auto h-7 text-xs" onClick={onSchedule}>
               <Plus className="mr-1 size-3" />
               {t('customers.timeline.planned.schedule', 'Schedule')}
             </Button>
@@ -141,7 +141,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
             return (
               <div
                 key={activity.id}
-                className={cn('flex items-center gap-3 border-l-2 border-l-destructive px-4 py-3', onEdit && 'cursor-pointer hover:bg-accent/50 transition-colors')}
+                className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 border-l-2 border-l-destructive px-4 py-3', onEdit && 'cursor-pointer hover:bg-accent/50 transition-colors')}
                 onClick={onEdit ? () => onEdit(activity) : undefined}
                 role={onEdit ? 'button' : undefined}
                 tabIndex={onEdit ? 0 : undefined}
@@ -150,11 +150,11 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                 <div className="flex items-center justify-center size-8 rounded-full bg-destructive/10 shrink-0">
                   {TypeIcon ? <TypeIcon className="size-4 text-destructive" /> : <AlertCircle className="size-4 text-destructive" />}
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-32 flex-1">
                   <span className="text-sm font-medium block truncate">
                     {activity.title ?? activity.body ?? activity.interactionType}
                   </span>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1 font-medium text-destructive">
                       {t('customers.timeline.planned.overdue', 'Overdue')}
                     </span>
@@ -166,22 +166,26 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                     )}
                   </div>
                 </div>
-                {onComplete && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 text-xs"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onComplete(activity.id)
-                    }}
-                  >
-                    <Check className="mr-1 size-3" />
-                    {t('customers.timeline.planned.markDone', 'Mark done')}
-                  </Button>
-                )}
-                <PlannedRowMenu activity={activity} onEdit={onEdit} onCancel={onCancel} />
+                {onComplete || onEdit || onCancel ? (
+                  <div className="ml-auto flex shrink-0 items-center gap-3">
+                    {onComplete && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onComplete(activity.id)
+                        }}
+                      >
+                        <Check className="mr-1 size-3" />
+                        {t('customers.timeline.planned.markDone', 'Mark done')}
+                      </Button>
+                    )}
+                    <PlannedRowMenu activity={activity} onEdit={onEdit} onCancel={onCancel} />
+                  </div>
+                ) : null}
               </div>
             )
           })}
