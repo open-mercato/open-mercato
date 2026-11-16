@@ -662,3 +662,8 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 
 ### 2026-11-05 — Q10 decided
 - The maintainer confirmed the platform kernel (Q10) with the seed `auth`, `directory` and `api_keys`. No maintainer decision remains open, and the spec PR leaves draft.
+
+### 2026-11-15 — Deal loss reasons (#8801)
+- Implemented resolution-table row E1 independently: `customers/lib/dealLossReasons.ts` owns the `sales.deal_loss_reason` dictionary, its defaults and the backfill helper, and `customers` seeds it in `seedDefaults`. `sales` no longer seeds it (`seedSalesStatusDictionaries` and `mercato sales seed-statuses` included) and keeps `backfillDealLossReasonDictionary` as a deprecated re-export, so `mercato sales backfill-deal-loss-reasons` is unchanged.
+- Existing tenants without `sales` get the dictionary with `mercato seed:defaults --module customers`; the seed is idempotent, reuses a dictionary that `sales` created earlier and revives a soft-deleted one instead of failing on `dictionaries_scope_key_unique`.
+- Added unit coverage for idempotent seeding and for `sales` no longer seeding the key, plus `TC-CRM-8801`, which marks a deal lost with a reason and declares no `sales` dependency.

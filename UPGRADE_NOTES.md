@@ -1,5 +1,9 @@
 # Upgrade Notes
 
+## Deal loss reasons seeded by customers (#8801)
+
+`customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it — repair a tenant without it with `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`.
+
 ## Event-triggered workflow execution identity (#9137)
 
 Event payload `userId` and `actorUserId` remain data and no longer supply
