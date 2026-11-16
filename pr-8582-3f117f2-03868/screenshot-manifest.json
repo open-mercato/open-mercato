@@ -1,0 +1,452 @@
+[
+  {
+    "file": "admin-create-success.png",
+    "width": 1280,
+    "height": 765,
+    "bytes": 127441,
+    "sha256": "e1e9e3289bb53a3fd3be28b822a7286fb408a63f92e382baafc5f0d6df1ee090",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "admin-create-weak.png",
+    "width": 1280,
+    "height": 720,
+    "bytes": 117195,
+    "sha256": "26e31f4d2d1404530460176f376392b6e3457be145628b7f629ce8f1f3ce6161",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "detail-error.png",
+    "width": 1280,
+    "height": 720,
+    "bytes": 20896,
+    "sha256": "82b542b60e91a05b22f385df0735ef1da448de6535ddd1c8a6e8331ea87b2957",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "detail-loading.png",
+    "width": 1280,
+    "height": 720,
+    "bytes": 17961,
+    "sha256": "79af6d19a04586986a96a41034c00b8ddad2fc91d4109db4621fbf84f0113c0e",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "invite-en-invalid.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 37366,
+    "sha256": "4468af208f06bf909ccdbb38bbdce4ee94daba5982f2486a3aca799b15084393",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "invite-en-success.png",
+    "width": 390,
+    "height": 1179,
+    "bytes": 56567,
+    "sha256": "33cb56d148588e3217ab8dfb02983c1034d3ea00f8dbaf27f770a63877448a26",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "invite-en-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 40316,
+    "sha256": "c79b94dfe0580433cb1ecbbae882fc9627a84b263968698dfd3a4e7e9e3a1a75",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "invite-pl-invalid.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 41843,
+    "sha256": "f226caea6c5092dff55dfceac484258362dead249e13127e4bcb7090a6407d81",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "invite-pl-success.png",
+    "width": 390,
+    "height": 1179,
+    "bytes": 55781,
+    "sha256": "a8125975d6c279ce9b793b4a087d00cb462bce1d3a0026a19c09201e5fc304e4",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "invite-pl-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 45192,
+    "sha256": "0bc6570e1033d81b3219227cc4a114553a25ab28c2675a50309ad347c96e3948",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "manager-global-wildcard.png",
+    "width": 1280,
+    "height": 1530,
+    "bytes": 188448,
+    "sha256": "149d97251a4c841980f340fbcc6ddb17e7ae560d8eb0eb77574461cb10c728ed",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "manager-module-wildcard.png",
+    "width": 1280,
+    "height": 1526,
+    "bytes": 171374,
+    "sha256": "e88cf4cdb93edc18f7ed6b84d4631d5ec77d7bee2d85d94851e8aca5930b596d",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-en-1440.png",
+    "width": 1440,
+    "height": 844,
+    "bytes": 63170,
+    "sha256": "60fdef5f6f74cd6c09b9f49b83433d532d291080a6ca4e3fd4644a87306e24c7",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-en-320.png",
+    "width": 320,
+    "height": 1027,
+    "bytes": 44888,
+    "sha256": "febcf8a5c3f516573ff5e1286c79895f3f0c1c3d0d2b69ce256be7734b679ead",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-en-390.png",
+    "width": 390,
+    "height": 949,
+    "bytes": 44994,
+    "sha256": "d82ecebd6609019464768365e0dad6025ccff04cf903da2ad1c650d3a59613fe",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-en-768.png",
+    "width": 768,
+    "height": 844,
+    "bytes": 46445,
+    "sha256": "9fa03177d6c056b963451371f596336bc4dbbfbbba9882505bbd48e7c1aedecc",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-en-empty-1440.png",
+    "width": 1440,
+    "height": 844,
+    "bytes": 57263,
+    "sha256": "f545316425987ab607f571056c33371a06f16a025df3f5c16e822a6e5946d018",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-en-empty-320.png",
+    "width": 320,
+    "height": 923,
+    "bytes": 38200,
+    "sha256": "c37b9f9ae100150104f15ce8db014eb1e4b9a9450be6b361b733bbcf109860b2",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-en-empty-390.png",
+    "width": 390,
+    "height": 899,
+    "bytes": 39102,
+    "sha256": "454d38269548224ff436407d4edbbd278033b650ed1a7046b334f0a819dc4e81",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-en-empty-768.png",
+    "width": 768,
+    "height": 844,
+    "bytes": 41560,
+    "sha256": "0c2a8d1b22fc8d7f1357e39491cbc87aa2aff8d31f084250ec5870a8b9027a04",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-pl-1440.png",
+    "width": 1440,
+    "height": 844,
+    "bytes": 65305,
+    "sha256": "005e9c7b574ce4acc06745646ace944f39eb43d863e1088c0556a6204b87c483",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-pl-320.png",
+    "width": 320,
+    "height": 1027,
+    "bytes": 46936,
+    "sha256": "08eaedff1d5ee6c28c40ae71835f011d99a0deecd304f3859a000c58ae158883",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-pl-390.png",
+    "width": 390,
+    "height": 949,
+    "bytes": 47056,
+    "sha256": "fb3fe6950cdd5b73241f60ad87b11149ebe518c2f9a65aa636ffacc34709bacd",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-pl-768.png",
+    "width": 768,
+    "height": 844,
+    "bytes": 48266,
+    "sha256": "f990ee59dec80164bdba5026ec4cd5fc7497ffb3bee788e40cf98ce49deb9060",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-pl-empty-1440.png",
+    "width": 1440,
+    "height": 844,
+    "bytes": 60028,
+    "sha256": "38fa322818d0e10ae484141e97f9992ecffbf464b6e13970d1edd0a8e340fe12",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-pl-empty-320.png",
+    "width": 320,
+    "height": 923,
+    "bytes": 40822,
+    "sha256": "cabfb4fe075f11489a49b1d42be3a02de278d4df762ba35a187f45ecb0d54e64",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-pl-empty-390.png",
+    "width": 390,
+    "height": 899,
+    "bytes": 41837,
+    "sha256": "356765d8fe4600e37ae9f5624515fde268bd6293b53ec2ef358b27054c75a828",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "profile-pl-empty-768.png",
+    "width": 768,
+    "height": 844,
+    "bytes": 44155,
+    "sha256": "46d7bac7ae2d40cee6616105189675e38df309fd5a99e5a433b9cf55eebd9ad5",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "reset-en-success.png",
+    "width": 390,
+    "height": 1600,
+    "bytes": 104230,
+    "sha256": "99fa35d7aafef0026f2bb815b855a70fd41b758a584853fcf8131c92e119fad3",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "reset-en-weak.png",
+    "width": 390,
+    "height": 1600,
+    "bytes": 101634,
+    "sha256": "2b219094d902a8870ba940866804eda90ed13207d4d8d0a5551c809e1ee8ee08",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "reset-pl-success.png",
+    "width": 390,
+    "height": 1491,
+    "bytes": 102906,
+    "sha256": "84ed25e122b64ddf61eff13dbe16ee89aef841b5ee1a02aa7f9b0f149faf6ca0",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "reset-pl-weak.png",
+    "width": 390,
+    "height": 1491,
+    "bytes": 101861,
+    "sha256": "e83bec25b28410e7f19f8f4e5fcc52095f053285ac73b4102e04f6b0fcfb177c",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "resetPassword-en-invalid.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 35117,
+    "sha256": "7af50479074e463e76f83c40902b2e475bf35047d82b24e95f8286bdef9900b3",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "resetPassword-en-success.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 28007,
+    "sha256": "2bc8445c4ec1f622f0d292e31b90157a34a8e299545bc18f23aa6359d76b3bfe",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "resetPassword-en-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 38094,
+    "sha256": "cff60849c36b37e50f7c4d4368218bf88c922622dcb9a4dea363b8e7482dd461",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "resetPassword-pl-invalid.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 37771,
+    "sha256": "adc5dca5c06693acfa8c6794ce0764e6e3de0c7332ff6284dbe47c43f4a400da",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "resetPassword-pl-success.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 31688,
+    "sha256": "6ea79c2eaf2e034e4430c0ec2d93985548520b50f94a445229c31f0d2358ecf6",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "resetPassword-pl-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 40329,
+    "sha256": "6d6dd06317e8532de418e36fee7d877a42e680531732d878ac78b020f659d182",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "signup-en-success.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 29794,
+    "sha256": "75646b8d5308d113e35560c75260d3ac5495765cee3567d2093713d6541729db",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "signup-en-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 41494,
+    "sha256": "9f472d8ab4ba6aada1bec6a92adc91f5bc27cad7d42aaa1294b3275892ddaa7f",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "signup-pl-success.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 33502,
+    "sha256": "92bf2e72db037442515d261d28c7e22d222fff1209db02b3b4a46fd6c6ebb91f",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "signup-pl-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 43360,
+    "sha256": "91485660b424c39a1644a74d23f5ad0f3624d316cde9628ce9ccd8881d8a10bd",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "staff-manager.png",
+    "width": 1280,
+    "height": 1522,
+    "bytes": 169524,
+    "sha256": "c1b91e1e955ff6e6d7d5661af12949da4d10a1b6a4756a6d3f325976af8d745f",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "staff-view.png",
+    "width": 1280,
+    "height": 1396,
+    "bytes": 156962,
+    "sha256": "7a24dc6dcb719471b0193f7cd6b120ead63f7315f1f7931924642d160a9fe989",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  },
+  {
+    "file": "stale-write-conflict.png",
+    "width": 1280,
+    "height": 1596,
+    "bytes": 197926,
+    "sha256": "7498f894b9e1e5592df682146805d1ceb7ba0c781d9e9eed92428ab7e30c0eab",
+    "chunkCrcValid": true,
+    "pixelStreamInflates": true,
+    "nonuniformPixelData": true
+  }
+]
