@@ -24,6 +24,10 @@ No schema or entity changes.
 
 Same route, method, parameter names and `{ items: [{ value, label, routeContext? }] }` response. Target authorization failures return 403; unsafe labels return 400. Unknown ids return an empty list. Permitted declared labels remain usable.
 
+## Relation-field feedback
+
+The existing CrudForm relation selector distinguishes loading, empty results and failed authorization/transport requests. A localized retry keeps unrelated draft values and the selected relation intact. Replacing a scoped loader invalidates its rendered options; late responses from a prior loader do not replace current options. Single-select popups remain within the available viewport and wrap long option labels. Existing field/primitive APIs and successful save behavior are unchanged.
+
 ## Migration & Backward Compatibility
 
 This is the security tightening requested by #9106. Unsafe arbitrary-column reads and implicit global-table reads cease. No route, HTTP method, response field, signature, import path or entity is removed. Clients should omit `labelField` or select an authorized declared/fixed label, and hold the target's existing read grant. Operators should review metadata-only roles that previously depended on excessive access. Trusted internal global-query callers must explicitly use the existing scope opt-out and encode visibility in filters; do not expose that flag to request parameters. No bridge preserves the vulnerable reads. The dated compatibility entry and upgrade notes document the security exception; named human-maintainer acknowledgment remains required before merge.
@@ -33,6 +37,8 @@ This is the security tightening requested by #9106. Unsafe arbitrary-column read
 - Focused route tests: sensitive/undeclared/platform targets, own-view denial, restricted custom ACL, unsafe fields, scoped queries, safe route context, unknown ids and third-party labels.
 - `global-scope.pg.test.ts`, gated by the existing `OM_COUNT_CAP_PG_URL` throwaway-database convention: both real SQL engines reject global reads by default, accept explicit opt-out, and exclude a second tenant's labels.
 - `TC-ENTITIES-9106-relation-options-security.spec.ts`: self-created metadata-only role/user and custom entity/record, real authentication, system/feature denial, permitted labels and unsafe field rejection, with teardown. Requires a running test app; execution status belongs to validation evidence.
+
+- UI unit coverage: loading/403 retry preserves draft and relation values; valid empty results remain distinct; a superseded loader cannot overwrite new feedback. Remote relation paging rejects failures without publishing a partial list.
 
 ## Risks & impact review
 
@@ -45,3 +51,5 @@ Uses existing classification, ACL, encryption read helpers and scope controls. N
 ## Changelog
 
 - 2026-11-16: Added #9106 security fix design, migration guidance and regression/integration coverage. Custom relation labels require record-read access in addition to metadata access, with separate metadata-only denial and authorized-reader controls.
+
+- 2026-11-16: Addressed inherited browser feedback for visible relation lookup states, draft-preserving retry, stale loader isolation and narrow long-label layout.
