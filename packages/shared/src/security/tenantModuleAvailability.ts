@@ -233,7 +233,7 @@ export function createTenantModuleAvailability(
   const governed: ReadonlySet<string> = new Set(
     provider.governedModuleIds.filter((moduleId) => typeof moduleId === 'string' && moduleId.length > 0),
   )
-  const governedSignature = Array.from(governed).sort().join(',')
+  const governedSignature = Array.from(governed).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')
   const ttlMs = clamp(provider.cacheTtlMs, DEFAULT_TENANT_MODULE_AVAILABILITY_TTL_MS, MAX_TENANT_MODULE_AVAILABILITY_TTL_MS)
   const timeoutMs = clamp(provider.timeoutMs, DEFAULT_TENANT_MODULE_AVAILABILITY_TIMEOUT_MS, MAX_TENANT_MODULE_AVAILABILITY_TIMEOUT_MS)
   const failureRetryMs = typeof options.failureRetryMs === 'number' && options.failureRetryMs >= 0

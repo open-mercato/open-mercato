@@ -32,7 +32,7 @@ async function resolveModuleAvailabilityCacheSegment(
   const rbac = container.resolve('rbacService') as ModuleAvailabilityReader | null
   if (typeof rbac?.getUnavailableModuleIds !== 'function') return ''
   const unavailableModuleIds = await rbac.getUnavailableModuleIds(tenantId, userId)
-  return unavailableModuleIds.length ? `:unavailable=${[...unavailableModuleIds].sort().join(',')}` : ''
+  return unavailableModuleIds.length ? `:unavailable=${[...unavailableModuleIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')}` : ''
 }
 
 const sidebarNavItemSchema: z.ZodType<{

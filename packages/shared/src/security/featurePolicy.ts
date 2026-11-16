@@ -91,7 +91,7 @@ export function getGrantNarrowingPlanCountForTests(): number {
 
 /** @internal Whether a narrowing plan for this unavailable set is memoized. */
 export function hasGrantNarrowingPlanForTests(unavailableModuleIds: readonly string[]): boolean {
-  return grantNarrowingPlans.has([...unavailableModuleIds].sort().join(','))
+  return grantNarrowingPlans.has([...unavailableModuleIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','))
 }
 
 function firstSegment(featureId: string): string {
@@ -105,7 +105,7 @@ function getGrantNarrowingPlan(unavailable: ReadonlySet<string>): GrantNarrowing
     grantNarrowingCatalog = catalog
     grantNarrowingPlans.clear()
   }
-  const signature = Array.from(unavailable).sort().join(',')
+  const signature = Array.from(unavailable).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')
   const existing = grantNarrowingPlans.get(signature)
   if (existing) {
     grantNarrowingPlans.delete(signature)
