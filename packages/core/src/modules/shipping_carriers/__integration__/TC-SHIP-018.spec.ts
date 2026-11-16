@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import { createShipment, sendWebhook } from './helpers/fixtures'
 import {
   deleteCarrierShipmentInDb,
@@ -17,9 +18,10 @@ import {
  * `shipping_carriers.shipment.delivered`), and must still refuse a later,
  * out-of-order `in_transit` that would move a delivered shipment backwards.
  *
- * Webhooks are processed asynchronously, so each step first waits until the
- * worker has claimed the event (`carrier_webhook_events`) and only then reads
- * the shipment row.
+ * Webhooks are processed asynchronously, so each step drains the
+ * `shipping-carriers-webhook` queue (the standalone lane runs without managed
+ * workers), waits until the worker has claimed the event
+ * (`carrier_webhook_events`) and only then reads the shipment row.
  *
  * ENVIRONMENT: reads `DATABASE_URL`; run under the integration harness where
  * the app and the fixtures share one database.
@@ -41,6 +43,7 @@ test.describe('TC-SHIP-018: Carrier status skips are applied, regressions are no
         data: { status },
       })
       expect(response.status(), `webhook ${status} should be accepted`).toBe(202)
+      await drainIntegrationQueue('shipping-carriers-webhook')
       await expect
         .poll(() => hasCarrierWebhookClaimInDb(eventId, 'mock_carrier'), {
           message: `the ${status} webhook should be processed by the worker`,

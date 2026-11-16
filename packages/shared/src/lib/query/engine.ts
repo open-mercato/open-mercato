@@ -32,12 +32,26 @@ import {
   type CustomFieldDefinitionSummary,
   type ResolvedCustomFieldDefinitions,
 } from '../crud/custom-field-definition-index'
-import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
-import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
+import { warnOnCiphertextLikeFallback, type CiphertextSearchWarning } from './ciphertext-search-warning'
+import {
+  matchEncryptedSortFields,
+  resolveEncryptedFieldNames,
+  resolveEncryptedSortFields,
+  resolveEncryptedSortMaxRows,
+  sortRowsInMemory,
+} from './encrypted-sort'
 import { resolveListCountCap } from './count-cap'
 import { mapWithConcurrency } from './bounded-decrypt'
+import {
+  DECLINED_ENCRYPTED_SORT_LOG_MESSAGE,
+  DECRYPT_REFUSAL_LOG_MESSAGE,
+  DecryptRefusalTally,
+  resolveDecryptEnabled,
+  resolveDecryptScope,
+} from '../encryption/decryptScope'
 import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
+import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
 import {
   buildArrayColumnNoOverlapPredicate,
   buildArrayColumnOverlapPredicate,
@@ -246,8 +260,7 @@ export function resolveRegisteredEntityTableName(
     `${modulePrefix}_${pluralizeBaseName(rawName)}`,
   ]
   try {
-    const allMeta: any[] = metadata.getAll?.() ?? []
-    for (const meta of allMeta) {
+    for (const meta of listEntityMetadataFromRegistry(metadata)) {
       if (meta?.tableName && candidateTables.includes(String(meta.tableName))) {
         return String(meta.tableName)
       }
@@ -531,6 +544,7 @@ export class BasicQueryEngine implements QueryEngine {
         encryptedLikeFields = null
       }
     }
+    const ciphertextSearchWarnings: CiphertextSearchWarning[] = []
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
       this.logSearchDebug('search:init', {
@@ -575,6 +589,7 @@ export class BasicQueryEngine implements QueryEngine {
             ? 'no-indexable-tokens'
             : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
           service: this.getEncryptionService(),
+          onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
         })
       }
     }
@@ -598,6 +613,7 @@ export class BasicQueryEngine implements QueryEngine {
           ? 'no-indexable-tokens'
           : searchConfig.enabled ? 'no-search-tokens' : 'search-disabled',
         service: this.getEncryptionService(),
+        onDiagnostic: (warning) => ciphertextSearchWarnings.push(warning),
       })
     }
     const recordIdColumn = qualify('id')
@@ -726,7 +742,8 @@ export class BasicQueryEngine implements QueryEngine {
     const fallbackOrgId =
       opts.organizationId
       ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
-    const encryptionService = this.getEncryptionService()
+    const decryptEnabled = resolveDecryptEnabled(opts)
+    const encryptionService = decryptEnabled ? this.getEncryptionService() : null
     const resolvedSorts: Sort[] = []
     for (const s of opts.sort || []) {
       if (s.field.startsWith('cf:')) {
@@ -736,14 +753,41 @@ export class BasicQueryEngine implements QueryEngine {
         if (column) resolvedSorts.push({ ...s, field: column })
       }
     }
-    const encryptedSortFields = await resolveEncryptedSortFields(
+    const plainSortFields = resolvedSorts
+      .filter((sort) => !sort.field.startsWith('cf:'))
+      .map((sort) => sort.field)
+    const encryptedFieldNames = await resolveEncryptedFieldNames(
       encryptionService,
       entity,
-      resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
       opts.tenantId ?? null,
       fallbackOrgId,
     )
+    const encryptedSortFields = matchEncryptedSortFields(encryptedFieldNames, plainSortFields)
     const requiresPlaintextSort = encryptedSortFields.size > 0
+    if (!decryptEnabled && plainSortFields.length > 0) {
+      const declinedSortFields = await resolveEncryptedSortFields(
+        this.getEncryptionService(),
+        entity,
+        plainSortFields,
+        opts.tenantId ?? null,
+        fallbackOrgId,
+      )
+      if (declinedSortFields.size > 0) {
+        logger.warn(DECLINED_ENCRYPTED_SORT_LOG_MESSAGE, {
+          entity: String(entity),
+          sortFields: Array.from(declinedSortFields),
+        })
+      }
+    }
+
+    const requestedFields = opts.fields && opts.fields.length ? opts.fields.map(String) : null
+    const injectsTenantIdForDecrypt =
+      encryptionService != null
+      && requestedFields != null
+      && !requestedFields.includes('tenant_id')
+      && !requestedFields.includes('tenantId')
+      && (encryptedFieldNames === null || encryptedFieldNames.length > 0)
+      && await this.columnExists(table, 'tenant_id')
 
     const tenantId = opts.tenantId
     const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
@@ -880,6 +924,7 @@ export class BasicQueryEngine implements QueryEngine {
         if (requiresPlaintextSort) {
           for (const field of encryptedSortFields) cols.add(field)
         }
+        if (injectsTenantIdForDecrypt) cols.add('tenant_id')
         for (const c of cols) {
           // Qualify and alias to base names to avoid ambiguity
           q = q.select(sql.ref(qualify(c)).as(c))
@@ -1443,20 +1488,32 @@ export class BasicQueryEngine implements QueryEngine {
           ) => Promise<Record<string, unknown>>)
         | null
 
+    const refusalTally = new DecryptRefusalTally()
+
     const decryptRow = async (item: ResultRow): Promise<ResultRow> => {
       if (!decryptPayload) return item
+      const decision = resolveDecryptScope({
+        rowTenantId: (item?.tenant_id ?? item?.tenantId ?? null) as string | null,
+        rowOrganizationId: (item?.organization_id ?? item?.organizationId ?? null) as string | null,
+        callerTenantId: opts.tenantId ?? null,
+        callerOrganizationId: fallbackOrgId ?? null,
+      })
+      if (!decision.decrypt) {
+        refusalTally.record(decision, item?.id == null ? null : String(item.id))
+        return item
+      }
       try {
-        const decrypted = await decryptPayload(
-          entity,
-          item,
-          (item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null) as string | null,
-          (item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null) as string | null,
-        )
+        const decrypted = await decryptPayload(entity, item, decision.tenantId, decision.organizationId)
         return { ...item, ...decrypted }
       } catch (err) {
         logger.error('Error decrypting entity payload', { err })
         return item
       }
+    }
+
+    const reportDecryptRefusals = () => {
+      if (refusalTally.refused === 0) return
+      logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, refusalTally.toLogContext(String(entity)))
     }
 
     const normalizeCfJsonAliases = (rows: ResultRow[]) => {
@@ -1556,6 +1613,12 @@ export class BasicQueryEngine implements QueryEngine {
         : items
     }
 
+    reportDecryptRefusals()
+
+    if (injectsTenantIdForDecrypt) {
+      for (const row of pagedItems) delete row.tenant_id
+    }
+
     let queryResult: QueryResult<T> = { items: pagedItems as unknown as T[], page, pageSize, total }
 
     if (encryptedSortRowCapWarning || listCountCapWarning) {
@@ -1582,6 +1645,9 @@ export class BasicQueryEngine implements QueryEngine {
       queryResult.customFieldDefinitions = resolvedCustomFieldDefinitions
     }
 
+    if (ciphertextSearchWarnings.length) {
+      queryResult.meta = { ...queryResult.meta, ciphertextSearchWarnings }
+    }
     return queryResult
   }
 

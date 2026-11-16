@@ -173,6 +173,18 @@ describe('CSV/XLSX carry the raw accounting columns (screen 14 note 3)', () => {
   it('omits the rate column entirely when rates are hidden', () => {
     const table = buildReportTable(makeExportInput({ showRates: false }))
     expect(table.columns.map((column) => column.field)).not.toContain('rate')
+    expect(table.columns.map((column) => column.field)).toContain('amount')
+    expect(table.rows[0].amount).toBe('7280.00')
+  })
+
+  it('omits both money columns when the caller cannot see money', () => {
+    const table = buildReportTable(makeExportInput({ canSeeMoney: false }))
+    expect(table.columns.map((column) => column.field)).not.toContain('rate')
+    expect(table.columns.map((column) => column.field)).not.toContain('amount')
+    for (const row of table.rows) {
+      expect(row).not.toHaveProperty('rate')
+      expect(row).not.toHaveProperty('amount')
+    }
   })
 })
 
@@ -288,6 +300,30 @@ describe('PDF writer', () => {
 })
 
 describe('PDF mirrors the sheet (screen 14 note 3)', () => {
+  it('keeps amounts when an authorized caller hides the rates', () => {
+    const input = makeExportInput({ showRates: false, canSeeMoney: true })
+    const cells = buildReportPdfLines(input).flatMap((line) => line.kind === 'cells' ? line.cells : [])
+    expect(cells.some((cell) => cell.x === 470)).toBe(false)
+    expect(cells.map((cell) => cell.text)).toContain('7280.00')
+    expect(cells.map((cell) => cell.text)).toContain('8385.00 PLN')
+  })
+
+  it('omits all monetary cells even with raw nested amounts and showRates enabled', () => {
+    const input = makeExportInput({ canSeeMoney: false })
+    input.groups[0].lines[0].children.push({
+      ...input.groups[0].lines[0],
+      label: 'Nested task',
+      children: [],
+    })
+    const cells = buildReportPdfLines(input).flatMap((line) => line.kind === 'cells' ? line.cells : [])
+    expect(cells.some((cell) => cell.x === 470)).toBe(false)
+    expect(cells.some((cell) => cell.x === 553 && !cell.muted)).toBe(false)
+    expect(cells.map((cell) => cell.text)).not.toContain(input.labels.amount)
+    expect(cells.map((cell) => cell.text)).not.toContain(input.labels.total)
+    expect(cells.map((cell) => cell.text)).toContain('    Nested task')
+    expect(cells.some((cell) => cell.text.includes('rozliczalne'))).toBe(true)
+  })
+
   it('prints every group, the override badge and the total', () => {
     const input = makeExportInput()
     const lines = buildReportPdfLines(input)
