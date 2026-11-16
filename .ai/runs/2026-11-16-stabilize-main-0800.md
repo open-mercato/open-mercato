@@ -49,6 +49,10 @@ Runner: local (no running Compose app found). yarn install --immutable succeeded
 
 Local commands 1–6 passed. The first unit run hit the cockpit temporary-socket limit; loose Turbo environment passthrough and TMPDIR=/tmp resolved it. The second run passed all Jest suites, including 2,807 core suites/28,535 core tests, then create-app ZIP validation reported missing system unzip. A Debian unzip package was downloaded and extracted under /tmp solely for local validation (no repository dependency or system install); test/app validation is rerunning with that tool on PATH. No tests were skipped to address either environment issue.
 
+## Hosted fixture scheduling evidence
+
+Run 43825646616 at 279e877453 completed: all 14 other shards and every other applicable job passed, but shard 13 timed out in the teardown poll (one failed case and one flaky case). The retry trace proves the order status mutation succeeded and the owned instance stayed WAITING_FOR_ACTIVITIES on emit_approval_requested after queue drains. This is a new fixture scheduling dependency, distinct from the original missing execution grant. The copied fixture now dispatches EMIT_EVENT notifications inline while preserving all stock steps/transitions, event emission, domain trigger, explicit principal, real order command and original audit/undo assertions. Notification queue scheduling is outside these undo assertions; queue-specific workflow tests remain unchanged. Production workflow configuration is unchanged. The correction stays in this integration spec and its focused lesson. Full current-head CI must pass before completion.
+
 ## Risks
 
 The latest change isolated event-triggered workflow identity; repairs must preserve trusted tenant/organization scope and fail-closed authentication. CI may expose further regressions. Local dependencies are initially absent. Existing active stabilization PRs remain separately owned.
