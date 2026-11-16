@@ -1,0 +1,146 @@
+{
+  "config": {
+    "argv": [
+      "/opt/node/bin/node",
+      "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      ".ai/qa/tests/playwright.config.ts",
+      "TC-AUTH-066"
+    ],
+    "configFile": "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.ai/qa/tests/playwright.config.ts",
+    "rootDir": "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.ai/qa/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e",
+        "testIgnore": [
+          "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/apps/mercato/.mercato/**",
+          "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.claude/**",
+          "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.codex/**",
+          "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.ai/tmp/**",
+          "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.ai/cezar/**",
+          "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/packages/create-app/template/**"
+        ],
+        "testMatch": [
+          "packages/core/src/modules/customer_accounts/__integration__/TC-PORTAL-013-canonical-auth-scope.spec.ts",
+          "packages/core/src/modules/portal/__integration__/TC-AUTH-033.spec.ts",
+          "packages/core/src/modules/portal/__integration__/TC-AUTH-064-portal-root-authenticated-shell.spec.ts",
+          "packages/core/src/modules/portal/__integration__/TC-AUTH-065-portal-login-logo-authenticated-redirect.spec.ts",
+          "packages/core/src/modules/portal/__integration__/TC-AUTH-066-profile-responsive-layout.spec.ts"
+        ],
+        "timeout": 20000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.ai/qa/test-results/results.json"
+        }
+      ],
+      [
+        "html",
+        {
+          "outputFolder": "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.ai/qa/test-results/html",
+          "open": "never"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "packages/core/src/modules/portal/__integration__/TC-AUTH-066-profile-responsive-layout.spec.ts",
+      "file": "packages/core/src/modules/portal/__integration__/TC-AUTH-066-profile-responsive-layout.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "TC-AUTH-066: portal profile keeps long values and badges inside the viewport",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1311,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:26:16.411Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/home/pkarw/Projects/open-mercato/.ai/cezar/worktrees/03868c47-a0b6-4451-9c8c-3fd466d1e66e/.ai/qa/test-results/artifacts/packages-core-src-modules--8e9c0--badges-inside-the-viewport/test-finished-1.png"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "212a05ba77b40da978d3-9206d265ce9938532247",
+          "file": "packages/core/src/modules/portal/__integration__/TC-AUTH-066-profile-responsive-layout.spec.ts",
+          "line": 11,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-16T15:26:12.712Z",
+    "duration": 5191.763,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
