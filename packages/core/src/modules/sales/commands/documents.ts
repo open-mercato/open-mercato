@@ -9928,6 +9928,29 @@ function compactInvoiceCustomFields(
 }
 
 /**
+ * JSON form of an invoice snapshot for the undo staleness check. Arrays inside
+ * the header and line JSON (`metadata`, `uomSnapshot`) keep their order, so a
+ * reordered array counts as a change. Only the line collection (matched by id)
+ * and multi-value custom fields, which are read back without a stable order,
+ * are compared regardless of order.
+ */
+function comparableInvoiceSnapshot(snapshot: InvoiceGraphSnapshot): unknown {
+  const customFields = compactInvoiceCustomFields(snapshot.invoice.customFields);
+  const lines = [...(snapshot.lines ?? [])].sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+  );
+  return JSON.parse(
+    JSON.stringify({
+      invoice: {
+        ...snapshot.invoice,
+        customFields: customFields ? canonicalizeForComparison(customFields) : null,
+      },
+      lines,
+    }),
+  );
+}
+
+/**
  * True when the stored invoice still matches the snapshot a write left behind.
  * Undo of `sales.invoices.create` and `sales.invoices.update` refuses otherwise,
  * because restoring `before` would overwrite another actor's later change.
@@ -9937,18 +9960,7 @@ function invoiceMatchesSnapshot(
   expected: InvoiceGraphSnapshot | null | undefined,
 ): boolean {
   if (!current || !expected) return false;
-  const currentInvoice = {
-    ...current.invoice,
-    customFields: compactInvoiceCustomFields(current.invoice.customFields),
-  };
-  const expectedInvoice = {
-    ...expected.invoice,
-    customFields: compactInvoiceCustomFields(expected.invoice.customFields),
-  };
-  return (
-    sameRecords([currentInvoice], [expectedInvoice]) &&
-    sameRecords(current.lines, expected.lines)
-  );
+  return isDeepStrictEqual(comparableInvoiceSnapshot(current), comparableInvoiceSnapshot(expected));
 }
 
 /**

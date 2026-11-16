@@ -872,6 +872,34 @@ describe('sales invoice write path (#7336)', () => {
       expect(customFieldStore.get(INVOICE_ID)).toMatchObject({ company: 'c-1' })
     })
 
+    it.each([
+      ['the invoice metadata', (state: FakeState) => state.invoice!],
+      ['a line metadata', (state: FakeState) => state.lines[0]],
+    ])('answers 409 and keeps the later edit when another actor reorders an array in %s', async (_label, target) => {
+      const state = baseState()
+      target(state).metadata = { schedule: ['deposit', 'balance'] }
+      const undo = await updateAndCapture(state, { invoiceNumber: 'INV-2' })
+      target(state).metadata = { schedule: ['balance', 'deposit'] }
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await expectStatus(runUndo('sales.invoices.update', undo, ctx), 409)
+
+      expect(state.invoice?.invoiceNumber).toBe('INV-2')
+      expect(target(state).metadata).toEqual({ schedule: ['balance', 'deposit'] })
+    })
+
+    it('still undoes when a multi-value custom field reads back in another order', async () => {
+      const state = baseState()
+      customFieldStore.set(INVOICE_ID, { company: 'c-1', tags: ['a', 'b'] })
+      const undo = await updateAndCapture(state, { customFields: { company: 'c-2' } })
+      customFieldStore.set(INVOICE_ID, { company: 'c-2', tags: ['b', 'a'] })
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await runUndo('sales.invoices.update', undo, ctx)
+
+      expect(customFieldStore.get(INVOICE_ID)).toMatchObject({ company: 'c-1' })
+    })
+
     it('answers 403 for a caller outside the invoice organization, before locking', async () => {
       const state = baseState()
       const undo = await updateAndCapture(state, { invoiceNumber: 'INV-2' })
@@ -964,6 +992,18 @@ describe('sales invoice write path (#7336)', () => {
 
       await expectStatus(runUndo('sales.invoices.create', undo, ctx), 403)
       expect(em.findOne).not.toHaveBeenCalled()
+    })
+
+    it('answers 409 and keeps the invoice when another actor reorders an array in its metadata', async () => {
+      const state = baseState({ invoice: null, lines: [] })
+      const { undo } = await createAndCapture(state, { metadata: { schedule: ['deposit', 'balance'] } })
+      state.invoice!.metadata = { schedule: ['balance', 'deposit'] }
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await expectStatus(runUndo('sales.invoices.create', undo, ctx), 409)
+
+      expect(state.invoice?.metadata).toEqual({ schedule: ['balance', 'deposit'] })
+      expect(state.lines).toHaveLength(1)
     })
 
     it('answers 409 after a later update by another actor and for a soft-deleted invoice', async () => {

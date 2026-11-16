@@ -140,6 +140,22 @@ async function updateInvoice(request: APIRequestContext, token: string, data: Js
   return expectOperation(response, 'invoice update')
 }
 
+async function reorderSchedule(invoiceId: string): Promise<void> {
+  await withClient((client) =>
+    client.query(`update sales_invoices set metadata = '{"schedule":["balance","deposit"]}'::jsonb where id = $1`, [invoiceId]),
+  )
+}
+
+async function readSchedule(invoiceId: string): Promise<unknown> {
+  return withClient(async (client) => {
+    const result = await client.query<{ metadata: { schedule?: unknown } | null }>(
+      'select metadata from sales_invoices where id = $1 and deleted_at is null',
+      [invoiceId],
+    )
+    return result.rows[0]?.metadata?.schedule ?? null
+  })
+}
+
 async function purgeInvoice(invoiceId: string | null): Promise<void> {
   if (!invoiceId) return
   await withClient(async (client) => {
@@ -287,6 +303,40 @@ test.describe('TC-SALES-7336: invoice custom fields and undo', () => {
       expect(body?.error).toContain('invoice was changed afterwards')
       const current = await readInvoice(request, token, invoiceId)
       expect(Number(current?.grandTotalGrossAmount ?? current?.grand_total_gross_amount)).toBe(999)
+    } finally {
+      await purgeInvoice(invoiceId)
+    }
+  })
+
+  test('refuses an update undo with 409 after another actor reordered an array in the invoice metadata', async ({ request }) => {
+    skipIfUndoTestsDisabled()
+    const token = await getAuthToken(request, 'admin')
+    let invoiceId: string | null = null
+    try {
+      ;({ invoiceId } = await createInvoice(request, token, { metadata: { schedule: ['deposit', 'balance'] } }))
+      const update = await updateInvoice(request, token, { id: invoiceId, invoiceNumber: `INV-7336-${Date.now()}` })
+      await reorderSchedule(invoiceId)
+
+      const undo = await undoByToken(request, token, update.undoToken)
+      expect(undo.status(), 'a reordered metadata array is a later change').toBe(409)
+      expect(await readSchedule(invoiceId)).toEqual(['balance', 'deposit'])
+    } finally {
+      await purgeInvoice(invoiceId)
+    }
+  })
+
+  test('refuses a create undo with 409 after another actor reordered an array in the invoice metadata', async ({ request }) => {
+    skipIfUndoTestsDisabled()
+    const token = await getAuthToken(request, 'admin')
+    let invoiceId: string | null = null
+    try {
+      const created = await createInvoice(request, token, { metadata: { schedule: ['deposit', 'balance'] } })
+      invoiceId = created.invoiceId
+      await reorderSchedule(invoiceId)
+
+      const undo = await undoByToken(request, token, created.operation.undoToken)
+      expect(undo.status(), 'create undo must not delete an invoice whose metadata was reordered').toBe(409)
+      expect(await readSchedule(invoiceId)).toEqual(['balance', 'deposit'])
     } finally {
       await purgeInvoice(invoiceId)
     }

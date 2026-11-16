@@ -163,7 +163,7 @@ Both undo handlers call `ensureOrganizationScope` and `ensureTenantScope` on the
 
 **Stale undo.** Undo of `sales.invoices.update`, header-only included, and of `sales.invoices.create` answers 409 unless the invoice still matches the write's `after`:
 
-- Under the row lock, `loadInvoiceSnapshot` is non-null, and `sameRecords([current.invoice], [after.invoice]) && sameRecords(current.lines, after.lines)`. `customFields` sit in `invoice`.
+- Under the row lock, `loadInvoiceSnapshot` is non-null and deep-equals `after`. `customFields` sit in `invoice`. Lines are matched by id. Arrays inside header and line JSON (`metadata`, `uomSnapshot`) keep their order, so a reordered array is a change. Only multi-value custom fields, which read back without a stable order, are compared regardless of order.
 - Before comparing, drop custom-field values that are `null`, `undefined`, `''` or `[]` from both snapshots and treat `{}` as `null`, because clearing a scalar field leaves a row that reads back `cf_x: null`. `0` and `false` count as values.
 - A soft-deleted invoice counts as changed.
 - A lock that finds no live row, soft-deleted or removed, is this same 409, not the not-found the update path answers.
