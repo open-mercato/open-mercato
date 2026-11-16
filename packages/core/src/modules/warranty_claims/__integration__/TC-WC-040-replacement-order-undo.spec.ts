@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createOrderLineFixture, createSalesOrderFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { cancelWorkflowInstanceIfExists, startWorkflowInstanceFixture } from '@open-mercato/core/helpers/integration/workflowsFixtures'
 import {
   cancelThenDeleteClaimIfPossible, createClaimFixture, listClaimLines, readClaim,
   readWarrantyClaimSettings, requestJson, restoreWarrantyClaimSettings, saveWarrantyClaimSettings,
@@ -33,6 +34,7 @@ test.describe('TC-WC-040: replacement-order undo after approval initialization',
       const settings = await readWarrantyClaimSettings(request, token)
       let sourceOrderId: string | null = null
       let claimId: string | null = null
+      let approvalInstanceId: string | null = null
       const replacementIds = new Set<string>()
       try {
         await saveWarrantyClaimSettings(request, token, { autoApproveEnabled: false }, settings.updatedAt)
@@ -59,6 +61,10 @@ test.describe('TC-WC-040: replacement-order undo after approval initialization',
         expect(created.status()).toBe(200)
         expect(result?.replacementOrderId).toBeTruthy()
         const replacementId = result!.replacementOrderId
+        approvalInstanceId = await startWorkflowInstanceFixture(request, token, {
+          workflowId: 'sales.order-approval',
+          initialContext: { orderId: replacementId },
+        })
         await expect.poll(async () => (await readOrder(request, token, replacementId))?.status).toBe('pending_approval')
         const log = await replacementLog(request, token, claimId)
         if (edited) {
@@ -91,6 +97,7 @@ test.describe('TC-WC-040: replacement-order undo after approval initialization',
         }
       } finally {
         try {
+          await cancelWorkflowInstanceIfExists(request, token, approvalInstanceId)
           await cancelThenDeleteClaimIfPossible(request, token, claimId)
           for (const orderId of replacementIds) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
           if (sourceOrderId) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', sourceOrderId)
