@@ -228,6 +228,21 @@ export function timeEntryTaskMatchesProject(
 }
 
 /**
+ * A write that moves an entry to another project without naming a task must
+ * not keep a stored task that belongs to a different project: the hours would
+ * be billed on one project while the task rollups count them on another's card.
+ * `storedTask` is the entry's current task as read from the database (deleted
+ * or not); a task that no longer resolves is left alone, exactly as before.
+ * One rule for the single-entry update and the grid bulk save.
+ */
+export function timeEntryStoredTaskLeftBehind(
+  storedTask: { timeProjectId?: string | null } | null | undefined,
+  nextProjectId: string | null | undefined,
+): boolean {
+  return !timeEntryTaskMatchesProject(storedTask, nextProjectId)
+}
+
+/**
  * Screen 8 picks a task and lets the project follow from it ("Projekt i klient
  * wynikają z zadania"), so a write that names only a task still lands on the
  * project the task belongs to — and with it the billable and currency defaults.
@@ -1958,7 +1973,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     await assertTaskBelongsToProject(task, nextProjectId)
     const storedTaskLeftBehind =
       parsed.taskId === undefined && project && entry.taskId
-        ? !timeEntryTaskMatchesProject(
+        ? timeEntryStoredTaskLeftBehind(
             await findOneWithDecryption(
               em,
               StaffTimeTask,
