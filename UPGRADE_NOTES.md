@@ -1,5 +1,14 @@
 # Upgrade Notes
 
+## Catalog price-kind seed keeps existing price kinds (#8104)
+
+`seedCatalogPriceKinds`, `mercato catalog seed-price-kinds` and catalog
+`seed:defaults` now only create a missing `regular` or `sale` price kind and no
+longer change existing price kinds. A soft-deleted `regular` or `sale` is not
+restored: restore it manually before `mercato catalog seed-examples`. Price kinds
+soft-deleted by earlier seed runs stay deleted and must be restored manually. No
+migration is needed.
+
 ## Event-triggered workflow execution identity (#9137)
 
 Event payload `userId` and `actorUserId` remain data and no longer supply
