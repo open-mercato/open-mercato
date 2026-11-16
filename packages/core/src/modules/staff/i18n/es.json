@@ -273,6 +273,7 @@
   "staff.leaveRequests.detail.summary": "Detalles de la solicitud",
   "staff.leaveRequests.empty.profileRequired": "Crea tu perfil de miembro para enviar solicitudes de ausencia.",
   "staff.leaveRequests.errors.accept": "No se pudo aprobar la solicitud de ausencia.",
+  "staff.leaveRequests.errors.alreadyFinalized": "La solicitud de ausencia ya está finalizada.",
   "staff.leaveRequests.errors.forbidden": "Prohibido",
   "staff.leaveRequests.errors.load": "No se pudieron cargar las solicitudes de ausencia.",
   "staff.leaveRequests.errors.notFound": "Solicitud de ausencia no encontrada.",
