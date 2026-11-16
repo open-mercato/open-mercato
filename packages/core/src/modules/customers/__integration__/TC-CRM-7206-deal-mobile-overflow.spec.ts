@@ -170,12 +170,16 @@ test.describe('TC-CRM-7206: deal detail page fits a 390px viewport', () => {
       const headingCenter = await verticalCenter(page, 'Log activity', 'heading')
       const saveCenter = await verticalCenter(page, 'Save activity', 'button')
       expect(Math.abs(headingCenter - saveCenter), 'composer header should stay on one row on desktop').toBeLessThan(4)
-      const plannedRow = page.getByText(plannedTitle).last()
-      const plannedBox = await plannedRow.boundingBox()
-      const markDoneBox = await page.getByRole('button', { name: 'Mark done' }).last().boundingBox()
+
+      const plannedEntry = page.locator('div.py-2\\.5', { hasText: plannedTitle }).last()
+      await expect(plannedEntry).toBeVisible()
+      const plannedBox = await plannedEntry.getByText(plannedTitle).first().boundingBox()
+      const markDoneBox = await plannedEntry.getByRole('button', { name: 'Mark done' }).first().boundingBox()
       expect(plannedBox && markDoneBox, 'timeline row should be rendered').toBeTruthy()
       if (plannedBox && markDoneBox) {
-        expect(markDoneBox.y, 'Mark done should stay on the title row on desktop').toBeLessThan(plannedBox.y + plannedBox.height)
+        const plannedCenter = plannedBox.y + plannedBox.height / 2
+        const markDoneCenter = markDoneBox.y + markDoneBox.height / 2
+        expect(Math.abs(plannedCenter - markDoneCenter), 'Mark done should stay on the title row on desktop').toBeLessThan(12)
       }
     } finally {
       if (documentId && token) {
