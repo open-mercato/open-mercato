@@ -841,6 +841,18 @@ are unchanged. Host-local proxies and diagnostics can use a final loopback-only
 override. See [migration, override examples, WSS routing, and deployment checks](docker/traefik/README.md#private-application-ports-and-migration).
 No application API, database, or module-code migration is required.
 
+### Search sources no longer receive the plaintext of encrypted custom fields (#7872)
+
+`SearchIndexer` and the exported opt-in `VectorIndexService` now leave custom fields whose definition is `encrypted` out of the records and custom fields they hand to search sources (`buildSource`, `formatResult`, `resolveUrl`, `resolveLinks`), including records a source loads through `ctx.queryEngine`. Before, the customers Company and Person sources wrote such values into their search text, which the vector strategy sends to the embedding provider and stores with the vector document, and any source could copy them into the presenter or links stored in the fulltext and vector indexes. The record fields an index receives (`IndexableRecord.fields`) are unchanged so the hashed `search_tokens` index still covers encrypted custom fields. The `plaintextExcludedCustomFields` metadata added in #7894 separately keeps those values out of fulltext document fields and vector fallback text.
+
+A custom-field key declared `encrypted` by the record's tenant (or globally) is left out for every organization of that tenant, since a build context does not know which organization's definition applies. This follows the Emergency Security Exception in `BACKWARD_COMPATIBILITY.md`: there is no deprecation window, because keeping the old context for a release would keep the plaintext flowing.
+
+**What stops working:** a search source that put an encrypted custom field into its text, presenter, URL or links no longer gets its value, so results stop matching or showing it. Either indexer constructed without the new `encryptedCustomFieldKeysResolver` option leaves out every custom field, encrypted or not; the `searchIndexer` resolved from DI is wired and keeps non-encrypted custom fields.
+
+**Action for module authors:** resolve `searchIndexer` from the container. If you construct `SearchIndexer` or `VectorIndexService` yourself, pass `encryptedCustomFieldKeysResolver: createEncryptedCustomFieldKeysResolver(em.getKysely())` (from `@open-mercato/search/di`). Do not read encrypted custom fields back into a source some other way.
+
+**Action for operators:** text, presenters and links indexed before the upgrade keep their values until their records are reindexed. If you declare encrypted custom fields on searchable entities, reindex those entities from the search settings page (or the vector and fulltext reindex routes) after upgrading. Values of such fields may already have been sent to the configured embedding provider and stored in the fulltext and vector indexes; treat them as disclosed to those services and apply your data-retention or deletion process to them.
+
 ### Canonical module origins and duplicate enabled IDs (#8309)
 
 Module generation now rejects duplicate enabled runtime IDs before writing generated artifacts, including duplicate entries from the same package or different dependency aliases. If an existing app fails this check, keep one intended provider for each ID in `src/modules.ts` (including conditional registrations), preserve local overlay files, then rerun `yarn mercato generate`. A single package-backed registration with an app-local overlay remains supported; an explicitly empty enabled-module list does not rediscover disabled local modules.
