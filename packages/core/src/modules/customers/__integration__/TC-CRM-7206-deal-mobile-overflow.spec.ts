@@ -4,7 +4,8 @@
  *
  * Verifies:
  * - At 390px the deal detail page does not scroll horizontally
- * - Log activity header, Mark done, AI action chips and Related documents actions stay inside their cards
+ * - Log activity header, Mark done and AI action chips stay inside their cards on the activity tab
+ * - Link existing / New from template stay inside their card on the Related documents workspace tab
  * - At desktop width the composer header and the Mark done row keep their single-row layout
  */
 import { test, expect, type Page } from '@playwright/test'
@@ -50,6 +51,18 @@ async function verticalCenter(page: Page, locatorText: string, role: 'button' | 
   const box = await page.getByRole(role, { name: locatorText }).first().boundingBox()
   expect(box, `${locatorText} should be rendered`).not.toBeNull()
   return box ? box.y + box.height / 2 : 0
+}
+
+async function openWorkspaceTab(page: Page, label: RegExp): Promise<void> {
+  await expect(async () => {
+    const tab = page.getByRole('tab', { name: label })
+    if (await tab.isVisible()) {
+      await tab.click()
+      return
+    }
+    await page.getByTestId('detail-tabs-more').click({ timeout: 2_000 })
+    await page.getByRole('menuitem', { name: label }).click({ timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 test.describe('TC-CRM-7206: deal detail page fits a 390px viewport', () => {
@@ -120,7 +133,6 @@ test.describe('TC-CRM-7206: deal detail page fits a 390px viewport', () => {
       await page.setViewportSize({ width: 390, height: 844 })
       await page.goto(`/backend/customers/deals/${dealId}`)
       await expect(page.getByText(completedTitle).first()).toBeVisible({ timeout: 20_000 })
-      await expect(page.getByRole('button', { name: 'New from template' })).toBeVisible({ timeout: 20_000 })
       await expect(page.getByRole('button', { name: 'Mark done' }).first()).toBeVisible()
 
       const widths = await page.evaluate(() => ({
@@ -135,11 +147,24 @@ test.describe('TC-CRM-7206: deal detail page fits a 390px viewport', () => {
         'Mark done',
         'Transcription',
         'Action items',
-        'Link existing',
-        'New from template',
       ])
       expect(overflowing, 'actions should stay inside their cards at 390px').toEqual([])
 
+      await openWorkspaceTab(page, /^Related documents/)
+      await expect(page.getByRole('heading', { name: 'Related documents' })).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByRole('button', { name: 'New from template' })).toBeVisible({ timeout: 20_000 })
+
+      const documentWidths = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }))
+      expect(documentWidths.scrollWidth, 'deal page should not scroll horizontally with the documents tab at 390px')
+        .toBeLessThanOrEqual(documentWidths.clientWidth)
+
+      const overflowingDocuments = await collectCardOverflow(page, ['Link existing', 'New from template'])
+      expect(overflowingDocuments, 'related-documents actions should stay inside their card at 390px').toEqual([])
+
+      await openWorkspaceTab(page, /^Activit/i)
       await page.setViewportSize({ width: 1440, height: 900 })
       await expect(page.getByRole('button', { name: 'Save activity' })).toBeVisible()
       const headingCenter = await verticalCenter(page, 'Log activity', 'heading')
