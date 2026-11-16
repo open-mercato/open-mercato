@@ -1,0 +1,219 @@
+{
+  "runId": "d19475e0-f042-4e82-baf5-7ba29061f002",
+  "mode": "pr",
+  "target": {
+    "prNumber": 8582,
+    "branch": "cez/d85da487",
+    "headSha": "dce185804f05cb482e73353d8d751add8c43c80d"
+  },
+  "depth": "complex",
+  "verdict": "PARTIAL",
+  "runtimeVerdict": "PASS",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:5001",
+    "role": "owned scoped fixtures",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "runner": "local managed production via om-prepare-test-env",
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "Exact-head CI",
+      "expected": "PENDING / UNVERIFIED: runtime PASS, CI43901917626 still running; no green CI claim. Final update follows within bounded watch.",
+      "observed": "PENDING / UNVERIFIED: runtime PASS, CI43901917626 still running; no green CI claim. Final update follows within bounded watch.",
+      "result": "PARTIAL",
+      "evidence": "ci-checks-final.json"
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "Live production CLI primary",
+      "expected": "Weak primary default+all4skip aliases exit2; no user/tenant/org count changes. Compliant primary exit0/login200",
+      "observed": "Weak primary default+all4skip aliases exit2; no user/tenant/org count changes. Compliant primary exit0/login200",
+      "result": "PASS",
+      "evidence": "cli-results.json"
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "Live CLI derived credentials",
+      "expected": "Explicit nonproduction bypass exit0/login200; weak derived overrides refused in both modes/no writes; compliant derived logins200; strict32 generated derived both comply/login200",
+      "observed": "Explicit nonproduction bypass exit0/login200; weak derived overrides refused in both modes/no writes; compliant derived logins200; strict32 generated derived both comply/login200",
+      "result": "PASS",
+      "evidence": "cli-results.json"
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "Native credential regression",
+      "expected": "11passed; ten immediate reset/login fresh200/old401 cases; customer_accounts module, managed CLI",
+      "observed": "11passed; ten immediate reset/login fresh200/old401 cases; customer_accounts module, managed CLI",
+      "result": "PASS",
+      "evidence": "native-password.log"
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "Native profile regression",
+      "expected": "1passed at320/390/768/1440; portal module, managed CLI",
+      "observed": "1passed at320/390/768/1440; portal module, managed CLI",
+      "result": "PASS",
+      "evidence": "native-profile.log"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "Admin reset EN/PL",
+      "expected": "Weak400localized/editable/doubleclick; whole record unchanged; Escape/reopen/CtrlEnter200; ten-second settle",
+      "observed": "Weak400localized/editable/doubleclick; whole record unchanged; Escape/reopen/CtrlEnter200; ten-second settle",
+      "result": "PASS",
+      "evidence": "browser-core.log",
+      "screenshot": "reset-pl-weak.png"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "Empty profile EN/PL",
+      "expected": "0roles/0features; long email/name, verifiedbadge, realdates fit at320/390/768/1440 after10sec",
+      "observed": "0roles/0features; long email/name, verifiedbadge, realdates fit at320/390/768/1440 after10sec",
+      "result": "PASS",
+      "evidence": "browser-core.log",
+      "screenshot": "profile-pl-empty-320.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "Populated profile EN/PL",
+      "expected": "1role/3features API precondition; localized counts and long values/badge/dates fit at4widths after10sec; corrected final run2passed",
+      "observed": "1role/3features API precondition; localized counts and long values/badge/dates fit at4widths after10sec; corrected final run2passed",
+      "result": "PASS",
+      "evidence": "browser-profile-final.log",
+      "screenshot": "profile-pl-320.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "Signup EN/PL",
+      "expected": "Weak400policy guidance, no false minimum8 or expired message; compliant retry202, captured verification200 and login200",
+      "observed": "Weak400policy guidance, no false minimum8 or expired message; compliant retry202, captured verification200 and login200",
+      "result": "PASS",
+      "evidence": "public-pl-results.json",
+      "screenshot": "signup-pl-weak.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "Invitation EN/PL",
+      "expected": "Actual captured token:weak400policy guidance; same-token retry201/login200; invalidtoken localized400",
+      "observed": "Actual captured token:weak400policy guidance; same-token retry201/login200; invalidtoken localized400",
+      "result": "PASS",
+      "evidence": "public-pl-results.json",
+      "screenshot": "invite-pl-weak.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "Reset-confirm EN/PL",
+      "expected": "Actual captured token:weak400policy guidance; same-token retry200; invalidtoken localized400",
+      "observed": "Actual captured token:weak400policy guidance; same-token retry200; invalidtoken localized400",
+      "result": "PASS",
+      "evidence": "public-pl-results.json",
+      "screenshot": "resetPassword-pl-invalid.png"
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "action": "View-only staff",
+      "expected": "Owned role has detailread200; reset/resetlink/revoke/dialog hidden; all3directwrites403; whole record unchanged",
+      "observed": "Owned role has detailread200; reset/resetlink/revoke/dialog hidden; all3directwrites403; whole record unchanged",
+      "result": "PASS",
+      "evidence": "staff-direct-negatives.json",
+      "screenshot": "staff-view.png"
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "action": "Manager controls",
+      "expected": "Exact grants reset/resetlink positive; module*/global* reset/resetlink/revoke positive, dialog/Escape; final permission/stale/wildcards3passed",
+      "observed": "Exact grants reset/resetlink positive; module*/global* reset/resetlink/revoke positive, dialog/Escape; final permission/stale/wildcards3passed",
+      "result": "PASS",
+      "evidence": "browser-permissions-final.log",
+      "screenshot": "manager-global-wildcard.png"
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "action": "Tenant/session ownership",
+      "expected": "Owned different tenant detail/reset404; wrong-owner session revoke404",
+      "observed": "Owned different tenant detail/reset404; wrong-owner session revoke404",
+      "result": "PASS",
+      "evidence": "tenantB-results.json"
+    },
+    {
+      "step": 15,
+      "priority": "P0",
+      "action": "Self password change API",
+      "expected": "Weak400/whole record unchanged; compliant200; oldsession401/freshsession200",
+      "observed": "Weak400/whole record unchanged; compliant200; oldsession401/freshsession200",
+      "result": "PASS",
+      "evidence": "session-selfchange-results.json"
+    },
+    {
+      "step": 16,
+      "priority": "P0",
+      "action": "Two actors stale write",
+      "expected": "ActorB200; ActorA409 twice; whole B record preserved after10seconds",
+      "observed": "ActorB200; ActorA409 twice; whole B record preserved after10seconds",
+      "result": "PASS",
+      "evidence": "stale-write-results.json",
+      "screenshot": "stale-write-conflict.png"
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "action": "Create/loading/error",
+      "expected": "Admin createweak400/editable retry201; controlled delayed GET/loading and500/error boundaries",
+      "observed": "Admin createweak400/editable retry201; controlled delayed GET/loading and500/error boundaries",
+      "result": "PASS",
+      "evidence": "browser-controls.log",
+      "screenshot": "detail-error.png"
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "action": "Source consumers/locales",
+      "expected": "Generic PortalCard prefix byte-identical to final merged base1766b080b2; statrow profile-only; min-width props3profilecall sites; changedkeys in5locales",
+      "observed": "Generic PortalCard prefix byte-identical to final merged base1766b080b2; statrow profile-only; min-width props3profilecall sites; changedkeys in5locales",
+      "result": "PASS",
+      "evidence": "source-consumer-proof.txt"
+    },
+    {
+      "step": 19,
+      "priority": "P1",
+      "action": "Evidence and teardown",
+      "expected": "45PNGs verifiedCRC/inflation/dimensions/nonuniformpixels/SHA256; representative images visually reviewed; ownprocesses/DBgone,portclosed,privatefilesremoved,sourceclean",
+      "observed": "45PNGs verifiedCRC/inflation/dimensions/nonuniformpixels/SHA256; representative images visually reviewed; ownprocesses/DBgone,portclosed,privatefilesremoved,sourceclean",
+      "result": "PASS",
+      "evidence": "teardown-proof.json"
+    }
+  ],
+  "hasUiTest": true,
+  "notes": [
+    "Automated complex runtime evidence only: no manual human QA, personal technical acceptance or QA approval/signoff. Source read-only; no reviewed-branch commits, branch push or merge.",
+    "Runner: local, om-prepare-test-env managed disposable production app/PostgreSQL; authenticated cold readiness and warm reuse passed. Build/install/generate/rebuild only as runtime provisioning prerequisites; hosted CI supplies the broad eight-gate sequence.",
+    "Own fixtures used for permission, isolation, portal and stale-write checks. Native tests self-create/clean fixtures. UI changes exercised in browser; selfchange/isolation/direct refusals partly API, explicitly marked above.",
+    "No real SMTP or credentials: managed test transport captured signup/invitation/reset links. Private runtime environment, fixture identities, token captures and traces removed; tracked capture/sample restored exactly to HEAD.",
+    "Fresh harness corrections retained transparently: staff login form encoding; organization manage-view slug; module-scoped native rerun; mixed-case fixture email normalized to persisted lowercase; HTTP staff roles array corrected and refreshed, authorized reads200 verified before final negative/positive reruns; missing wrongowner displayName corrected. Initial core log has2fixture-locator failures, superseded by final profile2PASS. Initial controls log has2role-fixture failures, superseded by final permission/stale/wildcards3PASS.",
+    "Additional init-database guard/bootstrap replay was optional (repeat if needed) and was not repeated. Previous-head init evidence is trusted context, not a current-head PASS claim. Current-head actual auth setup and generated-derived HTTP authentication were independently replayed.",
+    "Unchanged generic PortalCard consumers in other modules are outside modified-component coverage; no obsolete nonempty-other-card gap is claimed. Money/stock/decimal/undo rules are inapplicable: no corresponding changed runtime surface.",
+    "Responsive layout assertions cover the portal profile. Other staff-page styling and sticky full-page screenshot stitching are not a blanket responsive-layout approval."
+  ],
+  "screenshots": {
+    "count": 45,
+    "manifest": "screenshot-manifest.json"
+  },
+  "qaApproval": false
+}
