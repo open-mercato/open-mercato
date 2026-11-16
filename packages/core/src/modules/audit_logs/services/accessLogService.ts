@@ -359,17 +359,23 @@ export class AccessLogService {
       ...query,
     })
 
+    const pageSize = parsed.pageSize ?? parsed.limit ?? 50
+    const page = parsed.page ?? 1
+
     const where: FilterQuery<AccessLog> = { deletedAt: null }
     if (parsed.tenantId) where.tenantId = parsed.tenantId
-    if (parsed.organizationId) where.organizationId = parsed.organizationId
+    if (parsed.organizationId) {
+      where.organizationId = parsed.organizationId
+    } else if (parsed.organizationIds) {
+      if (parsed.organizationIds.length === 0) return { items: [], total: 0, page, pageSize, totalPages: 1 }
+      where.organizationId = { $in: Array.from(new Set(parsed.organizationIds)) }
+    }
     if (parsed.actorUserId) where.actorUserId = parsed.actorUserId
     if (parsed.resourceKind) where.resourceKind = parsed.resourceKind
     if (parsed.accessType) where.accessType = parsed.accessType
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any
 
-    const pageSize = parsed.pageSize ?? parsed.limit ?? 50
-    const page = parsed.page ?? 1
     const offset = (page - 1) * pageSize
 
     const [items, total] = await this.em.findAndCount(
