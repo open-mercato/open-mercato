@@ -26,7 +26,9 @@ test.describe('TC-CUR-020: base currency Active checkbox is locked', () => {
     try {
       const baseRes = await apiRequest(request, 'GET', '/api/currencies/currencies?isBase=true&pageSize=1', { token });
       expect(baseRes.status()).toBe(200);
-      let baseId = ((await baseRes.json()) as { items?: Array<{ id: string }> }).items?.[0]?.id ?? null;
+      const existingBase = ((await baseRes.json()) as { items?: Array<{ id: string; isActive: boolean }> }).items?.[0];
+      if (existingBase) expect(existingBase.isActive, 'the organization base currency is active').toBe(true);
+      let baseId = existingBase?.id ?? null;
       if (!baseId) {
         const code = generateUniqueCurrencyCode();
         const created = await apiRequest(request, 'POST', '/api/currencies/currencies', {

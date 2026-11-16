@@ -157,19 +157,28 @@ describe('EditCurrencyPage', () => {
     expect((updateCrud as jest.Mock).mock.calls[0][1]).toMatchObject({ id: 'cur-1', isBase: true })
   })
 
-  it('locks the active flag on an active base currency and keeps it editable elsewhere', async () => {
+  it('keeps the active flag editable on a non-base currency', async () => {
     render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
+
     await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
     expect(findIsActiveField()?.disabled).toBeFalsy()
     expect(findIsActiveField()?.description).toBeUndefined()
+  })
 
+  it('locks the active flag on an active base currency and still submits it as active', async () => {
     ;(apiCall as jest.Mock).mockResolvedValue({
       ok: true,
       result: { items: [{ ...mockCurrency, isBase: true }] },
     })
     render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
-    await waitFor(() => expect(findIsActiveField()?.disabled).toBe(true))
+
+    await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
+    expect(findIsActiveField()?.disabled).toBe(true)
     expect(findIsActiveField()?.description).toBe('currencies.form.field.isActiveLocked')
+
+    fireEvent.click(screen.getByTestId('submit-button'))
+    await waitFor(() => expect(updateCrud).toHaveBeenCalled())
+    expect((updateCrud as jest.Mock).mock.calls[0][1]).toMatchObject({ id: 'cur-1', isActive: true })
   })
 
   it('keeps the active flag editable on a base currency that is already inactive', async () => {

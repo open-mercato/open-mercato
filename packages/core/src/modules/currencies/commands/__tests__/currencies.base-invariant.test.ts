@@ -473,7 +473,7 @@ describe('currencies base-currency invariant (exactly one live base per tenant/o
     expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       expect.stringContaining('deprecated'),
-      { currencyId: EUR_ID, tenantId: TENANT, organizationId: ORG },
+      { currencyId: EUR_ID, tenantId: TENANT, organizationId: ORG, promoted: false },
     )
     expect(rows.find((row) => row.id === EUR_ID)).toMatchObject({ isBase: true, isActive: false })
   })
@@ -485,7 +485,7 @@ describe('currencies base-currency invariant (exactly one live base per tenant/o
 
     await run(update, { id: USD_ID, isBase: true, isActive: false }, ctx)
     expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
-    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ currencyId: USD_ID })
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ currencyId: USD_ID, promoted: true })
   })
 
   it('does not warn for a non-base deactivation, an active base save or a re-save of an inactive base', async () => {
