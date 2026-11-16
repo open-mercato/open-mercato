@@ -149,6 +149,40 @@ describe('warnOnCiphertextLikeFallback', () => {
     expect(loggerModule.__warn.mock.calls[0][1].hint).toContain('OM_SEARCH_MIN_LEN')
   })
 
+  it('reports development diagnostics on every request while logging only once', async () => {
+    const onDiagnostic = jest.fn()
+    const service = createService(['email'])
+    const params = {
+      entity: 'auth:user', fields: ['email'], tenantId: 'tenant-1',
+      reason: 'no-search-tokens' as const, service, onDiagnostic,
+    }
+    await warnOnCiphertextLikeFallback(params)
+    await warnOnCiphertextLikeFallback(params)
+    expect(onDiagnostic).toHaveBeenCalledTimes(2)
+    expect(loggerModule.__warn).toHaveBeenCalledTimes(1)
+    expect(onDiagnostic.mock.calls[0][0]).toEqual({
+      entity: 'auth:user', field: 'email', reason: 'no-search-tokens',
+      hint: expect.stringContaining('query_index'),
+    })
+    expect(JSON.stringify(onDiagnostic.mock.calls)).not.toContain('tenant-1')
+  })
+
+  it('does not collect response diagnostics in production', async () => {
+    const originalEnvironment = process.env.NODE_ENV
+    process.env.NODE_ENV = 'production'
+    try {
+      const onDiagnostic = jest.fn()
+      await warnOnCiphertextLikeFallback({
+        entity: 'auth:user', fields: ['email'], tenantId: 'tenant-1',
+        reason: 'no-search-tokens', service: createService(['email']), onDiagnostic,
+      })
+      expect(onDiagnostic).not.toHaveBeenCalled()
+      expect(loggerModule.__warn).toHaveBeenCalledTimes(1)
+    } finally {
+      process.env.NODE_ENV = originalEnvironment
+    }
+  })
+
   it('never rethrows when the encryption lookup fails', async () => {
     const service = {
       isEnabled: () => true,

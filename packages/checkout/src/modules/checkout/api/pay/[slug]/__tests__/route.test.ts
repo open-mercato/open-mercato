@@ -1,11 +1,16 @@
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { enforceCheckoutRateLimit } from '../../../../lib/rateLimiter'
-import { requirePreviewContext } from '../../../helpers'
+import { CheckoutLink } from '../../../../data/entities'
+import { resolveCheckoutPublicCustomFields } from '../../../../lib/customFields'
+import { serializeTemplateOrLink, signCheckoutAccessToken } from '../../../../lib/utils'
+import { readCheckoutAccessCookie, requirePreviewContext } from '../../../helpers'
 import { GET } from '../route'
 
-const LINK_ID = '11111111-1111-4111-8111-111111111111'
-const LOGO_ID = '33333333-3333-4333-8333-333333333333'
+jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
+  loadCustomFieldValues: jest.fn(),
+}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -15,85 +20,253 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
-jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
-  loadCustomFieldValues: jest.fn(async () => ({})),
-}))
-
 jest.mock('../../../../lib/customFields', () => ({
-  ...jest.requireActual('../../../../lib/customFields'),
-  resolveCheckoutPublicCustomFields: jest.fn(async () => []),
+  resolveCheckoutPublicCustomFields: jest.fn(),
 }))
 
 jest.mock('../../../../lib/rateLimiter', () => ({
-  ...jest.requireActual('../../../../lib/rateLimiter'),
-  enforceCheckoutRateLimit: jest.fn(),
+  enforceCheckoutRateLimit: jest.fn().mockResolvedValue(null),
 }))
 
 jest.mock('../../../helpers', () => ({
   ...jest.requireActual('../../../helpers'),
+  readCheckoutAccessCookie: jest.fn(),
   requirePreviewContext: jest.fn(),
 }))
 
-function link(overrides: Record<string, unknown> = {}) {
+function createLink(): CheckoutLink {
+  return Object.assign(new CheckoutLink(), {
+    id: '11111111-1111-4111-8111-111111111111',
+    tenantId: 'tenant_1',
+    organizationId: 'org_1',
+    slug: 'donate',
+    name: 'Donation',
+    title: 'Support our work',
+    status: 'active' as const,
+    pricingMode: 'fixed' as const,
+    fixedPriceAmount: '49.99',
+    fixedPriceCurrencyCode: 'USD',
+    fixedPriceIncludesTax: true,
+    fixedPriceOriginalAmount: '69.99',
+    customAmountMin: '10.00',
+    customAmountMax: '100.00',
+    customAmountCurrencyCode: 'EUR',
+    priceListItems: [{ id: 'standard', description: 'Standard', amount: 49.99, currencyCode: 'USD' }],
+    logoAttachmentId: '22222222-2222-4222-8222-222222222222',
+    logoUrl: 'https://merchant.example/logo.png',
+    gatewayProviderKey: 'mock',
+    gatewaySettings: { privateSetting: 'admin-only-value' },
+    customFieldsetCode: 'internal-fieldset',
+    customerFieldsSchema: [{ key: 'email', label: 'Email', kind: 'email', required: true }],
+    legalDocuments: { terms: { title: 'Terms', markdown: 'Terms body', required: true } },
+    displayCustomFieldsOnPage: true,
+    successTitle: 'Thank you',
+    successMessage: 'Payment received',
+    cancelTitle: 'Cancelled',
+    cancelMessage: 'Payment cancelled',
+    errorTitle: 'Try again',
+    errorMessage: 'Payment failed',
+    successEmailSubject: 'Private success subject',
+    successEmailBody: 'Private success body',
+    errorEmailSubject: 'Private error subject',
+    errorEmailBody: 'Private error body',
+    startEmailSubject: 'Private start subject',
+    startEmailBody: 'Private start body',
+    maxCompletions: 10,
+    completionCount: 2,
+    activeReservationCount: 1,
+    templateId: 'template_1',
+    isLocked: true,
+    futureAdminField: 'must never be public',
+  })
+}
+
+function expectedPublicResponse(link: CheckoutLink) {
   return {
-    id: LINK_ID,
-    slug: 'donate now',
-    name: 'Donate',
-    status: 'active',
-    passwordHash: null,
-    logoAttachmentId: LOGO_ID,
-    logoUrl: null,
-    pricingMode: 'fixed',
+    id: link.id,
+    slug: 'donate',
+    name: 'Donation',
+    title: 'Support our work',
+    subtitle: null,
+    description: null,
+    logoUrl: 'https://merchant.example/logo.png',
+    logoPreviewUrl: '/api/checkout/pay/donate/logo',
+    primaryColor: null,
+    secondaryColor: null,
+    backgroundColor: null,
     themeMode: 'auto',
-    maxCompletions: null,
-    completionCount: 0,
-    activeReservationCount: 0,
-    tenantId: '44444444-4444-4444-8444-444444444444',
-    organizationId: '55555555-5555-4555-8555-555555555555',
-    ...overrides,
+    pricingMode: 'fixed',
+    fixedPriceAmount: 49.99,
+    fixedPriceCurrencyCode: 'USD',
+    fixedPriceIncludesTax: true,
+    fixedPriceOriginalAmount: 69.99,
+    customAmountMin: 10,
+    customAmountMax: 100,
+    customAmountCurrencyCode: 'EUR',
+    priceListItems: link.priceListItems,
+    gatewayProviderKey: 'mock',
+    collectCustomerDetails: true,
+    customerFieldsSchema: link.customerFieldsSchema,
+    legalDocuments: link.legalDocuments,
+    displayCustomFieldsOnPage: true,
+    successTitle: 'Thank you',
+    successMessage: 'Payment received',
+    cancelTitle: 'Cancelled',
+    cancelMessage: 'Payment cancelled',
+    errorTitle: 'Try again',
+    errorMessage: 'Payment failed',
+    status: link.status,
+    checkoutType: 'pay_link',
+    publicCustomFields: [{ key: 'campaign', label: 'Campaign', value: 'Community', kind: 'text', multi: false }],
+    available: true,
+    remainingUses: 7,
+    requiresPassword: false,
+    preview: false,
   }
 }
 
-async function readPayload(query = '') {
-  const response = await GET(
-    new Request(`https://merchant.example/api/checkout/pay/donate%20now${query}`),
-    { params: { slug: 'donate now' } },
-  )
-  expect(response.status).toBe(200)
-  return response.json() as Promise<{ logoPreviewUrl: string | null }>
+function readPayPage(query = '') {
+  return GET(new Request(`https://merchant.example/api/checkout/pay/donate${query}`), {
+    params: Promise.resolve({ slug: 'donate' }),
+  })
 }
 
-describe('GET /api/checkout/pay/[slug] logo URL', () => {
+describe('GET /api/checkout/pay/[slug] public response', () => {
+  const originalAuthSecret = process.env.AUTH_SECRET
+  let link: ReturnType<typeof createLink>
+
   beforeEach(() => {
     jest.clearAllMocks()
-    jest.mocked(enforceCheckoutRateLimit).mockResolvedValue(null)
-    jest.mocked(requirePreviewContext).mockResolvedValue({} as never)
-    jest.mocked(createRequestContainer).mockResolvedValue({ resolve: () => ({}) } as never)
+    process.env.AUTH_SECRET = 'checkout-public-response-test-secret'
+    link = createLink()
+    jest.mocked(createRequestContainer).mockResolvedValue({
+      resolve: () => ({}),
+    } as Awaited<ReturnType<typeof createRequestContainer>>)
+    jest.mocked(findOneWithDecryption).mockResolvedValue(link)
+    jest.mocked(loadCustomFieldValues).mockResolvedValue({ [link.id]: {} })
+    jest.mocked(resolveCheckoutPublicCustomFields).mockResolvedValue([
+      { key: 'campaign', label: 'Campaign', value: 'Community', kind: 'text', multi: false },
+    ])
+    jest.mocked(readCheckoutAccessCookie).mockReturnValue(null)
+    jest.mocked(requirePreviewContext).mockResolvedValue({
+      auth: { sub: 'viewer', tenantId: link.tenantId, orgId: link.organizationId },
+      container: { resolve: () => ({}) },
+    } as Awaited<ReturnType<typeof requirePreviewContext>>)
   })
 
-  it('points an anonymous visitor at the public logo route, not the authenticated attachments routes', async () => {
-    jest.mocked(findOneWithDecryption).mockResolvedValue(link() as never)
-
-    const payload = await readPayload()
-
-    expect(payload.logoPreviewUrl).toBe('/api/checkout/pay/donate%20now/logo')
+  afterAll(() => {
+    if (originalAuthSecret === undefined) delete process.env.AUTH_SECRET
+    else process.env.AUTH_SECRET = originalAuthSecret
   })
 
-  it('keeps the preview flag on the logo URL of a preview', async () => {
-    jest.mocked(findOneWithDecryption).mockResolvedValue(link({ status: 'draft' }) as never)
+  it('returns only the public allowlist for an unauthenticated payer', async () => {
+    const response = await readPayPage()
 
-    const payload = await readPayload('?preview=true')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(expectedPublicResponse(link))
+  })
 
-    expect(payload.logoPreviewUrl).toBe('/api/checkout/pay/donate%20now/logo?preview=true')
+  it('keeps the password challenge minimal and does not load custom fields', async () => {
+    link.passwordHash = 'password-session-version'
+
+    const response = await readPayPage()
+
+    expect(await response.json()).toEqual({ requiresPassword: true, title: 'Support our work' })
+    expect(loadCustomFieldValues).not.toHaveBeenCalled()
+    expect(resolveCheckoutPublicCustomFields).not.toHaveBeenCalled()
+  })
+
+  it('returns the same public allowlist after password verification', async () => {
+    link.passwordHash = 'password-session-version'
+    jest.mocked(readCheckoutAccessCookie).mockReturnValue(signCheckoutAccessToken(link.slug, {
+      linkId: link.id,
+      sessionVersion: link.passwordHash,
+    }))
+
+    const response = await readPayPage()
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(expectedPublicResponse(link))
+  })
+
+  it('does not accept a password session for a different slug', async () => {
+    link.passwordHash = 'password-session-version'
+    jest.mocked(readCheckoutAccessCookie).mockReturnValue(signCheckoutAccessToken('other-link', {
+      linkId: link.id,
+      sessionVersion: link.passwordHash,
+    }))
+
+    const response = await readPayPage()
+
+    expect(await response.json()).toEqual({ requiresPassword: true, title: 'Support our work' })
+  })
+
+  it('uses the public allowlist for authorized draft previews with payments disabled', async () => {
+    link.status = 'draft'
+    link.passwordHash = 'password-session-version'
+
+    const response = await readPayPage('?preview=true')
+
+    expect(requirePreviewContext).toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      ...expectedPublicResponse(link),
+      logoPreviewUrl: '/api/checkout/pay/donate/logo?preview=true',
+      available: false,
+      preview: true,
+    })
   })
 
   it('falls back to the external logo URL when no logo attachment is set', async () => {
-    jest.mocked(findOneWithDecryption).mockResolvedValue(
-      link({ logoAttachmentId: null, logoUrl: 'https://cdn.example/logo.png' }) as never,
-    )
+    link.logoAttachmentId = null
+    link.logoUrl = 'https://merchant.example/logo.png'
 
-    const payload = await readPayload()
+    const response = await readPayPage()
 
-    expect(payload.logoPreviewUrl).toBe('https://cdn.example/logo.png')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      logoPreviewUrl: 'https://merchant.example/logo.png',
+    })
+  })
+
+  it('still requires admin authorization for previews', async () => {
+    jest.mocked(requirePreviewContext).mockRejectedValue(new CrudHttpError(401, { error: 'Unauthorized' }))
+
+    const response = await readPayPage('?preview=true')
+
+    expect(response.status).toBe(401)
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('preserves unlimited availability without exposing raw usage counters', async () => {
+    link.maxCompletions = null
+
+    const response = await readPayPage()
+
+    expect(await response.json()).toEqual({ ...expectedPublicResponse(link), remainingUses: null })
+  })
+
+  it('keeps email and management fields in the administrative serializer', () => {
+    expect(serializeTemplateOrLink(link)).toMatchObject({
+      successEmailSubject: link.successEmailSubject,
+      successEmailBody: link.successEmailBody,
+      errorEmailSubject: link.errorEmailSubject,
+      errorEmailBody: link.errorEmailBody,
+      startEmailSubject: link.startEmailSubject,
+      startEmailBody: link.startEmailBody,
+      sendSuccessEmail: true,
+      sendErrorEmail: true,
+      sendStartEmail: true,
+      gatewaySettings: link.gatewaySettings,
+      logoAttachmentId: link.logoAttachmentId,
+      customFieldsetCode: link.customFieldsetCode,
+      templateId: link.templateId,
+      maxCompletions: 10,
+      completionCount: 2,
+      activeReservationCount: 1,
+      isLocked: true,
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+    })
   })
 })

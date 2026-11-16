@@ -1,3 +1,7 @@
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { assertAttachmentStoragePartitionExists } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
+import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../../../../lib/access-runner'
+import { attachmentAccessErrorResponse } from '../../../../lib/access-errors'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -25,7 +29,7 @@ export const metadata = {
   GET: { requireAuth: false },
 }
 
-export async function GET(
+async function readAttachmentImage(
   req: NextRequest,
   context: { params: Promise<{ id: string; slug?: string[] | undefined }> }
 ) {
@@ -61,17 +65,17 @@ export async function GET(
   if (!attachment) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
-  if (!canRenderInlineAttachment(attachment.mimeType)) {
-    return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
-  }
   const partition = await em.findOne(AttachmentPartition, { code: attachment.partitionCode })
+  assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json({ error: 'Partition misconfigured' }, { status: 500 })
   }
-  const access = checkAttachmentAccess(scopedAuth, attachment, partition)
-  if (!access.ok) {
-    const message = access.status === 401 ? 'Unauthorized' : 'Forbidden'
-    return NextResponse.json({ error: message }, { status: access.status })
+  const access = await evaluateAttachmentAccess({
+    auth: scopedAuth, attachment, partition, action: 'render', context: createAttachmentAccessContext(container),
+  })
+  if (!access.ok) return attachmentAccessErrorResponse(access)
+  if (!canRenderInlineAttachment(attachment.mimeType)) {
+    return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
   }
 
   const driver = await storageDriverFactory.resolveForPartition(attachment.partitionCode, {
@@ -92,7 +96,7 @@ export async function GET(
     return new NextResponse(responseBody, {
       headers: {
         'Content-Type': attachment.mimeType || 'image/jpeg',
-        'Cache-Control': partition.isPublic ? 'public, max-age=3600' : 'private, max-age=60',
+        'Cache-Control': access.protected ? 'private, no-store' : checkAttachmentAccess(null, attachment, partition).ok ? 'public, max-age=3600' : 'private, max-age=60',
         'X-Content-Type-Options': 'nosniff',
       },
     })
@@ -101,6 +105,8 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to render image' }, { status: 500 })
   }
 }
+
+export const GET = withAttachmentStorageErrors(readAttachmentImage)
 
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
@@ -117,12 +123,14 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         { status: 400, description: 'Invalid parameters, missing ID, or non-image attachment', schema: attachmentErrorSchema },
         { status: 401, description: 'Unauthorized - authentication required for private partitions', schema: attachmentErrorSchema },
         { status: 403, description: 'Forbidden - insufficient permissions', schema: attachmentErrorSchema },
         { status: 404, description: 'Image not found', schema: attachmentErrorSchema },
         { status: 422, description: 'Stored image cannot be decoded', schema: attachmentErrorSchema },
         { status: 500, description: 'Partition misconfigured or image rendering failed', schema: attachmentErrorSchema },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },

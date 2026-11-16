@@ -1,0 +1,24 @@
+# Groups GitHub's generated release notes — the fallback changelog entry the Release workflow
+# writes when a line has no hand-written `# X.Y.Z` or `# Unreleased` section (CONTRIBUTING.md
+# § Releasing). Every PR carries a category label; that label decides its section here.
+changelog:
+  exclude:
+    labels: [skip-changelog]
+    authors:
+      - dependabot
+      - 'dependabot[bot]'
+      - github-actions
+      - 'github-actions[bot]'
+  categories:
+    - title: ✨ Features
+      labels: [feature]
+    - title: 🔒 Security
+      labels: [security]
+    - title: 🐛 Fixes
+      labels: [bug]
+    - title: 🏢 Enterprise
+      labels: [enterprise]
+    - title: 🧹 Maintenance
+      labels: [refactor, dependencies, documentation]
+    - title: Other changes
+      labels: ['*']

@@ -192,7 +192,7 @@ function productUomCrossFieldRefinement(
 // Base schema without refinements (used for .partial() in update schema)
 const productBaseSchema = scoped.extend({
   title: z.string().trim().min(1).max(255),
-  subtitle: z.string().trim().max(255).optional(),
+  subtitle: z.string().trim().max(255).nullable().optional(),
   description: z.string().trim().max(4000).optional(),
   sku: skuSchema.nullable().optional(),
   handle: handleSchema.optional(),
@@ -473,6 +473,9 @@ export const priceKindUpdateSchema = z
     id: uuid(),
   })
   .merge(priceKindCreateSchema.partial())
+  .extend({
+    displayMode: priceDisplayModeSchema.optional(),
+  })
 
 // Base schema without refinements (used for .partial() in the update schema).
 const priceBaseSchema = scoped.extend({

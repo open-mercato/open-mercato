@@ -1,14 +1,19 @@
+const UNIQUE_VIOLATION_MESSAGE = /duplicate key value violates unique constraint/i
+
 /**
  * Detect a Postgres unique-constraint violation (SQLSTATE 23505) regardless of
  * the ORM/driver layer that surfaces it. Shared across modules so duplicate-insert
- * handling stays consistent platform-wide.
+ * handling stays consistent platform-wide. Callers answer 409 on a match, so only
+ * DB signals count: the SQLSTATE, MikroORM's exception name, or the exact
+ * Postgres message for drivers that drop both — never an arbitrary error that
+ * merely mentions a "unique constraint".
  */
 export function isUniqueViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const code = (err as { code?: string }).code
-  if (code === '23505') return true // Postgres unique_violation
-  const message = (err as { message?: string }).message
-  return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
+  return pgErrorCandidates(err).some((candidate) => {
+    if (candidate.code === '23505') return true // Postgres unique_violation
+    if (candidate.name === 'UniqueConstraintViolationException') return true
+    return typeof candidate.message === 'string' && UNIQUE_VIOLATION_MESSAGE.test(candidate.message)
+  })
 }
 
 const FOREIGN_KEY_VIOLATION_MESSAGE = /violates foreign key constraint(?: "([^"]+)")?/i
@@ -147,4 +152,39 @@ export function isTransientDbError(err: unknown): boolean {
     return true
   }
   return false
+}
+
+/**
+ * SQLSTATEs that end a lock transaction early but say nothing about the data it
+ * would have written, so the work can be retried: lock_not_available (55P03,
+ * raised by `DB_LOCK_TIMEOUT_MS`), query_canceled (57014, raised by the opt-in
+ * `DB_STATEMENT_TIMEOUT_MS`) and idle_in_transaction_session_timeout (25P03).
+ */
+const TRANSIENT_LOCK_SQLSTATES = new Set(['55P03', '57014', '25P03'])
+
+/**
+ * Driver messages for a connection that never arrived or was lost mid-transaction:
+ * the pg-pool acquire timeout (`connectionTimeoutMillis`) and node-postgres's
+ * error for a client whose connection already failed.
+ */
+const TRANSIENT_LOCK_MESSAGE_PATTERNS = [
+  /timeout exceeded when trying to connect/i,
+  /client has encountered a connection error and is not queryable/i,
+]
+
+/**
+ * @internal Detect a transient failure of a short lock transaction: everything
+ * `isTransientDbError` matches, plus lock, statement and idle-in-transaction
+ * timeouts, the pg-pool acquire timeout and node-postgres's "not queryable"
+ * error. Checks every layer of the driver-error wrapper chain (`cause` /
+ * `previous`, see `pgErrorCandidates`). `isTransientDbError` keeps its narrower
+ * scope because its callers answer 503 "service unavailable".
+ */
+export function isTransientLockDbError(err: unknown): boolean {
+  return pgErrorCandidates(err).some((candidate) => {
+    if (isTransientDbError(candidate)) return true
+    if (typeof candidate.code === 'string' && TRANSIENT_LOCK_SQLSTATES.has(candidate.code)) return true
+    const message = candidate.message
+    return typeof message === 'string' && TRANSIENT_LOCK_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))
+  })
 }

@@ -79,7 +79,8 @@
     },
     "initialize": {
       "cache": false,
-      "outputs": []
+      "outputs": [],
+      "passThroughEnv": ["OM_INIT_DEV_AUTOSTART"]
     },
     "seed:defaults": {
       "cache": false,

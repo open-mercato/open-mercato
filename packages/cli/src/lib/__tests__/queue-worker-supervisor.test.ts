@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import type { ChildProcess } from 'node:child_process'
+import { ChildProcess } from 'node:child_process'
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
 import {
   startLazyWorkerSupervisor,
@@ -201,6 +201,150 @@ describe('startLazyWorkerSupervisor', () => {
 
     await handle.close()
     expect((child as any).kill).toHaveBeenCalledWith('SIGTERM')
+  })
+
+  it.each(['shared', 'per-queue'] as const)(
+    'waits once per child for deferred exits in %s mode across repeated lifecycles',
+    async (spawnMode) => {
+      for (let cycle = 0; cycle < 3; cycle += 1) {
+        const children: ChildProcess[] = []
+        const spawnFn = jest.fn(() => {
+          const child = new ChildProcess()
+          jest.spyOn(child, 'kill').mockReturnValue(true)
+          children.push(child)
+          return child
+        })
+        const queueNames = Array.from({ length: 12 }, (_, index) => `queue-${index}`)
+        const onChildExit = jest.fn()
+        const handle = startLazyWorkerSupervisor({
+          mercatoBin: '/tmp/mercato',
+          appDir: '/tmp/app',
+          runtimeEnv: {},
+          workers: queueNames.map((queueName) => makeWorker(queueName)),
+          pollMs: 250,
+          restartOnUnexpectedExit: true,
+          spawnMode,
+          spawnFn,
+          probeFn: async (queueName, strategy) => readyProbe(queueName, strategy),
+          logger: silentLogger,
+          onChildExit,
+        })
+
+        await flushAsync(20)
+        expect(children).toHaveLength(spawnMode === 'shared' ? 1 : 12)
+        for (const queueName of queueNames) {
+          expect(handle.getActiveChild(queueName)).toBeDefined()
+        }
+        let closed = false
+        const closing = Promise.all([handle.close(), handle.close(), handle.done]).then(() => {
+          closed = true
+        })
+        try {
+          for (const child of children) {
+            expect(child.listenerCount('exit')).toBe(2)
+            expect(child.kill).toHaveBeenCalledTimes(1)
+            expect(child.kill).toHaveBeenCalledWith('SIGTERM')
+          }
+          await flushAsync(20)
+          expect(closed).toBe(false)
+          for (const child of children.slice(0, -1)) {
+            child.emit('exit', 0, null)
+          }
+          await flushAsync(20)
+          expect(closed).toBe(false)
+        } finally {
+          for (const child of children) {
+            if (child.listenerCount('exit') > 1) child.emit('exit', 0, null)
+          }
+          await closing
+        }
+        expect(closed).toBe(true)
+        expect(onChildExit).toHaveBeenCalledTimes(12)
+        expect(handle.startedQueues.size).toBe(12)
+        for (const queueName of queueNames) {
+          expect(handle.getActiveChild(queueName)).toBeUndefined()
+        }
+        await handle.close()
+        for (const child of children) {
+          expect(child.listenerCount('exit')).toBe(1)
+          expect(child.kill).toHaveBeenCalledTimes(1)
+        }
+        expect(spawnFn).toHaveBeenCalledTimes(spawnMode === 'shared' ? 1 : 12)
+      }
+    },
+  )
+
+  it.each([
+    { exitCode: 0, signalCode: null },
+    { exitCode: null, signalCode: 'SIGTERM' },
+  ])('does not wait for an already-exited shared child (%j)', async (exitState) => {
+    const child = new ChildProcess()
+    const kill = jest.spyOn(child, 'kill').mockReturnValue(true)
+    const handle = startLazyWorkerSupervisor({
+      mercatoBin: '/tmp/mercato',
+      appDir: '/tmp/app',
+      runtimeEnv: {},
+      workers: Array.from({ length: 12 }, (_, index) => makeWorker(`queue-${index}`)),
+      pollMs: 250,
+      restartOnUnexpectedExit: false,
+      spawnMode: 'shared',
+      spawnFn: () => child,
+      probeFn: async (queueName, strategy) => readyProbe(queueName, strategy),
+      logger: silentLogger,
+    })
+    await flushAsync(20)
+    Object.assign(child, exitState)
+
+    await handle.close()
+    await handle.done
+    expect(child.listenerCount('exit')).toBe(1)
+    expect(kill).toHaveBeenCalledTimes(1)
+    expect(handle.getActiveChild('queue-0')).toBeUndefined()
+  })
+
+  it('keeps shutdown waiters bounded after repeated unexpected shared-worker restarts', async () => {
+    const children: ChildProcess[] = []
+    const spawnFn = jest.fn(() => {
+      const child = new ChildProcess()
+      jest.spyOn(child, 'kill').mockReturnValue(true)
+      children.push(child)
+      return child
+    })
+    const handle = startLazyWorkerSupervisor({
+      mercatoBin: '/tmp/mercato',
+      appDir: '/tmp/app',
+      runtimeEnv: {},
+      workers: Array.from({ length: 12 }, (_, index) => makeWorker(`queue-${index}`)),
+      pollMs: 250,
+      restartOnUnexpectedExit: true,
+      spawnMode: 'shared',
+      spawnFn,
+      probeFn: async (queueName, strategy) => readyProbe(queueName, strategy),
+      logger: silentLogger,
+    })
+    await flushAsync(40)
+    for (const restart of [0, 1, 2]) {
+      const child = children[restart]
+      expect(child.listenerCount('exit')).toBe(1)
+      Object.assign(child, { exitCode: 1 })
+      child.emit('exit', 1, null)
+      await flushAsync(100)
+      expect(spawnFn).toHaveBeenCalledTimes(restart + 2)
+      expect(child.kill).not.toHaveBeenCalled()
+      expect(handle.getActiveChild('queue-0')).toBe(children[restart + 1])
+    }
+    const lastChild = children[3]
+    const closing = handle.close()
+    try {
+      expect(lastChild.listenerCount('exit')).toBe(2)
+      expect(lastChild.kill).toHaveBeenCalledTimes(1)
+    } finally {
+      lastChild.emit('exit', null, 'SIGTERM')
+      await closing
+    }
+    await flushAsync(40)
+    expect(spawnFn).toHaveBeenCalledTimes(4)
+    for (const child of children) expect(child.listenerCount('exit')).toBe(1)
   })
 
   it('starts the shared worker with extra arguments when an embedded scheduler needs it', async () => {

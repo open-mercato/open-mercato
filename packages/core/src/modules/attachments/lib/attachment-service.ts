@@ -1,3 +1,5 @@
+import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
+import { throwAttachmentAccessError } from './access-errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -17,6 +19,12 @@ import {
 } from './scoped-upload-service'
 import { readAttachmentMetadata, type AttachmentAssignment } from './metadata'
 import { resolveDefaultPartitionCode } from './partitions'
+import {
+  listAttachmentStorageReferences,
+  lockAttachmentStorageReferences,
+  removeAttachmentRecord,
+  resolveAttachmentStorageRelease,
+} from './storageReferences'
 import {
   buildAttachmentContentDisposition,
   canRenderInlineAttachment,
@@ -210,6 +218,16 @@ export interface AttachmentService {
   createScoped(input: CreateScopedAttachmentInput): Promise<CreatedScopedAttachment>
   readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult>
   readScopedForOwner?(input: ReadScopedAttachmentForOwnerInput): Promise<ReadScopedAttachmentResult>
+  /**
+   * Permanently deletes an attachment row and its stored object once no other row references it.
+   *
+   * With `{ flush: false }` call it inside your own transaction and run the returned cleanup after
+   * commit; `undefined` means another row still references the stored object.
+   *
+   * @deprecated Calling it with `{ flush: false }` outside a transaction. It still works for one
+   * minor version but logs a warning, and its reference check is not locked, so two racing releases
+   * of rows sharing the stored object keep it. Wrap the call in a transaction instead.
+   */
   releaseScoped?(
     input: ReleaseScopedAttachmentInput,
     options?: { em?: EntityManager; flush?: boolean },
@@ -274,6 +292,7 @@ export class DefaultAttachmentService implements AttachmentService {
     private readonly em: EntityManager,
     private readonly storageDriverFactory: StorageDriverFactory,
     private readonly resolveScopedUploadService?: (() => ScopedAttachmentUploadService | null) | null,
+    private readonly resolveAccessContext?: (() => AttachmentAccessContext) | null,
   ) {}
 
   validateUpload(input: {
@@ -393,10 +412,11 @@ export class DefaultAttachmentService implements AttachmentService {
     )
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
 
-    const access = checkAttachmentAccess(input.auth, attachment, partition, { requireAuthForPublic: true })
-    if (!access.ok) {
-      throw new CrudHttpError(access.status, { error: access.status === 401 ? 'Unauthorized' : 'Forbidden' })
-    }
+    const access = await evaluateAttachmentAccess({
+      auth: input.auth, attachment, partition, action: 'read',
+      context: this.resolveAccessContext?.(), requireAuthForPublic: true,
+    })
+    if (!access.ok) await throwAttachmentAccessError(access.status)
     if (!partitionMatchesScope(partition, input.auth.tenantId, input.auth.orgId)) {
       throw new CrudHttpError(403, { error: 'Attachment partition is not accessible for this scope' })
     }
@@ -544,6 +564,15 @@ export class DefaultAttachmentService implements AttachmentService {
         error: 'Attachment release inside an ambient transaction requires flush: false and deferred provider cleanup',
       })
     }
+    const deferredOutsideTransaction = options.flush === false
+      && typeof isInTransaction === 'function'
+      && !isInTransaction.call(em)
+    if (deferredOutsideTransaction) {
+      logger.warn(
+        '[deprecated] attachmentService.releaseScoped({ flush: false }) called outside a transaction; wrap it in a transaction so the storage reference lock is held until commit',
+        { attachmentId: input.attachmentId },
+      )
+    }
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
     const attachment = await findOneWithDecryption(
       em,
@@ -574,11 +603,17 @@ export class DefaultAttachmentService implements AttachmentService {
 
     const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, scope)
     const deleteProviderBytes = () => driver.delete(attachment.partitionCode, attachment.storagePath)
-    em.remove(attachment)
     if (options.flush === false) {
-      return deleteProviderBytes
+      const referenceIds = deferredOutsideTransaction
+        ? await listAttachmentStorageReferences(em, attachment)
+        : await lockAttachmentStorageReferences(em, attachment)
+      const removal = resolveAttachmentStorageRelease(referenceIds, attachment.id)
+      if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
+      em.remove(attachment)
+      return removal.releaseStorage ? deleteProviderBytes : undefined
     }
-    await em.flush()
-    await deleteProviderBytes()
+    const removal = await removeAttachmentRecord(em, attachment)
+    if (!removal.removed) throw new CrudHttpError(404, { error: 'Attachment not found' })
+    if (removal.releaseStorage) await deleteProviderBytes()
   }
 }

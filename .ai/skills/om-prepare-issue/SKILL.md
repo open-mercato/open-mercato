@@ -10,4 +10,4 @@ This file extends the shared `om-prepare-issue` skill from [open-mercato/skills]
 - **`--enterprise` (optional argument)**: write the spec under `.ai/specs/enterprise/` (commercial scope) instead of the default `.ai/specs/`; the spec PR then also carries the `enterprise` category label.
 - **Duplicate check**: before writing, check both `.ai/specs/` and `.ai/specs/enterprise/` for an existing spec covering the same area — extend or supersede instead of duplicating, confirming direction with the user. Scan `.ai/lessons.md` by the task's module/area/topic tags and open only matching lesson records.
 - **Spec methodology**: the repo-local `om-spec-writing` skill (`.ai/skills/om-spec-writing/SKILL.md`) applies in full, including the compliance-review gate and OM spec template.
-- **Tracking issue**: state the pickup path — `/om-implement-spec` for the spec implementation (or `/om-auto-fix-issue` for a scoped bug), actionable only after the spec PR is merged into `develop`.
+- **Tracking issue**: state the pickup path — `/om-implement-spec` for the spec implementation (or `/om-auto-fix-issue` for a scoped bug), actionable only after the spec PR is merged into `main`.
