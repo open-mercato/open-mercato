@@ -1,0 +1,7 @@
+missing primary: exit=1 tables=0
+placeholder primary: exit=1 tables=0
+weak primary: exit=1 tables=0
+weak primary skip alias: exit=1 tables=0
+weak primary allow alias: exit=1 tables=0
+production compliant init: exit=0;3policy-compliant credentials match persisted hashes
+additional owned database removed=true
