@@ -1,0 +1,30 @@
+{
+  "customer_accounts.customer_accounts.admin.detail.resetPassword.error.validation": {
+    "en": "Check the password requirements and try again.",
+    "pl": "Sprawdź wymagania dotyczące hasła i spróbuj ponownie.",
+    "es": "Revisa los requisitos de la contraseña e inténtalo de nuevo.",
+    "de": "Prüfen Sie die Passwortanforderungen und versuchen Sie es erneut.",
+    "ko": "비밀번호 요구 사항을 확인한 후 다시 시도해 주세요."
+  },
+  "portal.portal.password.error.policy": {
+    "en": "Check the password requirements and your details, then try again.",
+    "pl": "Sprawdź wymagania dotyczące hasła oraz wprowadzone dane i spróbuj ponownie.",
+    "es": "Revisa los requisitos de la contraseña y tus datos e inténtalo de nuevo.",
+    "de": "Prüfen Sie die Passwortanforderungen und Ihre Angaben und versuchen Sie es erneut.",
+    "ko": "비밀번호 요구 사항과 입력한 정보를 확인한 후 다시 시도하세요."
+  },
+  "portal.portal.profile.featuresCount": {
+    "en": "{count} features",
+    "pl": "Uprawnienia: {count}",
+    "es": "{count} permisos",
+    "de": "{count} Berechtigungen",
+    "ko": "권한 {count}개"
+  },
+  "portal.portal.profile.rolesAssigned": {
+    "en": "{count} assigned",
+    "pl": "Przypisane role: {count}",
+    "es": "{count} asignados",
+    "de": "{count} zugewiesen",
+    "ko": "할당된 역할 {count}개"
+  }
+}
