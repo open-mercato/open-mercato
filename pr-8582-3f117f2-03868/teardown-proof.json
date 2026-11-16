@@ -1,0 +1,20 @@
+{
+  "recordedPids": [
+    3500085,
+    3539718,
+    3499994
+  ],
+  "recordedPidsRemaining": [],
+  "recordedContainers": [
+    "ba79f9f5b03a",
+    "5e082ebcb153",
+    "b685ebd7fa47"
+  ],
+  "recordedContainersRemaining": [],
+  "runnerStateRemoved": true,
+  "privateFixtureAndEnvironmentFilesRemoved": true,
+  "runtimeEmailCaptureRestoredToHEAD": true,
+  "sourceClean": true,
+  "additionalInitDatabaseRemoved": true,
+  "browserContextsClosedInFinally": true
+}
