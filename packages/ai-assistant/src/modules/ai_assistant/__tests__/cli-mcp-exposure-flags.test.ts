@@ -157,6 +157,39 @@ describe('MCP exposure CLI flags', () => {
       expect(process.exitCode).toBe(1)
       expect(printedLines(errorSpy).join('\n')).toContain('Invalid --mutation-mode (missing value)')
     })
+
+    it('refuses to start on an invalid OM_MCP_MUTATION_MODE', async () => {
+      process.env.OM_MCP_MUTATION_MODE = 'aproval'
+
+      await getCommand('mcp:serve-http').run(['--port', '4001'])
+
+      expect(mockRunMcpHttpServer).not.toHaveBeenCalled()
+      expect(process.exitCode).toBe(1)
+      const output = printedLines(errorSpy).join('\n')
+      expect(output).toContain('Invalid OM_MCP_MUTATION_MODE "aproval"')
+      expect(output).toContain('direct, deny, approval')
+    })
+
+    it('starts when a valid --mutation-mode overrides an invalid env value', async () => {
+      process.env.OM_MCP_MUTATION_MODE = 'aproval'
+
+      await getCommand('mcp:serve-http').run(['--port', '4001', '--mutation-mode', 'approval'])
+
+      expect(mockRunMcpHttpServer).toHaveBeenCalledWith(
+        expect.objectContaining({ cliArgs: { 'mutation-mode': 'approval' } }),
+      )
+    })
+  })
+
+  describe('mcp:dev', () => {
+    it('refuses to start on an invalid OM_MCP_MUTATION_MODE', async () => {
+      process.env.OM_MCP_MUTATION_MODE = 'yolo'
+
+      await getCommand('mcp:dev').run([])
+
+      expect(process.exitCode).toBe(1)
+      expect(printedLines(errorSpy).join('\n')).toContain('Invalid OM_MCP_MUTATION_MODE "yolo"')
+    })
   })
 
   describe('mcp:list-tools', () => {
@@ -212,13 +245,14 @@ describe('MCP exposure CLI flags', () => {
       expect(output).not.toContain('omk_bad.secret')
     })
 
-    it('warns about an invalid env mutation mode', async () => {
+    it('refuses an invalid env mutation mode', async () => {
       process.env.OM_MCP_MUTATION_MODE = 'yolo'
 
       await getCommand('mcp:list-tools').run(['--effective'])
 
+      expect(process.exitCode).toBe(1)
       expect(printedLines(errorSpy).join('\n')).toContain('Invalid OM_MCP_MUTATION_MODE "yolo"')
-      expect(printedLines(logSpy).join('\n')).toContain('Effective MCP Tools (3 of 3)')
+      expect(mockLoadAllModuleTools).not.toHaveBeenCalled()
     })
 
     it('rejects an invalid mutation mode with --effective', async () => {

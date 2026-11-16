@@ -9,7 +9,7 @@ import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
 import {
-  collectMcpExposureWarnings,
+  assertValidMcpExposureConfig,
   buildDirectMutationModeWarning,
   describeMcpExposureConfig,
   filterToolsForCaller,
@@ -267,6 +267,7 @@ export type McpDevServerOptions = {
 }
 
 export async function runMcpDevServer(options: McpDevServerOptions = {}): Promise<void> {
+  if (!options.exposureConfig) assertValidMcpExposureConfig(process.env, options.cliArgs ?? {})
   const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
   const apiKey = await getApiKeyFromMcpJson()
   const port = parseInt(process.env.MCP_DEV_PORT ?? '', 10) || DEFAULT_PORT
@@ -329,9 +330,6 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
     'MCP exposure config:',
     JSON.stringify(describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())))
   )
-  for (const warning of collectMcpExposureWarnings(process.env)) {
-    logger.warn(warning)
-  }
   const directMutationWarning = buildDirectMutationModeWarning(
     exposureConfig,
     Array.from(getToolRegistry().getTools().values()),

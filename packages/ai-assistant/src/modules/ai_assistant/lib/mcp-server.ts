@@ -19,7 +19,7 @@ import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest } from './auth'
 import {
-  collectMcpExposureWarnings,
+  assertValidMcpExposureConfig,
   buildDirectMutationModeWarning,
   describeMcpExposureConfig,
   filterToolsForCaller,
@@ -290,6 +290,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
  * 2. Manual context: Provide `context` with tenant/org/user
  */
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
+  if (!options.exposureConfig) assertValidMcpExposureConfig(process.env, options.cliArgs ?? {})
   // Generate entity graph for Code Mode search tool
   try {
     const { extractEntityGraph, cacheEntityGraph } = await import('./entity-graph')
@@ -347,9 +348,6 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
       describeMcpExposureConfig(exposureConfig, Array.from(getToolRegistry().getTools().values())),
     )}`
   )
-  for (const warning of collectMcpExposureWarnings(process.env)) {
-    writeStderrLine(`[MCP Server] WARN ${warning}`)
-  }
   const directMutationWarning = buildDirectMutationModeWarning(
     exposureConfig,
     Array.from(getToolRegistry().getTools().values()),

@@ -370,7 +370,7 @@ The exposure config decides which registered tools a server offers at all, befor
 | Mutation mode | `--mutation-mode direct\|deny\|approval` | `OM_MCP_MUTATION_MODE` | `direct` |
 | Include tools that wrap AI agents | `--no-agent-tools` (hides them) | `OM_MCP_AGENT_TOOLS` (boolean) | `true` |
 
-Precedence per setting: CLI flag, then env var, then default. The flags are accepted by `mcp:serve` and `mcp:serve-http`; `mcp:dev` reads the env vars only. An invalid `--mutation-mode` refuses to start; an invalid `OM_MCP_MUTATION_MODE` falls back to `direct` and logs a warning.
+Precedence per setting: CLI flag, then env var, then default. The flags are accepted by `mcp:serve` and `mcp:serve-http`; `mcp:dev` reads the env vars only. An invalid `--mutation-mode` or `OM_MCP_MUTATION_MODE` refuses to start the server, so a typo can never silently turn approval off. Code that reads the env var without starting a server (the `/api/ai_assistant/tools` view, the pending-action re-check) treats an invalid value as `deny`.
 
 A tool is exposed when all of these hold:
 

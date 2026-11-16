@@ -20,7 +20,7 @@ import {
   type AgentToolAuditIds,
 } from './mcp-agent-tool-results'
 import {
-  collectMcpExposureWarnings,
+  assertValidMcpExposureConfig,
   filterToolsForCaller,
   isToolExposed,
   buildDirectMutationModeWarning,
@@ -752,9 +752,6 @@ export function createMcpHttpRequestHandler(options: McpHttpRequestHandlerOption
 
 function logExposureConfig(exposureConfig: McpExposureConfig): void {
   logger.info('MCP exposure config', describeMcpExposureConfig(exposureConfig, listRegistryTools()))
-  for (const warning of collectMcpExposureWarnings(process.env)) {
-    logger.warn(warning)
-  }
   const directMutationWarning = buildDirectMutationModeWarning(exposureConfig, listRegistryTools())
   if (directMutationWarning) {
     logger.warn(directMutationWarning)
@@ -769,6 +766,7 @@ function logExposureConfig(exposureConfig: McpExposureConfig): void {
  */
 export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<void> {
   const { config, container, port } = options
+  if (!options.exposureConfig) assertValidMcpExposureConfig(process.env, options.cliArgs ?? {})
   const exposureConfig = options.exposureConfig ?? resolveMcpExposureConfig(process.env, options.cliArgs ?? {})
   const host = resolveMcpHost(options.host, undefined)
 

@@ -1643,6 +1643,14 @@ Specs: the [agent platform roadmap](.ai/specs/2026-10-21-agent-platform-capabili
 
 **Search: `filterResults` visibility hook and caller-filtered section hits.** `SearchEntityConfig.filterResults(ctx)` (optional, `@open-mercato/shared`) and `SearchOptions.viewer` (`{ auth, container }`) are additive. For an entity that declares the hook, `SearchService` drops all of its results when no `viewer` is passed or the hook throws (fail closed). `/api/search/search` and `/api/search/search/global` pass the viewer. `attachments:attachment_document_section` declares the hook: section hits are filtered by the same rule as opening the file (including owner resolvers). **Behaviour change:** `searchService.search()` callers without a `viewer` (AI search tools, CLI, agent retrieval, catalog merchandising) no longer receive section hits — use `attachments.get_document_sections`. Filtering runs after the strategy limit, so a page can come back shorter than requested. **Action for custom code:** pass `viewer` when searching on behalf of a user.
 
+### MCP: an invalid `OM_MCP_MUTATION_MODE` now refuses to start
+
+Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Exposure, audit and mutation modes".
+
+Until now, a value other than `direct`, `deny` or `approval` fell back to `direct` with a startup warning. A typo such as `OM_MCP_MUTATION_MODE=aproval` therefore turned approval off and let MCP write tools run with no human in the loop. Now `mcp:serve`, `mcp:serve-http`, `mcp:dev` and `mcp:list-tools --effective` exit with an error naming the bad value, the same way an invalid `--mutation-mode` already did. A valid `--mutation-mode` flag still overrides the env var. Code that reads the setting without starting a server (the `/api/ai_assistant/tools` view, the pending-action re-check) treats an invalid value as `deny`. `collectMcpExposureWarnings` is deprecated in favour of `findMcpExposureConfigError` / `assertValidMcpExposureConfig`.
+
+**Action:** before upgrading, check that `OM_MCP_MUTATION_MODE` is unset or one of `direct`, `deny`, `approval` on every host that runs an MCP server.
+
 ### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
 
 The staff time-tracking settings gain a new built-in key, `defaults.entryMode`

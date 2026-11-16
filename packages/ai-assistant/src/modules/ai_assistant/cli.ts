@@ -72,18 +72,11 @@ async function readExposureCliArgs(args: CliArgs): Promise<ExposureCliArgsResult
     const value = args[key]
     if (value !== undefined) cliArgs[key] = value
   }
+  const { findMcpExposureConfigError } = await import('./lib/mcp-exposure')
+  const error = findMcpExposureConfigError(process.env, cliArgs)
+  if (error) return { ok: false, error }
   const rawMode = cliArgs['mutation-mode']
-  if (rawMode === undefined) return { ok: true, cliArgs }
-  const { MCP_MUTATION_MODES, isMcpMutationMode } = await import('./lib/mcp-exposure')
-  const normalizedMode = typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : ''
-  if (!isMcpMutationMode(normalizedMode)) {
-    const shown = typeof rawMode === 'string' ? `"${rawMode}"` : '(missing value)'
-    return {
-      ok: false,
-      error: `Invalid --mutation-mode ${shown}. Allowed values: ${MCP_MUTATION_MODES.join(', ')}.`,
-    }
-  }
-  cliArgs['mutation-mode'] = normalizedMode
+  if (typeof rawMode === 'string') cliArgs['mutation-mode'] = rawMode.trim().toLowerCase()
   return { ok: true, cliArgs }
 }
 
@@ -236,6 +229,11 @@ const mcpServeHttp: ModuleCli = {
 const mcpDev: ModuleCli = {
   command: 'mcp:dev',
   async run() {
+    const exposure = await readExposureCliArgs({})
+    if (!exposure.ok) {
+      printExposureError('mcp:dev', exposure.error)
+      return
+    }
     await ensureBootstrap()
     const { runMcpDevServer } = await import('./lib/mcp-dev-server')
     await runMcpDevServer()
@@ -325,16 +323,12 @@ const listTools: ModuleCli = {
 
     if (exposure) {
       const {
-        collectMcpExposureWarnings,
         describeMcpExposureConfig,
         filterToolsForCaller,
         isToolExposed,
         resolveMcpExposureConfig,
       } = await import('./lib/mcp-exposure')
       const exposureConfig = resolveMcpExposureConfig(process.env, exposure.cliArgs)
-      for (const warning of collectMcpExposureWarnings(process.env)) {
-        console.error(`[mcp:list-tools] WARN ${warning}`)
-      }
       const allTools = Array.from(registry.getTools().values())
       let effectiveTools = allTools.filter((tool) => isToolExposed(tool, exposureConfig))
       if (apiKeySecret) {
