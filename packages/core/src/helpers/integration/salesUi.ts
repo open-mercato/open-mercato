@@ -1047,7 +1047,9 @@ export async function addCustomLine(page: Page, options: AddLineOptions): Promis
   await expect(nameInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
   await nameInput.fill(options.name);
   await dialog.getByRole('textbox', { name: '0.00' }).fill(String(options.unitPriceGross));
-  await dialog.getByRole('textbox', { name: '1' }).fill(String(options.quantity));
+  // CrudForm now associates every field with its label, so the quantity control's
+  // accessible name is the field label rather than the placeholder ("1").
+  await dialog.getByRole('textbox', { name: 'Quantity', exact: true }).fill(String(options.quantity));
 
   if (options.taxClassName) {
     const taxClassTrigger = dialog.locator('[data-crud-field-id="taxRateId"] [role="combobox"]').first();
