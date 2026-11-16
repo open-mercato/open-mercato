@@ -143,7 +143,7 @@ describe('GET /api/agent_orchestrator/runs/:id/actions', () => {
     expect(body.items[0].agentVersion).toBe('2.1.0')
   })
 
-  it('attributes an effector write through a proposal of this run only when the workflow instance matches', async () => {
+  it('lists an effector write matched through a proposal only when the workflow instance verifies it', async () => {
     const { listByCorrelationKeys } = await setup()
     listByCorrelationKeys.mockResolvedValueOnce({
       items: [
@@ -155,11 +155,26 @@ describe('GET /api/agent_orchestrator/runs/:id/actions', () => {
     })
 
     const body = await (await GET(makeRequest(), { params })).json()
-    const byId = new Map(body.items.map((item: { id: string }) => [item.id, item]))
 
-    expect(byId.get('effector-ok')).toMatchObject({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' })
-    expect(byId.get('effector-forged')).toMatchObject({ agentId: null, agentVersion: null })
-    expect(byId.get('effector-unscoped')).toMatchObject({ agentId: null, agentVersion: null })
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual(['effector-ok'])
+    expect(body.items[0]).toMatchObject({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' })
+    expect(body.total).toBe(1)
+  })
+
+  it('keeps a write stamped with this run even when its proposal id is unverified', async () => {
+    const { listByCorrelationKeys } = await setup()
+    listByCorrelationKeys.mockResolvedValueOnce({
+      items: [
+        { ...ENTRY, id: 'run-write', correlationKeys: [`agentRunId:${RUN_ID}`, `proposalId:${PROPOSAL_B}`] },
+        { ...ENTRY, id: 'forged', correlationKeys: [`proposalId:${PROPOSAL_B}`, `workflowInstanceId:${OTHER_INSTANCE}`] },
+      ],
+      total: 7,
+    })
+
+    const body = await (await GET(makeRequest(), { params })).json()
+
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual(['run-write'])
+    expect(body.total).toBe(6)
   })
 
   it('returns 404 for a run outside the caller organization without querying the audit log', async () => {

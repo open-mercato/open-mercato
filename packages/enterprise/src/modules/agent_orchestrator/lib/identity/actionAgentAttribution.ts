@@ -13,6 +13,8 @@ import {
 export type ActionAgentAttribution = {
   agentId: string | null
   agentVersion: string | null
+  /** The entry's `proposalId` when a server record confirms it (see `isProposalVerified`); otherwise null. */
+  verifiedProposalId: string | null
 }
 
 export type AttributionRun = {
@@ -58,6 +60,86 @@ function verifiedProposal(
 }
 
 /**
+ * Whether the `proposalId` on an entry is backed by a server record: the proposal
+ * was produced by the run the entry names (disposition writes stamp both), or it
+ * belongs to the workflow instance the entry was written by (effector writes).
+ * Neither `agentRunId` nor `workflowInstanceId` is copied from the user-writable
+ * workflow context, so a forged id never passes.
+ */
+function verifiedProposalIdOf(
+  correlation: Record<string, string>,
+  proposalsById: Map<string, AttributionProposal>,
+): string | null {
+  const proposalId = correlation[PROPOSAL_CORRELATION_KEY]
+  if (!proposalId) return null
+  const proposal = proposalsById.get(proposalId)
+  if (!proposal) return null
+  const runId = correlation[RUN_CORRELATION_KEY]
+  if (runId && proposal.runId === runId) return proposal.id
+  const workflowInstanceId = correlation[WORKFLOW_INSTANCE_CORRELATION_KEY]
+  if (workflowInstanceId && proposal.workflowInstanceId && proposal.workflowInstanceId === workflowInstanceId) {
+    return proposal.id
+  }
+  return null
+}
+
+function scopeFilterOf(scope: AttributionScope) {
+  return {
+    tenantId: scope.tenantId,
+    ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
+  }
+}
+
+/**
+ * Loads, in one scoped batch, every proposal an entry names next to a run or a
+ * workflow instance id (the anchors verification compares against), skipping
+ * proposals already known.
+ */
+async function loadAnchoredProposals(
+  em: EntityManager,
+  scope: AttributionScope,
+  correlations: Array<Record<string, string>>,
+  proposalsById: Map<string, AttributionProposal>,
+): Promise<void> {
+  const proposalIdsToLoad = new Set<string>()
+  for (const correlation of correlations) {
+    const proposalId = correlation[PROPOSAL_CORRELATION_KEY]
+    const anchored = isUuid(correlation[RUN_CORRELATION_KEY]) || isUuid(correlation[WORKFLOW_INSTANCE_CORRELATION_KEY])
+    if (isUuid(proposalId) && anchored && !proposalsById.has(proposalId)) proposalIdsToLoad.add(proposalId)
+  }
+  if (proposalIdsToLoad.size === 0) return
+  const proposals = await findWithDecryption(
+    em,
+    AgentProposal,
+    { id: { $in: Array.from(proposalIdsToLoad) }, ...scopeFilterOf(scope) },
+    { fields: ['id', 'runId', 'agentId', 'workflowInstanceId'] },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  for (const proposal of proposals) {
+    proposalsById.set(proposal.id, {
+      id: proposal.id,
+      runId: proposal.runId,
+      agentId: proposal.agentId,
+      workflowInstanceId: proposal.workflowInstanceId ?? null,
+    })
+  }
+}
+
+/**
+ * The verified `proposalId` of each entry (see `verifiedProposalIdOf`), or null.
+ * Loads proposals only — no run lookup — for callers that need the link, not the agent.
+ */
+export async function resolveVerifiedProposalIds(
+  em: EntityManager,
+  scope: AttributionScope,
+  correlations: Array<Record<string, string>>,
+): Promise<Array<string | null>> {
+  const proposalsById = new Map<string, AttributionProposal>()
+  await loadAnchoredProposals(em, scope, correlations, proposalsById)
+  return correlations.map((correlation) => verifiedProposalIdOf(correlation, proposalsById))
+}
+
+/**
  * Names the agent and version behind each action-log entry, in this order: the
  * values stamped on the entry by the run's own command context, the entry's run,
  * then a proposal verified against the entry's workflow instance. Every lookup is
@@ -74,37 +156,9 @@ export async function resolveActionAgentAttribution(
   const proposalsById = new Map<string, AttributionProposal>(
     (known.proposals ?? []).map((proposal) => [proposal.id, proposal]),
   )
-  const scopeFilter = {
-    tenantId: scope.tenantId,
-    ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
-  }
+  await loadAnchoredProposals(em, scope, correlations, proposalsById)
+  const scopeFilter = scopeFilterOf(scope)
   const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
-
-  const proposalIdsToLoad = new Set<string>()
-  for (const correlation of correlations) {
-    if (correlation[RUN_CORRELATION_KEY]) continue
-    const proposalId = correlation[PROPOSAL_CORRELATION_KEY]
-    if (isUuid(proposalId) && isUuid(correlation[WORKFLOW_INSTANCE_CORRELATION_KEY]) && !proposalsById.has(proposalId)) {
-      proposalIdsToLoad.add(proposalId)
-    }
-  }
-  if (proposalIdsToLoad.size > 0) {
-    const proposals = await findWithDecryption(
-      em,
-      AgentProposal,
-      { id: { $in: Array.from(proposalIdsToLoad) }, ...scopeFilter },
-      { fields: ['id', 'runId', 'agentId', 'workflowInstanceId'] },
-      decryptionScope,
-    )
-    for (const proposal of proposals) {
-      proposalsById.set(proposal.id, {
-        id: proposal.id,
-        runId: proposal.runId,
-        agentId: proposal.agentId,
-        workflowInstanceId: proposal.workflowInstanceId ?? null,
-      })
-    }
-  }
 
   const runIdsToLoad = new Set<string>()
   for (const correlation of correlations) {
@@ -130,6 +184,7 @@ export async function resolveActionAgentAttribution(
     return {
       agentId: correlation[AGENT_CORRELATION_KEY] ?? run?.agentId ?? proposal?.agentId ?? null,
       agentVersion: correlation[AGENT_VERSION_CORRELATION_KEY] ?? run?.agentVersion ?? null,
+      verifiedProposalId: verifiedProposalIdOf(correlation, proposalsById),
     }
   })
 }

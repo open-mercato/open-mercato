@@ -212,25 +212,38 @@ describe('GET /api/agent_orchestrator/audit/by-instigator/:humanUserId', () => {
     expect(direct.proposalId).toBeNull()
   })
 
-  it('exposes the run and proposal correlation recorded on an entry', async () => {
+  it('exposes the run correlation and a proposal id verified through that run', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: HUMAN, tenantId: TENANT_A, orgId: ORG_A })
     const runId = '77777777-7777-4777-8777-777777777777'
     const proposalId = '88888888-8888-4888-8888-888888888888'
 
-    await setup([
-      seedRow({
-        id: 'agent-1',
-        actor_user_id: AGENT_USER,
-        on_behalf_of_user_id: HUMAN,
-        correlation_keys: [`agentRunId:${runId}`, `proposalId:${proposalId}`],
-      }),
-    ])
+    await setup(
+      [
+        seedRow({
+          id: 'agent-1',
+          actor_user_id: AGENT_USER,
+          on_behalf_of_user_id: HUMAN,
+          correlation_keys: [`agentRunId:${runId}`, `proposalId:${proposalId}`],
+        }),
+        seedRow({
+          id: 'agent-2',
+          actor_user_id: AGENT_USER,
+          on_behalf_of_user_id: HUMAN,
+          correlation_keys: [`agentRunId:${runId}`, 'proposalId:99999999-9999-4999-8999-999999999999'],
+        }),
+      ],
+      () => ({}),
+      [{ id: runId, agentId: 'support.triage', agentVersion: 'v1', organizationId: ORG_A }],
+      [{ id: proposalId, runId, agentId: 'support.triage', workflowInstanceId: null, organizationId: ORG_A }],
+    )
 
     const res = await GET(makeRequest(), { params })
     const body = await res.json()
+    const byId = new Map(body.items.map((item: { id: string }) => [item.id, item]))
 
-    expect(body.items[0]).toMatchObject({ agentRunId: runId, proposalId })
+    expect(byId.get('agent-1')).toMatchObject({ agentRunId: runId, proposalId })
+    expect(byId.get('agent-2')).toMatchObject({ agentRunId: runId, proposalId: null })
   })
 
   it('returns the agent and version stamped on an entry without loading its run', async () => {
@@ -314,7 +327,7 @@ describe('GET /api/agent_orchestrator/audit/by-instigator/:humanUserId', () => {
       agentId: 'support.triage',
       agentVersion: 'sha256:0123456789abcdef',
     })
-    expect(byId.get('effector-forged')).toMatchObject({ proposalId, agentId: null, agentVersion: null })
+    expect(byId.get('effector-forged')).toMatchObject({ proposalId: null, agentId: null, agentVersion: null })
   })
 
   it('is org-scoped: a row in another org for the same human is excluded (tenant isolation)', async () => {

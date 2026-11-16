@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentProposal, AgentRun } from '../data/entities'
-import { resolveActionAgentAttribution } from '../lib/identity/actionAgentAttribution'
+import { resolveActionAgentAttribution, resolveVerifiedProposalIds } from '../lib/identity/actionAgentAttribution'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
@@ -58,14 +58,14 @@ describe('resolveActionAgentAttribution', () => {
     const [attribution] = await resolveActionAgentAttribution(em, scope, [
       { agentRunId: RUN, agentId: 'support.triage', agentVersion: '2.1.0' },
     ])
-    expect(attribution).toEqual({ agentId: 'support.triage', agentVersion: '2.1.0' })
+    expect(attribution).toEqual({ agentId: 'support.triage', agentVersion: '2.1.0', verifiedProposalId: null })
     expect(find).not.toHaveBeenCalled()
   })
 
   it('reads the agent and version from the entry run', async () => {
     await mockStore()
     const [attribution] = await resolveActionAgentAttribution(em, scope, [{ agentRunId: RUN }])
-    expect(attribution).toEqual({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' })
+    expect(attribution).toEqual({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef', verifiedProposalId: null })
   })
 
   it('attributes an effector write through a proposal of the same workflow instance', async () => {
@@ -73,7 +73,7 @@ describe('resolveActionAgentAttribution', () => {
     const [attribution] = await resolveActionAgentAttribution(em, scope, [
       { proposalId: PROPOSAL, workflowInstanceId: INSTANCE },
     ])
-    expect(attribution).toEqual({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef' })
+    expect(attribution).toEqual({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef', verifiedProposalId: PROPOSAL })
   })
 
   it('refuses a proposal id that belongs to another workflow instance', async () => {
@@ -81,13 +81,13 @@ describe('resolveActionAgentAttribution', () => {
     const [attribution] = await resolveActionAgentAttribution(em, scope, [
       { proposalId: PROPOSAL, workflowInstanceId: OTHER_INSTANCE },
     ])
-    expect(attribution).toEqual({ agentId: null, agentVersion: null })
+    expect(attribution).toEqual({ agentId: null, agentVersion: null, verifiedProposalId: null })
   })
 
   it('refuses a proposal id without a workflow instance to check it against', async () => {
     const find = await mockStore()
     const [attribution] = await resolveActionAgentAttribution(em, scope, [{ proposalId: PROPOSAL }])
-    expect(attribution).toEqual({ agentId: null, agentVersion: null })
+    expect(attribution).toEqual({ agentId: null, agentVersion: null, verifiedProposalId: null })
     expect(find).not.toHaveBeenCalled()
   })
 
@@ -98,8 +98,8 @@ describe('resolveActionAgentAttribution', () => {
       { agentRunId: FOREIGN_RUN },
     ])
     expect(attributions).toEqual([
-      { agentId: null, agentVersion: null },
-      { agentId: null, agentVersion: null },
+      { agentId: null, agentVersion: null, verifiedProposalId: null },
+      { agentId: null, agentVersion: null, verifiedProposalId: null },
     ])
     for (const call of find.mock.calls) {
       expect(call[2]).toMatchObject({ tenantId: TENANT, organizationId: ORG })
@@ -114,9 +114,9 @@ describe('resolveActionAgentAttribution', () => {
       {},
     ])
     expect(attributions).toEqual([
-      { agentId: null, agentVersion: null },
-      { agentId: null, agentVersion: null },
-      { agentId: null, agentVersion: null },
+      { agentId: null, agentVersion: null, verifiedProposalId: null },
+      { agentId: null, agentVersion: null, verifiedProposalId: null },
+      { agentId: null, agentVersion: null, verifiedProposalId: null },
     ])
     expect(find).not.toHaveBeenCalled()
   })
@@ -132,8 +132,8 @@ describe('resolveActionAgentAttribution', () => {
         proposals: [{ id: PROPOSAL, runId: RUN, agentId: 'support.triage', workflowInstanceId: INSTANCE }],
       },
     )
-    expect(viaProposal).toEqual({ agentId: 'support.triage', agentVersion: 'v1' })
-    expect(viaRun).toEqual({ agentId: 'support.triage', agentVersion: 'v1' })
+    expect(viaProposal).toEqual({ agentId: 'support.triage', agentVersion: 'v1', verifiedProposalId: PROPOSAL })
+    expect(viaRun).toEqual({ agentId: 'support.triage', agentVersion: 'v1', verifiedProposalId: null })
     expect(find).not.toHaveBeenCalled()
   })
 
@@ -141,5 +141,48 @@ describe('resolveActionAgentAttribution', () => {
     const find = await mockStore()
     await resolveActionAgentAttribution(em, { tenantId: TENANT, organizationId: null }, [{ agentRunId: RUN }])
     expect(find.mock.calls[0][2]).toEqual({ id: { $in: [RUN] }, tenantId: TENANT })
+  })
+
+  it('verifies the proposal id of a disposition write through the run it names', async () => {
+    await mockStore()
+    const [attribution] = await resolveActionAgentAttribution(em, scope, [{ agentRunId: RUN, proposalId: PROPOSAL }])
+    expect(attribution).toEqual({ agentId: 'support.triage', agentVersion: 'sha256:0123456789abcdef', verifiedProposalId: PROPOSAL })
+  })
+
+  it('refuses a proposal id paired with a run that did not produce it', async () => {
+    await mockStore()
+    const [attribution] = await resolveActionAgentAttribution(em, scope, [
+      { agentRunId: FOREIGN_RUN, proposalId: PROPOSAL },
+    ])
+    expect(attribution.verifiedProposalId).toBeNull()
+  })
+})
+
+describe('resolveVerifiedProposalIds', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('verifies only proposals anchored to their own run or workflow instance and loads no runs', async () => {
+    const find = await mockStore()
+    const verified = await resolveVerifiedProposalIds(em, scope, [
+      { proposalId: PROPOSAL, workflowInstanceId: INSTANCE },
+      { proposalId: PROPOSAL, workflowInstanceId: OTHER_INSTANCE },
+      { proposalId: PROPOSAL, agentRunId: RUN },
+      { proposalId: FOREIGN_PROPOSAL, workflowInstanceId: INSTANCE },
+      { proposalId: PROPOSAL },
+      {},
+    ])
+    expect(verified).toEqual([PROPOSAL, null, PROPOSAL, null, null, null])
+    expect(find).toHaveBeenCalledTimes(1)
+    expect(find.mock.calls[0][1]).toBe(AgentProposal)
+    expect(find.mock.calls[0][2]).toMatchObject({ tenantId: TENANT, organizationId: ORG })
+  })
+
+  it('queries nothing when no entry carries an anchored proposal id', async () => {
+    const find = await mockStore()
+    const verified = await resolveVerifiedProposalIds(em, scope, [{ agentRunId: RUN }, { proposalId: PROPOSAL }])
+    expect(verified).toEqual([null, null])
+    expect(find).not.toHaveBeenCalled()
   })
 })

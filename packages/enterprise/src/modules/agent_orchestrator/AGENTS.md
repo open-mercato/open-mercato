@@ -228,7 +228,7 @@ Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access
 - runAs is bound once in the runtime (`resolveRunAsForAgent`); never bind it per entry point. A `required` principal that is missing refuses with 409 `agent_principal_missing`.
 - Tool ACL: `principal.toolAcl` or `OM_AGENT_TOOL_ACL_MODE` (default `caller`); `intersect` uses `intersectFeatureGrants`. Denied tools never reach the model and are recorded in the manifest (`om.tool_acl`).
 - The `principal` summary on `GET /agents` / `/agents/:id` is for `agents.manage` holders only.
-- Run writes carry `agentRunId` (and effector writes `proposalId`) in action-log `correlation_keys`: pass `auditCorrelation` on command contexts, or wrap tool phases in `withAuditCorrelation`. `GET /runs/:id/actions` reads them through `actionLogService.listByCorrelationKeys`; never query `context_json` (encrypted).
+- Run writes carry `agentRunId` (and effector writes `proposalId`) in action-log `correlation_keys`: pass `auditCorrelation` on command contexts, or wrap tool phases in `withAuditCorrelation`. `GET /runs/:id/actions` reads them through `actionLogService.listByCorrelationKeys`; never query `context_json` (encrypted). A `proposalId` on an entry is trusted only when the proposal belongs to the `agentRunId` or `workflowInstanceId` on the same entry (`resolveVerifiedProposalIds` / `verifiedProposalId` in `lib/identity/actionAgentAttribution.ts`) — workflow effectors copy it from the user-writable context, so never link or list by an unverified one.
 
 ## Web Egress (`web_search` / `web_fetch`)
 

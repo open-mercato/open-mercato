@@ -8,7 +8,6 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import { resolveActionAgentAttribution } from '../../../../lib/identity/actionAgentAttribution'
 import {
-  PROPOSAL_CORRELATION_KEY,
   RUN_CORRELATION_KEY,
   parseCorrelationKeys,
   readCorrelationValue,
@@ -161,7 +160,7 @@ export async function GET(req: Request, ctx: RouteContext) {
             : null,
       via: onBehalfOf === parsedId.data ? ('via_agent' as const) : ('direct' as const),
       agentRunId,
-      proposalId: readCorrelationValue(correlationKeys, PROPOSAL_CORRELATION_KEY),
+      proposalId: attributions[index]?.verifiedProposalId ?? null,
       agentId: attributions[index]?.agentId ?? null,
       agentVersion: attributions[index]?.agentVersion ?? null,
     }
@@ -177,7 +176,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List actions a human caused directly and via agents',
       description:
-        'Returns ActionLog entries where the human is either the direct actor or the on-behalf-of principal of an agent action, joined on action_logs.on_behalf_of_user_id. `agentRunId` / `proposalId` carry the run and proposal correlation recorded on the entry, or null. `agentId` / `agentVersion` name the agent and version behind the entry: stamped on it, else read from its run, else from a proposal that belongs to the same workflow instance as the entry; null when none can be verified. `via` keeps its on-behalf-of meaning. Org-scoped; gated by agent_orchestrator.identity.read.',
+        'Returns ActionLog entries where the human is either the direct actor or the on-behalf-of principal of an agent action, joined on action_logs.on_behalf_of_user_id. `agentRunId` carries the run correlation recorded on the entry, or null. `proposalId` carries the proposal correlation only when a server record verifies it (the proposal belongs to the run or to the workflow instance named on the entry); an unverified id is returned as null. `agentId` / `agentVersion` name the agent and version behind the entry: stamped on it, else read from its run, else from a proposal that belongs to the same workflow instance as the entry; null when none can be verified. `via` keeps its on-behalf-of meaning. Org-scoped; gated by agent_orchestrator.identity.read.',
       responses: [{ status: 200, description: 'Instigator audit chain', schema: responseSchema }],
       errors: [
         { status: 400, description: 'Invalid query', schema: errorSchema },
