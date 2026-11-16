@@ -13,7 +13,9 @@ import {
   computeDelta,
   convertSumsToBase,
   getPreviousQuarterWindow,
+  getPreviousTrailingWindow,
   getQuarterWindow,
+  getTrailingWindow,
   getTrailingMonths,
   type CurrencySum,
   type Delta,
@@ -26,7 +28,6 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
 }
 
-const TRAILING_MONTHS = 6
 const TOP_OWNERS = 5
 
 const deltaSchema = z.object({
@@ -50,7 +51,25 @@ const winRatePointSchema = z.object({
   rate: z.number(),
 })
 
+const monthlyValuePointSchema = z.object({
+  period: z.string(),
+  value: z.number(),
+})
+
+const monthlyCountPointSchema = z.object({
+  period: z.string(),
+  count: z.number(),
+})
+
+const SUMMARY_RANGES = ['quarter', '3m', '6m', '12m'] as const
+const summaryRangeSchema = z.enum(SUMMARY_RANGES)
+type SummaryRange = z.infer<typeof summaryRangeSchema>
+const DEFAULT_SUMMARY_RANGE: SummaryRange = 'quarter'
+const QUARTER_SERIES_MONTHS = 6
+const TRAILING_RANGE_MONTHS: Record<Exclude<SummaryRange, 'quarter'>, number> = { '3m': 3, '6m': 6, '12m': 12 }
+
 const summaryResponseSchema = z.object({
+  range: summaryRangeSchema,
   baseCurrencyCode: z.string().nullable(),
   convertedAll: z.boolean(),
   missingRateCurrencies: z.array(z.string()),
@@ -58,10 +77,12 @@ const summaryResponseSchema = z.object({
     value: z.number(),
     delta: deltaSchema,
     stages: z.array(stageBreakdownSchema),
+    series: z.array(monthlyValuePointSchema),
   }),
   activeDeals: z.object({
     value: z.number(),
     delta: deltaSchema,
+    series: z.array(monthlyCountPointSchema),
     ownersCount: z.number(),
     needAttention: z.number(),
     owners: z.array(ownerCountSchema),
@@ -70,6 +91,7 @@ const summaryResponseSchema = z.object({
   wonThisQuarter: z.object({
     value: z.number(),
     delta: deltaSchema,
+    series: z.array(monthlyValuePointSchema),
     dealsClosed: z.number(),
     avgDeal: z.number(),
   }),
@@ -95,7 +117,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Pipeline KPI metrics with period-over-period deltas for the deals list',
       description:
-        'Returns the four list-level KPI cards (pipeline value, active deals, won this quarter, win rate) with quarter-over-quarter deltas, per-stage open-pipeline breakdown, top owners, and a 6-month win-rate series. Values are converted to the tenant base currency where rates are available; partial conversions are disclosed via convertedAll/missingRateCurrencies.',
+        'Returns the four list-level KPI metrics (pipeline value, active deals, won, win rate) for the window selected with `?range=quarter|3m|6m|12m`. `quarter` (the default, also used for an absent or unknown value) compares the current calendar quarter with the previous one and returns 6 trailing months in the series; `3m`, `6m` and `12m` compare the trailing window with the one before it and return one series point per month of that window. Also returns the per-stage open-pipeline breakdown, top owners and monthly series (value and count of deals created, won value, win rate). Values are converted to the tenant base currency where rates are available; partial conversions are disclosed via convertedAll/missingRateCurrencies.',
       responses: [
         { status: 200, description: 'Deals KPI summary payload', schema: summaryResponseSchema },
       ],
@@ -127,6 +149,22 @@ function sumsByCurrency(entries: Array<{ currency: string | null; total: number 
   return Array.from(byCurrency.entries()).map(([currency, total]) => ({ currency, total }))
 }
 
+function resolveSummaryWindows(range: SummaryRange, now: Date) {
+  if (range === 'quarter') {
+    return {
+      current: getQuarterWindow(now),
+      previous: getPreviousQuarterWindow(now),
+      trailingMonths: getTrailingMonths(now, QUARTER_SERIES_MONTHS),
+    }
+  }
+  const months = TRAILING_RANGE_MONTHS[range]
+  return {
+    current: getTrailingWindow(now, months),
+    previous: getPreviousTrailingWindow(now, months),
+    trailingMonths: getTrailingMonths(now, months),
+  }
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) {
@@ -143,10 +181,12 @@ export async function GET(req: Request) {
   }
   const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
 
+  const rangeParam = summaryRangeSchema.safeParse(new URL(req.url).searchParams.get('range'))
+  const range = rangeParam.success ? rangeParam.data : DEFAULT_SUMMARY_RANGE
   const today = new Date()
-  const currentQuarter = getQuarterWindow(today)
-  const previousQuarter = getPreviousQuarterWindow(today)
-  const trailingMonths = getTrailingMonths(today, TRAILING_MONTHS)
+  // Headline numbers compare the selected window with the one before it. A trailing range's
+  // series cover the same window month by month; the quarter range keeps its 6-month series.
+  const { current: currentQuarter, previous: previousQuarter, trailingMonths } = resolveSummaryWindows(range, today)
   const seriesStart = trailingMonths[0]?.start ?? currentQuarter.start
 
   const baseCurrencyCode = await resolveOptionalBaseCurrencyCode(
@@ -155,7 +195,7 @@ export async function GET(req: Request) {
     orgFilterIds[0],
   )
 
-  const { openRows, inflowRows, wonRows, winLossRows, seriesRows, overdueRows, openStuckIds } =
+  const { openRows, inflowRows, wonRows, winLossRows, seriesRows, inflowSeriesRows, wonSeriesRows, overdueRows, openStuckIds } =
     await loadDealsSummaryQueryRows({
       em,
       tenantId: effectiveTenantId,
@@ -202,6 +242,8 @@ export async function GET(req: Request) {
   collect(openSums)
   collect(inflowRows)
   collect(wonRows)
+  collect(inflowSeriesRows)
+  collect(wonSeriesRows)
 
   let rates = new Map<string, RateResult>()
   if (baseCurrencyCode && distinctCurrencies.size > 0) {
@@ -313,7 +355,36 @@ export async function GET(req: Request) {
     return { period: month.label, rate: denom > 0 ? won / denom : 0 }
   })
 
+  // Monthly trends behind the metric tabs: value / count of all deals created per month
+  // and won value per month, converted like the headline numbers.
+  const monthlyBuckets = (rows: Array<{ period: string; currency: string | null; count: string | number; total: string | number | null }>) => {
+    const byPeriod = new Map<string, { count: number; byCurrency: CurrencySum[] }>()
+    for (const row of rows) {
+      const bucket = byPeriod.get(row.period) ?? { count: 0, byCurrency: [] }
+      bucket.count += toNumber(row.count)
+      const currency = (row.currency ?? '').toString().trim().toUpperCase()
+      if (currency) bucket.byCurrency.push({ currency, total: toNumber(row.total) })
+      byPeriod.set(row.period, bucket)
+    }
+    return byPeriod
+  }
+  const inflowByPeriod = monthlyBuckets(inflowSeriesRows)
+  const wonByPeriod = monthlyBuckets(wonSeriesRows)
+  const pipelineSeries = trailingMonths.map((month) => ({
+    period: month.label,
+    value: convert(inflowByPeriod.get(month.label)?.byCurrency ?? []),
+  }))
+  const activeSeries = trailingMonths.map((month) => ({
+    period: month.label,
+    count: inflowByPeriod.get(month.label)?.count ?? 0,
+  }))
+  const wonSeries = trailingMonths.map((month) => ({
+    period: month.label,
+    value: convert(wonByPeriod.get(month.label)?.byCurrency ?? []),
+  }))
+
   const response: DealsSummaryResponse = {
+    range,
     baseCurrencyCode,
     convertedAll,
     missingRateCurrencies: Array.from(missingRateCurrencies),
@@ -321,10 +392,12 @@ export async function GET(req: Request) {
       value: pipelineValueTotal,
       delta: pipelineDelta,
       stages,
+      series: pipelineSeries,
     },
     activeDeals: {
       value: activeDealsCount,
       delta: activeDelta,
+      series: activeSeries,
       ownersCount,
       needAttention: attentionIds.size,
       owners,
@@ -333,6 +406,7 @@ export async function GET(req: Request) {
     wonThisQuarter: {
       value: wonCurrent,
       delta: wonDelta,
+      series: wonSeries,
       dealsClosed,
       avgDeal,
     },
