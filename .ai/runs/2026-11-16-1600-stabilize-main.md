@@ -26,14 +26,23 @@ The requested date-only branch and plan already shipped in merged PR #9635. This
 ## Risks
 Main moves while this isolated branch validates. Historical failures may already be fixed; no source edit is justified without evidence. Full CI takes longer than one interactive turn; monitoring must remain resumable. The existing older stabilization PR #9361 is a distinct run and will not be modified. Use at most two child tasks, reserving one for final review. Local dependencies are initially absent.
 
+## Verification evidence
+- Historical warranty failures in main runs 43810352873 and 43837075405 were corrected by e0e2d14319, an ancestor of this baseline. Parent confirmed that run 43844780162 passed every shard; the read-only child made no changes and its branch was not merged.
+- First PR CI run 43892047090 scheduled all 15 integration shards at head 7f9c82b138; prepare, lint, DS lint and multi-instance checks passed. Remaining checks were still running when the new standalone failure was diagnosed.
+- Main snapshot run 43872797962 failed only the standalone locale tooltip test (English/Korean failed; Polish/German flaky). Parent retrieved failed logs and both retry traces. In the Korean trace, hover targeted y=97 at time 2662042ms; the operation banner was absent in the input snapshot and inserted by the next assertion at 2662069ms, shifting the badge below the stationary pointer. English shows the same layout transition during hover. Translation labels/title assertions passed.
+- A focused local Chromium/Radix reproduction inserts a banner between coordinate calculation and pointer dispatch, matching the stale target geometry in the trace. The original one-shot hover fails; polling the hover plus actual tooltip visibility passes; a deliberately hidden tooltip still fails. No assertion, locale or priority is removed, and the shared timeout is unchanged. This is a test-only interaction correction, with the real locale integration test updated as its regression coverage; no runtime component change or new public helper is needed.
+- Runner: local for focused Chromium reproduction and diff checks. Configured gate and complete integration coverage will be verified on GitHub for the changed head.
+
 ## Progress
+
+PR: #9694
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence
 
-- [ ] 1.1 Inspect main CI failures and distinguish fixed failures from current regressions
-- [ ] 1.2 Open a draft stabilization PR and verify it schedules all 15 shards
+- [x] 1.1 Inspect main CI failures and distinguish fixed failures from current regressions
+- [x] 1.2 Open a draft stabilization PR and verify it schedules all 15 shards — 7f9c82b138
 
 ### Phase 2: Correct and validate
 
