@@ -273,6 +273,7 @@
   "staff.leaveRequests.detail.summary": "Antragsdetails",
   "staff.leaveRequests.empty.profileRequired": "Erstelle dein Teamprofil, um Urlaubsanträge einzureichen.",
   "staff.leaveRequests.errors.accept": "Urlaubsantrag konnte nicht genehmigt werden.",
+  "staff.leaveRequests.errors.alreadyFinalized": "Der Urlaubsantrag wurde bereits abgeschlossen.",
   "staff.leaveRequests.errors.forbidden": "Zugriff verweigert",
   "staff.leaveRequests.errors.load": "Urlaubsanträge konnten nicht geladen werden.",
   "staff.leaveRequests.errors.notFound": "Urlaubsantrag nicht gefunden.",
