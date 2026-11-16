@@ -45,7 +45,9 @@ Make browser live-refresh consumers survive event-bridge reconnect gaps: export 
 
 ## Progress
 
-PR: #9423
+PR: #9685
+Branch: carry/pr-9423-ready-2cb1881b
+Last updated: 2026-11-16
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -63,3 +65,7 @@ PR: #9423
 ### Phase 3: Documentation
 
 - [x] 3.1 Document the no-replay contract and the new hooks — 4a4630cf45
+
+### 2026-11-16 — prepared carry-forward
+
+Carried forward from #9423 by `om-auto-review-pr` autofix. The main merge retains the vector dialog refactor and reconnect constant. Local focused tests (67), package build/generate/rebuild, UI typecheck and instruction budgets pass. The original remains open until final approval; this carry preserves prepare-only and still needs personal feature QA plus fresh hosted CI.
