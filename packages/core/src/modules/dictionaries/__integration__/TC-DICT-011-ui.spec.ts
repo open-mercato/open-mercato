@@ -258,7 +258,7 @@ test.describe('TC-DICT-011-UI: reserved-key conflict feedback in the browser', (
         await expect(flash).not.toContainText(text.duplicateFlash);
 
         // The entry dialog's preview heading is localized too.
-        await page.getByRole('button', { name: retryName }).click();
+        await page.locator('[aria-pressed]').filter({ hasText: retryName }).click();
         await page.getByRole('button', { name: text.addEntry, exact: true }).click();
         const entryDialog = page.getByRole('dialog', { name: text.addEntryTitle });
         await expect(entryDialog).toBeVisible();

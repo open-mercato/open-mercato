@@ -1099,7 +1099,7 @@ export async function updateLineQuantity(page: Page, lineName: string, quantity:
 
   const dialog = page.getByRole('dialog', { name: /Edit line/i });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('textbox', { name: '1' }).fill(String(quantity));
+  await dialog.getByRole('textbox', { name: 'Quantity', exact: true }).fill(String(quantity));
   await dialog.getByRole('button', { name: /Save changes/i }).click();
 
   await expect(page.getByRole('row', { name: new RegExp(`${escapeRegExp(lineName)}.*\\b${quantity}\\b`, 'i') })).toBeVisible();
