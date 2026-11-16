@@ -39,7 +39,7 @@ export const gmailUserCredentialsSchema = z
     /** Email address from the linked Google account. */
     email: z.string().email().optional(),
   })
-  .passthrough()
+  .strip()
 
 export type GmailUserCredentials = z.infer<typeof gmailUserCredentialsSchema>
 

@@ -93,10 +93,30 @@ describe('storeContextService', () => {
     const context = await service.resolve(request, { pathname: '/products' })
 
     expect(mockedFromRequest).toHaveBeenCalledWith(container, request, { pathname: '/products' })
-    expect(mockedBuyer).toHaveBeenCalledWith(container, store, request)
+    expect(mockedBuyer).toHaveBeenCalledWith(container, store, request, { fresh: undefined })
     expect(context.buyer).toBe(buyer)
     expect(context.store.id).toBe('store-1')
     expect(context.digest).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  it('passes fresh: true through to resolveBuyerContext to bypass the 60s cache (D-R4-22)', async () => {
+    const container = createContainer({})
+    const service = createStoreContextService(container)
+    const request = new Request('https://shop.example.com/products')
+
+    await service.resolve(request, { pathname: '/products', fresh: true })
+
+    expect(mockedBuyer).toHaveBeenCalledWith(container, store, request, { fresh: true })
+  })
+
+  it('defaults fresh to the cached path when resolve is called with no options at all', async () => {
+    const container = createContainer({})
+    const service = createStoreContextService(container)
+    const request = new Request('https://shop.example.com/products')
+
+    await service.resolve(request)
+
+    expect(mockedBuyer).toHaveBeenCalledWith(container, store, request, { fresh: undefined })
   })
 
   it('resolves by slug as an anonymous buyer unless a request is supplied', async () => {
