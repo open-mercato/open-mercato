@@ -66,6 +66,7 @@ export interface UnifiedTrigger {
   organizationId: string
 }
 
+<<<<<<< HEAD
 interface CachedTriggers {
   triggers: UnifiedTrigger[]
   cachedAt: number
@@ -81,6 +82,8 @@ function readEventActorUserId(payload: Record<string, unknown>): string | null {
   return trimmed.length > 0 && !trimmed.startsWith('trigger:') ? trimmed : null
 }
 
+=======
+>>>>>>> 883077fe35 (fix(workflows): isolate event-triggered execution identity (#9137) (#9639))
 // ============================================================================
 // Pattern Matching
 // ============================================================================
@@ -855,7 +858,6 @@ export async function processEventTriggers(
       // Extract entity info from payload for metadata
       const payloadId = context.payload?.id as string | undefined
       const payloadEntityType = context.payload?.entityType as string | undefined
-      const actorUserId = readEventActorUserId(context.payload)
 
       // Include event metadata and payload in context
       const initialContext = {
@@ -879,7 +881,7 @@ export async function processEventTriggers(
         version: trigger.workflowVersion,
         initialContext,
         metadata: {
-          initiatedBy: actorUserId ?? `trigger:${trigger.id}`,
+          initiatedBy: `trigger:${trigger.id}`,
           // Include entityId and entityType for widget discovery
           entityId: payloadId,
           entityType: payloadEntityType || trigger.config?.entityType,
@@ -906,7 +908,7 @@ export async function processEventTriggers(
         em.fork(),
         container,
         instance.id,
-        actorUserId ? { userId: actorUserId } : undefined
+        undefined
       ).catch(err => {
         logger.error('Error executing workflow', { instanceId: instance.id, err })
       })
