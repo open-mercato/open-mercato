@@ -1,7 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { type Kysely, sql } from 'kysely'
+import { type Kysely, type SelectQueryBuilder, sql } from 'kysely'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
@@ -183,6 +183,7 @@ type RebuildExecutionOptions = {
 }
 
 type ProfileScopeRow = { id: string; organization_id: string | null; tenant_id: string | null }
+type ProfileScopeTables = Record<string, ProfileScopeRow>
 
 type RebuildResult = {
   processed: number
@@ -260,7 +261,9 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     return chain
   }
 
-  const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
+  const applyFilters = <O>(
+    q: SelectQueryBuilder<ProfileScopeTables, string, O>,
+  ): SelectQueryBuilder<ProfileScopeTables, string, O> => {
     const chain = applyScopeFilters(q)
     return filtersOutDeletedParents ? chain.where(customerProfileParentActive(tableName)) : chain
   }
@@ -272,7 +275,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
       .where('id' as any, '=', recordId)
       .executeTakeFirst() as AnyRow | undefined
     if (!row && filtersOutDeletedParents) {
-      const scopeDb = db as Kysely<Record<string, ProfileScopeRow>>
+      const scopeDb = db as Kysely<ProfileScopeTables>
       const orphanedProfile: ProfileScopeRow | undefined = await applyScopeFilters(
         scopeDb.selectFrom(tableName).select(['id', 'organization_id', 'tenant_id']),
       )

@@ -27,6 +27,20 @@ type PlaintextExclusionLookup = (entityId: EntityId) => Promise<IndexableRecord[
 
 const EXCLUDED_RECORD = Symbol('search-indexer-excluded-record')
 
+type ExcludedRecordDeleteFailure = { recordId: string; error: string }
+
+function describeExcludedRecordDeleteFailure(failure: ExcludedRecordDeleteFailure): string {
+  return `Failed to remove excluded record ${failure.recordId}: ${failure.error}`
+}
+
+function excludedRecordDeleteError(failures: ExcludedRecordDeleteFailure[]): Error {
+  return new Error(
+    `[internal] Failed to remove ${failures.length} excluded record(s) from the search index: ${
+      failures.map(describeExcludedRecordDeleteFailure).join('; ')
+    }`,
+  )
+}
+
 /**
  * Parameters for indexing a record.
  */
@@ -252,11 +266,13 @@ export class SearchIndexer {
     tenantId: string,
     recordIds: string[],
     remove: (recordId: string) => Promise<void>,
-  ): Promise<void> {
+  ): Promise<ExcludedRecordDeleteFailure[]> {
+    const failures: ExcludedRecordDeleteFailure[] = []
     for (const recordId of recordIds) {
       try {
         await remove(recordId)
       } catch (error) {
+        failures.push({ recordId, error: error instanceof Error ? error.message : String(error) })
         searchError('SearchIndexer', 'Failed to remove an excluded record from the search index', {
           entityId,
           recordId,
@@ -266,6 +282,7 @@ export class SearchIndexer {
         reportSearchError('SearchIndexer', error, 'search.excluded_record_delete_failed', { entityId })
       }
     }
+    return failures
   }
 
   private async buildIndexableRecord(
@@ -457,6 +474,7 @@ export class SearchIndexer {
 
     const exclusions = this.createPlaintextExclusionLookup()
     const allRecords: IndexableRecord[] = []
+    const deleteFailures: ExcludedRecordDeleteFailure[] = []
     let skipped = 0
 
     for (const [entityId, recordIds] of recordIdsByEntity) {
@@ -493,8 +511,8 @@ export class SearchIndexer {
           )
           skipped += dropped
           allRecords.push(...built)
-          await this.deleteExcludedRecords(entityId, tenantId, excludedRecordIds, (excludedId) =>
-            this.searchService.delete(entityId, excludedId, tenantId))
+          deleteFailures.push(...await this.deleteExcludedRecords(entityId, tenantId, excludedRecordIds, (excludedId) =>
+            this.searchService.delete(entityId, excludedId, tenantId)))
         } catch (error) {
           skipped++
           searchError('SearchIndexer', 'Failed to load record for batch indexing', {
@@ -508,6 +526,10 @@ export class SearchIndexer {
 
     if (allRecords.length > 0) {
       await this.searchService.bulkIndex(allRecords)
+    }
+
+    if (deleteFailures.length > 0) {
+      throw excludedRecordDeleteError(deleteFailures)
     }
 
     return { indexed: allRecords.length, skipped }
@@ -604,8 +626,15 @@ export class SearchIndexer {
           items,
           config,
         )
-        await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
+        const deleteFailures = await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
           this.searchService.delete(params.entityId, excludedId, params.tenantId))
+        if (deleteFailures.length > 0) {
+          result.success = false
+          result.errors.push(...deleteFailures.map((failure) => ({
+            entityId: params.entityId,
+            error: describeExcludedRecordDeleteFailure(failure),
+          })))
+        }
 
         // Bulk index records via SearchService (sends to all strategies)
         if (records.length > 0) {
@@ -678,13 +707,14 @@ export class SearchIndexer {
    */
   async bulkIndexRecords(params: IndexRecordParams[]): Promise<void> {
     const indexableRecords: IndexableRecord[] = []
+    const deleteFailures: ExcludedRecordDeleteFailure[] = []
     const exclusions = this.createPlaintextExclusionLookup()
 
     for (const param of params) {
       const indexableRecord = await this.buildIndexableRecord(param, exclusions)
       if (indexableRecord === EXCLUDED_RECORD) {
-        await this.deleteExcludedRecords(param.entityId, param.tenantId, [param.recordId], (excludedId) =>
-          this.searchService.delete(param.entityId, excludedId, param.tenantId))
+        deleteFailures.push(...await this.deleteExcludedRecords(param.entityId, param.tenantId, [param.recordId], (excludedId) =>
+          this.searchService.delete(param.entityId, excludedId, param.tenantId)))
         continue
       }
       if (indexableRecord) {
@@ -702,6 +732,10 @@ export class SearchIndexer {
           }`
         )
       }
+    }
+
+    if (deleteFailures.length > 0) {
+      throw excludedRecordDeleteError(deleteFailures)
     }
   }
 
@@ -820,8 +854,15 @@ export class SearchIndexer {
             config,
           )
           result.recordsDropped = (result.recordsDropped ?? 0) + dropped
-          await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
+          const deleteFailures = await this.deleteExcludedRecords(params.entityId, params.tenantId, excludedRecordIds, (excludedId) =>
             fulltext.delete(params.entityId, excludedId, params.tenantId))
+          if (deleteFailures.length > 0) {
+            result.success = false
+            result.errors.push(...deleteFailures.map((failure) => ({
+              entityId: params.entityId,
+              error: describeExcludedRecordDeleteFailure(failure),
+            })))
+          }
 
           // Index to fulltext - either via queue or directly
           if (indexableRecords.length > 0) {
