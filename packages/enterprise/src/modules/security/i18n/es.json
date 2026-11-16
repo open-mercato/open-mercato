@@ -358,6 +358,7 @@
   "security.profile.mfa.generic.start": "Iniciar configuración",
   "security.profile.mfa.generic.verifyCode": "Código de verificación (si es necesario)",
   "security.profile.mfa.generic.verifyCodePlaceholder": "Introduce el código de verificación",
+  "security.profile.mfa.loadError": "No se pudieron cargar los ajustes de MFA. Inténtalo de nuevo.",
   "security.profile.mfa.loading": "Cargando configuración de MFA...",
   "security.profile.mfa.manage": "Gestionar configuración de MFA",
   "security.profile.mfa.method.active": "Activo",

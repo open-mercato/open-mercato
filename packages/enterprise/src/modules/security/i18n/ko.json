@@ -358,6 +358,7 @@
   "security.profile.mfa.generic.start": "설정 시작",
   "security.profile.mfa.generic.verifyCode": "확인 코드(필요한 경우)",
   "security.profile.mfa.generic.verifyCodePlaceholder": "확인 코드를 입력하세요",
+  "security.profile.mfa.loadError": "MFA 설정을 불러오지 못했습니다. 다시 시도해 주세요.",
   "security.profile.mfa.loading": "MFA 설정을 불러오는 중...",
   "security.profile.mfa.manage": "MFA 설정 관리",
   "security.profile.mfa.method.active": "활성",

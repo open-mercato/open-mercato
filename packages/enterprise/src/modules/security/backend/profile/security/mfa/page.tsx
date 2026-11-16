@@ -7,7 +7,8 @@ import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 import MfaEnrollmentNotice from '../../../../components/MfaEnrollmentNotice'
 import { useMfaStatus } from '../../../../components/hooks/useMfaStatus'
@@ -73,7 +74,7 @@ export default function SecurityMfaPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { loading, methods, providers } = useMfaStatus()
+  const { loading, loadError, methods, providers, reload } = useMfaStatus()
   const [showEnrollmentNotice, setShowEnrollmentNotice] = React.useState(false)
   const [showOverdueEnrollmentNotice, setShowOverdueEnrollmentNotice] = React.useState(false)
 
@@ -130,6 +131,19 @@ export default function SecurityMfaPage() {
 
   if (loading) {
     return <LoadingMessage label={t('security.profile.mfa.loading', 'Loading MFA settings...')} />
+  }
+
+  if (loadError) {
+    return (
+      <ErrorMessage
+        label={t('security.profile.mfa.loadError')}
+        action={(
+          <Button type="button" variant="outline" onClick={() => void reload()}>
+            {t('ui.actions.retry', 'Retry')}
+          </Button>
+        )}
+      />
+    )
   }
 
   return (

@@ -358,6 +358,7 @@
   "security.profile.mfa.generic.start": "Einrichtung starten",
   "security.profile.mfa.generic.verifyCode": "Bestätigungscode (falls erforderlich)",
   "security.profile.mfa.generic.verifyCodePlaceholder": "Bestätigungscode eingeben",
+  "security.profile.mfa.loadError": "Die MFA-Einstellungen konnten nicht geladen werden. Bitte versuche es erneut.",
   "security.profile.mfa.loading": "MFA-Einstellungen werden geladen...",
   "security.profile.mfa.manage": "MFA-Einstellungen verwalten",
   "security.profile.mfa.method.active": "Aktiv",
