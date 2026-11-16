@@ -111,7 +111,7 @@ it('does not treat attachments.manage alone as an owner policy for resolver-less
 
 it('requires the owner reassign decision even for the caller own staged file', async () => {
   const { em, access, attachment } = fixture()
-  mockPolicy.mockResolvedValue({ ok: false, protected: true })
+  mockPolicy.mockResolvedValue({ ok: false, protected: true, status: 403 })
   await expect(link(em, 'draft', ['file'], 'org', 'tenant', access)).rejects.toMatchObject({ status: 403 })
   expect(attachment.entityId).toBe('attachments:library')
 })

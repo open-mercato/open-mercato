@@ -21,7 +21,7 @@ Caller-supplied attachment IDs currently overwrite primary owners. Draft updates
 - Link operations receive optional authenticated access context; a missing context denies nonempty operations. Exact tenant/org scope is required, including no partial-null fallback.
 - Own library staging requires provenance matching principal and scope and passes existing owner `reassign` checks, including assignment-based protection. Unknown/unowned legacy staging fails closed.
 - Message sources require the existing scoped message-read rule and owner-policy evaluation. They are copied, keeping source rows, assignments and shared bytes intact. Forwarding validates each source attachment too.
-- Other sources require both `attachments.manage` and positive registered `reassign` policy; unprotected/no-resolver owners deny.
+- Other sources require both `attachments.manage` and positive registered `reassign` policy; unprotected/no-resolver owners deny. The existing attachments owner assertion accepts an optional protected-owner requirement, keeping partition loading and policy enforcement inside the attachments module.
 - Draft unlink/update and undo detach/restore only exact message-owned references; snapshots cannot reparent an ID now owned elsewhere. No source attachment hard deletion through message commands.
 - PATCH send checks effective email delivery settings, including persisted draft state. Delivery checks current sender permission and uses `attachmentService.readScoped` with authenticated sender and expected message owner immediately before bytes are sent.
 
@@ -57,7 +57,7 @@ Unit regressions cover same-org foreign and resolver-less sources, own/foreign/l
 
 ## Final Compliance Report
 
-Pending implementation and validation. No automated review grants `qa-approved` or satisfies the named maintainer security waiver acknowledgment.
+Implementation and focused regression coverage are complete. Parent reproduced 1,083 message/attachment tests, package builds, generation, translation checks and core typechecking; managed HTTP verification is in progress. Full monorepo testing remains blocked by TS7/ts-jest tooling. New attachment copies enforce the existing scope invariant. No automated review grants `qa-approved` or satisfies the named maintainer security waiver acknowledgment.
 
 ## Changelog
 

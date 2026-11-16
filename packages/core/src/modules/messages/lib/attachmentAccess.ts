@@ -5,8 +5,9 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { AttachmentPartition, type Attachment } from '@open-mercato/core/modules/attachments/data/entities'
-import { createAttachmentAccessContext, evaluateAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access-runner'
+import type { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { createAttachmentAccessContext } from '@open-mercato/core/modules/attachments'
+import { assertAttachmentOwnerAccess } from '@open-mercato/core/modules/attachments/lib/access-query'
 import { hasUploadProvenance } from '@open-mercato/core/modules/attachments/lib/uploadProvenance'
 import { Message } from '../data/entities'
 import { resolveMessageReadAccess } from './routeHelpers'
@@ -35,16 +36,12 @@ export async function assertMessageAttachmentSource(
     || attachment.tenantId !== tenantId || attachment.organizationId !== organizationId) {
     return denyMessageAttachmentAccess()
   }
-  const partition = await findOneWithDecryption(em as PostgreSqlEntityManager, AttachmentPartition, { code: attachment.partitionCode }, undefined, {
-    tenantId, organizationId,
-  })
-  if (!partition) return denyMessageAttachmentAccess()
-  const result = await evaluateAttachmentAccess({
-    auth, attachment, partition,
+  await assertAttachmentOwnerAccess({
+    em: em as PostgreSqlEntityManager,
+    auth, attachment,
     action: attachment.entityId === MESSAGE_ATTACHMENT_ENTITY_ID && action === 'reassign' ? 'read' : action,
-    context: createAttachmentAccessContext(access!.container), requireAuthForPublic: true,
+    context: createAttachmentAccessContext(access!.container),
   })
-  if (!result.ok) return denyMessageAttachmentAccess()
 
   if (attachment.entityId === 'attachments:library') {
     if (!hasUploadProvenance(attachment.storageMetadata, auth)) return denyMessageAttachmentAccess()
@@ -59,11 +56,12 @@ export async function assertMessageAttachmentSource(
     if (!(await resolveMessageReadAccess(access!, scope, message)).canRead) return denyMessageAttachmentAccess()
     return
   }
-  const primary = await evaluateAttachmentAccess({
-    auth, attachment: { ...attachment, storageMetadata: { assignments: [] } }, partition, action: 'reassign',
-    context: createAttachmentAccessContext(access!.container), requireAuthForPublic: true,
+  await assertAttachmentOwnerAccess({
+    em: em as PostgreSqlEntityManager,
+    auth, attachment: { ...attachment, storageMetadata: { assignments: [] } },
+    action: 'reassign', requireProtected: true,
+    context: createAttachmentAccessContext(access!.container),
   })
-  if (!primary.ok || !primary.protected) return denyMessageAttachmentAccess()
   const rbac = access!.container.resolve<{
     userHasAllFeatures(userId: string, features: string[], scope: { tenantId: string; organizationId: string | null }): Promise<boolean>
   }>('rbacService')

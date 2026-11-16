@@ -3,6 +3,7 @@ import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgr
 import { LockMode } from '@mikro-orm/core'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
+import { assertAttachmentScopeInvariant } from '@open-mercato/core/modules/attachments/lib/access'
 import { withUploadProvenance } from '@open-mercato/core/modules/attachments/lib/uploadProvenance'
 import { mergeAttachmentMetadata, readAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -44,6 +45,7 @@ export async function linkAttachmentsToMessage(
         attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
         attachment.recordId = messageId
       } else {
+        assertAttachmentScopeInvariant({ tenantId: attachment.tenantId, organizationId: attachment.organizationId })
         const { id: _id, createdAt: _createdAt, ...values } = attachment
         em.persist(em.create(Attachment, {
           ...values,

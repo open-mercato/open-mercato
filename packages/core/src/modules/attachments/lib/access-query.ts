@@ -28,6 +28,7 @@ export async function assertAttachmentOwnerAccess(input: {
   attachment: AttachmentAccessRecord
   action: AttachmentAccessAction
   persistProtection?: boolean
+  requireProtected?: boolean
 }): Promise<void> {
   const partition = await findOneWithDecryption(input.em, AttachmentPartition, { code: input.attachment.partitionCode }, undefined, {
     tenantId: input.attachment.tenantId, organizationId: input.attachment.organizationId,
@@ -39,6 +40,7 @@ export async function assertAttachmentOwnerAccess(input: {
   if (input.persistProtection) await ensureAttachmentPartitionProtection(input.em, partition!)
   const result = await evaluateAttachmentAccess({ ...input, partition: partition!, requireAuthForPublic: true })
   if (!result.ok) await throwAttachmentAccessError(result.status)
+  if (input.requireProtected && !result.protected) await throwAttachmentAccessError(403)
 }
 
 export async function scanAuthorizedAttachments(input: {
