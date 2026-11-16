@@ -332,6 +332,7 @@ describe('progress jobs route', () => {
 
   it.each([
     ['', { createdAt: 'DESC', id: 'DESC' }],
+    ['?sortDir=asc', { createdAt: 'DESC', id: 'DESC' }],
     ['?sortField=createdAt&sortDir=asc', { createdAt: 'ASC', id: 'ASC' }],
     ['?sortField=startedAt&sortDir=desc', { startedAt: 'DESC', id: 'DESC' }],
     ['?sortField=finishedAt&sortDir=asc', { finishedAt: 'ASC', id: 'ASC' }],
