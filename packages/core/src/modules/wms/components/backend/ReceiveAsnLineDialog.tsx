@@ -73,7 +73,7 @@ type ReceiveAsnLineDialogProps = {
 
 const formSchema = z
   .object({
-    receivedQty: z.number().positive(),
+    receivedQty: z.number().positive('wms.backend.asns.receive.errors.quantityPositive'),
     qcStatus: z.enum(['passed', 'failed']),
     targetStagingLocationId: z.string().uuid().optional(),
     lotNumber: z.string().trim().max(120).optional(),

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import {
   createCompanyFixture,
@@ -7,7 +7,6 @@ import {
   createPersonFixture,
   createPipelineFixture,
   createPipelineStageFixture,
-  deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 for (const kind of ['company', 'person', 'deal'] as const) {
@@ -82,7 +81,16 @@ for (const kind of ['company', 'person', 'deal'] as const) {
       const main = page.getByRole('main')
       const high = main.getByRole('tab', { name: 'QA High', exact: true })
       await expect(high).toBeVisible()
-      const labels = await main.getByRole('tab').allTextContents()
+      // The rail folds overflowing tabs into a More menu (#7487): the order spans both lists.
+      const inlineLabels = await main.getByRole('tab').allTextContents()
+      const moreTrigger = main.getByTestId('detail-tabs-more')
+      let foldedLabels: string[] = []
+      if (await moreTrigger.count()) {
+        await moreTrigger.click()
+        foldedLabels = await page.getByRole('menuitem').allTextContents()
+        await page.keyboard.press('Escape')
+      }
+      const labels = [...inlineLabels, ...foldedLabels]
       const position = (label: string) => labels.findIndex((entry) => entry.trim() === label)
       const builtIn = main.getByRole('tab', { name: kind === 'company' ? /^People/ : 'Activities', exact: kind !== 'company' })
       await expect(builtIn).toHaveAttribute('aria-selected', 'true')
@@ -113,9 +121,14 @@ for (const kind of ['company', 'person', 'deal'] as const) {
       await page.screenshot({ path: mobileScreenshot, fullPage: true })
       await testInfo.attach(`${kind}-tab-priority-mobile`, { path: mobileScreenshot, contentType: 'image/png' })
     } finally {
+      const cleanupFailures: string[] = []
       for (const fixture of fixtures.reverse()) {
-        await deleteEntityIfExists(request, token, fixture.path, fixture.id)
+        const response = await apiRequest(request, 'DELETE', fixture.path, { token, data: { id: fixture.id } })
+        if (response.status() !== 200 && response.status() !== 404) {
+          cleanupFailures.push(`${fixture.path}/${fixture.id}: ${response.status()}`)
+        }
       }
+      expect(cleanupFailures, 'Every owned fixture should be deleted').toEqual([])
     }
   })
 }
