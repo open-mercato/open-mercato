@@ -9916,14 +9916,26 @@ function isEmptyInvoiceCustomFieldValue(value: unknown): boolean {
  * Clearing a custom field leaves a row that reads back `cf_x: null`, so empty
  * values (`null`, `undefined`, `''`, `[]`) are dropped and `{}` is treated as
  * `null` before two snapshots are compared. `0` and `false` stay values.
+ * `loadCustomFieldValues` reads multi-value fields without `orderBy`, so their
+ * values are sorted.
  */
 function compactInvoiceCustomFields(
   values: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> | null {
   if (!values || typeof values !== "object") return null;
-  const entries = Object.entries(values).filter(
-    ([, value]) => !isEmptyInvoiceCustomFieldValue(value),
-  );
+  const entries = Object.entries(values)
+    .filter(([, value]) => !isEmptyInvoiceCustomFieldValue(value))
+    .map(([key, value]): [string, unknown] => [
+      key,
+      Array.isArray(value)
+        ? value
+            .map((entry: unknown) => ({ entry, sortKey: JSON.stringify(entry) }))
+            .sort((left, right) =>
+              left.sortKey < right.sortKey ? -1 : left.sortKey > right.sortKey ? 1 : 0,
+            )
+            .map(({ entry }) => entry)
+        : value,
+    ]);
   return entries.length ? Object.fromEntries(entries) : null;
 }
 
@@ -9943,7 +9955,7 @@ function comparableInvoiceSnapshot(snapshot: InvoiceGraphSnapshot): unknown {
     JSON.stringify({
       invoice: {
         ...snapshot.invoice,
-        customFields: customFields ? canonicalizeForComparison(customFields) : null,
+        customFields,
       },
       lines,
     }),
