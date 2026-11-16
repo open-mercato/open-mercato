@@ -13,7 +13,7 @@ const mockQE = {
 // Entity ids the fake ORM metadata knows about, keyed by the class name the
 // resolver derives from the id's entity segment.
 const registeredTables: Record<string, string> = {
-  CustomerEntity: 'customer_entities', SalesOrder: 'sales_orders', User: 'users',
+  CustomerEntity: 'customer_entities', CustomerPersonProfile: 'customer_person_profiles', SalesOrder: 'sales_orders', User: 'users',
 }
 
 const mockRbac = { userHasAllFeatures: jest.fn(async () => true), loadAcl: jest.fn(async () => ({ isSuperAdmin: true })) }
@@ -47,7 +47,7 @@ jest.mock('@open-mercato/core/modules/entities/lib/entityClassification', () => 
   }),
 }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  getModules: () => [{ customEntities: [{ id: 'customers:customer_entity', labelField: 'title' }, { id: 'third_party:entry', labelField: 'externalReference' }] }],
+  getModules: () => [{ customEntities: [{ id: 'customers:customer_entity', labelField: 'title' }, { id: 'customers:customer_person_profile', labelField: 'displayName' }, { id: 'third_party:entry', labelField: 'externalReference' }] }],
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 
@@ -223,6 +223,16 @@ describe('GET /api/entities/relations/options', () => {
     expect(response.status).toBe(200)
     expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['sales.orders.view'], { tenantId: 't1', organizationId: 'org' })
     expect(mockQE.query).toHaveBeenCalledWith('sales:sales_order', expect.objectContaining({ tenantId: 't1', organizationId: 'org' }))
+  })
+
+  it('keeps declared customer profile labels readable by an authorized non-superadmin', async () => {
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false })
+    mockQE.query.mockResolvedValueOnce({ items: [{ id: 'person-1', displayName: 'Ada Lovelace' }] })
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=customers:customer_person_profile&labelField=displayName'))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ items: [{ value: 'person-1', label: 'Ada Lovelace' }] })
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith('actor', ['customers.people.view'], { tenantId: 't1', organizationId: 'org' })
+    expect(mockQE.query).toHaveBeenCalledWith('customers:customer_person_profile', expect.objectContaining({ fields: ['id', 'displayName'] }))
   })
 
   it('preserves third-party declared labels', async () => {

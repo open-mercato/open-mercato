@@ -26,7 +26,7 @@ Same route, method, parameter names and `{ items: [{ value, label, routeContext?
 
 ## Migration & Backward Compatibility
 
-This is the security tightening requested by #9106. Unsafe arbitrary-column reads and implicit global-table reads cease. No route, HTTP method, response field, signature, import path or entity is removed. Clients should omit `labelField` or select an authorized declared/fixed label, and hold the target's existing read grant. Operators should review metadata-only roles that previously depended on excessive access. Trusted internal global-query callers must explicitly use the existing scope opt-out and encode visibility in filters; do not expose that flag to request parameters. No bridge preserves the vulnerable reads.
+This is the security tightening requested by #9106. Unsafe arbitrary-column reads and implicit global-table reads cease. No route, HTTP method, response field, signature, import path or entity is removed. Clients should omit `labelField` or select an authorized declared/fixed label, and hold the target's existing read grant. Operators should review metadata-only roles that previously depended on excessive access. Trusted internal global-query callers must explicitly use the existing scope opt-out and encode visibility in filters; do not expose that flag to request parameters. No bridge preserves the vulnerable reads. The dated compatibility entry and upgrade notes document the security exception; named human-maintainer acknowledgment remains required before merge.
 
 ## Integration coverage
 

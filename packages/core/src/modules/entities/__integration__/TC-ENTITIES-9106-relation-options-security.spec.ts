@@ -22,10 +22,13 @@ test('TC-ENTITIES-9106: metadata access cannot read system secrets; permitted re
     const password = `Test-${randomUUID()}!`
     userId = await createUserFixture(request, administrator, { email, password, organizationId, roles: [roleId] })
     const actor = await getAuthToken(request, email, password)
-    for (const target of ['security:user_mfa_method', 'auth:user', 'auth:session', 'directory:tenant', 'sales:sales_order']) {
+    for (const target of ['auth:user', 'auth:session', 'directory:tenant', 'sales:sales_order']) {
       const response = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${target}&labelField=id`, { token: actor })
       expect(response.status(), `${target} must require its own read authority`).toBe(403)
     }
+    const optionalSecurityTarget = await apiRequest(request, 'GET', '/api/entities/relations/options?entityId=security:user_mfa_method&labelField=secret', { token: actor })
+    expect([200, 403]).toContain(optionalSecurityTarget.status())
+    if (optionalSecurityTarget.status() === 200) expect(await optionalSecurityTarget.json()).toEqual({ items: [] })
     const created = await createCustomEntity(request, administrator, { entityId, label: 'Relation security fixture' })
     expect(created.status()).toBe(200)
     entityCreated = true

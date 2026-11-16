@@ -18,7 +18,6 @@ import { classifyRecordsEntity } from '../../lib/entityClassification'
 import { assertEntityAclForRequest, resolveEntityAclRequirement } from '../../lib/entityAcl'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
-
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
 }
