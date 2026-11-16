@@ -1,5 +1,7 @@
 # GDPR Data Erasure Orchestration (Enterprise)
 
+> ⚠️ Superseded by `.ai/specs/enterprise/2026-11-16-privacy-dsr-engine.md` (2026-11-16) — sections: Architecture, Commands & Events, Data Model, API Contracts, Phasing & Implementation Plan. Current state: see the new spec.
+
 > Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) on 2026-07-08. Companion spec: [`2026-07-08-automated-database-backups.md`](2026-07-08-automated-database-backups.md) — owns the erasure-manifest mechanism and the post-restore re-run diff this spec produces entries for, plus the bounded-retention guarantee this spec's GDPR framing relies on.
 
 ## TLDR
