@@ -1,5 +1,7 @@
 # Upgrade Notes
 
+<a id="issue-9017"></a>
+
 ## Message attachment source authorization (#9017)
 
 Messages now link only the caller's authenticated staging uploads, readable message attachments, or sources authorized by both `attachments.manage` and a registered owner policy. Other same-org files and resolver-less external owners are refused. Draft removal detaches message references instead of hard-deleting source attachments. Draft email sends require `messages.email`, including saved delivery settings; workers recheck current sender permission and read attachments through the owner-authorized attachment service.
