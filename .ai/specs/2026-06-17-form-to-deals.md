@@ -1,10 +1,15 @@
 # Form-to-Deals — generic Forms→CRM-deal intake bridge (`form_to_deals` module)
 
-> **Status:** Draft — revised after adversarial review (2026-06-17) and updated for the `forms` core module (2026-11-13). A generic connector that projects `forms` submissions into `customers` CRM deals. **Recruitment / ATS-lite is the primary documented use case** (see Use Cases), but the module itself is use-case-agnostic. All consumed contracts are verified against live code (see References for file:line).
+> **Status:** Draft — revised after adversarial review (2026-06-17) and updated for the `forms` core module (2026-11-13). A generic connector that projects `forms` submissions into `customers` CRM deals. **Recruitment / ATS-lite is the primary documented use case** (see Use Cases), but the module itself is use-case-agnostic. Not implementation-ready: the privileged answer-read contract and durable deal correlation require explicit design approval (Q1–Q2 below).
 
 ## TLDR
 
 > **Positioning:** a thin, generic **Forms→deal bridge** — on `forms.submission.submitted` it creates a CRM `Person` + `Deal` in an admin-configured pipeline, with field mapping, CV/file attachment, consent gating, idempotency, and per-channel source attribution. Recruitment (an ATS-lite candidate funnel) is the lead use case; the same module serves lead/partner/RFP intake by binding a different form to a different pipeline.
+
+## Open Questions — implementation blockers
+
+- **Q1 — privileged answers:** which narrowly scoped internal contract may read the mapped answers? Current `getCurrent` fails closed without a viewer role; `unsliced: true` is reserved for the consent projector. A maintainer must approve the new caller/trust boundary, including request-principal exclusion and tenant/organization negative tests, before implementation. This draft grants no additional unsliced caller.
+- **Q2 — durable correlation:** which supported atomic/idempotent write contract binds a committed deal to its submission before a worker can crash? The map uniqueness constraint alone cannot recover a deal whose ID was never stored. Approve the persistence owner, atomicity boundary and concurrent winner/recovery behavior before implementation; do not infer a submission-key or caller-provided deal-ID contract from the existing command.
 
 **Key Points:**
 - Host the intake form natively in OM using the `forms` core module (public token-based distribution, `file` upload field, consent), surfaced from any channel via a link to the hosted form `/f/<slug>` (Webflow page, JustJoin.IT listing, an OM careers/landing page).
@@ -60,7 +65,7 @@ Capturing external form submissions into the CRM funnel today needs external glu
 | Events + commands only, no direct ORM links | Reads forms via `formsSubmissionService` (by id) + the file via the forms `AttachmentService`; writes deals/people via `customers.*` commands; the deal file row via an attachments command/service. |
 | forms + form_to_deals + customers run in ONE OM app | Same instance (= Dispatch CRM) → in-process `customers.*` writes; no public CRM API, no cross-system sync. |
 | Separate firstName/lastName form fields | `personCreateSchema` requires non-empty first AND last; a single `fullName` split risks an empty lastName → ZodError → no deal. |
-| Idempotency map is the FIRST durable write, with state | `customers.deals.create` runs its own transaction, so the map cannot share the deal's UoW; a `pending` map row first makes redelivery crash-safe. |
+| Idempotency map is the FIRST durable write, with state | A `pending` map tracks progress, but does not make the separate deal commit crash-safe. Durable correlation and concurrent recovery remain blocked on Q2. |
 | New deal per submission; dedupe only the Person | Mirrors Greenhouse application(N). |
 | `source_label`/`channel_map` configurable; default "Form" | Attribution by per-channel distribution slug (no URL `?source=` param needed). |
 | Provenance is server-resolved, allowlisted and bounded | The channel label comes from `channel_map` keyed by `distributionId`; the submitter can only choose among the binding's configured channels by which public slug they use, never supply a label. A submitter-supplied bag would import untrusted PII into the CRM and couple the module to whatever tool wrote it. See Source-attribution contract. |
@@ -81,15 +86,15 @@ channel (Webflow / JustJoin.IT / OM) ──link──▶ /f/<slug>  (forms publi
                               ▼
         forms.submission.submitted  { submissionId }     (persistent, at-least-once)
                               ▼
-   form_to_deals submission subscriber (crash-safe idempotent on submissionId)
-     1. getCurrent({submissionId,org,tenant})  — NO viewerRole → FULL decoded answers + formVersion
+   form_to_deals submission subscriber (proposed; blocked on Q1 and Q2)
+     1. resolve mapped answers through the approved Q1 contract — current role-less getCurrent returns no answers
      2. resolve binding by (org, tenant, formVersion.formId); none/inactive → ack & ignore
      2b. resolve channel: subjectId (forms_invitation) → FormInvitation.distributionId → channel_map (else default source_label)
      3. consent gate: read field_map.consentFieldKey; absent/false → ack & ignore (no writes)
      4. assert mapped firstName/lastName/email present → else ack & mark skipped (no partial deal)
-     5. UPSERT map row (tenant, submission, status='pending')  ◀── FIRST durable write
+     5. UPSERT map row (tenant, submission, status='pending')  ◀── progress only; not sufficient crash recovery
      6. dedupe Person by email (findPeopleByAddresses) or customers.people.create → entityId
-     7. customers.deals.create (pipeline/stage, source=resolved channel, deal_label, cf.* map, personIds=[entityId], no owner) → dealId
+     7. create the deal using the approved Q2 durable-correlation contract → dealId; existing deals.create alone is insufficient
      8. UPDATE map row: deal_id=dealId, status='linked'
      9. per file FileAttachmentRef: readUpload → store as deal Attachment; set map.cv_attached=true
     10. emit form_to_deals.deal.created { dealId, submissionId }
@@ -98,7 +103,7 @@ channel (Webflow / JustJoin.IT / OM) ──link──▶ /f/<slug>  (forms publi
      → via map: anonymize projected Person PII + delete deal file attachment(s)
 ```
 
-- **No direct ORM links** to `forms` or `customers`. **System ctx:** `auth: null` + `organizationScope` from the persisted `FormSubmission` row (event is id-only). **`getCurrent`:** call WITHOUT `viewerRole` for the FULL payload (a `viewerRole` silently slices fields → partial deal); it writes a `form_access_audit` row with a null actor.
+- **No direct ORM links** to `forms` or `customers`. **System ctx:** `auth: null` + `organizationScope` from the persisted `FormSubmission` row (event is id-only). **Answer reads:** current `getCurrent` returns `{}` without a role or an authorized actor; its `unsliced` option is documented only for the consent projector. Do not reuse that option for this bridge until Q1 approves a narrowly scoped internal contract. Access-audit attribution must be specified with that decision.
 
 ### Commands & Events
 - **Reused (verified):** `customers.people.create` → `{ entityId, personId }` (link by **`entityId`**, not `personId`); `customers.deals.create` → `{ dealId }`, accepts `{ title, pipelineId, pipelineStageId, source, personIds }` (+ `cf.*` via custom-field input); `findPeopleByAddresses(em, addresses, tenantId, organizationId)` → `MatchedPerson[] { id, email }` (`id` = link `entityId`); forms `getCurrent`, `AttachmentService.readUpload`, `readFileRefs`.
@@ -136,7 +141,7 @@ Attribution here is provenance, not analytics. A deal's channel label is resolve
 - `submission_id` uuid, `deal_id` uuid **nullable** (set after deal commit)
 - `status` text — `pending` | `linked` | `skipped`
 - `cv_attached` boolean default false, `attempt_count` int default 0, `created_at`, `updated_at`
-- **`@Unique(['tenant_id','submission_id'])`** — the hard-idempotency boundary.
+- **`@Unique(['tenant_id','submission_id'])`** — map-row uniqueness only; it does not make the separate deal write idempotent (Q2).
 
 No PII on either entity (ids/config only) → no `encryption.ts` map required. Person/Deal PII is encrypted by `customers`; uploaded files by forms + the attachments store.
 
@@ -163,7 +168,7 @@ CRUD for bindings via `makeCrudRoute` (entity `form_to_deals_bindings`); **every
 ### Packaging
 - Ships as a **core module** `form_to_deals` (`packages/core/src/modules/form_to_deals`), alongside the `forms` core module it consumes. It is a **module**, NOT an integration-provider (no external service, credentials, or health check — it bridges the internal `forms` and `customers` modules via the event + command buses).
 - **Why core (not official):** `forms` became a core module in #6770, so the earlier "a core module cannot hard-depend on an optional official module" rationale no longer applies. The bridge is a thin, generic consumer of core contracts, and core placement removes the separate publish and `official-modules.json` activation workflow entirely.
-- `requires: ['customers', 'forms', 'attachments']` (all core). It is a pure consumer of existing contracts (no changes to `customers` or `forms`) → a **single core PR** with no `official-modules.json` entry and no peer-dependency on a published package.
+- `requires: ['customers', 'forms', 'attachments']` (all core). It is intended consumer of core contracts; Q1–Q2 may require an additive supported contract in `forms` or `customers`. Approve those boundaries before deciding implementation PR scope. No `official-modules.json` entry or published-package peer dependency is needed.
 
 ### Dependency, placement & rollout
 - Hard dependency: the `forms` core module enabled in the SAME OM app as the CRM, via a release that includes it (`apps/mercato/src/modules.ts` already enables `forms` from `@open-mercato/core`). **Placement: this spec stays OSS `.ai/specs/` — NOT enterprise.**
@@ -174,6 +179,8 @@ CRUD for bindings via `makeCrudRoute` (entity `form_to_deals_bindings`); **every
 
 ## Implementation Plan
 
+Implementation must not start until Q1 and Q2 are resolved and this draft is re-reviewed. The phases below describe intended behavior, not approved new contracts.
+
 ### Phase 1: Module skeleton + binding config
 1. Scaffold `form_to_deals` in `packages/core/src/modules/form_to_deals`: `index.ts` (`requires: ['customers', 'forms', 'attachments']`), `acl.ts`, `setup.ts`, `di.ts`, i18n. `yarn generate` + `yarn mercato auth sync-role-acls`. → verify: typecheck.
 2. `FormToDealBinding` entity + zod validators + `makeCrudRoute` + `api/openapi.ts` + binding commands; migration + snapshot. → verify: CRUD test (response returns `updatedAt`).
@@ -181,7 +188,7 @@ CRUD for bindings via `makeCrudRoute` (entity `form_to_deals_bindings`); **every
 
 ### Phase 2: Submission → deal subscriber
 4. `FormToDealSubmissionMap` entity (unique `(tenant, submission)`, `status`/`deal_id`/`cv_attached`) + migration.
-5. Persistent subscriber on `forms.submission.submitted`: system ctx from the submission row; `getCurrent` WITHOUT viewerRole; resolve binding via `formVersion.formId`; resolve channel; consent gate; assert firstName/lastName/email; UPSERT map `pending` (first write); dedupe via `findPeopleByAddresses` else `customers.people.create`; `customers.deals.create` (+ `deal_label`, `cf.*`); UPDATE map `linked`; emit `form_to_deals.deal.created`. Handle 23505 → resolve to existing `deal_id`; redelivery with `pending`/no `deal_id` → reconcile. → verify: submit→deal + replay (no dup) + crash-between-commits reconcile + consent=false → no deal.
+5. Persistent subscriber on `forms.submission.submitted`: system ctx from the submission row; the approved Q1 answer-read contract; resolve binding via `formVersion.formId`; resolve channel; consent gate; assert firstName/lastName/email; UPSERT map `pending` (first write); dedupe via `findPeopleByAddresses` else `customers.people.create`; the approved Q2 atomic/correlated deal creation (+ `deal_label`, `cf.*`); UPDATE map `linked`; emit `form_to_deals.deal.created`. Specify 23505 winner handling and redelivery with `pending`/no `deal_id` using the approved durable correlation; never create a second deal merely because that map field is null. → verify: submit→deal + replay (no dup) + crash-between-commits reconcile + consent=false → no deal.
 6. File projection (only if `linked` and `cv_attached=false`): extract `FileAttachmentRef[]` from `decodedData[fileFieldKey]` via `readFileRefs`; per ref `AttachmentService.readUpload(...)` → bytes; create the deal attachment via the attachments module command/service (mirror `createSyncExcelUploadAttachment`: `ensureDefaultPartitions` → partition `privateAttachments` → `storePartitionFile` → `em.create(Attachment, { entityId:'customers:customer_deal', recordId:dealId, partitionCode, storageDriver, storagePath, url: buildAttachmentFileUrl(id), fileName, mimeType, fileSize, organizationId, tenantId })`), `assertAttachmentScopeInvariant` before persist; set `cv_attached=true`. Handle empty array + multi-file. → verify: file on deal Files tab; replay re-runs only the file step.
 
 ### Phase 3: GDPR + hardening + docs
@@ -195,7 +202,7 @@ CRUD for bindings via `makeCrudRoute` (entity `form_to_deals_bindings`); **every
 
 #### Crash between deal commit and map update → duplicate deal
 - **Scenario**: `customers.deals.create` commits in its own transaction; the map UPDATE then fails. Redelivery finds no `linked` map → second deal.
-- **Severity**: High — **Mitigation**: write the map row `pending` BEFORE `deals.create`; redelivery with `pending`/no `deal_id` reconciles; unique `(tenant, submission)` + 23505→resolve handles concurrency. — **Residual**: brief self-healing reconcile window.
+- **Severity**: High — **Mitigation**: unresolved Q2 must provide durable deal correlation or an approved atomic write before implementation; a `pending` map and uniqueness constraint alone cannot find the first committed deal. — **Residual**: duplicate creation remains possible until that contract and crash/concurrent-winner tests exist.
 
 #### Consent not given but deal created
 - **Scenario**: forms `submit()` does no consent validation and emits unconditionally; the consent projector handles only SIGNATURE fields, so a boolean consent yields no record/gate.
@@ -242,7 +249,7 @@ CRUD for bindings via `makeCrudRoute` (entity `form_to_deals_bindings`); **every
 | core | ACL grant sync for new features | Compliant | `yarn mercato auth sync-role-acls` in Phase 1 |
 | attachments | `assertAttachmentScopeInvariant` before persist | Compliant | In the file write step |
 | core | zod validation | Compliant | Binding schemas; `consentFieldKey` required |
-| events | Idempotent persistent subscribers | Compliant | First-write `pending` map + unique `(tenant, submission)` + reconcile |
+| events | Idempotent persistent subscribers | Blocked | Q2 must define durable deal correlation and concurrent recovery |
 | root | Encryption maps for PII | Compliant (N/A) | Module stores ids/config only |
 | root | No hardcoded UI strings / status colors | Compliant | i18n en/pl; semantic tokens |
 | .ai/specs taxonomy | OSS vs enterprise placement | Resolved | Stays OSS in `core`; `forms` is a core module since #6770 |
@@ -253,20 +260,23 @@ CRUD for bindings via `makeCrudRoute` (entity `form_to_deals_bindings`); **every
 | Data models ↔ API contracts | Pass | Bindings CRUD ↔ entity; map internal |
 | API ↔ UI/UX | Pass | Settings page = bindings CRUD; no public route |
 | Risks cover all writes | Pass | Deal/person/attachment/map + erasure |
-| Idempotency covers at-least-once + crash | Pass | First-write `pending` map + reconcile + 23505 |
+| Idempotency covers at-least-once + crash | Blocked | Unique map rows do not recover an unrecorded committed deal; Q2 |
 | Consent + erasure addressed | Pass | Consent gate + anonymized subscriber |
 
 ### Verdict
-- **Ready after must-fixes (applied)** — the CRM release must include the `forms` core module, enabled. Recommend `om-pre-implement-spec`.
+- **Draft — not implementation-ready.** Q1 (privileged answer access) and Q2 (durable correlation/concurrent recovery) need explicit maintainer design decisions, updated contracts, and a fresh readiness review. This documentation update neither changes runtime permissions nor approves a persistence design.
 
 ## References (verified file:line)
-- `packages/core/src/modules/forms` (core module since #6770): `/f/:slug`; public start route resolves the distribution from a client-supplied `slug` (`api/public/start/route.ts:111` → `services/distribution-service.ts:179`); submit route `api/form-submissions/[id]/submit/route.ts` (anonymous-token/customer principal); `forms.submission.submitted` `{submissionId}` (`events-payloads.ts:55`, `submission-service.ts:706`); `forms.submission.anonymized` (`api/.../anonymize/route.ts:92`); `getCurrent` (`submission-service.ts:903`, slices only when `viewerRole` set, `:866-885`); `file` field + `FileAttachmentRef[]` + `readFileRefs` (`schema/file-field.ts:10-31`); `AttachmentService.readUpload` (`attachment-service.ts:71`); consent projector template (`subscribers/forms-consent-projector.ts`); `license:'MIT'` (`index.ts:10`); public rate limiter fail-open (`api/public/rate-limit.ts`); open submit mints `FormInvitation` with `distributionId` (`services/distribution-service.ts:266-331`, subject `forms_invitation`).
+- `packages/core/src/modules/forms` (core module since #6770): `/f/:slug`; public start route resolves the distribution from a client-supplied `slug` (`api/public/start/route.ts:111` → `services/distribution-service.ts:179`); submit route `api/form-submissions/[id]/submit/route.ts` (anonymous-token/customer principal); `forms.submission.submitted` `{submissionId}` (`events-payloads.ts:55`, `submission-service.ts:706`); `forms.submission.anonymized` (`api/.../anonymize/route.ts:92`); `getCurrent` (`submission-service.ts:903`; role-less reads fail closed at `:960–989`, `GetCurrentArgs.unsliced` is consent-projector-only at `:194–207`; `forms/di.ts:161–169`); `file` field + `FileAttachmentRef[]` + `readFileRefs` (`schema/file-field.ts:10-31`); `AttachmentService.readUpload` (`attachment-service.ts:71`); consent projector template (`subscribers/forms-consent-projector.ts`); `license:'MIT'` (`index.ts:10`); public rate limiter fail-open (`api/public/rate-limit.ts`); open submit mints `FormInvitation` with `distributionId` (`services/distribution-service.ts:266-331`, subject `forms_invitation`).
 - `customers/commands/people.ts:729` (`{ entityId, personId }`), `commands/deals.ts:409` (`customers.deals.create`, `syncDealPeople` links by `CustomerEntity.id`), `lib/findPeopleByAddresses.ts:55` (`MatchedPerson[]`, `MATCH_CANDIDATE_LIMIT=500`), `data/validators.ts:98-99,114-115` (firstName/lastName required), `encryption.ts` (no `primary_email` hashField).
 - `sync_excel/lib/upload-storage.ts:23-63` (attachment create pattern), `attachments/lib/access.ts:26` (`assertAttachmentScopeInvariant`), `attachments/lib/partitions.ts` (`privateAttachments`), `E.customers.customer_deal`, `attachments/AGENTS.md:37`.
 - `.ai/specs/2026-06-08-deals-list-redesign.md`, `.ai/specs/SPEC-030-2026-02-24-deal-attachments.md`, `.ai/specs/2026-04-03-customers-lead-funnel.md` (scoped OUT), `.ai/specs/analysis/ANALYSIS-004-bamboohr-integration.md`.
 - `packages/core/AGENTS.md`, `packages/events/AGENTS.md`, `packages/ui/AGENTS.md`, `.ai/ds-rules.md`.
 
 ## Changelog
+### 2026-11-16
+- Corrected the stale role-less answer-read claim and removed false crash-safety/readiness claims. Recorded Q1–Q2 as explicit implementation blockers without widening the consent-projector trust boundary or choosing a new persistence contract.
+
 ### 2026-11-13
 - **Dependency refresh for `forms` in core.** `forms` moved into `packages/core/src/modules/forms` in #6770 (2026-10-07) and is enabled by default from `@open-mercato/core`; the separate npm publish, `official-modules.json` activation, and peer-dependency steps are removed. `form_to_deals` now ships as a **core module** (`packages/core/src/modules/form_to_deals`) with `requires: ['customers', 'forms', 'attachments']`; the old "core cannot depend on an optional official module" rationale is dropped. References point at the core `forms` module (`license: 'MIT'`).
 - **Source-attribution trust wording.** Reworded the contract to say the submitter can only choose among the binding's configured channels by which public slug they use, never supply a free-form value; added a residual-risk note that the label is channel-indicative, not proof of origin.
