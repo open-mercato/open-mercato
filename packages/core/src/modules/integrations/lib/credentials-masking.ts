@@ -22,7 +22,7 @@ export const SECRET_CREDENTIAL_FIELD_TYPES: ReadonlySet<CredentialFieldType> = n
  */
 export const MASKED_SECRET_VALUE = '__om_secret_unchanged__'
 
-const DESTINATION_CREDENTIAL_KEYS = new Set(['host', 'hostname', 'port', 'apiurl', 'baseurl', 'endpoint', 'serverurl', 'url'])
+const DESTINATION_CREDENTIAL_KEYS = new Set(['host', 'hostname', 'port', 'apiurl', 'baseurl', 'endpoint', 'serverurl', 'url', 'tls', 'secure'])
 
 export class MaskedSecretDestinationChangedError extends Error {
   constructor(readonly fields: readonly string[]) {

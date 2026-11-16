@@ -13,8 +13,8 @@ const MASKED_SECRET_VALUE = '__om_secret_unchanged__'
 test.describe('TC-INT-012: retained secrets stay bound to their destination (#9108)', () => {
   for (const provider of [
     { id: 'channel_smtp', secret: 'password', credentials: { host: 'smtp.example.com', port: '587' }, destination: 'host', replacement: 'other.example.com' },
-    { id: 'channel_imap', secret: 'imapPassword', credentials: { imapHost: 'imap.example.com', imapPort: '993', smtpHost: 'smtp.example.com', smtpPort: '465' }, destination: 'imapHost', replacement: 'other.example.com' },
-    { id: 'channel_imap', secret: 'smtpPassword', credentials: { imapHost: 'imap.example.com', imapPort: '993', smtpHost: 'smtp.example.com', smtpPort: '465' }, destination: 'smtpHost', replacement: 'other.example.com' },
+    { id: 'channel_imap', secret: 'imapPassword', credentials: { imapHost: 'imap.example.com', imapPort: '993', imapTls: 'tls', smtpHost: 'smtp.example.com', smtpPort: '465', smtpTls: 'tls' }, destination: 'imapHost', replacement: 'other.example.com' },
+    { id: 'channel_imap', secret: 'smtpPassword', credentials: { imapHost: 'imap.example.com', imapPort: '993', imapTls: 'tls', smtpHost: 'smtp.example.com', smtpPort: '465', smtpTls: 'tls' }, destination: 'smtpHost', replacement: 'other.example.com' },
     { id: 'sync_akeneo', secret: 'clientSecret', credentials: { apiUrl: 'https://akeneo.example.com' }, destination: 'apiUrl', replacement: 'https://other.example.com' },
   ]) {
     test(`${provider.id}/${provider.secret}: rejects mask retargeting and keeps unrelated edits and replacement`, async ({ request }) => {
@@ -50,6 +50,18 @@ test.describe('TC-INT-012: retained secrets stay bound to their destination (#91
         if (provider.id === 'channel_imap') {
           const portField = provider.destination === 'imapHost' ? 'imapPort' : 'smtpPort'
           expect((await write({ ...masked, [portField]: '1143' })).status()).toBe(422)
+          const tlsField = provider.destination === 'imapHost' ? 'imapTls' : 'smtpTls'
+          const downgraded = { ...masked, [tlsField]: 'none' }
+          expect((await write(downgraded)).status()).toBe(422)
+          const listedDowngrade: Record<string, unknown> = { ...downgraded }
+          delete listedDowngrade[provider.secret]
+          expect((await write(listedDowngrade, [provider.secret])).status()).toBe(422)
+          const omittedTransport: Record<string, unknown> = { ...masked }
+          delete omittedTransport[tlsField]
+          expect((await write(omittedTransport)).status()).toBe(422)
+          const afterTransportDenied = await readJsonSafe<{ credentials: Record<string, unknown> }>(await read())
+          expect(afterTransportDenied?.credentials[tlsField]).toBe('tls')
+
         }
 
         const afterDenied = await readJsonSafe<{ credentials: Record<string, unknown>; secretFieldsConfigured: Record<string, boolean> }>(await read())

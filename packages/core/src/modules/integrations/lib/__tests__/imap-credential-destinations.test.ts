@@ -2,11 +2,11 @@ import { integration as imapIntegration } from '@open-mercato/channel-imap/modul
 import { MASKED_SECRET_VALUE, MaskedSecretDestinationChangedError, mergeMaskedSecretCredentials } from '../credentials-masking'
 
 const existing = {
-  imapHost: 'imap.trusted.example', imapPort: '993', imapPassword: 'stored-imap-password',
-  smtpHost: 'smtp.trusted.example', smtpPort: '465', smtpPassword: 'stored-smtp-password',
+  imapHost: 'imap.trusted.example', imapPort: '993', imapTls: 'tls', imapPassword: 'stored-imap-password',
+  smtpHost: 'smtp.trusted.example', smtpPort: '465', smtpTls: 'tls', smtpPassword: 'stored-smtp-password',
   fromAddress: 'sender@example.com',
 }
-const cases = ['imapHost', 'smtpHost', 'imapPort', 'smtpPort'].flatMap((field) => (
+const cases = ['imapHost', 'smtpHost', 'imapPort', 'smtpPort', 'imapTls', 'smtpTls'].flatMap((field) => (
   ['sentinel', 'list'].map((format) => ({ field, format }))
 ))
 
@@ -21,9 +21,22 @@ function imapRetainedCredentials(format: string): Record<string, unknown> {
 
 describe('real IMAP integration credential destinations', () => {
   it.each(cases)('refuses changed $field with $format secret preservation', ({ field, format }) => {
-    const incoming = { ...imapRetainedCredentials(format), [field]: field.endsWith('Port') ? '1143' : 'attacker.example' }
+    const incoming = { ...imapRetainedCredentials(format), [field]: field.endsWith('Port') ? '1143' : field.endsWith('Tls') ? 'none' : 'attacker.example' }
     expect(() => mergeMaskedSecretCredentials(imapIntegration.credentials, incoming, existing, ['imapPassword', 'smtpPassword']))
       .toThrow(MaskedSecretDestinationChangedError)
+  })
+
+  it.each(['imapTls', 'smtpTls'])('refuses adding or omitting %s while retaining a password', (field) => {
+    for (const format of ['sentinel', 'list']) {
+      const omitted = imapRetainedCredentials(format)
+      delete omitted[field]
+      expect(() => mergeMaskedSecretCredentials(imapIntegration.credentials, omitted, existing, ['imapPassword', 'smtpPassword']))
+        .toThrow(MaskedSecretDestinationChangedError)
+      const legacy: Record<string, unknown> = { ...existing }
+      delete legacy[field]
+      expect(() => mergeMaskedSecretCredentials(imapIntegration.credentials, imapRetainedCredentials(format), legacy, ['imapPassword', 'smtpPassword']))
+        .toThrow(MaskedSecretDestinationChangedError)
+    }
   })
 
   it.each(['fromAddress', 'support', 'import', 'transport'])('preserves unchanged destinations while editing %s', (field) => {

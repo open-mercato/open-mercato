@@ -20,11 +20,11 @@ jest.mock('../guards', () => ({
 }))
 
 const existing = {
-  imapHost: 'imap.trusted.example', imapPort: '993', imapPassword: 'stored-imap-password',
-  smtpHost: 'smtp.trusted.example', smtpPort: '465', smtpPassword: 'stored-smtp-password',
+  imapHost: 'imap.trusted.example', imapPort: '993', imapTls: 'tls', imapPassword: 'stored-imap-password',
+  smtpHost: 'smtp.trusted.example', smtpPort: '465', smtpTls: 'tls', smtpPassword: 'stored-smtp-password',
 }
 const save = jest.fn()
-const cases = ['imapHost', 'smtpHost', 'imapPort', 'smtpPort'].flatMap((field) => (
+const cases = ['imapHost', 'smtpHost', 'imapPort', 'smtpPort', 'imapTls', 'smtpTls'].flatMap((field) => (
   ['sentinel', 'list'].map((format) => ({ field, format }))
 ))
 
@@ -41,7 +41,7 @@ describe('IMAP credential route destination binding with the registered schema',
   })
 
   it.each(cases)('denies $field retargeting with $format before persistence', async ({ field, format }) => {
-    const credentials: Record<string, unknown> = { ...existing, [field]: field.endsWith('Port') ? '1143' : 'attacker.example' }
+    const credentials: Record<string, unknown> = { ...existing, [field]: field.endsWith('Port') ? '1143' : field.endsWith('Tls') ? 'none' : 'attacker.example' }
     for (const secret of ['imapPassword', 'smtpPassword']) {
       if (format === 'sentinel') credentials[secret] = MASKED_SECRET_VALUE
       else delete credentials[secret]

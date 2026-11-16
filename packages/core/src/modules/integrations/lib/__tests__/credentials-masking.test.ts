@@ -260,3 +260,19 @@ describe('masked secret destination binding (issue #9108)', () => {
     }
   })
 })
+
+
+describe('retained secret transport security binding', () => {
+  const schema: IntegrationCredentialsSchema = { fields: [
+    { key: 'secure', label: 'Secure', type: 'boolean' },
+    { key: 'password', label: 'Password', type: 'secret' },
+  ] }
+
+  it.each(['sentinel', 'list'])('refuses a transport downgrade with %s preservation', (format) => {
+    const incoming = format === 'sentinel'
+      ? { secure: false, password: MASKED_SECRET_VALUE }
+      : { secure: false }
+    expect(() => mergeMaskedSecretCredentials(schema, incoming, { secure: true, password: 'stored-password' }, ['password']))
+      .toThrow(MaskedSecretDestinationChangedError)
+  })
+})
