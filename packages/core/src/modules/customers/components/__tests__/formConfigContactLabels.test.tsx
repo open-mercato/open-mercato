@@ -64,11 +64,12 @@ const baseRenderProps = {
 }
 
 function renderField(fields: CrudField[], fieldId: string, labelId?: string) {
-  const field = fields.find((candidate) => candidate.id === fieldId)
+  const field = fields.find((candidate) => candidate.id === fieldId && candidate.type === 'custom')
   expect(field).toBeDefined()
+  if (!field || field.type !== 'custom') throw new Error('expected a custom field')
   phoneProps.length = 0
   emailProps.length = 0
-  renderToStaticMarkup(React.createElement((field as any).component, { ...baseRenderProps, labelId }))
+  renderToStaticMarkup(React.createElement(field.component, { ...baseRenderProps, labelId }))
 }
 
 // The email and phone fields render their own inputs, so CrudForm cannot tie
