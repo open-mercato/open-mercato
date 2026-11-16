@@ -31,21 +31,33 @@ The explicit operator branch name and requirement to wait for green CI override 
 
 For this initial documentation-only diff, use manual diff review and `git diff --check`; no Markdown lint command is configured. Any code fixes require targeted regression tests and the configured full validation gate. CI is the executable evidence for the requested full-suite run. Do not treat pending workflows, intentional skips, or earlier green SHAs as current-head success.
 
+## Verification evidence
+
+- [Baseline CI](https://github.com/open-mercato/open-mercato/actions/runs/43754619963) and [Main Snapshot Release](https://github.com/open-mercato/open-mercato/actions/runs/43754619938) succeeded at the exact baseline SHA. All 15 integration shards, coverage merge, snapshot publication and standalone integration passed.
+- The independent read-only audit confirmed those outcomes, existing full-suite selection and PR concurrency isolation. Its branch has no diff; no child changes were merged. The parent independently checked the run results and reran its cited test command.
+- [First PR CI](https://github.com/open-mercato/open-mercato/actions/runs/43773317414) succeeded at `4c9d673e687ce87210fe50f958c18a9a1ed7b18d`: all 15 integration shards, coverage merge and every applicable job passed. Dependency audit was intentionally skipped by its existing scope gate. Exact-head Actions inventory shows no failed or unfinished workflows.
+- Runner: local for `timeout 30 node --test scripts/__tests__/ci-full-label.test.mjs` (25 passed, zero failures/skips), manual review and `git diff --check`. Runner: GitHub CI for executable validation. This change remains documentation-only; no Markdown lint command is configured, and local package builds are unnecessary for this diff.
+- Required-status-check configuration returned HTTP 404; conservatively treat every reported check as required. Pending workflows still block completion even before their checks appear.
+
+No demonstrated root cause remains to repair. Subsequent bookkeeping commits require fresh exact-head CI. Record final workflow and independent-review evidence on the PR to avoid another evidence-only push.
+
 ## Risks
 
 Fresh CI can expose nondeterministic failures despite the green baseline. Check workflow runs and check results for the exact PR head before adding automerge. Every push invalidates prior CI evidence; final tracker evidence should avoid unnecessary bookkeeping pushes. Existing stabilization PRs remain independently owned.
 
 ## Progress
 
+PR: #9635
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Audit and scope
 
-- [ ] 1.1 Independently audit main's exact-head workflow results and full-suite selection.
-- [ ] 1.2 Record findings and implement only demonstrated root-cause repairs with regression coverage.
+- [x] 1.1 Independently audit main's exact-head workflow results and full-suite selection. — 4c9d673e68
+- [x] 1.2 Record findings and implement only demonstrated root-cause repairs with regression coverage. — 4c9d673e68
 
 ### Phase 2: Verify and review
 
-- [ ] 2.1 Verify this draft PR's full 15-shard suite and fix any demonstrated failures.
+- [x] 2.1 Verify this draft PR's full 15-shard suite and fix any demonstrated failures. — 4c9d673e68
 - [ ] 2.2 Dispatch one final independent review task after implementation and address its findings.
 - [ ] 2.3 Record evidence, complete the PR, and apply automerge only after exact-head checks and workflows pass.
