@@ -105,6 +105,17 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
       expect(updated.phone).toBe('+48 600 300 400')
       expect(updated.address_line1, 'untouched columns survive a partial update').toBe(`1 Contact St ${stamp}`)
 
+
+      // The company detail payload (what the Addresses tab / edit forms hydrate from) carries both too.
+      const detailRes = await apiRequest(request, 'GET', `${COMPANIES}/${companyId}?include=addresses`, { token })
+      expect(detailRes.ok()).toBeTruthy()
+      const detail = (await readJsonSafe(detailRes)) as {
+        addresses?: Array<{ id: string; recipientName?: string | null; phone?: string | null }>
+      } | null
+      const detailAddress = detail?.addresses?.find((entry) => entry.id === addressId)
+      expect(detailAddress?.recipientName).toBe(`Bob ${stamp}`)
+      expect(detailAddress?.phone).toBe('+48 600 300 400')
+
       // Clearing either contact field must clear the stored value, not keep the old one.
       const clearRes = await apiRequest(request, 'PUT', ADDRESSES, {
         token,
@@ -118,16 +129,6 @@ test.describe('TC-CRM-5232 address recipient name + phone', () => {
       const clearedRaw = await readRawContact(addressId)
       expect(clearedRaw.recipient_name, 'cleared recipientName is null at rest').toBeNull()
       expect(clearedRaw.phone, 'cleared phone is null at rest').toBeNull()
-
-      // The company detail payload (what the Addresses tab / edit forms hydrate from) carries both too.
-      const detailRes = await apiRequest(request, 'GET', `${COMPANIES}/${companyId}?include=addresses`, { token })
-      expect(detailRes.ok()).toBeTruthy()
-      const detail = (await readJsonSafe(detailRes)) as {
-        addresses?: Array<{ id: string; recipientName?: string | null; phone?: string | null }>
-      } | null
-      const detailAddress = detail?.addresses?.find((entry) => entry.id === addressId)
-      expect(detailAddress?.recipientName).toBe(`Bob ${stamp}`)
-      expect(detailAddress?.phone).toBe('+48 600 300 400')
     } finally {
       await deleteEntityIfExists(request, token, COMPANIES, companyId)
     }

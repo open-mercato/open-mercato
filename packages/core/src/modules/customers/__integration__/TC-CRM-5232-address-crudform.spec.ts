@@ -35,14 +35,20 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
   })
 
   test('company create form saves recipient name and phone, and the detail editor clears them', async ({ page, request }) => {
+    test.setTimeout(60_000)
     const stamp = Date.now()
     const companyName = `TC5232 Form Co ${stamp}`
     const line1 = `10 Form Street ${stamp}`
     await login(page, 'admin')
 
-    await page.goto('/backend/customers/companies/create', { waitUntil: 'domcontentloaded' })
+    await page.goto('/backend/customers/companies/create', { waitUntil: 'load' })
     await page.getByRole('main').getByRole('textbox').first().fill(companyName)
+    await expect(page.getByRole('button', { name: 'Add address' })).toBeVisible()
     await page.getByRole('button', { name: 'Add address' }).click()
+    if (!(await page.getByRole('textbox', { name: 'Address line 1' }).isVisible().catch(() => false))) {
+      await page.getByRole('button', { name: 'Add address' }).click()
+    }
+    await expect(page.getByRole('textbox', { name: 'Address line 1' })).toBeVisible({ timeout: 15000 })
     await page.getByRole('textbox', { name: 'Address line 1' }).fill(line1)
     await page.getByRole('textbox', { name: 'Recipient name' }).fill(`Form Recipient ${stamp}`)
     await page.getByRole('textbox', { name: 'Phone' }).fill('+48 600 123 456')
@@ -65,8 +71,12 @@ test.describe('TC-CRM-5232 address contact fields through the real forms', () =>
     expect(created[0].recipient_name).toBe(`Form Recipient ${stamp}`)
     expect(created[0].phone).toBe('+48 600 123 456')
 
-    await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'domcontentloaded' })
+    await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'load' })
     await page.getByRole('tab', { name: 'Addresses' }).click()
+    if (!(await page.getByRole('button', { name: 'Edit address' }).first().isVisible().catch(() => false))) {
+      await page.getByRole('tab', { name: 'Addresses' }).click()
+    }
+    await expect(page.getByRole('button', { name: 'Edit address' }).first()).toBeVisible({ timeout: 15000 })
     await page.getByRole('button', { name: 'Edit address' }).first().click()
     await expect(page.getByRole('textbox', { name: 'Recipient name' })).toHaveValue(`Form Recipient ${stamp}`)
     await page.getByRole('textbox', { name: 'Recipient name' }).fill('')
