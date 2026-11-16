@@ -1,6 +1,6 @@
 ---
 title: "Check pending compatibility disclosures as a union"
-modules: ["create_app","attachments"]
+modules: ["create_app","attachments","agent_orchestrator"]
 areas: ["framework-context","spec-pr","testing"]
 topics: ["backward-compatibility","instruction-budget","testing"]
 ---
@@ -14,3 +14,5 @@ topics: ["backward-compatibility","instruction-budget","testing"]
 **Rule**: Measure the exact union of pending disclosures against the unchanged canonical cases and regression. Use the other entries only in a temporary fixture. Preserve the full client/operator migration disclosure in the spec and upgrade notes, the qualifying argument and classification in each dated entry, and the named human waiver gate. Prefer reviewable input compaction to unnecessary cap increases. Verify formatting separately with complete Markdown AST equality and raw protected-policy identity; condensed audit text requires its own content review.
 
 **Applies to**: `BACKWARD_COMPATIBILITY.md`, standalone compatibility-context budgets, and concurrent security-disclosure PRs. Passing the budget regression does not grant a security waiver or certify a changed harness contract.
+
+**Merge correction (#9127)**: Re-measure after synchronizing the real target: upstream compaction can make earlier unrelated compaction excessive. The regression also limits unused total budget to 4096 bytes. Restore unchanged upstream disclosures instead of weakening either bound or adding filler; the focused compatibility-context regression must pass with the required new disclosure retained.
