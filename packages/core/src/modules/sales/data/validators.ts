@@ -1026,7 +1026,11 @@ const invoiceLineInputSchema = z
 
 /**
  * The negative-line rule sits on the array, not on the line object, so the line
- * object stays unrefined and `.partial()` / `.pick()` on it keep working.
+ * object stays unrefined and `.partial()` / `.pick()` on it keep working. A line
+ * with a negative amount sends both totals, and its net may not be <= 0 under a
+ * positive gross: `deriveLineNetFromGross` would rewrite that net, so the stored
+ * line would not match what the caller sent. Such lines were rejected before,
+ * so the rule narrows nothing.
  */
 const invoiceLinesInputSchema = z.array(invoiceLineInputSchema).superRefine((lines, ctx) => {
   lines.forEach((line, index) => {
@@ -1043,9 +1047,6 @@ const invoiceLinesInputSchema = z.array(invoiceLineInputSchema).superRefine((lin
       })
       return
     }
-    // `deriveLineNetFromGross` rewrites a net <= 0 under a positive gross, so the
-    // stored line would not match what the caller sent. Lines with a negative
-    // amount were rejected before, so refusing this state narrows nothing.
     if (line.totalNetAmount <= 0 && line.totalGrossAmount > 0) {
       ctx.addIssue({
         code: 'custom',
@@ -1065,7 +1066,6 @@ export const invoiceCreateSchema = scoped.extend({
   currencyCode,
   metadata,
   customFieldSetId: uuid().optional(),
-  // `null` and non-object values keep passing and store nothing, as before.
   customFields: z.unknown().optional(),
   lines: invoiceLinesInputSchema.optional(),
   subtotalNetAmount: decimal().optional(),
@@ -1078,14 +1078,16 @@ export const invoiceCreateSchema = scoped.extend({
   outstandingAmount: decimal().optional(),
 })
 
+/**
+ * Only `replaceLines: true` replaces the lines. Any other value used to be
+ * stripped and accepted, so it keeps passing and leaves the lines alone.
+ */
 export const invoiceUpdateSchema = z
   .object({
     id: uuid(),
   })
   .merge(invoiceCreateSchema.partial())
   .extend({
-    // Only `true` replaces the lines. Any other value used to be stripped and
-    // accepted, so it keeps passing and leaves the lines alone (no narrowing).
     replaceLines: z.unknown().optional(),
   })
 

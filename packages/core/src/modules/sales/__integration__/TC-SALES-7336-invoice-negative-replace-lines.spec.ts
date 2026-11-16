@@ -17,6 +17,7 @@ import {
  */
 
 const INVOICES = '/api/sales/invoices'
+const ACTIONS = '/api/audit_logs/audit-logs/actions'
 
 type JsonMap = Record<string, unknown>
 type StoredLine = { id: string; kind: string; total_net_amount: string; total_gross_amount: string; unit_price_net: string }
@@ -76,11 +77,33 @@ async function readLines(invoiceId: string): Promise<StoredLine[]> {
   })
 }
 
+type LoggedLineSnapshot = { lines?: Array<{ id: string }> } | null
+
+async function readUpdateSnapshots(
+  request: APIRequestContext,
+  token: string,
+  invoiceId: string,
+  logId: string,
+): Promise<{ before: string[]; after: string[] }> {
+  const query = new URLSearchParams({ resourceId: invoiceId, pageSize: '50' }).toString()
+  const response = await apiRequest(request, 'GET', `${ACTIONS}?${query}`, { token })
+  expect(response.status()).toBe(200)
+  const body = await readJsonSafe<{ items?: Array<{ id: string; snapshotBefore: unknown; snapshotAfter: unknown }> }>(response)
+  const entry = body?.items?.find((item) => item.id === logId)
+  expect(entry, `action log ${logId} should be listed for the invoice`).toBeTruthy()
+  const lineIds = (snapshot: unknown) => ((snapshot as LoggedLineSnapshot)?.lines ?? []).map((line) => line.id).sort()
+  return { before: lineIds(entry?.snapshotBefore), after: lineIds(entry?.snapshotAfter) }
+}
+
 async function readInvoice(request: APIRequestContext, token: string, id: string): Promise<JsonMap | undefined> {
   const response = await apiRequest(request, 'GET', `${INVOICES}?id=${encodeURIComponent(id)}`, { token })
   expect(response.status()).toBe(200)
   const body = await readJsonSafe<{ items?: JsonMap[] }>(response)
   return body?.items?.find((item) => item.id === id)
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
 function amount(record: JsonMap | undefined, camel: string, snake: string): number {
@@ -264,8 +287,6 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
       invoiceId = await createInvoice(request, token, { lines: [productLine], grandTotalGrossAmount: 123 })
       const setA = [1, 2].map((n) => ({ ...productLine, name: `A-${n}` }))
       const setB = [1, 2, 3].map((n) => ({ ...productLine, name: `B-${n}` }))
-      // Hold the invoice row so both updates are in flight and queue on its lock
-      // at the same time; releasing it lets them run one after the other.
       const [first, second] = await withClient(async (client) => {
         await client.query('begin')
         await client.query('select id from sales_invoices where id = $1 for update', [invoiceId])
@@ -287,6 +308,16 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
         return result.rows.map((row) => row.name)
       })
       expect([['A-1', 'A-2'], ['B-1', 'B-2', 'B-3']], 'the row lock serializes the two replacements').toContainEqual(names)
+
+      const finalLineIds = (await readLines(invoiceId)).map((line) => line.id).sort()
+      const [snapshotsA, snapshotsB] = await Promise.all(
+        [first, second].map((response) =>
+          readUpdateSnapshots(request, token, invoiceId as string, expectOperation(response, 'concurrent replaceLines').logId),
+        ),
+      )
+      const [earlier, later] = sameStrings(snapshotsB.after, finalLineIds) ? [snapshotsA, snapshotsB] : [snapshotsB, snapshotsA]
+      expect(later.after, 'the later update logged the stored lines as its after').toEqual(finalLineIds)
+      expect(later.before, 'the later update read its before under the lock, after the earlier commit').toEqual(earlier.after)
     } finally {
       await purgeInvoice(invoiceId)
     }

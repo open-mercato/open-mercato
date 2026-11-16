@@ -2242,7 +2242,6 @@ async function loadInvoiceSnapshot(
       grandTotalGrossAmount: String(invoice.grandTotalGrossAmount),
       paidTotalAmount: String(invoice.paidTotalAmount),
       outstandingAmount: String(invoice.outstandingAmount),
-      // Copies, so a later in-place change to the managed entity cannot alter `before`.
       metadata: cloneJson(invoice.metadata ?? null),
       customFieldSetId: invoice.customFieldSetId ?? null,
       customFields: invoiceCustomFields[invoice.id] ?? null,
@@ -9859,7 +9858,10 @@ function narrowInvoiceCustomFieldInput(value: unknown): Record<string, unknown> 
  * Writes invoice custom fields inside the caller's transaction. `setRecordCustomFields`
  * does not sanitize rich text, so values are sanitized first. Values are not
  * validated against their definitions, as on orders; a value that cannot be
- * stored fails the write and rolls the invoice back.
+ * stored fails the write and rolls the invoice back, so an invoice is never
+ * stored without the custom fields (for example its Company link) it was sent
+ * with. Callers run it in its own `withAtomicFlush` phase: it queries, and a
+ * query in the same phase as pending changes can drop them.
  */
 async function writeInvoiceCustomFields(
   em: EntityManager,
@@ -9982,6 +9984,25 @@ async function countInvoiceDependants(
   return allocationCount + creditMemoCount + noteCount;
 }
 
+/**
+ * Locks the invoice for create undo with `FOR UPDATE`, not `lockSalesDocumentRow`:
+ * `FOR NO KEY UPDATE` still admits the `KEY SHARE` lock of a foreign-key insert,
+ * so an allocation committed after the dependant count would be unlinked by the delete.
+ */
+async function lockInvoiceForCreateUndo(
+  em: EntityManager,
+  invoiceId: string,
+  scope: InvoiceRecordScope,
+): Promise<SalesInvoice | null> {
+  return findOneWithDecryption(
+    em,
+    SalesInvoice,
+    { id: invoiceId, deletedAt: null, ...scope },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  );
+}
+
 function restoreInvoiceHeader(invoice: SalesInvoice, before: InvoiceGraphSnapshot): void {
   invoice.invoiceNumber = before.invoice.invoiceNumber;
   invoice.orderId = before.invoice.orderId;
@@ -10092,10 +10113,6 @@ const createInvoiceCommand: CommandHandler<
       updatedAt: new Date(),
     });
 
-    // Header, lines and custom fields commit atomically: an invoice is never
-    // stored without the custom fields (for example its Company link) it was
-    // created with. Custom fields run in their own phase because their writer
-    // queries, and a query in the same phase as pending changes can drop them.
     let after: InvoiceGraphSnapshot | null = null;
     await withAtomicFlush(
       em,
@@ -10189,24 +10206,13 @@ const createInvoiceCommand: CommandHandler<
     };
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     await em.transactional(async (tx) => {
-      // `FOR UPDATE`, not `lockSalesDocumentRow`: `FOR NO KEY UPDATE` still admits
-      // the `KEY SHARE` lock of a foreign-key insert, so an allocation committed
-      // after the dependant count would be unlinked by the delete.
-      const invoice = await findOneWithDecryption(
-        tx,
-        SalesInvoice,
-        { id: after.invoice.id, deletedAt: null, ...scope },
-        { lockMode: LockMode.PESSIMISTIC_WRITE },
-        scope,
-      );
+      const invoice = await lockInvoiceForCreateUndo(tx, after.invoice.id, scope);
       if (!invoice) return throwDocumentUndoStale("invoice");
       const current = await loadInvoiceSnapshot(tx, invoice.id);
       if (!invoiceMatchesSnapshot(current, after)) return throwDocumentUndoStale("invoice");
       if ((await countInvoiceDependants(tx, invoice.id, scope)) > 0) {
         return throwDocumentUndoStale("invoice");
       }
-      // A reindex can have put the lines in the search index, so they are
-      // removed from it after commit.
       removed.lines = (current?.lines ?? []).map((line) => ({ id: line.id, ...scope }));
       removed.invoice = invoice;
       tx.clear();
@@ -10349,7 +10355,6 @@ const updateInvoiceCommand: CommandHandler<
       ensureOrganizationScope(ctx, invoice.organizationId);
       ensureTenantScope(ctx, invoice.tenantId);
     }
-    // `before` is captured under the row lock in `execute`.
     return {};
   },
   async execute(rawInput, ctx) {
@@ -10443,8 +10448,6 @@ const updateInvoiceCommand: CommandHandler<
       events: invoiceCrudEvents,
       indexer: { entityType: E.sales.sales_invoice },
     });
-    // New lines are not indexed, matching create; they reach the index on the
-    // next reindex. Replaced lines leave it now.
     if (replacementLines) {
       await queueDeletionSideEffects(dataEngine, previousLines, E.sales.sales_invoice_line);
     }
@@ -10509,7 +10512,6 @@ const updateInvoiceCommand: CommandHandler<
     };
     ensureOrganizationScope(ctx, scope.organizationId);
     ensureTenantScope(ctx, scope.tenantId);
-    // The update replaced the lines exactly when the line ids differ.
     const linesReplaced = !!after && !sameIds(before.lines, after.lines);
     const restored: { invoice: SalesInvoice | null } = { invoice: null };
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -10573,7 +10575,6 @@ const updateInvoiceCommand: CommandHandler<
       indexer: { entityType: E.sales.sales_invoice },
     });
     if (linesReplaced && after) {
-      // Restored lines return to the index on the next reindex.
       const restoredLineIds = new Set(before.lines.map((line) => line.id));
       await queueDeletionSideEffects(
         dataEngine,

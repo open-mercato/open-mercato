@@ -233,6 +233,34 @@ test.describe('TC-SALES-7336: invoice custom fields and undo', () => {
     }
   })
 
+  test('sanitizes rich-text custom field values on create and update', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const field = `inv_rich_${Date.now()}`
+    let invoiceId: string | null = null
+    try {
+      await createDefinition(request, token, field, { kind: 'multiline', configJson: { editor: 'htmlRichText' } })
+
+      const created = await createInvoice(request, token, {
+        [`cf_${field}`]: '<p>Created</p><script>window.createdPayload = 1</script>',
+      })
+      invoiceId = created.invoiceId
+      const afterCreate = String((await readInvoice(request, token, invoiceId))?.[`cf_${field}`] ?? '')
+      expect(afterCreate).toContain('<p>Created</p>')
+      expect(afterCreate).not.toContain('<script')
+
+      await updateInvoice(request, token, {
+        id: invoiceId,
+        customFields: { [field]: '<p>Updated</p><img src="x" onerror="window.updatedPayload = 1">' },
+      })
+      const afterUpdate = String((await readInvoice(request, token, invoiceId))?.[`cf_${field}`] ?? '')
+      expect(afterUpdate).toContain('<p>Updated</p>')
+      expect(afterUpdate).not.toContain('onerror')
+    } finally {
+      await purgeInvoice(invoiceId)
+      await deleteDefinition(request, token, field)
+    }
+  })
+
   test('answers 404 for an update of a missing invoice', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const response = await apiRequest(request, 'PUT', INVOICES, {
