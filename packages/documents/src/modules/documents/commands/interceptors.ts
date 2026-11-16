@@ -10,6 +10,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Document } from '../data/entities'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
+import { resolveUserAccess } from '../lib/permissions'
 import { resolveWatcherRecipients } from '../lib/watchers'
 import type { DocumentsServiceContainer } from '../lib/platformServices'
 import { emitDocumentsEvent } from '../events'
@@ -94,6 +95,11 @@ async function emitMentionProjection(
 ): Promise<void> {
   try {
     const notificationService = resolveDocumentsNotificationService(context.container)
+    const em = context.container.resolve('em') as EntityManager
+    if (!await resolveUserAccess(em, descriptor.documentId, {
+      tenantId: descriptor.tenantId,
+      organizationId: descriptor.organizationId,
+    }, descriptor.recipientUserId, context.container)) return
     await notificationService.create(
       {
         recipientUserId: descriptor.recipientUserId,
@@ -136,6 +142,11 @@ async function emitWatchProjection(
 ): Promise<void> {
   try {
     const notificationService = resolveDocumentsNotificationService(context.container)
+    const em = context.container.resolve('em') as EntityManager
+    if (!await resolveUserAccess(em, descriptor.documentId, {
+      tenantId: descriptor.tenantId,
+      organizationId: descriptor.organizationId,
+    }, descriptor.recipientUserId, context.container)) return
     await notificationService.create(
       {
         recipientUserId: descriptor.recipientUserId,

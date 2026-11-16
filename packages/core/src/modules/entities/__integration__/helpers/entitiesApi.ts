@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
-import { apiRequest } from '@open-mercato/core/helpers/integration/api';
+import { apiRequest, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api';
 
 /**
  * Module-local helpers for the entities API integration specs (issue #2471).
@@ -129,18 +129,23 @@ export async function deleteRecordIfExists(
 }
 
 /**
- * Unauthenticated request (no Authorization header) for 401 coverage.
- * Mirrors {@link apiRequest} but omits the bearer token.
+ * Status of an unauthenticated request (no Authorization header, no cookies) for 401 coverage.
+ *
+ * Issued from a credential-isolated context: the `request` fixture's cookie jar holds the
+ * `auth_token` set by `getAuthToken`'s login, and replaying it turns "no credentials" into
+ * "the last logged-in user" (403 instead of 401 wherever the jar sends the cookie).
  */
-export function rawRequest(
-  request: APIRequestContext,
+export function unauthenticatedRequestStatus(
   method: string,
   path: string,
   data?: unknown,
-): Promise<APIResponse> {
-  return request.fetch(`${BASE_URL}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    data: data === undefined ? undefined : JSON.stringify(data),
+): Promise<number> {
+  return withCredentialIsolatedRequest(async (anonymous) => {
+    const response = await anonymous.fetch(`${BASE_URL}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      data: data === undefined ? undefined : JSON.stringify(data),
+    });
+    return response.status();
   });
 }

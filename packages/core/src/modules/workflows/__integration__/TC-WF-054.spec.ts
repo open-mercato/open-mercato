@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { randomInt } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
   buildAgentReviewDeadlineDefinitionPayload,
   cancelWorkflowInstanceIfExists,
@@ -53,7 +54,12 @@ import {
 
 /** Short enough to breach inside a test, long enough to observe the task first. */
 const DEADLINE = '5s'
-/** The breach is a DELAYED job on `workflow-activities`, picked up by the worker. */
+/**
+ * The breach is a DELAYED job on `workflow-activities`. A drain only runs jobs
+ * whose delay has elapsed, so every poll attempt drains again: the standalone
+ * lane has no managed worker to pick the job up once the deadline passes.
+ */
+const WORKFLOW_ACTIVITIES_QUEUE = 'workflow-activities'
 const BREACH_TIMEOUT_MS = 120_000
 const BREACH_POLL_INTERVALS = [500, 1_000, 2_000]
 
@@ -62,7 +68,10 @@ async function pollTaskField(
   field: 'escalatedAt' | 'reassignedAt',
 ): Promise<void> {
   await expect
-    .poll(async () => (await fetchTask())?.[field] ?? null, {
+    .poll(async () => {
+      await drainIntegrationQueue(WORKFLOW_ACTIVITIES_QUEUE)
+      return (await fetchTask())?.[field] ?? null
+    }, {
       timeout: BREACH_TIMEOUT_MS,
       intervals: BREACH_POLL_INTERVALS,
       message: `the SLA breach job should set ${field} on the review task`,

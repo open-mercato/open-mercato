@@ -1,3 +1,4 @@
+import { redactRestoredNextInteractionName } from '../lib/interactionProjection'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -54,6 +55,7 @@ import {
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
+  shouldBumpOptimisticLockVersion,
   ensureDictionaryEntry,
   invalidateDictionaryKindCaches,
   emitQueryIndexDeleteEvents,
@@ -86,9 +88,11 @@ type PersonAddressSnapshot = {
   recipientName: string | null
   phone: string | null
   purpose: string | null
-  companyName: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2: string | null
+  buildingNumber?: string | null
+  flatNumber?: string | null
   city: string | null
   region: string | null
   postalCode: string | null
@@ -352,6 +356,8 @@ function serializePersonSnapshot(
       companyName: address.companyName ?? null,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? null,
+      buildingNumber: address.buildingNumber ?? null,
+      flatNumber: address.flatNumber ?? null,
       city: address.city ?? null,
       region: address.region ?? null,
       postalCode: address.postalCode ?? null,
@@ -843,6 +849,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for person create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, after.entity)
     let entity = await findOneWithDecryption(
       em,
       CustomerEntity,
@@ -1045,7 +1052,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
           parsed.twitterUrl, parsed.companyEntityId,
         ].some((v) => v !== undefined)
-        if (profileFieldsUpdated) {
+        if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
         }
 
@@ -1152,6 +1159,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, before.entity)
     const entity = await em.findOne(CustomerEntity, { id: before.entity.id })
     if (!entity) {
       let newEntity!: CustomerEntity
@@ -1459,6 +1467,7 @@ const deletePersonCommand: CommandHandler<
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
+      await redactRestoredNextInteractionName(em, before.entity)
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
       const decryptionScope = {
@@ -1695,6 +1704,8 @@ const deletePersonCommand: CommandHandler<
           companyName: address.companyName ?? null,
           addressLine1: address.addressLine1,
           addressLine2: address.addressLine2,
+          buildingNumber: address.buildingNumber ?? null,
+          flatNumber: address.flatNumber ?? null,
           city: address.city,
           region: address.region,
           postalCode: address.postalCode,

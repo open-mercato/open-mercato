@@ -170,7 +170,8 @@ function stripSensitiveFields(
   if (sensitive.size === 0) return record
   const safe: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(record)) {
-    if (sensitive.has(key)) continue
+    const fieldName = key.replace(/^cf[:_]/, '')
+    if (sensitive.has(key) || sensitive.has(fieldName)) continue
     safe[key] = value
   }
   return safe

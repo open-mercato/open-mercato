@@ -147,6 +147,7 @@ function createFallbackTaxRateLoader(
   return () => {
     if (!pending) {
       pending = (async () => {
+        if (!em.getMetadata().has(SalesTaxRate)) return null
         const groupIds = context.customerGroupIds
         const where: FilterQuery<SalesTaxRate> = {
           tenantId: scope.tenantId,

@@ -14,6 +14,8 @@
   "notifications.delivery.settings.invalid": "Nieprawidłowe ustawienia dostarczania",
   "notifications.empty": "Brak powiadomień",
   "notifications.error.action": "Nie udało się wykonać akcji",
+  "notifications.error.actionCommandNotAllowed": "Akcje powiadomień utworzone przez API nie mogą uruchamiać poleceń",
+  "notifications.error.actionForbidden": "Nie masz uprawnień do wykonania tej akcji powiadomienia",
   "notifications.error.load": "Nie udało się załadować powiadomień",
   "notifications.filters.actionRequired": "Wymagana akcja",
   "notifications.filters.all": "Wszystkie",

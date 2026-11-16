@@ -171,7 +171,7 @@ describe('STAFF_TIME_TRACKING_RESOURCE_KINDS is the single source for the custom
 
   it('no timesheets route re-types a guard resourceKind as a raw literal', () => {
     const offenders = sources
-      .filter((entry) => /resourceKind: '[^']+'/.test(entry.source))
+      .filter((entry) => /resourceKind: '[^']+'/.test(entry.source) || /RESOURCE_KIND\s*=\s*'[^']+'/.test(entry.source))
       .map((entry) => entry.file)
     expect(offenders).toEqual([])
   })
@@ -191,6 +191,7 @@ describe('STAFF_TIME_TRACKING_RESOURCE_KINDS is the single source for the custom
 describe('the custom time-tracking routes run API interceptors', () => {
   const INTERCEPTED_ROUTES = [
     ['access-requests'],
+    ['my-preferences'],
     ['my-projects'],
     ['my-projects', '[projectId]'],
     ['my-work'],
@@ -202,6 +203,7 @@ describe('the custom time-tracking routes run API interceptors', () => {
     ['reports', 'preview'],
     ['settings'],
     ['settings', 'reapply-rounding'],
+    ['support-tickets', 'options'],
     ['tags', 'entry-assignments'],
     ['tags', 'task-assignments'],
     ['tasks', '[id]', 'status'],
@@ -233,6 +235,20 @@ describe('the custom time-tracking routes run API interceptors', () => {
   )('%s answers through the after pass', (_name, segments) => {
     expect(readRoute(...segments, 'route.ts')).toContain('session.respond(')
   })
+
+  it.each(INTERCEPTED_ROUTES.map((segments) => [segments.join('/'), segments] as const))(
+    '%s runs the before pass for every exported handler',
+    (_name, segments) => {
+      const source = readRoute(...segments, 'route.ts')
+      const handlers = Array.from(
+        source.matchAll(/^export async function (GET|POST|PUT|PATCH|DELETE)\b/gm),
+        (match) => match[1],
+      )
+      const interceptedMethods = Array.from(source.matchAll(/^\s*method: [^\n]*$/gm), (match) => match[0]).join('\n')
+      const missing = handlers.filter((method) => !interceptedMethods.includes(`'${method}'`))
+      expect(missing).toEqual([])
+    },
+  )
 
   it('shapes the export through a descriptor, since after-interceptors cannot rewrite bytes', () => {
     expect(readRoute('reports', '[id]', 'export', 'route.ts')).toContain('session.respondWithDescriptor(')

@@ -1,6 +1,12 @@
 import Stripe from 'stripe'
 import type { VerifyWebhookInput, WebhookEvent } from '@open-mercato/shared/modules/payment_gateways/types'
 
+/**
+ * Transactions are stored under the PaymentIntent id (`createSession` returns it as the session
+ * id). Charge, Refund and Dispute objects carry their own id plus `payment_intent`, so the
+ * reference wins over the object id; a PaymentIntent object has no such field and falls back to
+ * its own id.
+ */
 export function readStripeSessionIdHint(payload: Record<string, unknown> | null): string | null {
   if (!payload) return null
 
@@ -8,13 +14,13 @@ export function readStripeSessionIdHint(payload: Record<string, unknown> | null)
   if (data && typeof data === 'object') {
     const nestedObject = (data as Record<string, unknown>).object
     if (nestedObject && typeof nestedObject === 'object') {
-      const nestedId = (nestedObject as Record<string, unknown>).id
-      if (typeof nestedId === 'string' && nestedId.trim().length > 0) return nestedId.trim()
-
       const nestedPaymentIntent = (nestedObject as Record<string, unknown>).payment_intent
       if (typeof nestedPaymentIntent === 'string' && nestedPaymentIntent.trim().length > 0) {
         return nestedPaymentIntent.trim()
       }
+
+      const nestedId = (nestedObject as Record<string, unknown>).id
+      if (typeof nestedId === 'string' && nestedId.trim().length > 0) return nestedId.trim()
     }
   }
 
@@ -43,5 +49,6 @@ export async function verifyStripeWebhook(input: VerifyWebhookInput): Promise<We
     data: event.data.object as unknown as Record<string, unknown>,
     idempotencyKey: event.id,
     timestamp: new Date(event.created * 1000),
+    ...(typeof event.api_version === 'string' ? { apiVersion: event.api_version } : {}),
   }
 }
