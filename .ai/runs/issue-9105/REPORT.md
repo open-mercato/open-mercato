@@ -2,6 +2,26 @@
 
 Scope: test-only, no production behavior, catalog files, API or database changes.
 
+## Review follow-up (2026-11-16)
+
+The popup suite is now `TC-EUDR-POPUP-001.spec.ts`; the focused config and plan use that ID. Current `main` was merged while retaining its independent `TC-EUDR-020.spec.ts` undo suite unchanged. Commands below using the old ID are historical evidence from before the rename. To select both suites now, use `yarn test:integration:ephemeral "TC-EUDR-(020|POPUP-001)"`.
+
+Validation for the follow-up (runner: local fallback; no GitHub checks exist for the unpublished merged head):
+
+| Check | Result |
+| --- | --- |
+| `TMPDIR=/tmp timeout 180 yarn install --immutable` | Passed with native-addon warnings |
+| `TMPDIR=/tmp timeout 300 yarn build:packages` | Passed, 42 tasks |
+| `TMPDIR=/tmp timeout 120 yarn generate` | Passed |
+| `TMPDIR=/tmp timeout 180 yarn build:packages` | Passed, 42 tasks |
+| Shared-config Playwright discovery, 60s bound | Timed out without listing tests |
+| Initial managed browser attempt | Initialization failed before the generated-registry rebuild; superseded by retry |
+| `TMPDIR=/tmp timeout 300 yarn test:integration:ephemeral "TC-EUDR-(020|POPUP-001)"` | Timed out during app build after database initialization, package build and generation; neither suite executed |
+| `git diff --check origin/main` | Passed |
+| Undo suite comparison against `origin/main` | Identical; merge completed without conflicts |
+
+Static re-review: no additional defects found. The popup test changed only its case ID/fixture prefix; focused config and plan reference the new filename. Historical commands retain their original IDs above. Browser validation on the merged head remains incomplete; no approval or merge readiness is claimed. No project branch has been pushed by this follow-up.
+
 ## Browser evidence
 
 `BASE_URL=http://127.0.0.1:5001 TMPDIR=/tmp timeout 180 node node_modules/@playwright/test/cli.js test --config=.ai/runs/issue-9105/playwright.config.ts`
