@@ -1,0 +1,120 @@
+{
+  "ownedDatabaseVerified": true,
+  "NODE_ENV_app": "production",
+  "cases": [
+    {
+      "case": "production weak primary",
+      "exitCode": 2,
+      "signal": null,
+      "before": "6,2,2",
+      "after": "6,2,2",
+      "accountWrites": false,
+      "expectedRejection": true
+    },
+    {
+      "case": "production weak with skip-password-policy",
+      "exitCode": 2,
+      "signal": null,
+      "before": "6,2,2",
+      "after": "6,2,2",
+      "accountWrites": false,
+      "expectedRejection": true
+    },
+    {
+      "case": "production weak with skipPasswordPolicy",
+      "exitCode": 2,
+      "signal": null,
+      "before": "6,2,2",
+      "after": "6,2,2",
+      "accountWrites": false,
+      "expectedRejection": true
+    },
+    {
+      "case": "production weak with allow-weak-password",
+      "exitCode": 2,
+      "signal": null,
+      "before": "6,2,2",
+      "after": "6,2,2",
+      "accountWrites": false,
+      "expectedRejection": true
+    },
+    {
+      "case": "production weak with allowWeakPassword",
+      "exitCode": 2,
+      "signal": null,
+      "before": "6,2,2",
+      "after": "6,2,2",
+      "accountWrites": false,
+      "expectedRejection": true
+    },
+    {
+      "case": "production compliant primary",
+      "exitCode": 0,
+      "signal": null,
+      "before": "6,2,2",
+      "after": "7,3,3",
+      "accountWrites": true,
+      "primaryAuthentication": 200
+    },
+    {
+      "case": "nonproduction explicit weak demo bypass",
+      "exitCode": 0,
+      "signal": null,
+      "before": "7,3,3",
+      "after": "8,4,4",
+      "accountWrites": true,
+      "primaryAuthentication": 200
+    },
+    {
+      "case": "production explicit weak derived overrides",
+      "exitCode": 1,
+      "signal": null,
+      "before": "8,4,4",
+      "after": "8,4,4",
+      "accountWrites": false,
+      "expectedRejection": true
+    },
+    {
+      "case": "nonproduction explicit weak derived overrides",
+      "exitCode": 1,
+      "signal": null,
+      "before": "8,4,4",
+      "after": "8,4,4",
+      "accountWrites": false,
+      "expectedRejection": true
+    },
+    {
+      "case": "production compliant derived overrides",
+      "exitCode": 0,
+      "signal": null,
+      "before": "8,4,4",
+      "after": "11,5,5",
+      "accountWrites": true,
+      "primaryAuthentication": 200,
+      "derivedAuthentication": [
+        200,
+        200
+      ]
+    },
+    {
+      "case": "production strict generated derived passwords",
+      "exitCode": 0,
+      "signal": null,
+      "before": "14,6,6",
+      "after": "17,7,7",
+      "accountWrites": true,
+      "primaryAuthentication": 200,
+      "generatedCount": 2,
+      "generatedPolicyChecks": [
+        {
+          "complies": true,
+          "authentication": 200
+        },
+        {
+          "complies": true,
+          "authentication": 200
+        }
+      ]
+    }
+  ]
+}
