@@ -44,8 +44,23 @@ describe('resolvePasswordHasherConfig', () => {
       bcryptCost: 10,
       argon2id: { memoryCost: 19456, timeCost: 2, parallelism: 1 },
       argon2Limits: { maxConcurrency: 4, maxQueue: 64 },
+      argon2LegacyVerify: false,
     })
     expect(DEFAULT_ARGON2ID_PARAMS).toEqual({ memoryCost: 19456, timeCost: 2, parallelism: 1 })
+  })
+
+  it('only opts into legacy Argon2id verification under bcrypt when the flag is set', () => {
+    expect(resolvePasswordHasherConfig({} as NodeJS.ProcessEnv).argon2LegacyVerify).toBe(false)
+    expect(resolvePasswordHasherConfig({
+      OM_PASSWORD_HASH: 'bcrypt',
+      OM_PASSWORD_ARGON2_LEGACY_VERIFY: 'true',
+    } as NodeJS.ProcessEnv).argon2LegacyVerify).toBe(true)
+    expect(resolvePasswordHasherConfig({
+      OM_PASSWORD_ARGON2_LEGACY_VERIFY: 'off',
+    } as NodeJS.ProcessEnv).argon2LegacyVerify).toBe(false)
+    expect(resolvePasswordHasherConfig({
+      OM_PASSWORD_ARGON2_LEGACY_VERIFY: 'maybe',
+    } as NodeJS.ProcessEnv).argon2LegacyVerify).toBe(false)
   })
 
   it('reads the algorithm and Argon2id parameters from env', () => {
@@ -136,16 +151,18 @@ describe('createPasswordHasher', () => {
     await expect(hasher.verify('wrong', stored)).resolves.toBe(false)
   })
 
-  it('verifies both hash kinds under either configuration', async () => {
+  it('verifies bcrypt hashes under either configuration and Argon2id hashes only when Argon2 is in the profile', async () => {
     const bcryptStored = await bcryptHash('Secret#1', 4)
     const argonStored = await createPasswordHasher(config({ algorithm: 'argon2id' })).hash('Secret#1')
     for (const algorithm of ['bcrypt', 'argon2id'] as const) {
       const hasher = createPasswordHasher(config({ algorithm }))
       await expect(hasher.verify('Secret#1', bcryptStored)).resolves.toBe(true)
-      await expect(hasher.verify('Secret#1', argonStored)).resolves.toBe(true)
       await expect(hasher.verify('wrong', bcryptStored)).resolves.toBe(false)
-      await expect(hasher.verify('wrong', argonStored)).resolves.toBe(false)
     }
+    await expect(createPasswordHasher(config({ algorithm: 'argon2id' })).verify('Secret#1', argonStored)).resolves.toBe(true)
+    await expect(createPasswordHasher(config({ algorithm: 'argon2id' })).verify('wrong', argonStored)).resolves.toBe(false)
+    await expect(createPasswordHasher(config()).verify('Secret#1', argonStored)).resolves.toBe(false)
+    await expect(createPasswordHasher(config({ argon2LegacyVerify: true })).verify('Secret#1', argonStored)).resolves.toBe(true)
   })
 
   it('verifies a $2y$ bcrypt hash', async () => {
@@ -253,11 +270,12 @@ describe('createPasswordHasher', () => {
     async function profileOf(
       algorithm: 'bcrypt' | 'argon2id',
       run: (hasher: PasswordHasher) => Promise<unknown>,
+      overrides: Partial<PasswordHasherConfig> = {},
     ) {
       const argon2 = fakeArgon2()
       const storedArgon = argon2Hash()
       argon2.verify.mockImplementation(async (candidate: string, password: string) => candidate === storedArgon && password === 'Secret#1')
-      const hasher = createPasswordHasher(config({ algorithm }), { loadArgon2: async () => argon2 })
+      const hasher = createPasswordHasher(config({ algorithm, ...overrides }), { loadArgon2: async () => argon2 })
       compareSpy.mockClear()
       await run(hasher)
       return { hash: argon2.hash.mock.calls.length, verify: argon2.verify.mock.calls.length, bcrypt: bcryptCompareCount(compareSpy), storedArgon }
@@ -291,6 +309,32 @@ describe('createPasswordHasher', () => {
       expect({ hash: correct.hash, verify: correct.verify, bcrypt: correct.bcrypt }).toEqual({ hash: absent.hash, verify: absent.verify, bcrypt: absent.bcrypt })
     })
 
+    it('spends one Argon2 verification for every outcome when bcrypt opts into legacy Argon2id verification', async () => {
+      const bcryptStored = await bcryptHash('Secret#1', 4)
+      const storedArgon = argon2Hash()
+      const scenarios: Array<(hasher: PasswordHasher) => Promise<unknown>> = [
+        (hasher) => hasher.verify('Secret#1', storedArgon),
+        (hasher) => hasher.verify('wrong', storedArgon),
+        (hasher) => hasher.verify('Secret#1', bcryptStored),
+        (hasher) => hasher.verify('wrong', bcryptStored),
+        (hasher) => hasher.equalizeTiming('wrong'),
+        (hasher) => hasher.verify('wrong', 'legacy-or-corrupted-hash'),
+        (hasher) => hasher.verify('wrong', '$argon2id$garbage'),
+      ]
+      for (const scenario of scenarios) {
+        const profile = await profileOf('bcrypt', scenario, { argon2LegacyVerify: true })
+        expect({ hash: profile.hash, verify: profile.verify, bcrypt: profile.bcrypt }).toEqual({ hash: 1, verify: 1, bcrypt: 1 })
+      }
+    })
+
+    it('spends the bcrypt floor for a legacy Argon2id hash when bcrypt does not opt into Argon2', async () => {
+      const storedArgon = argon2Hash()
+      const legacy = await profileOf('bcrypt', (hasher) => hasher.verify('Secret#1', storedArgon))
+      const absent = await profileOf('bcrypt', (hasher) => hasher.equalizeTiming('Secret#1'))
+      expect({ hash: legacy.hash, verify: legacy.verify, bcrypt: legacy.bcrypt }).toEqual({ hash: 0, verify: 0, bcrypt: 1 })
+      expect({ hash: legacy.hash, verify: legacy.verify, bcrypt: legacy.bcrypt }).toEqual({ hash: absent.hash, verify: absent.verify, bcrypt: absent.bcrypt })
+    })
+
     it('keeps warm-process work equal: the Argon2id timing hash is created once and reused', async () => {
       const argon2 = fakeArgon2()
       const stored = argon2Hash()
@@ -305,13 +349,23 @@ describe('createPasswordHasher', () => {
     })
   })
 
-  it('still verifies a legacy Argon2id hash after rolling back to bcrypt', async () => {
+  it('requires a reset for legacy Argon2id hashes after rolling back to bcrypt', async () => {
+    const stored = argon2Hash()
+    const loadArgon2 = jest.fn(async () => fakeArgon2())
+    const hasher = createPasswordHasher(config(), { loadArgon2 })
+    await expect(hasher.verify('Secret#1', stored)).resolves.toBe(false)
+    expect(loadArgon2).not.toHaveBeenCalled()
+  })
+
+  it('still verifies a legacy Argon2id hash after rolling back to bcrypt when explicitly opted in', async () => {
     const stored = argon2Hash()
     const argon2 = fakeArgon2()
-    argon2.verify.mockImplementation(async (candidate: string) => candidate === stored)
-    const hasher = createPasswordHasher(config(), { loadArgon2: async () => argon2 })
+    argon2.verify.mockImplementation(async (candidate: string, password: string) => candidate === stored && password === 'Secret#1')
+    const hasher = createPasswordHasher(config({ argon2LegacyVerify: true }), { loadArgon2: async () => argon2 })
     await expect(hasher.verify('Secret#1', stored)).resolves.toBe(true)
-    expect(argon2.hash).not.toHaveBeenCalled()
+    await expect(hasher.verify('wrong', stored)).resolves.toBe(false)
+    expect(argon2.hash).toHaveBeenCalledTimes(1)
+    expect(argon2.verify).toHaveBeenCalledWith(stored, 'Secret#1')
   })
 
   it('treats a throwing Argon2id verification as a mismatch and still spends the dummy verification', async () => {

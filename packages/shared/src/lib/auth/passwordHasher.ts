@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { compare as bcryptCompare, hash as bcryptHash } from 'bcryptjs'
 import { createLogger } from '../logger'
+import { parseBooleanWithDefault } from '../boolean'
 
 /**
  * Pluggable password hashing for user and customer-portal passwords.
@@ -44,6 +45,14 @@ export type PasswordHasherConfig = {
   argon2id: Argon2idParams
   /** Bounds for memory-hard Argon2 work. Defaults to `DEFAULT_ARGON2_WORK_LIMITS`. */
   argon2Limits?: Argon2WorkLimits
+  /**
+   * Keeps verifying stored Argon2id hashes while `algorithm` is `bcrypt`.
+   * Off by default: a bcrypt-only process must not load Argon2 or spend Argon2 work for
+   * outcomes that may or may not have a legacy hash, so legacy hashes need a password
+   * reset unless an operator opts in. When on, Argon2 joins the work profile for every
+   * outcome, so verification latency stays independent of the stored algorithm.
+   */
+  argon2LegacyVerify?: boolean
 }
 
 export interface PasswordHasher {
@@ -53,7 +62,8 @@ export interface PasswordHasher {
   hash(password: string): Promise<string>
   /**
    * Verify a password against a supported stored hash. Every outcome spends the same work:
-   * one bcrypt comparison, plus one Argon2id verification when Argon2id is configured.
+   * one bcrypt comparison, plus one Argon2id verification when Argon2id is in the work
+   * profile (always under `argon2id`, only with `argon2LegacyVerify` under `bcrypt`).
    */
   verify(password: string, storedHash: string): Promise<boolean>
   /** True when the stored hash should be replaced by a fresh hash with the current configuration. */
@@ -72,6 +82,7 @@ export const PASSWORD_ARGON2_TIME_COST_ENV = 'OM_PASSWORD_ARGON2_TIME_COST'
 export const PASSWORD_ARGON2_PARALLELISM_ENV = 'OM_PASSWORD_ARGON2_PARALLELISM'
 export const PASSWORD_ARGON2_MAX_CONCURRENCY_ENV = 'OM_PASSWORD_ARGON2_MAX_CONCURRENCY'
 export const PASSWORD_ARGON2_MAX_QUEUE_ENV = 'OM_PASSWORD_ARGON2_MAX_QUEUE'
+export const PASSWORD_ARGON2_LEGACY_VERIFY_ENV = 'OM_PASSWORD_ARGON2_LEGACY_VERIFY'
 
 export const DEFAULT_BCRYPT_COST = 10
 
@@ -180,6 +191,7 @@ export function resolvePasswordHasherConfig(env: NodeJS.ProcessEnv = process.env
     bcryptCost: DEFAULT_BCRYPT_COST,
     argon2id: { memoryCost, timeCost, parallelism },
     argon2Limits: { maxConcurrency, maxQueue },
+    argon2LegacyVerify: parseBooleanWithDefault(env[PASSWORD_ARGON2_LEGACY_VERIFY_ENV], false),
   }
 }
 
@@ -304,9 +316,10 @@ export function createPasswordHasher(
   const loadArgon2 = deps.loadArgon2 ?? loadDefaultArgon2
   const argon2Params: Argon2idParams = { ...config.argon2id }
   const withArgon2Slot = createArgon2WorkLimiter(config.argon2Limits ?? DEFAULT_ARGON2_WORK_LIMITS)
-  const argon2InProfile = config.algorithm === 'argon2id'
+  const argon2InProfile = config.algorithm === 'argon2id' || config.argon2LegacyVerify === true
   let loadedArgon2: Promise<Argon2Module> | null = null
   let argon2TimingHash: Promise<string> | null = null
+  let warnedLegacyArgon2Rejected = false
 
   const getArgon2 = (): Promise<Argon2Module> => {
     if (!loadedArgon2) {
@@ -363,13 +376,29 @@ export function createPasswordHasher(
   }
 
   // Every outcome of `verify` (match, mismatch, malformed or unknown hash) spends the same
-  // work profile: one bcrypt comparison, plus one Argon2id verification when Argon2id is
-  // the configured algorithm. A correct password therefore costs as much as a wrong one, so
-  // callers that reject an account after a successful check (deactivated, unverified, locked)
-  // do not expose password validity through latency.
+  // work profile: one bcrypt comparison, plus one Argon2id verification when Argon2id is in
+  // the profile (`argon2id`, or `bcrypt` with `argon2LegacyVerify`). A correct password
+  // therefore costs as much as a wrong one, so callers that reject an account after a
+  // successful check (deactivated, unverified, locked) do not expose password validity
+  // through latency.
   const verify = async (password: string, storedHash: string): Promise<boolean> => {
     const algorithm = detectPasswordHashAlgorithm(storedHash)
     if (algorithm === 'argon2id') {
+      if (!argon2InProfile) {
+        // A bcrypt-only process can verify this hash only by loading Argon2, which makes
+        // those accounts measurably slower than an absent account and turns response
+        // latency into an account-existence oracle. Spend the bcrypt floor every other
+        // outcome spends and report a mismatch: rolling back to bcrypt requires resetting
+        // legacy Argon2id accounts or setting OM_PASSWORD_ARGON2_LEGACY_VERIFY.
+        if (!warnedLegacyArgon2Rejected) {
+          warnedLegacyArgon2Rejected = true
+          logger.warn(
+            'Rejected an Argon2id password hash while OM_PASSWORD_HASH=bcrypt; reset these passwords or set OM_PASSWORD_ARGON2_LEGACY_VERIFY=true to keep verifying them',
+          )
+        }
+        await bcryptCompare(password, BCRYPT_TIMING_EQUALIZER_HASH)
+        return false
+      }
       const parsed = parseArgon2idHash(storedHash)
       let matched = false
       if (parsed) matched = await verifyStoredArgon2id(password, storedHash)

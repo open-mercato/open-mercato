@@ -41,12 +41,13 @@ const testArgon2: Argon2Module = {
   },
 }
 
-function createTestPasswordHasher(algorithm: PasswordHashAlgorithm) {
+function createTestPasswordHasher(algorithm: PasswordHashAlgorithm, argon2LegacyVerify = false) {
   return createPasswordHasher(
     {
       algorithm,
       bcryptCost: 4,
       argon2id: FAST_ARGON2ID_PARAMS,
+      argon2LegacyVerify,
     },
     {
       loadArgon2: async () => testArgon2,
@@ -112,7 +113,8 @@ describe('PasswordService', () => {
       const currentPasswordHasher = createTestPasswordHasher(currentHashAlgorithm)
       const currentHash = await currentPasswordHasher.hash(currentPassword)
       const configuredAlgorithm = currentHashAlgorithm === 'bcrypt' ? 'argon2id' : 'bcrypt'
-      setPasswordHasher(createTestPasswordHasher(configuredAlgorithm))
+      const legacyVerify = currentHashAlgorithm === 'argon2id'
+      setPasswordHasher(createTestPasswordHasher(configuredAlgorithm, legacyVerify))
       const { service } = createService()
       const user = createUser(currentHash)
       mockedFindOneWithDecryption.mockResolvedValueOnce(user as never)
@@ -120,6 +122,17 @@ describe('PasswordService', () => {
       await expect(service.verifyPassword(user.id, currentPassword)).resolves.toBe(true)
     },
   )
+
+  test('verifyPassword rejects a legacy Argon2id hash under bcrypt unless legacy verification is enabled', async () => {
+    const currentPassword = 'CurrentPass1!'
+    const currentHash = await createTestPasswordHasher('argon2id').hash(currentPassword)
+    setPasswordHasher(createTestPasswordHasher('bcrypt'))
+    const { service } = createService()
+    const user = createUser(currentHash)
+    mockedFindOneWithDecryption.mockResolvedValueOnce(user as never)
+
+    await expect(service.verifyPassword(user.id, currentPassword)).resolves.toBe(false)
+  })
 
   test('changePassword writes Argon2id hash, flushes, and emits event', async () => {
     const { service, emMock } = createService()
@@ -195,7 +208,7 @@ describe('PasswordService', () => {
     const currentPassword = 'CurrentPass1!'
     const currentPasswordHasher = createTestPasswordHasher('argon2id')
     const user = createUser(await currentPasswordHasher.hash(currentPassword))
-    setPasswordHasher(createTestPasswordHasher('bcrypt'))
+    setPasswordHasher(createTestPasswordHasher('bcrypt', true))
     mockedFindOneWithDecryption.mockResolvedValueOnce(user as never)
 
     await expect(service.changePassword(user.id, currentPassword, currentPassword)).rejects.toMatchObject({
