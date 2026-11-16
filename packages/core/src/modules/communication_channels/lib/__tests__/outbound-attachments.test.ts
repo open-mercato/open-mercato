@@ -1,5 +1,10 @@
 import type { AttachmentService } from '@open-mercato/core/modules/attachments'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  registerTelemetryRuntime,
+  resetTelemetryRuntime,
+  type TelemetryRuntime,
+} from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ChannelCapabilities } from '../adapter'
 import { baseEmailCapabilities } from '../email-capabilities'
 import { classifyOutboundError } from '../error-classification'
@@ -13,6 +18,7 @@ import {
   outboundAttachmentRefsSchema,
   parseOutboundAttachmentRefs,
   readStoredOutboundAttachments,
+  resolveAttachmentService,
   resolveOutboundAttachmentBytes,
   validateOutboundAttachments,
   type OutboundAttachmentRef,
@@ -193,6 +199,74 @@ describe('validateOutboundAttachments', () => {
     await expect(
       validateOutboundAttachments({ container, scope, refs: [ref(uuid(1))], capabilities: fileSharingCapabilities }),
     ).rejects.toMatchObject({ status: 504 })
+  })
+
+  it('describes every ref in one batch when the service supports it', async () => {
+    const { describeScoped, readScoped } = createContainer({})
+    const describeManyScoped = jest.fn(async ({ items }: { items: Array<{ attachmentId: string }> }) =>
+      items.map((item, index) => ({
+        id: item.attachmentId,
+        fileName: `file-${index}.pdf`,
+        mimeType: 'application/pdf',
+        fileSize: 10,
+        partitionCode: 'privateAttachments',
+      })),
+    )
+    const service = { describeScoped, readScoped, describeManyScoped } as unknown as AttachmentService
+    const container = { resolve: () => service }
+
+    const result = await validateOutboundAttachments({
+      container,
+      scope,
+      refs: [ref(uuid(1)), ref(uuid(2), { filename: 'Renamed.pdf' })],
+      capabilities: fileSharingCapabilities,
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      stored: [{ attachmentId: uuid(1), owner }, { attachmentId: uuid(2), owner, filename: 'Renamed.pdf' }],
+    })
+    expect(describeManyScoped).toHaveBeenCalledTimes(1)
+    expect(describeManyScoped).toHaveBeenCalledWith({
+      auth: { sub: 'user-1', userId: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      items: [
+        { attachmentId: uuid(1), expectedOwner: owner },
+        { attachmentId: uuid(2), expectedOwner: owner },
+      ],
+    })
+    expect(describeScoped).not.toHaveBeenCalled()
+    expect(readScoped).not.toHaveBeenCalled()
+  })
+
+  it('reports a batch refusal as not found and lets other batch failures through', async () => {
+    const describeManyScoped = jest.fn()
+    const service = { readScoped: jest.fn(), describeManyScoped } as unknown as AttachmentService
+    const container = { resolve: () => service }
+
+    describeManyScoped.mockRejectedValueOnce(new CrudHttpError(403, { error: 'Forbidden' }))
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1))], capabilities: fileSharingCapabilities }),
+    ).resolves.toMatchObject({ ok: false, code: 'attachment_not_found' })
+
+    describeManyScoped.mockRejectedValueOnce(new CrudHttpError(504, { error: 'Timeout' }))
+    await expect(
+      validateOutboundAttachments({ container, scope, refs: [ref(uuid(1))], capabilities: fileSharingCapabilities }),
+    ).rejects.toMatchObject({ status: 504 })
+  })
+
+  it('refuses a bad display name before describing any file', async () => {
+    const describeManyScoped = jest.fn()
+    const service = { readScoped: jest.fn(), describeManyScoped } as unknown as AttachmentService
+
+    await expect(
+      validateOutboundAttachments({
+        container: { resolve: () => service },
+        scope,
+        refs: [ref(uuid(1)), ref(uuid(2), { filename: 'payload.exe' })],
+        capabilities: fileSharingCapabilities,
+      }),
+    ).resolves.toMatchObject({ ok: false, code: 'attachment_type_not_allowed' })
+    expect(describeManyScoped).not.toHaveBeenCalled()
   })
 
   it('falls back to readScoped when the service does not describe files', async () => {
@@ -460,5 +534,33 @@ describe('resolveOutboundAttachmentBytes', () => {
     for (const url of ['data:text/plain,50%', 'data:text/plain,%zz', 'data:text/plain,%4']) {
       expect(() => resolveOutboundAttachmentBytes({ url, mimeType: 'text/plain', fileName: 'a' })).toThrow('malformed percent escape')
     }
+  })
+})
+
+describe('resolveAttachmentService', () => {
+  afterEach(() => resetTelemetryRuntime())
+
+  it('treats an unregistered attachments module as unavailable without reporting it', () => {
+    const reportError = jest.fn()
+    registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+    const missing = Object.assign(new Error("Could not resolve 'attachmentService'."), { name: 'AwilixResolutionError' })
+
+    expect(resolveAttachmentService({ resolve: () => { throw missing } })).toBeNull()
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  it('reports a broken attachments registration and still treats it as unavailable', () => {
+    const reportError = jest.fn()
+    registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+    const brokenDependency = Object.assign(
+      new Error("Could not resolve 'storageDriverFactory'.\n\nResolution path: attachmentService -> storageDriverFactory"),
+      { name: 'AwilixResolutionError' },
+    )
+
+    expect(resolveAttachmentService({ resolve: () => { throw brokenDependency } })).toBeNull()
+    expect(reportError).toHaveBeenCalledWith(brokenDependency, {
+      module: 'communication_channels',
+      code: 'communication_channels.attachment_service_unavailable',
+    })
   })
 })

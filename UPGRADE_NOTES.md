@@ -254,8 +254,8 @@ instead of throwing; Gmail refuses an attachment that only has a remote `url` in
 `attachment.content` when it is set (or use `resolveOutboundAttachmentBytes` from
 `communication_channels/lib/outbound-attachments`) and must not fetch `attachment.url`. Tests that
 assert the exact bytes of a Gmail outbound message may need the new header formatting. An
-`attachmentService` override does not need the new optional `describeScoped`: without it the hub
-validates attachments through `readScoped`. An adapter whose provider allows a different total per
+`attachmentService` override does not need the new optional `describeManyScoped` or `describeScoped`:
+without them the hub validates attachments one by one through `describeScoped`, then `readScoped`. An adapter whose provider allows a different total per
 message declares it in the new optional `ChannelCapabilities.maxTotalBytes` (raw bytes; 25 MB when
 unset); `maxFileSize` stays the per-file limit.
 

@@ -16,6 +16,7 @@ export {
   type CreatedScopedAttachment,
   type CreateScopedAttachmentInput,
   type DescribedScopedAttachment,
+  type DescribeManyScopedAttachmentsInput,
   type DescribeScopedAttachmentInput,
   type ReadScopedAttachmentInput,
   type ReadScopedAttachmentResult,

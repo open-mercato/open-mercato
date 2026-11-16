@@ -3,7 +3,7 @@ import { throwAttachmentAccessError } from './access-errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
@@ -162,6 +162,11 @@ export type DescribedScopedAttachment = {
   partitionCode: string
 }
 
+export type DescribeManyScopedAttachmentsInput = {
+  auth: NonNullable<AuthContext>
+  items: Array<Omit<DescribeScopedAttachmentInput, 'auth'>>
+}
+
 export type ReleaseScopedAttachmentInput = {
   attachmentId: string
   tenantId: string
@@ -193,6 +198,13 @@ export interface AttachmentService {
    * read later (for example at delivery time).
    */
   describeScoped?(input: DescribeScopedAttachmentInput): Promise<DescribedScopedAttachment>
+  /**
+   * `describeScoped` for several attachments of one actor: the rows and their
+   * partitions load in one query each, then every item gets the same checks,
+   * in order. Resolves to one result per item, in input order; throws the
+   * first item's refusal, as a loop over `describeScoped` would.
+   */
+  describeManyScoped?(input: DescribeManyScopedAttachmentsInput): Promise<DescribedScopedAttachment[]>
   /**
    * Permanently deletes an attachment row and its stored object once no other row references it.
    *
@@ -237,6 +249,16 @@ async function readRequestBodyWithinLimit(request: Request, maxBytes: number): P
   return body
 }
 
+
+function toDescribedScopedAttachment(attachment: Attachment): DescribedScopedAttachment {
+  return {
+    id: attachment.id,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType || 'application/octet-stream',
+    fileSize: attachment.fileSize,
+    partitionCode: attachment.partitionCode,
+  }
+}
 
 function assignmentMatches(candidate: AttachmentAssignment, expected: AttachmentAssignment): boolean {
   return candidate.type === expected.type && candidate.id === expected.id
@@ -387,14 +409,42 @@ export class DefaultAttachmentService implements AttachmentService {
   }
 
   async describeScoped(input: DescribeScopedAttachmentInput): Promise<DescribedScopedAttachment> {
-    const attachment = await this.findReadableScoped(input)
-    return {
-      id: attachment.id,
-      fileName: attachment.fileName,
-      mimeType: attachment.mimeType || 'application/octet-stream',
-      fileSize: attachment.fileSize,
-      partitionCode: attachment.partitionCode,
+    return toDescribedScopedAttachment(await this.findReadableScoped(input))
+  }
+
+  async describeManyScoped(input: DescribeManyScopedAttachmentsInput): Promise<DescribedScopedAttachment[]> {
+    if (input.items.length === 0) return []
+    const { auth } = input
+    const decryptionScope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+    const attachmentIds = [...new Set(input.items.map((item) => item.attachmentId))]
+    const attachments = await findWithDecryption(
+      this.em,
+      Attachment,
+      {
+        id: { $in: attachmentIds },
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+      },
+      undefined,
+      decryptionScope,
+    )
+    const attachmentsById = new Map(attachments.map((attachment) => [attachment.id, attachment]))
+    const partitionCodes = [...new Set(attachments.map((attachment) => attachment.partitionCode))]
+    const partitions = partitionCodes.length
+      ? await findWithDecryption(this.em, AttachmentPartition, { code: { $in: partitionCodes } }, undefined, decryptionScope)
+      : []
+    const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+
+    const described: DescribedScopedAttachment[] = []
+    for (const item of input.items) {
+      const attachment = attachmentsById.get(item.attachmentId)
+      if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
+      const partition = partitionsByCode.get(attachment.partitionCode)
+      if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
+      await this.assertReadableScoped({ ...item, auth }, attachment, partition)
+      described.push(toDescribedScopedAttachment(attachment))
     }
+    return described
   }
 
   private async findReadableScoped(input: DescribeScopedAttachmentInput): Promise<Attachment> {
@@ -424,7 +474,15 @@ export class DefaultAttachmentService implements AttachmentService {
       { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
     )
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
+    await this.assertReadableScoped(input, attachment, partition)
+    return attachment
+  }
 
+  private async assertReadableScoped(
+    input: DescribeScopedAttachmentInput,
+    attachment: Attachment,
+    partition: AttachmentPartition,
+  ): Promise<void> {
     const access = await evaluateAttachmentAccess({
       auth: input.auth, attachment, partition, action: 'read',
       context: this.resolveAccessContext?.(), requireAuthForPublic: true,
@@ -451,7 +509,6 @@ export class DefaultAttachmentService implements AttachmentService {
         throw new CrudHttpError(404, { error: 'Attachment not found' })
       }
     }
-    return attachment
   }
 
   async releaseScoped(

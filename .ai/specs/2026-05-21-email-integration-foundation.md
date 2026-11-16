@@ -911,7 +911,7 @@ Outbound attachments (§ Amendment — Outbound Attachments):
 
 | Surface | Change | Impact |
 |---|---|---|
-| `SendAsUserInput`, `SendAsUserResult`, `NormalizedAttachment`, `AttachmentService` | Optional `attachments`, `code`, `content`, `describeScoped` | Additive |
+| `SendAsUserInput`, `SendAsUserResult`, `NormalizedAttachment`, `AttachmentService` | Optional `attachments`, `code`, `content`, `describeScoped`, `describeManyScoped` | Additive |
 | `ChannelCapabilities` | Optional `maxTotalBytes` (largest raw attachment total per message; 25 MB when unset) | Additive |
 | `MessageContent.attachments` | Retyped to `NormalizedAttachment[]` (same fields plus optional `content`) | Additive |
 | `POST /api/communication_channels/send-as-user` | Optional `attachments` field; error bodies may carry `code`; `openApi` declares the request body | Additive. A request that carried `attachments` used to be accepted and the field silently dropped; it is now validated and can be refused with 422 |
@@ -1497,7 +1497,7 @@ type OutboundAttachmentRef = {
 ### Checks at send time (`sendAsUser`, actor auth available)
 
 1. The resolved adapter advertises `fileSharing: true`, otherwise 422 with `code: 'attachments_unsupported'` (also returned when the attachments module is not enabled).
-2. Each ref is read through `attachmentService.describeScoped` (new, metadata only; a service override without it falls back to `readScoped`): the row is in the actor's tenant and organization, passes the attachments module's access evaluation (scope check plus any owner access policy, action `read`, since the bytes are sent later), its partition matches the scope, and its primary owner equals `ref.owner`. A 401/403/404 from the service — a policy denial included — is 422 `attachment_not_found` and never says whether the id exists elsewhere; any other error (database, configuration, a policy evaluation timeout reported as 504) is not a verdict on the file and propagates. The organization is the one the mailbox lives in (the route uses the token's organization, as it already does for the channel lookup), so a file uploaded under another selected organization is refused.
+2. All refs are read in one batch through `attachmentService.describeManyScoped` (new, metadata only: one query for the rows and one for their partitions, then the `describeScoped` checks per ref; a service override without it falls back to `describeScoped` per ref, then to `readScoped`): the row is in the actor's tenant and organization, passes the attachments module's access evaluation (scope check plus any owner access policy, action `read`, since the bytes are sent later), its partition matches the scope, and its primary owner equals `ref.owner`. A 401/403/404 from the service — a policy denial included — is 422 `attachment_not_found` and never says whether the id exists elsewhere; any other error (database, configuration, a policy evaluation timeout reported as 504) is not a verdict on the file and propagates. The organization is the one the mailbox lives in (the route uses the token's organization, as it already does for the channel lookup), so a file uploaded under another selected organization is refused.
 3. The stored MIME type is in the adapter's `supportedMimeTypes`, else 422 `attachment_type_not_allowed`. The attachments module sets that type from the file's magic bytes, then its extension, then the uploader's claim; `application/octet-stream` (the type of an unrecognized file) is in the email allowlist, so the check stops known types the mailbox does not send rather than every unknown binary.
 4. Each file fits `capabilities.maxFileSize` and all files together fit `capabilities.maxTotalBytes`, 25 MB when the adapter does not declare it (`OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES`), else 422 `attachments_too_large`. The limit counts raw bytes; base64 makes the sent message about a third larger, so a server with a limit below ~35 MB can still refuse a message near the cap, which the adapters report as `message_too_large`.
 
@@ -1527,7 +1527,7 @@ Only `{ attachmentId, owner, filename? }` is persisted, under the hub-owned `cha
 |---|---|---|---|
 | Spec amendment + changelog | Done | 2026-10-19 | This section |
 | `composeEmailMessage` (MailComposer) in core | Done | 2026-10-19 | `lib/email-mime.ts`; `assembleRfc2822` deprecated, unchanged |
-| `AttachmentService.describeScoped` | Done | 2026-10-19 | Optional method; shares every check with `readScoped` |
+| `AttachmentService.describeScoped`, `describeManyScoped` | Done | 2026-11-16 | Optional methods; share every check with `readScoped`; the batch loads rows and partitions in one query each |
 | `send-as-user` attachments + delivery-time read | Done | 2026-10-19 | `lib/outbound-attachments.ts`, `lib/send-as-user.ts`, `commands/deliver-outbound-message.ts`, route schema + 422 codes, i18n (en, pl, de, es, ko) |
 | IMAP/SMTP adapter | Done | 2026-10-19 | Bytes to nodemailer, `message_too_large`, `fileSharing: true` |
 | Gmail adapter | Done | 2026-10-19 | MailComposer body, media upload above ~3 MiB of message, size-scaled upload timeout, client retry policy unchanged (timeout/5xx retried; duplicate-send risk left for a follow-up), `fileSharing: true` |

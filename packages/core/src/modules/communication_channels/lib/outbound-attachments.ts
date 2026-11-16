@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   getAttachmentExtension,
   hasDangerousExecutableExtension,
@@ -190,12 +191,73 @@ async function fail(
   }
 }
 
+function isAttachmentServiceNotRegistered(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === 'AwilixResolutionError' &&
+    error.message.startsWith("Could not resolve 'attachmentService'")
+  )
+}
+
+function reportAttachmentServiceFailure(error: unknown): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'communication_channels',
+      code: 'communication_channels.attachment_service_unavailable',
+    })
+  } catch {
+    return
+  }
+}
+
+/**
+ * The attachments module is optional: an unregistered service means the
+ * deployment ships no attachments. Any other resolution failure is a broken
+ * registration, still treated as unavailable but reported so it stays visible.
+ */
 export function resolveAttachmentService(container: { resolve: (name: string) => unknown }): AttachmentService | null {
   try {
     return container.resolve('attachmentService') as AttachmentService
-  } catch {
+  } catch (error) {
+    if (!isAttachmentServiceNotRegistered(error)) reportAttachmentServiceFailure(error)
     return null
   }
+}
+
+type DescribedOutboundAttachment = { fileName: string; mimeType: string; fileSize: number }
+
+/**
+ * Describe every ref as the actor, in input order. `describeManyScoped` loads
+ * them in one batch; a service override without it falls back to one
+ * `describeScoped` per ref, or to `readScoped` (reading the bytes) when it has
+ * neither optional method.
+ */
+async function describeOutboundAttachments(
+  attachmentService: AttachmentService,
+  auth: NonNullable<AuthContext>,
+  refs: OutboundAttachmentRef[],
+): Promise<DescribedOutboundAttachment[]> {
+  if (attachmentService.describeManyScoped) {
+    return attachmentService.describeManyScoped({
+      auth,
+      items: refs.map((ref) => ({ attachmentId: ref.attachmentId, expectedOwner: ref.owner })),
+    })
+  }
+  const described: DescribedOutboundAttachment[] = []
+  for (const ref of refs) {
+    if (attachmentService.describeScoped) {
+      described.push(await attachmentService.describeScoped({ attachmentId: ref.attachmentId, auth, expectedOwner: ref.owner }))
+      continue
+    }
+    const file = await attachmentService.readScoped({
+      attachmentId: ref.attachmentId,
+      auth,
+      expectedOwner: ref.owner,
+      forceDownload: true,
+    })
+    described.push({ fileName: file.fileName, mimeType: file.mimeType, fileSize: file.buffer.byteLength })
+  }
+  return described
 }
 
 /**
@@ -221,38 +283,31 @@ export async function validateOutboundAttachments(input: {
   const attachmentService = resolveAttachmentService(input.container)
   if (!attachmentService) return fail('attachments_unsupported')
 
-  const auth = buildActorAuth(input.scope)
-  // `describeScoped` is optional on the service contract; an override that
-  // only implements `readScoped` still works, at the cost of reading the bytes.
-  const describe = async (ref: OutboundAttachmentRef): Promise<{ fileName: string; mimeType: string; fileSize: number }> => {
-    if (attachmentService.describeScoped) {
-      return attachmentService.describeScoped({ attachmentId: ref.attachmentId, auth, expectedOwner: ref.owner })
+  const filenames: Array<string | undefined> = []
+  for (const ref of refs) {
+    if (ref.filename === undefined) {
+      filenames.push(undefined)
+      continue
     }
-    const file = await attachmentService.readScoped({
-      attachmentId: ref.attachmentId,
-      auth,
-      expectedOwner: ref.owner,
-      forceDownload: true,
-    })
-    return { fileName: file.fileName, mimeType: file.mimeType, fileSize: file.buffer.byteLength }
+    const parsedName = attachmentFilenameSchema.safeParse(ref.filename)
+    if (!parsedName.success) return fail('attachment_type_not_allowed')
+    filenames.push(parsedName.data)
   }
+
+  let describedFiles: DescribedOutboundAttachment[]
+  try {
+    describedFiles = await describeOutboundAttachments(attachmentService, buildActorAuth(input.scope), refs)
+  } catch (error) {
+    if (isAttachmentRefused(error)) return fail('attachment_not_found')
+    throw error
+  }
+
   const perFileLimit = capabilities.maxFileSize ?? totalLimitBytes(capabilities)
   let totalBytes = 0
   const stored: StoredOutboundAttachment[] = []
-  for (const ref of refs) {
-    let filename: string | undefined
-    if (ref.filename !== undefined) {
-      const parsedName = attachmentFilenameSchema.safeParse(ref.filename)
-      if (!parsedName.success) return fail('attachment_type_not_allowed')
-      filename = parsedName.data
-    }
-    let described
-    try {
-      described = await describe(ref)
-    } catch (error) {
-      if (isAttachmentRefused(error)) return fail('attachment_not_found')
-      throw error
-    }
+  for (const [index, ref] of refs.entries()) {
+    const filename = filenames[index]
+    const described = describedFiles[index]
     if (!isAllowedMimeType(capabilities, described.mimeType)) return fail('attachment_type_not_allowed')
     // A display-name override renames the file but never changes its type.
     if (filename && getAttachmentExtension(filename) !== getAttachmentExtension(described.fileName)) {
