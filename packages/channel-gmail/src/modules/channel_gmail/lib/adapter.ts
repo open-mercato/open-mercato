@@ -42,6 +42,8 @@ import {
   encodeBase64Url,
   getGmailApiClient,
   GmailApiError,
+  type GmailApiClient,
+  type GmailGetMessageHeadersResponse,
   type GmailGetMessageRawResponse,
 } from './gmail-client'
 import {
@@ -52,9 +54,9 @@ import {
   convertOutboundForGmail,
   type GmailEmailNativeMetadata,
 } from './convert-outbound'
-import { normalizeInboundGmailMessage } from './normalize-inbound'
+import { GMAIL_THREAD_REF_PREFIX, normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
-import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { decodeCursor, encodeCursor, stripBrackets } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 import {
   IMPORT_HISTORY_DEFAULT_SINCE_DAYS,
   IMPORT_HISTORY_DEFAULT_MAX_MESSAGES,
@@ -62,6 +64,7 @@ import {
   getImportHistoryMaxMessages,
 } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('channel_gmail')
 
@@ -85,6 +88,76 @@ const logger = createLogger('channel_gmail')
  *     we fall back to `gmail.users.messages.list?labelIds=INBOX` and persist
  *     the new historyId from the next `getProfile` call.
  */
+/**
+ * Overall budget for the post-send Message-ID read-back. The send is already
+ * accepted by Gmail but the hub has not persisted it yet, so this enrichment
+ * must not hold the worker on Gmail's retry/backoff schedule: one attempt,
+ * bounded by this deadline, and on expiry the client-built id is kept.
+ */
+export const SENT_MESSAGE_ID_READBACK_DEADLINE_MS = 5_000
+
+function withReadBackDeadline(
+  request: Promise<GmailGetMessageHeadersResponse>,
+): Promise<GmailGetMessageHeadersResponse> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new GmailApiError(
+            `Gmail Message-ID read-back exceeded ${SENT_MESSAGE_ID_READBACK_DEADLINE_MS}ms`,
+            599,
+            'read-back deadline exceeded',
+          ),
+        ),
+      SENT_MESSAGE_ID_READBACK_DEADLINE_MS,
+    )
+  })
+  return Promise.race([request, deadline]).finally(() => clearTimeout(timer))
+}
+
+/**
+ * Gmail replaces the `Message-ID` of a message sent through `users.messages.send`
+ * with one it mints itself, and the send response carries only `id`/`threadId`.
+ * The recipient's reply, and Gmail's own copy picked up by the next poll, both
+ * carry Gmail's id, so the hub must record that one for JWZ threading and
+ * sent-folder dedup to resolve this message. Best-effort: on any failure the
+ * caller falls back to the client-built id, and the failure is logged and
+ * reported to telemetry so a persistent read-back problem stays visible.
+ */
+async function readSentMessageId(
+  api: GmailApiClient,
+  auth: { accessToken: string },
+  gmailMessageId: string | undefined,
+): Promise<string | undefined> {
+  if (!gmailMessageId || typeof api.getMessageHeaders !== 'function') return undefined
+  try {
+    const message = await withReadBackDeadline(
+      api.getMessageHeaders(auth, gmailMessageId, ['Message-ID'], {
+        maxRetries: 0,
+        timeoutMs: SENT_MESSAGE_ID_READBACK_DEADLINE_MS,
+      }),
+    )
+    const header = message.payload?.headers?.find((entry) => entry.name.toLowerCase() === 'message-id')
+    return stripBrackets(header?.value)
+  } catch (error) {
+    logger.warn('could not read back the Message-ID Gmail sent, keeping the client-built id', {
+      gmailMessageId,
+      err: error,
+    })
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'channel_gmail',
+        code: 'channel_gmail.sent_message_id_readback_failed',
+        attributes: { gmailMessageId },
+      })
+    } catch (telemetryError) {
+      logger.warn('could not report a Message-ID read-back failure to telemetry', { err: telemetryError })
+    }
+    return undefined
+  }
+}
+
 class GmailChannelAdapter implements ChannelAdapter {
   readonly providerKey = 'gmail'
   readonly channelType = 'email'
@@ -110,15 +183,20 @@ class GmailChannelAdapter implements ChannelAdapter {
     const rawBase64Url = encodeBase64Url(nativeMeta.rawMessage)
 
     try {
-      const response = await getGmailApiClient().sendRawMessage(
-        { accessToken: userCredentials.accessToken },
-        { rawBase64Url, threadId: nativeMeta.threadId },
-      )
+      const api = getGmailApiClient()
+      const auth = { accessToken: userCredentials.accessToken }
+      const response = await api.sendRawMessage(auth, { rawBase64Url, threadId: nativeMeta.threadId })
+      const sentMessageId = await readSentMessageId(api, auth, response.id)
       return {
         externalMessageId: nativeMeta.messageId ?? response.id,
-        conversationId: response.threadId,
+        conversationId: response.threadId ? `${GMAIL_THREAD_REF_PREFIX}${response.threadId}` : undefined,
         status: 'sent',
-        metadata: { gmailMessageId: response.id, gmailThreadId: response.threadId, labelIds: response.labelIds ?? [] },
+        metadata: {
+          gmailMessageId: response.id,
+          gmailThreadId: response.threadId,
+          labelIds: response.labelIds ?? [],
+          ...(sentMessageId ? { messageId: sentMessageId } : {}),
+        },
       }
     } catch (error) {
       if (error instanceof GmailApiError && error.status === 401) {
@@ -224,10 +302,8 @@ class GmailChannelAdapter implements ChannelAdapter {
     if (!current.refreshToken) {
       throw new Error('requires_reauth')
     }
-    // Spec A: prefer the new `input.oauthClient` slot (resolved by the hub from
-    // the `channel_gmail` integration's tenant-scoped client credentials). Fall
-    // back to the deprecated `credentials._client` path for one minor release so
-    // existing test fixtures keep working.
+    // Spec A: OAuth client config comes only from `input.oauthClient` (resolved
+    // by the hub from the `channel_gmail` integration's tenant-scoped row).
     const clientFromState = resolveGmailOAuthClient(input)
     const token = await getGoogleOAuthClient().refreshToken({
       clientId: clientFromState.clientId,
@@ -692,14 +768,14 @@ class GmailChannelAdapter implements ChannelAdapter {
         const ref = refs[index]
         try {
           const raw = await api.getMessageRaw(auth, ref.id)
-          const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
+          const receivedAt = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
           results[index] = await normalizeInboundGmailMessage({
             rawMessage: decodeBase64Url(raw.raw),
             gmailMessageId: raw.id,
             gmailThreadId: raw.threadId,
             gmailLabelIds: raw.labelIds ?? [],
             accountIdentifier,
-            fallbackDate,
+            receivedAt,
           })
         } catch (error) {
           if (isFatalGmailImportError(error)) throw error
@@ -761,14 +837,16 @@ class GmailChannelAdapter implements ChannelAdapter {
         return { messages: out, hardFailed: true }
       }
       const rawBuffer = decodeBase64Url(raw.raw)
-      const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
+      // `internalDate` is when Gmail received the message; the MIME Date header
+      // is the sender's and must not date the platform message (#6095).
+      const receivedAt = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
       const normalized = await normalizeInboundGmailMessage({
         rawMessage: rawBuffer,
         gmailMessageId: raw.id,
         gmailThreadId: raw.threadId,
         gmailLabelIds: raw.labelIds ?? ref.labelIds ?? [],
         accountIdentifier,
-        fallbackDate,
+        receivedAt,
       })
       out.push(normalized)
     }
@@ -941,47 +1019,34 @@ function parseClientCredentialsOrThrow(value: unknown): GmailClientCredentials {
   return parsed.data
 }
 
-let warnedLegacyClientPath = false
-
 /**
- * Resolve the OAuth client config for a Gmail refresh, preferring the new
- * `RefreshCredentialsInput.oauthClient` field (Spec A,
+ * Resolve the OAuth client config for a Gmail refresh from
+ * `RefreshCredentialsInput.oauthClient` (Spec A,
  * .ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md).
  *
- * Falls back to the deprecated `credentials._client` read path for one
- * minor release so existing tests keep working. The legacy path emits a
- * one-time deprecation warning per process so production logs stay quiet.
+ * Client-app config must come from this trusted hub-supplied slot only —
+ * never from a per-user credentials blob.
  */
 function resolveGmailOAuthClient(input: RefreshCredentialsInput): GmailClientCredentials {
-  if (input.oauthClient) {
-    const client = input.oauthClient
-    if (!client.clientId) {
-      throw new Error('[internal] Invalid Gmail OAuth client credentials: OAuth Client ID required')
-    }
-    if (!client.clientSecret) {
-      throw new Error('[internal] Invalid Gmail OAuth client credentials: clientSecret required')
-    }
-    return {
-      clientId: client.clientId,
-      clientSecret: client.clientSecret,
-      // `GmailClientCredentials.scopes` is the wire format the legacy
-      // `credentials._client` blob carried — comma/space-separated string.
-      // Spec A's `OAuthClientConfig.scopes` is the canonical `string[]`.
-      // `parseScopes` accepts either separator, so join with a single space.
-      ...(client.scopes !== undefined ? { scopes: client.scopes.join(' ') } : {}),
-    }
-  }
-  // Legacy path — DEPRECATED. Remove in the next minor release.
-  if (!warnedLegacyClientPath) {
-    warnedLegacyClientPath = true
-    logger.warn(
-      'reading OAuth client config from credentials._client is deprecated;' +
-        ' pass via RefreshCredentialsInput.oauthClient instead (Spec A)',
+  if (!input.oauthClient) {
+    throw new Error(
+      '[internal] Invalid Gmail OAuth client credentials: oauthClient is required on RefreshCredentialsInput',
     )
   }
-  return parseClientCredentialsOrThrow(
-    (input.credentials as unknown as { _client?: unknown })._client ?? input.credentials,
-  )
+  const client = input.oauthClient
+  if (!client.clientId) {
+    throw new Error('[internal] Invalid Gmail OAuth client credentials: OAuth Client ID required')
+  }
+  if (!client.clientSecret) {
+    throw new Error('[internal] Invalid Gmail OAuth client credentials: clientSecret required')
+  }
+  return {
+    clientId: client.clientId,
+    clientSecret: client.clientSecret,
+    // Spec A's `OAuthClientConfig.scopes` is `string[]`; `GmailClientCredentials.scopes`
+    // is a comma/space-separated string. `parseScopes` accepts either separator.
+    ...(client.scopes !== undefined ? { scopes: client.scopes.join(' ') } : {}),
+  }
 }
 
 function pickRawMimeBuffer(payload: { rawBase64Url?: unknown; rawBody?: unknown }): Buffer {

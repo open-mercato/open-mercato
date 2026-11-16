@@ -25,6 +25,11 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   }
 })
 
+jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/commands/customFieldSnapshots')
+  return { ...actual, loadCustomFieldSnapshot: jest.fn(async () => ({})) }
+})
+
 import '@open-mercato/core/modules/auth/commands/users'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -57,6 +62,7 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     rollback: number
     flush: number
     nativeDelete: number
+    find: Array<{ entity: unknown; where: unknown }>
     nativeDeleteArgs: Array<[unknown, Record<string, unknown>]>
   }
 
@@ -80,9 +86,21 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
         calls.nativeDeleteArgs.push([entity, where])
         return 0
       },
-      find: async () => [],
+      find: async (entity: unknown, where: unknown) => {
+        calls.find.push({ entity, where })
+        return []
+      },
       findOne: async (entity: unknown) => (entity === User
-        ? { id: userId, organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null }
+        ? {
+            id: userId,
+            email: 'user@example.com',
+            organizationId: 'org-1',
+            tenantId: 'tenant-1',
+            passwordHash: null,
+            name: null,
+            isConfirmed: true,
+            deletedAt: null,
+          }
         : null),
       remove: () => undefined,
       persist: () => ({ flush: async () => undefined }),
@@ -96,7 +114,15 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
       resolve: (token: string) => {
         if (token === 'em') return em
         if (token === 'dataEngine') return dataEngine
-        // rbacService / cache are resolved by invalidateUserCache inside a try/catch
+        if (token === 'rbacService') {
+          return {
+            invalidateUserCache: jest.fn(async () => undefined),
+            userHasAllFeatures: jest.fn(async () => true),
+            userHasAllFeaturesWithEntityManager: jest.fn(async () => true),
+            loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+            loadAclWithEntityManager: jest.fn(async () => ({ isSuperAdmin: true, features: ['*'], organizations: null })),
+          }
+        }
         throw new Error(`Unexpected dependency: ${token}`)
       },
     }
@@ -129,13 +155,15 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
 
   it('commits after every cascade delete succeeds', async () => {
     const handler = commandRegistry.get('auth.users.delete') as CommandHandler<{ query?: Record<string, unknown> }, unknown>
-    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [] }
+    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [], find: [] }
     const em = makeEm(calls)
     const dataEngine = {
       deleteOrmEntity: jest.fn(async () => ({ id: userId, organizationId: 'org-1', tenantId: 'tenant-1' })),
     }
+    const ctx = makeCtx(em, dataEngine)
 
-    await handler.execute({ query: { id: userId } }, makeCtx(em, dataEngine))
+    await handler.prepare!({ query: { id: userId } }, ctx)
+    await handler.execute({ query: { id: userId } }, ctx)
 
     expect(calls.begin).toBe(1)
     expect(calls.commit).toBe(1)
@@ -144,11 +172,16 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     expect(calls.nativeDeleteArgs).toEqual(expectedCascade(userId))
     expect(calls.nativeDeleteArgs.map(([entity]) => entity)).not.toContain(UserConsent)
     expect(dataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
+    expect(calls.find.find(({ entity }) => entity === UserAcl)?.where).toMatchObject({ deletedAt: null })
+    expect(calls.find.find(({ entity }) => entity === UserRole)?.where).toMatchObject({
+      deletedAt: null,
+      role: { deletedAt: null },
+    })
   })
 
   it('undoing a create clears the same dependent rows before hard-deleting the user', async () => {
     const handler = commandRegistry.get('auth.users.create') as CommandHandler<unknown, unknown>
-    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [] }
+    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [], find: [] }
     const em = makeEm(calls)
     const dataEngine = {
       deleteOrmEntity: jest.fn(async () => ({ id: userId, organizationId: 'org-1', tenantId: 'tenant-1' })),
@@ -157,7 +190,17 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     await handler.undo!({
       logEntry: {
         resourceId: userId,
-        snapshotAfter: { id: userId, tenantId: 'tenant-1', organizationId: 'org-1', custom: {} },
+        snapshotAfter: {
+          id: userId,
+          email: 'user@example.com',
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          passwordHash: null,
+          name: null,
+          isConfirmed: true,
+          roles: [],
+          acls: [],
+        },
       } as any,
       ctx: makeCtx(em, dataEngine),
     })
@@ -173,7 +216,7 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
 
   it('rolls back the whole cascade when the user delete fails', async () => {
     const handler = commandRegistry.get('auth.users.delete') as CommandHandler<{ query?: Record<string, unknown> }, unknown>
-    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [] }
+    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [], find: [] }
     const em = makeEm(calls)
     const dataEngine = {
       deleteOrmEntity: jest.fn(async () => {

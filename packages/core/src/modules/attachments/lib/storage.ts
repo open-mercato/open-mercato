@@ -4,13 +4,36 @@ import { randomUUID } from 'crypto'
 import { resolvePartitionEnvKey } from './partitionEnv'
 import { resolveContainedPath, resolveLegacyPublicRoot } from './pathContainment'
 
+export const STORAGE_ROOT_ENV_KEY = 'ATTACHMENTS_STORAGE_ROOT'
+
+/**
+ * Resolves the base directory that holds every partition directory. Deployment
+ * configuration (`ATTACHMENTS_STORAGE_ROOT`) wins over the historical
+ * `process.cwd()`-relative default, so the same attachment row resolves to the
+ * same file regardless of the directory the process was started from. A
+ * relative value is rejected rather than resolved against `process.cwd()`,
+ * because `LocalStorageDriver.store()` creates missing directories and a typo
+ * would otherwise silently produce a second, empty store.
+ */
+export function resolveStorageRoot(): string {
+  const envPath = process.env[STORAGE_ROOT_ENV_KEY]
+  if (envPath && envPath.trim().length > 0) {
+    const trimmed = envPath.trim()
+    if (!path.isAbsolute(trimmed)) {
+      throw new Error(`[internal] ${STORAGE_ROOT_ENV_KEY} must be an absolute path, received: ${trimmed}`)
+    }
+    return path.resolve(trimmed)
+  }
+  return path.join(process.cwd(), 'storage', 'attachments')
+}
+
 export function resolvePartitionRoot(code: string): string {
   const envKey = resolvePartitionEnvKey(code)
   const envPath = process.env[envKey]
   if (envPath && envPath.trim().length > 0) {
     return path.resolve(envPath)
   }
-  return path.join(process.cwd(), 'storage', 'attachments', code)
+  return path.join(resolveStorageRoot(), code)
 }
 
 function sanitizeFileName(fileName: string): string {

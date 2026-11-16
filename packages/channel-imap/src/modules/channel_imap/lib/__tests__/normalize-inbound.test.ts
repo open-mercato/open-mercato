@@ -69,6 +69,24 @@ describe('normalizeInboundImapMessage', () => {
     expect(result.channelContentType).toBe('email/mime')
   })
 
+  it('dates the message with INTERNALDATE, not the sender-written Date header (#6095)', async () => {
+    const receivedAt = new Date('2026-05-21T10:00:07.000Z')
+    const result = await normalizeInboundImapMessage({
+      rawMessage: buildMimeMessage({
+        messageId: '<skewed@example.com>',
+        from: 'alice@example.com',
+        to: 'bob@example.com',
+        subject: 'skewed',
+        text: 'hi',
+        date: 'Tue, 01 Jan 2030 00:00:00 +0000',
+      }),
+      uid: 43,
+      accountIdentifier: 'bob@example.com',
+      receivedAt,
+    })
+    expect(result.timestamp).toEqual(receivedAt)
+  })
+
   it('synthesises a deterministic fallback message id when missing', async () => {
     const result = await normalizeInboundImapMessage({
       rawMessage: buildMimeMessage({
@@ -122,5 +140,22 @@ describe('normalizeInboundImapMessage', () => {
     })
     expect(result.bodyFormat).toBe('html')
     expect(result.body).toContain('<b>rich</b>')
+  })
+
+  it('uses IMAP INTERNALDATE when the MIME Date header is missing', async () => {
+    const fallbackDate = new Date('2026-05-29T10:00:00.000Z')
+    const result = await normalizeInboundImapMessage({
+      rawMessage: buildMimeMessage({
+        messageId: '<fallback-date@example.com>',
+        from: 'alice@example.com',
+        to: 'bob@example.com',
+        text: 'hi',
+      }),
+      uid: 101,
+      accountIdentifier: 'bob@example.com',
+      fallbackDate,
+    })
+    expect(result.timestamp).toEqual(fallbackDate)
+    expect(result.providerTimestamp).toEqual(fallbackDate)
   })
 })

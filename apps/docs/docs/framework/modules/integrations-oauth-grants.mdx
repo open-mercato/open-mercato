@@ -1,0 +1,311 @@
+---
+title: OAuth2 Grants for Integrations
+description: Connect, refresh, inspect and disconnect tenant-level OAuth2 grants for integration providers on the integrations core.
+---
+
+# OAuth2 Grants for Integrations
+
+The `integrations` module ships a core for **tenant-level OAuth2 authorization-code grants**: one grant per Open Mercato organization and integration. A provider module or package that needs delegated access with a refresh token builds on it instead of writing its own token storage, refresh, PKCE or locking code.
+
+The core guarantees:
+
+- **One refresh at a time, cluster-wide.** Every grant write takes a Postgres advisory lock for its Grant Owner, so two processes never redeem the same refresh token. Strict-rotation providers are safe.
+- **A trustworthy status.** A grant becomes `invalidated` only from a terminal outcome observed under the lock (`invalid_grant`, or an expired access token with no stored refresh token), and `active` only through a Connect.
+- **A real Disconnect.** Once a Disconnect commits, the live database holds no decryptable refresh token for that owner, whatever happens to revocation at the provider.
+- **No secrets outside the grant row.** Tokens never appear in the credentials API, logs, health `details` or route responses.
+
+The core owns the protocol helpers and the grant service. The provider owns its Provider Descriptor, its initiate and callback routes, its detail-page tab and its health check. No first-party integration uses the core yet.
+
+## Terms
+
+| Term | Meaning |
+|---|---|
+| **Grant Owner** | `{ integrationId, tenantId, organizationId }` (`OAuthGrantOwner`). Grants are per organization; `userId` is always absent or `null`. In a bundle, the grant belongs to the child integration. |
+| **Client Configuration** | The OAuth app registration the admin copies from the provider console: the integration's credentials with `clientId`, `clientSecret` and an optional `scopes` (space- or comma-separated; blank means the descriptor's `defaultScopes`). Read child-then-bundle, like every credential. |
+| **Provider Descriptor** | A code constant declaring the provider's endpoints, client authentication, PKCE mode and scopes (`OAuthProviderDescriptor`). Passed to every grant-service call; there is no global registry. |
+| **Grant Status** | `active` or `invalidated`. A read reports the **Grant Read Status**: `active`, `invalidated`, `unavailable` (the grant can't be read, possibly a KMS outage) or none. |
+| **Connection State** | What the provider tab shows, in precedence order: `not_configured` > `not_connected` > `unavailable` > `invalidated` > `active`. A missing production `APP_URL` is the separate flag `baseUrlMissing`. |
+| **Grant Revision** | `revisedAt`, moved by Connect and by an External Account selection, never by Refresh. It is the optimistic-lock version of `updateProviderData` and `disconnect`. |
+| **External Account** | The provider-side account the grant is used against (an organization in an accounting system, a mailbox), chosen after consent and stored as the provider-owned, non-secret `providerData`. |
+
+## Public import paths
+
+Only these paths are a contract. Every export carrying `@internal` JSDoc in them, and every other file under `lib/oauth/`, is an implementation detail and may change without notice.
+
+| Import path | Use |
+|---|---|
+| `@open-mercato/core/modules/integrations/lib/oauth/descriptor` | `OAuthProviderDescriptor`, `OAuthGrantOwner`, `OAuthGrantError`, `OAuthDescriptorError` and the closed unions (`OAuthTokenFailure`, `OAuthConnectFailure`, `OAuthConnectionState`, `OAuthUnavailableReason`, …) |
+| `…/lib/oauth/pkce` | `createPkcePair()` |
+| `…/lib/oauth/authorization` | `buildAuthorizationUrl(descriptor, input)`, `exchangeAuthorizationCode(descriptor, client, input)` |
+| `…/lib/oauth/redirect` | `resolveOAuthRedirectUri(req, path)` |
+| `…/lib/oauth/resource-challenge` | `classifyResourceChallenge(status, wwwAuthenticate)` |
+| `…/lib/oauth/token-endpoint` | `OAuthTokenEndpointResponse`, `OAuthClientAuthMethod` |
+| `…/lib/oauth/grant-service` | `IntegrationOAuthGrantService` and its result types (`OAuthAccessToken`, `OAuthConnectResult`, `OAuthGrantInspection`, `OAuthDisconnectResult`, `OAuthLastDisconnect`) |
+| `…/lib/oauth/health` | `mapInspectionToHealth(inspection)`, `OAUTH_HEALTH_CODES`, `OAuthHealthCode` |
+| `…/lib/oauth/testing/fakeAuthorizationServer` | `startFakeAuthorizationServer(options)` for Jest suites |
+| `@open-mercato/core/helpers/integration/oauthGrantTestRoute` | Playwright helpers for the test-only route (see [Testing](#testing)) |
+| `@open-mercato/core/modules/communication_channels/lib/oauth-state` | `createOAuthState`, `verifyOAuthState`, `consumeOAuthStateOnce`, `OAuthStateConsumeStore`, `OAuthStateError` (its `code` values are additive-only, `replay` included) |
+| `@open-mercato/shared/lib/db/advisoryLock` | `withAdvisoryXactLock`, `AdvisoryLockUnavailableError`, `AdvisoryLockUnavailableReason`, `AdvisoryLockOptions` (the lock helper the grant service uses) |
+
+Resolve the grant service from DI as **`integrationOAuthGrantService`**; never build it yourself. Every closed union is additive-only: keep a `default` branch when you switch over one. Branch on `OAuthGrantError.code`, `.reason` and `.providerErrorCode`, never on the message. `instanceof` checks against `OAuthGrantError`, `OAuthDescriptorError`, `OAuthTokenEndpointError` and `AdvisoryLockUnavailableError` hold even when two copies of their module are loaded in one process.
+
+## Provider Descriptor
+
+```ts
+import type { OAuthProviderDescriptor } from '@open-mercato/core/modules/integrations/lib/oauth/descriptor'
+
+export const myProviderDescriptor: OAuthProviderDescriptor = {
+  integrationId: 'my_provider',
+  authorizationEndpoint: 'https://auth.example.com/oauth/authorize',
+  tokenEndpoint: 'https://auth.example.com/oauth/token',
+  revocationEndpoint: 'https://auth.example.com/oauth/revoke',
+  clientAuthMethod: 'client_secret_basic',
+  pkce: 'S256',
+  defaultScopes: ['accounting.read', 'offline_access'],
+}
+```
+
+| Field | Default | Notes |
+|---|---|---|
+| `integrationId` | required | Must equal the Grant Owner's `integrationId`. |
+| `authorizationEndpoint`, `tokenEndpoint` | required | Absolute `https:` URLs without credentials or fragment. `http:` is accepted only on a loopback host, outside production or with the test flag on. |
+| `revocationEndpoint` | — | RFC 7009. Without it a Disconnect erases locally and logs `oauth_revocation_unsupported`. |
+| `clientAuthMethod` | `client_secret_basic` | Or `client_secret_post`. |
+| `pkce` | `S256` | `none` only for a provider that rejects PKCE. |
+| `defaultScopes` | required | Used when the Client Configuration sets no `scopes`. |
+| `extraAuthorizeParams` | `{}` | Appended to the authorization URL; never overrides a protocol parameter. |
+| `requiresRefreshToken` | `true` | Checked at Connect only. |
+| `defaultAccessTokenTtlSec` | `3600` | Used when the token response has no `expires_in`. Either value is clamped to 1 s – 1 year. |
+| `refreshSkewMs` | `120000` | The default `minValidityMs` of `getAccessToken`, capped at half of each token's lifetime, so tokens that live shorter than the skew are not refreshed on every call. An explicit `minValidityMs` is not capped. |
+
+Every descriptor-taking call validates the whole descriptor and the owner before any I/O and throws `OAuthDescriptorError` (a programming error, not a Connect Failure) when either is malformed.
+
+## Connect: the initiate and callback routes
+
+The provider writes two routes on the core helpers. The core never sees the request, so the [route contract](#provider-route-contract) below is normative.
+
+**Initiate** (an authenticated route behind a Connect or Reconnect button):
+
+1. Apply the [organization resolution order](#organization-resolution-order).
+2. Read the Client Configuration with `integrationCredentialsService.resolve(integrationId, scope)`. Without a `clientId` and `clientSecret` the Connect fails with `client_misconfigured`.
+3. Build the redirect URI with `resolveOAuthRedirectUri(req, callbackPath)`.
+4. Create a PKCE pair with `createPkcePair()`.
+5. Create the state with `createOAuthState({ userId, tenantId, organizationId, providerKey, extra: { codeVerifier, replaceUnreadable } })` and set its `cookie` on an HttpOnly, `SameSite=Lax` cookie with a provider-specific name.
+6. Redirect to `buildAuthorizationUrl(descriptor, { clientId, redirectUri, state: stateParam, scopes, codeChallenge })`.
+
+**Callback** (the provider redirects the admin's browser here):
+
+```ts
+const callbackStateExtraSchema = z.object({
+  codeVerifier: z.string().min(43),
+  replaceUnreadable: z.boolean().optional(),
+})
+
+const payload = verifyOAuthState({
+  cookie: stateCookie,
+  expectedUserId: auth.sub,
+  expectedProviderKey: 'my_provider',
+  expectedState: url.searchParams.get('state') ?? undefined,
+})
+await consumeOAuthStateOnce(container.resolve<OAuthStateConsumeStore>('cache'), payload)
+const extra = callbackStateExtraSchema.parse(payload.extra)
+if (!payload.organizationId) throw new OAuthGrantError('connect_state_invalid')
+const owner = { integrationId: 'my_provider', tenantId: payload.tenantId, organizationId: payload.organizationId }
+const tokenResponse = await exchangeAuthorizationCode(myProviderDescriptor, { clientId, clientSecret }, {
+  code,
+  redirectUri: resolveOAuthRedirectUri(req, callbackPath),
+  codeVerifier: extra.codeVerifier,
+})
+await integrationOAuthGrantService.completeConnect(myProviderDescriptor, owner, tokenResponse, {
+  clientId,
+  requestedScopes: scopes,
+  replaceUnreadable: extra.replaceUnreadable === true,
+  actorUserId: auth.sub,
+})
+```
+
+`clientId`, `clientSecret` and `scopes` come from the owner's Client Configuration. Around these calls the callback checks the state's tenant and the user's access (rule 2), runs the mutation guards (rule 1) and maps every failure to a Connect Failure code for the redirect back to the provider tab. `completeConnect` updates the live grant in place (Reconnect) or inserts one, clears `providerData` (a non-empty value moves to `previousProviderData`) and returns `{ reconnect, replacedUnreadable, previousProviderData, revisedAt }`.
+
+| Connect Failure | When |
+|---|---|
+| `connect_cancelled` | The provider returned `error=access_denied`. |
+| `connect_state_invalid` | A missing, expired, replayed or mismatched state; a state store that can't record the single use; a missing PKCE verifier; a state tenant or user access that no longer matches. |
+| `connect_exchange_failed` | The code exchange failed, or no `refresh_token` arrived while `requiresRefreshToken` (except on a Reconnect over an `active` grant with the same `clientId`, which keeps the stored one). |
+| `connect_grant_unreadable` | A plain Reconnect over a grant whose envelope doesn't decrypt or validate. |
+| `connect_persist_failed` | The exchange succeeded but the grant couldn't be stored (lock deadline, no encryption key, database). |
+| `client_misconfigured` | `invalid_client` / `unauthorized_client`, or no Client Configuration at initiate. |
+| `organization_scope_required` | No organization could be resolved. |
+| `oauth_base_url_not_configured`, `connect_origin_rejected` | No `APP_URL` in production, or a request from an origin that isn't an allowed app origin. |
+
+A failed Connect never changes an existing grant. Tokens it obtained are discarded, not revoked, because revoking could end a provider authorization another grant shares.
+
+## Provider route contract
+
+Every provider implementation MUST:
+
+1. Require `integrations.credentials.manage` on initiate, callback, External Account save and Disconnect. Run the registry mutation guards with `runRouteMutationGuards` (`@open-mercato/shared/lib/crud/route-mutation-guard`) with `resourceKind: 'integrations.oauth_grant'` and operation `custom` for the callback, `update` for External Account save and `delete` for Disconnect; return its `response` when blocked and call `runAfterSuccess()` only after the grant write committed. On initiate, External Account save and Disconnect, resolve the organization in the [order below](#organization-resolution-order).
+2. Bind the state to the Grant Owner: the callback takes the owner from the verified state, never from the current organization selection, and checks that the state's tenant is the session's tenant and that the user still holds `integrations.credentials.manage` in the state's organization (`connect_state_invalid` otherwise).
+3. Verify the state with `expectedProviderKey` and `expectedState` set, then, before the code exchange, call `consumeOAuthStateOnce` with the request container's `cache`. A replayed state, a `cache` that can't be resolved or a failing store call is `connect_state_invalid` (fail closed).
+4. Store the PKCE verifier in the state `extra` and pass it to `exchangeAuthorizationCode`.
+5. Use a provider-specific cookie name, never the hub's `om_cc_oauth_state`.
+6. Build the redirect URI with `resolveOAuthRedirectUri(req, path)` in both legs, passing the request.
+7. On External Account save and Disconnect, carry the Grant Revision: the tab sends `buildOptimisticLockHeader(revisedAt)`, the route reads it with `readOptimisticLockExpected(req)` and passes it as `expectedRevisedAt`, and returns the grant service's standard 409 body.
+8. Show the redirect URI on the tab with a copy button, and disable Connect and Reconnect while `inspectGrant().baseUrlMissing`.
+9. Not declare `defaultState.isEnabled: true` until the integration-state upsert defaults fix ([#6915](https://github.com/open-mercato/open-mercato/issues/6915)) lands; otherwise the first health run, or any state write without `isEnabled`, silently disables the integration.
+10. In state `unavailable`, offer "Replace unreadable connection" behind a confirm dialog only when `inspectGrant` reports `unavailableReason: 'unreadable'`. Otherwise (no encryption key, an unopened field-level layer, or a grant sealed before encryption was switched off) offer "Disconnect anyway" (`force: true`) behind a confirm dialog saying that the app must also be removed at the provider. Carry `replaceUnreadable` only in the encrypted state, never as a callback query parameter; every other Connect passes `false`.
+11. Before `updateProviderData`, compare the selection with `previousProviderData`: save a different External Account only after the admin confirms a warning that existing sync cursors and external-id mappings refer to the previous one. With no `previousProviderData` but existing cursors or mappings (after a replaced connection or a Disconnect), warn that the account can't be verified.
+
+### Duties the helpers can't enforce
+
+- **The grant service is the only source of the 409.** Don't compare revisions in the route; pass `expectedRevisedAt` and return the thrown `CrudHttpError` (`isCrudHttpError` from `@open-mercato/shared/lib/crud/errors`) with its own status and body.
+- **The callback checks what `verifyOAuthState` doesn't.** It verifies the cookie's encryption, expiry, user, provider key and state nonce, but neither the session's tenant nor the user's feature in the state's organization.
+- **Single use fails closed.** Map every `OAuthStateError` (including `replay`), an unresolvable `cache` and a rejected `has` or `set` call to `connect_state_invalid`, and report store failures with `reportError` so operators can tell them from replays. The `has`→`set` check is not atomic, and the marker holds across replicas only with `CACHE_STRATEGY=redis`.
+- **Parse the state `extra` strictly.** `verifyOAuthState` returns `extra` without validating it, so parse it with zod and treat only `extra.replaceUnreadable === true` as the admin's confirmation.
+- **`OM_OPTIMISTIC_LOCK`.** The grant revision check goes through the platform's optimistic lock with `resourceKind: 'integrations.oauth_grant'`. Operators who list kinds in `OM_OPTIMISTIC_LOCK` must add `integrations.oauth_grant`, or the 409 is switched off for grants.
+
+### Organization resolution order
+
+On initiate, External Account save and Disconnect, in this order:
+
+1. Reject with 403 a super admin acting in another tenant: the auth context carries an `actorTenantId` that differs from `tenantId`. Never decide by role name.
+2. Reject with 403 an explicitly empty organization scope: `resolveOrganizationScopeForRequest({ container, auth, request })` from `@open-mercato/core/modules/directory/utils/organizationScope`, then `isExplicitlyEmptyOrganizationScope(scope)`.
+3. Resolve the organization with `resolveActiveOrganizationId(auth)` (`@open-mercato/shared/lib/auth/organizationScope`). "All organizations" falls back to the admin's own organization; answer `organizationScopeRequiredResponse()` (400) only when it returns `null`.
+4. Reject with 403 a user without `integrations.credentials.manage` in that organization (`rbacService.userHasAllFeatures`, wildcard-aware). The request dispatcher checks the feature in the switcher's organization, which can differ.
+
+The test-only route `packages/core/src/modules/integrations/api/post/test-oauth-grants/route.ts` follows this order and the mutation-guard rule and can serve as a reference.
+
+## Using a token
+
+```ts
+const grants = container.resolve<IntegrationOAuthGrantService>('integrationOAuthGrantService')
+const owner = { integrationId: 'my_provider', tenantId, organizationId }
+let token = await grants.getAccessToken(myProviderDescriptor, owner)
+let response = await callResource(token.accessToken)
+const challenge = classifyResourceChallenge(response.status, response.headers.get('www-authenticate'))
+if (response.status === 401 && challenge === null) {
+  token = await grants.getAccessToken(myProviderDescriptor, owner, { rejectedAccessToken: token.accessToken })
+  response = await callResource(token.accessToken)
+}
+```
+
+`getAccessToken(descriptor, owner, options?)` returns an access token valid for at least `minValidityMs` (default `descriptor.refreshSkewMs`) and refreshes it under the Grant Lock when needed. Options: `minValidityMs`, `forceRefresh` (for a keep-alive job) and `rejectedAccessToken` (after a resource `401`: one forced refresh, only if the stored token still equals it). A second `401` is a resource error, never a reason to reconnect.
+
+A failure throws `OAuthGrantError` with one Token Failure code:
+
+| Code | Meaning | What to do |
+|---|---|---|
+| `transient` | Network error, timeout, 5xx, 429, a lock deadline or a transient database error. | Back off. While the stored token is still valid it is returned with `degraded: true` instead of throwing (never for a `rejectedAccessToken` call). |
+| `grant_invalidated` | The provider rejected the grant (`invalid_grant`), or it expired with no refresh token. | Stop; an admin must reconnect. The detail page shows the reauth banner. |
+| `client_misconfigured` | `invalid_client`, `unauthorized_client`, another permanent 4xx, a changed `clientId` or a missing Client Configuration (`reason` tells them apart). | Stop; an admin fixes the Client Configuration. |
+| `not_connected` | No live grant. | "Connect first", never "reconnect". |
+| `platform_unavailable` | No encryption key, or the grant can't be decrypted or validated. No token call was made. | Fail closed; may be a KMS outage. |
+
+Rules for callers:
+
+- **Call it outside your own transaction.** A refresh, like every grant write, holds one extra pooled connection for its lock transaction. Inside a transaction that created or repaired the scope's credentials encryption map (any credentials save of the same tenant and organization can do that), a grant write waits on that map row until your transaction ends, up to the 120 s idle-in-transaction timeout by default, and stalls the scope's other grant writes meanwhile.
+- **Resolve the grant service from `createRequestContainer()`** (`@open-mercato/shared/lib/di/container`), as workers and routes already do.
+- **No callers inside a principal-bound agent run.** The enterprise no-bypass guard on the run's EntityManager fails grant writes closed (`AgentWriteBypassError`). Resolving the grant service from another container to get past that guard is not a supported path.
+- **Classify resource challenges** with `classifyResourceChallenge(status, wwwAuthenticate)`: `scope_insufficient` triggers no refresh and leaves the grant `active`; recovery is adding the scope and reconnecting.
+- **Keep-alive is explicit.** For a provider that expires unused refresh tokens, a provider-owned scheduled job calls `getAccessToken(descriptor, owner, { forceRefresh: true })` for grants idle past a provider-chosen threshold. The health check is not a keep-alive.
+
+## External Account selection
+
+`updateProviderData(descriptor, owner, data, { expectedRevisedAt, actorUserId })` stores the provider-owned, non-secret selection, clears `previousProviderData` and moves the Grant Revision. It throws `not_connected`, `platform_unavailable` or `transient`, and the platform's 409 for a stale `expectedRevisedAt`. Apply rule 11 before calling it. Every Connect, including a Reconnect, starts with an empty `providerData`. For a provider that needs an External Account, the Token Provider works meanwhile, but the adapter refuses to sync until one is chosen.
+
+## Disconnect
+
+`disconnect(descriptor, owner, { expectedRevisedAt, force, actorUserId })` erases the grant under the lock (5 s waiter deadline), then, after releasing it, revokes the stored refresh token (8 s), unless the owner reconnected meanwhile or the grant was invalidated. If the commit fails with an unknown outcome, it checks whether its `oauth_disconnected` entry committed and, if so, still revokes. Provider-side cleanup that needs a token (webhooks, subscriptions) belongs before the Disconnect call, with `getAccessToken`.
+
+- It returns `{ erased: false, reason: 'not_connected' }` without a live grant, or `{ erased: true, disconnectId, revocation, failureReason }` with `revocation` one of `confirmed`, `failed`, `unsupported`, `skipped_reconnected`, `skipped_invalidated`.
+- Unreadable tokens throw `disconnect_tokens_unreadable` (nothing erased) unless `force: true`, which erases without the tokens and without a revision check, logging `oauth_revocation_failed` (`undecryptable`).
+- With no live grant, `inspectGrant` reports `lastDisconnect: { at, disconnectId, revocation }`; treat `pending` older than 5 minutes, and `failed`, as "the provider could not confirm revocation — remove the app in its connected-apps screen".
+
+## Health check
+
+Register a health check service in the provider's DI and return the pure mapping of the inspection:
+
+```ts
+import type { IntegrationOAuthGrantService } from '@open-mercato/core/modules/integrations/lib/oauth/grant-service'
+import { mapInspectionToHealth } from '@open-mercato/core/modules/integrations/lib/oauth/health'
+
+export function createMyProviderHealthCheck({ integrationOAuthGrantService }: { integrationOAuthGrantService: IntegrationOAuthGrantService }) {
+  return {
+    async check(_credentials: Record<string, unknown> | null, scope: { tenantId: string; organizationId: string }) {
+      const owner = { integrationId: 'my_provider', tenantId: scope.tenantId, organizationId: scope.organizationId }
+      return mapInspectionToHealth(await integrationOAuthGrantService.inspectGrant(myProviderDescriptor, owner))
+    },
+  }
+}
+```
+
+`inspectGrant` makes no token call, takes no lock and writes nothing, so the OAuth health check is **network-free by design**. That is a deliberate exception to the `om-integration-builder` rule that a health check validates real connectivity: probing the token endpoint would refresh on most probes, compete for the lock and exceed the 10 s health timeout. The inspection carries no token; a provider that wants a real resource call makes it with `getAccessToken`.
+
+| Health code | Status | From the inspection, in precedence order |
+|---|---|---|
+| `oauth.platform_unavailable` | unhealthy | `status: 'unavailable'`, or an unreadable Client Configuration |
+| `oauth.not_connected` | unhealthy | no live grant |
+| `oauth.invalidated` | unhealthy | `status: 'invalidated'` |
+| `oauth.client_changed` | unhealthy | the grant's `clientId` differs from the Client Configuration |
+| `oauth.client_misconfigured` | unhealthy | the Client Configuration has no client ID or secret, or the last refresh failed with `client_misconfigured` |
+| `oauth.transient` | degraded | the last refresh failed with `transient` |
+| `oauth.scope_drift` | degraded | `missingScopes` is not empty |
+| `oauth.connected` | healthy | otherwise |
+| `oauth.scope_insufficient` | unhealthy | never from `inspectGrant`; only from the provider's own resource call |
+
+## Detail page: tab, banner and API field
+
+- **Provider tab.** Inject it at `buildIntegrationDetailWidgetSpotId('<integrationId>')` as a tab and declare `detailPage.connectTabId` in `integration.ts` equal to the tab widget's `placement.groupId`. A mismatch silently drops the banner link, so assert it in a unit test.
+- **Reauth banner.** The platform shows it under the detail page header while the organization's grant is `invalidated`. It links to `?tab=<connectTabId>` when that tab is visible and the viewer holds `integrations.credentials.manage`; viewers without the feature are told to ask an administrator. It never shows for `unavailable` and never reads `reauthRequired`.
+- **API field.** `GET /api/integrations/:id` returns `oauthGrant: { status: 'active' | 'invalidated' | 'unavailable' } | null` for the active organization's tenant-level grant, and `integration.detailPage.connectTabId`. The `integrations.detail.v1` injection context carries both.
+
+The provider tab's own duties:
+
+- Write through `useGuardedMutation(...).runMutation(...)`, send `buildOptimisticLockHeader(revisedAt)` (`@open-mercato/ui/backend/utils/optimisticLock`) on External Account save and Disconnect, and surface a 409 with `surfaceRecordConflict(err, t)` (`@open-mercato/ui/backend/conflicts`).
+- Use the shared confirm dialog for Disconnect, "Replace unreadable connection" and "Disconnect anyway", with `Cmd/Ctrl+Enter` to confirm and `Escape` to cancel.
+- Head the tab with the Connection State: `not_configured` explains how to register the redirect URI and enter the Client ID and Secret; `unavailable` offers Replace or Disconnect anyway (rule 10); `invalidated` asks for a Reconnect; `active` may show "account pending" or "client changed". Disconnect stays available in every state while a live grant exists.
+
+## Logs
+
+Grant operations write integration log entries under the plain `integrationId`, never with token material. Connect, External Account selection and Disconnect entries carry the acting user's id; every disconnect entry carries a `disconnectId`.
+
+| Log code | Level |
+|---|---|
+| `integrations.oauth_connected`, `integrations.oauth_external_account_selected` | info |
+| `integrations.oauth_connect_persist_failed` | warn |
+| `integrations.oauth_invalidated` | warn |
+| `integrations.oauth_disconnected` + `integrations.oauth_revocation_pending` | info + warn |
+| `integrations.oauth_revocation_confirmed`, `…_unsupported`, `…_skipped_reconnected`, `…_skipped_invalidated` | info |
+| `integrations.oauth_revocation_failed` | error |
+
+Grant writes emit neither `integrations.credentials.updated` nor `integrations.state.updated`, and there is no grant event or notification yet.
+
+## Configuration
+
+- **`APP_URL`.** Redirect URIs come from `APP_URL` only (its path prefix kept), never from the request origin. In production a missing `APP_URL` fails initiate and callback with `oauth_base_url_not_configured`; outside production the fallback is `http://localhost:3000`, so a dev server on another port needs `APP_URL` set to its own origin (for example `APP_URL=http://localhost:3001`). The redirect URI registered at the provider must match exactly.
+- **`CACHE_STRATEGY=redis`** for deployments with more than one web replica, so a state can be used only once across replicas.
+- **`OM_OPTIMISTIC_LOCK`.** When it lists kinds, include `integrations.oauth_grant`.
+
+## Reserved `__oauth_grant` suffix
+
+A tenant-level grant is stored as an `integration_credentials` row with the id `<integrationId>__oauth_grant`. Therefore:
+
+- no integration or bundle id may end in `__oauth_grant`;
+- `GET` and `PUT /api/integrations/:id/credentials` answer 404 for any id ending in it, even a registered one;
+- credential resolution never falls through to a `bundleId` ending in it, so no child integration reads another owner's grant.
+
+Never write a grant row through `integrationCredentialsService`: only the grant service may write it, under the Grant Lock. DI overrides of `integrationCredentialsService` don't apply to grant rows.
+
+## Testing
+
+- **Jest.** `startFakeAuthorizationServer({ rotation })` (from `@open-mercato/core/modules/integrations/lib/oauth/testing/fakeAuthorizationServer`) starts a real loopback HTTP authorization server with `none`, `non_revoking` or `strict` rotation, issued codes, injectable failures (`takePendingInjections()` returns and drops any your test did not consume), revocation and counters. Point a test descriptor at its endpoints instead of stubbing `fetch`. It doesn't import `@playwright/test`.
+- **Playwright.** The flag-gated test-only route `POST /api/integrations/test-oauth-grants` drives the grant of the built-in `test_oauth_grant` integration against an in-process fake. It is enabled only with **`OM_ENABLE_TEST_OAUTH_GRANTS=true`**, which the integration-test runner sets. Never set it in production: the test integration then appears in the marketplace and any credentials manager can write its rows. Use `isOAuthGrantTestRouteAvailable`, `connectTestGrant`, `refreshTestGrant`, `corruptTestGrant` and `resetTestGrants` from `@open-mercato/core/helpers/integration/oauthGrantTestRoute`; call `resetTestGrants` in setup and teardown.
+
+The test-only route, the `test_oauth_grant` integration and `OM_ENABLE_TEST_OAUTH_GRANTS` are not contracts, apart from one STABLE testing rule: with the flag on, a descriptor may use loopback `http:` endpoints, so a provider's test seam can point it at an in-process fake.
+
+## Contract summary
+
+- **Stable:** the import paths above, the `integrationOAuthGrantService` DI name, the `oauthGrant` and `connectTabId` response fields, the log codes and `OAUTH_HEALTH_CODES` (additive-only), and the closed unions (additive-only).
+- **Frozen persisted formats:** the grant row id `<integrationId>__oauth_grant`, the lock key `oauth_grant:<integrationId>:<tenantId>:<organizationId>:<userId or ->` and its mapping `pg_try_advisory_xact_lock(hashtextextended(key, 0))`, and the `Symbol.for` brands of the four error classes. The disconnect log codes with their `disconnectId` payload key and the holder-slot registry on `globalThis` are additive-only.
+- **Internal:** every `@internal` export, including the grant-service factory, the raw token and revoke client, the descriptor schema and resolver, the credential erase function and the latest-log query.
+
+The full list and its classes are in `BACKWARD_COMPATIBILITY.md` (section "OAuth2 Grant Lifecycle Core"). Design background: `.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md` and `.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md`.

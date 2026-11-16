@@ -628,7 +628,7 @@ export function DefinitionTriggersEditor({
                   placeholder={t('workflows.triggers.placeholders.debounce', 'e.g. 1000')}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {t('workflows.triggers.hints.debounce', 'Wait this many milliseconds after an event before starting, so a burst of similar events starts only one workflow. Leave empty to start immediately.')}
+                  {t('workflows.triggers.hints.debounce', 'The first matching event starts an instance immediately; further events for the same record within this many milliseconds are skipped. Leave empty to start an instance for every event.')}
                 </p>
               </div>
               <div className="space-y-1">

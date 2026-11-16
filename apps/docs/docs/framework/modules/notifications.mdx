@@ -173,7 +173,7 @@ export default async function handle(
     variant?: 'default' | 'secondary' | 'destructive' | 'outline' | 'ghost'
     icon?: string              // Optional icon
     commandId?: string         // Command to execute (e.g., 'sales.orders.approve')
-    href?: string              // Or URL to navigate to
+    href?: string              // Or same-origin path to navigate to (see below)
     confirmRequired?: boolean  // Show confirmation dialog
     confirmMessage?: string    // Confirmation text
   }>
@@ -183,7 +183,7 @@ export default async function handle(
   sourceModule?: string        // Module that created the notification
   sourceEntityType?: string    // Entity type (e.g., 'order', 'leave_request')
   sourceEntityId?: string      // Entity UUID
-  linkHref?: string            // URL to navigate when clicking notification
+  linkHref?: string            // Same-origin path to navigate to when clicking
 
   // Organization
   groupKey?: string            // Key for collapsing similar notifications
@@ -278,6 +278,8 @@ actions: [
 ]
 ```
 
+`href` and `linkHref` must be same-origin paths starting with `/`. Values containing a backslash or a control character, or resolving to another origin (for example `//host` or `/\host`), are rejected when the notification is created.
+
 ## Batch Notifications
 
 Send the same notification to multiple users:
@@ -295,6 +297,14 @@ await notificationService.createBatch({
   organizationId: ctx.selectedOrganizationId,
 })
 ```
+
+For idempotent server-side delivery, supply a nonblank `groupKey` and pass
+`{ skipExistingGroup: true }` as the third `createBatch` argument. The service
+locks each recipient's group inside the write transaction and skips existing
+notifications in every status, including dismissed notifications. Skipped rows
+are not changed or emitted again; the result contains only newly created rows.
+Existing calls without this option keep their refresh behavior. This option is
+available on the service API only.
 
 Or via API:
 
@@ -700,12 +710,14 @@ When the user clicks "Approve" in the notification:
 ### NotificationService Interface
 
 ```typescript
+type CreateBatchNotificationOptions = { skipExistingGroup?: boolean }
+
 interface NotificationService {
   // Create single notification
   create(input: CreateNotificationInput, ctx: NotificationServiceContext): Promise<Notification>
 
   // Create notifications for multiple recipients
-  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
+  createBatch(input: CreateBatchNotificationInput, ctx: NotificationServiceContext, options?: CreateBatchNotificationOptions): Promise<Notification[]>
 
   // Create notifications for all users in a role
   createForRole(input: CreateRoleNotificationInput, ctx: NotificationServiceContext): Promise<Notification[]>
@@ -804,7 +816,10 @@ The notifications module emits the following events:
 | `PUT` | `/api/notifications/:id/read` | Mark as read |
 | `POST` | `/api/notifications/:id/action` | Execute action |
 | `PUT` | `/api/notifications/:id/dismiss` | Dismiss notification |
+| `PUT` | `/api/notifications/:id/restore` | Undo a dismissal (`status`: `read` or `unread`) |
 | `PUT` | `/api/notifications/mark-all-read` | Mark all as read |
+
+An action runs once. While a notification's action has been executed, `POST /api/notifications/:id/action` answers `409` with `code: "notification_action_already_executed"` — also after the notification was dismissed or restored. A `409` without that code comes from a mutation guard or from the action's own command; the action was not recorded as executed and can be retried. Restoring a dismissed notification whose action was executed brings it back as `actioned`, whatever `status` is requested.
 
 ## Frontend Components
 

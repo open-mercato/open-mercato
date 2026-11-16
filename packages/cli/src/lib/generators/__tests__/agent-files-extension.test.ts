@@ -94,6 +94,13 @@ describe('createAgentFilesExtension', () => {
     expect(manifest).toContain("id: \"deals.health_check\"")
     expect(manifest).toContain("openCodeAgentName: \"deals_health_check\"")
     expect(manifest).toContain('export const fileAgentDescriptors')
+    expect(manifest).toContain(
+      "import type { JsonSchemaNode, OutcomeKind } from '../lib/sdk/outcomeSchema'",
+    )
+    expect(manifest).toContain(
+      "import type { AgentTokenUsage, FileAgentFile } from '../lib/tokens/types'",
+    )
+    expect(manifest).not.toContain('@open-mercato/enterprise/modules/agent_orchestrator/lib/')
 
     const dockerFile = path.join(repoRoot, 'docker/opencode/agents/deals_health_check.md')
     expect(fs.existsSync(dockerFile)).toBe(true)
@@ -559,7 +566,18 @@ describe('createAgentFilesExtension', () => {
         'file-agents.generated.ts',
       )
       expect(fs.existsSync(manifestPath)).toBe(true)
-      expect(fs.readFileSync(manifestPath, 'utf8')).toContain('id: "deals.health_check"')
+      const manifest = fs.readFileSync(manifestPath, 'utf8')
+      expect(manifest).toContain('id: "deals.health_check"')
+      // Standalone layout: type imports must use the public package path — the
+      // monorepo-relative `../lib/...` form does not resolve from `.mercato/generated/`.
+      expect(manifest).toContain(
+        "import type { JsonSchemaNode, OutcomeKind } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/sdk/outcomeSchema'",
+      )
+      expect(manifest).toContain(
+        "import type { AgentTokenUsage, FileAgentFile } from '@open-mercato/enterprise/modules/agent_orchestrator/lib/tokens/types'",
+      )
+      expect(manifest).not.toContain("from '../lib/sdk/outcomeSchema'")
+      expect(manifest).not.toContain("from '../lib/tokens/types'")
 
       // It must NOT write into node_modules, which yarn install rewrites.
       expect(

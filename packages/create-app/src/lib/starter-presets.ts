@@ -51,6 +51,11 @@ const EMPTY_MODULES: ModuleEntry[] = [
   // template's package.json, and every `OM_ATTACHMENT_*` / OCR / S3 setting defaults to
   // a working local-filestore configuration.
   { id: 'attachments', from: CORE },
+  // `auth` locks the `ApiKey` rows that reference a role whenever it writes roles or
+  // ACLs — `mercato init` included — so the `ApiKey` entity must be registered or
+  // setup aborts with "Metadata for entity ApiKey not found". Only `api_keys`
+  // registers it, so it belongs in the baseline next to `auth`.
+  { id: 'api_keys', from: CORE },
 ]
 
 export const STARTER_PRESETS: Record<string, StarterPreset> = {
@@ -89,6 +94,9 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
         { id: 'currencies', from: CORE },
+        // `communication_channels` declares `requires: ['progress']` (issue #6094);
+        // without this entry `yarn generate` hard-fails on every `crm` scaffold.
+        { id: 'progress', from: CORE },
         // `communication_channels` powers the profile "My communication channels" page,
         // but the hub only persists credentials through `integrations`
         // (`integrationCredentialsService`) and only shows connect buttons for modules
@@ -114,6 +122,9 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       mode: 'patch',
       add: [
         { id: 'customers', from: CORE },
+        // `customers` declares `requires: ['progress']` (issue #6094/#6302);
+        // without this entry `yarn generate` hard-fails on every `wms` scaffold.
+        { id: 'progress', from: CORE },
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
         { id: 'catalog', from: CORE },

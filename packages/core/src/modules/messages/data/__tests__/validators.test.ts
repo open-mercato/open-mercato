@@ -7,6 +7,18 @@ import {
 } from '../validators'
 
 describe('messages validators', () => {
+  it('does not expose the internal imported-message timestamp in the public compose schema', () => {
+    const result = composeMessageRequestSchema.parse({
+      subject: 'Subject',
+      body: 'Body',
+      visibility: 'public',
+      externalEmail: 'recipient@example.com',
+      sentAt: null,
+    })
+
+    expect(result).not.toHaveProperty('sentAt')
+  })
+
   it('rejects duplicate recipient ids during compose', () => {
     const result = composeMessageSchema.safeParse({
       subject: 'Subject',
@@ -108,6 +120,53 @@ describe('messages validators', () => {
     })
   })
 
+  describe('server-supplied sentAt (#6095)', () => {
+    const inboundBase = {
+      subject: 'Subject',
+      body: 'Body',
+      visibility: 'public' as const,
+      externalEmail: 'sender@example.com',
+      recipients: [],
+    }
+
+    it('accepts a Date as the provider timestamp', () => {
+      const sentAt = new Date('2026-06-16T08:30:00Z')
+      const result = composeMessageSchema.safeParse({ ...inboundBase, sentAt })
+
+      expect(result.success).toBe(true)
+      expect(result.data?.sentAt).toEqual(sentAt)
+    })
+
+    it('coerces an ISO string into a Date', () => {
+      const result = composeMessageSchema.safeParse({
+        ...inboundBase,
+        sentAt: '2026-06-16T08:30:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+      expect(result.data?.sentAt).toEqual(new Date('2026-06-16T08:30:00.000Z'))
+    })
+
+    it('rejects an unparsable timestamp', () => {
+      const result = composeMessageSchema.safeParse({ ...inboundBase, sentAt: 'yesterday' })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path[0] === 'sentAt')).toBe(true)
+    })
+
+    it('is not part of the client-facing compose contract', () => {
+      // A caller of POST /api/messages must not be able to backdate a message;
+      // only channel ingest, which knows when the provider received it, sets it.
+      const result = composeMessageRequestSchema.safeParse({
+        ...inboundBase,
+        sentAt: '2020-01-01T00:00:00.000Z',
+      })
+
+      expect(result.success).toBe(true)
+      expect((result.data as Record<string, unknown>).sentAt).toBeUndefined()
+    })
+  })
+
   describe('recipients on a channel-ingested public message (#6093)', () => {
     const ingestedBase = {
       subject: 'Re: Quote #123',
@@ -184,6 +243,20 @@ describe('messages validators', () => {
       expect(result.success).toBe(false)
       expect(result.error?.issues.some((issue) => issue.path[0] === 'recipients')).toBe(true)
     })
+  })
+
+  it('preserves an internal unknown timestamp while stripping client timestamp authority', () => {
+    const input = {
+      subject: 'Timestamp boundary',
+      body: 'Internal message',
+      recipients: [{ userId: '550e8400-e29b-41d4-a716-446655440077', type: 'to' }],
+      sentAt: null,
+    }
+    const internal = composeMessageSchema.parse(input)
+    const publicRequest = composeMessageRequestSchema.parse(input)
+
+    expect(internal.sentAt).toBeNull()
+    expect(publicRequest).not.toHaveProperty('sentAt')
   })
 
   it('allows saving draft without recipients, subject, or body', () => {

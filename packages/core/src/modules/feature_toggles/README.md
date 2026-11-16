@@ -14,6 +14,8 @@ The **feature_toggles** module provides a system to manage feature usage across 
 
 MikroORM entities are defined in `data/entities.ts`.
 
+Undoing global toggle creation soft-deletes the original toggle and retains its tenant overrides, matching normal deletion. Its identifier remains reserved, and the toggle and its overrides remain hidden while the toggle is deleted. Redo restores the original toggle ID and scalar snapshot, with the retained override IDs and values available again.
+
 ## Validation
 
 `data/validators.ts` provides Zod schemas for validation:

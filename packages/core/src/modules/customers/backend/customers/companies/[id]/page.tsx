@@ -204,8 +204,10 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     sectionAction.onClick()
   }, [sectionAction])
 
-  React.useEffect(() => {
+  const handleTabChange = React.useCallback((tab: SectionKey) => {
+    if (tab === activeTab) return
     setSectionAction(null)
+    setActiveTab(tab)
   }, [activeTab])
 
   const validators = React.useMemo(() => ({
@@ -836,7 +838,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
             className="space-y-6"
             tabs={tabs}
             activeTab={activeTab}
-            onTabChange={setActiveTab}
+            onTabChange={handleTabChange}
             sectionAction={sectionAction}
             onSectionAction={handleSectionAction}
             navAriaLabel={t('customers.companies.detail.tabs.label', 'Company detail sections')}

@@ -54,6 +54,14 @@ export type CustomFieldDefLike = {
 
 const isEmpty = (v: any) => v == null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0)
 
+const NUMERIC_FIELD_KINDS = new Set(['integer', 'float'])
+
+function comparableValue(raw: unknown, kind: string): unknown {
+  if (!NUMERIC_FIELD_KINDS.has(kind) || typeof raw !== 'string' || raw.trim() === '') return raw
+  const numeric = Number(raw)
+  return Number.isFinite(numeric) ? numeric : raw
+}
+
 // Evaluate a single rule against a value. Multi-value fields (e.g. `text` with
 // `multi: true`) carry array values; every rule except `required` is applied to
 // each element so a regex like `^[a-z0-9_-]+$` is checked per tag instead of the
@@ -106,10 +114,10 @@ function evalScalarRule(rule: ValidationRule, value: any, kind: string): string 
       return Number(value) >= (rule as any).param ? null : rule.message
     case 'eq':
       if (isEmpty(value)) return null
-      return value === (rule as any).param ? null : rule.message
+      return comparableValue(value, kind) === comparableValue(rule.param, kind) ? null : rule.message
     case 'ne':
       if (isEmpty(value)) return null
-      return value !== (rule as any).param ? null : rule.message
+      return comparableValue(value, kind) !== comparableValue(rule.param, kind) ? null : rule.message
     case 'regex':
       if (isEmpty(value)) return null
       const regexResult = testLinearRegex(String((rule as any).param), String(value), {

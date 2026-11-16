@@ -79,7 +79,9 @@ export default function PortalInvitePage({ params }: Props) {
           return
         }
 
-        if (result.status === 400) {
+        if (result.status === 409) {
+          setError(t('portal.invite.error.accountExists', 'This email address already has a portal account. Sign in below instead of accepting the invitation.'))
+        } else if (result.status === 400) {
           setError(t('portal.invite.error.invalidToken', 'Invalid or expired invitation.'))
         } else {
           setError(result.result?.error || t('portal.invite.error.generic', 'Invitation acceptance failed. Please try again.'))

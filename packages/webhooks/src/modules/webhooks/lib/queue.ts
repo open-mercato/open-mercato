@@ -48,7 +48,7 @@ async function ensureLocalWebhookQueueWorkerStarted(): Promise<void> {
 
       const container = await createRequestContainer()
       const em = (container.resolve('em') as EntityManager).fork()
-      await processWebhookDeliveryJob(em, job.payload)
+      await processWebhookDeliveryJob(em, job.payload, { resolver: container })
     })
   })().catch((error) => {
     delete globalStore[LOCAL_WORKER_PROMISE_KEY]
@@ -64,6 +64,10 @@ export async function enqueueWebhookDelivery(job: WebhookDeliveryJob, delayMs?: 
   const jobId = await queue.enqueue(job, delayMs && delayMs > 0 ? { delayMs } : undefined)
   await ensureLocalWebhookQueueWorkerStarted()
   return jobId
+}
+
+export async function enqueueWebhookDeliveryFromJob(job: WebhookDeliveryJob, delayMs: number): Promise<string> {
+  return getWebhookQueue().enqueue(job, delayMs > 0 ? { delayMs } : undefined)
 }
 
 export function getInboundDispatchQueue(

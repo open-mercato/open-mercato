@@ -521,13 +521,12 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 
 ## Encryption
 
-- Respect the feature flag: only encrypt/decrypt when tenant data encryption is enabled
-- Use `findWithDecryption`/`findOneWithDecryption` instead of `em.find`/`em.findOne`
-- Always supply `tenantId` and `organizationId` to decryption helpers
-- Do not hand-roll AES/KMS calls; rely on `TenantDataEncryptionService`
+- Only encrypt/decrypt when tenant data encryption is enabled
+- Use `findWithDecryption`/`findOneWithDecryption` (never `em.find`/`em.findOne`) with `tenantId` and `organizationId`
+- Never hand-roll AES/KMS; use `TenantDataEncryptionService`
 - Query index: keep `entity_indexes.doc` encrypted at rest; use `decryptIndexDocCustomFields`, `decryptIndexDocForSearch`
 - Vector search: `result_title`/`result_subtitle`/`result_icon` encrypted at rest
-- When adding GDPR-relevant fields, declare or update the module's `encryption.ts` `defaultEncryptionMaps` export
+- GDPR fields: declare in `encryption.ts` `defaultEncryptionMaps`; a deployed module also needs a `buildEncryptionMapBackfillSql` migration (empty `down()`), else existing tenants stay plaintext
 
 ## Command Side Effects
 

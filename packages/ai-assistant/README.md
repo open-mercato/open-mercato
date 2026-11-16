@@ -86,6 +86,10 @@ yarn infra:up
 yarn dev
 ```
 
+The MCP endpoint (`MCP_PORT`, default 3001) is owned by `yarn dev` from the start, but the server process itself only starts on the first MCP request, so an idle session does not pay for it. Set `OM_DEV_MCP_LAZY=0` to start it together with `yarn dev`.
+
+Cold starts accept the provisioned key (or `MCP_SERVER_API_KEY`) from any peer. Other user-created keys can start MCP only from loopback or an explicitly trusted socket peer: set `OM_DEV_MCP_TRUSTED_PEERS=172.18.0.2` on the `yarn dev` process for a trusted container's exact source IP (comma-separated IPv4/IPv6 addresses, not CIDRs or hostnames). The shipped OpenCode sidecar uses the provisioned key and needs no change. Unknown keys from other peers receive `401` before startup or queue admission, even with spoofed forwarded headers. Trust authorizes startup work only; the upstream still authenticates every key. Do not trust a reverse proxy that forwards untrusted callers without its own access control.
+
 To run the pieces individually instead:
 
 ```bash
@@ -205,6 +209,11 @@ llmProviderRegistry.register(
 The custom provider is immediately available under its id in
 `OPENCODE_PROVIDER`, the backend settings dropdown, and the routing
 layer — no changes needed in core.
+
+Presets speak the Chat Completions protocol (`POST {baseURL}/chat/completions`)
+by default, which every OpenAI-compatible backend implements. Set
+`apiMode: 'responses'` only when the backend implements OpenAI's Responses API
+(`POST {baseURL}/responses`) — the built-in `openai` preset does so.
 
 ### .mcp.json Configuration
 

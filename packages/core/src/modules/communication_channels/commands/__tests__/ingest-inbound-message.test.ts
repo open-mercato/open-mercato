@@ -25,10 +25,15 @@ import ingestInboundMessageCommand, {
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { normalizedInboundMessageSchema } from '../../data/validators'
 import { resolveCommunicationChannelsSystemUserId } from '../../lib/system-user'
 import { composeMessageSchema } from '../../../messages/data/validators'
+import { emitCommunicationChannelsEvent } from '../../events'
 
 const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockIngestEmit = emitCommunicationChannelsEvent as jest.MockedFunction<
+  typeof emitCommunicationChannelsEvent
+>
 
 describe('ingestInboundMessageCommand metadata', () => {
   it('exports the canonical command id', () => {
@@ -44,6 +49,23 @@ describe('ingestInboundMessageCommand metadata', () => {
 })
 
 describe('ingestInboundMessageCommand input schema', () => {
+  it('accepts an explicitly unknown message timestamp', () => {
+    const result = normalizedInboundMessageSchema.parse({
+      externalMessageId: 'ext-unknown-date',
+      externalConversationId: 'conv-1',
+      senderIdentifier: 'jane@example.com',
+      body: 'hi',
+      bodyFormat: 'text',
+      timestamp: null,
+      providerTimestamp: new Date('2026-05-29T10:00:00.000Z'),
+      channelPayload: {},
+      channelContentType: 'email/mime',
+      channelMetadata: {},
+    })
+    expect(result.timestamp).toBeNull()
+    expect(result.providerTimestamp).toEqual(new Date('2026-05-29T10:00:00.000Z'))
+  })
+
   it('rejects empty providerKey', async () => {
     const input = {
       channelId: '11111111-1111-1111-1111-111111111111',
@@ -110,7 +132,6 @@ describe('ingestInboundMessageCommand input schema', () => {
       ccAddresses: meta.cc as string[],
       bodyPlain: sample.bodyFormat === 'html' ? null : sample.body,
       bodyHtml: sample.bodyFormat === 'html' ? sample.body : null,
-      receivedAt: sample.timestamp,
     }
     expect(matcherInput.messageId).toBe('<reply@external.example>')
     expect(matcherInput.inReplyTo).toBe('<original@example.com>')
@@ -491,6 +512,143 @@ describe('ingestInboundMessageCommand — non-email sender identity (#4975)', ()
   })
 })
 
+describe('ingestInboundMessageCommand — provider timestamp (#6095)', () => {
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({
+        id: '550e8400-e29b-41d4-a716-446655440050',
+        ...data,
+      })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'gmail' }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function emailInput(timestamp: Date): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'gmail',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'gmail-message-1',
+        externalConversationId: 'thread-abc',
+        senderIdentifier: 'alice@example.com',
+        senderDisplayName: 'Alice',
+        subject: 'Quote',
+        body: 'Hello',
+        bodyFormat: 'text',
+        timestamp,
+        providerTimestamp: timestamp,
+        channelPayload: {},
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups(): void {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // existingExternal — first delivery
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'gmail',
+        channelType: 'email',
+        // Real UUID (#6106): this flows into `recipients[0].userId` as the
+        // channel-owner fallback assignee, which the messages validator
+        // requires to be a UUID.
+        userId: '550e8400-e29b-41d4-a716-446655440077',
+      } as never) // channel
+      .mockResolvedValueOnce(null as never) // conversation → create
+      .mockResolvedValueOnce(null as never) // mapping → create
+      .mockResolvedValue(null as never)
+  }
+
+  function composeInputOf(commandBus: { execute: jest.Mock }): Record<string, unknown> {
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    expect(composeCall).toBeDefined()
+    return (composeCall as any[])[1].input as Record<string, unknown>
+  }
+
+  it('forwards the provider timestamp to compose as sentAt', async () => {
+    // Before #6095 compose stamped `new Date()`, so a 90-day history import
+    // showed every message on the import day, in import order.
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const receivedAt = new Date('2026-06-16T08:30:00Z')
+
+    await ingestInboundMessageCommand.execute(emailInput(receivedAt) as never, ctx)
+
+    const composeInput = composeInputOf(commandBus)
+    expect(composeInput.sentAt).toEqual(receivedAt)
+    // Contact resolution is mocked out above, so supply the address the real
+    // adapter would have resolved and check the hub accepts the timestamp.
+    const parsed = composeMessageSchema.safeParse({
+      ...composeInput,
+      externalEmail: 'alice@example.com',
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.sentAt).toEqual(receivedAt)
+  })
+
+  it('passes an unknown inbound timestamp to compose without substituting import time', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+    const input = emailInput(new Date('2026-06-16T08:30:00Z'))
+    input.message.timestamp = null
+    input.message.providerTimestamp = null
+
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    expect(composeInputOf(commandBus).sentAt).toBeNull()
+  })
+
+  it('carries the provider timestamp on the emitted message.received payload', async () => {
+    // The customers subscriber dates its CustomerInteraction from this field.
+    // It must travel on the event, not be re-read from the ExternalMessage row
+    // by the consuming module (AGENTS.md Cross-Module Coupling).
+    primeLookups()
+    mockIngestEmit.mockClear()
+    const { ctx } = makeCtx()
+    const receivedAt = new Date('2026-06-16T08:30:00Z')
+
+    await ingestInboundMessageCommand.execute(emailInput(receivedAt) as never, ctx)
+
+    const receivedCall = mockIngestEmit.mock.calls.find(
+      (call: unknown[]) => call[0] === 'communication_channels.message.received',
+    )
+    expect(receivedCall).toBeDefined()
+    expect((receivedCall as any[])[1]).toMatchObject({
+      providerTimestamp: receivedAt.toISOString(),
+    })
+  })
+})
+
 describe('ingestInboundMessageCommand — assigned conversation (#6093)', () => {
   const assigneeId = '550e8400-e29b-41d4-a716-446655440099'
 
@@ -767,7 +925,6 @@ describe('ingestInboundMessageCommand — per-user channel owner is the default 
     expect(createdWith(created, 'externalThreadRef')?.assignedUserId).toBeNull()
   })
 })
-
 describe('ingestInboundMessageCommand — HTML body normalization', () => {
   function makeCtx() {
     const em: any = {
@@ -792,6 +949,7 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
         },
       } as any,
       commandBus,
+      em,
     }
   }
 
@@ -954,5 +1112,35 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
     const { input: composed } = composedInput(commandBus)
     expect(composed.body).toContain('Short enough')
     expect(composed.body).not.toContain('message truncated by Open Mercato')
+  })
+
+  it('persists only the separately supplied provider timestamp on ExternalMessage', async () => {
+    primeLookups()
+    const { ctx, em } = makeCtx()
+    const providerTimestamp = new Date('2026-05-29T10:00:00.000Z')
+    const input = makeInput('hello', 'text')
+    input.message.timestamp = new Date('2026-05-28T10:00:00.000Z')
+    input.message.providerTimestamp = providerTimestamp
+
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    const externalMessageCreate = em.create.mock.calls.find(([, data]: [unknown, Record<string, unknown>]) => (
+      data.externalMessageId === 'ext-html-1' && data.direction === 'inbound'
+    ))
+    expect(externalMessageCreate?.[1].providerTimestamp).toEqual(providerTimestamp)
+  })
+
+  it('does not reclassify the canonical timestamp as a provider timestamp', async () => {
+    primeLookups()
+    const { ctx, em } = makeCtx()
+    const input = makeInput('hello', 'text')
+    input.message.timestamp = new Date('2026-05-28T10:00:00.000Z')
+
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    const externalMessageCreate = em.create.mock.calls.find(([, data]: [unknown, Record<string, unknown>]) => (
+      data.externalMessageId === 'ext-html-1' && data.direction === 'inbound'
+    ))
+    expect(externalMessageCreate?.[1].providerTimestamp).toBeNull()
   })
 })

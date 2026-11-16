@@ -7,6 +7,35 @@ const failingLookup: LookupFn = async () => {
   throw new Error('ENOTFOUND')
 }
 
+const localUseTranslationAddresses = [
+  '64:ff9b:1::',
+  '64:ff9b:1::a00:1',
+  '64:ff9b:1::808:808',
+  '0064:FF9B:0001:1234:5678:90AB:CDEF:1234',
+  '64:ff9b:1:ffff:ffff:ffff:ffff:ffff',
+]
+const private6to4Addresses = [
+  '2002:0000:0000::1',
+  '2002:0a01:0203::1',
+  '2002:6440:0001::1',
+  '2002:7f00:0001::1',
+  '2002:a9fe:a9fe::1',
+  '2002:ac10:0001::1',
+  '2002:c000:0001::1',
+  '2002:c0a8:0101::1',
+  '2002:c612:0001::1',
+  '2002:e000:0001::1',
+  '2002:f000:0001::1',
+  '2002:0A00:0001:0000:0000:0000:0808:0808',
+]
+const blockedTransitionAddresses = [...localUseTranslationAddresses, ...private6to4Addresses]
+const publicIpv6Addresses = [
+  '2606:2800:220:1:248:1893:25c8:1946',
+  '64:ff9b::808:808',
+  '2002:0808:0808:abcd::1',
+  '2002:5db8:d822::a00:1',
+]
+
 describe('isPrivateAddress', () => {
   it.each([
     '127.0.0.1',
@@ -34,8 +63,16 @@ describe('isPrivateAddress', () => {
     },
   )
 
-  it('allows a public IPv6 address', () => {
-    expect(isPrivateAddress('2606:2800:220:1:248:1893:25c8:1946')).toBe(false)
+  it.each(publicIpv6Addresses)('allows public IPv6 %s', (address) => {
+    expect(isPrivateAddress(address)).toBe(false)
+  })
+
+  it.each(localUseTranslationAddresses)('blocks the local-use translation address %s', (address) => {
+    expect(isPrivateAddress(address)).toBe(true)
+  })
+
+  it.each(private6to4Addresses)('blocks 6to4 with non-public embedded IPv4 %s', (address) => {
+    expect(isPrivateAddress(address)).toBe(true)
   })
 
   // Regression: `new URL('http://[::ffff:127.0.0.1]/').hostname` is '::ffff:7f00:1',
@@ -105,6 +142,34 @@ describe('assertPublicUrl', () => {
     ).rejects.toThrow(/non-public address/)
   })
 
+  it.each(blockedTransitionAddresses)('rejects the IPv6 literal %s before DNS', async (address) => {
+    const lookup = jest.fn<ReturnType<LookupFn>, [string]>()
+    await expect(assertPublicUrl(`http://[${address}]/`, 'test', { lookup })).rejects.toMatchObject({
+      code: 'ssrf_blocked',
+    })
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it.each(blockedTransitionAddresses)('rejects a mixed DNS answer containing %s', async (address) => {
+    await expect(
+      assertPublicUrl('https://translated.example.com/', 'test', {
+        lookup: async () => [
+          { address: '93.184.216.34', family: 4 },
+          { address, family: 6 },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'ssrf_blocked' })
+  })
+
+  it.each(publicIpv6Addresses)('vets and retains public IPv6 %s for pinning', async (address) => {
+    const literal = await assertPublicUrl(`https://[${address}]/`, 'test')
+    expect(literal.addresses).toEqual([new URL(`https://[${address}]/`).hostname.slice(1, -1)])
+    const resolved = await assertPublicUrl('https://public.example.com/', 'test', {
+      lookup: async () => [{ address, family: 6 }],
+    })
+    expect(resolved.addresses).toEqual([address])
+  })
+
   it('fails closed on DNS failure by default, because it cannot pin without addresses', async () => {
     await expect(
       assertPublicUrl('https://example.com/', 'test', { lookup: failingLookup }),
@@ -125,6 +190,28 @@ describe('assertPublicUrl', () => {
   })
 
   describe('allowPrivateHosts', () => {
+    it.each(blockedTransitionAddresses)('permits %s only for explicitly named hosts', async (address) => {
+      const options = {
+        lookup: async () => [{ address, family: 6 }],
+        allowPrivateHosts: ['internal.example.com'],
+      }
+      const vetted = await assertPublicUrl('http://search.internal.example.com/', 'test', options)
+      expect(vetted.addresses).toEqual([address])
+      await expect(
+        assertPublicUrl('http://notinternal.example.com/', 'test', options),
+      ).rejects.toMatchObject({ code: 'ssrf_blocked' })
+    })
+
+    it.each(['64:ff9b:1::a00:1', '2002:a00:1::1'])(
+      'permits the explicitly named IPv6 literal %s',
+      async (address) => {
+        const vetted = await assertPublicUrl(`http://[${address}]/`, 'test', {
+          allowPrivateHosts: [address],
+        })
+        expect(vetted.addresses).toEqual([address])
+      },
+    )
+
     it('lets a named host resolve privately', async () => {
       const vetted = await assertPublicUrl('http://searxng:8080/search', 'test', {
         lookup: async () => [{ address: '10.1.2.3', family: 4 }],

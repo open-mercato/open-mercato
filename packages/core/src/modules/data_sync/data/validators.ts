@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { isValidScheduleInterval } from '@open-mercato/shared/lib/schedule/interval'
+import { SCHEDULE_VALUE_FIELD, SCHEDULE_VALUE_FORMAT_MESSAGES } from '../lib/schedule-value'
 
 const runSyncFields = {
   integrationId: z.string().min(1),
@@ -71,6 +73,28 @@ export const listSyncSchedulesQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 })
 
+/**
+ * The documented interval format is part of the API contract, so a value the
+ * scheduler can never run (`"3600"`) is rejected here instead of surfacing an
+ * internal scheduler message from deep inside the write path. The value is
+ * checked exactly as the scheduler will receive it — surrounding whitespace is
+ * not tolerated here, because the scheduler's anchored parser would reject it
+ * later. Cron is left to that parser, which reports back through the same
+ * `scheduleValue` field error.
+ */
+function refineScheduleValueFormat(
+  value: { scheduleType?: 'cron' | 'interval'; scheduleValue?: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.scheduleType !== 'interval' || typeof value.scheduleValue !== 'string') return
+  if (isValidScheduleInterval(value.scheduleValue)) return
+  ctx.addIssue({
+    code: 'custom',
+    path: [SCHEDULE_VALUE_FIELD],
+    message: SCHEDULE_VALUE_FORMAT_MESSAGES.interval,
+  })
+}
+
 export const createSyncScheduleSchema = z.object({
   integrationId: z.string().min(1),
   entityType: z.string().min(1),
@@ -80,7 +104,7 @@ export const createSyncScheduleSchema = z.object({
   timezone: z.string().min(1).default('UTC'),
   fullSync: z.boolean().default(false),
   isEnabled: z.boolean().default(true),
-})
+}).superRefine(refineScheduleValueFormat)
 
 export const updateSyncScheduleSchema = z.object({
   integrationId: z.string().min(1).optional(),
@@ -93,7 +117,7 @@ export const updateSyncScheduleSchema = z.object({
   isEnabled: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one field must be updated',
-})
+}).superRefine(refineScheduleValueFormat)
 
 export type CreateSyncScheduleInput = z.infer<typeof createSyncScheduleSchema>
 export type UpdateSyncScheduleInput = z.infer<typeof updateSyncScheduleSchema>

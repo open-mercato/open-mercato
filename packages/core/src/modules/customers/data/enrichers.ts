@@ -3,6 +3,9 @@ import type { CustomerKysely } from '../lib/kysely'
 import { resolveKyselyClient } from '../lib/kysely'
 import { fetchStuckThresholdDays } from '../lib/stuckDeals'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../lib/interactionStatus'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { listGrantsForViewer, listSharedChannelIds } from '../lib/conversationShares'
+import { applyEmailHiddenFilter, isEmailHiddenFrom } from '../lib/visibilityFilter'
 
 type DealRecord = Record<string, unknown> & {
   id: string
@@ -262,17 +265,34 @@ export const privateEmailCountEnricher: ResponseEnricher<
       return records.map((record) => ({ ...record, _privateEmailCount: 0 }))
     }
 
-    const rows = await (db as CustomerKysely)
+    // The count is the complement of what the read filter admits, so it derives
+    // from the SAME shared rule (`applyEmailHiddenFilter`) rather than restating
+    // `visibility = 'private'` in raw SQL here. Keeping the two in one place is
+    // what stops the Person page reporting "3 private emails" for emails the
+    // caller can actually read once the predicate widens.
+    const baseQuery = (db as CustomerKysely)
       .selectFrom('customer_interactions')
       .select(['entity_id'])
       .select((eb) => eb.fn.countAll().as('count'))
       .where('tenant_id', '=', context.tenantId)
       .where('organization_id', '=', context.organizationId)
-      .where('interaction_type', '=', 'email')
-      .where('visibility', '=', 'private')
       .where('deleted_at', 'is', null)
       .where('entity_id', 'in', personIds)
-      .where('author_user_id', '!=', userId)
+
+    // A conversation the owner shared is no longer "private" to this caller, so it
+    // must not be counted as hidden.
+    const countScope = { tenantId: context.tenantId, organizationId: context.organizationId }
+    const [sharedConversations, sharedChannelIds] = await Promise.all([
+      listGrantsForViewer(context.em as EntityManager, countScope, userId).catch(() => []),
+      listSharedChannelIds(context.em as EntityManager, countScope, userId).catch(() => []),
+    ])
+
+    const rows = await applyEmailHiddenFilter(baseQuery, {
+      currentUserId: userId,
+      userFeatures: undefined,
+      sharedConversations,
+      sharedChannelIds,
+    })
       .groupBy('entity_id')
       .execute()
 
@@ -295,6 +315,24 @@ type InteractionRecord = Record<string, unknown> & {
   id: string
   interactionType?: string | null
   externalMessageId?: string | null
+}
+
+/**
+ * The Person an interaction is anchored to, needed to match a conversation-share
+ * grant. Different projections spell the column differently (`entityId` on the
+ * canonical CRUD shape, `entity_id` on raw rows, `entity` when the relation is
+ * serialized), so read all three and fail closed to `null`.
+ */
+function readPersonEntityId(record: Record<string, unknown>): string | null {
+  for (const key of ['entityId', 'entity_id', 'entity'] as const) {
+    const value = record[key]
+    if (typeof value === 'string' && value.length > 0) return value
+    if (value && typeof value === 'object') {
+      const nested = (value as Record<string, unknown>).id
+      if (typeof nested === 'string' && nested.length > 0) return nested
+    }
+  }
+  return null
 }
 
 type EmailIntegrationFields = {
@@ -412,6 +450,13 @@ export const interactionEmailCardEnricher: ResponseEnricher<
     }
 
     const currentUserId = ctx.userId
+    // Conversation shares widen which private emails this caller may act on, so
+    // the card actions derive from the same grants as the read filter.
+    const cardScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    const [sharedConversations, sharedChannelIds] = await Promise.all([
+      listGrantsForViewer(ctx.em as EntityManager, cardScope, currentUserId).catch(() => []),
+      listSharedChannelIds(ctx.em as EntityManager, cardScope, currentUserId).catch(() => []),
+    ])
 
     return records.map((r) => {
       if (
@@ -434,7 +479,21 @@ export const interactionEmailCardEnricher: ResponseEnricher<
       // private row is enriched only for its author. The normal read paths
       // already drop these rows; this keeps the globally-registered enricher
       // safe-by-construction for any future consumer that opts into it.
-      if (visibility === 'private' && !isAuthor) {
+      //
+      // Derives from the shared rule so the card actions can never disagree with
+      // the read filter about who may act on an email.
+      if (
+        isEmailHiddenFrom({
+          interactionType: r.interactionType,
+          visibility,
+          authorUserId,
+          currentUserId,
+          personEntityId: readPersonEntityId(r),
+          sharedConversations,
+          channelId: typeof r.channelId === 'string' ? r.channelId : null,
+          sharedChannelIds,
+        })
+      ) {
         return r
       }
       const existingIntegrations = (r._integrations ?? {}) as Record<string, unknown>

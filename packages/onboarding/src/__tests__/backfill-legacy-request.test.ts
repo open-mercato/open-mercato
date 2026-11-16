@@ -83,6 +83,7 @@ function makeEm(rows: OnboardingRequest[]) {
     }),
     persist: jest.fn(() => ({ flush: jest.fn(async () => {}) })),
     flush: jest.fn(async () => {}),
+    execute: jest.fn(async () => []),
     created,
   } as unknown as EntityManager & { created: OnboardingRequest[]; findOne: jest.Mock; create: jest.Mock }
 }

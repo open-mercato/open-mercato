@@ -9,7 +9,9 @@ import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import spawn from 'cross-spawn'
 import { fetchWithTimeout, type FetchWithTimeoutInit } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { isUnsafeJwtSecret } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveEnvironment } from '../resolver'
+import { resolveInitSuperadminCredentials } from '../init-secrets'
 import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
@@ -188,6 +190,36 @@ export function resolveEphemeralPostgresImage(env: NodeJS.ProcessEnv = process.e
 export function ephemeralPostgresInitSql(): string {
   return EPHEMERAL_POSTGRES_INIT_SQL
 }
+
+const DEFAULT_EPHEMERAL_JWT_SECRET = 'om-ephemeral-integration-jwt-secret'
+
+export function resolveEphemeralJwtSecret(env: NodeJS.ProcessEnv = process.env): string {
+  const inherited = env.JWT_SECRET
+  if (inherited && !isUnsafeJwtSecret(inherited)) return inherited
+  if (inherited !== undefined) {
+    console.warn(
+      '[integration] Ignoring the inherited JWT_SECRET: it is a placeholder or too short and the ephemeral app runs with NODE_ENV=production. Using the ephemeral default instead.',
+    )
+  }
+  return DEFAULT_EPHEMERAL_JWT_SECRET
+}
+const DEFAULT_EPHEMERAL_SUPERADMIN_PASSWORD = 'Om-Ephemeral-Superadmin-2026!'
+
+export function resolveEphemeralSuperadminPassword(env: NodeJS.ProcessEnv = process.env): string {
+  const inherited = env.OM_INIT_SUPERADMIN_PASSWORD
+  if (inherited !== undefined && inherited.trim().length > 0) {
+    try {
+      resolveInitSuperadminCredentials([], { ...env, NODE_ENV: 'production', OM_INIT_SUPERADMIN_PASSWORD: inherited })
+      return inherited
+    } catch {
+      console.warn(
+        '[integration] Ignoring the inherited OM_INIT_SUPERADMIN_PASSWORD: it is a placeholder or fails the password policy and the ephemeral app initializes with NODE_ENV=production. Using the ephemeral default instead.',
+      )
+    }
+  }
+  return DEFAULT_EPHEMERAL_SUPERADMIN_PASSWORD
+}
+
 const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /net::ERR_CONNECTION_REFUSED/i,
   /Failed to connect to .* (localhost|127\.0\.0\.1)/i,
@@ -442,6 +474,12 @@ function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     ...process.env,
     ...overrides,
   }
+}
+
+export function withoutCoverageEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = { ...environment }
+  delete result.NODE_V8_COVERAGE
+  return result
 }
 
 function buildEnvironmentFingerprint(environment: NodeJS.ProcessEnv): string {
@@ -2164,8 +2202,16 @@ function buildReusableEnvironment(
     // stale CRUD response until the TTL (TC-CRM-028/079, TC-SX-001).
     CACHE_STRATEGY: 'sqlite',
     CACHE_SQLITE_PATH: EPHEMERAL_CACHE_DB_PATH,
-    JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
+    JWT_SECRET: resolveEphemeralJwtSecret(),
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // The forms module refuses its DEV-ONLY deterministic KMS adapter under
+    // NODE_ENV=production (which is how this app runs), so without a master key
+    // `formsEncryptionService` fails to resolve and every encrypted-payload
+    // route answers a bare 500: the whole public/portal runtime, the submissions
+    // inbox, revisions, audit, anonymize, export, PDF and analytics. Admin CRUD
+    // keeps working, which is what makes the omission easy to miss.
+    FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
+      ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
     // Integration probe + tests expect `admin@acme.com / secret` and
     // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
     // password resolution through the random-fallback branch unless these
@@ -2175,6 +2221,7 @@ function buildReusableEnvironment(
     // OM_INIT_*_PASSWORD to fix the seeded credential.
     OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
     OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
+    OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralSuperadminPassword(),
     OM_INTEGRATION_TEST: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
@@ -2182,8 +2229,14 @@ function buildReusableEnvironment(
     OM_TEST_MODE: '1',
     OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? EPHEMERAL_EMAIL_CAPTURE_PATH,
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Browser RUM is an environment-wide env switch, so without a per-request opt-in a spec
+    // could only cover the enabled path by booting the OTel web SDK on every page of every
+    // other spec. Same shape as the auth rate-limit escape hatch above: inert unless a request
+    // also carries the `om_test_browser_telemetry=on` cookie, which only TC-TELEMETRY-002 sets.
+    OM_TEST_BROWSER_TELEMETRY_MODE: 'opt-in',
     OM_DISABLE_EMAIL_DELIVERY: '0',
     OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
+    OM_ENABLE_TEST_OAUTH_GRANTS: 'true',
     OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
     OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,
     OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
@@ -3541,14 +3594,26 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       APP_URL: applicationBaseUrl,
       NEXT_PUBLIC_APP_URL: applicationBaseUrl,
       PLATFORM_PORTAL_BASE_URL: applicationBaseUrl,
-      JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
+      JWT_SECRET: resolveEphemeralJwtSecret(),
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // The forms module refuses its DEV-ONLY deterministic KMS adapter under
+    // NODE_ENV=production (which is how this app runs), so without a master key
+    // `formsEncryptionService` fails to resolve and every encrypted-payload
+    // route answers a bare 500: the whole public/portal runtime, the submissions
+    // inbox, revisions, audit, anonymize, export, PDF and analytics. Admin CRUD
+    // keeps working, which is what makes the omission easy to miss.
+    FORMS_ENCRYPTION_MASTER_KEY: process.env.FORMS_ENCRYPTION_MASTER_KEY
+      ?? '6f6d2d657068656d6572616c2d696e746567726174696f6e2d666f726d732d31',
       NODE_ENV: 'production',
       // See the auth-probe block above: pin derived-user passwords to the
       // documented 'secret' so the ephemeral login probe converges under
       // NODE_ENV=production.
       OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
       OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
+      // Production init refuses a missing or placeholder superadmin password
+      // (#8896). Integration auth helpers read OM_INIT_SUPERADMIN_PASSWORD, so
+      // the Playwright runner logs in with the same value.
+      OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralSuperadminPassword(),
       // Pool sizing for the ephemeral integration runtime. Defaults were once
       // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
       // when trying to connect' errors on `progressService.createJob`-backed
@@ -3571,7 +3636,13 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_MODE: '1',
       OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? EPHEMERAL_EMAIL_CAPTURE_PATH,
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+      // Browser RUM is an environment-wide env switch, so without a per-request opt-in a spec
+      // could only cover the enabled path by booting the OTel web SDK on every page of every
+      // other spec. Same shape as the auth rate-limit escape hatch above: inert unless a request
+      // also carries the `om_test_browser_telemetry=on` cookie, which only TC-TELEMETRY-002 sets.
+      OM_TEST_BROWSER_TELEMETRY_MODE: 'opt-in',
       OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
+      OM_ENABLE_TEST_OAUTH_GRANTS: 'true',
       OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
       OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,
       OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
@@ -3704,6 +3775,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
       const environmentFingerprint = buildEnvironmentFingerprint(commandEnvironment)
+      const buildToolEnvironment = withoutCoverageEnvironment(commandEnvironment)
       let sourceFingerprintValue: string | null = null
       let needsBuild = true
       let shouldPersistBuildCache = true
@@ -3746,7 +3818,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
           console.log(`[${options.logPrefix}] Building packages...`)
           await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
-            runYarnCommand(['build:packages'], commandEnvironment, {
+            runYarnCommand(['build:packages'], buildToolEnvironment, {
               silent: !options.verbose,
             }))
         } else {
@@ -3758,14 +3830,14 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           force: true,
         })
         await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
-          runYarnCommand(['generate'], commandEnvironment, {
+          runYarnCommand(['generate'], buildToolEnvironment, {
             silent: !options.verbose,
           }, appDirectory))
 
         if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
           console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
           await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
-            runYarnCommand(['build:packages'], commandEnvironment, {
+            runYarnCommand(['build:packages'], buildToolEnvironment, {
               silent: !options.verbose,
             }))
         }
@@ -3773,7 +3845,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         console.log(`[${options.logPrefix}] Building application...`)
         await resetNextBuildOutputDirectories(options.logPrefix)
         await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
-          runYarnCommand(['build'], commandEnvironment, {
+          runYarnCommand(['build'], buildToolEnvironment, {
             silent: !options.verbose,
           }, appDirectory))
       }

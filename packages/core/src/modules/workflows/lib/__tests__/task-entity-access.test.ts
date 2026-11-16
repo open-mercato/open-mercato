@@ -41,13 +41,16 @@ type CustomEntityRow = {
   accessRestricted?: boolean
 }
 
+function matchesCustomEntity(row: CustomEntityRow, where: Record<string, unknown>): boolean {
+  return Object.entries(where).every(([key, value]) => {
+    if (key === '$or') return (value as Record<string, unknown>[]).some((candidate) => matchesCustomEntity(row, candidate))
+    return ({ isActive: true, deletedAt: null, ...row } as Record<string, unknown>)[key] === value
+  })
+}
+
 function makeEm(customEntities: CustomEntityRow[] = []) {
   const findOne = jest.fn(async (_entity: unknown, where: Record<string, unknown>) =>
-    customEntities.find((row) =>
-      Object.entries(where).every(
-        ([key, value]) => (row as Record<string, unknown>)[key] === value,
-      ),
-    ) ?? null,
+    customEntities.find((row) => matchesCustomEntity(row, where)) ?? null,
   )
   // `isOrmBackedSystemEntityId` looks a registered table up through the ORM
   // metadata, by PascalCase class-name candidates derived from the entity
@@ -175,6 +178,22 @@ describe('resolveTaskEntityAccess', () => {
     })
   })
 
+  test('an unrestricted local overlay cannot hide a sibling organization restriction from task access', async () => {
+    const { em } = makeEm([
+      { entityId: 'user:vendors', tenantId: TENANT, organizationId: ORG, accessRestricted: false },
+      { entityId: 'user:vendors', tenantId: TENANT, organizationId: 'hq', accessRestricted: true },
+    ])
+    const { rbac } = makeRbac({ isSuperAdmin: false, features: ['entities.records.view'] })
+
+    const { map } = await resolveTaskEntityAccess({
+      entityTypes: ['user:vendors'], em, rbac, userId: USER, scope,
+    })
+
+    expect(map.get('user:vendors')).toEqual({
+      kind: 'requires', features: ['entities.records.view', 'entities.records.user:vendors.view'],
+    })
+  })
+
   test('a tenant-created custom entity resolves even though the registry has never heard of it', async () => {
     // `custom_entities` rows are runtime data, absent from the generated entity
     // registry, so normalization alone cannot vouch for them. Refusing here
@@ -267,9 +286,14 @@ describe('resolveTaskEntityAccess', () => {
     })
 
     expect(loadAcl).toHaveBeenCalledTimes(1)
-    // Only the custom entity reaches the database at all, and only once — 50
-    // bindings, one lookup.
-    expect(findOne).toHaveBeenCalledTimes(1)
+    expect(findOne).toHaveBeenCalledTimes(2)
+    expect(findOne).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      entityId: 'user:vendors', accessRestricted: true,
+      $or: [{ tenantId: TENANT }, { tenantId: null, organizationId: null }],
+    }), undefined)
+    expect(findOne).toHaveBeenNthCalledWith(2, expect.anything(), {
+      entityId: 'user:vendors', organizationId: ORG, tenantId: TENANT,
+    })
   })
 })
 

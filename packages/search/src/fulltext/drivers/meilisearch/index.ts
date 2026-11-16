@@ -8,6 +8,7 @@ import type {
   FullTextSearchQuery,
   FullTextSearchHit,
   DocumentLookupKey,
+  ListDocumentIdsOptions,
   IndexStats,
 } from '../../types'
 import { extractSearchableFields, type EncryptionMapEntry } from '../../../lib/field-policy'
@@ -390,6 +391,41 @@ export function createMeilisearchDriver(
       }
 
       return result
+    },
+
+    async listDocumentIds(
+      entityId: EntityId,
+      tenantId: string,
+      options?: ListDocumentIdsOptions
+    ): Promise<string[]> {
+      const meiliClient = getClient()
+      const indexName = buildIndexName(tenantId)
+      const normalizedOrganizationId =
+        typeof options?.organizationId === 'string' && options.organizationId.trim().length > 0
+          ? options.organizationId.trim()
+          : null
+      const filter =
+        normalizedOrganizationId !== null
+          ? `_entityId = "${escapeFilterValue(entityId)}" AND _organizationId = "${escapeFilterValue(normalizedOrganizationId)}"`
+          : `_entityId = "${escapeFilterValue(entityId)}"`
+
+      try {
+        const index = meiliClient.index(indexName)
+        const documents = await index.getDocuments({
+          filter,
+          fields: ['_id'],
+          limit: options?.limit ?? defaultLimit,
+          offset: options?.offset ?? 0,
+        })
+
+        return documents.results.map((doc) => (doc as unknown as { _id: string })._id)
+      } catch (error: unknown) {
+        const meilisearchError = error as { code?: string }
+        if (meilisearchError.code === 'index_not_found') {
+          return []
+        }
+        throw error
+      }
     },
 
     async getIndexStats(tenantId: string): Promise<IndexStats | null> {

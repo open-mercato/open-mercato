@@ -97,11 +97,15 @@ parent.context ──mapInputData(dot-paths)──▶ childContext
                               └─ yes → validateAgainstPorts(childContext, inputs)   ← coerce + require
                                           fail → step FAILED (structured error → compensation)
                                           pass → startWorkflow(child, version=latest published | pinned)
-child completes → result.context ──mapOutputData──▶ outputData
+child completes → result.context
                               child.definition.io.outputs declared?
-                              ├─ no  → applyTokenContextWrites as today (#3679)
-                              └─ yes → validateAgainstPorts(outputData, outputs) → merge into parent context
+                              ├─ no  → mapOutputData(result.context) → applyTokenContextWrites as today (#3679)
+                              └─ yes → validateAgainstPorts(result.context, outputs)   ← coerce + require, CHILD port names
+                                          fail → step FAILED (structured error)
+                                          pass → mapOutputData(coerced child context) → merge into parent context
 ```
+
+Output ports are named in the child's vocabulary and `outputMapping` is `{ parentKey → childPort }`, so validation runs on the child context BEFORE mapping; validating the mapped `outputData` would look ports up under caller-chosen parent keys and reject every renamed mapping.
 
 ### Definition resolution & lifecycle
 
@@ -382,6 +386,9 @@ This is the spec's Ask-First contract-surface change (`BACKWARD_COMPATIBILITY.md
 - **Fully compliant** — Approved for implementation, with the **Ask-First** acknowledgement that the `workflow_definitions` uniqueness + resolution change is a contract-surface change executed under the documented Migration & Backward-Compatibility plan. Two adopted defaults (N1 trigger-published-only, N2 validation-failure-fails-step) to be confirmed during review.
 
 ## Changelog
+### 2026-09-29
+- Runtime diagram corrected: output ports are validated/coerced against the child context before `outputMapping` is applied (`mapSubWorkflowOutput`, shared by the inline and resumed paths). The previous order validated the mapped parent keys against child port names, so any renamed mapping (`renamedValue ← childValue`) failed with `Required port "childValue" is missing`.
+
 ### 2026-06-26
 - Initial specification. Open Questions Q1–Q5 resolved (Q1 all-definitions versioning; Q2 explicit publish; Q4 keep-any-callable; Q5 runtime validation; Q3 latest-published adopted). Defaults N1/N2 adopted pending review confirmation.
 - Pre-implementation audit applied (`.ai/specs/analysis/ANALYSIS-2026-06-26-subworkflow-explicit-ports-schema-builder.md`): added Integration Test Coverage matrix (G2), code-based-definition rule (G4), explicit resolution-parity filter + parity test, G1 upsert-audit prerequisite, plain enum-default rule, and RELEASE_NOTES requirement (G5).
