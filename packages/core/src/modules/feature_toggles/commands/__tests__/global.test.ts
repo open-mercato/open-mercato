@@ -498,6 +498,56 @@ describe('feature_toggles.global commands', () => {
 
             await expect(updateCommand.execute({ id: '123e4567-e89b-12d3-a456-426614174000' }, ctx)).rejects.toThrow('Toggle not found')
         })
+
+        const runUpdate = async (input: Record<string, unknown>) => {
+            let updateCommand!: CommandHandler<unknown, { toggleId: string }>
+            jest.isolateModules(() => {
+                require('../global')
+                updateCommand = registerCommand.mock.calls.find(([cmd]) => cmd.id === 'feature_toggles.global.update')?.[0]
+            })
+            const existingToggle = {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                identifier: 'test_feature',
+                name: 'Test Feature',
+                description: 'Stale description' as string | null,
+                category: 'stale-category' as string | null,
+                type: 'boolean',
+                defaultValue: true,
+            }
+            const em = {
+                fork: jest.fn().mockReturnThis(),
+                findOne: jest.fn().mockResolvedValue(existingToggle),
+                flush: jest.fn().mockResolvedValue(undefined),
+            }
+            const dataEngine = { markOrmEntityChange: jest.fn() }
+            const container = {
+                resolve: jest.fn((token: string) => {
+                    if (token === 'em') return em
+                    if (token === 'dataEngine') return dataEngine
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
+                    return undefined
+                }),
+            }
+            const ctx = { container, auth: { isSuperAdmin: true, tenantId: 'actor-tenant-id' } } as unknown as CommandRuntimeContext
+            await updateCommand.execute({ id: existingToggle.id, ...input }, ctx)
+            return existingToggle
+        }
+
+        it('clears description and category when the caller sends null', async () => {
+            const toggle = await runUpdate({ description: null, category: null })
+
+            expect(toggle.description).toBeNull()
+            expect(toggle.category).toBeNull()
+            expect(toggle.defaultValue).toBe(true)
+        })
+
+        it('keeps description and category when the caller omits them', async () => {
+            const toggle = await runUpdate({ name: 'Renamed' })
+
+            expect(toggle.name).toBe('Renamed')
+            expect(toggle.description).toBe('Stale description')
+            expect(toggle.category).toBe('stale-category')
+        })
     })
 
     describe('deleteToggleCommand', () => {
