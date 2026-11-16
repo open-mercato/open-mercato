@@ -3,6 +3,7 @@
   "integrations.bundle.integrationToggles": "Integrationen",
   "integrations.bundle.sharedCredentials": "Gemeinsame Zugangsdaten",
   "integrations.bundle.title": "Paket",
+  "integrations.credentials.errors.destinationChanged": "Geben Sie gespeicherte Geheimnisse nach einer Änderung des Verbindungsziels erneut ein.",
   "integrations.detail.analytics.errorRate": "Fehlerrate (30 T.): {rate}",
   "integrations.detail.analytics.lastActivity": "Letzte Aktivität",
   "integrations.detail.analytics.never": "Keine Aktivität in den letzten 30 Tagen",

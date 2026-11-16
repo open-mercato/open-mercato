@@ -4,6 +4,7 @@ import type { IntegrationCredentialsSchema } from '@open-mercato/shared/modules/
 
 import {
   MASKED_SECRET_VALUE,
+  MaskedSecretDestinationChangedError,
   maskSecretCredentials,
   mergeMaskedSecretCredentials,
 } from '../credentials-masking'
@@ -89,6 +90,7 @@ describe('mergeMaskedSecretCredentials', () => {
       schema,
       { apiUrl: 'https://example.com' },
       {
+        apiUrl: 'https://example.com',
         clientId: 'stored-client',
         apiSecret: 'stored-secret',
         sshKey: { privateKey: 'PRIVATE', publicKey: 'PUBLIC' },
@@ -154,5 +156,123 @@ describe('mergeMaskedSecretCredentials', () => {
       { clientId: 'stored-client' },
     )
     expect(merged.clientId).toBe(MASKED_SECRET_VALUE)
+  })
+})
+
+
+describe('masked secret destination binding (issue #9108)', () => {
+  const destinationSchema: IntegrationCredentialsSchema = {
+    fields: [
+      ...schema.fields,
+      { key: 'host', label: 'Host', type: 'text' },
+      { key: 'port', label: 'Port', type: 'text' },
+      { key: 'customDestination', label: 'Destination', type: 'url' },
+      { key: 'oauthToken', label: 'OAuth token', type: 'oauth' },
+    ],
+  }
+  const existing = {
+    apiUrl: 'https://trusted.example',
+    host: 'smtp.trusted.example',
+    port: '587',
+    customDestination: 'https://trusted.example/token',
+    apiSecret: 'stored-secret',
+    sshKey: { privateKey: 'PRIVATE', publicKey: 'PUBLIC' },
+    oauthToken: 'stored-token',
+  }
+
+  it.each(['apiUrl', 'host', 'port', 'customDestination'])(
+    'rejects a changed %s destination while preserving a masked secret', (field) => {
+      expect(() => mergeMaskedSecretCredentials(destinationSchema, {
+        ...existing, [field]: 'attacker.example', apiSecret: MASKED_SECRET_VALUE,
+      }, existing)).toThrow(MaskedSecretDestinationChangedError)
+    },
+  )
+
+  it.each(['apiUrl', 'host', 'port', 'customDestination'])(
+    'rejects an omitted %s destination while preserving a listed secret', (field) => {
+      const incoming: Record<string, unknown> = { ...existing }
+      delete incoming[field]
+      delete incoming.apiSecret
+      expect(() => mergeMaskedSecretCredentials(destinationSchema, incoming, existing, ['apiSecret']))
+        .toThrow(MaskedSecretDestinationChangedError)
+    },
+  )
+
+  it('rejects a newly added destination when a stored secret had no destination', () => {
+    expect(() => mergeMaskedSecretCredentials(schema,
+      { apiUrl: 'https://attacker.example', apiSecret: MASKED_SECRET_VALUE },
+      { apiSecret: 'stored-secret' },
+    )).toThrow(MaskedSecretDestinationChangedError)
+  })
+
+  it.each(['host', 'port', 'api_url'])(
+    'binds conventional %s destinations even when omitted from the schema', (field) => {
+      expect(() => mergeMaskedSecretCredentials(schema,
+        { [field]: 'attacker.example', apiSecret: MASKED_SECRET_VALUE },
+        { [field]: 'trusted.example', apiSecret: 'stored-secret' },
+      )).toThrow(MaskedSecretDestinationChangedError)
+    },
+  )
+
+  it.each(['apiSecret', 'sshKey', 'oauthToken'])(
+    'requires re-entry of retained %s secret types', (field) => {
+      expect(() => mergeMaskedSecretCredentials(destinationSchema,
+        { ...existing, host: 'attacker.example', [field]: MASKED_SECRET_VALUE }, existing,
+      )).toThrow(MaskedSecretDestinationChangedError)
+    },
+  )
+
+  it('preserves secrets for unrelated edits at the same destination', () => {
+    expect(mergeMaskedSecretCredentials(destinationSchema,
+      { ...existing, clientId: 'new-client', apiSecret: MASKED_SECRET_VALUE }, existing,
+    )).toEqual({ ...existing, clientId: 'new-client' })
+  })
+
+  it('allows explicit replacement and clearing at a new destination', () => {
+    expect(mergeMaskedSecretCredentials(destinationSchema, {
+      host: 'new.example', apiSecret: 'new-secret', sshKey: '', oauthToken: null,
+    }, existing, ['apiSecret', 'sshKey', 'oauthToken'])).toEqual({
+      host: 'new.example', apiSecret: 'new-secret', sshKey: '', oauthToken: null,
+    })
+  })
+
+  it('does not retain a secret when plain omission clears it at a new destination', () => {
+    expect(mergeMaskedSecretCredentials(destinationSchema, { host: 'new.example' }, existing))
+      .toEqual({ host: 'new.example' })
+  })
+
+  it('does not reject an unconfigured masked secret at a new destination', () => {
+    expect(mergeMaskedSecretCredentials(destinationSchema,
+      { host: 'new.example', apiSecret: MASKED_SECRET_VALUE }, {},
+    )).toEqual({ host: 'new.example' })
+  })
+
+  it('reports field names without exposing stored secrets or submitted destinations', () => {
+    expect.assertions(3)
+    try {
+      mergeMaskedSecretCredentials(destinationSchema, {
+        ...existing, host: 'attacker.example', apiSecret: MASKED_SECRET_VALUE, oauthToken: MASKED_SECRET_VALUE,
+      }, existing)
+    } catch (error) {
+      expect(error).toBeInstanceOf(MaskedSecretDestinationChangedError)
+      expect((error as MaskedSecretDestinationChangedError).fields).toEqual(['apiSecret', 'oauthToken'])
+      expect(String(error)).not.toMatch(/stored-secret|stored-token|attacker\.example/)
+    }
+  })
+})
+
+
+describe('retained secret transport security binding', () => {
+  const schema: IntegrationCredentialsSchema = { fields: [
+    { key: 'secure', label: 'Secure', type: 'boolean' },
+    { key: 'password', label: 'Password', type: 'secret' },
+  ] }
+
+  it.each(['sentinel', 'list'])('refuses a transport downgrade with %s preservation', (format) => {
+    const incoming = format === 'sentinel'
+      ? { secure: false, password: MASKED_SECRET_VALUE }
+      : { secure: false }
+    expect(() => mergeMaskedSecretCredentials(schema, incoming, { secure: true, password: 'stored-password' }, ['password']))
+      .toThrow(MaskedSecretDestinationChangedError)
   })
 })
