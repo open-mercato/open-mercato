@@ -10,7 +10,19 @@ import {
   SelectValue,
 } from "@open-mercato/ui/primitives/select";
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { z } from 'zod'
 import { booleanOverrideSelectValue } from "./overrideFormConfig";
+import { IDENTIFIER_PATTERN } from "../data/validators";
+
+/**
+ * Client-side check of the identifier format so the form shows a translated message; CrudForm
+ * translates key-shaped Zod messages. The API keeps its own English message for other clients.
+ */
+export const featureToggleFormSchema = z
+  .object({
+    identifier: z.string().regex(IDENTIFIER_PATTERN, 'feature_toggles.form.errors.identifierPattern'),
+  })
+  .passthrough()
 
 
 export function DefaultValueField(props: CrudCustomFieldRenderProps) {

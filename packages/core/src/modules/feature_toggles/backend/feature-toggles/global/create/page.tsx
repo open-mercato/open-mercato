@@ -4,7 +4,7 @@ import { CrudForm } from "@open-mercato/ui/backend/CrudForm";
 import { createCrud } from "@open-mercato/ui/backend/utils/crud";
 import { useRouter } from "next/navigation";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
-import { createFormGroups, createFieldDefinitions } from "../../../../components/formConfig";
+import { createFormGroups, createFieldDefinitions, featureToggleFormSchema } from "../../../../components/formConfig";
 
 export default function CreateFeatureTogglePage() {
   const router = useRouter();
@@ -32,6 +32,7 @@ export default function CreateFeatureTogglePage() {
           fields={fields}
           groups={formGroups}
           initialValues={initialValues}
+          schema={featureToggleFormSchema}
           onSubmit={async (values) => {
             const payload: Record<string, unknown> = {
               identifier: values.identifier,
