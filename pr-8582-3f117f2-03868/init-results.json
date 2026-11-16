@@ -1,0 +1,44 @@
+{
+  "ownedAdditionalDatabase": true,
+  "cases": [
+    {
+      "case": "missing primary",
+      "exitCode": 1,
+      "publicTablesBefore": 0,
+      "publicTablesAfter": 0
+    },
+    {
+      "case": "placeholder primary",
+      "exitCode": 1,
+      "publicTablesBefore": 0,
+      "publicTablesAfter": 0
+    },
+    {
+      "case": "weak primary",
+      "exitCode": 1,
+      "publicTablesBefore": 0,
+      "publicTablesAfter": 0
+    },
+    {
+      "case": "weak primary skip alias",
+      "exitCode": 1,
+      "publicTablesBefore": 0,
+      "publicTablesAfter": 0
+    },
+    {
+      "case": "weak primary allow alias",
+      "exitCode": 1,
+      "publicTablesBefore": 0,
+      "publicTablesAfter": 0
+    },
+    {
+      "case": "production compliant init with strict generated derived credentials",
+      "exitCode": 0,
+      "credentialSummaryCount": 3,
+      "allComplyWithMin32": true,
+      "allThreeMatchPersistedHashes": true,
+      "httpAuthentication": "not exercised: additional DB not served by app"
+    }
+  ],
+  "additionalDatabaseRemoved": true
+}
