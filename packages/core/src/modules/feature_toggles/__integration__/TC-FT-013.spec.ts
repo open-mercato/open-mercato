@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-
-function uniqueIdentifier(prefix: string): string {
-  return `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 12)}`
-}
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import {
+  createFeatureToggleFixture,
+  deleteFeatureToggleIfExists,
+} from '@open-mercato/core/helpers/integration/featureTogglesFixtures'
 
 async function readToggle(request: APIRequestContext, token: string, toggleId: string) {
   const response = await apiRequest(request, 'GET', `/api/feature_toggles/global/${encodeURIComponent(toggleId)}`, { token })
@@ -19,20 +19,14 @@ test.describe('TC-FT-013: Global feature toggle update clears nullable fields se
     let toggleId: string | null = null
 
     try {
-      const createResponse = await apiRequest(request, 'POST', '/api/feature_toggles/global', {
-        token,
-        data: {
-          identifier: uniqueIdentifier('qa_null_clear'),
-          name: 'QA Null Clear',
-          description: 'Stale description',
-          category: 'stale-category',
-          type: 'boolean',
-          defaultValue: true,
-        },
+      toggleId = await createFeatureToggleFixture(request, token, {
+        identifier: `qa_null_clear_${randomUUID().replace(/-/g, '')}`,
+        name: 'QA Null Clear',
+        description: 'Stale description',
+        category: 'stale-category',
+        type: 'boolean',
+        defaultValue: true,
       })
-      expect(createResponse.status()).toBe(201)
-      const created = await readJsonSafe<{ id?: string }>(createResponse)
-      toggleId = expectId(created?.id, 'Toggle creation response should include id')
 
       const renameResponse = await apiRequest(request, 'PUT', '/api/feature_toggles/global', {
         token,
@@ -54,9 +48,7 @@ test.describe('TC-FT-013: Global feature toggle update clears nullable fields se
       expect(cleared?.category).toBeNull()
       expect(cleared?.defaultValue).toBe(true)
     } finally {
-      if (toggleId) {
-        await apiRequest(request, 'DELETE', `/api/feature_toggles/global?id=${encodeURIComponent(toggleId)}`, { token }).catch(() => undefined)
-      }
+      await deleteFeatureToggleIfExists(request, token, toggleId)
     }
   })
 })
