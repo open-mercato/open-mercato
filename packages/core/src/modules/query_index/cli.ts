@@ -38,6 +38,7 @@ function warnIfReindexRefused(entityType: string, result: ReindexJobResult): voi
   console.warn(`  -> ${entityType}: reindex REFUSED, nothing was indexed - ${detail}`)
 }
 import { purgeIndexScope } from './lib/purge'
+import { customerProfileParentActive, isCustomerProfileEntityType } from './lib/customer-profile-parent'
 import { refreshCoverageSnapshot } from './lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import type { VectorIndexService } from '@open-mercato/search/vector'
@@ -250,6 +251,9 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     if (!includeDeleted && supportsDeletedFilter) {
       chain = chain.where('deleted_at' as any, 'is', null as any)
     }
+    if (!includeDeleted && isCustomerProfileEntityType(entityType)) {
+      chain = chain.where(customerProfileParentActive(tableName))
+    }
     return chain
   }
 
@@ -391,6 +395,7 @@ async function findUnindexedRecordIds(
     )
     .limit(options.limit)
   if (columns.has('deleted_at')) query = query.where('b.deleted_at' as any, 'is', null as any)
+  if (isCustomerProfileEntityType(options.entityType)) query = query.where(customerProfileParentActive('b'))
   if (options.tenantId != null && columns.has('tenant_id')) {
     query = query.where('b.tenant_id' as any, '=', options.tenantId)
   }

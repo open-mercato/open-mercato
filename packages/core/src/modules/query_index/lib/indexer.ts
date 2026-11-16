@@ -68,6 +68,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
         .selectAll()
         .where('id' as any, '=', entityId)
         .executeTakeFirst() as Record<string, any> | undefined
+      if (entityRow?.deleted_at != null) return null
       if (entityRow) {
         docSources.push(entityRow)
         parentEntityRow = entityRow
