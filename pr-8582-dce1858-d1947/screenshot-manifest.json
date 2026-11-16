@@ -1,0 +1,362 @@
+[
+  {
+    "file": "admin-create-success.png",
+    "width": 1280,
+    "height": 1059,
+    "bytes": 167611,
+    "sha256": "73e6fb32ba317f17a815cee978e89bf65393245acad6534808f4f37e32aa742d",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "admin-create-weak.png",
+    "width": 1280,
+    "height": 1006,
+    "bytes": 165820,
+    "sha256": "72dda5d8d818a2132fb41136744f21e5b3e3308ace04339084b606e60e55cdf3",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "detail-error.png",
+    "width": 1280,
+    "height": 720,
+    "bytes": 20895,
+    "sha256": "807aeaf73f3de5f84e9da0a502bd92c0c5abe63ccfe28def28b33903ca3ec691",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "detail-loading.png",
+    "width": 1280,
+    "height": 720,
+    "bytes": 17864,
+    "sha256": "f593dc9356418fd907dd83df7f4b566637db731e25ebbe5ceff8974ff1b74d73",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "invite-en-invalid.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 37357,
+    "sha256": "afaa30e999c50d74afb4c1b5340b38eb91d7bc7d9571e79f0f056e31aec6798b",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "invite-en-success.png",
+    "width": 390,
+    "height": 1179,
+    "bytes": 56567,
+    "sha256": "33cb56d148588e3217ab8dfb02983c1034d3ea00f8dbaf27f770a63877448a26",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "invite-en-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 40406,
+    "sha256": "720de56a91e75b4e6e6e97466ecb94af16618a2eed4ff81c3f6b814f9e649e83",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "invite-pl-invalid.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 41555,
+    "sha256": "2cc2580e15718e1df80f666e7b30c1113820a30038a16c1c0f95d42b0ebc71e1",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "invite-pl-success.png",
+    "width": 390,
+    "height": 1179,
+    "bytes": 55781,
+    "sha256": "a8125975d6c279ce9b793b4a087d00cb462bce1d3a0026a19c09201e5fc304e4",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "invite-pl-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 45151,
+    "sha256": "862120d27a437e1d9c886c958917f47fbf51df2bad290f33f061869d31ba1453",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "manager-global-wildcard.png",
+    "width": 1280,
+    "height": 1202,
+    "bytes": 159443,
+    "sha256": "fa696eb06c3d351bb551ff073fbb148afba25c04c0a2cdc28b3800332e09b61d",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "manager-module-wildcard.png",
+    "width": 1280,
+    "height": 1198,
+    "bytes": 142344,
+    "sha256": "c91dfe1d550284f600688fa17ebfe8f7160bb194780c32d54a16919552457b8d",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-en-1440.png",
+    "width": 1440,
+    "height": 844,
+    "bytes": 65463,
+    "sha256": "486f833d3b6ce6520491c52f8b3144a4b6905009a56c48cb9d65a80911c07e04",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-en-320.png",
+    "width": 320,
+    "height": 1027,
+    "bytes": 47386,
+    "sha256": "948bd74ab019be186ce19cf4afd521bbaa91c18cb23812a44754c2c33d13003f",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-en-390.png",
+    "width": 390,
+    "height": 969,
+    "bytes": 46768,
+    "sha256": "9ae1a680afe936a1156f5209b2a83c741feaae96412ab4425ed67d673248bc48",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-en-768.png",
+    "width": 768,
+    "height": 844,
+    "bytes": 48807,
+    "sha256": "6e84b97c2eea1f31b9dc9aba5f2007ad151efe7b965a72ca2932c2508e717127",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-en-empty-1440.png",
+    "width": 1440,
+    "height": 844,
+    "bytes": 62029,
+    "sha256": "a0104e4f9948227d0dae465cf334c380b2addf719c973e91a35353eb2a014709",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-en-empty-320.png",
+    "width": 320,
+    "height": 943,
+    "bytes": 42746,
+    "sha256": "bfb0f651a79be185954b4675488a688c4dacac5f4f9b29c6c1d9a881a62268af",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-en-empty-390.png",
+    "width": 390,
+    "height": 919,
+    "bytes": 42876,
+    "sha256": "a8428d3c9045f534b8bd3c19dc16d7810f41bcb6f5ccd7f03fc156f5979bd09d",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-en-empty-768.png",
+    "width": 768,
+    "height": 844,
+    "bytes": 45167,
+    "sha256": "eafec09d21cbcb6e4e4f162b7185063e5231d85df5b50c5a9bc3ede97388c973",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-pl-1440.png",
+    "width": 1440,
+    "height": 844,
+    "bytes": 67533,
+    "sha256": "c6ac1d094a37ec2167d2d98eb2f53011ac65c5857e8bbc1efcbee6feb4c30ffc",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-pl-320.png",
+    "width": 320,
+    "height": 1027,
+    "bytes": 49445,
+    "sha256": "a173907b18b229b49465e672009752e0f7ce98efb799de81b3c5195925e5708a",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-pl-390.png",
+    "width": 390,
+    "height": 969,
+    "bytes": 48839,
+    "sha256": "fb2a0ab3258c3e289b3986d3114b15cdf48e832a9014fabdaa54b71abf428b9a",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-pl-768.png",
+    "width": 768,
+    "height": 844,
+    "bytes": 50979,
+    "sha256": "36f7d9f6ec0e6018acd9eabaa81a51ab454e2c03207586a1a36648ce757c930d",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-pl-empty-1440.png",
+    "width": 1440,
+    "height": 844,
+    "bytes": 64768,
+    "sha256": "4052fead71f65ddd20de051f64161e0b9b4be54b4371499ea92cd172e3c36707",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-pl-empty-320.png",
+    "width": 320,
+    "height": 943,
+    "bytes": 45389,
+    "sha256": "425e98c640f4d0e51f5fc1f1d4960d225951beae2f5cf9add7d71c7b88669656",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-pl-empty-390.png",
+    "width": 390,
+    "height": 919,
+    "bytes": 45579,
+    "sha256": "a9df159b22426de0262c3e47550b4efb8ed62db5cb6b1154f20d6b1090e12805",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "profile-pl-empty-768.png",
+    "width": 768,
+    "height": 844,
+    "bytes": 47810,
+    "sha256": "73336f432d4a0cb9a3d7a9870b748a2ac5c83ba1ba0ab483659ffac1377706a0",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "reset-en-success.png",
+    "width": 461,
+    "height": 1611,
+    "bytes": 113165,
+    "sha256": "56c1d9812996a838dcad225dcb05eb23df1d9f31c6a939edeed7b377ad3dd4c2",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "reset-en-weak.png",
+    "width": 461,
+    "height": 1611,
+    "bytes": 113294,
+    "sha256": "3de0fce5ed6c82eea4de3491c7e05a5038e530634fba7da27324103b68298eb1",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "reset-pl-success.png",
+    "width": 452,
+    "height": 1611,
+    "bytes": 120983,
+    "sha256": "08eed8ac075facc7ed1f085d957f1607d8a70cae9d77103f46ce7c84ad72a08f",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "reset-pl-weak.png",
+    "width": 452,
+    "height": 1611,
+    "bytes": 120305,
+    "sha256": "61ee851bd79ac3092b0f67383a15b2d08b9280a713a97eac1f559a868122144a",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "resetPassword-en-invalid.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 34808,
+    "sha256": "23d71a00b6b94ebb10a56877278d640934c62a28d4cb37258248c3cfb4121a91",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "resetPassword-en-success.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 28007,
+    "sha256": "2bc8445c4ec1f622f0d292e31b90157a34a8e299545bc18f23aa6359d76b3bfe",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "resetPassword-en-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 38137,
+    "sha256": "1b65de3b23ac1ff9627ede06f34312bc1f131e16fd829ee2bf0b03a65fa566ba",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "resetPassword-pl-invalid.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 37752,
+    "sha256": "00b149db89e97e70007f9e96c9177d3f801ca070a92b9aacdf2f7b89d5d99884",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "resetPassword-pl-success.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 31688,
+    "sha256": "6ea79c2eaf2e034e4430c0ec2d93985548520b50f94a445229c31f0d2358ecf6",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "resetPassword-pl-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 40332,
+    "sha256": "ec4beced4690a7ea1c7629df1f7bd7bf1cb06de7867259a828da31b0bf5d28b0",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "signup-en-success.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 29794,
+    "sha256": "75646b8d5308d113e35560c75260d3ac5495765cee3567d2093713d6541729db",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "signup-en-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 40974,
+    "sha256": "132995225bd9843fde298e02c5bb1d35f48967935a1e4a2336ba51468456d163",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "signup-pl-success.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 33502,
+    "sha256": "92bf2e72db037442515d261d28c7e22d222fff1209db02b3b4a46fd6c6ebb91f",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "signup-pl-weak.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 42963,
+    "sha256": "6f48c90739388c67f62524549a3828ee0d1f8f5fc980b662ad0f994f79d027a0",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "staff-manager.png",
+    "width": 1280,
+    "height": 1230,
+    "bytes": 151364,
+    "sha256": "7734e62cb38e02beda4e8241bba5d3ed38bed37c8b3e832b12abb4c9f3ad95e3",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "staff-view.png",
+    "width": 1280,
+    "height": 992,
+    "bytes": 137522,
+    "sha256": "5c46828fb9c2ddd3e3b576325883ba8924d3081c67e48fa034e87f5e5479e62c",
+    "crcAndPixelInflation": true
+  },
+  {
+    "file": "stale-write-conflict.png",
+    "width": 1280,
+    "height": 1304,
+    "bytes": 179771,
+    "sha256": "287ac19bb95e889c3f8024e94dba2f7ce5a93c0010ff8cae9331eb5dd463222d",
+    "crcAndPixelInflation": true
+  }
+]
