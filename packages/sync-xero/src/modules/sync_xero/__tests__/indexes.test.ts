@@ -12,17 +12,10 @@ import {
 } from '../lib/contacts/indexes'
 
 const mockFindWithDecryption = jest.fn()
-const mockDecrypt = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/encryption/find'),
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
-}))
-
-jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
-  ...jest.requireActual('@open-mercato/shared/lib/encryption/customFieldValues'),
-  resolveTenantEncryptionService: () => ({ kind: 'encryption-service' }),
-  decryptCustomFieldValue: (...args: unknown[]) => mockDecrypt(...args),
 }))
 
 const scope = { tenantId: '11111111-1111-4111-8111-111111111111', organizationId: '22222222-2222-4222-8222-222222222222' }
@@ -43,7 +36,6 @@ function sources(partial: Partial<XeroCompanyIndexSources>): XeroCompanyIndexSou
 
 beforeEach(() => {
   mockFindWithDecryption.mockReset()
-  mockDecrypt.mockReset()
 })
 
 describe('normalization', () => {
@@ -178,21 +170,21 @@ describe('loadXeroCompanyIndexSources', () => {
     return Array.from({ length: count }, (_, index) => ({ id: entityId(index + 1), createdAt: new Date(index), displayName: `Company ${index + 1}` }))
   }
 
-  it('reads Companies in keyset chunks of 500, resolves values through their profile and decrypts tax numbers', async () => {
+  it('reads Companies in keyset chunks of 500 with the decrypted native taxId of each chunk, and resolves markers through their profile', async () => {
     const companies = companyRows(XERO_INDEX_CHUNK_SIZE * 2 + 1)
-    const profileIds = Array.from({ length: 600 }, (_, index) => `profile-${index + 1}`)
+    const taxIdByEntity: Record<string, string> = {
+      [entityId(2)]: 'GB 123',
+      [entityId(3)]: 'GB 777',
+      [entityId(XERO_INDEX_CHUNK_SIZE + 7)]: 'PL 555',
+    }
     const valueRows = [
       { recordId: 'profile-1', fieldKey: 'xero_contact_id', valueText: `${ORG}:contact-1`, valueMultiline: null },
-      { recordId: 'profile-2', fieldKey: 'xero_tax_number', valueText: 'ciphertext', valueMultiline: null },
-      { recordId: 'profile-3', fieldKey: 'xero_tax_number', valueText: 'GB 777', valueMultiline: null },
-      ...profileIds.slice(3, 599).map((recordId) => ({ recordId, fieldKey: 'xero_tax_number', valueText: null, valueMultiline: null })),
+      ...Array.from({ length: 598 }, (_, index) => ({ recordId: `profile-${index + 2}`, fieldKey: 'xero_contact_id', valueText: null, valueMultiline: null })),
       { recordId: 'profile-600', fieldKey: 'xero_contact_id', valueText: `${ORG}:contact-9`, valueMultiline: null },
       { recordId: 'profile-deleted', fieldKey: 'xero_contact_id', valueText: `${ORG}:contact-x`, valueMultiline: null },
     ].map((row, index) => ({ id: entityId(10_000 + index), ...row }))
     const entityByProfile: Record<string, string> = {
       'profile-1': entityId(1),
-      'profile-2': entityId(2),
-      'profile-3': entityId(3),
       'profile-600': entityId(600),
       'profile-deleted': 'deleted-company',
     }
@@ -207,11 +199,18 @@ describe('loadXeroCompanyIndexSources', () => {
         return companies.slice(start, start + XERO_INDEX_CHUNK_SIZE)
       }
       if (entity === CustomFieldValue) {
-        expect(where).toMatchObject({ entityId: 'customers:customer_company_profile', deletedAt: null, fieldKey: { $in: ['xero_contact_id', 'xero_tax_number'] } })
+        expect(where).toMatchObject({ entityId: 'customers:customer_company_profile', deletedAt: null, fieldKey: 'xero_contact_id' })
         expect(options).toMatchObject({ orderBy: { id: 'asc' }, limit: XERO_INDEX_CHUNK_SIZE })
         const afterId = (where.id as { $gt: string } | undefined)?.$gt
         const start = afterId ? valueRows.findIndex((row) => row.id === afterId) + 1 : 0
         return valueRows.slice(start, start + XERO_INDEX_CHUNK_SIZE)
+      }
+      if (entity === CustomerCompanyProfile && where.entity) {
+        expect(where).toMatchObject({ taxId: { $ne: null } })
+        expect(options).toMatchObject({ fields: ['id', 'entity', 'taxId'] })
+        const ids = (where.entity as { $in: string[] }).$in
+        expect(ids.length).toBeLessThanOrEqual(XERO_INDEX_CHUNK_SIZE)
+        return ids.filter((id) => taxIdByEntity[id]).map((id) => ({ id: `tax-profile-${id}`, entity: { id }, taxId: taxIdByEntity[id] }))
       }
       if (entity === CustomerCompanyProfile) {
         const ids = (where.id as { $in: string[] }).$in
@@ -220,14 +219,14 @@ describe('loadXeroCompanyIndexSources', () => {
       }
       throw new Error(`[internal] unexpected entity ${String(entity)}`)
     })
-    mockDecrypt.mockImplementation(async (value: unknown) => (value === 'ciphertext' ? 'GB 123' : value))
 
     const loaded = await loadXeroCompanyIndexSources(em, scope)
 
-    const calls = mockFindWithDecryption.mock.calls.map((call) => call[1])
-    expect(calls.filter((entity) => entity === CustomerEntity)).toHaveLength(3)
-    expect(calls.filter((entity) => entity === CustomFieldValue)).toHaveLength(2)
-    expect(calls.filter((entity) => entity === CustomerCompanyProfile)).toHaveLength(2)
+    const calls = mockFindWithDecryption.mock.calls.map((call) => [call[1], (call[2] as Record<string, unknown>).entity ? 'tax' : 'entity'])
+    expect(calls.filter(([entity]) => entity === CustomerEntity)).toHaveLength(3)
+    expect(calls.filter(([entity, by]) => entity === CustomerCompanyProfile && by === 'tax')).toHaveLength(3)
+    expect(calls.filter(([entity]) => entity === CustomFieldValue)).toHaveLength(2)
+    expect(calls.filter(([entity, by]) => entity === CustomerCompanyProfile && by === 'entity')).toHaveLength(2)
     expect(loaded.companies).toHaveLength(XERO_INDEX_CHUNK_SIZE * 2 + 1)
     expect(loaded.companies[0]).toEqual({ entityId: entityId(1), createdAt: new Date(0), displayName: 'Company 1' })
     expect(loaded.markers).toEqual([
@@ -237,12 +236,11 @@ describe('loadXeroCompanyIndexSources', () => {
     expect(loaded.taxNumbers).toEqual([
       { entityId: entityId(2), value: 'GB 123' },
       { entityId: entityId(3), value: 'GB 777' },
+      { entityId: entityId(XERO_INDEX_CHUNK_SIZE + 7), value: 'PL 555' },
     ])
-    expect(mockDecrypt).toHaveBeenCalledWith('ciphertext', scope.tenantId, { kind: 'encryption-service' }, expect.any(Map), { kind: 'text' })
-    expect(mockDecrypt).toHaveBeenCalledTimes(2)
   })
 
-  it('reads every chunk of Companies, values and profiles through a fresh fork, so the caller\'s identity map stays empty', async () => {
+  it('reads every chunk of Companies, taxIds, values and profiles through a fresh fork, so the caller\'s identity map stays empty', async () => {
     const companies = companyRows(XERO_INDEX_CHUNK_SIZE + 1)
     mockFindWithDecryption.mockImplementation(async (_em, entity, where: Record<string, unknown>) => {
       if (entity === CustomerEntity) {
@@ -251,27 +249,32 @@ describe('loadXeroCompanyIndexSources', () => {
         return companies.slice(start, start + XERO_INDEX_CHUNK_SIZE)
       }
       if (entity === CustomFieldValue) return [{ recordId: 'profile-1', fieldKey: 'xero_contact_id', valueText: `${ORG}:contact-1`, valueMultiline: null }]
+      if (where.entity) return []
       return [{ id: 'profile-1', entity: { id: entityId(1) } }]
     })
 
     await loadXeroCompanyIndexSources(em, scope)
 
     const chunkCalls = mockFindWithDecryption.mock.calls
-    expect(chunkCalls).toHaveLength(4)
-    expect(fork).toHaveBeenCalledTimes(4)
+    expect(chunkCalls).toHaveLength(6)
+    expect(fork).toHaveBeenCalledTimes(6)
     expect(fork.mock.calls.every((call) => (call as unknown[])[0] && ((call as unknown[])[0] as { clear?: boolean }).clear === true)).toBe(true)
     const usedEms = chunkCalls.map((call) => call[0])
     expect(usedEms).not.toContain(em)
-    expect(new Set(usedEms).size).toBe(4)
+    expect(new Set(usedEms).size).toBe(6)
   })
 
-  it('reads one chunk of Companies and no profiles for an organization without Xero values', async () => {
+  it('reads no taxIds for an organization without Companies, and no marker profiles without Xero values', async () => {
     mockFindWithDecryption.mockImplementation(async (_em, entity) => (entity === CustomerEntity ? companyRows(2) : []))
 
     const loaded = await loadXeroCompanyIndexSources(em, scope)
 
     expect(loaded).toEqual({ companies: expect.any(Array), markers: [], taxNumbers: [] })
     expect(loaded.companies).toHaveLength(2)
+    expect(mockFindWithDecryption.mock.calls.map((call) => call[1])).toEqual([CustomerEntity, CustomerCompanyProfile, CustomFieldValue])
+
+    mockFindWithDecryption.mockReset().mockResolvedValue([])
+    await expect(loadXeroCompanyIndexSources(em, scope)).resolves.toEqual({ companies: [], markers: [], taxNumbers: [] })
     expect(mockFindWithDecryption.mock.calls.map((call) => call[1])).toEqual([CustomerEntity, CustomFieldValue])
   })
 })

@@ -1,8 +1,8 @@
-import { XERO_CONTACT_MARKER_FIELD, XERO_TAX_NUMBER_FIELD } from '../field-definitions'
+import { XERO_CONTACT_MARKER_FIELD } from '../field-definitions'
 import { normalizeTaxNumber } from './indexes'
 import type { MappedXeroCompany, XeroContactStatus } from './mapping'
 
-/** A Company as the run reads it: the Xero-owned columns and the profile's custom-field values. */
+/** A Company as the run reads it: the Xero-owned columns, the decrypted native `taxId` and the profile's custom-field values. */
 export type CompanySnapshot = {
   entityId: string
   displayName: string | null
@@ -10,6 +10,7 @@ export type CompanySnapshot = {
   primaryEmail: string | null
   primaryPhone: string | null
   websiteUrl: string | null
+  taxId: string | null
   status: string | null
   isActive: boolean
   custom: Record<string, unknown>
@@ -22,6 +23,7 @@ export type CompanyWriteInput = {
   primaryEmail?: string
   primaryPhone?: string
   websiteUrl?: string
+  taxId?: string
   status?: 'active' | 'archived'
   isActive?: boolean
   customFields?: Record<string, string>
@@ -55,16 +57,16 @@ export function buildCompanyCreateInput(company: MappedXeroCompany, marker: stri
     const value = company[field]
     if (value !== null) input[field] = value
   }
+  if (company.taxNumber) input.taxId = company.taxNumber
   input.customFields = { [XERO_CONTACT_MARKER_FIELD]: marker }
-  if (company.taxNumber) input.customFields[XERO_TAX_NUMBER_FIELD] = company.taxNumber
   return input
 }
 
 /**
  * Compare-before-write (App Spec § 6.2 rule 3): the update input holds only the Xero-owned values
  * that differ from the Company; `null` when nothing differs, so no command runs. A blank or
- * left-out Xero value never clears an OM value. The tax number compares after normalization, and
- * the marker is written only while the Company has none.
+ * left-out Xero value never clears an OM value. The tax number is written to the native `taxId`
+ * only when it differs after normalization, and the marker is written only while the Company has none.
  */
 export function diffCompanyUpdate(company: MappedXeroCompany, marker: string, current: CompanySnapshot): CompanyWriteInput | null {
   const input: CompanyWriteInput = {}
@@ -72,15 +74,12 @@ export function diffCompanyUpdate(company: MappedXeroCompany, marker: string, cu
     const value = company[field]
     if (value !== null && value !== (current[field] ?? null)) input[field] = value
   }
+  if (company.taxNumber && normalizeTaxNumber(company.taxNumber) !== normalizeTaxNumber(current.taxId)) input.taxId = company.taxNumber
   const status = resolveCompanyStatus(company.contactStatus, current)
   if (status && (status.status !== current.status || status.isActive !== current.isActive)) Object.assign(input, status)
 
   const customFields: Record<string, string> = {}
   if (!customText(current, XERO_CONTACT_MARKER_FIELD)) customFields[XERO_CONTACT_MARKER_FIELD] = marker
-  const currentTaxNumber = customText(current, XERO_TAX_NUMBER_FIELD)
-  if (company.taxNumber && normalizeTaxNumber(company.taxNumber) !== normalizeTaxNumber(currentTaxNumber)) {
-    customFields[XERO_TAX_NUMBER_FIELD] = company.taxNumber
-  }
   if (Object.keys(customFields).length > 0) input.customFields = customFields
   return Object.keys(input).length > 0 ? input : null
 }

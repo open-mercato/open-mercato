@@ -6,7 +6,7 @@ export const XERO_PHONE_TYPES = ['DEFAULT', 'MOBILE', 'DDI', 'OFFICE'] as const
 const ITALY_COUNTRY_CODE = '39'
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i
 
-export type XeroCompanyField = 'displayName' | 'legalName' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl'
+export type XeroCompanyField = 'displayName' | 'legalName' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl' | 'taxId'
 export type XeroValueWarning = { code: 'xero.value_left_out' | 'xero.value_truncated'; field: XeroCompanyField }
 export type XeroContactStatus = 'ACTIVE' | 'ARCHIVED' | 'GDPRREQUEST'
 
@@ -96,6 +96,12 @@ export function mapXeroContactToCompany(contact: XeroContact): XeroCompanyMappin
     else warnings.push({ code: 'xero.value_left_out', field: 'websiteUrl' })
   }
 
+  let taxNumber = nonBlank(contact.TaxNumber)
+  if (taxNumber && !accepted(fields.taxId, taxNumber)) {
+    taxNumber = null
+    warnings.push({ code: 'xero.value_left_out', field: 'taxId' })
+  }
+
   return {
     ok: true,
     company: {
@@ -104,7 +110,7 @@ export function mapXeroContactToCompany(contact: XeroContact): XeroCompanyMappin
       primaryEmail,
       primaryPhone,
       websiteUrl,
-      taxNumber: nonBlank(contact.TaxNumber),
+      taxNumber,
       contactStatus: contactStatusOf(contact.ContactStatus),
       warnings,
     },

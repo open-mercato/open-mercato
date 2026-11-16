@@ -86,4 +86,11 @@ describe('mapXeroContactToCompany — App Spec § 6.2a Company rows', () => {
     expect(company).not.toHaveProperty('companyNumber')
     expect(mapped({ ContactStatus: 'SOMETHING_ELSE' }).contactStatus).toBeNull()
   })
+
+  it('leaves out a tax number longer than the VAT ID allows and warns for taxId', () => {
+    const company = mapped({ TaxNumber: 'GB'.padEnd(65, '1') })
+    expect(company.taxNumber).toBeNull()
+    expect(company.warnings).toEqual([{ code: 'xero.value_left_out', field: 'taxId' }])
+    expect(mapped({ TaxNumber: 'GB'.padEnd(64, '1') }).warnings).toEqual([])
+  })
 })

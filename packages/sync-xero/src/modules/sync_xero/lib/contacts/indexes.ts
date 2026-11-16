@@ -1,9 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerCompanyProfile, CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
-import { decryptCustomFieldValue, resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { XERO_COMPANY_FIELDS_ENTITY_ID, XERO_CONTACT_MARKER_FIELD, XERO_TAX_NUMBER_FIELD } from '../field-definitions'
+import { XERO_COMPANY_FIELDS_ENTITY_ID, XERO_CONTACT_MARKER_FIELD } from '../field-definitions'
 import { readOrganisationIdFromExternalId } from '../external-ids'
 import type { XeroScope } from '../owner'
 
@@ -52,8 +51,27 @@ function storedText(row: CustomFieldValue): string | null {
   return row.valueText ?? row.valueMultiline ?? null
 }
 
-async function loadCompanies(em: EntityManager, scope: XeroScope): Promise<XeroIndexCompany[]> {
+type IndexCompanies = Pick<XeroCompanyIndexSources, 'companies' | 'taxNumbers'>
+
+async function loadTaxIds(em: EntityManager, scope: XeroScope, entityIds: string[]): Promise<XeroIndexValue[]> {
+  if (entityIds.length === 0) return []
+  const profiles = await findWithDecryption(
+    em.fork({ clear: true }),
+    CustomerCompanyProfile,
+    { entity: { $in: entityIds }, organizationId: scope.organizationId, tenantId: scope.tenantId, taxId: { $ne: null } },
+    { fields: ['id', 'entity', 'taxId'] },
+    scope,
+  )
+  const taxIds: XeroIndexValue[] = []
+  for (const profile of profiles) {
+    if (typeof profile.taxId === 'string') taxIds.push({ entityId: profile.entity.id, value: profile.taxId })
+  }
+  return taxIds
+}
+
+async function loadCompanies(em: EntityManager, scope: XeroScope): Promise<IndexCompanies> {
   const companies: XeroIndexCompany[] = []
+  const taxNumbers: XeroIndexValue[] = []
   let afterId: string | null = null
   for (;;) {
     const rows: CustomerEntity[] = await findWithDecryption(
@@ -70,7 +88,8 @@ async function loadCompanies(em: EntityManager, scope: XeroScope): Promise<XeroI
       scope,
     )
     for (const row of rows) companies.push({ entityId: row.id, createdAt: row.createdAt, displayName: row.displayName ?? null })
-    if (rows.length < XERO_INDEX_CHUNK_SIZE) return companies
+    taxNumbers.push(...(await loadTaxIds(em, scope, rows.map((row) => row.id))))
+    if (rows.length < XERO_INDEX_CHUNK_SIZE) return { companies, taxNumbers }
     afterId = rows[rows.length - 1].id
   }
 }
@@ -92,18 +111,15 @@ async function loadProfileEntityIds(em: EntityManager, scope: XeroScope, profile
 
 /**
  * Reads what the marker, tax-number and name indexes need: every Company of the organization that
- * is not deleted (chunks of 500, names decrypted), and the organization's `xero_contact_id` and
- * `xero_tax_number` values (chunks of 500) resolved from their profile to the Company. Each chunk reads through a
- * fresh fork, so only the normalized values stay in memory, never the entities. The tax number is
- * an encrypted field, so its values are decrypted; a value that is not ciphertext comes back as is.
+ * is not deleted (chunks of 500, names decrypted) with the decrypted native `taxId` of each chunk's
+ * profiles, and the organization's `xero_contact_id` values (chunks of 500) resolved from their
+ * profile to the Company. Each chunk reads through a fresh fork, so only the values stay in memory,
+ * never the entities.
  */
 export async function loadXeroCompanyIndexSources(em: EntityManager, scope: XeroScope): Promise<XeroCompanyIndexSources> {
-  const companies = await loadCompanies(em, scope)
+  const { companies, taxNumbers } = await loadCompanies(em, scope)
   const liveCompanyIds = new Set(companies.map((company) => company.entityId))
-  const encryptionService = resolveTenantEncryptionService(em)
-  const keyCache = new Map<string | null, string | null>()
   const markers: XeroIndexValue[] = []
-  const taxNumbers: XeroIndexValue[] = []
   let afterId: string | null = null
   for (;;) {
     const valueRows: CustomFieldValue[] = await findWithDecryption(
@@ -113,7 +129,7 @@ export async function loadXeroCompanyIndexSources(em: EntityManager, scope: Xero
         entityId: XERO_COMPANY_FIELDS_ENTITY_ID,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
-        fieldKey: { $in: [XERO_CONTACT_MARKER_FIELD, XERO_TAX_NUMBER_FIELD] },
+        fieldKey: XERO_CONTACT_MARKER_FIELD,
         deletedAt: null,
         ...(afterId ? { id: { $gt: afterId } } : {}),
       },
@@ -121,21 +137,11 @@ export async function loadXeroCompanyIndexSources(em: EntityManager, scope: Xero
       scope,
     )
     const entityByProfile = await loadProfileEntityIds(em, scope, [...new Set(valueRows.map((row) => row.recordId))])
-    const storedTaxNumbers: XeroIndexValue[] = []
     for (const row of valueRows) {
       const entityId = entityByProfile.get(row.recordId)
       const stored = storedText(row)
-      if (!entityId || !liveCompanyIds.has(entityId) || stored === null) continue
-      if (row.fieldKey === XERO_CONTACT_MARKER_FIELD) markers.push({ entityId, value: stored })
-      else storedTaxNumbers.push({ entityId, value: stored })
+      if (entityId && liveCompanyIds.has(entityId) && stored !== null) markers.push({ entityId, value: stored })
     }
-    const decrypted = await Promise.all(
-      storedTaxNumbers.map(async ({ entityId, value }) => ({
-        entityId,
-        value: await decryptCustomFieldValue(value, scope.tenantId, encryptionService, keyCache, { kind: 'text' }),
-      })),
-    )
-    for (const { entityId, value } of decrypted) if (typeof value === 'string') taxNumbers.push({ entityId, value })
     if (valueRows.length < XERO_INDEX_CHUNK_SIZE) return { companies, markers, taxNumbers }
     afterId = valueRows[valueRows.length - 1].id
   }

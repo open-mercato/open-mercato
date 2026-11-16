@@ -64,11 +64,11 @@ describe('loadCompanySnapshots', () => {
       if (entity === CustomerCompanyProfile) {
         return (where.entity as { $in: string[] }).$in
           .filter((id) => id !== 'e3')
-          .map((id) => ({ id: `p-${id}`, entity: { id }, legalName: `Legal ${id}`, websiteUrl: null }))
+          .map((id) => ({ id: `p-${id}`, entity: { id }, legalName: `Legal ${id}`, websiteUrl: null, taxId: id === 'e0' ? 'GB 1' : null }))
       }
       throw new Error(`[internal] unexpected entity ${String(entity)}`)
     })
-    mockLoadCustomFieldValues.mockResolvedValue({ 'p-e0': { cf_xero_contact_id: 'org:c0', cf_xero_tax_number: 'GB 1' } })
+    mockLoadCustomFieldValues.mockResolvedValue({ 'p-e0': { cf_xero_contact_id: 'org:c0' } })
 
     const snapshots = await loadCompanySnapshots(em, scope, [...ids, 'e0'])
 
@@ -84,12 +84,13 @@ describe('loadCompanySnapshots', () => {
       primaryEmail: null,
       primaryPhone: '+44 20 7946 0000',
       websiteUrl: null,
+      taxId: 'GB 1',
       status: 'active',
       isActive: true,
-      custom: { xero_contact_id: 'org:c0', xero_tax_number: 'GB 1' },
+      custom: { xero_contact_id: 'org:c0' },
     })
     expect(snapshots.get('e2')).toMatchObject({ status: 'archived', isActive: false })
-    expect(snapshots.get('e3')).toMatchObject({ legalName: null, custom: {} })
+    expect(snapshots.get('e3')).toMatchObject({ legalName: null, taxId: null, custom: {} })
   })
 
   it('makes no query for a page without mapped Contacts, and stops after the Companies when none is left', async () => {

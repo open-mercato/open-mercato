@@ -24,7 +24,7 @@ Once released, these surfaces change only additively (see `BACKWARD_COMPATIBILIT
 - the integration and module id `sync_xero` and its callback URL `/api/sync_xero/oauth/callback`, which each tenant registers in its Xero app;
 - the routes under `/api/sync_xero/*` (`oauth/initiate`, `oauth/callback`, `connection`, `organisations`, `organisation`, `disconnect`, `schedules`, `companies/[id]`);
 - the DI name `xeroHealthCheck`, the data-sync entity type `xero.contacts` and the widget ids `sync_xero.injection.xero-tab` and `sync_xero.injection.company-badge`;
-- the Company custom fields `xero_contact_id`, `xero_tax_number` and `xero_merged_into`;
+- the Company custom fields `xero_contact_id` and `xero_merged_into` (the Contact's tax number goes to the Company's native `taxId`);
 - the persisted formats: external ids `<xeroOrganisationId>:<contactId>` (addresses `…:<contactId>:<POBOX|STREET>`), the sync cursor `v: 1`, and the grant's `providerData` keys `xeroOrganisationId`, `xeroConnectionId`, `xeroOrganisationName`.
 
 Not contracts: the test-only route `POST /api/sync_xero/test-fakes` and its actions, the `om_test_seam_` Client ID prefix, the in-process fakes and their global registry. They exist only while `OM_ENABLE_TEST_OAUTH_GRANTS` is on, which is never set in production.

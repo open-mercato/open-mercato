@@ -9,7 +9,7 @@ sidebar_label: Xero
 The Xero integration connects one Xero Organisation to each Open Mercato organization and imports its Contacts into **Companies** every hour. A Contact always updates the same Company, so repeated runs never create duplicates.
 
 - **Import only.** Open Mercato reads Contacts from Xero and never writes back.
-- **Xero owns the fields it sends.** Name, legal name, email, phone, website, archive status, tax number and the Xero addresses are overwritten from Xero on the next run that returns the Contact. Every other Company field, note and activity stays yours.
+- **Xero owns the fields it sends.** Name, legal name, email, phone, website, archive status, the Contact's tax number (written to the Company's **VAT ID**) and the Xero addresses are overwritten from Xero on the next run that returns the Contact. A Contact without a tax number never clears a VAT ID. Every other Company field, note and activity stays yours.
 - **Not every Contact becomes a Company.** A Contact that has no Company yet is skipped when it is only a supplier, archived or redacted for GDPR.
 - **Grants are per organization.** Each Open Mercato organization connects its own Xero Organisation through OAuth2. Tokens are encrypted and never shown.
 
@@ -48,13 +48,12 @@ Every Xero login has a **Demo Company** with sample contacts and invoices. Regis
 
 ## 4. Enable the integration
 
-The integration starts disabled: the Xero tab shows a paused warning and no scheduled run fires. A first sync matches a Contact to an existing Company by tax number, so prepare any Companies you already have before you enable it:
+The integration starts disabled: the Xero tab shows a paused warning and no scheduled run fires. A first sync matches a Contact to an existing Company by its **VAT ID**, so prepare any Companies you already have before you enable it:
 
-1. Connect while the integration is still disabled. The **Tax number (Xero)** custom field exists from the moment the Organisation is saved.
-2. Fill in **Tax number (Xero)** on the Companies you entered by hand, with the number Xero holds as the Contact's Tax Number or Company Number.
-3. Turn on the **State** switch on the integration's detail page.
+1. Fill in the **VAT ID** of the Companies you entered by hand, with the number Xero holds as the Contact's Tax Number or Company Number. Spaces and letter case are ignored when comparing.
+2. Connect, then turn on the **State** switch on the integration's detail page.
 
-A Company without that number is not matched: its Contact creates a new Company, and the run log warns when the names are the same.
+A Company without that number is not matched: its Contact creates a new Company, and the run log warns when the names are the same. When several Companies hold the same number, the oldest one is used and the run log names all of them.
 
 ## Schedules and Xero's 60-day limit
 

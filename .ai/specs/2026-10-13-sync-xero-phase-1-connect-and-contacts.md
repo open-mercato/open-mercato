@@ -2,7 +2,7 @@
 
 **Status:** Ready for review.
 **Parent:** [App Spec: Xero Integration](2026-09-26-app-spec-xero-integration.md) § 7 Phase 1. The App Spec owns the business rules (matching, field ownership, field mapping, archive and merge handling, failure handling); this spec owns the technical design and the commit plan, and cites the App Spec instead of restating it. When the two disagree, the App Spec wins and this spec is corrected.
-**Depends on:** the OAuth2 grant lifecycle core, Phase 1 ([feature spec](2026-10-01-oauth2-grant-lifecycle-core.md), PR #7057, merged on 2026-10-21). This package uses only its public surface (`BACKWARD_COMPATIBILITY.md` → "OAuth2 Grant Lifecycle Core"); it imports no export marked `@internal`. The change that closes issue #7872 (App Spec § 10 #31), which keeps encrypted custom fields out of index-time search build contexts, lands before this phase's PR and carries the regression tests for the App Spec's Phase 1 criterion on those build contexts.
+**Depends on:** the OAuth2 grant lifecycle core, Phase 1 ([feature spec](2026-10-01-oauth2-grant-lifecycle-core.md), PR #7057, merged on 2026-10-21). This package uses only its public surface (`BACKWARD_COMPATIBILITY.md` → "OAuth2 Grant Lifecycle Core"); it imports no export marked `@internal`. The change that closes issue #7872 (App Spec § 10 #31), which keeps encrypted custom fields out of index-time search build contexts, merged as #8410. The Company's tax ID is the native `CustomerCompanyProfile.taxId` of #8538 ([spec](2026-11-10-crm-company-tax-id.md)), which this phase writes and matches against.
 **Branching:** one implementation PR (#7337) against `main`, one commit per step. It served as the core's Q7 consumer gate before #7057 merged.
 
 ## TLDR
@@ -60,7 +60,7 @@ A workspace package `packages/sync-xero`, laid out like `packages/sync-akeneo`, 
 | Callback path `GET /api/sync_xero/oauth/callback` | The module route convention (`api/get/oauth/callback/route.ts`). Every tenant registers this URL in its Xero app, so it is an external contract that never moves without a bridge (core R2) |
 | The adapter preloads per run and per page instead of looking up per Contact | A Xero page holds up to 1,000 Contacts; mapping rows, mapped Companies, their custom fields and their Xero-owned addresses load in a fixed number of queries per page (§ Performance) |
 | The marker, tax-number and name indexes load lazily, on the first unmapped Contact of a run | An incremental run whose Contacts are all mapped never reads the organization's marker values, tax numbers or Company names |
-| `xero_tax_number` is an encrypted custom field | A Xero Contact can be a sole trader or a consumer, whose tax number is personal data (`TaxNumberType` includes `SSN`). Custom-field encryption is declared per field and decrypted by the shared helpers; the index decrypts the values it reads, which it must read in full anyway (App Spec § 0.2.7). The Company search source keeps the value out of its text, but its index-time build context still carries it, decrypted, so the `search` change of App Spec § 10 #31 (issue #7872), which keeps encrypted custom fields out of those build contexts, merges before this phase's PR |
+| The Xero tax number goes to the Company's native `taxId`, not to a custom field of its own | `taxId` is the Company's one tax ID (App Spec § 0.2 #6): the company forms show it as "VAT ID", and a VAT ID a user typed is the value a first-sync match needs, so a second field would duplicate Companies and show two tax fields. A Xero Contact can be a sole trader or a consumer, whose tax number is personal data (`TaxNumberType` includes `SSN`): the company profile encryption map encrypts `tax_id`, the index reads it decrypted with `findWithDecryption` together with the Companies it already loads (§ Indexes), and the `customers` search policy indexes it as exact-match hashes only (`hashOnly`) |
 | Custom-field definitions are ensured at runtime, on every Organisation save and at the start of each run, with no `ce.ts` | `sync_akeneo`'s precedent (`ensureCustomFieldDefinitions(em, sets, { organizationId, tenantId })`, `catalog-importer.ts:1445-1448`). No package declares `ce.ts` fields on another module's entity, and `ce.ts` definitions reach a tenant only through `mercato entities install` or a lazy install. The entity id is the literal `customers:customer_company_profile`, the value App Spec § 10 #5 names, because a package cannot import the app's generated ids |
 | Invoice endpoints and the batched Contact fetch (`GET /Contacts?IDs=…&includeArchived=true`) ship with Phase 2 | Only the invoices adapter and its self-heal use them; App Spec § 4 scores them in WF3's API client commit |
 | Default schedules ship in Phase A | They are the grant's keep-alive (App Spec § 10 #13), and Phase A's grant-handling tests run scheduled runs |
@@ -274,10 +274,7 @@ Xero's error body is never echoed.
 4. Run the `integrations.oauth_grant` `update` guard with `{ integrationId, providerData }`. A guard may rename the Organisation. Another Organisation or connection, or an invalid `providerData`, answers 422 `guard_payload_invalid`. Then call `updateProviderData` with the guarded `providerData` and the Grant Revision from the optimistic-lock header (rule 7; a stale revision returns the core's 409).
 5. Call `ensureXeroFieldDefinitions` (Phase B) and `ensureDefaultSchedules`. Cursors are not touched: they carry their Organisation (App Spec § 6.5).
 
-**Tax numbers before the first sync.** The definitions exist from the first Organisation save, so an admin can fill in `xero_tax_number` on existing Companies before any run writes. The setup guide says how:
-1. Connect while the integration is still disabled; the scheduled worker skips a disabled integration (App Spec § 0.2.8).
-2. Fill in the tax numbers.
-3. Enable the integration.
+**Tax numbers before the first sync.** The first sync matches by the Companies' VAT ID (`taxId`), so an admin fills in the VAT ID of existing Companies before enabling the integration; the scheduled worker skips a disabled integration (App Spec § 0.2.8). The setup guide says how.
 
 This keeps App Spec § 6.1's defence against duplicates of Companies entered by hand (§ 10 #7).
 
@@ -393,14 +390,14 @@ A9 ships steps 1, 4 and 6 and the pass-completion cursor of step 7, with every C
    The classification runs before the mapping, so a GDPR-redacted Contact whose name Xero blanked still flips its Company's status.
 3. **Match an unmapped Contact** (App Spec § 6.1):
    - the marker index (`xero_contact_id`);
-   - then the tax-number index: normalized `TaxNumber`, then `CompanyNumber`, among Companies without a `sync_xero` mapping, skipping a Company whose marker names another Contact of the same Organisation. More than one candidate → an item warning naming them, at most 20 plus the total (`xero.company_match_ambiguous`), and the oldest is used (§ 6.1b option B);
+   - then the tax-number index: normalized `TaxNumber`, then `CompanyNumber`, matched against the Companies' normalized `taxId`, among Companies without a `sync_xero` mapping, skipping a Company whose marker names another Contact of the same Organisation. More than one candidate → an item warning naming them, at most 20 plus the total (`xero.company_match_ambiguous`), and the oldest is used (§ 6.1b option B);
    - a fallback match logs `xero.company_matched_by_tax_number` (info), naming the Company;
    - otherwise `customers.companies.create` with every Xero-owned value (the mapper of step 5) and the marker in `customFields`. When the name index (§ Indexes) holds the Contact's normalized `Name`, the item logs `xero.company_duplicate_risk` naming the existing Companies.
 4. **Company claim** for a first mapping (§ Company claim). After a lost claim with a winner, use the winner's Company and delete a Company this item created; a winner deleted in OM refuses the item with `xero.company_deleted_in_om`. After a lost claim without a winner (the candidate is mapped to another Contact), return to step 3 without that candidate, whether it came from the marker or the fallback. After 20 attempts the run fails.
 5. **Map and compare** (`contacts/mapping.ts`, `contacts/compare.ts`; App Spec § 6.2a Company table, rules 1–4, and § 6.2 rule 3).
-   - The pure mapper returns the Xero-owned values (`displayName`, `legalName`, `primaryEmail`, `primaryPhone`, `websiteUrl`, `status` / `isActive`, the custom field `xero_tax_number`) and the warnings.
-   - Each value is checked with the field's own validator from `customers/data/validators.ts` and truncated to its limit (`displayName` and `legalName` 200).
-   - A created Company already holds these values, so only a matched or mapped Company is compared. The update input holds only keys whose value differs, so an OM-only field is never present. With no difference the item is `skip` and no command runs.
+   - The pure mapper returns the Xero-owned values (`displayName`, `legalName`, `primaryEmail`, `primaryPhone`, `websiteUrl`, `status` / `isActive`, and `taxId` from `TaxNumber`) and the warnings.
+   - Each value is checked with the field's own validator from `customers/data/validators.ts` and truncated to its limit (`displayName` and `legalName` 200). A `TaxNumber` the `taxId` validator rejects (over `COMPANY_TAX_ID_MAX_LENGTH`, 64) is left out with `xero.value_left_out` naming `taxId`, and still serves as the matching key of step 3.
+   - A created Company already holds these values, so only a matched or mapped Company is compared. The update input holds only keys whose value differs, so an OM-only field is never present; `taxId` differs only after normalization, and a blank `TaxNumber` never clears it. With no difference the item is `skip` and no command runs.
 6. **Write** through `commandBus.execute('customers.companies.create' | 'customers.companies.update', { input, ctx })`.
    - The context is the system-actor context `sync_excel` builds (`sync_excel/lib/adapters/customers.ts:374-387`): `{ container, auth: null, organizationScope: { selectedId, filterIds: [organizationId], allowedIds: [organizationId], tenantId }, selectedOrganizationId, organizationIds: [organizationId] }`.
    - It adds `syncOrigin: 'sync_xero'`. The company and address commands ignore it today, but commands that forward it tag their side effects.
@@ -436,10 +433,10 @@ After a claim lost with a winner, the item deletes a Company it created in this 
 ### Indexes
 
 `contacts/indexes.ts` builds the three indexes once per run, on the first unmapped Contact:
-- **Reading the values:** read the organization's `CustomFieldValue` rows for `entityId 'customers:customer_company_profile'` with field key `xero_contact_id` or `xero_tax_number`, and `deletedAt: null`. Decrypt them with `decryptCustomFieldValue` where the definition is encrypted.
-- **Resolving to Companies:** resolve the profile record ids to their `CustomerEntity` ids, keeping only Companies that are not deleted.
+- **Reading the values:** read the organization's `CustomFieldValue` rows for `entityId 'customers:customer_company_profile'` with field key `xero_contact_id` and `deletedAt: null`; with each chunk of Companies the name index reads, read their profiles' decrypted `taxId` (`findWithDecryption` on `CustomerCompanyProfile`, `taxId` not null, fields `id`, `entity` and `taxId`).
+- **Resolving to Companies:** resolve the markers' profile record ids to their `CustomerEntity` ids, keeping only Companies that are not deleted.
 - **Marker index:** `<xeroOrganisationId>:<ContactID>` → entity id, for Companies without a `sync_xero` mapping only (App Spec § 6.1 step 1).
-- **Tax index:** normalized value (whitespace stripped, uppercase) → entity ids, oldest first, unmapped Companies only. A lookup skips a Company whose marker names another Contact of the same Organisation. A Company leaves the index as soon as it is claimed. A per-run claimed-by map (normalized `TaxNumber` → the `ContactID` that claimed it) lets a second Contact with the same number log `xero.tax_number_shared` naming both Contacts.
+- **Tax index:** normalized `taxId` (whitespace stripped, uppercase) → entity ids, oldest first, unmapped Companies only. A lookup skips a Company whose marker names another Contact of the same Organisation. A Company leaves the index as soon as it is claimed. A per-run claimed-by map (normalized `TaxNumber` → the `ContactID` that claimed it) lets a second Contact with the same number log `xero.tax_number_shared` naming both Contacts.
 - **Name index:** the organization's Companies (`kind: 'company'`, not deleted), read in chunks of 500 with `findWithDecryption`, because `displayName` is encrypted. It keeps only the normalized name (lowercase, punctuation stripped, whitespace collapsed) → entity ids, and serves only the duplicate-risk warning, never a match (App Spec § 6.1).
 
 All three indexes are per run, so the per-page query count stays fixed.
@@ -541,7 +538,7 @@ App Spec § 4.5 "Test seam", made concrete.
     - the cursors: a direct delete of the organization's `sync_xero` `SyncCursor` rows (there is no service method), followed by `dataSyncRunService.resetResumePosition`, as `data_sync/AGENTS.md` prescribes;
     - the Client Configuration: saved empty.
 
-    Then it stops the fakes. The three custom-field definitions stay: they are organization configuration that holds no test data, identical in every connected organization and ensured idempotently. Each spec deletes the Companies it creates.
+    Then it stops the fakes. The two custom-field definitions stay: they are organization configuration that holds no test data, identical in every connected organization and ensured idempotently. Each spec deletes the Companies it creates.
 - No response carries a token.
 - The Xero tab shows a notice while the seam is active for the organization.
 
@@ -558,7 +555,7 @@ App Spec § 4.5 "Test seam", made concrete.
 | Each page (≤ 1,000 Contacts) | About 5 preload queries (mapped Companies, profiles, custom-field values, address mappings, addresses), independent of the page size | 1 | B3 asserts that the count stays constant |
 | Each unchanged Contact | None beyond the preload; at most one `readGrantStatus` per second | 0 | — |
 | Each changed or new Contact | 1–3 commands (Company, up to two addresses); a first mapping adds one claim transaction (two reads and one write) | 0 | Commands only on a real difference |
-| Lazy indexes, first unmapped Contact of a run | Marker and tax values: custom-field reads and profile-to-Company resolution in chunks of 500. Names: Companies in chunks of 500, decrypted | 0 | Grows with the organization's Companies, for example 10,000 Companies ≈ 100 chunked reads and 10,000 decryptions. Only runs that meet a new Contact pay it, and memory holds normalized strings and ids |
+| Lazy indexes, first unmapped Contact of a run | Markers: custom-field reads and profile-to-Company resolution in chunks of 500. Names and tax IDs: Companies in chunks of 500, decrypted, each with one read of its profiles' `taxId` | 0 | Grows with the organization's Companies, for example 10,000 Companies ≈ 100 chunked reads and 10,000 decryptions. Only runs that meet a new Contact pay it, and memory holds normalized strings and ids |
 | Full pass | As per page | `ceil(Contacts ÷ 1,000)` | Commands only for changed records (App Spec § 6.7 cost table) |
 
 ### Commands & Events
@@ -570,15 +567,14 @@ App Spec § 4.5 "Test seam", made concrete.
 
 No new table, column or migration, so there is no data-model graph. `sync_xero` owns these records on existing entities.
 
-**Custom fields** on `customers:customer_company_profile`, ensured per organization by `ensureXeroFieldDefinitions`: `ensureCustomFieldDefinitions` from the `entities` module, then `invalidateDefinitionsCache` for that entity whenever a definition was created or updated, as `sync_akeneo` does. This way the Companies form shows `xero_tax_number` right after the first Organisation save:
+**Custom fields** on `customers:customer_company_profile`, ensured per organization by `ensureXeroFieldDefinitions`: `ensureCustomFieldDefinitions` from the `entities` module, then `invalidateDefinitionsCache` for that entity whenever a definition was created or updated, as `sync_akeneo` does, so the Companies form and API know the fields right after the first Organisation save:
 
 | Key | Kind | Options | Written by |
 |---|---|---|---|
 | `xero_contact_id` | text | `formEditable: false`, `filterable: false`, `listVisible: false` | the adapter, on every Company it creates or matches |
-| `xero_tax_number` | text | `encrypted: true`, `formEditable: true` (an admin may fill it before the first sync, App Spec § 6.1), `filterable: false`, `listVisible: false` (holders of `customers.companies.view` still read it on the Company page and through the API) | the adapter (Xero-owned) |
 | `xero_merged_into` | text | `filterable: true`, `formEditable: false` | the adapter, on the Company of a merged-away Contact |
 
-Labels are plain strings, because field definitions take no i18n keys.
+Labels are plain strings, because field definitions take no i18n keys. The Xero `TaxNumber` is no custom field: the adapter writes it to the Company's native `taxId` through the `customers` commands (App Spec § 0.2 #6).
 
 **Mapping rows** (`SyncExternalIdMapping`, `integrationId 'sync_xero'`):
 
@@ -815,9 +811,9 @@ The OAuth part is A1, A3, A4, A5 and A10 — five commits, the core's bound for 
 
 | Step | Commit | Tests |
 |---|---|---|
-| B1 | `field-definitions.ts` (three fields, also called from both Organisation-save paths), `contacts/indexes.ts` | Jest: idempotent definitions; marker, tax and name indexes (normalization, unmapped only, a Company marked for another Contact of the Organisation skipped, ambiguity, claimed-by, encrypted values decrypted) |
+| B1 | `field-definitions.ts` (two fields, also called from both Organisation-save paths), `contacts/indexes.ts` | Jest: idempotent definitions; marker, tax and name indexes (normalization, unmapped only, a Company marked for another Contact of the Organisation skipped, ambiguity, claimed-by, the native `taxId` read decrypted with each chunk of Companies) |
 | B2 | `contacts/claim.ts` | Jest with `withAdvisoryXactLock` mocked to run the callback on a fake transaction and the mapping service bound to it (§ Test doubles): won, already won, lost with a winner, lost without one, lock unavailable |
-| B3 | US-2.1a writes: `preload.ts`, `mapping.ts`, `compare.ts`, the match order, the commands with the system context, `company_deleted_in_om`, the fallback-match, duplicate-risk and shared-number logs, the item `data` without personal data | Jest: § 6.2a Company rows (phone formatting and Italy's trunk zero, website scheme, truncation, invalid values left out); no command for an unchanged Contact; an update input never holding an OM-only key; a Contact read twice in one run is updated, and nothing is created; a lost claim deletes the Company the item created, and a 422 refusal logs `xero.company_claim_cleanup_refused`; a Contact whose Company was deleted in OM is refused; the query count per page; a candidate another Contact claimed dropped for the next one; a created Company kept when its claim has no winner; at most 20 Companies named in a log row |
+| B3 | US-2.1a writes: `preload.ts`, `mapping.ts`, `compare.ts`, the match order, the commands with the system context, `taxId` written on create and on a normalized difference only, `company_deleted_in_om`, the fallback-match, duplicate-risk and shared-number logs, the item `data` without personal data | Jest: § 6.2a Company rows (phone formatting and Italy's trunk zero, website scheme, truncation, invalid values left out); no command for an unchanged Contact; an update input never holding an OM-only key; a Contact read twice in one run is updated, and nothing is created; a lost claim deletes the Company the item created, and a 422 refusal logs `xero.company_claim_cleanup_refused`; a Contact whose Company was deleted in OM is refused; the query count per page; a candidate another Contact claimed dropped for the next one; a created Company kept when its claim has no winner; at most 20 Companies named in a log row |
 | B4 | US-2.1c: `rules.ts` (archived, GDPR, supplier-only, merge mark), `orphans.ts` | Jest: each § 6.4 row; merge wins over archive; orphan report skips Companies younger than a minute |
 | B5 | US-2.1b: `addresses.ts` | Jest: create and map, a row removed when its mapping fails, a row deleted during the run re-created, update only on difference, a moved row re-created, a user row untouched, `isPrimary` never set, country conversion |
 | B6 | Company badge: `GET companies/[id]`, the widget; TC-XERO-003 | Jest for the route (scope, no mapping); Playwright |
@@ -910,18 +906,18 @@ Runs and adapters are covered in Jest only: runs execute on queue workers outsid
 - **Mitigation**: the marker, the claim, the unmapped-only fallback, the duplicate-risk and ambiguity warnings, and the orphan report (App Spec § 6.1).
 - **Residual risk**: App Spec § 6.1 residuals (1) to (3), visible in run logs.
 
-#### Tax numbers in search build contexts
-- **Scenario**: the Company search source's build context carries every Company-profile custom field, decrypted. The source keeps `xero_tax_number` out of its text through the `customers` search policy, but nothing in the indexer stops a source or a presenter from reading it there and passing it to a search index or an embedding provider.
+#### Tax numbers in search indexes
+- **Scenario**: an imported tax number reaches a search index or an embedding provider in clear.
 - **Severity**: High
-- **Affected area**: every imported `xero_tax_number`
-- **Mitigation**: the `search` change of App Spec § 10 #31 (issue #7872) has `SearchIndexer` and the opt-in `VectorIndexService` drop custom fields whose definition is `encrypted` from every build context they create and merges before this phase's PR; `sync_xero` cannot opt its field out, since a field definition has no search flag.
+- **Affected area**: every imported tax number
+- **Mitigation**: the tax number lives in the Company's native encrypted `tax_id`, which the `customers` search policy marks `hashOnly` for the Company source (`customers/search.ts:835`), so it is indexed as exact-match hashes only and kept out of text and embeddings; `sync_xero` declares no encrypted custom field. The `search` change of App Spec § 10 #31 (#8410, merged) keeps encrypted custom fields out of build contexts for every module.
 - **Residual risk**: the hashed token index keeps the number as unkeyed hashes of every prefix, from which someone who can read that table can recover it, accepted as the Company search config accepts it for `tax_id` and `registration_number` (App Spec § 10 #31).
 
 #### Personal data in logs or run data
 - **Scenario**: a Contact's name, email or tax number reaches `integration_logs` through an item's `data` or a warning payload.
 - **Severity**: High
 - **Affected area**: logs shown to operators
-- **Mitigation**: item `data` and log payloads carry only ids and codes (§ `xero.contacts` adapter, step 8); B3 has a test asserting it; `xero_tax_number` is encrypted at rest.
+- **Mitigation**: item `data` and log payloads carry only ids and codes (§ `xero.contacts` adapter, step 8); B3 has a test asserting it; the native `taxId` is encrypted at rest.
 - **Residual risk**: a future warning added carelessly; reviewers check payloads against this rule.
 
 #### Xero's daily limit on small plans
@@ -946,9 +942,9 @@ Runs and adapters are covered in Jest only: runs execute on queue workers outsid
 - **Residual risk**: one line to change with the core.
 
 #### Custom-field definitions missing for an existing tenant
-- **Scenario**: a tenant created before the package was enabled has no `xero_*` definitions, so values would be stored without the `encrypted` and `filterable` options.
+- **Scenario**: a tenant created before the package was enabled has no `xero_*` definitions, so values would be stored without the `formEditable` and `filterable` options.
 - **Severity**: Medium
-- **Affected area**: tax-number encryption, the merged-into filter
+- **Affected area**: the read-only marker, the merged-into filter
 - **Mitigation**: `ensureXeroFieldDefinitions` runs at the start of every run, before the first write.
 - **Residual risk**: none.
 
@@ -1002,7 +998,7 @@ Runs and adapters are covered in Jest only: runs execute on queue workers outsid
 | packages/core/AGENTS.md | Export `openApi` from every route | Compliant | All routes |
 | packages/core/AGENTS.md | Custom write routes run mutation guards | Compliant | Callback `custom`, organisation `update`, disconnect `delete`, schedules `create`, test-fakes `custom`; each guard's transformation is validated and persisted (§ API Contracts) |
 | packages/core/AGENTS.md | Domain writes through commands | Compliant | `customers` commands; mappings through `externalIdMappingService` |
-| packages/core/AGENTS.md → Encryption | Sensitive fields encrypted, reads decrypted | Compliant | `xero_tax_number` encrypted; Company fields follow `customers`' maps; mapping reads use `findWithDecryption` |
+| packages/core/AGENTS.md → Encryption | Sensitive fields encrypted, reads decrypted | Compliant | The tax number in the encrypted native `taxId`; Company fields follow `customers`' maps; mapping and index reads use `findWithDecryption` |
 | packages/core/AGENTS.md | Cross-module coupling through sanctioned mechanisms | Compliant | Commands, DI services, widget spots; `requires` lists hard dependencies only |
 | integrations/AGENTS.md | Health check registered in DI by the provider | Compliant | `xeroHealthCheck` in `sync_xero/di.ts` |
 | integrations/AGENTS.md | Secret fields use `secret` | Compliant | `clientSecret` |
@@ -1028,11 +1024,11 @@ Runs and adapters are covered in Jest only: runs execute on queue workers outsid
 
 ### Non-Compliant Items
 
-None. One open dependency: issue #7872 (§ header, App Spec § 10 #31).
+None.
 
 ### Verdict
 
-Fully compliant. The core's public surface was signed off on 2026-10-15 (core Q3); shipping waits on issue #7872.
+Fully compliant. The core's public surface was signed off on 2026-10-15 (core Q3); the `search` change of issue #7872 merged as #8410.
 
 ## Implementation Status
 
@@ -1043,6 +1039,9 @@ Fully compliant. The core's public surface was signed off on 2026-10-15 (core Q3
 | Phase B — Contacts into Companies | Done | 2026-10-13 | B1–B6, one commit each. Gate: the full validation list, Playwright TC-XERO-001 to 005 with the core's TC-INT-OAUTH specs, and the timed Demo Company QA (changelog) |
 
 ## Changelog
+
+### 2026-11-17
+- The Xero tax number goes to the Company's native encrypted `taxId` (#8538) instead of a `sync_xero` custom field: `TaxNumber` is written through the `customers` commands (set on create when non-blank, on update only when it differs after normalization, never cleared by a blank value, left out with `xero.value_left_out` when the `taxId` validator rejects it), the tax index reads the decrypted `taxId` with each chunk of Companies, and `sync_xero` declares two custom fields, `xero_contact_id` and `xero_merged_into` (§ Design Decisions, § `xero.contacts` adapter, § Indexes, § Data Models, § Risks). The `search` change of App Spec § 10 #31 merged as #8410.
 
 ### 2026-11-06
 - Aligned with the App Spec's 2026-11-06 changes. The prerequisite is named by issue #7872, not by a PR. The request table, the claim and address failure paths, the error mapping of interactive calls, the import list and the integration table match the shipped package.

@@ -286,7 +286,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
   async function writeFirstSync(company: MappedXeroCompany, contact: XeroContact, externalId: string): Promise<ImportItem> {
     const indexes = await deps.indexes()
     const contactId = contact.ContactID
-    const taxKey = normalizeTaxNumber(company.taxNumber)
+    const taxKey = normalizeTaxNumber(contact.TaxNumber)
     const registrationKey = normalizeTaxNumber(contact.CompanyNumber)
     const sharedWith = taxKey ? indexes.taxNumberClaimedBy(taxKey) : null
     if (sharedWith && sharedWith !== contactId) {

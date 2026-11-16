@@ -13,7 +13,6 @@ import type { XeroScope } from './owner'
 /** The literal id App Spec § 10 #5 names: a package cannot import the app's generated entity ids. */
 export const XERO_COMPANY_FIELDS_ENTITY_ID = 'customers:customer_company_profile'
 export const XERO_CONTACT_MARKER_FIELD = 'xero_contact_id'
-export const XERO_TAX_NUMBER_FIELD = 'xero_tax_number'
 export const XERO_MERGED_INTO_FIELD = 'xero_merged_into'
 
 /** Field definitions take no i18n keys, so the labels are plain strings. */
@@ -24,16 +23,6 @@ export const XERO_COMPANY_FIELD_DEFINITIONS: CustomFieldDefinition[] = [
     label: 'Xero contact',
     description: 'The Xero Organisation and Contact this Company is synced from. Set by the Xero integration.',
     formEditable: false,
-    filterable: false,
-    listVisible: false,
-  },
-  {
-    key: XERO_TAX_NUMBER_FIELD,
-    kind: 'text',
-    label: 'Tax number (Xero)',
-    description: 'The Contact\'s tax number in Xero. Fill it in before the first sync so the sync matches this Company.',
-    encrypted: true,
-    formEditable: true,
     filterable: false,
     listVisible: false,
   },
@@ -55,7 +44,7 @@ export type EnsureXeroFieldDefinitionsInput = {
   scope: XeroScope
 }
 
-/** Creates or repairs the three Company fields of an organization; the form cache drops only when one changed. */
+/** Creates or repairs the two Company fields of an organization; the form cache drops only when one changed. */
 export async function ensureXeroFieldDefinitions(input: EnsureXeroFieldDefinitionsInput): Promise<EnsureFieldDefinitionsResult> {
   const result = await ensureCustomFieldDefinitions(
     input.em,

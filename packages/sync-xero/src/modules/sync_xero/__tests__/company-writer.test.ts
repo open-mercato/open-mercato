@@ -82,6 +82,7 @@ function storeCompany(fields: Partial<StoredCompany> & { entityId: string }): St
     primaryEmail: null,
     primaryPhone: null,
     websiteUrl: null,
+    taxId: null,
     status: 'active',
     isActive: true,
     custom: {},
@@ -93,7 +94,7 @@ function storeCompany(fields: Partial<StoredCompany> & { entityId: string }): St
 }
 
 function applyInput(company: StoredCompany, input: Record<string, unknown>): void {
-  for (const key of ['displayName', 'legalName', 'primaryEmail', 'primaryPhone', 'websiteUrl', 'status', 'isActive'] as const) {
+  for (const key of ['displayName', 'legalName', 'primaryEmail', 'primaryPhone', 'websiteUrl', 'taxId', 'status', 'isActive'] as const) {
     if (key in input) Object.assign(company, { [key]: input[key] })
   }
   if (input.customFields) company.custom = { ...company.custom, ...(input.customFields as Record<string, unknown>) }
@@ -174,8 +175,8 @@ function indexSources(): XeroCompanyIndexSources {
       .filter((company) => typeof company.custom.xero_contact_id === 'string')
       .map((company) => ({ entityId: company.entityId, value: String(company.custom.xero_contact_id) })),
     taxNumbers: live
-      .filter((company) => typeof company.custom.xero_tax_number === 'string')
-      .map((company) => ({ entityId: company.entityId, value: String(company.custom.xero_tax_number) })),
+      .filter((company) => typeof company.taxId === 'string')
+      .map((company) => ({ entityId: company.entityId, value: String(company.taxId) })),
   }
 }
 
@@ -261,7 +262,7 @@ describe('buildXeroCommandContext', () => {
 })
 
 describe('createXeroContactWriter', () => {
-  it('creates a Company for a new Contact with the marker and the tax number, claims it and reports ids only', async () => {
+  it('creates a Company for a new Contact with the marker and the tax number as its native taxId, claims it and reports ids only', async () => {
     const writer = createWriter()
     const [item] = await writePage(writer, [record('c1', { TaxNumber: 'GB 123 456', Website: 'not a website' })])
 
@@ -275,9 +276,10 @@ describe('createXeroContactWriter', () => {
         legalName: 'Acme Ltd',
         primaryEmail: 'billing@acme.example',
         primaryPhone: '+44 20 7946 0000',
+        taxId: 'GB 123 456',
         status: 'active',
         isActive: true,
-        customFields: { xero_contact_id: externalIdOf('c1'), xero_tax_number: 'GB 123 456' },
+        customFields: { xero_contact_id: externalIdOf('c1') },
       },
     })
     expect(mappings.get(externalIdOf('c1'))).toBe('e-1')
@@ -362,27 +364,87 @@ describe('createXeroContactWriter', () => {
     expect(item).toMatchObject({ action: 'update', data: { localId: 'e-marked' } })
   })
 
-  it('matches an unmapped Company by tax number, logs the match and writes the marker with the first update', async () => {
-    storeCompany({ entityId: 'e-tax', displayName: 'Acme (manual)', custom: { xero_tax_number: 'gb123456' } })
+  it('matches an unmapped Company by the VAT ID a user typed, logs the match and writes the marker with the first update', async () => {
+    storeCompany({ entityId: 'e-tax', displayName: 'Acme (manual)', taxId: 'gb123456' })
 
     const [item] = await writePage(createWriter(), [record('c1', { TaxNumber: 'GB 123 456' })])
 
     expect(commands).toHaveLength(1)
     expect(commands[0].id).toBe('customers.companies.update')
     expect(commands[0].input).toMatchObject({ id: 'e-tax', displayName: 'Acme Ltd', customFields: { xero_contact_id: externalIdOf('c1') } })
+    expect(commands[0].input).not.toHaveProperty('taxId')
+    expect(companies.size).toBe(1)
     expect(item).toMatchObject({ action: 'update', data: { localId: 'e-tax' } })
     expect(logWrites).toEqual([expect.objectContaining({ level: 'info', code: 'xero.company_matched_by_tax_number', payload: { sourceIdentifier: externalIdOf('c1'), entityIds: ['e-tax'] } })])
   })
 
   it('falls back to CompanyNumber, and names every candidate of an ambiguous number while using the oldest', async () => {
-    storeCompany({ entityId: 'e-old', custom: { xero_tax_number: 'REG 1' } })
-    storeCompany({ entityId: 'e-new', custom: { xero_tax_number: 'reg1' } })
+    storeCompany({ entityId: 'e-old', taxId: 'REG 1' })
+    storeCompany({ entityId: 'e-new', taxId: 'reg1' })
 
     const [item] = await writePage(createWriter(), [record('c1', { CompanyNumber: 'REG1' })])
 
     expect(item).toMatchObject({ action: 'update', data: { localId: 'e-old' } })
     expect(logCodes()).toEqual(['xero.company_match_ambiguous', 'xero.company_matched_by_tax_number'])
     expect(logWrites[0].payload).toEqual({ sourceIdentifier: externalIdOf('c1'), entityIds: ['e-old', 'e-new'] })
+  })
+
+  it('reports Companies sharing a VAT ID as ambiguous, uses the oldest and creates no Company', async () => {
+    storeCompany({ entityId: 'e-old', taxId: 'GB 123' })
+    storeCompany({ entityId: 'e-new', taxId: 'gb123' })
+
+    const [item] = await writePage(createWriter(), [record('c1', { TaxNumber: 'GB123' })])
+
+    expect(commands.map((command) => command.id)).toEqual(['customers.companies.update'])
+    expect(item).toMatchObject({ action: 'update', data: { localId: 'e-old' } })
+    expect(logCodes()).toEqual(['xero.company_match_ambiguous', 'xero.company_matched_by_tax_number'])
+    expect(logWrites[0].payload).toEqual({ sourceIdentifier: externalIdOf('c1'), entityIds: ['e-old', 'e-new'] })
+  })
+
+  it('writes a changed tax number to the native taxId of a mapped Company, and never clears it with a blank one', async () => {
+    storeCompany({
+      entityId: 'e-mapped',
+      displayName: 'Acme Ltd',
+      legalName: 'Acme Ltd',
+      primaryEmail: 'billing@acme.example',
+      primaryPhone: '+44 20 7946 0000',
+      taxId: 'GB 123',
+      custom: { xero_contact_id: externalIdOf('c1') },
+    })
+    mappings.set(externalIdOf('c1'), 'e-mapped')
+    const writer = createWriter()
+
+    await writePage(writer, [record('c1', { TaxNumber: 'gb123' })])
+    expect(commands).toEqual([])
+
+    await writePage(writer, [record('c1', { TaxNumber: 'GB 999' })])
+    expect(commands).toEqual([
+      { id: 'customers.companies.update', input: { id: 'e-mapped', organizationId: scope.organizationId, tenantId: scope.tenantId, taxId: 'GB 999' } },
+    ])
+
+    await writePage(writer, [record('c1', { TaxNumber: ' ' })])
+    expect(commands).toHaveLength(1)
+    expect(companies.get('e-mapped')?.taxId).toBe('GB 999')
+  })
+
+  it('leaves out a tax number longer than the VAT ID allows and warns', async () => {
+    const [created] = await writePage(createWriter(), [record('c1', { TaxNumber: 'GB'.padEnd(65, '1') })])
+
+    expect(commands[0].id).toBe('customers.companies.create')
+    expect(commands[0].input).not.toHaveProperty('taxId')
+    expect(created).toMatchObject({ action: 'create' })
+    expect(logWrites).toEqual([expect.objectContaining({ code: 'xero.value_left_out', payload: { sourceIdentifier: externalIdOf('c1'), entityIds: ['e-1'], field: 'taxId' } })])
+  })
+
+  it('still matches by a tax number too long to write when it normalizes to a stored VAT ID', async () => {
+    const vatId = 'GB'.padEnd(64, '1')
+    storeCompany({ entityId: 'e-tax', taxId: vatId })
+
+    const [item] = await writePage(createWriter(), [record('c1', { TaxNumber: `${vatId.slice(0, 30)}   ${vatId.slice(30)}` })])
+
+    expect(item).toMatchObject({ action: 'update', data: { localId: 'e-tax' } })
+    expect(commands.map((command) => command.id)).toEqual(['customers.companies.update'])
+    expect(commands[0].input).not.toHaveProperty('taxId')
   })
 
   it('never matches by name: it creates the Company and warns of the duplicate risk', async () => {
@@ -406,7 +468,7 @@ describe('createXeroContactWriter', () => {
   })
 
   it('warns when a second Contact carries a tax number another Contact claimed in the run', async () => {
-    storeCompany({ entityId: 'e-tax', custom: { xero_tax_number: 'GB 123' } })
+    storeCompany({ entityId: 'e-tax', taxId: 'GB 123' })
     const writer = createWriter()
 
     await writePage(writer, [record('c1', { TaxNumber: 'GB123' }), record('c2', { TaxNumber: 'gb 123', Name: 'Acme Trading' })])
@@ -443,7 +505,7 @@ describe('createXeroContactWriter', () => {
   })
 
   it('drops a candidate another Contact claimed meanwhile and matches again', async () => {
-    storeCompany({ entityId: 'e-tax', custom: { xero_tax_number: 'GB 123' } })
+    storeCompany({ entityId: 'e-tax', taxId: 'GB 123' })
     mockClaim.mockImplementationOnce(async () => ({ outcome: 'lost', winnerEntityId: null }))
 
     const [item] = await writePage(createWriter(), [record('c1', { TaxNumber: 'GB123' })])

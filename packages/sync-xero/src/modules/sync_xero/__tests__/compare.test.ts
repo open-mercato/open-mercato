@@ -25,9 +25,10 @@ function snapshot(fields: Partial<CompanySnapshot> = {}): CompanySnapshot {
     primaryEmail: 'billing@acme.example',
     primaryPhone: '+44 20 7946 0000',
     websiteUrl: 'https://acme.example',
+    taxId: 'GB 123',
     status: 'active',
     isActive: true,
-    custom: { xero_contact_id: MARKER, xero_tax_number: 'GB 123' },
+    custom: { xero_contact_id: MARKER },
     ...fields,
   }
 }
@@ -45,21 +46,20 @@ describe('resolveCompanyStatus', () => {
 })
 
 describe('buildCompanyCreateInput', () => {
-  it('writes every non-blank Xero value, the active status, the marker and the tax number', () => {
+  it('writes every non-blank Xero value, the active status, the marker and the tax number as the native taxId', () => {
     expect(buildCompanyCreateInput(company({ websiteUrl: null }), MARKER)).toEqual({
       displayName: 'Acme Ltd',
       legalName: 'Acme Ltd',
       primaryEmail: 'billing@acme.example',
       primaryPhone: '+44 20 7946 0000',
+      taxId: 'GB 123',
       status: 'active',
       isActive: true,
-      customFields: { xero_contact_id: MARKER, xero_tax_number: 'GB 123' },
-    })
-    expect(buildCompanyCreateInput(company({ taxNumber: null, contactStatus: 'ARCHIVED' }), MARKER)).toMatchObject({
-      status: 'archived',
-      isActive: false,
       customFields: { xero_contact_id: MARKER },
     })
+    const withoutTaxNumber = buildCompanyCreateInput(company({ taxNumber: null, contactStatus: 'ARCHIVED' }), MARKER)
+    expect(withoutTaxNumber).toMatchObject({ status: 'archived', isActive: false, customFields: { xero_contact_id: MARKER } })
+    expect(withoutTaxNumber).not.toHaveProperty('taxId')
   })
 })
 
@@ -86,10 +86,15 @@ describe('diffCompanyUpdate — compare-before-write', () => {
     expect(diffCompanyUpdate(company(), MARKER, snapshot({ status: 'archived', isActive: false }))).toEqual({ status: 'active', isActive: true })
   })
 
-  it('compares the tax number after normalization and writes the marker only while the Company has none', () => {
+  it('writes the native taxId only when it differs after normalization, and never clears it', () => {
     expect(diffCompanyUpdate(company({ taxNumber: 'gb123' }), MARKER, snapshot())).toBeNull()
-    expect(diffCompanyUpdate(company({ taxNumber: 'GB 999' }), MARKER, snapshot())).toEqual({ customFields: { xero_tax_number: 'GB 999' } })
-    expect(diffCompanyUpdate(company(), MARKER, snapshot({ custom: { xero_tax_number: 'GB 123' } }))).toEqual({ customFields: { xero_contact_id: MARKER } })
-    expect(diffCompanyUpdate(company(), MARKER, snapshot({ custom: { xero_contact_id: 'other:marker', xero_tax_number: 'GB123' } }))).toBeNull()
+    expect(diffCompanyUpdate(company({ taxNumber: 'GB 999' }), MARKER, snapshot())).toEqual({ taxId: 'GB 999' })
+    expect(diffCompanyUpdate(company(), MARKER, snapshot({ taxId: null }))).toEqual({ taxId: 'GB 123' })
+    expect(diffCompanyUpdate(company({ taxNumber: null }), MARKER, snapshot({ taxId: 'PL 555' }))).toBeNull()
+  })
+
+  it('writes the marker only while the Company has none', () => {
+    expect(diffCompanyUpdate(company(), MARKER, snapshot({ custom: {} }))).toEqual({ customFields: { xero_contact_id: MARKER } })
+    expect(diffCompanyUpdate(company(), MARKER, snapshot({ taxId: 'GB123', custom: { xero_contact_id: 'other:marker' } }))).toBeNull()
   })
 })
