@@ -76,7 +76,6 @@ const ROUTES_WITH_UNCAUGHT_COMMAND_BUS_CALLS = [
   'messages/api/[id]/attachments/route.ts',
   'messages/api/[id]/read/route.ts',
   'messages/api/[id]/route.ts',
-  'messages/api/route.ts',
 ]
 
 /**
