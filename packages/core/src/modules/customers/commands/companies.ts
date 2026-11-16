@@ -1,3 +1,4 @@
+import { redactRestoredNextInteractionName } from '../lib/interactionProjection'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -53,6 +54,7 @@ import {
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
+  shouldBumpOptimisticLockVersion,
   emitQueryIndexDeleteEvents,
   emitQueryIndexUpsertEvents,
   type QueryIndexEventEntry,
@@ -652,6 +654,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       entity: reviveSnapshotDates(redoSnapshot.entity, ['nextInteractionAt']),
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, after.entity)
     let entity = await findOneWithDecryption(
       em,
       CustomerEntity,
@@ -821,15 +824,11 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
           profile.annualRevenue = parsed.annualRevenue !== null && parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null
         }
 
-        // Profile columns and custom fields live outside CustomerEntity, so a save
-        // that only touches them never dirties the entity and its `updated_at` (the
-        // optimistic-lock version) would stay put — letting a stale second tab
-        // overwrite the change without a 409 (#7033). Bump it explicitly.
         const profileFieldsUpdated = [
           parsed.legalName, parsed.brandName, parsed.domain, parsed.websiteUrl,
           parsed.industry, parsed.sizeBucket, parsed.annualRevenue,
         ].some((value) => value !== undefined)
-        if (profileFieldsUpdated || Object.keys(custom).length > 0) {
+        if (shouldBumpOptimisticLockVersion(profileFieldsUpdated, custom, parsed.tags)) {
           record.updatedAt = new Date()
         }
       },
@@ -890,6 +889,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await redactRestoredNextInteractionName(em, before.entity)
     let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
     if (!entity) {
       entity = em.create(CustomerEntity, {
@@ -1224,6 +1224,7 @@ const deleteCompanyCommand: CommandHandler<
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
+      await redactRestoredNextInteractionName(em, before.entity)
       let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
       if (!entity) {
         entity = em.create(CustomerEntity, {

@@ -197,6 +197,7 @@
   "forms.errors.submission_not_found": "Envío no encontrado.",
   "forms.errors.tenant_required": "Se requiere el contexto del inquilino.",
   "forms.errors.unauthorized": "No autorizado.",
+  "forms.errors.undo_conflict": "Este registro cambió después de la acción que intenta deshacer. Se rechazó la acción de deshacer para conservar los cambios más recientes.",
   "forms.errors.version_form_mismatch": "La versión del formulario no pertenece a este formulario.",
   "forms.errors.version_is_frozen": "Las versiones publicadas son inmutables. Bifurque un nuevo borrador para realizar cambios.",
   "forms.errors.version_not_found": "Versión del formulario no encontrada.",

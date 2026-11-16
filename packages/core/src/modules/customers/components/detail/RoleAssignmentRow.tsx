@@ -245,6 +245,7 @@ export function RoleAssignmentRow({
         {changingUser && !onChangeUser ? (
           <div className="mt-4 border-t pt-4">
             <LookupSelect
+              defaultOpen
               value={role.userId}
               onChange={async (userId) => {
                 await handleUserChange(userId)

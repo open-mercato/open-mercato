@@ -124,12 +124,12 @@ export function MetadataEditor({
 
   const content = (
     <>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
           {hasTitle ? <p className="text-sm font-medium">{resolvedTitle}</p> : null}
           {hasDescription ? <p className="text-xs text-muted-foreground">{resolvedDescription}</p> : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="ghost"

@@ -147,6 +147,8 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: snapshot
     if: needs.snapshot.outputs.snapshot_version != ''
+    env:
+      NPM_PROPAGATION_VERSION: ${{ needs.snapshot.outputs.snapshot_version }}
     services:
       postgres:
         # MUST match the pgvector-enabled image used by local dev / prod
@@ -358,6 +360,7 @@ jobs:
 
       - name: Run integration tests
         env:
+          OM_INTEGRATION_TEST: 'true'
           OM_TEST_APP_ROOT: /tmp/standalone-app
           AUTO_SPAWN_WORKERS: 'false'
           BASE_URL: http://localhost:3001
