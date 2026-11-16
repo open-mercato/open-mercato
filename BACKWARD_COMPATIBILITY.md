@@ -577,7 +577,15 @@ CLI command names and key/ciphertext formats remain stable. The deprecated `enti
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
+<<<<<<< HEAD
 ## Scoped delegated authentication eligibility (2026-11-02, #8346)
+=======
+## Encrypted search contexts (#7872)
+
+STABLE: encrypted custom fields are omitted; missing/failing resolver excludes all. A bridge preserves disclosure; human exception approval is pending. [Contract/migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
+
+## Compose encryption (2026-11-01, #7231)
+>>>>>>> 68902bd1cc (fix(search): keep encrypted custom fields out of search build contexts (#8410))
 
 `AuthService.isUserSessionEligible({ userId, tenantId, organizationId, apiKeyId? })` is additive and optional for custom DI replacements. Without an API-key ID the core default permits existing behavior; with an ID it verifies live key ownership, scope, deletion and expiry, and SSO adds its scoped live deactivation policy. The internal auth context adds optional `sessionBoundApiKey` to distinguish delegated credentials from machine keys on cache hits. Existing import paths, signatures, HTTP payloads, and database schema remain unchanged. [Migration and operator guidance](UPGRADE_NOTES.md#scim-deactivation-blocks-fresh-sso-and-password-sign-in-7824).
 
