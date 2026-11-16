@@ -66,7 +66,6 @@ export interface UnifiedTrigger {
   organizationId: string
 }
 
-<<<<<<< HEAD
 interface CachedTriggers {
   triggers: UnifiedTrigger[]
   cachedAt: number
@@ -75,15 +74,6 @@ interface CachedTriggers {
 // Cache TTL: 5 minutes
 const TRIGGER_CACHE_TTL = 5 * 60 * 1000
 
-function readEventActorUserId(payload: Record<string, unknown>): string | null {
-  const candidate = payload.userId ?? payload.actorUserId
-  if (typeof candidate !== 'string') return null
-  const trimmed = candidate.trim()
-  return trimmed.length > 0 && !trimmed.startsWith('trigger:') ? trimmed : null
-}
-
-=======
->>>>>>> 883077fe35 (fix(workflows): isolate event-triggered execution identity (#9137) (#9639))
 // ============================================================================
 // Pattern Matching
 // ============================================================================
