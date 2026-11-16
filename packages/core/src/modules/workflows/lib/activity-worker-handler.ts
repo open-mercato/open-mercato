@@ -36,6 +36,8 @@ import { SUB_WORKFLOW_SIGNAL_NAME } from './activity-executor'
 import { getActivityType, type ActivityExecuteDeps } from './activity-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
+import { assertTrustedEventTriggerIdentity } from './event-trigger-identity'
+
 const logger = createLogger('workflows').child({ component: 'activity-worker' })
 const INVOKE_AGENT_QUEUE_MAX_ATTEMPTS = 3
 
@@ -51,6 +53,7 @@ export async function executeRegistryActivity(
   activityContext: ActivityContext,
   deps: ActivityExecuteDeps
 ): Promise<unknown> {
+  assertTrustedEventTriggerIdentity(activityContext.workflowInstance)
   const entry = getActivityType(payload.activityType)
   if (!entry) {
     throw new Error(`Unsupported activity type: ${payload.activityType}`)
@@ -444,6 +447,8 @@ export async function handleInvokeAgentJob(
       `Workflow instance ${payload.workflowInstanceId} not found for invoke_agent job`
     )
   }
+
+  assertTrustedEventTriggerIdentity(instance)
 
   // The step attempt is this invocation's identity. Its ABSENCE means the
   // parking transaction is still not observable (the instance has not reached
