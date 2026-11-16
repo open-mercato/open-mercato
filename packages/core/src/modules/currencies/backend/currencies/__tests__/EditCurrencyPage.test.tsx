@@ -211,4 +211,14 @@ describe('EditCurrencyPage', () => {
     })
     expect(updateCrud).not.toHaveBeenCalled()
   })
+
+  it('still makes an active currency the base', async () => {
+    render(<EditCurrencyPage params={{ id: 'cur-1' }} />)
+
+    await waitFor(() => expect(screen.getByTestId('crud-form-mock')).toBeTruthy())
+    const submit = mockCrudFormProps.onSubmit as (values: Record<string, unknown>) => Promise<void>
+    await submit({ ...mockCrudFormProps.initialValues, isBase: true, isActive: true })
+    expect(createCrudFormError).not.toHaveBeenCalled()
+    expect((updateCrud as jest.Mock).mock.calls[0][1]).toMatchObject({ id: 'cur-1', isBase: true, isActive: true })
+  })
 })
