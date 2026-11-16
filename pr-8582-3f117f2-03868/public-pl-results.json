@@ -1,0 +1,1 @@
+{"signup":{"weak":400,"sameTokenRetry":202},"invite":{"weak":400,"sameTokenRetry":201,"invalid":400},"resetPassword":{"weak":400,"sameTokenRetry":200,"invalid":400}}
