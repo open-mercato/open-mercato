@@ -346,6 +346,8 @@
   "customers.calendar.grid.nextDay": "다음 날",
   "customers.calendar.grid.nonWorking": "휴무일",
   "customers.calendar.grid.onPlatform": "{platform}에서",
+  "customers.calendar.grid.overflowAria": "{count}개 더보기, {range}",
+  "customers.calendar.grid.overflowTitle": "겹치는 일정 {count}개",
   "customers.calendar.grid.previousDay": "이전 날",
   "customers.calendar.grid.untitled": "제목 없음",
   "customers.calendar.grid.venue": "장소: {name}",
