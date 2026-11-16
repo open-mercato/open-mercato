@@ -6,7 +6,7 @@ import {
   createStaffTeamMemberFixture,
   deleteStaffEntityIfExists,
 } from '@open-mercato/core/helpers/integration/staffFixtures'
-import { extractOperation, undoByToken, undoTestsDisabled } from '@open-mercato/core/helpers/integration/undoHarness'
+import { extractOperation, undoByToken } from '@open-mercato/core/helpers/integration/undoHarness'
 
 /**
  * TC-STAFF-054: leave-request command errors follow the caller's locale.
@@ -41,8 +41,8 @@ test.describe('TC-STAFF-054: leave-request command errors follow the caller loca
         token,
         data: { memberId, startDate, endDate, timezone: 'UTC' },
       })
-      expect(createResponse.status(), 'POST /api/staff/leave-requests should return 201').toBe(201)
       leaveRequestId = (await readJsonSafe<{ id?: string }>(createResponse))?.id ?? null
+      expect(createResponse.status(), 'POST /api/staff/leave-requests should return 201').toBe(201)
       expect(leaveRequestId, 'create response should include an id').toBeTruthy()
 
       const missingResponse = await apiRequest(request, 'POST', ACCEPT_PATH, {
@@ -70,7 +70,15 @@ test.describe('TC-STAFF-054: leave-request command errors follow the caller loca
       const rejectBody = await readJsonSafe<{ error?: string }>(rejectResponse)
       expect(rejectBody?.error).toBe('Der Urlaubsantrag wurde bereits abgeschlossen.')
 
-      if (acceptUndoToken && !undoTestsDisabled()) {
+      const deleteResponse = await apiRequest(request, 'DELETE', `${LEAVE_REQUESTS_PATH}?id=${leaveRequestId}`, {
+        token,
+        headers: GERMAN,
+      })
+      expect(deleteResponse.status(), 'deleting an approved leave request should return 400').toBe(400)
+      const deleteBody = await readJsonSafe<{ error?: string }>(deleteResponse)
+      expect(deleteBody?.error).toBe('Der Urlaubsantrag wurde bereits abgeschlossen.')
+
+      if (acceptUndoToken) {
         const undoResponse = await undoByToken(request, token, acceptUndoToken)
         expect(undoResponse.ok(), 'undoing the approval should succeed so the request can be deleted').toBeTruthy()
         acceptUndoToken = null
