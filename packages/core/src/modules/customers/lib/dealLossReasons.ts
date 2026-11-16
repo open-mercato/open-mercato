@@ -22,7 +22,7 @@ type DealLossReasonSeed = {
 export type BackfillDealLossReasonDictionaryResult = {
   dictionaryId: string
   createdDictionary: boolean
-  revivedDictionary: boolean
+  revivedDictionary?: boolean
   copiedLegacyEntries: number
   seededDefaultEntries: number
   existingEntries: number
