@@ -59,8 +59,8 @@ export default function PortalProfilePage({ params }: Props) {
             <PortalStatRow
               label={t('portal.dashboard.email', 'Email')}
               value={
-                <span className="flex items-center gap-2">
-                  <span className="truncate">{user.email}</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+                  <span className="min-w-0 break-all">{user.email}</span>
                   <Badge variant={user.emailVerified ? 'default' : 'outline'} className="shrink-0 text-overline">
                     {user.emailVerified ? t('portal.dashboard.emailVerified', 'Verified') : t('portal.dashboard.emailNotVerified', 'Unverified')}
                   </Badge>

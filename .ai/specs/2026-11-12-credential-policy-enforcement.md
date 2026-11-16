@@ -30,6 +30,10 @@ The admin reset validation headline uses a module translation key in all five lo
 
 Request/cookie unit regressions cover same-second new sessions and pre-reset-session refusal; existing revoked/wrong-owner/wrong-scope/legacy and TypeScript compatibility cases remain. `TC-AUTH-3821-password-policy.spec.ts` adds ten rapid reset/login/profile cycles and verifies each previous session is immediately unauthorized. The original human compatibility decision is retained for its documented password-policy scope; these changes grant no current-head personal QA or CI approval.
 
+## Responsive profile repair (2026-11-16)
+
+Portal stat rows stack labels and values on narrow viewports, permit value wrapping and preserve desktop alignment. Profile email and verification badges wrap within the card instead of clipping. Existing public component props, portal spots and data behavior remain unchanged. The self-contained browser regression `TC-AUTH-066-profile-responsive-layout.spec.ts` creates its own user, verifies long email/badge/date bounds at 320, 390, 768 and 1440 pixels, and cleans up the user. Runtime QA must also repeat the Polish weak-reset and ten rapid reset/login/revocation scenarios on the final head.
+
 ## Final Compliance Report
 Source changes retain shared mechanisms and introduce no schema or dependency changes. The named compatibility exception is approved and recorded. Exact-head validation and QA remain required.
 
@@ -40,3 +44,5 @@ Source changes retain shared mechanisms and introduce no schema or dependency ch
 - 2026-11-13: Repaired init credential forwarding so development defaults remain disposable and generated production derived credentials satisfy the configured policy.
 
 - 2026-11-14: Added translated admin reset validation and precise verified-session revocation checks with request/cookie and rapid-reset regressions; protected current-head QA and CI remain required.
+
+- 2026-11-16: Reconciled published localization/session repairs and added responsive portal profile wrapping with browser regression coverage.
