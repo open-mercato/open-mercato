@@ -57,7 +57,7 @@ Unit regressions cover same-org foreign and resolver-less sources, own/foreign/l
 
 ## Final Compliance Report
 
-Implementation and focused regression coverage are complete. Parent reproduced 1,083 message/attachment tests, package builds, generation, translation checks and core typechecking; managed HTTP verification is in progress. Full monorepo testing remains blocked by TS7/ts-jest tooling. New attachment copies enforce the existing scope invariant. No automated review grants `qa-approved` or satisfies the named maintainer security waiver acknowledgment.
+Implementation and focused regression coverage are complete. Parent reproduced 1,083 message/attachment tests, package builds, generation, translation checks and core typechecking; all three managed HTTP integration cases pass, including every linking entry point, source preservation, legitimate staging/reply/forward, scope boundaries and persisted email settings. Full monorepo testing remains blocked by TS7/ts-jest tooling. New attachment copies enforce the existing scope invariant. No automated review grants `qa-approved` or satisfies the named maintainer security waiver acknowledgment.
 
 ## Changelog
 
