@@ -4,15 +4,21 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import { sanitizeToolNameForModel } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-tools'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { AgentRegistryEntry, AgentRuntime } from './defineAgent'
-import type { JsonSchemaNode } from './outcomeSchema'
+import {
+  DELEGATE_TOOL_ID,
+  FILE_AGENT_LOAD_SKILL_TOOL_ID,
+  FILE_AGENT_RUN_SKILL_SCRIPT_TOOL_ID,
+  type AgentRegistryEntry,
+  type AgentRuntime,
+} from './defineAgent'
+import { compileOutcome, type JsonSchemaNode } from './outcomeSchema'
+import { stripOptionalNulls, toStrictOutcomeSchema } from './strictOutcomeSchema'
 import type { FileAgentFile } from '../tokens/types'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'file-agent-native' })
 
-export const FILE_AGENT_DELEGATE_TOOL_ID = 'agent_orchestrator.delegate_agent'
-export const FILE_AGENT_LOAD_SKILL_TOOL_ID = 'agent_orchestrator.load_skill'
-export const FILE_AGENT_RUN_SKILL_SCRIPT_TOOL_ID = 'agent_orchestrator.run_skill_script'
+export const FILE_AGENT_DELEGATE_TOOL_ID = DELEGATE_TOOL_ID
+export { FILE_AGENT_LOAD_SKILL_TOOL_ID, FILE_AGENT_RUN_SKILL_SCRIPT_TOOL_ID }
 const AGENT_TOOLS_SKILL_ID = '__agent_tools__'
 const OPENCODE_MCP_SERVER_KEY = 'open-mercato'
 
@@ -61,6 +67,32 @@ export function resolveFileAgentRuntime(
   }
   if (entry.resultKind === 'artifact') return 'opencode'
   return 'native'
+}
+
+/**
+ * Give a native file agent a strict-mode variant of its OUTCOME schema for the
+ * model, plus the mapping back onto the authored schema (see
+ * `strictOutcomeSchema.ts`). The authored `schema` stays the validation contract.
+ * A schema with an open object keeps the authored shape and is logged, because a
+ * strict provider will reject it.
+ */
+export function attachStrictModelSchema(entry: AgentRegistryEntry): void {
+  const authored = entry.outcomeSchema
+  if (!authored || entry.resultKind === 'artifact') return
+  const strict = toStrictOutcomeSchema(authored)
+  if (!strict) {
+    logger.warn('OUTCOME schema has an open object; strict structured-output providers will reject it', {
+      agentId: entry.id,
+    })
+    return
+  }
+  entry.modelSchema = compileOutcome({ kind: entry.resultKind, schema: strict }).resultSchema
+  const key = entry.resultKind === 'proposal' ? 'proposal' : 'data'
+  entry.normalizeModelOutput = (raw) => {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw) || !(key in raw)) return raw
+    const record = raw as Record<string, unknown>
+    return { ...record, [key]: stripOptionalNulls(record[key], authored) }
+  }
 }
 
 /** @internal Test hook — re-arm the once-per-process bridge warning. */
@@ -207,7 +239,7 @@ export function buildFileAgentAiDefinition(
     defaultProvider: entry.defaultProvider,
     defaultModel: entry.defaultModel,
     loop: entry.loop,
-    output: { schemaName: entry.id.replace(/\W+/g, '_'), schema: entry.schema },
+    output: { schemaName: entry.id.replace(/\W+/g, '_'), schema: entry.modelSchema ?? entry.schema },
     ...(entry.requiredFeatures ? { requiredFeatures: entry.requiredFeatures } : {}),
   })
 }

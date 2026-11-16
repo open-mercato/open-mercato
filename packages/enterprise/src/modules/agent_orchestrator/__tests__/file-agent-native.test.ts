@@ -1,7 +1,9 @@
 import { z } from 'zod'
-import type { AgentRegistryEntry } from '../lib/sdk/defineAgent'
+import { resolveAgentEffectiveTools, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
+import { clearAgentSkills, registerAgentSkills } from '../lib/runtime/fileAgentSkills'
 import {
   FILE_AGENT_RUNTIME_ENV,
+  attachStrictModelSchema,
   buildFileAgentAiDefinition,
   extractOutcomeProse,
   resetFileAgentRuntimeWarningForTests,
@@ -131,5 +133,51 @@ describe('extractOutcomeProse', () => {
       extractOutcomeProse([{ path: 'OUTCOME.md', content: '---\nkind: artifact\n---\nWrite a PDF.', tokens: 1, inContext: true }]),
     ).toBe('Write a PDF.')
     expect(extractOutcomeProse(undefined)).toBe('')
+  })
+})
+
+describe('resolveAgentEffectiveTools', () => {
+  afterEach(() => clearAgentSkills())
+
+  it('lets the tool_scope guardrail see the skill tools a file agent calls', () => {
+    registerAgentSkills('deals.health_check_file', [{ id: 'stage_playbook', instructions: 'x', examples: [], tools: [] }])
+    const tools = resolveAgentEffectiveTools(fileEntry({ tools: [], subAgents: ['deals.activity_scan'] }))
+    expect(tools).toEqual([
+      'agent_orchestrator.load_skill',
+      'agent_orchestrator.run_skill_script',
+      'agent_orchestrator.delegate_agent',
+    ])
+  })
+
+  it('adds no skill tools to a code agent or a file agent without skills', () => {
+    registerAgentSkills('deals.health_check_file', [{ id: 'stage_playbook', instructions: 'x', examples: [], tools: [] }])
+    expect(resolveAgentEffectiveTools(fileEntry({ tools: [], definitionSource: 'code' }))).toEqual([])
+    expect(resolveAgentEffectiveTools(fileEntry({ id: 'deals.no_skills', tools: [] }))).toEqual([])
+  })
+})
+
+describe('attachStrictModelSchema', () => {
+  it('asks the model for a strict variant and maps its answer back onto the authored schema', () => {
+    const entry = fileEntry({
+      outcomeSchema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['stage'],
+        properties: { stage: { type: 'string' }, note: { type: 'string' } },
+      },
+    })
+    attachStrictModelSchema(entry)
+    expect(entry.modelSchema).toBeDefined()
+    expect(entry.modelSchema!.safeParse({ kind: 'proposal', proposal: { stage: 'won', note: null } }).success).toBe(true)
+    expect(entry.normalizeModelOutput!({ kind: 'proposal', proposal: { stage: 'won', note: null } })).toEqual({
+      kind: 'proposal',
+      proposal: { stage: 'won' },
+    })
+  })
+
+  it('leaves artifact agents and schemaless outcomes alone', () => {
+    const artifact = fileEntry({ resultKind: 'artifact' })
+    attachStrictModelSchema(artifact)
+    expect(artifact.modelSchema).toBeUndefined()
   })
 })

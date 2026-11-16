@@ -24,6 +24,7 @@ import {
 import { parseAgentIntegrityRules, parseAgentUntrustedInputs } from '../guardrails/integrity/declaration'
 import { buildUntrustedInputInstruction } from '../guardrails/integrity/untrustedInput'
 import { getSkillEntry } from './defineSkill'
+import { listAgentSkillIds } from '../runtime/fileAgentSkills'
 import type { JudgeRubric } from '../eval/judgeRubric'
 import { parseAgentEvalRubrics, registerAgentRubrics, type JudgeRubricInput } from '../eval/rubrics'
 export {
@@ -76,6 +77,10 @@ export const NATIVE_RUNTIME_VALUES = ['native', 'in-process'] as const
  * them out in parallel. Sub-agents stay propose-only: they only inform.
  */
 export const DELEGATE_TOOL_ID = 'agent_orchestrator.delegate_agent'
+
+/** Tool ids a file agent reaches its skills and local tools through. */
+export const FILE_AGENT_LOAD_SKILL_TOOL_ID = 'agent_orchestrator.load_skill'
+export const FILE_AGENT_RUN_SKILL_SCRIPT_TOOL_ID = 'agent_orchestrator.run_skill_script'
 
 export interface DefineAgentInput {
   /** 'module.agent' — STABLE contract id (see BACKWARD_COMPATIBILITY.md). */
@@ -237,6 +242,14 @@ export interface AgentRegistryEntry {
    */
   allowedActions?: string[]
   schema: ZodTypeAny
+  /**
+   * Schema the MODEL is asked to produce when it differs from `schema` — a file
+   * agent's strict-mode variant (`toStrictOutcomeSchema`). `schema` stays the
+   * contract every result is validated against; `normalizeModelOutput` maps the
+   * model's answer back onto it first. Both undefined for code agents.
+   */
+  modelSchema?: ZodTypeAny
+  normalizeModelOutput?: (raw: unknown) => unknown
   tools: string[]
   skills: string[]
   subAgents: string[]
@@ -436,16 +449,24 @@ export function getAgentEntry(id: string): AgentRegistryEntry | undefined {
 }
 
 /**
- * The effective read-only tool allowlist `defineAgent` forwards to `defineAiAgent`:
- * the agent's own tools, every tool its skills contribute, and the delegation
- * tool when it declares sub-agents.
+ * The effective read-only tool allowlist an agent runs with: the agent's own
+ * tools, every tool its code skills contribute, the delegation tool when it
+ * declares sub-agents, and — for a file agent with skills or local tools — the
+ * `load_skill` / `run_skill_script` tools it reaches them through. It mirrors the
+ * allowlist `defineAgent` and `buildFileAgentAiDefinition` hand to the model, so
+ * the `tool_scope` guardrail judges a run against what the agent could call.
  */
 export function resolveAgentEffectiveTools(
-  entry: Pick<AgentRegistryEntry, 'tools' | 'skills' | 'subAgents'>,
+  entry: Pick<AgentRegistryEntry, 'tools' | 'skills' | 'subAgents'> &
+    Partial<Pick<AgentRegistryEntry, 'id' | 'definitionSource'>>,
 ): string[] {
   const skillTools = entry.skills.flatMap((skillId) => getSkillEntry(skillId)?.tools ?? [])
+  const fileSkillTools =
+    entry.definitionSource === 'file' && entry.id && listAgentSkillIds(entry.id).length > 0
+      ? [FILE_AGENT_LOAD_SKILL_TOOL_ID, FILE_AGENT_RUN_SKILL_SCRIPT_TOOL_ID]
+      : []
   const delegationTools = entry.subAgents.length > 0 ? [DELEGATE_TOOL_ID] : []
-  return Array.from(new Set([...entry.tools, ...skillTools, ...delegationTools]))
+  return Array.from(new Set([...entry.tools, ...skillTools, ...fileSkillTools, ...delegationTools]))
 }
 
 export function listAgentEntries(): AgentRegistryEntry[] {
@@ -696,6 +717,7 @@ async function loadFileAgents(): Promise<void> {
       let definition: AiAgentDefinition | null = null
       if (nativeSupport && entry.runtime === 'native') {
         try {
+          nativeSupport.attachStrictModelSchema(entry)
           definition = nativeSupport.buildFileAgentAiDefinition(entry, descriptor.skillsContent ?? [], aiModuleId)
         } catch (err) {
           logger.warn('could not build the native definition of a file agent; keeping it on OpenCode', {

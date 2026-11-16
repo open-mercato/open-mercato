@@ -536,7 +536,7 @@ export class NativeAgentRunner {
                   input: renderUntrustedModelInput(input, entry.untrustedInputs, createUntrustedInputNonce()),
                   authContext,
                   container: this.container,
-                  output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.schema },
+                  output: { schemaName: agentId.replace(/\W+/g, '_'), schema: entry.modelSchema ?? entry.schema },
                   // Propose-only agents stay read-only: run a read-only tool loop so the
                   // agent can gather data (via its own tools or skill-contributed tools)
                   // before proposing. The runtime auto-falls back to a plain structured
@@ -588,7 +588,7 @@ export class NativeAgentRunner {
         })
         throw new AgentRunTimeoutError(agentId, runTimeoutMs)
       }
-      rawObject = raced
+      rawObject = entry.normalizeModelOutput ? entry.normalizeModelOutput(raced) : raced
     } catch (err) {
       if (err instanceof AgentRunTimeoutError) {
         await captureTrace()
