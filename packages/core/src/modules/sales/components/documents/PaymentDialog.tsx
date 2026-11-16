@@ -16,8 +16,8 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '#generated/entities.ids.generated'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
-import { compareDecimals, decimalToNumber, decimalToString } from '@open-mercato/shared/lib/decimal'
+import { formatLocaleDecimalInput, parseLocaleDecimal } from '@open-mercato/shared/lib/number'
+import { compareDecimals, decimalToNumber, decimalToString, isDecimalInput } from '@open-mercato/shared/lib/decimal'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -110,7 +110,7 @@ export function PaymentDialog({
 
   const initialValues = React.useMemo(
     () => ({
-      amount: payment?.amount ?? '',
+      amount: isDecimalInput(payment?.amount) ? formatLocaleDecimalInput(payment.amount, locale) : '',
       paymentMethodId: payment?.paymentMethodId ?? '',
       paymentReference: payment?.paymentReference ?? '',
       receivedAt: payment?.receivedAt ? payment.receivedAt.slice(0, 10) : '',
@@ -120,6 +120,7 @@ export function PaymentDialog({
       ...extractCustomFieldValues(payment),
     }),
     [
+      locale,
       payment?.amount,
       payment?.customFieldSetId,
       payment?.customValues,

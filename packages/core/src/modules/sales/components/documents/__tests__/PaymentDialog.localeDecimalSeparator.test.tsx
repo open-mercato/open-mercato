@@ -249,6 +249,23 @@ describe('PaymentDialog exact amounts', () => {
     expect(payload.amount).toBe(Number(EXACT_AMOUNT))
   })
 
+  it('redisplays the stored exact amount with the locale decimal separator', () => {
+    const { container } = render(
+      <PaymentDialog
+        open
+        mode="edit"
+        payment={{ id: 'payment-1', amount: EXACT_AMOUNT }}
+        currencyCode="ETH"
+        orderId="order-1"
+        organizationId="org-1"
+        tenantId="tenant-1"
+        onOpenChange={() => {}}
+      />,
+    )
+    const input = container.querySelector('[data-testid="field-amount"] input') as HTMLInputElement
+    expect(input.value).toBe('25,123456789012345678')
+  })
+
   it('keeps the stored exact amount on a reference-only edit', async () => {
     render(
       <PaymentDialog
@@ -263,7 +280,7 @@ describe('PaymentDialog exact amounts', () => {
       />,
     )
     await act(async () => {
-      await capturedSubmit?.({ ...submitValues(EXACT_AMOUNT), paymentReference: 'new-ref' })
+      await capturedSubmit?.({ ...submitValues('25,123456789012345678'), paymentReference: 'new-ref' })
     })
     expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
     const payload = mockUpdateCrud.mock.calls[0][1] as FormValues
