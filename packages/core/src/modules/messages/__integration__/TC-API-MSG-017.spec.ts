@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { deleteAttachmentIfExists, uploadAttachmentFixture } from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures';
 import {
   composeMessageWithToken,
   decodeJwtSubject,
@@ -13,8 +14,8 @@ import {
  * Surface: packages/core/src/modules/messages/api/[id]/attachments/route.ts (GET/POST/DELETE)
  *
  * Drafts support listing, linking, and unlinking attachments. Linking
- * re-parents an existing attachment to the draft; unlinking hard-deletes the
- * association row. Only the sender may mutate; mutations are rejected with 409
+ * re-parents an authenticated staging upload to the draft; unlinking detaches
+ * the association while retaining the source file. Only the sender may mutate; mutations are rejected with 409
  * once the message is no longer a draft.
  */
 test.describe('TC-API-MSG-017: Attachment Management on Draft Messages', () => {
@@ -22,6 +23,7 @@ test.describe('TC-API-MSG-017: Attachment Management on Draft Messages', () => {
     let draftId: string | null = null;
     let sentId: string | null = null;
     let adminToken: string | null = null;
+    const attachmentIds: string[] = [];
 
     try {
       adminToken = await getAuthToken(request, 'admin');
@@ -42,6 +44,8 @@ test.describe('TC-API-MSG-017: Attachment Management on Draft Messages', () => {
         fileName: `tc-api-msg-017-direct-${timestamp}.txt`,
       });
 
+      attachmentIds.push(directAttachmentId);
+
       const listWithDirect = await apiRequest(request, 'GET', `/api/messages/${draftId}/attachments`, {
         token: adminToken,
       });
@@ -54,7 +58,6 @@ test.describe('TC-API-MSG-017: Attachment Management on Draft Messages', () => {
       expect(typeof directItem?.fileName).toBe('string');
       expect(typeof directItem?.url).toBe('string');
 
-      // Unlink hard-deletes the association — the listing is empty again.
       const unlinkDirect = await apiRequest(request, 'DELETE', `/api/messages/${draftId}/attachments`, {
         token: adminToken,
         data: { attachmentIds: [directAttachmentId] },
@@ -69,10 +72,15 @@ test.describe('TC-API-MSG-017: Attachment Management on Draft Messages', () => {
       const listAfterUnlinkBody = (await listAfterUnlink.json()) as { attachments?: Array<{ id?: unknown }> };
       expect((listAfterUnlinkBody.attachments ?? []).some((item) => item.id === directAttachmentId)).toBe(false);
 
-      // Upload a second attachment against a neutral record, then LINK it to the draft.
-      const linkableAttachmentId = await uploadAttachmentToMessage(request, adminToken, randomUUID(), {
+      const stagingUpload = await uploadAttachmentFixture(request, adminToken, {
+        entityId: 'attachments:library',
+        recordId: randomUUID(),
         fileName: `tc-api-msg-017-linkable-${timestamp}.txt`,
+        mimeType: 'text/plain',
+        buffer: Buffer.from(`staging upload ${timestamp}`, 'utf8'),
       });
+      const linkableAttachmentId = stagingUpload.id;
+      attachmentIds.push(linkableAttachmentId);
 
       const linkResponse = await apiRequest(request, 'POST', `/api/messages/${draftId}/attachments`, {
         token: adminToken,
@@ -119,6 +127,9 @@ test.describe('TC-API-MSG-017: Attachment Management on Draft Messages', () => {
     } finally {
       await deleteMessageIfExists(request, adminToken, draftId);
       await deleteMessageIfExists(request, adminToken, sentId);
+      for (const attachmentId of attachmentIds) {
+        await deleteAttachmentIfExists(request, adminToken, attachmentId);
+      }
     }
   });
 });
