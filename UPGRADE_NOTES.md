@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Refused MCP calls are audited on the HTTP and dev servers (#9648, B-2)
+
+**Behaviour change (`ai_assistant`).** `mcp:serve-http` and `mcp:dev` now write the `ai_assistant.mcp_tool_call` access-log row for calls the MCP SDK refuses before the tool handler runs, as the stdio server already did. A call for an unknown tool, or for a tool hidden by the exposure config, the mutation mode or the caller's ACL, records `outcome: 'denied'` / `errorCode: 'NOT_FOUND'`; arguments rejected by the input schema record `outcome: 'invalid_input'` / `errorCode: 'VALIDATION_ERROR'`. The result returned to the client is unchanged apart from an added `_meta.correlationId`. On all MCP servers and `/tools/execute`, `argKeys` in the audit row is now capped at 64 argument names of at most 128 characters. On `mcp:serve-http` the row is attributed to the request's verified principal (the `x-om-session-token` header user, else the API key), never to a `_sessionToken` argument.
+
+**Action:** none. Expect more audit rows from clients that probe for tools; dashboards that read `outcome: 'denied'` as "permission denied" should also check `errorCode`.
+
 ## Agent trace artifacts are never stored unencrypted (#9648, B-6)
 
 **Behaviour change (enterprise `agent_orchestrator`).** Offloads to `storage_s3` used to upload the payload as plaintext JSON when tenant data encryption was not in effect. This covered full-content trace capture (LLM request/response and context payload), full run output, tool request/response, integrity evidence and agent-produced file artifacts. Plaintext was written when the `tenantEncryptionService` was not registered, `TENANT_DATA_ENCRYPTION=false`, the KMS was unhealthy, or no DEK could be resolved. These writes now fail closed: nothing is uploaded and the caller degrades as it does when storage is unavailable. Trace steps record the new `om.content.status = encryption_unavailable` value (the trace UI says so), the context bundle keeps `payloadRef = null`, and file artifacts are reported as failed captures. Runs never fail because of this.

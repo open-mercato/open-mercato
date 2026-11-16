@@ -39,6 +39,7 @@ import {
   type McpAuditOutcome,
 } from './mcp-audit'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
+import { createMcpSdkRefusalAudit } from './mcp-sdk-refusal-audit'
 import type { McpToolContext, McpToolDefinition } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 
@@ -124,6 +125,30 @@ export function createDevMcpServer(
     log(`Registering ${accessibleTools.length}/${tools.length} tools (filtered by exposure config and API key permissions)`)
   }
 
+  const refusalAudit = createMcpSdkRefusalAudit(async (call) => {
+    const correlationId = resolveCorrelationId(null)
+    const registeredTool = registry.getTools().get(call.toolName)
+    await recordMcpToolCall(toolContext.container, {
+      ...auditIdentity,
+      ...resolveAgentToolAuditIds(registeredTool),
+      toolName: call.toolName,
+      tenantId: toolContext.tenantId,
+      organizationId: toolContext.organizationId,
+      channel: 'mcp',
+      mcpServer: 'dev',
+      sessionKeyId: null,
+      principal: 'api_key',
+      outcome: mapToolResultToAuditOutcome({ success: false, errorCode: call.errorCode }),
+      errorCode: call.errorCode,
+      durationMs: call.durationMs,
+      isMutation: isMutationTool(registeredTool),
+      pendingActionIds: null,
+      correlationId,
+      args: call.args,
+    })
+    return correlationId
+  })
+
   for (const tool of accessibleTools) {
     if (debug) {
       log(`Registering tool: ${tool.name}`)
@@ -157,7 +182,8 @@ export function createDevMcpServer(
           ...(outputSchema ? { outputSchema } : {}),
           annotations: buildMcpToolAnnotations(tool),
         },
-        async (args: unknown) => {
+        async (args: unknown, extra: unknown) => {
+          refusalAudit.markHandled(extra)
           const toolArgs = (args ?? {}) as Record<string, unknown>
           const correlationId = resolveCorrelationId(null)
           const startedAt = Date.now()
@@ -239,6 +265,7 @@ export function createDevMcpServer(
           return attachCorrelationMeta(buildToolSuccessResponse(tool, result.result), correlationId)
         }
       )
+      refusalAudit.markRegistered(tool.name)
     } catch (error) {
       if (debug) {
         log(`Skipping tool ${tool.name} - registration failed:`, error instanceof Error ? error.message : error)
@@ -247,6 +274,7 @@ export function createDevMcpServer(
     }
   }
 
+  refusalAudit.attach(server)
   return server
 }
 

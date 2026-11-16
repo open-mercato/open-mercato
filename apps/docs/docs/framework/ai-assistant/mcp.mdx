@@ -428,7 +428,9 @@ Every `tools/call` on the three servers and every `POST /api/ai_assistant/tools/
 | actor | the session user, else the API key's session user, else the key's `createdBy` user |
 | `context` | `channel` (`mcp` / `tools-api`), `mcpServer` (`http` / `dev` / `stdio` / `null`), `apiKeyId`, `sessionKeyId`, `principal`, `outcome` (`ok`, `denied`, `invalid_input`, `error`, `mutation_denied`, `pending_approval`, `dispatcher_unavailable`), `errorCode`, `durationMs`, `isMutation`, `agentId`, `aiAgentRunId`, `agentRunId` (agent tools only, otherwise `null`), `pendingActionIds`, `correlationId`, `argKeys` |
 
-Argument **values** are never stored, only the argument names (`argKeys`, without `_sessionToken`).
+Argument **values** are never stored, only the argument names (`argKeys`, without `_sessionToken`; at most 64 names, each cut to 128 characters).
+
+Refused calls are audited too. A call for an unknown tool, or for a tool hidden from the caller by the exposure config, the mutation mode or the ACL, writes `outcome: 'denied'` with `errorCode: 'NOT_FOUND'`; on `mcp:serve-http` and `mcp:dev`, arguments rejected by the tool's input schema write `outcome: 'invalid_input'` with `errorCode: 'VALIDATION_ERROR'`. The caller gets the same "not found" result for a hidden tool as for an unknown one. On `mcp:serve-http` a refused call is attributed to the request's verified principal (the `x-om-session-token` header user, else the API key), never to an unverified `_sessionToken` argument. In the row, a refused tool name is cut to 128 characters and control or formatting characters are replaced with `?`.
 
 Every call gets a correlation id: the `x-correlation-id` request header when it is valid (max 128 characters, `[A-Za-z0-9._:-]`), otherwise a fresh UUID. MCP tool results echo it as `_meta.correlationId`, so a client can quote it when reporting a problem.
 

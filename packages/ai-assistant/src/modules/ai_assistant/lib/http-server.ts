@@ -34,6 +34,7 @@ import { runWithMcpToolExecutionObserver } from './mcp-tool-execution-observer'
 import {
   CORRELATION_ID_HEADER,
   attachCorrelationMeta,
+  isMutationTool,
   mapToolResultToAuditOutcome,
   recordMcpToolCall,
   resolveAuditActorUserId,
@@ -41,6 +42,7 @@ import {
   type McpAuditOutcome,
   type McpAuditPrincipal,
 } from './mcp-audit'
+import { createMcpSdkRefusalAudit, type McpSdkRefusalAudit } from './mcp-sdk-refusal-audit'
 import type { AiToolDefinition, McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -278,6 +280,15 @@ export async function resolveApiKeyListCaller(
   return { features: listContext.userFeatures, isSuperAdmin: listContext.isSuperAdmin }
 }
 
+type ListPrincipal = {
+  caller: McpExposureCaller
+  principal: McpAuditPrincipal
+  tenantId: string | null
+  organizationId: string | null
+  sessionUserId: string | null
+  sessionKeyId: string | null
+}
+
 /**
  * Resolve the principal whose ACL filters `tools/list` for a request.
  * A session token header selects the session user's ACL; otherwise the server API key's ACL applies.
@@ -288,15 +299,70 @@ async function resolveListPrincipal(
   toolContext: McpToolContext,
   apiKeyRecord: ApiKey,
   sessionHeaderToken: string | undefined
-): Promise<McpExposureCaller | null> {
+): Promise<ListPrincipal | null> {
   if (sessionHeaderToken) {
     const resolvedSession = await resolveSessionContext(sessionHeaderToken, toolContext, config.debug)
     if (!resolvedSession) return null
-    return { features: resolvedSession.context.userFeatures, isSuperAdmin: resolvedSession.context.isSuperAdmin }
+    const sessionContext = resolvedSession.context
+    return {
+      caller: { features: sessionContext.userFeatures, isSuperAdmin: sessionContext.isSuperAdmin },
+      principal: 'session',
+      tenantId: sessionContext.tenantId,
+      organizationId: sessionContext.organizationId,
+      sessionUserId: sessionContext.userId,
+      sessionKeyId: resolvedSession.sessionKeyId,
+    }
   }
   const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext, config.debug)
   const listContext = apiKeyContext ?? toolContext
-  return { features: listContext.userFeatures, isSuperAdmin: listContext.isSuperAdmin }
+  return {
+    caller: { features: listContext.userFeatures, isSuperAdmin: listContext.isSuperAdmin },
+    principal: 'api_key',
+    tenantId: listContext.tenantId,
+    organizationId: listContext.organizationId,
+    sessionUserId: null,
+    sessionKeyId: null,
+  }
+}
+
+type RefusalAuditOptions = {
+  container: AwilixContainer
+  apiKeyRecord: ApiKey
+  listPrincipal: ListPrincipal
+  correlationId: string
+}
+
+function createRefusalAudit({
+  container,
+  apiKeyRecord,
+  listPrincipal,
+  correlationId,
+}: RefusalAuditOptions): McpSdkRefusalAudit {
+  return createMcpSdkRefusalAudit(async (call) => {
+    const registeredTool = getToolRegistry().getTools().get(call.toolName)
+    await recordMcpToolCall(container, {
+      ...resolveAgentToolAuditIds(registeredTool),
+      toolName: call.toolName,
+      tenantId: listPrincipal.tenantId,
+      organizationId: listPrincipal.organizationId,
+      sessionUserId: listPrincipal.sessionUserId,
+      apiKeySessionUserId: apiKeyRecord.sessionUserId ?? null,
+      apiKeyCreatedBy: apiKeyRecord.createdBy ?? null,
+      channel: 'mcp',
+      mcpServer: 'http',
+      apiKeyId: apiKeyRecord.id,
+      sessionKeyId: listPrincipal.sessionKeyId,
+      principal: listPrincipal.principal,
+      outcome: mapToolResultToAuditOutcome({ success: false, errorCode: call.errorCode }),
+      errorCode: call.errorCode,
+      durationMs: call.durationMs,
+      isMutation: isMutationTool(registeredTool),
+      pendingActionIds: null,
+      correlationId,
+      args: call.args,
+    })
+    return correlationId
+  })
 }
 
 /**
@@ -323,9 +389,15 @@ async function createMcpServerForRequest(
   )
 
   const tools = await filterRunnableAgentTools(
-    filterToolsForCaller(listRegistryTools(), exposureConfig, listPrincipal),
+    filterToolsForCaller(listRegistryTools(), exposureConfig, listPrincipal.caller),
     toolContext.container
   )
+  const refusalAudit = createRefusalAudit({
+    container: toolContext.container,
+    apiKeyRecord,
+    listPrincipal,
+    correlationId,
+  })
 
   if (config.debug) {
     logger.debug('Registering tools filtered for list principal (ACL also checked per-call)', {
@@ -388,7 +460,8 @@ async function createMcpServerForRequest(
           ...(outputSchema ? { outputSchema } : {}),
           annotations: buildMcpToolAnnotations(tool),
         },
-        async (args: unknown) => {
+        async (args: unknown, extra: unknown) => {
+          refusalAudit.markHandled(extra)
           const toolArgs = (args ?? {}) as Record<string, unknown>
           const startedAt = Date.now()
 
@@ -569,6 +642,7 @@ async function createMcpServerForRequest(
           }
         }
       )
+      refusalAudit.markRegistered(tool.name)
     } catch (error) {
       // Skip tools with schemas that can't be registered
       if (config.debug) {
@@ -578,6 +652,7 @@ async function createMcpServerForRequest(
     }
   }
 
+  refusalAudit.attach(server)
   return server
 }
 
