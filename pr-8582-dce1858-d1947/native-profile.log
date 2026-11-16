@@ -1,0 +1,19 @@
+◇ injected env (117) from apps/mercato/.env // tip: ◈ secrets for agents [www.dotenvx.com]
+╔═══════════════════════╗
+║  🧩 Open Mercato CLI  ║
+╚═══════════════════════╝
+
+🚀 Running test:integration TC-AUTH-066
+[integration] Running Playwright suite...
+[integration] Checking whether an existing ephemeral environment can be reused...
+[integration] Reusing existing ephemeral environment at http://127.0.0.1:5001.
+[integration] Ensuring Playwright Chromium is installed...
+
+Running 1 test using 1 worker
+
+  ✓  1 packages/core/src/modules/portal/__integration__/TC-AUTH-066-profile-responsive-layout.spec.ts:11:1 › TC-AUTH-066: portal profile keeps long values and badges inside the viewport (1.1s)
+
+  1 passed (5.1s)
+[integration] Attached to an already running ephemeral environment from .ai/qa/ephemeral-env.json.
+[integration] Screenshot capture is enabled (override with --screenshots / --no-screenshots)
+⏱️ Done in 9315ms
