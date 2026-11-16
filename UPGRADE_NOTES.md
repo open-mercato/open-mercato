@@ -1,5 +1,44 @@
 # Upgrade Notes
 
+## Event-triggered workflow execution identity (#9137)
+
+Event payload `userId` and `actorUserId` remain data and no longer supply
+workflow execution authority. Configure the workflow definition's explicit grant
+for event-driven effects; manually authenticated starts retain their identity.
+
+Persisted event-labelled instances whose initiator differs from their canonical
+`trigger:<trigger_id>` marker now fail closed before execution or queued effect
+dispatch, including inherited sub-workflows. Stop/drain workflow writers and
+workers and update every app/worker replica together. Inventory affected records
+within each tenant/organization, cancel through supported workflow controls,
+audit prior effects, and restart required work with a trusted manual initiator or
+a fresh configured event. Repeated retry, editing metadata or replaying an old
+queue message as a user is not a repair. Historical effects are not undone.
+No schema migration or automatic data rewrite is performed.
+
+[Rollout, inventory predicate and coverage](.ai/specs/2026-11-16-workflow-event-identity-rollout.md).
+
+## EUDR update undo conflicts (#9128)
+
+Update undos for EUDR plots, risk assessments, product mappings, mitigation actions,
+evidence submissions and statements now return HTTP 409 with code
+`eudr.errors.undoConflict` when the record changed or was soft-deleted after the
+logged update, or the action log has no `after` snapshot. Previously these undos
+could return 200 and overwrite later edits. Clients must treat this refusal as
+final: reload the record and re-apply the wanted change by hand. Do not retry the
+same stale undo automatically. Edits lost to earlier undos are not recovered.
+
+Undoing an evidence-submission update also recomputes its completeness score.
+Forward updates and update undos now keep entity and custom-field writes in the
+same parent-row transaction. Custom-field-only updates wait for an in-flight undo;
+a failed reset rolls back both the row and its custom values before retry.
+Own updates can still be undone newest first when their recorded content matches;
+create/delete undos and forward commands are unchanged. No database migration,
+configuration change, route, event or response-field migration is needed for this
+fix. Restart application and worker processes together when deploying.
+
+[Specification and coverage](.ai/specs/2026-07-06-eudr-compliance-module.md#migration--backward-compatibility).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app
