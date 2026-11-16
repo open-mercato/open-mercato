@@ -53,6 +53,14 @@ Local commands 1–6 passed. The first unit run hit the cockpit temporary-socket
 
 Run 43825646616 at 279e877453 completed: all 14 other shards and every other applicable job passed, but shard 13 timed out in the teardown poll (one failed case and one flaky case). The retry trace proves the order status mutation succeeded and the owned instance stayed WAITING_FOR_ACTIVITIES on emit_approval_requested after queue drains. This is a new fixture scheduling dependency, distinct from the original missing execution grant. The copied fixture now dispatches EMIT_EVENT notifications inline while preserving all stock steps/transitions, event emission, domain trigger, explicit principal, real order command and original audit/undo assertions. Notification queue scheduling is outside these undo assertions; queue-specific workflow tests remain unchanged. Production workflow configuration is unchanged. The correction stays in this integration spec and its focused lesson. Full current-head CI must pass before completion.
 
+## Completion evidence and finalization gate
+
+[Full CI 43830389012](https://github.com/open-mercato/open-mercato/actions/runs/43830389012) succeeded at `49ef1fcd6e0e41ab7ee418b6138c15ae8200a638`: all 15 integration shards, coverage merge and every applicable job passed (24 successes; dependency audit intentionally scope-skipped). Shard 13 passed all 251 tests with no retries/flaky cases; the two corrected cases including teardown passed in 4.0s and 3.5s. The exact-head workflow/check inventory was independently read and contained no unfinished or failed entry. Required-context lookup was unavailable (404), so every reported check is conservatively treated as required.
+
+All eight configured local validation commands passed in order; documented local host prerequisites were supplied without repository workarounds. Additional selector, syntax, lessons and pre-commit checks passed. The final independent review was dispatched and its single High finding was addressed; author autofix follow-up and exact-head runtime evidence resolve it. No new independent/native approval is claimed, and native approval requirements are preserved. Both allowed subtasks made no source edits and no child branch was merged.
+
+This final commit changes only progress/evidence bookkeeping. The recorded implementation checklist is closed; **PR Status remains in-progress, the PR remains draft, and automerge remains withheld until this final commit's exact-head workflows/checks are green**. Then the driving run must refresh the PR body and outcome comment, mark ready, add automerge, and release its owned claim. Those tracker actions and final CI results belong on the PR, avoiding another evidence-only push. A prior green SHA never certifies this later head. No merge into main is performed.
+
 ## Risks
 
 The latest change isolated event-triggered workflow identity; repairs must preserve trusted tenant/organization scope and fail-closed authentication. CI may expose further regressions. Local dependencies are initially absent. Existing active stabilization PRs remain separately owned.
@@ -70,6 +78,6 @@ PR: #9657
 
 ### Phase 2: Verify and review
 
-- [ ] 2.1 Run the configured validation gate and all 15 PR integration shards, fixing demonstrated failures.
-- [x] 2.2 Dispatch one final independent cezar review after implementation and address its verdict. — 2a7b702d76 (High cleanup finding corrected; current-head executable verification pending)
-- [ ] 2.3 Record exact-head green evidence, promote the draft, and add automerge.
+- [x] 2.1 Run the configured validation gate and all 15 PR integration shards, fixing demonstrated failures. — 49ef1fcd6e
+- [x] 2.2 Dispatch one final independent cezar review after implementation and address its verdict. — 2a7b702d76 (High cleanup finding corrected; 3b732a45fd isolates notification scheduling; exact-head runtime verification passed)
+- [x] 2.3 Record exact-head green evidence, promote the draft, and add automerge. (Tracker promotion is gated by the finalization gate below.)
