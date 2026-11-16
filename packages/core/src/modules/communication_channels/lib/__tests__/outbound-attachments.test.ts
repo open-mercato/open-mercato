@@ -254,6 +254,22 @@ describe('validateOutboundAttachments', () => {
     ).rejects.toMatchObject({ status: 504 })
   })
 
+  it('fails loudly when a batch override returns a result per ref that does not line up', async () => {
+    const describeManyScoped = jest.fn(async () => [
+      { id: uuid(1), fileName: 'a.pdf', mimeType: 'application/pdf', fileSize: 10, partitionCode: 'privateAttachments' },
+    ])
+    const service = { readScoped: jest.fn(), describeManyScoped } as unknown as AttachmentService
+
+    await expect(
+      validateOutboundAttachments({
+        container: { resolve: () => service },
+        scope,
+        refs: [ref(uuid(1)), ref(uuid(2))],
+        capabilities: fileSharingCapabilities,
+      }),
+    ).rejects.toThrow('[internal] describeManyScoped returned 1 results for 2 attachment refs')
+  })
+
   it('refuses a bad display name before describing any file', async () => {
     const describeManyScoped = jest.fn()
     const service = { readScoped: jest.fn(), describeManyScoped } as unknown as AttachmentService

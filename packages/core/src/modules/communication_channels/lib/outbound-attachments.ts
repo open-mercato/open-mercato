@@ -242,10 +242,14 @@ async function describeOutboundAttachments(
   refs: OutboundAttachmentRef[],
 ): Promise<DescribedOutboundAttachment[]> {
   if (attachmentService.describeManyScoped) {
-    return attachmentService.describeManyScoped({
+    const batch = await attachmentService.describeManyScoped({
       auth,
       items: refs.map((ref) => ({ attachmentId: ref.attachmentId, expectedOwner: ref.owner })),
     })
+    if (batch.length !== refs.length) {
+      throw new Error(`[internal] describeManyScoped returned ${batch.length} results for ${refs.length} attachment refs`)
+    }
+    return batch
   }
   const described: DescribedOutboundAttachment[] = []
   for (const ref of refs) {
