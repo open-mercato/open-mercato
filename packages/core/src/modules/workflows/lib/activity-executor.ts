@@ -1163,7 +1163,7 @@ export async function executeUpdateEntity(
     organizationIds: context.workflowInstance.organizationId
       ? [context.workflowInstance.organizationId]
       : null,
-    ...withWorkflowAuditCorrelation(context),
+    ...(await withWorkflowAuditCorrelation(context, container)),
   }
 
   // Execute the command. A timeout AbortSignal refuses a start (throwIfAborted
@@ -1193,25 +1193,74 @@ function readCorrelationValue(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+type ProposalVerificationBridgeLike = {
+  verifyProposalForInstance?: (args: {
+    proposalId: string
+    workflowInstanceId: string
+    tenantId: string
+    organizationId: string
+  }) => Promise<boolean>
+}
+
+const CORRELATION_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The workflow context is user-writable (task completion merges form data, admins
+ * can PATCH it), so a proposal id read from it is stamped only after the optional
+ * agent_orchestrator peer confirms the proposal belongs to this very instance.
+ * An absent peer, a failed lookup or a mismatch drops the id; the write proceeds.
+ */
+async function isProposalOfInstance(
+  container: AwilixContainer,
+  context: ActivityContext,
+  proposalId: string,
+  workflowInstanceId: string,
+): Promise<boolean> {
+  const tenantId = context.workflowInstance?.tenantId
+  const organizationId = context.workflowInstance?.organizationId
+  if (!tenantId || !organizationId) return false
+  if (!CORRELATION_UUID_PATTERN.test(proposalId) || !CORRELATION_UUID_PATTERN.test(workflowInstanceId)) return false
+  let bridge: ProposalVerificationBridgeLike | undefined
+  try {
+    bridge = container.resolve<ProposalVerificationBridgeLike>('agentWorkflowBridge')
+  } catch {
+    return false
+  }
+  if (!bridge || typeof bridge.verifyProposalForInstance !== 'function') return false
+  try {
+    return (await bridge.verifyProposalForInstance({ proposalId, workflowInstanceId, tenantId, organizationId })) === true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Correlation ids stamped on the action log of a workflow-driven write: the
  * instance always, and the agent proposal whose verdict the run is carrying out
  * when the context holds one (`proposalId` from a human dispose, `agentProposalId`
- * from the inline resolution path).
+ * from the inline resolution path) and it is verified to belong to this instance.
  */
-function buildWorkflowAuditCorrelation(context: ActivityContext): Record<string, string> {
+async function buildWorkflowAuditCorrelation(
+  context: ActivityContext,
+  container: AwilixContainer,
+): Promise<Record<string, string>> {
   const correlation: Record<string, string> = {}
   const workflowInstanceId = readCorrelationValue(context.workflowInstance?.id)
   if (workflowInstanceId) correlation.workflowInstanceId = workflowInstanceId
   const workflowContext = context.workflowContext ?? {}
   const proposalId =
     readCorrelationValue(workflowContext.proposalId) ?? readCorrelationValue(workflowContext.agentProposalId)
-  if (proposalId) correlation.proposalId = proposalId
+  if (proposalId && workflowInstanceId && (await isProposalOfInstance(container, context, proposalId, workflowInstanceId))) {
+    correlation.proposalId = proposalId
+  }
   return correlation
 }
 
-function withWorkflowAuditCorrelation(context: ActivityContext): { auditCorrelation?: Record<string, string> } {
-  const auditCorrelation = buildWorkflowAuditCorrelation(context)
+async function withWorkflowAuditCorrelation(
+  context: ActivityContext,
+  container: AwilixContainer,
+): Promise<{ auditCorrelation?: Record<string, string> }> {
+  const auditCorrelation = await buildWorkflowAuditCorrelation(context, container)
   return Object.keys(auditCorrelation).length > 0 ? { auditCorrelation } : {}
 }
 

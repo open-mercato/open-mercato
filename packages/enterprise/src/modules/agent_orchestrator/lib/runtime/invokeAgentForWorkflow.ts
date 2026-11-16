@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
-import type { ZodTypeAny } from 'zod'
+import { z, type ZodTypeAny } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentProposal } from '../../data/entities'
 import { ensureAgentsLoaded, listAgentEntries } from '../sdk/defineAgent'
 import { resolveAgentOutcomeZod } from '../sdk/agentOutcomeContract'
@@ -108,7 +109,28 @@ export interface AgentWorkflowBridge {
    * INVOKE_AGENT step targets. OPTIONAL for the same reason as above.
    */
   listAgentAccessRequirements?(): Promise<AgentAccessRequirementSnapshot[]>
+  /**
+   * Whether a proposal id read from a (user-writable) workflow context names a
+   * proposal raised by that same workflow instance, in the instance's tenant and
+   * organization. The workflows module stamps the id on an effector's audit
+   * correlation only when this answers true. OPTIONAL for the same reason as above.
+   */
+  verifyProposalForInstance?(args: ProposalInstanceVerificationArgs): Promise<boolean>
 }
+
+export type ProposalInstanceVerificationArgs = {
+  proposalId: string
+  workflowInstanceId: string
+  tenantId: string
+  organizationId: string
+}
+
+const proposalInstanceVerificationSchema = z.object({
+  proposalId: z.string().uuid(),
+  workflowInstanceId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+})
 
 export type AgentWorkflowBridgeDeps = {
   container: AwilixContainer
@@ -244,6 +266,21 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       agentId: entry.id,
       requiredFeatures: [...(entry.requiredFeatures ?? [])],
     }))
+  }
+
+  async verifyProposalForInstance(args: ProposalInstanceVerificationArgs): Promise<boolean> {
+    const parsed = proposalInstanceVerificationSchema.safeParse(args)
+    if (!parsed.success) return false
+    const { proposalId, workflowInstanceId, tenantId, organizationId } = parsed.data
+    const em = (this.container.resolve('em') as EntityManager).fork()
+    const proposal = await findOneWithDecryption(
+      em,
+      AgentProposal,
+      { id: proposalId, tenantId, organizationId, workflowInstanceId },
+      { fields: ['id'] },
+      { tenantId, organizationId },
+    )
+    return proposal !== null
   }
 
   private parseSubject(raw: unknown): ProcessSubject | null {
