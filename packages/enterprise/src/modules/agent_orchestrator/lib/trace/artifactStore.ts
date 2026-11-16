@@ -11,12 +11,15 @@
  * step throws, the offload returns `null` and the caller keeps the inline
  * summary — trace ingestion must never fail because an artifact could not be
  * stored. The blob is encrypted through `TenantDataEncryptionService` under an
- * already-declared field map (`encryption.ts`); when encryption is disabled the
- * service no-ops and the blob is stored as plaintext JSON, exactly as the rest
- * of the module degrades.
+ * already-declared field map (`encryption.ts`). Writes fail CLOSED on
+ * encryption: when the service is absent, encryption is disabled, or no DEK is
+ * available, nothing is uploaded and the offload returns `null` — captured
+ * prompts and responses are never written to object storage as plaintext.
+ * Reads still accept blobs stored as plaintext by earlier versions.
  */
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { sealArtifactPayload } from './sealArtifactPayload'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'trace-artifact-store' })
 
@@ -128,22 +131,10 @@ async function resolveStorageService(
   }
 }
 
-/** Encrypt `{ [field]: serialized }` when encryption is available; else pass through. */
-async function encryptWrapper(
-  container: MinimalContainer,
-  scope: ArtifactScope,
-  ref: ArtifactEncryptionRef,
-  serialized: string,
-): Promise<Record<string, unknown>> {
-  const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
-  const payload = { [ref.field]: serialized }
-  if (!enc || typeof enc.encryptEntityPayload !== 'function') return payload
-  return enc.encryptEntityPayload(ref.entityId, payload, scope.tenantId, scope.organizationId)
-}
-
 /**
  * Offload one full payload to encrypted storage and return its key, or `null`
- * when storage is unavailable or the write fails. Never throws.
+ * when storage is unavailable, the payload cannot be encrypted, or the write
+ * fails. Never throws.
  */
 export async function putArtifact(
   container: MinimalContainer,
@@ -156,7 +147,15 @@ export async function putArtifact(
     const svc = await resolveStorageService(container, scope)
     if (!svc) return null
     const serialized = JSON.stringify(value ?? null)
-    const wrapper = await encryptWrapper(container, scope, ref, serialized)
+    const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
+    const wrapper = await sealArtifactPayload(enc, scope, ref, serialized)
+    if (!wrapper) {
+      logger.warn('artifact offload skipped; tenant data encryption is unavailable', {
+        entityId: ref.entityId,
+        field: ref.field,
+      })
+      return null
+    }
     const { key } = await svc.upload({
       namespace,
       fileName: `${ref.entityId.replace(/[^a-zA-Z0-9_-]+/g, '_')}-${ref.field}.json`,

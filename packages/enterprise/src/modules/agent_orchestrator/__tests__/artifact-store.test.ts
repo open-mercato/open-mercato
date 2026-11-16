@@ -8,12 +8,14 @@ import {
   putArtifact,
   readArtifact,
 } from '../lib/trace/artifactStore'
+import { createTestArtifactEncryption, passThroughArtifactEncryption } from './support/artifactEncryption'
 
 /**
  * F1 encrypted artifact offload. These unit tests exercise the fail-open
- * contract (degrade to null when storage is absent / unconfigured) and the
- * encrypt→upload / download→decrypt round-trip against in-memory stubs, so no
- * real storage-s3 credentials are needed.
+ * storage contract (degrade to null when storage is absent / unconfigured), the
+ * fail-closed encryption contract (never upload a payload that did not come back
+ * sealed), and the encrypt→upload / download→decrypt round-trip against
+ * in-memory stubs with real AES-GCM, so no storage-s3 credentials are needed.
  */
 
 const SCOPE = { tenantId: 't1', organizationId: 'o1' }
@@ -54,21 +56,8 @@ function makeStorage() {
   return { blobs, namespaces, proxy: { _resolveService: async () => service } }
 }
 
-/** Reversible "encryption" stub: prefixes each mapped field value with ENC:. */
-const encryption = {
-  async encryptEntityPayload(_entityId: string, payload: Record<string, unknown>) {
-    const out: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(payload)) out[key] = `ENC:${String(value)}`
-    return out
-  },
-  async decryptEntityPayload(_entityId: string, payload: Record<string, unknown>) {
-    const out: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(payload)) {
-      out[key] = typeof value === 'string' && value.startsWith('ENC:') ? value.slice(4) : value
-    }
-    return out
-  },
-}
+const testEncryption = createTestArtifactEncryption()
+const encryption = testEncryption.service
 
 describe('artifactStore — putArtifact fail-open', () => {
   it('returns null when storageService is not registered', async () => {
@@ -96,27 +85,68 @@ describe('artifactStore — encrypt → upload → download → decrypt round-tr
 
     const key = await putArtifact(container, SCOPE, ARTIFACT_REFS.runOutput, value)
     expect(key).toBe('k-1')
-    // Bytes at rest pass through the encryption service (the reversible stub
-    // marks each mapped field with ENC:; real crypto would render it opaque).
-    const stored = blobs.get('k-1')!.toString('utf8')
-    expect(stored).toContain('ENC:')
+    const stored = blobs.get('k-1')!
+    expect(stored.toString('utf8')).not.toContain('hello')
+    expect(testEncryption.openSealedBuffer(stored)).toEqual({ output: JSON.stringify(value) })
 
     const got = await getArtifact(container, SCOPE, ARTIFACT_REFS.runOutput, key!)
     expect(got).toEqual(value)
   })
 
-  it('stores a plaintext wrapper and round-trips when encryption is disabled', async () => {
+  it('reads a plaintext blob stored before writes failed closed', async () => {
+    const { proxy, blobs } = makeStorage()
+    const container = makeContainer({ storageService: proxy, tenantEncryptionService: encryption })
+    blobs.set('legacy', Buffer.from(JSON.stringify({ output: JSON.stringify({ x: 1 }) }), 'utf8'))
+
+    expect(await getArtifact(container, SCOPE, ARTIFACT_REFS.runOutput, 'legacy')).toEqual({ x: 1 })
+  })
+})
+
+describe('artifactStore — putArtifact fails closed without encryption', () => {
+  it('uploads nothing when no tenant encryption service is registered', async () => {
     const { proxy, blobs } = makeStorage()
     const container = makeContainer({ storageService: proxy })
-    const value = { x: 1 }
 
-    const key = await putArtifact(container, SCOPE, ARTIFACT_REFS.runOutput, value)
-    const stored = JSON.parse(blobs.get(key!)!.toString('utf8'))
-    // Wrapped under the declared field name, serialized, but not encrypted.
-    expect(stored).toEqual({ output: JSON.stringify(value) })
+    expect(await putArtifact(container, SCOPE, ARTIFACT_REFS.llmRequest, { prompt: 'secret' })).toBeNull()
+    expect(blobs.size).toBe(0)
+  })
 
-    const got = await getArtifact(container, SCOPE, ARTIFACT_REFS.runOutput, key!)
-    expect(got).toEqual(value)
+  it('uploads nothing when the service returns the payload unencrypted (encryption disabled / no DEK)', async () => {
+    const { proxy, blobs } = makeStorage()
+    const container = makeContainer({ storageService: proxy, tenantEncryptionService: passThroughArtifactEncryption })
+
+    expect(
+      await putArtifact(container, SCOPE, ARTIFACT_REFS.llmResponse, { text: 'secret' }, AGENT_TRACE_CONTENT_NAMESPACE),
+    ).toBeNull()
+    expect(blobs.size).toBe(0)
+  })
+
+  it('uploads nothing when the service drops the field or returns a non-envelope value', async () => {
+    const outputs: Array<Record<string, unknown>> = [{}, { output: 'not-an-envelope' }, { output: 'aaaa:bbbb:cccc:v1' }]
+    for (const sealed of outputs) {
+      const { proxy, blobs } = makeStorage()
+      const container = makeContainer({
+        storageService: proxy,
+        tenantEncryptionService: { encryptEntityPayload: async () => sealed },
+      })
+      expect(await putArtifact(container, SCOPE, ARTIFACT_REFS.runOutput, { a: 1 })).toBeNull()
+      expect(blobs.size).toBe(0)
+    }
+  })
+
+  it('returns null without uploading when encryption throws', async () => {
+    const { proxy, blobs } = makeStorage()
+    const container = makeContainer({
+      storageService: proxy,
+      tenantEncryptionService: {
+        encryptEntityPayload: async () => {
+          throw new Error('[internal] kms down')
+        },
+      },
+    })
+
+    expect(await putArtifact(container, SCOPE, ARTIFACT_REFS.contextPayload, { a: 1 })).toBeNull()
+    expect(blobs.size).toBe(0)
   })
 })
 
@@ -140,7 +170,7 @@ describe('artifactStore — getArtifact fail-open + offloader factory', () => {
 describe('artifactStore — namespace parameter', () => {
   it('defaults to the trace artifact namespace and honors an explicit namespace', async () => {
     const { proxy, namespaces } = makeStorage()
-    const container = makeContainer({ storageService: proxy })
+    const container = makeContainer({ storageService: proxy, tenantEncryptionService: encryption })
 
     await putArtifact(container, SCOPE, ARTIFACT_REFS.llmRequest, { a: 1 })
     await putArtifact(container, SCOPE, ARTIFACT_REFS.llmResponse, { a: 2 }, AGENT_TRACE_CONTENT_NAMESPACE)
@@ -153,7 +183,7 @@ describe('artifactStore — namespace parameter', () => {
 describe('artifactStore — readArtifact tri-state', () => {
   it('returns ok with the value', async () => {
     const { proxy } = makeStorage()
-    const container = makeContainer({ storageService: proxy })
+    const container = makeContainer({ storageService: proxy, tenantEncryptionService: encryption })
     const key = await putArtifact(container, SCOPE, ARTIFACT_REFS.contextPayload, { a: 1 })
     expect(await readArtifact(container, SCOPE, ARTIFACT_REFS.contextPayload, key!)).toEqual({
       status: 'ok',
@@ -199,8 +229,8 @@ describe('artifactStore — readArtifact tri-state', () => {
     expect(await readArtifact(failing, SCOPE, ARTIFACT_REFS.llmRequest, 'k')).toEqual({ status: 'unavailable' })
 
     const { proxy } = makeStorage()
-    const plain = makeContainer({ storageService: proxy })
-    const key = await putArtifact(plain, SCOPE, ARTIFACT_REFS.llmRequest, { a: 1 })
+    const sealing = makeContainer({ storageService: proxy, tenantEncryptionService: encryption })
+    const key = await putArtifact(sealing, SCOPE, ARTIFACT_REFS.llmRequest, { a: 1 })
     const brokenDecrypt = makeContainer({
       storageService: proxy,
       tenantEncryptionService: {
@@ -224,7 +254,7 @@ describe('artifactStore — readArtifact tri-state', () => {
 describe('artifactStore — deleteArtifact', () => {
   it('deletes an existing blob', async () => {
     const { proxy, blobs } = makeStorage()
-    const container = makeContainer({ storageService: proxy })
+    const container = makeContainer({ storageService: proxy, tenantEncryptionService: encryption })
     const key = await putArtifact(container, SCOPE, ARTIFACT_REFS.llmRequest, { a: 1 })
     expect(await deleteArtifact(container, SCOPE, key!)).toEqual({ status: 'deleted' })
     expect(blobs.has(key!)).toBe(false)

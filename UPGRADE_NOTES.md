@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Agent trace artifacts are never stored unencrypted (#9648, B-6)
+
+**Behaviour change (enterprise `agent_orchestrator`).** Offloads to `storage_s3` used to upload the payload as plaintext JSON when tenant data encryption was not in effect. This covered full-content trace capture (LLM request/response and context payload), full run output, tool request/response, integrity evidence and agent-produced file artifacts. Plaintext was written when the `tenantEncryptionService` was not registered, `TENANT_DATA_ENCRYPTION=false`, the KMS was unhealthy, or no DEK could be resolved. These writes now fail closed: nothing is uploaded and the caller degrades as it does when storage is unavailable. Trace steps record `om.content.status = storage_unavailable`, the context bundle keeps `payloadRef = null`, and file artifacts are reported as failed captures. Runs never fail because of this.
+
+**Action:** deployments that rely on full content capture or file artifacts must run with tenant data encryption enabled and a healthy KMS. Installations with encryption turned off will stop collecting these artifacts. Blobs stored as plaintext by earlier versions stay readable; to remove them, delete them from the `agent-trace-content`, `agent-trace-artifacts` and `agent-run-artifacts` namespaces. Content retention expires only the `agent-trace-content` blobs (LLM request/response and context payload).
+
 ## Production Compose tenant encryption key (#7231)
 
 **Operators:** the production Docker starter, root compatibility copy and create-app

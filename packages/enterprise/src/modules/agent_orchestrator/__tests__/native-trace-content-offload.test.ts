@@ -19,6 +19,9 @@ import { AGENT_TRACE_CONTENT_NAMESPACE, ARTIFACT_REFS } from '../lib/trace/artif
 import { LLM_REQUEST_ARTIFACT_SCHEMA, LLM_RESPONSE_ARTIFACT_SCHEMA } from '../lib/trace/contentCapture'
 import { OM_LLM_ATTRIBUTES } from '../lib/trace/genAiAttributes'
 import { computeManifestSha256 } from '../lib/trace/runManifest'
+import { createTestArtifactEncryption, passThroughArtifactEncryption } from './support/artifactEncryption'
+
+const testEncryption = createTestArtifactEncryption()
 
 const RUN_ID = '018f6f2a-0000-4000-8000-0000000000c1'
 const T0 = Date.parse('2026-10-28T10:00:00.000Z')
@@ -111,6 +114,7 @@ function storageContainer(upload: (input: UploadInput) => Promise<{ key: string 
   }
   const container = containerOf({
     storageService: { _resolveService: async () => service },
+    tenantEncryptionService: testEncryption.service,
     em: { fork: () => ({}) },
   })
   return { container, service }
@@ -127,7 +131,7 @@ function llmAttributes(payload: TraceIngest, index = 0): Record<string, unknown>
 }
 
 function uploadedBody(input: UploadInput): Record<string, unknown> {
-  const wrapper = JSON.parse(input.buffer.toString('utf8')) as Record<string, string>
+  const wrapper = testEncryption.openSealedBuffer(input.buffer)
   const serialized = wrapper.input ?? wrapper.output
   return JSON.parse(serialized) as Record<string, unknown>
 }
@@ -280,9 +284,9 @@ describe('offloadModelCallContent', () => {
       tenantEncryptionService: {
         encryptEntityPayload: async (entityId: string, payload: Record<string, unknown>) => {
           encrypted.push({ entityId, field: Object.keys(payload)[0] })
-          return payload
+          return testEncryption.service.encryptEntityPayload(entityId, payload)
         },
-        decryptEntityPayload: async (_entityId: string, payload: Record<string, unknown>) => payload,
+        decryptEntityPayload: testEncryption.service.decryptEntityPayload,
       },
     })
     const bare = buildCall('call-2', 1, false)
@@ -291,6 +295,37 @@ describe('offloadModelCallContent', () => {
 
     expect(encrypted).toEqual(expect.arrayContaining([ARTIFACT_REFS.llmRequest, ARTIFACT_REFS.llmResponse]))
     expect(result[1]).toBe(bare)
+  })
+  it('uploads nothing and reports storage_unavailable when tenant encryption passes content through', async () => {
+    const { service } = storageContainer(sequentialKeys())
+    const container = containerOf({
+      storageService: { _resolveService: async () => service },
+      tenantEncryptionService: passThroughArtifactEncryption,
+      em: { fork: () => ({}) },
+    })
+
+    const prepared = await offloadNativeTraceContent(container, SCOPE, traceInput([buildCall('call-1', 0)]))
+
+    expect(service.upload).not.toHaveBeenCalled()
+    const attributes = llmAttributes(buildNativeTracePayload(prepared))
+    expect(attributes[OM_LLM_ATTRIBUTES.contentStatus]).toBe('storage_unavailable')
+    expect(attributes[OM_LLM_ATTRIBUTES.contentRequestKey]).toBeUndefined()
+    expect(attributes[OM_LLM_ATTRIBUTES.contentResponseKey]).toBeUndefined()
+  })
+
+  it('uploads nothing when no tenant encryption service is registered', async () => {
+    const { service } = storageContainer(sequentialKeys())
+    const container = containerOf({
+      storageService: { _resolveService: async () => service },
+      em: { fork: () => ({}) },
+    })
+
+    const prepared = await offloadNativeTraceContent(container, SCOPE, traceInput([buildCall('call-1', 0)]))
+
+    expect(service.upload).not.toHaveBeenCalled()
+    expect(llmAttributes(buildNativeTracePayload(prepared))[OM_LLM_ATTRIBUTES.contentStatus]).toBe(
+      'storage_unavailable',
+    )
   })
 })
 

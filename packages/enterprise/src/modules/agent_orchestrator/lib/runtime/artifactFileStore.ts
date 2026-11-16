@@ -12,10 +12,13 @@
  * recorded when the encrypted bytes are durably stored. When `storage-s3` is
  * unconfigured for the tenant or any step throws, `putArtifactBytes` returns
  * `null` and the collector marks the file capture failed rather than recording a
- * row that points at bytes that were never stored.
+ * row that points at bytes that were never stored. The same holds when the bytes
+ * cannot be encrypted (service absent, encryption disabled, no DEK): plaintext
+ * is never uploaded. Reads still accept blobs stored as plaintext by earlier versions.
  */
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { sealArtifactPayload } from '../trace/sealArtifactPayload'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'artifact-file-store' })
 
@@ -102,18 +105,6 @@ async function resolveStorageService(
   }
 }
 
-/** Wrap `{ caption: base64 }` and encrypt when encryption is available; else pass through. */
-async function encryptWrapper(
-  container: MinimalContainer,
-  scope: ArtifactFileScope,
-  base64: string,
-): Promise<Record<string, unknown>> {
-  const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
-  const payload = { [ARTIFACT_BYTES_REF.field]: base64 }
-  if (!enc || typeof enc.encryptEntityPayload !== 'function') return payload
-  return enc.encryptEntityPayload(ARTIFACT_BYTES_REF.entityId, payload, scope.tenantId, scope.organizationId)
-}
-
 async function decryptWrapper(
   container: MinimalContainer,
   scope: ArtifactFileScope,
@@ -136,7 +127,8 @@ async function decryptWrapper(
 
 /**
  * Upload one artifact's bytes encrypted at rest and return its storage key, or
- * `null` when storage is unavailable or the write fails (fail-closed). Never throws.
+ * `null` when storage is unavailable, the bytes cannot be encrypted, or the write
+ * fails (fail-closed). Never throws.
  */
 export async function putArtifactBytes(
   container: MinimalContainer,
@@ -146,7 +138,12 @@ export async function putArtifactBytes(
   try {
     const svc = await resolveStorageService(container, scope)
     if (!svc) return null
-    const wrapper = await encryptWrapper(container, scope, input.buffer.toString('base64'))
+    const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
+    const wrapper = await sealArtifactPayload(enc, scope, ARTIFACT_BYTES_REF, input.buffer.toString('base64'))
+    if (!wrapper) {
+      logger.warn('artifact byte upload skipped; tenant data encryption is unavailable')
+      return null
+    }
     const { key } = await svc.upload({
       namespace: AGENT_ARTIFACT_FILE_NAMESPACE,
       fileName: `${input.fileName.replace(/[^a-zA-Z0-9_.-]+/g, '_')}.enc`,

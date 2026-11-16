@@ -63,7 +63,7 @@ Each LLM span carries these keys when the level is `metadata` or above.
 | `om.prompt.system.sha256`, `om.tools.sha256`, `om.tools.count`, `om.messages.count` | Hashes and counts for the request, never the text. |
 | `om.content.request.sha256`, `om.content.request.bytes`, and the `response` equivalents | Content hashes and sizes. The hash is computed over the request as sent, before redaction. |
 | `om.content.request.key`, `om.content.response.key` | Storage keys of the content artifacts. Only at `full`, and only when the upload succeeded. |
-| `om.content.status` | `stored`, `over_cap_truncated` (stored, but cut to the byte cap), `storage_unavailable` (the upload failed, metadata only), or `disabled` below `full`. |
+| `om.content.status` | `stored`, `over_cap_truncated` (stored, but cut to the byte cap), `storage_unavailable` (nothing was stored — storage unavailable, the upload failed, or tenant data encryption is unavailable; metadata only), or `disabled` below `full`. |
 | `om.content.redactions` | `{ rule, count }` per redaction rule applied to the stored content. |
 | `om.capture.fidelity` | `exact`, `reconstructed` or `reported`. |
 | `om.params.defaults` | `true` when no request parameters were sent at all, so every parameter was left to the provider default. Not written when any parameter was sent. |
@@ -91,6 +91,8 @@ At the `full` level each LLM step uploads two artifacts and the context assemble
 | Context payload | `om.context_payload.v1` | The packed context records, screened untrusted text and the retrieval query. Referenced by the context bundle's `payloadRef`. |
 
 A failed upload never fails the run: the step records `om.content.status = storage_unavailable` and keeps its metadata.
+
+Content is never written to storage unencrypted. When tenant data encryption is turned off (`TENANT_DATA_ENCRYPTION=false`), the KMS is unhealthy, or no data key can be resolved for the tenant, the upload is skipped and the step records `storage_unavailable`. The same rule applies to the other offloaded payloads (full run output, tool request/response, integrity evidence) and to agent-produced file artifacts, which are marked as failed captures. Blobs stored unencrypted by earlier versions stay readable.
 
 ### Redaction
 
