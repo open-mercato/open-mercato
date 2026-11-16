@@ -447,6 +447,44 @@ describe('createXeroContactWriter', () => {
     expect(commands[0].input).not.toHaveProperty('taxId')
   })
 
+  it('writes no personal US tax number to the VAT ID, on create or on update, and logs nothing for it', async () => {
+    const [created] = await writePage(createWriter(), [record('c1', { TaxNumber: '123-45-6789', TaxNumberType: 'SSN' })])
+
+    expect(created).toMatchObject({ action: 'create' })
+    expect(commands[0].id).toBe('customers.companies.create')
+    expect(commands[0].input).not.toHaveProperty('taxId')
+    expect(logWrites).toEqual([])
+
+    commands = []
+    const writer = createWriter()
+    await writePage(writer, [record('c1', { TaxNumber: '987-65-4321', TaxNumberType: 'ITIN', EmailAddress: 'accounts@acme.example' })])
+    expect(commands).toEqual([
+      { id: 'customers.companies.update', input: { id: created.data?.localId, organizationId: scope.organizationId, tenantId: scope.tenantId, primaryEmail: 'accounts@acme.example' } },
+    ])
+    expect(companies.get(String(created.data?.localId))?.taxId).toBeNull()
+  })
+
+  it('still matches an unmapped Company by an SSN a user typed as its VAT ID, without writing the SSN', async () => {
+    storeCompany({ entityId: 'e-tax', taxId: '123-45-6789' })
+
+    const [item] = await writePage(createWriter(), [record('c1', { TaxNumber: '123-45-6789', TaxNumberType: 'SSN' })])
+
+    expect(item).toMatchObject({ action: 'update', data: { localId: 'e-tax' } })
+    expect(commands.map((command) => command.id)).toEqual(['customers.companies.update'])
+    expect(commands[0].input).not.toHaveProperty('taxId')
+    expect(logCodes()).toEqual(['xero.company_matched_by_tax_number'])
+  })
+
+  it('writes an EIN or a tax number without a type to the VAT ID', async () => {
+    const items = await writePage(createWriter(), [
+      record('c1', { TaxNumber: '12-3456789', TaxNumberType: 'EIN' }),
+      record('c2', { TaxNumber: 'GB 123', Name: 'Other Ltd' }),
+    ])
+
+    expect(items.map((entry) => entry.action)).toEqual(['create', 'create'])
+    expect(commands.map((command) => command.input.taxId)).toEqual(['12-3456789', 'GB 123'])
+  })
+
   it('never matches by name: it creates the Company and warns of the duplicate risk', async () => {
     storeCompany({ entityId: 'e-namesake', displayName: 'ACME LTD.' })
 
@@ -651,6 +689,7 @@ describe('createXeroContactWriter', () => {
     const writer = createWriter()
 
     await writer.reportOrphans(new Date(sequence + 60_000))
+    expect(mockLoadIndexSources).toHaveBeenCalledWith(em, scope, { taxIds: false })
     expect(logWrites).toEqual([
       expect.objectContaining({ level: 'warn', code: 'xero.company_orphaned', payload: { sourceIdentifier: externalIdOf('c1'), entityIds: ['e-orphan'] } }),
     ])

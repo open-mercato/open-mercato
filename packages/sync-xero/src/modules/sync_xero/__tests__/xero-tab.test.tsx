@@ -12,6 +12,7 @@ const mockApiCallOrThrow = jest.fn()
 const mockFlash = jest.fn()
 const mockReplace = jest.fn()
 const mockConfirm = jest.fn()
+const mockReportError = jest.fn()
 let mockSearch = ''
 let scopedHeaders: Record<string, string> = {}
 
@@ -26,6 +27,10 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
       scopedHeaders = {}
     }
   },
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -447,10 +452,11 @@ describe('Xero tab', () => {
     expect(await screen.findByText(enDict['sync_xero.picker.loadFailed'])).toBeTruthy()
   })
 
-  it('still disconnects when the Organisations request of the dialog throws', async () => {
+  it('reports a failed Organisations request of the dialog, keeps the generic warning and still disconnects', async () => {
+    const networkDown = new Error('Network down')
     mockApiCall.mockImplementation(async (url: string) => {
       if (url === '/api/sync_xero/connection') return { ok: true, status: 200, result: connectionView() }
-      throw new Error('Network down')
+      throw networkDown
     })
     mockApiCallOrThrow.mockResolvedValue({
       ok: true,
@@ -460,6 +466,10 @@ describe('Xero tab', () => {
     renderTab()
     fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
     const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    await waitFor(() =>
+      expect(mockReportError).toHaveBeenCalledWith(networkDown, { module: 'sync_xero', code: 'sync_xero.disconnect_organisations_load_failed' }),
+    )
+    expect(within(dialog).getByText(enDict['sync_xero.disconnect.revokeReach'])).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
     await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.done'], 'success'))
   })

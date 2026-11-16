@@ -4,6 +4,7 @@ import { nonBlank, type XeroContact, type XeroPhone } from './contact'
 export const XERO_COMPANY_NAME_MAX_LENGTH = 200
 export const XERO_PHONE_TYPES = ['DEFAULT', 'MOBILE', 'DDI', 'OFFICE'] as const
 const ITALY_COUNTRY_CODE = '39'
+const PERSONAL_TAX_NUMBER_TYPES: ReadonlySet<string> = new Set(['SSN', 'ITIN', 'ATIN'])
 const URL_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i
 
 export type XeroCompanyField = 'displayName' | 'legalName' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl' | 'taxId'
@@ -57,6 +58,12 @@ export function normalizeXeroWebsite(website: string): string {
   return URL_SCHEME.test(website) ? website : `https://${website}`
 }
 
+/** Xero's US `TaxNumberType`: an `SSN`, `ITIN` or `ATIN` identifies a person, so it is never written to the Company's VAT ID. */
+function isPersonalXeroTaxNumber(contact: Pick<XeroContact, 'TaxNumberType'>): boolean {
+  const type = nonBlank(contact.TaxNumberType)?.toUpperCase()
+  return type !== undefined && PERSONAL_TAX_NUMBER_TYPES.has(type)
+}
+
 function contactStatusOf(value: string | null | undefined): XeroContactStatus | null {
   const status = nonBlank(value)?.toUpperCase()
   return status === 'ACTIVE' || status === 'ARCHIVED' || status === 'GDPRREQUEST' ? status : null
@@ -96,7 +103,7 @@ export function mapXeroContactToCompany(contact: XeroContact): XeroCompanyMappin
     else warnings.push({ code: 'xero.value_left_out', field: 'websiteUrl' })
   }
 
-  let taxNumber = nonBlank(contact.TaxNumber)
+  let taxNumber = isPersonalXeroTaxNumber(contact) ? null : nonBlank(contact.TaxNumber)
   if (taxNumber && !accepted(fields.taxId, taxNumber)) {
     taxNumber = null
     warnings.push({ code: 'xero.value_left_out', field: 'taxId' })

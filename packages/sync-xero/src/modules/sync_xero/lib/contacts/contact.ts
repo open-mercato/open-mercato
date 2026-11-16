@@ -33,6 +33,7 @@ export const xeroContactSchema = z
     EmailAddress: optionalText,
     Website: optionalText,
     TaxNumber: optionalText,
+    TaxNumberType: optionalText,
     CompanyNumber: optionalText,
     ContactStatus: optionalText,
     MergedToContactID: optionalText,

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -34,7 +35,9 @@ export function DisconnectDialog({ open, onOpenChange, selectedOrganisationId, i
           .filter((organisation) => organisation.xeroOrganisationId !== selectedOrganisationId)
           .map((organisation) => organisation.name),
       )
-    }).catch(() => undefined)
+    }).catch((error: unknown) => {
+      getTelemetryRuntime()?.reportError(error, { module: 'sync_xero', code: 'sync_xero.disconnect_organisations_load_failed' })
+    })
     return () => {
       cancelled = true
     }

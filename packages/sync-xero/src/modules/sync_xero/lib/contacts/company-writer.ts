@@ -389,7 +389,7 @@ export function createXeroContactWriter(deps: XeroContactWriterDeps): XeroContac
     async reportOrphans(now = new Date()) {
       try {
         const [sources, mappings] = await Promise.all([
-          loadXeroCompanyIndexSources(deps.em.fork(), scope),
+          loadXeroCompanyIndexSources(deps.em.fork(), scope, { taxIds: false }),
           loadXeroRunIndex(deps.em.fork(), scope),
         ])
         for (const orphan of findXeroOrphanedCompanies(sources, mappings, now)) {

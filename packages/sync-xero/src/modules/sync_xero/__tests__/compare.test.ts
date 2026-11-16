@@ -1,5 +1,6 @@
 import { buildCompanyCreateInput, diffCompanyUpdate, resolveCompanyStatus, type CompanySnapshot } from '../lib/contacts/compare'
-import type { MappedXeroCompany } from '../lib/contacts/mapping'
+import type { XeroContact } from '../lib/contacts/contact'
+import { mapXeroContactToCompany, type MappedXeroCompany } from '../lib/contacts/mapping'
 
 const MARKER = 'a3b1c2d3-0000-4000-8000-000000000001:c0000000-0000-4000-8000-000000000001'
 
@@ -15,6 +16,12 @@ function company(fields: Partial<MappedXeroCompany> = {}): MappedXeroCompany {
     warnings: [],
     ...fields,
   }
+}
+
+function withTaxNumberOf(fields: Partial<XeroContact>): MappedXeroCompany {
+  const result = mapXeroContactToCompany({ ContactID: 'c0000000-0000-4000-8000-000000000001', Name: 'Acme Ltd', ...fields })
+  if (!result.ok) throw new Error('[internal] expected a mapped Contact')
+  return company({ taxNumber: result.company.taxNumber })
 }
 
 function snapshot(fields: Partial<CompanySnapshot> = {}): CompanySnapshot {
@@ -91,6 +98,21 @@ describe('diffCompanyUpdate — compare-before-write', () => {
     expect(diffCompanyUpdate(company({ taxNumber: 'GB 999' }), MARKER, snapshot())).toEqual({ taxId: 'GB 999' })
     expect(diffCompanyUpdate(company(), MARKER, snapshot({ taxId: null }))).toEqual({ taxId: 'GB 123' })
     expect(diffCompanyUpdate(company({ taxNumber: null }), MARKER, snapshot({ taxId: 'PL 555' }))).toBeNull()
+  })
+
+  it('never writes an SSN, ITIN or ATIN to taxId on create or update, but writes an EIN or an untyped tax number', () => {
+    for (const type of ['SSN', 'ITIN', 'ATIN']) {
+      const personal = withTaxNumberOf({ TaxNumber: '123-45-6789', TaxNumberType: type })
+      expect(buildCompanyCreateInput(personal, MARKER)).not.toHaveProperty('taxId')
+      expect(diffCompanyUpdate(personal, MARKER, snapshot({ taxId: null }))).toBeNull()
+      expect(diffCompanyUpdate(personal, MARKER, snapshot({ taxId: 'GB 123' }))).toBeNull()
+    }
+    const ein = withTaxNumberOf({ TaxNumber: '12-3456789', TaxNumberType: 'EIN' })
+    expect(buildCompanyCreateInput(ein, MARKER)).toMatchObject({ taxId: '12-3456789' })
+    expect(diffCompanyUpdate(ein, MARKER, snapshot())).toEqual({ taxId: '12-3456789' })
+    const untyped = withTaxNumberOf({ TaxNumber: 'GB 999' })
+    expect(buildCompanyCreateInput(untyped, MARKER)).toMatchObject({ taxId: 'GB 999' })
+    expect(diffCompanyUpdate(untyped, MARKER, snapshot())).toEqual({ taxId: 'GB 999' })
   })
 
   it('writes the marker only while the Company has none', () => {

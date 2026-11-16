@@ -69,7 +69,7 @@ async function loadTaxIds(em: EntityManager, scope: XeroScope, entityIds: string
   return taxIds
 }
 
-async function loadCompanies(em: EntityManager, scope: XeroScope): Promise<IndexCompanies> {
+async function loadCompanies(em: EntityManager, scope: XeroScope, withTaxIds: boolean): Promise<IndexCompanies> {
   const companies: XeroIndexCompany[] = []
   const taxNumbers: XeroIndexValue[] = []
   let afterId: string | null = null
@@ -88,7 +88,7 @@ async function loadCompanies(em: EntityManager, scope: XeroScope): Promise<Index
       scope,
     )
     for (const row of rows) companies.push({ entityId: row.id, createdAt: row.createdAt, displayName: row.displayName ?? null })
-    taxNumbers.push(...(await loadTaxIds(em, scope, rows.map((row) => row.id))))
+    if (withTaxIds) taxNumbers.push(...(await loadTaxIds(em, scope, rows.map((row) => row.id))))
     if (rows.length < XERO_INDEX_CHUNK_SIZE) return { companies, taxNumbers }
     afterId = rows[rows.length - 1].id
   }
@@ -114,10 +114,15 @@ async function loadProfileEntityIds(em: EntityManager, scope: XeroScope, profile
  * is not deleted (chunks of 500, names decrypted) with the decrypted native `taxId` of each chunk's
  * profiles, and the organization's `xero_contact_id` values (chunks of 500) resolved from their
  * profile to the Company. Each chunk reads through a fresh fork, so only the values stay in memory,
- * never the entities.
+ * never the entities. `taxIds: false` skips the `taxId` reads and answers no tax numbers, for a
+ * caller that needs only the Companies and their markers.
  */
-export async function loadXeroCompanyIndexSources(em: EntityManager, scope: XeroScope): Promise<XeroCompanyIndexSources> {
-  const { companies, taxNumbers } = await loadCompanies(em, scope)
+export async function loadXeroCompanyIndexSources(
+  em: EntityManager,
+  scope: XeroScope,
+  options: { taxIds?: boolean } = {},
+): Promise<XeroCompanyIndexSources> {
+  const { companies, taxNumbers } = await loadCompanies(em, scope, options.taxIds ?? true)
   const liveCompanyIds = new Set(companies.map((company) => company.entityId))
   const markers: XeroIndexValue[] = []
   let afterId: string | null = null

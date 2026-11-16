@@ -9,7 +9,7 @@ sidebar_label: Xero
 The Xero integration connects one Xero Organisation to each Open Mercato organization and imports its Contacts into **Companies** every hour. A Contact always updates the same Company, so repeated runs never create duplicates.
 
 - **Import only.** Open Mercato reads Contacts from Xero and never writes back.
-- **Xero owns the fields it sends.** Name, legal name, email, phone, website, archive status, the Contact's tax number (written to the Company's **VAT ID**) and the Xero addresses are overwritten from Xero on the next run that returns the Contact. A Contact without a tax number never clears a VAT ID. Every other Company field, note and activity stays yours.
+- **Xero owns the fields it sends.** Name, legal name, email, phone, website, archive status, the Contact's tax number (written to the Company's **VAT ID**) and the Xero addresses are overwritten from Xero on the next run that returns the Contact. A Contact without a tax number never clears a VAT ID. A US personal tax number (type SSN, ITIN or ATIN) is never written to the VAT ID, though it still matches a Company on the first sync. Every other Company field, note and activity stays yours.
 - **Not every Contact becomes a Company.** A Contact that has no Company yet is skipped when it is only a supplier, archived or redacted for GDPR.
 - **Grants are per organization.** Each Open Mercato organization connects its own Xero Organisation through OAuth2. Tokens are encrypted and never shown.
 

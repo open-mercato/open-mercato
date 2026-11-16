@@ -17,6 +17,13 @@ describe('parseXeroContact', () => {
     expect(parseXeroContact({ Name: 'Acme' })).toBeNull()
     expect(parseXeroContact({ ContactID: 'c1', Name: 42 })).toBeNull()
   })
+
+  it('reads an optional TaxNumberType and tolerates a missing or unknown one', () => {
+    expect(parseXeroContact({ ContactID: 'c1', TaxNumberType: 'SSN' })).toMatchObject({ TaxNumberType: 'SSN' })
+    expect(parseXeroContact({ ContactID: 'c1', TaxNumberType: 'SOMETHING_NEW' })).toMatchObject({ TaxNumberType: 'SOMETHING_NEW' })
+    expect(parseXeroContact({ ContactID: 'c1', TaxNumberType: null })).toMatchObject({ ContactID: 'c1' })
+    expect(parseXeroContact({ ContactID: 'c1' })).toMatchObject({ ContactID: 'c1' })
+  })
 })
 
 describe('mapXeroContactToCompany — App Spec § 6.2a Company rows', () => {
@@ -92,5 +99,15 @@ describe('mapXeroContactToCompany — App Spec § 6.2a Company rows', () => {
     expect(company.taxNumber).toBeNull()
     expect(company.warnings).toEqual([{ code: 'xero.value_left_out', field: 'taxId' }])
     expect(mapped({ TaxNumber: 'GB'.padEnd(64, '1') }).warnings).toEqual([])
+  })
+
+  it('never maps a personal US tax number (SSN, ITIN, ATIN) to taxId, but maps an EIN, an untyped or an unknown type', () => {
+    for (const type of ['SSN', 'ITIN', ' atin ']) {
+      expect(mapped({ TaxNumber: '123-45-6789', TaxNumberType: type })).toMatchObject({ taxNumber: null, warnings: [] })
+    }
+    expect(mapped({ TaxNumber: '12-3456789', TaxNumberType: 'EIN' }).taxNumber).toBe('12-3456789')
+    expect(mapped({ TaxNumber: 'GB 123' }).taxNumber).toBe('GB 123')
+    expect(mapped({ TaxNumber: 'GB 123', TaxNumberType: null }).taxNumber).toBe('GB 123')
+    expect(mapped({ TaxNumber: 'GB 123', TaxNumberType: 'SOMETHING_NEW' }).taxNumber).toBe('GB 123')
   })
 })

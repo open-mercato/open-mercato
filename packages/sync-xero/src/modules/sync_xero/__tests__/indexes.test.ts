@@ -206,7 +206,7 @@ describe('loadXeroCompanyIndexSources', () => {
         return valueRows.slice(start, start + XERO_INDEX_CHUNK_SIZE)
       }
       if (entity === CustomerCompanyProfile && where.entity) {
-        expect(where).toMatchObject({ taxId: { $ne: null } })
+        expect(where).toMatchObject({ organizationId: scope.organizationId, tenantId: scope.tenantId, taxId: { $ne: null } })
         expect(options).toMatchObject({ fields: ['id', 'entity', 'taxId'] })
         const ids = (where.entity as { $in: string[] }).$in
         expect(ids.length).toBeLessThanOrEqual(XERO_INDEX_CHUNK_SIZE)
@@ -276,5 +276,20 @@ describe('loadXeroCompanyIndexSources', () => {
     mockFindWithDecryption.mockReset().mockResolvedValue([])
     await expect(loadXeroCompanyIndexSources(em, scope)).resolves.toEqual({ companies: [], markers: [], taxNumbers: [] })
     expect(mockFindWithDecryption.mock.calls.map((call) => call[1])).toEqual([CustomerEntity, CustomFieldValue])
+  })
+
+  it('reads no taxId with taxIds: false, so the orphan report decrypts no VAT ID', async () => {
+    mockFindWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === CustomerEntity) return companyRows(2)
+      if (entity === CustomFieldValue) return [{ id: 'value-1', recordId: 'profile-1', fieldKey: 'xero_contact_id', valueText: `${ORG}:contact-1`, valueMultiline: null }]
+      return [{ id: 'profile-1', entity: { id: entityId(1) } }]
+    })
+
+    const loaded = await loadXeroCompanyIndexSources(em, scope, { taxIds: false })
+
+    expect(loaded.taxNumbers).toEqual([])
+    expect(loaded.markers).toEqual([{ entityId: entityId(1), value: `${ORG}:contact-1` }])
+    expect(mockFindWithDecryption.mock.calls.map((call) => call[1])).toEqual([CustomerEntity, CustomFieldValue, CustomerCompanyProfile])
+    expect(mockFindWithDecryption.mock.calls.some((call) => (call[2] as Record<string, unknown>).entity !== undefined)).toBe(false)
   })
 })
