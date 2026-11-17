@@ -10,7 +10,6 @@ import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/
 import * as customFieldEntities from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCanonicalEncryptionMap } from '@open-mercato/core/modules/entities/lib/encryption-maps'
 import { IntegrationLog, SyncExternalIdMapping } from '@open-mercato/core/modules/integrations/data/entities'
-import { createInMemoryKms } from './support/inMemoryKms'
 import { createIntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
@@ -201,7 +200,7 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
         isActive: true,
       })
     }
-    encryption = new TenantDataEncryptionService(orm.em, { kms: createInMemoryKms() })
+    encryption = new TenantDataEncryptionService(orm.em)
     registerTenantEncryptionSubscriber(orm.em, encryption)
   }, 120_000)
 
@@ -220,7 +219,7 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
 
     const [claimed] = await runPage(scope, [contact(contactId, { TaxNumber: '123456789' })])
 
-    expect(claimed).toMatchObject({ externalId, data: { localId: existingId } })
+    expect(claimed).toMatchObject({ externalId, action: 'update', data: { localId: existingId } })
     expect(await readCompanies(scope)).toEqual([{ entityId: existingId, displayName: 'Acme Ltd', taxId: '123 456 789' }])
     expect((await loadXeroRunIndex(fork(), scope)).lookup(externalId)).toBe(existingId)
     const sources = await loadXeroCompanyIndexSources(fork(), scope)

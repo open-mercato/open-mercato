@@ -19,7 +19,7 @@ export type XeroDisconnectResponse = {
 
 type DisconnectBody = { force?: boolean; removeClientCredentials: boolean }
 
-const REVOCATION_NOT_ATTEMPTED_REASONS: ReadonlySet<string> = new Set(['undecryptable', 'client_not_configured'])
+const REVOCATION_NOT_ATTEMPTED_REASONS: ReadonlySet<string> = new Set(['undecryptable', 'client_not_configured', 'platform_unavailable'])
 
 type UseXeroDisconnectInput = {
   revisedAt: string | null
