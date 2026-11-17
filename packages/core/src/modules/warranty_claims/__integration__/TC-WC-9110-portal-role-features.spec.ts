@@ -173,7 +173,7 @@ for (const role of ['viewer', 'buyer'] as const) {
         await submitTrigger.click()
         const dialog = page.getByRole('dialog')
         await dialog.press('Control+Enter')
-        await expect(page.getByRole('main').getByText('The claim could not be submitted.', { exact: true })).toBeVisible()
+        await expect(page.getByRole('main', { includeHidden: true }).getByText('The claim could not be submitted.', { exact: true })).toBeVisible()
         await dialog.press('Escape')
         await expect(dialog).toHaveCount(0)
         await expect(submitTrigger).toBeFocused()
