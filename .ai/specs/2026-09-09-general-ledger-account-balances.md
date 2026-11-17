@@ -1059,7 +1059,8 @@ top of the live query.
   `Retry-After`, no query for rejected requests, sustained load and
   alternating routes cannot bypass limits, and another tenant progresses.
   Cover window reset, burst boundaries, coordinator outage/missing shared
-  configuration (`503`), crash/abort slot release and a slow query
+  configuration (`503`) for each budget and semaphore, missing DI or
+  constructor failure with no report query, crash/abort slot release and a slow query
   returning `503` and releasing its connection and admission slot.
 - Post a year-end `CLOSING` entry that zeroes a revenue account (debit
   equal to its full-year credit balance) and assert: the account's
@@ -1185,8 +1186,12 @@ capacity (security review, 2026-11-16).** Phase 1 keeps the live query
   timeout below its expiry with a safety margin, renew while needed, and
   cancel execution before expiry if renewal cannot be confirmed. Reject
   before the query.
-- Use DI-provided `RateLimiterService` with `requireShared` and
-  `failClosed`, backed by a shared Redis deployment; per-process memory
+- Use DI-provided `RateLimiterService` with `requireShared`, backed by a
+  shared Redis deployment; call `checkRateLimit` with `failClosed: true`
+  and the `report_admission_unavailable` unavailable message, or check
+  `degraded` before `allowed` and return the same 503. Missing DI,
+  constructor errors and coordinator failures also return that 503 without
+  running a report query. Per-process memory
   cannot enforce this contract. Supply a DI-managed shared semaphore for
   concurrency (the existing rate limiter is not a semaphore), without raw
   Redis access from ledger. These two report routes require a healthy shared
@@ -1302,12 +1307,12 @@ category.
 | --- | --- | --- | --- |
 | `AGENTS.md` | No direct ORM relationships between modules | Compliant | One additive nullable `parentAccountId` column on `LedgerAccount`; no new entities and no cross-module ORM relationship (FK id only) |
 | `AGENTS.md` | Filter by tenant/organization | Compliant | Both queries filter every table by `tenant_id`/`organization_id` — see Data Models, Risks |
-| `AGENTS.md` | Write operations via Command pattern | N/A | This document adds no write operations — see Architecture → Queries, which explains why these are queries, not commands |
+| `AGENTS.md` | Write operations via Command pattern | Compliant | Report functions are read-only; account create/update/delete/restore and undo changes use the existing commands and hold the scoped hierarchy lock through commit |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | Both new routes export `openApi`; `api/openapi.ts` updated (File Manifest) |
 | `packages/core/AGENTS.md` → API Routes | All user input validated with zod before business logic | Compliant | `asOf`/`periodId` both validated, 400 on failure (API Contracts) |
 | `packages/core/AGENTS.md` → Declarative feature guards | `acl.ts` synced to `setup.ts` `defaultRoleFeatures`, plus `sync-role-acls` for already-provisioned tenants | Compliant | `ledger.reports.view` added to both (Architecture → Access Control / Module Setup); `yarn mercato auth sync-role-acls` added as Implementation Plan step 1 so existing tenants receive it too |
 | `packages/core/AGENTS.md` → Encryption | PII/GDPR fields declared in `<module>/encryption.ts` | N/A | No new entities or PII-bearing fields; both queries read existing, already-reviewed #5663 columns only |
-| `packages/ui/AGENTS.md` | Lists use `DataTable` with stable `entityId` | Compliant | `trial-balance/page.tsx` uses `DataTable`; no `CrudForm` since there is no mutation surface |
+| `packages/ui/AGENTS.md` | Lists use `DataTable` with stable `entityId` | Compliant | `trial-balance/page.tsx` is read-only and uses `DataTable`; hierarchy writes remain on existing account surfaces |
 | `packages/ui/AGENTS.md` | HTTP via `apiCall`/`apiCallOrThrow`, never raw `fetch` | Compliant | Both new pages call the new routes through the existing `apiCall` helper, consistent with the rest of the `ledger` module's backend pages |
 | `.ai/ds-rules.md` / `.ai/ui-components.md` | Semantic status tokens; `<StatusBadge>` for entity/derived status; no hardcoded Tailwind shades | Compliant | Zero-sum check rendered via `<StatusBadge>` (`success`/`error` variants) — Architecture → Backend Pages |
 | root `AGENTS.md` (i18n) | User-facing strings resolved via `useT()`/`resolveTranslations()`, not hard-coded | Compliant | See Internationalization for the full key list and file paths |
@@ -1315,17 +1320,17 @@ category.
 | root `AGENTS.md` → UI & HTTP | Keep `pageSize` at or below 100 | Compliant | `trial-balance` `rows` are paginated via `DataTable`'s own `page`/`pageSize` contract, capped at 100 (API Contracts, Architecture → Backend Pages). Cursor/keyset pagination is not a rule anywhere in this codebase — this row previously cited a `packages/core/AGENTS.md` → Pagination section that does not exist |
 | — (no rule source; engineering judgment) | Bulk/multi-row reads should avoid N+1 across the result set | N/A, justified | `packages/core/AGENTS.md` has no Performance section — this row's prior citation was invented. The judgment stands on its own: `getTrialBalance` computes every account's row in one set-based query, not `getAccountBalance` called per account (Design decisions, Queries) |
 | `packages/core/AGENTS.md` → API Routes | Route files export `metadata` with per-method `requireAuth`/`requireFeatures` | Compliant | Both routes' `metadata` export documented (Architecture → API Routes) |
-| `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant (trivially) | No schema change at all |
+| `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | Nullable `parent_account_id`, its FK and index are additive; migration has no backfill. Existing account writes gain scoped validation and locking |
 | `.ai/specs/AGENTS.md` | Never leave stale endpoints, entities, or assumptions in an updated spec | Compliant | Cross-references to `2026-09-06-accounts-payable.md`'s bufor note and #5663's exact route name (`GET /api/ledger/accounts/:id/balance`) checked against those documents' current text at write time |
 
 ### Internal Consistency Check
 
 | Check | Status | Notes |
 | --- | --- | --- |
-| Data models match architecture | Pass | No new data models; Architecture explicitly states which existing entities are read |
-| Queries defined for all reads | Pass | `getAccountBalance`/`getTrialBalance` both specified; no write surface to check |
+| Data models match architecture | Pass | No new entities; the additive parent column, migration and account write paths are specified in Data Models |
+| Queries defined for all reads | Pass | Both report queries are specified; hierarchy-changing account commands and undo paths validate under the same scoped transaction lock |
 | User Stories match Implementation Plan | Pass | All three stories map to Phase 1 steps 2–7 |
-| Risks cover the two real changes this document makes | Pass | Recursive-query correctness (cycle guard) and read-path performance (deferred by design) both addressed |
+| Risks cover the changes this document makes | Pass | Parent migration and hierarchy-write concurrency, recursive-query correctness, shared admission availability and read-path performance are addressed |
 | API contracts match data models | Pass | `TrialBalanceRowDto` fields are all derivable from `LedgerAccount`/`JournalEntryLine` per Architecture → Queries |
 | Scope cohesion | Pass | Applied the same test as the rest of this document family: ZSiO stands alone; Bilans/P&L do not stand without it (see Alternatives considered) |
 | UI/UX and i18n sections agree | Pass | Every string named in Internationalization has a corresponding UI element in Architecture → Backend Pages, and vice versa |
