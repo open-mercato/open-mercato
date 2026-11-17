@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { AlertTriangle, CalendarClock, CalendarDays, CalendarPlus, Trophy, Workflow, XCircle } from 'lucide-react'
+import { AlertTriangle, Building2, CalendarClock, CalendarDays, CalendarPlus, Trophy, User, Workflow, XCircle } from 'lucide-react'
 import {
   Drawer,
   DrawerBody,
@@ -393,13 +393,17 @@ export function TimelineDealDrawer({
         >
           <DrawerHeader>
             <DrawerTitle className="truncate">{titleNode}</DrawerTitle>
-            <DrawerDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <DrawerDescription className="flex flex-wrap items-center gap-x-4 gap-y-1">
               {sublineParts.length
                 ? sublineParts.map((part, index) => (
-                    <React.Fragment key={index}>
-                      {index > 0 ? <span aria-hidden="true">·</span> : null}
+                    <span key={index} className="inline-flex min-w-0 items-center gap-1">
+                      {index === 0 && deal?.primaryCompany ? (
+                        <Building2 className="size-3.5 shrink-0" aria-hidden="true" />
+                      ) : (
+                        <User className="size-3.5 shrink-0" aria-hidden="true" />
+                      )}
                       {part}
-                    </React.Fragment>
+                    </span>
                   ))
                 : t('customers.deals.timeline.drawer.noAssociations', 'No linked company or contact')}
             </DrawerDescription>

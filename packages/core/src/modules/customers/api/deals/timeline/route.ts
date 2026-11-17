@@ -26,6 +26,15 @@ import {
 } from '../../../data/entities'
 import { buildDealListFilters, dealListQuerySchema } from '../route'
 import { CLOSED_DEAL_STATUS_LIST, expandDealStatusAliases } from '../../../lib/dealStatus'
+import { resolveKyselyClient } from '../../../lib/kysely'
+import { fetchOpenActivityCounts } from '../../../lib/dealsTimelineActivities'
+import {
+  addTimelineAmount,
+  createTimelineAmountAccumulator,
+  summarizeTimelineAmounts,
+  type DealTimelineAmountAccumulator,
+  type DealTimelineAmountRow,
+} from '../../../lib/dealsTimelineAmounts'
 import {
   DEAL_TIMELINE_BUCKETS,
   DEAL_TIMELINE_GROUP_BY,
@@ -60,6 +69,8 @@ export const metadata = {
 
 export const TIMELINE_COLUMN_CAP = 300
 export const TIMELINE_RESPONSE_CARD_CAP = 240
+export const TIMELINE_AMOUNT_PAGE_SIZE = 1000
+export const TIMELINE_AMOUNTS_COLUMN_ROW_CAP = 10000
 const QUERY_CONCURRENCY = 2
 const PIPELINES_VIEW_FEATURE = 'customers.pipelines.view'
 
@@ -130,6 +141,14 @@ const itemSchema = z.object({
   updatedAt: z.string().nullable(),
   primaryCompany: associationSchema.nullable(),
   primaryPerson: associationSchema.nullable(),
+  openActivityCount: z.number().nullable(),
+})
+
+const currencyTotalSchema = z.object({
+  currency: z.string(),
+  open: z.number(),
+  weighted: z.number(),
+  won: z.number(),
 })
 
 const timelineResponseSchema = z.object({
@@ -147,6 +166,7 @@ const timelineResponseSchema = z.object({
       total: z.number(),
       truncated: z.boolean(),
       countCapped: z.boolean(),
+      amounts: z.array(currencyTotalSchema),
     }),
   ),
   lanes: z.array(
@@ -165,6 +185,7 @@ const timelineResponseSchema = z.object({
         .nullable(),
       total: z.number(),
       partial: z.boolean(),
+      amounts: z.array(currencyTotalSchema),
       cells: z.array(
         z.object({ column: z.number(), total: z.number(), partial: z.boolean(), items: z.array(itemSchema) }),
       ),
@@ -183,6 +204,7 @@ const timelineResponseSchema = z.object({
   truncated: z.boolean(),
   cardsTruncated: z.boolean(),
   countsCapped: z.boolean(),
+  amountsCapped: z.boolean(),
 })
 
 const cellResponseSchema = z.object({
@@ -226,6 +248,12 @@ type LightRow = {
   laneKey: string
   pipelineId: string | null
   pipelineStage: string | null
+  amount: DealTimelineAmountRow
+}
+
+type AmountScan = {
+  rows: Array<{ laneKey: string; amount: DealTimelineAmountRow }>
+  complete: boolean
 }
 
 type ColumnPass = {
@@ -324,6 +352,18 @@ function windowFilter(from: string, to: string): Record<string, unknown> {
   return { $gte: dateKeyToUtcDate(from), $lt: dateKeyToUtcDate(to) }
 }
 
+const AMOUNT_FIELDS = ['value_amount', 'value_currency', 'probability', 'status']
+const LANE_FIELDS = ['owner_user_id', 'pipeline_id', 'pipeline_stage_id']
+
+function amountRowFor(row: Record<string, unknown>): DealTimelineAmountRow {
+  return {
+    valueAmount: toFiniteNumberOrNull(row.value_amount),
+    valueCurrency: toStringOrNull(row.value_currency),
+    probability: toFiniteNumberOrNull(row.probability),
+    status: toStringOrNull(row.status),
+  }
+}
+
 const DATE_THEN_ID_ASC: Sort[] = [
   { field: 'expected_close_at', dir: SortDir.Asc },
   { field: 'id', dir: SortDir.Asc },
@@ -363,7 +403,7 @@ async function runLightPass(
 ): Promise<ColumnPass> {
   const filters = mergeFieldCondition(baseFilters, 'expected_close_at', windowFilter(column.from, column.to))
   const res = await runQuery(queryEngine, scope, filters, {
-    fields: ['id', 'owner_user_id', 'pipeline_id', 'pipeline_stage_id', 'pipeline_stage', 'expected_close_at'],
+    fields: ['id', ...LANE_FIELDS, 'pipeline_stage', 'expected_close_at', ...AMOUNT_FIELDS],
     sort: DATE_THEN_ID_ASC,
     page: 1,
     pageSize: TIMELINE_COLUMN_CAP,
@@ -377,10 +417,37 @@ async function runLightPass(
       laneKey: laneKeyFor(groupBy, row),
       pipelineId: toStringOrNull(row.pipeline_id),
       pipelineStage: toStringOrNull(row.pipeline_stage),
+      amount: amountRowFor(row),
     })
   }
   const total = Math.max(res.total, rows.length)
   return { column, total, truncated: total > rows.length, countCapped: res.countCapped, rows }
+}
+
+async function runAmountScan(
+  queryEngine: QueryEngine,
+  scope: QueryScope,
+  baseFilters: Filters,
+  column: DealTimelineColumn,
+  groupBy: DealTimelineGroupBy,
+  expectedTotal: number,
+): Promise<AmountScan> {
+  const filters = mergeFieldCondition(baseFilters, 'expected_close_at', windowFilter(column.from, column.to))
+  const rows: AmountScan['rows'] = []
+  for (let page = 1; rows.length < TIMELINE_AMOUNTS_COLUMN_ROW_CAP; page += 1) {
+    const res = await runQuery(queryEngine, scope, filters, {
+      fields: ['id', ...LANE_FIELDS, 'expected_close_at', ...AMOUNT_FIELDS],
+      sort: DATE_THEN_ID_ASC,
+      page,
+      pageSize: TIMELINE_AMOUNT_PAGE_SIZE,
+    })
+    for (const row of res.rows) {
+      if (rows.length >= TIMELINE_AMOUNTS_COLUMN_ROW_CAP) break
+      rows.push({ laneKey: laneKeyFor(groupBy, row), amount: amountRowFor(row) })
+    }
+    if (res.rows.length < TIMELINE_AMOUNT_PAGE_SIZE) break
+  }
+  return { rows, complete: rows.length >= expectedTotal }
 }
 
 async function runInBatches<Input, Output>(
@@ -393,6 +460,25 @@ async function runInBatches<Input, Output>(
     results.push(...(await Promise.all(inputs.slice(index, index + batchSize).map(run))))
   }
   return results
+}
+
+async function loadOpenActivityCounts(
+  em: EntityManager,
+  ids: string[],
+  scope: QueryScope,
+): Promise<Map<string, number> | null> {
+  const db = resolveKyselyClient(em)
+  if (!db) return null
+  try {
+    return await fetchOpenActivityCounts(db, ids, { tenantId: scope.tenantId, organizationIds: scope.organizationIds })
+  } catch (error) {
+    logger.warn('Open activity counts failed; timeline cards omit the planned-activity signal', { err: error })
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'customers',
+      code: 'customers.timeline_activity_count_failed',
+    })
+    return null
+  }
 }
 
 async function loadItems(
@@ -428,6 +514,7 @@ async function loadItems(
       decryptionScope,
     ),
   ])
+  const activityCounts = await loadOpenActivityCounts(em, ids, scope)
   const companies = new Map<string, DealTimelineAssociation>()
   for (const link of companyLinks) {
     const dealId = readRefId(link.deal)
@@ -458,6 +545,7 @@ async function loadItems(
       updatedAt: toIsoStringOrNull(deal.updatedAt),
       primaryCompany: companies.get(deal.id) ?? null,
       primaryPerson: people.get(deal.id) ?? null,
+      openActivityCount: activityCounts ? activityCounts.get(deal.id) ?? 0 : null,
     })
   }
   return byId
@@ -557,7 +645,7 @@ function emptyGrid(query: TimelineQuery, columns: DealTimelineColumn[]) {
     weekStartsOn: DEAL_TIMELINE_WEEK_STARTS_ON,
     from: columns[0].from,
     to: columns[columns.length - 1].to,
-    columns: columns.map((column) => ({ ...column, total: 0, truncated: false, countCapped: false })),
+    columns: columns.map((column) => ({ ...column, total: 0, truncated: false, countCapped: false, amounts: [] })),
     lanes: [],
     overdueBefore: {
       count: 0,
@@ -572,6 +660,7 @@ function emptyGrid(query: TimelineQuery, columns: DealTimelineColumn[]) {
     truncated: false,
     cardsTruncated: false,
     countsCapped: false,
+    amountsCapped: false,
   }
 }
 
@@ -753,6 +842,27 @@ export async function GET(req: Request) {
   const countsCapped =
     columnPasses.some((pass) => pass.countCapped) || overdueRes.countCapped || undatedRes.countCapped
 
+  const truncatedPasses = columnPasses.filter((pass) => pass.truncated)
+  const amountScans = new Map<number, AmountScan>()
+  const scanResults = await runInBatches(truncatedPasses, QUERY_CONCURRENCY, (pass) =>
+    runAmountScan(queryEngine, queryScope, baseFilters, pass.column, query.groupBy, pass.total),
+  )
+  truncatedPasses.forEach((pass, index) => amountScans.set(pass.column.index, scanResults[index]))
+  const amountsCapped = scanResults.some((scan) => !scan.complete)
+  const columnAmounts = new Map<number, DealTimelineAmountAccumulator>()
+  const laneAmounts = new Map<string, DealTimelineAmountAccumulator>()
+  for (const pass of columnPasses) {
+    const columnAccumulator = createTimelineAmountAccumulator()
+    const amountRows = amountScans.get(pass.column.index)?.rows ?? pass.rows
+    for (const row of amountRows) {
+      addTimelineAmount(columnAccumulator, row.amount)
+      const laneAccumulator = laneAmounts.get(row.laneKey) ?? createTimelineAmountAccumulator()
+      addTimelineAmount(laneAccumulator, row.amount)
+      laneAmounts.set(row.laneKey, laneAccumulator)
+    }
+    columnAmounts.set(pass.column.index, columnAccumulator)
+  }
+
   const cellIds = new Map<string, Map<number, string[]>>()
   const laneStageInfo = new Map<string, { pipelineId: string | null; label: string }>()
   for (const pass of columnPasses) {
@@ -867,6 +977,7 @@ export async function GET(req: Request) {
       stage: lane.stage,
       total: cells.reduce((sum, cell) => sum + cell.total, 0),
       partial: anyTruncated,
+      amounts: summarizeTimelineAmounts(laneAmounts.get(lane.key) ?? createTimelineAmountAccumulator()),
       cells,
     }
   })
@@ -882,6 +993,7 @@ export async function GET(req: Request) {
       total: pass.total,
       truncated: pass.truncated,
       countCapped: pass.countCapped,
+      amounts: summarizeTimelineAmounts(columnAmounts.get(pass.column.index) ?? createTimelineAmountAccumulator()),
     })),
     lanes,
     overdueBefore: {
@@ -900,5 +1012,6 @@ export async function GET(req: Request) {
     truncated: anyTruncated,
     cardsTruncated,
     countsCapped,
+    amountsCapped,
   })
 }

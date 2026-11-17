@@ -14,6 +14,7 @@ import type {
   DealTimelineLane,
 } from '../../../../../lib/dealsTimelineTypes'
 import { TimelineDealCard, isTimelineDealOverdue } from './TimelineDealCard'
+import { TimelineAmounts } from './TimelineAmounts'
 import { pluralCategory } from '../../../../../lib/calendar/labels'
 
 export const TIMELINE_CELL_DROPPABLE_PREFIX = 'timeline-cell:'
@@ -85,6 +86,9 @@ export type TimelineLaneProps = {
   perCell: number
   todayKey: string
   collapsed: boolean
+  showWonAmounts?: boolean
+  amountsCapped?: boolean
+  compactHeader?: boolean
   onToggleCollapsed: (laneKey: string) => void
   activeDrag: { laneKey: string; column: number } | null
   canDragItem: (item: DealTimelineItem) => boolean
@@ -180,6 +184,9 @@ export function TimelineLane({
   perCell,
   todayKey,
   collapsed,
+  showWonAmounts = false,
+  amountsCapped = false,
+  compactHeader = false,
   onToggleCollapsed,
   activeDrag,
   canDragItem,
@@ -206,7 +213,7 @@ export function TimelineLane({
     <div role="row" data-timeline-lane={lane.key} className="grid border-b border-border" style={{ gridTemplateColumns: gridTemplate }}>
       <div
         role="rowheader"
-        className="sticky left-0 z-10 flex items-start gap-2 border-r border-border bg-background px-2 py-2"
+        className="sticky left-0 z-10 flex min-w-0 items-start gap-2 border-r border-border bg-background px-2 py-2"
       >
         <IconButton
           type="button"
@@ -218,7 +225,7 @@ export function TimelineLane({
         >
           {collapsed ? <ChevronRight className="size-4" aria-hidden="true" /> : <ChevronDown className="size-4" aria-hidden="true" />}
         </IconButton>
-        {display.kind === 'owner' ? (
+        {compactHeader ? null : display.kind === 'owner' ? (
           <Avatar label={display.avatarLabel ?? display.label} size="sm" />
         ) : (
           <span aria-hidden="true" className={`mt-1 h-4 w-1 shrink-0 rounded-full ${display.accentClass}`} />
@@ -228,6 +235,7 @@ export function TimelineLane({
             {display.label}
           </span>
           <span className="text-xs leading-normal text-muted-foreground">{countLabel}</span>
+          <TimelineAmounts amounts={lane.amounts} showWon={showWonAmounts} scopeLabel={display.label} capped={amountsCapped} />
         </div>
       </div>
       {columns.map((column) => {

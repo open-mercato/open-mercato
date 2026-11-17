@@ -2,8 +2,9 @@
 
 import * as React from 'react'
 import { useDraggable } from '@dnd-kit/core'
-import { AlertTriangle, Calendar } from 'lucide-react'
+import { AlertTriangle, Calendar, CalendarX } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatCurrency } from '../../../../../components/detail/utils'
@@ -67,6 +68,20 @@ export function timelineClosedLabel(t: Translator, kind: TimelineClosedKind): st
   return translateWithFallback(t, 'customers.deals.timeline.status.closed', 'Closed')
 }
 
+export const CLOSED_KIND_VARIANT: Record<TimelineClosedKind, StatusBadgeVariant> = {
+  won: 'success',
+  lost: 'error',
+  closed: 'neutral',
+}
+
+export function timelineProbabilityVariant(value: number | null): StatusBadgeVariant {
+  return typeof value === 'number' && value >= 70 ? 'success' : 'neutral'
+}
+
+export function hasNoPlannedActivity(item: Pick<DealTimelineItem, 'status' | 'openActivityCount'>): boolean {
+  return item.openActivityCount === 0 && isOpenDealStatus(item.status?.toLowerCase())
+}
+
 export function buildTimelineCardAriaLabel(
   t: Translator,
   item: DealTimelineItem,
@@ -87,6 +102,9 @@ export function buildTimelineCardAriaLabel(
   }
   const closed = timelineClosedKind(item.status)
   if (closed) parts.push(timelineClosedLabel(t, closed))
+  if (hasNoPlannedActivity(item)) {
+    parts.push(translateWithFallback(t, 'customers.deals.timeline.card.noPlannedActivity', 'No planned activity'))
+  }
   return parts.join(', ')
 }
 
@@ -171,12 +189,7 @@ function TimelineDealCardImpl({
     listeners?.onKeyDown?.(event)
   }
 
-  const probabilityClass =
-    typeof item.probability === 'number' && item.probability >= 70
-      ? 'bg-muted text-foreground'
-      : typeof item.probability === 'number' && item.probability >= 40
-        ? 'bg-status-warning-bg text-status-warning-text'
-        : 'bg-muted text-muted-foreground'
+  const noPlannedActivity = hasNoPlannedActivity(item)
 
   return (
     <div
@@ -209,19 +222,13 @@ function TimelineDealCardImpl({
       <div className="flex items-start justify-between gap-2">
         <span className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{title}</span>
         {closedKind ? (
-          <span
-            className={`shrink-0 rounded-full px-1.5 py-px text-xs font-semibold leading-normal ${
-              closedKind === 'won'
-                ? 'bg-status-success-bg text-status-success-text'
-                : 'bg-status-neutral-bg text-status-neutral-text'
-            }`}
-          >
+          <StatusBadge variant={CLOSED_KIND_VARIANT[closedKind]} className="shrink-0">
             {timelineClosedLabel(t, closedKind)}
-          </span>
+          </StatusBadge>
         ) : probability ? (
-          <span className={`shrink-0 rounded-full px-1.5 py-px text-xs font-semibold leading-normal ${probabilityClass}`}>
+          <StatusBadge variant={timelineProbabilityVariant(item.probability)} className="shrink-0">
             {probability}
-          </span>
+          </StatusBadge>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs leading-normal">
@@ -241,6 +248,12 @@ function TimelineDealCardImpl({
           </span>
         ) : null}
       </div>
+      {noPlannedActivity ? (
+        <span data-testid="timeline-card-no-activity" className="inline-flex items-center gap-1 text-xs leading-normal text-status-warning-text">
+          <CalendarX className="size-3 shrink-0" aria-hidden="true" />
+          {translateWithFallback(t, 'customers.deals.timeline.card.noPlannedActivity', 'No planned activity')}
+        </span>
+      ) : null}
       {item.primaryCompany?.label || ownerLabel ? (
         <div className="flex items-center justify-between gap-2 text-xs leading-normal text-muted-foreground">
           <span className="truncate">{item.primaryCompany?.label ?? ''}</span>
@@ -262,7 +275,7 @@ export function TimelineDealCardPreview({
   item: DealTimelineItem
   todayKey: string
   accentClass: string
-  hint: string | null
+  hint: { date: string; shift: string } | null
 }): React.ReactElement {
   const t = useT()
   const locale = useLocale()
@@ -280,8 +293,9 @@ export function TimelineDealCardPreview({
         ) : null}
       </div>
       {hint ? (
-        <span className="self-start rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background shadow-md">
-          {hint}
+        <span className="flex flex-col self-start rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background shadow-md">
+          <span>{hint.date}</span>
+          <span>{hint.shift}</span>
         </span>
       ) : null}
     </div>

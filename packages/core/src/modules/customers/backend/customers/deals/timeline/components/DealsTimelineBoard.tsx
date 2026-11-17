@@ -24,6 +24,8 @@ import {
 import { AlertTriangle, CalendarClock, Plus } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { Skeleton } from '@open-mercato/ui/primitives/skeleton'
@@ -50,7 +52,7 @@ import {
   DEAL_TIMELINE_UNASSIGNED_LANE,
   type DealTimelineBucket,
 } from '../../../../../lib/dealsTimeline'
-import { isOpenDealStatus } from '../../../../../lib/dealStatus'
+import { isOpenDealStatus, isWonDealStatus } from '../../../../../lib/dealStatus'
 import { buildDealsListHref } from '../../../../../lib/dealsListHref'
 import type {
   DealTimelineColumnResponse,
@@ -81,6 +83,7 @@ import {
 import { TimelineCellPopover } from './TimelineCellPopover'
 import { TimelineSavedViews } from './TimelineSavedViews'
 import { TimelineDealCardPreview, formatTimelineDate } from './TimelineDealCard'
+import { TimelineAmounts } from './TimelineAmounts'
 import { TimelineDealDrawer } from './TimelineDealDrawer'
 import { TIMELINE_QUERY_ROOT, findTimelineDeal, useRescheduleDeal } from './useRescheduleDeal'
 import {
@@ -272,6 +275,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const locale = useLocale()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+  const isNarrowViewport = useIsMobile()
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const currentUserId = useCurrentUserId()
   const todayKey = React.useMemo(() => toUtcDateKey(new Date()) ?? '', [])
@@ -434,6 +438,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const pendingPushDealIdRef = React.useRef<string | null>(null)
   const previousDealIdRef = React.useRef<string | null>(state.dealId)
   const showDealRef = React.useRef<HTMLButtonElement | null>(null)
+  const closeDrawerRef = React.useRef<(() => void) | null>(null)
 
   const focusCard = React.useCallback((dealId: string): boolean => {
     if (typeof document === 'undefined') return false
@@ -486,16 +491,20 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         window.requestAnimationFrame(() => focusCard(dealId))
         return
       }
-      if (isDrawerOpen) pendingDrawerFocusRef.current = { kind: 'showDeal' }
-      else focusShowDealOnCloseRef.current = true
+      focusShowDealOnCloseRef.current = true
       setMoveNotice({ dealId, date, laneKey })
+      if (isDrawerOpen) {
+        pendingDrawerFocusRef.current = { kind: 'showDeal' }
+        closeDrawerRef.current?.()
+      }
     },
     [focusCard, locale, queryClient, queryKey, t],
   )
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (!moveNotice || drawerOpen || !focusShowDealOnCloseRef.current) return
     focusShowDealOnCloseRef.current = false
+    returnFocusRef.current = showDealRef.current
     showDealRef.current?.focus()
   }, [drawerOpen, moveNotice])
 
@@ -586,6 +595,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     pendingPushDealIdRef.current = null
     update({ dealId: null }, { history })
   }, [state.dealId, update])
+  closeDrawerRef.current = closeDrawer
 
   const drawerItem = React.useMemo(
     () => (drawerDealId && !timelineQuery.isPlaceholderData ? findTimelineDeal(data, drawerDealId)?.item ?? null : null),
@@ -697,7 +707,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     const shift = translatePluralCount(t, locale, `customers.deals.timeline.reschedule.shift.${bucket}`, '{delta}', Math.abs(delta), {
       delta: delta > 0 ? `+${delta}` : String(delta),
     })
-    return `${date ?? ''} · ${shift}`
+    return { date: date ?? '', shift }
   }, [activeDrag, bucket, locale, overColumn, t])
 
   const dragLocked = timelineQuery.isPlaceholderData || (!!data && data.bucket !== bucket)
@@ -810,6 +820,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         total: 0,
         truncated: false,
         countCapped: false,
+        amounts: [],
       })),
     [bucket, fromKey, todayKey],
   )
@@ -855,8 +866,9 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         }),
     }
   }, [bucket, columnLabel, columns, t])
-  const gridTemplate = `minmax(12rem, 14rem) repeat(${columns.length}, minmax(12rem, 1fr))`
-  const gridMinWidth = `${12 + columns.length * 12}rem`
+  const laneColumnRem = isNarrowViewport ? 8 : 12
+  const gridTemplate = `${isNarrowViewport ? 'minmax(8rem, 8rem)' : 'minmax(12rem, 14rem)'} repeat(${columns.length}, minmax(12rem, 1fr))`
+  const gridMinWidth = `${laneColumnRem + columns.length * 12}rem`
   const rangeLabel = columns.length
     ? `${shortRangeFormatter.format(utcDate(columns[0].from))} – ${shortRangeFormatter.format(
         utcDate(addDays(columns[columns.length - 1].to, -1)),
@@ -1051,6 +1063,40 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
   const noResults = !!data && data.lanes.every((lane) => lane.total === 0) && data.columns.every((column) => column.total === 0)
   const isLoadingInitial = !data
   const isRefreshing = !!data && timelineQuery.isFetching && timelineQuery.isPlaceholderData
+  const showWonAmounts = shouldShowWonAmounts(filters)
+  const noResultsActions: NoResultsAction[] = []
+  if (noResults) {
+    if (hasActiveTimelineFilters(filters)) {
+      noResultsActions.push({
+        id: 'clear-filters',
+        label: translateWithFallback(t, 'customers.deals.timeline.clearFilters', 'Clear filters'),
+        onClick: () => setFilters(emptyTimelineFilters()),
+      })
+    }
+    if (filters.excludeClosed) {
+      noResultsActions.push({
+        id: 'show-closed',
+        label: translateWithFallback(t, 'customers.deals.timeline.empty.showClosed', 'Show closed deals'),
+        onClick: () => setFilters((current) => applyClosedToggle(current, false)),
+      })
+    }
+    if (data?.adjacent.next) {
+      const next = data.adjacent.next
+      noResultsActions.push({
+        id: 'jump-next',
+        label: translateWithFallback(t, 'customers.deals.timeline.jump.next', 'Jump to next deal'),
+        onClick: () => update({ from: alignToBucketStart(next, bucket) }),
+      })
+    }
+    if (data?.adjacent.previous) {
+      const previous = data.adjacent.previous
+      noResultsActions.push({
+        id: 'jump-previous',
+        label: translateWithFallback(t, 'customers.deals.timeline.jump.previous', 'Jump to previous deal'),
+        onClick: () => update({ from: alignToBucketStart(previous, bucket) }),
+      })
+    }
+  }
 
   return (
     <div className="mt-4 flex flex-col gap-3">
@@ -1143,21 +1189,41 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         </Alert>
       ) : null}
 
-      {data && data.overdueBefore.count > 0 && data.overdueBefore.latestExpectedCloseAt ? (
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="border-status-error-border bg-status-error-bg text-status-error-text hover:bg-status-error-bg"
-            onClick={() => update({ from: alignToBucketStart(data.overdueBefore.latestExpectedCloseAt!, bucket) })}
-          >
-            <AlertTriangle className="size-4" aria-hidden="true" />
-            {translateWithFallback(t, 'customers.deals.timeline.overdueBefore', '{count} overdue before {date}', {
-              count: formatTimelineCount(t, data.overdueBefore.count, countCaps.overdue),
-              date: formatTimelineDate(data.overdueBefore.before, locale) ?? data.overdueBefore.before,
-            })}
-          </Button>
+      {(data && data.overdueBefore.count > 0 && data.overdueBefore.latestExpectedCloseAt) || (data && data.undatedCount > 0) ? (
+        <div className="grid gap-2 md:grid-cols-2">
+          {data.overdueBefore.count > 0 && data.overdueBefore.latestExpectedCloseAt ? (
+            <Alert
+              status="error"
+              size="sm"
+              data-testid="timeline-overdue-before"
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => update({ from: alignToBucketStart(data.overdueBefore.latestExpectedCloseAt!, bucket) })}
+                >
+                  {translateWithFallback(t, 'customers.deals.timeline.overdueBeforeAction', 'Show overdue deals')}
+                </Button>
+              }
+            >
+              <AlertDescription>
+                {translateWithFallback(t, 'customers.deals.timeline.overdueBefore', '{count} overdue before {date}', {
+                  count: formatTimelineCount(t, data.overdueBefore.count, countCaps.overdue),
+                  date: formatTimelineDate(data.overdueBefore.before, locale) ?? data.overdueBefore.before,
+                })}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {data.undatedCount > 0 ? (
+            <Alert status="warning" size="sm" data-testid="timeline-undated">
+              <AlertDescription>
+                <Link href={undatedHref} className="font-medium text-foreground underline underline-offset-2 hover:no-underline">
+                  {formatTimelineUndatedLabel(t, locale, data.undatedCount, countCaps.undated)}
+                </Link>
+              </AlertDescription>
+            </Alert>
+          ) : null}
         </div>
       ) : null}
 
@@ -1170,40 +1236,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
             'customers.deals.timeline.empty.noResults.description',
             'Change the filters or move the window to find deals.',
           )}
-          actions={
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {hasActiveTimelineFilters(filters) ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setFilters(emptyTimelineFilters())}>
-                  {translateWithFallback(t, 'customers.deals.timeline.clearFilters', 'Clear filters')}
-                </Button>
-              ) : null}
-              {filters.excludeClosed ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setFilters((current) => applyClosedToggle(current, false))}>
-                  {translateWithFallback(t, 'customers.deals.timeline.empty.showClosed', 'Show closed deals')}
-                </Button>
-              ) : null}
-              {data?.adjacent.previous ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => update({ from: alignToBucketStart(data.adjacent.previous!, bucket) })}
-                >
-                  {translateWithFallback(t, 'customers.deals.timeline.jump.previous', 'Jump to previous deal')}
-                </Button>
-              ) : null}
-              {data?.adjacent.next ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => update({ from: alignToBucketStart(data.adjacent.next!, bucket) })}
-                >
-                  {translateWithFallback(t, 'customers.deals.timeline.jump.next', 'Jump to next deal')}
-                </Button>
-              ) : null}
-            </div>
-          }
+          actions={<NoResultsActions actions={noResultsActions} />}
         />
       ) : (
         <DndContext
@@ -1242,26 +1275,32 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                   <div
                     key={column.index}
                     role="columnheader"
-                    className={`flex flex-col gap-0.5 border-l border-border px-2 py-2 ${column.isCurrent ? 'bg-accent-indigo/10' : ''}`}
+                    className={`flex flex-col gap-0.5 border-l border-border px-2 py-2 ${column.isCurrent ? 'bg-accent-indigo/5' : ''}`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-foreground">{columnLabel(column, bucket)}</span>
                       {data ? (
-                        <span className="text-xs text-muted-foreground">{formatTimelineCount(t, column.total, countCaps.columns.get(column.index) === true)}</span>
+                        <span className={`text-xs ${column.isCurrent ? 'text-foreground' : 'text-muted-foreground'}`}>
+                          {formatTimelineCount(t, column.total, countCaps.columns.get(column.index) === true)}
+                        </span>
                       ) : null}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {bucket === 'week' ? (
-                        <span className="text-xs text-muted-foreground">
+                        <span className={`text-xs ${column.isCurrent ? 'text-foreground' : 'text-muted-foreground'}`}>
                           {shortRangeFormatter.format(utcDate(column.from))} – {shortRangeFormatter.format(utcDate(addDays(column.to, -1)))}
                         </span>
                       ) : null}
-                      {column.isCurrent ? (
-                        <span className="rounded-full bg-accent-indigo px-1.5 py-px text-xs font-semibold text-accent-indigo-foreground">
-                          {currentPillLabel}
-                        </span>
-                      ) : null}
+                      {column.isCurrent ? <StatusBadge variant="info">{currentPillLabel}</StatusBadge> : null}
                     </div>
+                    {data ? (
+                      <TimelineAmounts
+                        amounts={'amounts' in column ? column.amounts : undefined}
+                        showWon={showWonAmounts}
+                        scopeLabel={columnLabel(column, bucket)}
+                        capped={data.amountsCapped === true}
+                      />
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -1303,6 +1342,9 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                         perCell={TIMELINE_PER_CELL}
                         todayKey={todayKey}
                         collapsed={collapsedLanes.includes(lane.key)}
+                        showWonAmounts={showWonAmounts}
+                        amountsCapped={data?.amountsCapped === true}
+                        compactHeader={isNarrowViewport}
                         onToggleCollapsed={toggleCollapsed}
                         activeDrag={activeDrag ? { laneKey: activeDrag.laneKey, column: activeDrag.column } : null}
                         canDragItem={canDragItem}
@@ -1361,13 +1403,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         </DndContext>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
         <StageLegend data={data} stageToneById={stageToneById} stageLabelById={stageLabelById} />
-        {data && data.undatedCount > 0 ? (
-          <Link href={undatedHref} className="font-medium text-accent-indigo hover:underline">
-            {formatTimelineUndatedLabel(t, locale, data.undatedCount, countCaps.undated)}
-          </Link>
-        ) : null}
       </div>
 
       <TimelineDealDrawer
@@ -1384,6 +1421,40 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         writesLocked={isDealWriteLocked(writeLocks, drawerDealId)}
         onRefreshed={handleDrawerRefreshed}
       />
+    </div>
+  )
+}
+
+export function shouldShowWonAmounts(filters: Pick<DealTimelineFilters, 'excludeClosed' | 'status'>): boolean {
+  return !filters.excludeClosed || filters.status.some((status) => isWonDealStatus(status.toLowerCase()))
+}
+
+export type NoResultsAction = { id: string; label: string; onClick: () => void }
+
+export function NoResultsActions({ actions }: { actions: NoResultsAction[] }): React.ReactElement | null {
+  if (!actions.length) return null
+  const [primary, ...secondary] = actions
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <Button type="button" size="sm" onClick={primary.onClick} data-action-id={primary.id}>
+        {primary.label}
+      </Button>
+      {secondary.length ? (
+        <div className="flex flex-wrap items-center justify-center gap-1">
+          {secondary.map((action) => (
+            <Button
+              key={action.id}
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={action.onClick}
+              data-action-id={action.id}
+            >
+              {action.label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

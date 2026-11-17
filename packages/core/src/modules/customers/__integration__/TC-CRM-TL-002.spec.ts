@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { login } from '@open-mercato/core/helpers/integration/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
@@ -64,6 +64,46 @@ async function deleteTimelinePerspectives(request: APIRequestContext, token: str
       () => undefined,
     );
   }
+}
+
+async function switchOrganization(page: Page, name: string): Promise<void> {
+  await page.evaluate(() => {
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Organization:"]');
+    if (!trigger) throw new Error('[internal] organization switcher not found');
+    trigger.click();
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (optionName) =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>('[data-radix-popper-content-wrapper] button')).some(
+            (button) => button.textContent?.trim() === optionName,
+          ),
+        name,
+      ),
+    )
+    .toBe(true);
+  await page.evaluate((optionName) => {
+    const option = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[data-radix-popper-content-wrapper] button'),
+    ).find((button) => button.textContent?.trim() === optionName);
+    if (!option) throw new Error('[internal] organization option not found');
+    option.click();
+  }, name);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label^="Organization:"]')?.getAttribute('aria-label') ?? '',
+      ),
+    )
+    .toContain(name);
+}
+
+async function saveTimelineView(page: Page, name: string): Promise<void> {
+  await page.getByRole('button', { name: 'Save view' }).click();
+  await page.getByPlaceholder(/view name/i).fill(name);
+  await page.getByRole('button', { name: 'Create view' }).click();
+  await expect(page.getByRole('button', { name, exact: true })).toBeVisible({ timeout: 30_000 });
 }
 
 test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
@@ -638,6 +678,108 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
       await deleteUserIfExists(request, superToken, viewerId);
       await deleteUserIfExists(request, superToken, orgBUserId);
       await cleanupTimelineScope(request, adminToken, scope);
+      await deleteOrganizationIfExists(request, superToken, orgBId);
+    }
+  });
+
+  test('saved views follow the organization switch: chips, apply, rename and delete stay in their organization', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(360_000);
+    const stamp = Date.now();
+    const adminToken = await getAuthToken(request, 'admin');
+    const superToken = await getAuthToken(request, 'superadmin');
+    const { tenantId } = getTokenContext(adminToken);
+    const orgAName = `TC-CRM-TL-002 Views Org A ${stamp}`;
+    const orgBName = `TC-CRM-TL-002 Views Org B ${stamp}`;
+    const ownerAEmail = `tc-crm-tl-002-views-a-${stamp}@example.com`;
+    const ownerBEmail = `tc-crm-tl-002-views-b-${stamp}@example.com`;
+    const viewA = `TL002V A ${stamp}`;
+    const viewB = `TL002V B ${stamp}`;
+    const viewBRenamed = `TL002V B renamed ${stamp}`;
+    let orgAId: string | null = null;
+    let orgBId: string | null = null;
+    let ownerAId: string | null = null;
+    let ownerBId: string | null = null;
+    let ownerAToken: string | null = null;
+    let ownerBToken: string | null = null;
+    let dealAId: string | null = null;
+    let dealBId: string | null = null;
+    try {
+      orgAId = await createOrganizationFixture(request, superToken, { name: orgAName, tenantId });
+      orgBId = await createOrganizationFixture(request, superToken, { name: orgBName, tenantId });
+      ownerAId = await createUserFixture(request, superToken, { email: ownerAEmail, password: PASSWORD, organizationId: orgAId, roles: [] });
+      ownerBId = await createUserFixture(request, superToken, { email: ownerBEmail, password: PASSWORD, organizationId: orgBId, roles: [] });
+      await setUserAclVisibility(request, superToken, { userId: ownerAId, organizations: null, features: ['customers.*'] });
+      await setUserAclVisibility(request, superToken, { userId: ownerBId, organizations: null, features: ['customers.*'] });
+      ownerAToken = await getAuthToken(request, ownerAEmail, PASSWORD);
+      ownerBToken = await getAuthToken(request, ownerBEmail, PASSWORD);
+      dealAId = await createDealFixture(request, ownerAToken, {
+        title: `TL002V Org A Deal ${stamp}`,
+        status: 'open',
+        expectedCloseAt: `${todayKey()}T00:00:00.000Z`,
+        ownerUserId: ownerAId,
+      });
+      dealBId = await createDealFixture(request, ownerBToken, {
+        title: `TL002V Org B Deal ${stamp}`,
+        status: 'open',
+        expectedCloseAt: `${todayKey()}T00:00:00.000Z`,
+        ownerUserId: ownerBId,
+      });
+      await installDevNoticeHandler(page);
+      await login(page, 'superadmin');
+      await openTimeline(page, 'bucket=quarter');
+      await switchOrganization(page, orgAName);
+      await expect(timelineCard(page, dealAId)).toBeVisible({ timeout: 30_000 });
+      await saveTimelineView(page, viewA);
+
+      await switchOrganization(page, orgBName);
+      await expect(page.getByRole('button', { name: viewA, exact: true }), 'org A views leave with org A').toHaveCount(0);
+      await expect(timelineCard(page, dealBId)).toBeVisible({ timeout: 30_000 });
+      await page.getByRole('radio', { name: 'Stage' }).click();
+      await expect(page).toHaveURL(/groupBy=stage/);
+      await saveTimelineView(page, viewB);
+      await expect(page.getByRole('button', { name: viewA, exact: true })).toHaveCount(0);
+
+      await page.getByRole('radio', { name: 'Owner' }).click();
+      await expect(page).not.toHaveURL(/groupBy=stage/);
+      await page.getByRole('button', { name: viewB, exact: true }).click();
+      await expect(page, 'applying an org B view restores its grouping').toHaveURL(/groupBy=stage/);
+
+      const viewBChip = page.getByRole('button', { name: viewB, exact: true }).locator('xpath=..');
+      await viewBChip.getByRole('button', { name: 'View options' }).click();
+      await page.getByRole('dialog').last().getByRole('button', { name: 'Rename' }).click();
+      const renameInput = page.getByRole('group', { name: 'Saved views' }).locator('input');
+      await renameInput.fill(viewBRenamed);
+      await renameInput.press('Enter');
+      await expect(page.getByRole('button', { name: viewBRenamed, exact: true })).toBeVisible({ timeout: 30_000 });
+
+      await switchOrganization(page, orgAName);
+      await expect(page.getByRole('button', { name: viewA, exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole('button', { name: viewBRenamed, exact: true }), 'org B views stay in org B').toHaveCount(0);
+      const viewAChip = page.getByRole('button', { name: viewA, exact: true }).locator('xpath=..');
+      await viewAChip.getByRole('button', { name: 'View options' }).click();
+      await page.getByRole('dialog').last().getByRole('button', { name: 'Delete' }).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+      await expect(page.getByRole('button', { name: viewA, exact: true })).toHaveCount(0, { timeout: 30_000 });
+
+      await switchOrganization(page, orgBName);
+      await expect(
+        page.getByRole('button', { name: viewBRenamed, exact: true }),
+        'deleting the org A view leaves the renamed org B view intact',
+      ).toBeVisible({ timeout: 30_000 });
+      const renamedChip = page.getByRole('button', { name: viewBRenamed, exact: true }).locator('xpath=..');
+      await renamedChip.getByRole('button', { name: 'View options' }).click();
+      await page.getByRole('dialog').last().getByRole('button', { name: 'Delete' }).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+      await expect(page.getByRole('button', { name: viewBRenamed, exact: true })).toHaveCount(0, { timeout: 30_000 });
+    } finally {
+      if (ownerAToken) await deleteEntityIfExists(request, ownerAToken, '/api/customers/deals', dealAId);
+      if (ownerBToken) await deleteEntityIfExists(request, ownerBToken, '/api/customers/deals', dealBId);
+      await deleteUserIfExists(request, superToken, ownerAId);
+      await deleteUserIfExists(request, superToken, ownerBId);
+      await deleteOrganizationIfExists(request, superToken, orgAId);
       await deleteOrganizationIfExists(request, superToken, orgBId);
     }
   });

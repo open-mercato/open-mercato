@@ -6,12 +6,14 @@ import { AlertTriangle } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { DealTimelineCellResponse, DealTimelineItem } from '../../../../../lib/dealsTimelineTypes'
 import {
+  CLOSED_KIND_VARIANT,
   formatTimelineDate,
   formatTimelineValue,
   isTimelineDealOverdue,
@@ -108,17 +110,17 @@ export function TimelineCellPopover({
     fallback?.focus()
   }, [fetchNextPage, focusDealId, hasNextPage, isError, isFetchingNextPage, isLoading, items, open, pageCount])
 
-  const title = translateWithFallback(t, 'customers.deals.timeline.cell.popoverTitle', '{lane} · {column}', {
-    lane: laneLabel,
-    column: columnLabel,
-  })
+  const titleId = React.useId()
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-0">
-        <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-          <span className="truncate text-sm font-semibold text-foreground">{title}</span>
+      <PopoverContent align="start" className="w-80 p-0" aria-labelledby={titleId}>
+        <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2">
+          <div id={titleId} className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-semibold text-foreground">{laneLabel}</span>
+            <span className="truncate text-xs text-muted-foreground">{columnLabel}</span>
+          </div>
           {total !== null ? (
             <span className="shrink-0 text-xs text-muted-foreground">
               {formatTimelineDealCount(t, locale, total, totalCapped)}
@@ -152,15 +154,24 @@ export function TimelineCellPopover({
                       {item.title || translateWithFallback(t, 'customers.deals.pipeline.untitled', 'Untitled deal')}
                     </span>
                     <span className="flex items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
-                      <span className="truncate">{[item.primaryCompany?.label, value].filter(Boolean).join(' · ')}</span>
+                      <span className="truncate">{item.primaryCompany?.label ?? ''}</span>
                       <span
                         className={`inline-flex shrink-0 items-center gap-1 ${overdue ? 'text-status-error-text' : ''}`}
                       >
                         {overdue ? <AlertTriangle className="size-3" aria-hidden="true" /> : null}
-                        {closed ? `${timelineClosedLabel(t, closed)} · ` : ''}
                         {formatTimelineDate(item.expectedCloseAt, locale) ?? ''}
                       </span>
                     </span>
+                    {value || closed ? (
+                      <span className="flex items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
+                        <span className="truncate">{value ?? ''}</span>
+                        {closed ? (
+                          <StatusBadge variant={CLOSED_KIND_VARIANT[closed]} className="shrink-0">
+                            {timelineClosedLabel(t, closed)}
+                          </StatusBadge>
+                        ) : null}
+                      </span>
+                    ) : null}
                   </Button>
                 </li>
               )

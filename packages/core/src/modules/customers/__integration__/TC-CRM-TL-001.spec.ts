@@ -6,6 +6,7 @@ import {
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
+  createCompanyFixture,
   createDealFixture,
   createPipelineFixture,
   createPipelineStageFixture,
@@ -137,6 +138,8 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
     let otherPipelineId: string | null = null;
     const stageIds: string[] = [];
     const cleanupStageIds: string[] = [];
+    const interactionIds: string[] = [];
+    let activityCompanyId: string | null = null;
 
     try {
       pipelineId = await createPipelineFixture(request, adminToken, { name: `TC-CRM-TL-001 Pipeline ${stamp}` });
@@ -192,6 +195,18 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
       const undatedId = await make('Undated', { owner: adminUserId });
       const undatedWonId = await make('Undated won', { owner: adminUserId, status: 'win' });
 
+      activityCompanyId = await createCompanyFixture(request, adminToken, `TC-CRM-TL-001 Activity Co ${stamp}`);
+      for (const [title, status] of [['planned', 'planned'], ['done', 'done']] as const) {
+        const created = await apiRequest(request, 'POST', '/api/customers/interactions', {
+          token: adminToken,
+          data: { entityId: activityCompanyId, dealId: earlyId, interactionType: 'task', title: `TC-CRM-TL-001 ${title} ${stamp}`, status },
+        });
+        expect(created.status(), await created.text()).toBe(201);
+        const createdId = (await readJsonSafe<{ id?: string }>(created))?.id;
+        expect(createdId, 'interaction id').toBeTruthy();
+        interactionIds.push(createdId as string);
+      }
+
       const unassignedRead = await apiRequest(request, 'GET', `${DEALS_PATH}?ids=${unassignedId}`, { token: adminToken });
       const unassignedBody = await readJsonSafe<{ items?: Array<{ pipelineStageId?: string | null; pipeline_stage_id?: string | null }> }>(unassignedRead);
       const unassignedStage = unassignedBody?.items?.[0]?.pipelineStageId ?? unassignedBody?.items?.[0]?.pipeline_stage_id ?? null;
@@ -228,12 +243,33 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
       expect(grid.scopeHasDeals).toBe(true);
       expect(grid.truncated).toBe(false);
 
+      expect(grid.amountsCapped, 'amounts are exact').toBe(false);
+      expect(grid.columns.map((column) => column.amounts.map((amount) => [amount.currency, amount.open, amount.won])), 'per-column open totals per currency').toEqual([
+        [['USD', 3000, 0]],
+        [['USD', 1000, 0]],
+        [['USD', 1000, 0]],
+      ]);
+      for (const column of grid.columns) {
+        for (const amount of column.amounts) {
+          expect(amount.weighted, 'weighted total stays within the open total').toBeGreaterThanOrEqual(0);
+          expect(amount.weighted).toBeLessThanOrEqual(amount.open);
+        }
+      }
+      expect(adminLane?.amounts.map((amount) => [amount.currency, amount.open]), 'admin lane open total').toEqual([['USD', 4000]]);
+      expect(unassignedLane?.amounts.map((amount) => [amount.currency, amount.open])).toEqual([['USD', 1000]]);
+      const earlyItem = busy?.items.find((item) => item.id === earlyId);
+      expect(earlyItem?.openActivityCount, 'planned follow-up counts, the done one does not').toBe(1);
+      expect(busy?.items.find((item) => item.id !== earlyId)?.openActivityCount, 'deal without activities').toBe(0);
+
       const withWon = await fetchTimeline(request, adminToken, `${base}&status=open&status=win`);
       expect(allItemIds(withWon), 'status=open&status=win includes the won deal').toContain(wonId);
       expect(allItemIds(withWon)).toContain(earlyId);
 
       const allDeals = await fetchTimeline(request, adminToken, `${base}&excludeClosed=false`);
       expect(allItemIds(allDeals), 'excludeClosed=false includes the won deal').toContain(wonId);
+      expect(allDeals.columns[2].amounts.map((amount) => [amount.currency, amount.open, amount.won]), 'won total appears once closed deals are included').toEqual([
+        ['USD', 1000, 1000],
+      ]);
 
       const owners = await fetchTimeline(
         request,
@@ -289,9 +325,13 @@ test.describe('TC-CRM-TL-001: deals timeline endpoint (GET /api/customers/deals/
         [undatedId, undatedWonId].sort(),
       );
     } finally {
+      for (const id of interactionIds) {
+        await deleteEntityIfExists(request, adminToken, '/api/customers/interactions', id);
+      }
       for (const id of createdDeals) {
         await deleteEntityIfExists(request, adminToken, DEALS_PATH, id);
       }
+      await deleteEntityIfExists(request, adminToken, '/api/customers/companies', activityCompanyId);
       for (const id of [...stageIds, ...cleanupStageIds]) {
         await deleteEntityByBody(request, adminToken, STAGES_PATH, id);
       }

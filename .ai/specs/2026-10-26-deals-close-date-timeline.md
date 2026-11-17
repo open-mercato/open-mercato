@@ -26,7 +26,7 @@ Sales reps and managers plan around *when* deals close. The Deals area shows tha
 > **Adopted from Pipedrive:** period columns rather than a continuous day axis, cards instead of bars, and drag-between-periods editing the date.
 > **Rejected:**
 > - **Gantt-style bars on a day axis.** It was prototyped first and dropped in review: a deal has a single close date, and bar width implies a duration that doesn't exist.
-> - **Per-period value totals and forecast categories.** HubSpot and Pipedrive have them, but they need currency conversion and forecast semantics. They are out of scope for v1 (see Out of Scope).
+> - **Converted value totals and forecast categories.** HubSpot and Pipedrive have them, but they need currency conversion and forecast semantics, so they stay out of scope (see Out of Scope). Per-currency open, weighted and won totals per period and lane are provided without conversion (see API Contracts → Amounts).
 
 ## 📝 Problem Statement
 
@@ -152,6 +152,7 @@ No new entities and no migrations.
 - **`CustomerDealCompanyLink` → company `CustomerEntity`:** supplies the card's primary company label. The first linked company by link creation is used: the link query sets an explicit `orderBy: { createdAt: 'asc', id: 'asc' }` on `CustomerDealCompanyLink`, so the card label is deterministic (the Map endpoint's link fetch has no `orderBy`, so it can't be relied on for this). Decrypted via `findWithDecryption`.
 - **`CustomerDealPersonLink` → person `CustomerEntity`:** supplies the drawer's primary person (contact) label, with the same rule: the first linked person by `orderBy: { createdAt: 'asc', id: 'asc' }`, decrypted via `findWithDecryption`.
 - **Pipeline stages and `customer_dictionary_entries.color`:** supply the label, order and tone for stage lanes when `groupBy=stage` and the caller has `customers.pipelines.view`. This is the same source and org/tenant scoping as the Kanban (`pipeline/page.tsx`).
+- **`CustomerInteraction` (`customer_interactions`):** `deal_id`, `status`, `organization_id`, `tenant_id`, `deleted_at`, read only to count each card's open activities (see `openActivityCount`).
 - **`perspectives` rows:** saved views. One row per user view, `tableId = 'customers.deals.timeline'`, stored in the existing table.
 
 ### Saved-view payload (`PerspectiveSettings`)
@@ -203,7 +204,8 @@ No new entities and no migrations.
   "from": "2026-10-19", "to": "2026-11-23",          // to = exclusive end
   "columns": [{ "index": 0, "from": "2026-10-19", "to": "2026-10-26", "isCurrent": false,
                 "total": 14, "truncated": false,       // truncated = lane split partial
-                "countCapped": false }],               // total hit OM_LIST_COUNT_CAP and is a floor
+                "countCapped": false,                  // total hit OM_LIST_COUNT_CAP and is a floor
+                "amounts": [{ "currency": "EUR", "open": 182000, "weighted": 96400, "won": 0 }] }], // exact per-currency sums for the column
   "lanes": [{
     "key": "uuid | __unassigned | __nostage:<pipelineId>", // ownerUserId or pipelineStageId
     "kind": "owner",                                  // 'owner' | 'stage'
@@ -211,6 +213,7 @@ No new entities and no migrations.
     "stage": null,                                    // stage lanes: { label, pipelineId, order?, tone?, pipelineName? } (optional fields need customers.pipelines.view)
     "total": 8,                                       // deals in window for this lane
     "partial": false,                                 // true when any column is truncated: total is a lower bound
+    "amounts": [{ "currency": "EUR", "open": 91000, "weighted": 59150, "won": 0 }], // exact per-currency sums for the lane across the window
     "cells": [{
       "column": 1, "total": 5, "partial": false,        // partial: the cell is in a truncated column, total is a lower bound
       "items": [{
@@ -220,7 +223,8 @@ No new entities and no migrations.
         "pipelineId": "uuid", "pipelineStageId": "uuid", "pipelineStage": "Qualified", // pipelineStage: the deal's stage label text, string | null
         "ownerUserId": "uuid|null", "updatedAt": "2026-10-23T09:12:44.120Z",
         "primaryCompany": { "id": "uuid", "label": "Veridian Labs" }, // or null
-        "primaryPerson": { "id": "uuid", "label": "Ingrid Malmberg" }   // or null; first linked person
+        "primaryPerson": { "id": "uuid", "label": "Ingrid Malmberg" },  // or null; first linked person
+        "openActivityCount": 0                         // open (non-terminal) interactions linked to the deal; null when the count is unavailable
       }]
     }]
   }],
@@ -233,13 +237,22 @@ No new entities and no migrations.
   "scopeHasDeals": true,                               // any non-deleted deal in scope, ignoring filters and window
   "truncated": false,                                  // any column hit TIMELINE_COLUMN_CAP (300)
   "cardsTruncated": false,                             // heavy pass hit TIMELINE_RESPONSE_CARD_CAP (240)
-  "countsCapped": false                                // any of the counts above hit OM_LIST_COUNT_CAP
+  "countsCapped": false,                               // any of the counts above hit OM_LIST_COUNT_CAP
+  "amountsCapped": false                               // a truncated column exceeded TIMELINE_AMOUNTS_COLUMN_ROW_CAP (10,000): its amounts are lower bounds
 }
 ```
 
 - **`scopeHasDeals`:** one 1-row query on `customer_deals` with only the org/tenant scope and soft delete applied. The query engine always runs its capped count probe first (up to `OM_LIST_COUNT_CAP` + 1 rows) and then the 1-row select; the engine has no option to skip the probe. It lets the page tell a new organization (first-run state) apart from one whose deals are all closed, undated, outside the window or filtered out.
 - **Cell-mode response:** `{ "lane": "uuid|__unassigned|__nostage:<pipelineId>", "column": 1, "items": [ /* same item shape */ ], "total": 5, "page": 1, "pageSize": 50, "totalPages": 1, "countsCapped": false }`. The items use the same ordering as the grid.
 - **Capped counts:** each count carries its own flag (`columns[].countCapped`, `overdueBefore.countCapped`, `undatedCountCapped`), so one capped count never marks the others as floors. `countsCapped` is the aggregate.
+- **Amounts (`columns[].amounts`, `lanes[].amounts`):** exact sums over the filtered set, one entry per currency with no conversion (`DealTimelineCurrencyTotal { currency, open, weighted, won }`).
+  - `open` sums `value_amount` of open deals; `weighted` sums `value_amount × probability / 100` of open deals (a missing probability counts as 0; values are clamped to 0–100); `won` sums `value_amount` of won deals (`lib/dealStatus` won set, all spellings). Lost and plain `closed` deals add nothing.
+  - Won deals only reach the sums when the filters include closed deals (All deals, or a Status selection with a won status); under Hide closed deals `won` is `0`.
+  - Deals without a value are ignored. A value without a currency is kept under the empty code `""` rather than dropped, so no value silently disappears.
+  - Entries are sorted by `open` descending, then currency code. Sums are accumulated in cents and rounded to 2 decimals.
+  - Column amounts cover that column's `[from, to)` window; lane amounts cover the whole window for that lane key, including deals beyond a column's 300-row lane split. Lanes that exist only beyond the cap still have no lane (unchanged), but their deals are in the column amounts.
+  - The cell-mode response has no amounts.
+- **`openActivityCount`:** on every card item (grid and cell mode). It is the number of interactions linked to the deal whose status is not terminal (`done`, `canceled`, `completed`), counted with exactly the query the deals `_pipeline` enricher uses for `openActivitiesCount`, scoped to the tenant and the caller's organizations, in one grouped query per response. Like the enricher it needs no feature beyond `customers.deals.view`. `null` means the count is unavailable (no database client, or the query failed and was reported); clients must not show the "no planned activity" marker for `null`.
 
 - **Lane rules:**
   - **Owner lanes:** owners with at least one matching deal in the window, plus every owner explicitly selected in the `ownerUserId` filter (even with zero deals). The client sorts them by resolved name; owners it can't resolve (beyond the staff lookup's 100-member page, or without `customers.roles.view`) show a generic "Owner" label with initials from the id and sort last, before `__unassigned`, which always comes last. In a truncated column, an owner whose deals all fall beyond the cap has no lane until the filters are narrowed; the truncation alert says so.
@@ -409,7 +422,7 @@ The timeline is a **close-date planning view** for CRM deals. It is not a foreca
 - **Sales documents today:** the Sales quote and order entities reference the customer, not the deal. There is no deal↔quote or deal↔order link, so the timeline doesn't show quotes and doesn't infer one from the company (ambiguous when a customer has several opportunities).
 - **Status ownership:** the deal's status is changed only by CRM actions (deal form, Kanban, the deal drawer's Mark won/lost). Accepting a quote, creating an order, or cancelling either does **not** change the deal in v1, and reopening a deal doesn't touch Sales documents. The configured Sales document flow is unchanged.
 - **Intended flow (follow-up spec, owned by the customers and sales modules together):** an explicit deal reference on quotes and orders (FK id plus snapshot, no ORM relation), a deal panel listing them, and opt-in rules (for example quote accepted → deal won, order cancelled → reopen prompt) implemented as event subscribers so neither module depends on the other. Alternative quotes for one deal, and which one feeds the deal amount, belong to that spec.
-- **Forecasting:** period totals and weighted forecast stay out of scope. Totals per currency (no conversion) are the first follow-up.
+- **Forecasting:** columns and lanes carry per-currency open, probability-weighted and won totals (no conversion; see API Contracts → Amounts). Converted totals and forecast categories stay out of scope.
 
 ## 📝 Migration & Compatibility
 
@@ -425,12 +438,11 @@ The timeline is a **close-date planning view** for CRM deals. It is not a foreca
 
 ## 📝 Out of Scope (v1)
 
-- Per-column value totals and weighted forecast (needs currency conversion; possible follow-up through `api/deals/summary` conventions).
+- Converted (single-currency) value totals and forecast categories (needs exchange-rate semantics; possible follow-up through `api/deals/summary` conventions). Per-currency totals are implemented.
 - Dragging across lanes to change owner or stage; a dedicated undated tray; role-default saved views and sharing; dashboard or portal widgets; a day-precision axis.
 - An index on `expected_close_at`. It is a follow-up only if profiling shows a need (see Risks).
 - Rescheduling closed deals, until reporting has a stable closure date (a `closed_at` column and report changes, separate spec).
 - The deal↔quote/order link and the Sales status rules (see CRM and Sales Workflow Consistency).
-- Per-currency period totals (first forecasting follow-up).
 - Showing repeated postponements of the same deal (from the audit log) to managers.
 
 ## 📋 Phasing
@@ -602,7 +614,7 @@ Every pass and side query goes through the Map route's scope resolution. Company
 There are no migrations; the routes and the param are additive. Rolling back means removing the page and route, and saved timeline perspectives become inert rows.
 
 ### Operational Risks
-Endpoint cost: the filter build runs once. Each column is one light query of up to 300 rows plus its count probe, so the worst case is 8 columns × 2 = 16 light statements, run two columns at a time. After the column passes come five side queries (overdue, undated, previous, next, scope), also two at a time, so at most two queries are in flight per request. Each side query is the engine's capped count probe plus a 1-row select, so they add about ten statements; the probes visit at most `OM_LIST_COUNT_CAP` + 1 rows each. On top of that come the heavy pass and the stage lookups. Lanes are unbounded, so `lanes × columns × perCell` is bounded only by the light-pass cap: the heavy pass is capped at `TIMELINE_RESPONSE_CARD_CAP` (240 = 8 columns × 3 × 10) decrypted cards per response. Cells beyond the cap return `items: []` with their exact `total`, render as "+N more" and load through cell mode, and the response sets `cardsTruncated: true`. Without the cap the worst case would be 8 × 300 = 2,400 decrypted rows and rendered cards (for example stage grouping across all pipelines). Cell mode costs one paged query. Phase 1 profiles the worst case on a seeded 10k-deal tenant (`OM_PROFILE=customers.*`). If it exceeds the deals-list p95, the follow-up is a grouped count through the query engine, not a raised cap.
+Endpoint cost: the filter build runs once. Each column is one light query of up to 300 rows plus its count probe, so the worst case is 8 columns × 2 = 16 light statements, run two columns at a time. After the column passes come five side queries (overdue, undated, previous, next, scope), also two at a time, so at most two queries are in flight per request. Each side query is the engine's capped count probe plus a 1-row select, so they add about ten statements; the probes visit at most `OM_LIST_COUNT_CAP` + 1 rows each. On top of that come the heavy pass and the stage lookups. Lanes are unbounded, so `lanes × columns × perCell` is bounded only by the light-pass cap: the heavy pass is capped at `TIMELINE_RESPONSE_CARD_CAP` (240 = 8 columns × 3 × 10) decrypted cards per response. Cells beyond the cap return `items: []` with their exact `total`, render as "+N more" and load through cell mode, and the response sets `cardsTruncated: true`. Without the cap the worst case would be 8 × 300 = 2,400 decrypted rows and rendered cards (for example stage grouping across all pipelines). Cell mode costs one paged query plus the activity count. Amounts add no query for a column that is not truncated: the light pass already reads every row of such a column and also selects `value_amount`, `value_currency`, `probability` and `status`. A truncated column (more than 300 rows) gets one extra amount scan through the same query engine and filters, paged at `TIMELINE_AMOUNT_PAGE_SIZE` (1,000) rows and capped at `TIMELINE_AMOUNTS_COLUMN_ROW_CAP` (10,000) rows per column, so the worst case is 8 columns × 10 pages × 2 statements; scans run two columns at a time after the side queries. Beyond the cap the response sets `amountsCapped: true` and those amounts are lower bounds. The activity count is one grouped query over the loaded card ids (at most 240). Phase 1 profiles the worst case on a seeded 10k-deal tenant (`OM_PROFILE=customers.*`). If it exceeds the deals-list p95, the follow-up is a grouped count through the query engine, not a raised cap.
 
 ### Risk Register
 
@@ -820,3 +832,4 @@ Implemented (Phases 1 and 2, 2026-11-05) and revised through four code-review ro
 - Code-review round 4: the drawer remembers which deal it pushed onto history (not a boolean), so reopening a different deal while a back is pending still closes with history back, and the closing deal stays hidden instead of flashing; a URL replace that lands while a back is pending no longer flushes the deferred update early; the timeline search is limited to 200 characters in the input; the saved-view Status error covers both too many and too-long values. A failed refetch keeps a deal's write lock on purpose (the cached `updatedAt` is still pre-write); the next successful fetch releases it. The intermittent TC-CRM-TL-003 drag failure was test-side: the card's centre sat below the 720 px viewport once the last-operation banner appeared, so the press missed it; drags now scroll into view and verify the hit target first.
 - PR #8872 review: the perspectives pass-through now requires an explicit `__namespaced: true` marker on `settings.filters` (written by `buildDealTimelinePerspectiveSettings`), so only payloads that opt in survive the legacy-filter migration; drawer writes lock the card before their request (`onWriteStarted`), symmetric with drag; card drag attributes drop dnd-kit's `aria-disabled` explicitly and expose the drag-disabled reason through `aria-describedby`; the timeline route names its filter subset (`TIMELINE_FILTER_QUERY_KEYS`) and the half-open List range is a named helper (`halfOpenCloseDateRangeRules`); the `BACKWARD_COMPATIBILITY.md` entry is a single §2 line pointing at UPGRADE_NOTES.
 - PR #8872 re-review (maintenance bot): the deal drawer reloads when the organization scope changes — in-flight requests from the previous scope are discarded, the previous deal is cleared at once (no preview from placeholder data), a deal missing in the new scope closes the drawer and drops `?deal=`, and the board's write locks reset; "Show deal" keeps loading popover pages (up to 20) until the moved deal is found and focused, focusing the list (or its load error) otherwise; a failed timeline refresh with a cached board shows an inline error with Retry, and write locks stay until a successful fetch. Covered by unit tests and TC-CRM-TL-002 (organization switch with the drawer open) and TC-CRM-TL-003 (page-two reveal, refresh failure and retry).
+- UX review follow-ups implemented in this PR (zielivia, PR #8872): columns and lanes return exact per-currency `amounts` (`open`, probability-weighted `weighted`, `won` when closed deals are included), computed from the same filtered set as the grid, with a bounded scan for truncated columns (`TIMELINE_AMOUNTS_COLUMN_ROW_CAP`, `amountsCapped`); card items return `openActivityCount` (the `_pipeline` enricher's open-activity definition, one grouped query per response) for the "no planned activity" marker. Per-currency period totals moved out of Out of Scope.

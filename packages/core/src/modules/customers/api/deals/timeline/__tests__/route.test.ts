@@ -21,7 +21,10 @@ const findWithDecryptionMock = jest.fn()
 const rbacMock = { userHasAllFeatures: jest.fn() }
 const queryMock = jest.fn()
 
-const em = { getConnection: jest.fn(() => ({ execute: jest.fn(async () => []) })) }
+const fetchOpenActivityCountsMock = jest.fn()
+const em: { getConnection: jest.Mock; getKysely?: jest.Mock } = {
+  getConnection: jest.fn(() => ({ execute: jest.fn(async () => []) })),
+}
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
@@ -43,6 +46,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScopeForRequest: (...args: unknown[]) => resolveScopeMock(...args),
 }))
+jest.mock('../../../../lib/dealsTimelineActivities', () => ({
+  fetchOpenActivityCounts: (...args: unknown[]) => fetchOpenActivityCountsMock(...args),
+}))
 jest.mock('../../../utils', () => {
   const actual = jest.requireActual('../../../utils')
   return { ...actual, findMatchingEntityIdsBySearchTokensAcrossSources: jest.fn() }
@@ -50,6 +56,7 @@ jest.mock('../../../utils', () => {
 
 import {
   GET,
+  TIMELINE_AMOUNTS_COLUMN_ROW_CAP,
   TIMELINE_COLUMN_CAP,
   TIMELINE_FILTER_QUERY_FIELDS,
   TIMELINE_RESPONSE_CARD_CAP,
@@ -79,6 +86,8 @@ type FakeDeal = {
   expected_close_at: string | null
   organization_id: string
   value_amount: string | null
+  value_currency: string | null
+  probability: number | null
 }
 
 const findMatchingMock = findMatchingEntityIdsBySearchTokensAcrossSources as jest.Mock
@@ -103,6 +112,8 @@ function makeDeal(overrides: Partial<FakeDeal>): FakeDeal {
     expected_close_at: null,
     organization_id: organizationId,
     value_amount: '1000.00',
+    value_currency: 'EUR',
+    probability: 40,
     ...overrides,
   }
 }
@@ -260,6 +271,8 @@ describe('customers deals timeline route', () => {
     queryMock.mockImplementation(fakeQuery)
     rbacMock.userHasAllFeatures.mockResolvedValue(true)
     findMatchingMock.mockResolvedValue(null)
+    delete em.getKysely
+    fetchOpenActivityCountsMock.mockResolvedValue(new Map())
   })
 
   it('groups deals into owner lanes and week cells with date-then-id ordering', async () => {
@@ -556,6 +569,129 @@ describe('customers deals timeline route', () => {
     const filtered = await grid(`from=${lastWeek}&ownerUserId=${ownerIdle}`)
     expect(filtered.scopeHasDeals).toBe(true)
     expect(filtered.columns.every((column) => column.total === 0)).toBe(true)
+  })
+
+  describe('amounts', () => {
+    it('sums open and weighted values per column and per lane across mixed currencies', async () => {
+      deals = [
+        makeDeal({ expected_close_at: addDays(thisWeek, 1), value_amount: '1000.00', probability: 50 }),
+        makeDeal({ expected_close_at: addDays(thisWeek, 2), value_amount: '250.50', value_currency: 'USD', probability: 10 }),
+        makeDeal({ owner_user_id: ownerB, expected_close_at: addDays(thisWeek, 3), value_amount: '400.00', probability: 25 }),
+        makeDeal({ expected_close_at: addDays(nextWeek, 1), value_amount: null }),
+        makeDeal({ expected_close_at: addDays(nextWeek, 2), value_amount: '100.00', value_currency: null, probability: null }),
+      ]
+      const body = await grid(`from=${lastWeek}`)
+      expect(body.amountsCapped).toBe(false)
+      expect(body.columns[0].amounts).toEqual([])
+      expect(body.columns[1].amounts).toEqual([
+        { currency: 'EUR', open: 1400, weighted: 600, won: 0 },
+        { currency: 'USD', open: 250.5, weighted: 25.05, won: 0 },
+      ])
+      expect(body.columns[2].amounts).toEqual([{ currency: '', open: 100, weighted: 0, won: 0 }])
+      expect(body.lanes.find((lane) => lane.key === ownerA)?.amounts).toEqual([
+        { currency: 'EUR', open: 1000, weighted: 500, won: 0 },
+        { currency: 'USD', open: 250.5, weighted: 25.05, won: 0 },
+        { currency: '', open: 100, weighted: 0, won: 0 },
+      ])
+      expect(body.lanes.find((lane) => lane.key === ownerB)?.amounts).toEqual([
+        { currency: 'EUR', open: 400, weighted: 100, won: 0 },
+      ])
+    })
+
+    it('adds won totals only when closed deals are part of the filtered set', async () => {
+      deals = [
+        makeDeal({ expected_close_at: addDays(thisWeek, 1), value_amount: '300.00', probability: 100 }),
+        makeDeal({ status: 'win', expected_close_at: addDays(thisWeek, 2), value_amount: '700.00' }),
+        makeDeal({ status: 'lost', expected_close_at: addDays(thisWeek, 2), value_amount: '900.00' }),
+      ]
+      const hidden = await grid(`from=${lastWeek}`)
+      expect(hidden.columns[1].amounts).toEqual([{ currency: 'EUR', open: 300, weighted: 300, won: 0 }])
+      const all = await grid(`from=${lastWeek}&excludeClosed=false`)
+      expect(all.columns[1].amounts).toEqual([{ currency: 'EUR', open: 300, weighted: 300, won: 700 }])
+      const wonOnly = await grid(`from=${lastWeek}&status=win`)
+      expect(wonOnly.columns[1].amounts).toEqual([{ currency: 'EUR', open: 0, weighted: 0, won: 700 }])
+    })
+
+    it('keeps amounts exact past the column cap, including deals of lanes beyond the cap', async () => {
+      deals = Array.from({ length: TIMELINE_COLUMN_CAP + 5 }, (_, index) =>
+        makeDeal({
+          owner_user_id: index < TIMELINE_COLUMN_CAP ? ownerA : ownerB,
+          expected_close_at: addDays(thisWeek, index < TIMELINE_COLUMN_CAP ? 1 : 6),
+          value_amount: '10.00',
+          probability: 100,
+        }),
+      )
+      const body = await grid(`from=${lastWeek}`)
+      expect(body.columns[1]).toMatchObject({ truncated: true, total: TIMELINE_COLUMN_CAP + 5 })
+      expect(body.columns[1].amounts).toEqual([
+        { currency: 'EUR', open: (TIMELINE_COLUMN_CAP + 5) * 10, weighted: (TIMELINE_COLUMN_CAP + 5) * 10, won: 0 },
+      ])
+      expect(body.lanes.find((lane) => lane.key === ownerA)?.amounts[0].open).toBe(TIMELINE_COLUMN_CAP * 10)
+      expect(body.amountsCapped).toBe(false)
+      const scanCalls = queryMock.mock.calls.filter(([, args]) => (args as QueryArgs).page.pageSize === 1000)
+      expect(scanCalls).toHaveLength(1)
+    })
+
+    it('flags amounts as capped when a column exceeds the amount scan cap', async () => {
+      deals = Array.from({ length: TIMELINE_AMOUNTS_COLUMN_ROW_CAP + 1 }, () =>
+        makeDeal({ expected_close_at: addDays(thisWeek, 1), value_amount: '1.00' }),
+      )
+      const body = await grid(`from=${lastWeek}`)
+      expect(body.amountsCapped).toBe(true)
+      expect(body.columns[1].amounts[0].open).toBe(TIMELINE_AMOUNTS_COLUMN_ROW_CAP)
+    })
+
+    it('returns empty amounts for an empty organization scope', async () => {
+      resolveScopeMock.mockResolvedValue({ tenantId, filterIds: [] })
+      const body = await grid(`from=${lastWeek}`)
+      expect(body.amountsCapped).toBe(false)
+      expect(body.columns.every((column) => column.amounts.length === 0)).toBe(true)
+    })
+  })
+
+  describe('open activity counts', () => {
+    it('returns null when no activity client is available', async () => {
+      deals = [makeDeal({ expected_close_at: addDays(thisWeek, 1) })]
+      const body = await grid(`from=${lastWeek}`)
+      expect(body.lanes[0].cells[1].items[0].openActivityCount).toBeNull()
+      expect(fetchOpenActivityCountsMock).not.toHaveBeenCalled()
+    })
+
+    it('counts open activities for every loaded card in one scoped call', async () => {
+      em.getKysely = jest.fn(() => ({}))
+      deals = [
+        makeDeal({ expected_close_at: addDays(thisWeek, 1) }),
+        makeDeal({ expected_close_at: addDays(thisWeek, 2) }),
+      ]
+      fetchOpenActivityCountsMock.mockResolvedValue(new Map([[deals[0].id, 3]]))
+      const body = await grid(`from=${lastWeek}`)
+      const items = body.lanes[0].cells[1].items
+      expect(items.map((item) => item.openActivityCount)).toEqual([3, 0])
+      expect(fetchOpenActivityCountsMock).toHaveBeenCalledTimes(1)
+      expect(fetchOpenActivityCountsMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.arrayContaining([deals[0].id, deals[1].id]),
+        { tenantId, organizationIds: [organizationId] },
+      )
+    })
+
+    it('degrades to null when the count query fails', async () => {
+      em.getKysely = jest.fn(() => ({}))
+      deals = [makeDeal({ expected_close_at: addDays(thisWeek, 1) })]
+      fetchOpenActivityCountsMock.mockRejectedValue(new Error('db down'))
+      const body = await grid(`from=${lastWeek}`)
+      expect(body.lanes[0].cells[1].items[0].openActivityCount).toBeNull()
+    })
+
+    it('counts open activities in cell mode too', async () => {
+      em.getKysely = jest.fn(() => ({}))
+      deals = [makeDeal({ expected_close_at: addDays(thisWeek, 1) })]
+      fetchOpenActivityCountsMock.mockResolvedValue(new Map([[deals[0].id, 1]]))
+      const result = await callTimeline(`from=${lastWeek}&cellLane=${ownerA}&cellColumn=1`)
+      expect(result.status).toBe(200)
+      const body = result.body as unknown as DealTimelineCellResponse
+      expect(body.items[0].openActivityCount).toBe(1)
+    })
   })
 
   describe('cell mode', () => {

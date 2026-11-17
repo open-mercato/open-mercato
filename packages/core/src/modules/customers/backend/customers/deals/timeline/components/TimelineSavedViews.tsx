@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ViewChip } from '@open-mercato/ui/backend/views/ViewChip'
 import { NewViewForm } from '@open-mercato/ui/backend/views/NewViewForm'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -13,6 +14,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
@@ -74,9 +76,16 @@ export type TimelineSavedViewsProps = {
   onApply: (view: DealTimelineSavedView) => void
 }
 
+export function timelineSavedViewsQueryKey(scopeVersion: number) {
+  return ['perspectives', TIMELINE_PERSPECTIVE_TABLE_ID, `scope:${scopeVersion}`] as const
+}
+
 export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsProps): React.ReactElement {
   const t = useT()
   const queryClient = useQueryClient()
+  const scopeVersion = useOrganizationScopeVersion()
+  const scopeVersionRef = React.useRef(scopeVersion)
+  scopeVersionRef.current = scopeVersion
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation, retryLastMutation } = useGuardedMutation<SavedViewsMutationContext>({
     contextId: SAVED_VIEWS_CONTEXT_ID,
@@ -93,7 +102,20 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
   const [renameValue, setRenameValue] = React.useState('')
   const [deletingId, setDeletingId] = React.useState<string | null>(null)
 
-  const queryKey = React.useMemo(() => ['perspectives', TIMELINE_PERSPECTIVE_TABLE_ID] as const, [])
+  const [renderedScopeVersion, setRenderedScopeVersion] = React.useState(scopeVersion)
+  if (renderedScopeVersion !== scopeVersion) {
+    setRenderedScopeVersion(scopeVersion)
+    setApplied(null)
+    setCreating(false)
+    setNewName('')
+    setNameError(null)
+    setSaving(false)
+    setRenamingId(null)
+    setRenameValue('')
+    setDeletingId(null)
+  }
+
+  const queryKey = React.useMemo(() => timelineSavedViewsQueryKey(scopeVersion), [scopeVersion])
   const perspectivesQuery = useQuery<PerspectiveRecord[]>({
     queryKey,
     staleTime: 30_000,
@@ -105,7 +127,10 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
     },
   })
   const perspectives = perspectivesQuery.data ?? []
+  const loadFailed = perspectivesQuery.isError
+  const isInitialLoading = perspectivesQuery.isPending && !perspectivesQuery.data
   const reload = React.useCallback(() => queryClient.invalidateQueries({ queryKey }), [queryClient, queryKey])
+  const isStaleScope = React.useCallback((startedAt: number) => scopeVersionRef.current !== startedAt, [])
 
   const duplicateMessage = translateWithFallback(
     t,
@@ -198,8 +223,10 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
     }
     setSaving(true)
     setNameError(null)
+    const startedAt = scopeVersionRef.current
     try {
       const call = await save({ name, settings: buildDealTimelinePerspectiveSettings(currentView) })
+      if (isStaleScope(startedAt)) return
       const created = call.result?.perspective
       if (created?.id) setApplied({ id: created.id, signature: currentSignature })
       setCreating(false)
@@ -207,25 +234,29 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
       flash(translateWithFallback(t, 'customers.deals.timeline.savedViews.saved', 'View saved.'), 'success')
       await reload()
     } catch (error) {
+      if (isStaleScope(startedAt)) return
       handleWriteError(error, () => setNameError(duplicateMessage))
     } finally {
-      setSaving(false)
+      if (!isStaleScope(startedAt)) setSaving(false)
     }
-  }, [currentSignature, currentView, duplicateMessage, handleWriteError, newName, reload, save, t])
+  }, [currentSignature, currentView, duplicateMessage, handleWriteError, isStaleScope, newName, reload, save, t])
 
   const handleRename = React.useCallback(
     async (perspective: PerspectiveRecord) => {
       const name = renameValue.trim()
       if (!name) return
+      const startedAt = scopeVersionRef.current
       try {
         await save({ name, settings: perspective.settings, perspectiveId: perspective.id, updatedAt: perspective.updatedAt })
+        if (isStaleScope(startedAt)) return
         setRenamingId(null)
         await reload()
       } catch (error) {
+        if (isStaleScope(startedAt)) return
         handleWriteError(error, () => flash(duplicateMessage, 'error'))
       }
     },
-    [duplicateMessage, handleWriteError, reload, renameValue, save],
+    [duplicateMessage, handleWriteError, isStaleScope, reload, renameValue, save],
   )
 
   const handleClone = React.useCallback(
@@ -233,14 +264,17 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
       const name = translateWithFallback(t, 'customers.deals.timeline.savedViews.copyName', '{name} (copy)', {
         name: perspective.name,
       })
+      const startedAt = scopeVersionRef.current
       try {
         await save({ name, settings: perspective.settings })
+        if (isStaleScope(startedAt)) return
         await reload()
       } catch (error) {
+        if (isStaleScope(startedAt)) return
         handleWriteError(error, () => flash(duplicateMessage, 'error'))
       }
     },
-    [duplicateMessage, handleWriteError, reload, save, t],
+    [duplicateMessage, handleWriteError, isStaleScope, reload, save, t],
   )
 
   const handleDelete = React.useCallback(
@@ -253,6 +287,7 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
         confirmText: translateWithFallback(t, 'customers.deals.timeline.savedViews.delete', 'Delete'),
       })
       if (!confirmed) return
+      const startedAt = scopeVersionRef.current
       setDeletingId(perspective.id)
       try {
         await runMutation({
@@ -278,15 +313,17 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
           },
           mutationPayload: { id: perspective.id },
         })
+        if (isStaleScope(startedAt)) return
         if (applied?.id === perspective.id) setApplied(null)
         await reload()
       } catch (error) {
+        if (isStaleScope(startedAt)) return
         handleWriteError(error, () => undefined)
       } finally {
-        setDeletingId(null)
+        if (!isStaleScope(startedAt)) setDeletingId(null)
       }
     },
-    [applied, confirm, handleWriteError, reload, retryLastMutation, runMutation, t],
+    [applied, confirm, handleWriteError, isStaleScope, reload, retryLastMutation, runMutation, t],
   )
 
   const handleActivate = React.useCallback(
@@ -309,6 +346,17 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
       <span className="pt-1.5 text-sm text-muted-foreground">
         {translateWithFallback(t, 'customers.deals.timeline.savedViews.label', 'Saved views')}
       </span>
+      {isInitialLoading ? (
+        <span role="status" className="inline-flex items-center gap-2 pt-1.5 text-sm text-muted-foreground">
+          <Spinner size="sm" />
+          {translateWithFallback(t, 'customers.deals.timeline.savedViews.loading', 'Loading saved views…')}
+        </span>
+      ) : null}
+      {!isInitialLoading && !loadFailed && perspectives.length === 0 ? (
+        <span data-testid="timeline-saved-views-empty" className="pt-1.5 text-sm text-muted-foreground">
+          {translateWithFallback(t, 'customers.deals.timeline.savedViews.empty', 'No saved views yet.')}
+        </span>
+      ) : null}
       {perspectives.map((perspective) => (
         <ViewChip
           key={perspective.id}
@@ -334,6 +382,20 @@ export function TimelineSavedViews({ currentView, onApply }: TimelineSavedViewsP
           onDelete={() => void handleDelete(perspective)}
         />
       ))}
+      {loadFailed ? (
+        <span role="alert" data-testid="timeline-saved-views-error" className="inline-flex items-center gap-2 pt-0.5 text-sm text-status-error-text">
+          {translateWithFallback(t, 'customers.deals.timeline.savedViews.loadError', 'Failed to load saved views.')}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={perspectivesQuery.isFetching}
+            onClick={() => void perspectivesQuery.refetch()}
+          >
+            {translateWithFallback(t, 'customers.deals.timeline.retry', 'Retry')}
+          </Button>
+        </span>
+      ) : null}
       {creating ? (
         <div className="w-56">
           <NewViewForm

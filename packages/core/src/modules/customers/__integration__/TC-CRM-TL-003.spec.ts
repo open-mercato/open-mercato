@@ -43,7 +43,7 @@ async function closeDateOf(request: Parameters<typeof readDeal>[0], token: strin
 }
 
 async function dragCardTo(page: Page, card: Locator, target: Locator): Promise<void> {
-  await card.scrollIntoViewIfNeeded();
+  await card.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
   await expect
     .poll(
       async () =>
@@ -249,12 +249,11 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await changeDateInDrawer(page, farDate);
       await expect.poll(() => closeDateOf(request, token, movedId), { timeout: 15_000 }).toBe(farDate);
       const showDeal = page.getByRole('button', { name: 'Show deal' });
+      await expect(page.getByTestId('timeline-deal-drawer'), 'the drawer closes itself so Show deal is reachable').toBeHidden();
       await expect(showDeal).toBeVisible();
-      await page.keyboard.press('Escape');
-      await expect(page.getByTestId('timeline-deal-drawer')).toBeHidden();
       expect(new URL(page.url()).searchParams.get('from'), 'the window stays put').toBe(urlBefore.searchParams.get('from'));
-      await expect(showDeal, 'focus lands on Show deal once the drawer closes').toBeFocused();
-      await showDeal.click();
+      await expect(showDeal, 'focus lands on Show deal without pressing Escape (#9418)').toBeFocused();
+      await page.keyboard.press('Enter');
       await expect(timelineCard(page, movedId)).toBeVisible({ timeout: 30_000 });
       await expectFocusedDeal(page, movedId);
 
@@ -300,10 +299,9 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await changeDateInDrawer(page, hiddenDate);
       await expect.poll(() => closeDateOf(request, token, movedId), { timeout: 15_000 }).toBe(hiddenDate);
       const showDeal = page.getByRole('button', { name: 'Show deal' });
+      await expect(page.getByTestId('timeline-deal-drawer'), 'the drawer closes itself').toBeHidden();
       await expect(showDeal).toBeVisible();
-      await page.keyboard.press('Escape');
-      await expect(page.getByTestId('timeline-deal-drawer')).toBeHidden();
-      await expect(showDeal, 'focus lands on Show deal once the drawer closes').toBeFocused();
+      await expect(showDeal, 'focus lands on Show deal without pressing Escape').toBeFocused();
       const fullCell = timelineCell(page, adminUserId, 2);
       await expect(fullCell.locator(`[data-deal-id="${movedId}"]`), 'the moved deal sits behind +N more').toHaveCount(0);
       await showDeal.click();
@@ -354,9 +352,9 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await changeDateInDrawer(page, laterInWeek);
       await expect.poll(() => closeDateOf(request, token, movedId), { timeout: 15_000 }).toBe(laterInWeek);
       const showDeal = page.getByRole('button', { name: 'Show deal' });
+      await expect(page.getByTestId('timeline-deal-drawer'), 'the drawer closes itself').toBeHidden();
       await expect(showDeal).toBeVisible();
-      await page.keyboard.press('Escape');
-      await expect(page.getByTestId('timeline-deal-drawer')).toBeHidden();
+      await expect(showDeal, 'focus lands on Show deal without pressing Escape').toBeFocused();
       await showDeal.click();
       const row = page.locator(`[data-popover-deal-id="${movedId}"]`);
       await expect(row, 'the moved deal is loaded from the second popover page').toBeVisible({ timeout: 60_000 });
@@ -441,9 +439,9 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       await dragCardTo(page, timelineCard(page, dealId), timelineCell(page, adminUserId, 2));
       await expect.poll(() => activeHold.held(), { timeout: 15_000 }).toBe(1);
       await expect(timelineCard(page, dealId), 'the card is locked while its write is in flight').not.toHaveClass(/cursor-grab/);
-      const secondWhileLocked = page.waitForRequest(isDealPut, { timeout: 3_000 });
+      const secondWhileLocked = page.waitForRequest(isDealPut, { timeout: 3_000 }).then(() => 'sent', () => 'none');
       await dragCardTo(page, timelineCard(page, dealId), timelineCell(page, adminUserId, 3));
-      await expect(secondWhileLocked, 'a locked card sends no second write').rejects.toThrow();
+      expect(await secondWhileLocked, 'a locked card sends no second write').toBe('none');
       expect(puts.sent()).toBe(1);
 
       await activeHold.release();
@@ -603,9 +601,9 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       const card = timelineCard(page, dealId);
       await expect(card).toBeVisible();
       await expect(card, 'read-only cards carry a hint instead of a drag affordance').toHaveAttribute('title', /.+/);
-      const writeAttempt = page.waitForRequest(isDealPut, { timeout: 3_000 });
+      const writeAttempt = page.waitForRequest(isDealPut, { timeout: 3_000 }).then(() => 'sent', () => 'none');
       await dragCardTo(page, card, timelineCell(page, '__unassigned', 2));
-      await expect(writeAttempt, 'a read-only drag sends no write').rejects.toThrow();
+      expect(await writeAttempt, 'a read-only drag sends no write').toBe('none');
       await expect(timelineCell(page, '__unassigned', 1).locator(`[data-deal-id="${dealId}"]`), 'the card stays in its column').toBeVisible();
       await expect(timelineCell(page, '__unassigned', 2).locator(`[data-deal-id="${dealId}"]`)).toHaveCount(0);
       expect(await closeDateOf(request, token, dealId)).toBe(today);
@@ -651,9 +649,9 @@ test.describe('TC-CRM-TL-003: deals timeline rescheduling', () => {
       const card = timelineCard(page, wonId);
       await expect(card).toBeVisible();
       await expect(card, 'closed cards explain why they cannot be rescheduled').toHaveAttribute('title', /.+/);
-      const writeAttempt = page.waitForRequest(isDealPut, { timeout: 3_000 });
+      const writeAttempt = page.waitForRequest(isDealPut, { timeout: 3_000 }).then(() => 'sent', () => 'none');
       await dragCardTo(page, card, timelineCell(page, adminUserId, 2));
-      await expect(writeAttempt, 'dragging a won deal sends no write').rejects.toThrow();
+      expect(await writeAttempt, 'dragging a won deal sends no write').toBe('none');
       await expect(timelineCell(page, adminUserId, 1).locator(`[data-deal-id="${wonId}"]`)).toBeVisible();
       await expect(timelineCell(page, adminUserId, 2).locator(`[data-deal-id="${wonId}"]`)).toHaveCount(0);
       expect(await closeDateOf(request, token, wonId)).toBe(today);

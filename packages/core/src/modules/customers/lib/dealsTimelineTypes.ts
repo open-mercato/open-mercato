@@ -5,6 +5,13 @@ export type DealTimelineAssociation = {
   label: string
 }
 
+export type DealTimelineCurrencyTotal = {
+  currency: string
+  open: number
+  weighted: number
+  won: number
+}
+
 export type DealTimelineItem = {
   id: string
   title: string | null
@@ -20,6 +27,7 @@ export type DealTimelineItem = {
   updatedAt: string | null
   primaryCompany: DealTimelineAssociation | null
   primaryPerson: DealTimelineAssociation | null
+  openActivityCount: number | null
 }
 
 export type DealTimelineCell = {
@@ -44,6 +52,7 @@ export type DealTimelineLane = {
   stage: DealTimelineStageMeta | null
   total: number
   partial: boolean
+  amounts: DealTimelineCurrencyTotal[]
   cells: DealTimelineCell[]
 }
 
@@ -55,6 +64,7 @@ export type DealTimelineColumnResponse = {
   total: number
   truncated: boolean
   countCapped: boolean
+  amounts: DealTimelineCurrencyTotal[]
 }
 
 export type DealTimelineResponse = {
@@ -73,6 +83,7 @@ export type DealTimelineResponse = {
   truncated: boolean
   cardsTruncated: boolean
   countsCapped: boolean
+  amountsCapped: boolean
 }
 
 export type DealTimelineCellResponse = {

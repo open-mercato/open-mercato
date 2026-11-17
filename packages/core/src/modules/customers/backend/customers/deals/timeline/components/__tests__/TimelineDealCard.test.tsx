@@ -5,7 +5,7 @@
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import type { DealTimelineItem } from '../../../../../../lib/dealsTimelineTypes'
-import { TimelineDealCard } from '../TimelineDealCard'
+import { TimelineDealCard, timelineProbabilityVariant } from '../TimelineDealCard'
 
 const mockUseDraggable = jest.fn()
 
@@ -36,6 +36,7 @@ const deal: DealTimelineItem = {
   updatedAt: '2026-10-23T09:12:44.120Z',
   primaryCompany: { id: 'c1', label: 'Veridian Labs' },
   primaryPerson: null,
+  openActivityCount: null,
 }
 
 function renderCard(props: Partial<React.ComponentProps<typeof TimelineDealCard>> = {}) {
@@ -131,5 +132,36 @@ describe('TimelineDealCard', () => {
     expect(card.getAttribute('aria-describedby')).toBe('DndDescribedBy-0')
     expect(card.getAttribute('title')).toBeNull()
     expect(card.hasAttribute('aria-disabled')).toBe(false)
+  })
+
+  it('marks an open deal with no planned activity and names it in the accessible label', () => {
+    renderCard({ item: { ...deal, openActivityCount: 0 } })
+    const card = screen.getByRole('button')
+    expect(screen.getByTestId('timeline-card-no-activity').textContent).toContain('No planned activity')
+    expect(card.getAttribute('aria-label')).toContain('No planned activity')
+  })
+
+  it('shows no planned-activity marker when activity is unknown, planned, or the deal is closed', () => {
+    renderCard({ item: { ...deal, openActivityCount: null } })
+    expect(screen.queryByTestId('timeline-card-no-activity')).toBeNull()
+  })
+
+  it('omits the marker for a deal with planned activity', () => {
+    renderCard({ item: { ...deal, openActivityCount: 2 } })
+    expect(screen.queryByTestId('timeline-card-no-activity')).toBeNull()
+  })
+
+  it('omits the marker on a won deal', () => {
+    renderCard({ item: { ...deal, status: 'win', openActivityCount: 0 } })
+    expect(screen.queryByTestId('timeline-card-no-activity')).toBeNull()
+    expect(screen.getByText('Won')).toBeTruthy()
+  })
+
+  it('uses a monotonic probability scale', () => {
+    expect(timelineProbabilityVariant(90)).toBe('success')
+    expect(timelineProbabilityVariant(70)).toBe('success')
+    expect(timelineProbabilityVariant(55)).toBe('neutral')
+    expect(timelineProbabilityVariant(10)).toBe('neutral')
+    expect(timelineProbabilityVariant(null)).toBe('neutral')
   })
 })

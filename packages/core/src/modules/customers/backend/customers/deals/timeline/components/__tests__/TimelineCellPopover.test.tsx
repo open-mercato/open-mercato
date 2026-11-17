@@ -38,6 +38,7 @@ function makeItem(index: number): DealTimelineItem {
     updatedAt: '2026-11-10T10:00:00.000Z',
     primaryCompany: null,
     primaryPerson: null,
+    openActivityCount: null,
   }
 }
 

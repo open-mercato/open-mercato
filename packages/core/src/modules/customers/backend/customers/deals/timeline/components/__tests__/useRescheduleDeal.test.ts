@@ -36,6 +36,7 @@ function item(id: string, expectedCloseAt: string, overrides: Partial<DealTimeli
     updatedAt: '2026-11-01T10:00:00.000Z',
     primaryCompany: { id: 'c1', label: 'Acme' },
     primaryPerson: null,
+    openActivityCount: null,
     ...overrides,
   }
 }
