@@ -18,6 +18,27 @@
 
 **Action:** none for agents that delegate only to their declared `subAgents`. A client that called `delegate_agent` directly, outside an agent run (for example through `/api/ai_assistant/tools/execute` or an MCP client), must run the agent through its run route or an agent tool instead.
 
+## File agents run on the native runtime by default (#9648, lightweight agent runtime Phase 3)
+
+**Behaviour change (enterprise `agent_orchestrator`, additive `ai-assistant` seam).** File-defined agents (`agents/<id>/`, including their sub-agents) used to run on the OpenCode container. The loader now registers them with `runtime: 'native'` and builds a read-only ai-assistant definition for each one: object execution mode, `readOnly: true` with `mutationPolicy: 'read-only'` (mutation tools are stripped), and an allowlist of the agent's own tools plus `load_skill`/`run_skill_script` (when it has skills or local tools) and `delegate_agent` (when it declares sub-agents). The model gets a strict variant of the OUTCOME schema, but answers are still validated against the authored schema. OpenCode MCP tool names written in `AGENT.md` (`open-mercato_<module>_<tool>`) are rewritten to native names for allowlisted tools. The generated manifest is unchanged, so you do not need to regenerate it.
+
+These agents stay on OpenCode:
+- agents with an `artifact` outcome (they write files to `out/` and return through `submit_outcome`);
+- every file agent when `OM_AGENT_FILE_AGENT_RUNTIME=opencode` is set;
+- an agent whose native definition could not be built, or that the ai-assistant registry did not accept (registry unavailable, or the id already belongs to another agent). A warning names the agent.
+
+An agent that falls back to OpenCode is not registered at all if it declares governance OpenCode cannot enforce (see the `GOVERNANCE.json` entry below).
+
+**The file plane is OpenCode-only.** The native runtime has no sandbox filesystem. The generated manifest does not carry a `files` config, so an agent loaded from `agents/<id>/` runs natively even if its `AGENT.md` opts into files. The native runner drops a `__files` input envelope (with a warning) before the input is persisted or sent to the model. Only an entry registered directly with `registerFileAgent` and `files.enabled` stays on OpenCode.
+
+**Timeout.** Native file-agent runs are bounded by `OM_AGENT_RUN_TIMEOUT_MS`, not `OM_OPENCODE_RUN_TIMEOUT_MS`. Both default to 5 minutes. If you raised the OpenCode value for slow file agents, raise `OM_AGENT_RUN_TIMEOUT_MS` too.
+
+**Run label.** New file-agent runs persist `agent_runs.runtime = 'native'` instead of `'opencode'`. Older rows keep their label. Reports or dashboards that select file-agent runs by `runtime = 'opencode'` must also count `'native'`, along with the legacy `'in-process'` label from earlier native runs.
+
+**Deprecated bridge.** `OM_AGENT_FILE_AGENT_RUNTIME=opencode` sends every file agent back to OpenCode and logs a deprecation warning once per process. Any other value, or no value, keeps the native default. The bridge lasts one minor version. It goes away with the OpenCode runtime in the decommission phase (Phase 6 of `.ai/specs/enterprise/agent-orchestrator/2026-07-07-lightweight-agent-runtime.md`), which also removes `submit_outcome`, the session store and the file plane.
+
+**Action:** for file agents with a `proposal` or `research` outcome, raise `OM_AGENT_RUN_TIMEOUT_MS` if they need more than 5 minutes. Nothing else is required. Set `OM_AGENT_FILE_AGENT_RUNTIME=opencode` only as a temporary fallback while you fix an agent that misbehaves on the native runtime.
+
 ## File-defined agents declare governance in `GOVERNANCE.json` (#9648, B-3)
 
 **New (enterprise `agent_orchestrator`).** A file agent (`agents/<id>/`, also its sub-agents) can ship an optional `GOVERNANCE.json` with the `principal`, `integrity`, `untrustedInputs` and `modelSettings` keys `defineAgent` accepts. They are validated with the same parsers and enforced by the native runtime: principal provisioning and `toolAcl: 'intersect'`, output-integrity rules, untrusted-input screening and agent-level model settings. Agents without the file are unchanged, including their agent version.
@@ -34,7 +55,7 @@
 
 **Additive (enterprise `agent_orchestrator`, core `workflows`).** `POST /agents/{id}/run`, `POST /agent-api/agents/{id}/run`, `POST /runs/{id}/rerun` (optional body) and the workflow `INVOKE_AGENT` activity (`config.callSettings`) accept `callSettings`, using the same contract as `POST /api/ai_assistant/ai/run-object`: strict keys, capped values, no `providerOptions`. The Playground gains a **Model settings** section. Before this change these doors ignored a `callSettings` key without a word. They now validate it (422 on a bad value) and apply it.
 
-**Behaviour change:** when a caller sends non-empty `callSettings` to a file-defined (OpenCode) agent through these doors, it now gets `422 agent_call_settings_unsupported` instead of a run on the agent's defaults. A workflow step with `callSettings` on such an agent fails. Calls without `callSettings` are unchanged. The ai-assistant dispatcher path (`run-object`, MCP agent tools) preserves the B-3 refusal for OpenCode agents. A stored workflow definition whose `INVOKE_AGENT` config already carried a `callSettings` key (ignored until now) is validated when the step runs. Out-of-range values, unknown keys and `{{context.*}}` tokens (they interpolate to strings) fail the step. A rerun does not reuse the original run's call settings: pass them again in the body. `modelSettings.maxOutputTokens` is a default, not a ceiling. Callers allowed to run an agent can raise it up to 32768, as they already could through `run-object`.
+**Behaviour change:** when a caller sends non-empty `callSettings` to an agent that runs on OpenCode (an `artifact` file agent, any file agent under `OM_AGENT_FILE_AGENT_RUNTIME=opencode`, or one that fell back from native registration) through these doors, it now gets `422 agent_call_settings_unsupported` instead of a run on the agent's defaults. A workflow step with `callSettings` on such an agent fails. Calls without `callSettings` are unchanged. The ai-assistant dispatcher path (`run-object`, MCP agent tools) preserves the B-3 refusal for OpenCode agents. A stored workflow definition whose `INVOKE_AGENT` config already carried a `callSettings` key (ignored until now) is validated when the step runs. Out-of-range values, unknown keys and `{{context.*}}` tokens (they interpolate to strings) fail the step. A rerun does not reuse the original run's call settings: pass them again in the body. `modelSettings.maxOutputTokens` is a default, not a ceiling. Callers allowed to run an agent can raise it up to 32768, as they already could through `run-object`.
 
 ## Refused MCP calls are audited on the HTTP and dev servers (#9648, B-2)
 

@@ -374,7 +374,7 @@ Agent Orchestrator agents accept the same HTTP contract (strict keys, capped val
 | `POST /api/agent_orchestrator/runs/{id}/rerun` | Optional body `{ callSettings }`; without it the new run uses the agent's current settings. | `422` |
 | Workflow `INVOKE_AGENT` | `config.callSettings` on the activity (static values). | The step fails |
 
-File-defined agents run on OpenCode, which cannot apply per-call settings, so these doors refuse non-empty `callSettings` for them with `422` and `code: "agent_call_settings_unsupported"` rather than running on the agent's defaults. The ai-assistant dispatcher path (`run-object`, MCP agent tools) is unchanged for file agents.
+File-defined agents (`agents/<id>/`) run on the native runtime by default and accept `callSettings` like code agents. OpenCode cannot apply per-call settings, so for an agent that runs there these doors refuse non-empty `callSettings` with `422` and `code: "agent_call_settings_unsupported"` instead of running on the agent's defaults. The ai-assistant dispatcher path refuses them too: `agent_call_settings_unsupported` for MCP agent tools, `422 dispatch_option_unsupported` on `run-object`.
 
 ```ts
 const result = await runAiAgentObject({
@@ -390,6 +390,21 @@ const result = await runAiAgentObject({
 ```
 
 Observer hooks are isolated: a hook that throws (or rejects) is logged and ignored, and the turn continues.
+
+### Which runtime a file agent uses
+
+The loader picks the runtime for each file agent when it registers it:
+
+| Runtime | Applies to |
+|---------|------------|
+| `native` (default) | Every file agent with a `proposal` or `research` outcome. It gets a read-only ai-assistant definition: mutation tools are stripped, and the model gets a strict variant of the OUTCOME schema while answers are still validated against the authored schema. |
+| `opencode` | Agents with an `artifact` outcome; every file agent when `OM_AGENT_FILE_AGENT_RUNTIME=opencode`; an agent whose native definition could not be built or registered (a warning names it). |
+
+| Env | Default | Effect |
+|-----|---------|--------|
+| `OM_AGENT_FILE_AGENT_RUNTIME` | unset (native) | `opencode` sends every file agent back to the OpenCode container and logs a deprecation warning once per process. Any other value keeps the native default. This is a deprecated bridge: it lasts one minor version and is removed together with the OpenCode runtime. |
+
+The file plane (attachments in, artifacts out) exists only on OpenCode. The manifest generated from `agents/<id>/` does not carry a `files` config, so an agent loaded from it runs natively even if its `AGENT.md` opts into files. The native runner drops a `__files` input envelope and logs a warning. Native file-agent runs are bounded by `OM_AGENT_RUN_TIMEOUT_MS` (default 5 minutes), not `OM_OPENCODE_RUN_TIMEOUT_MS`, and their `agent_runs.runtime` is `native`.
 
 ### What a run trace stores
 
