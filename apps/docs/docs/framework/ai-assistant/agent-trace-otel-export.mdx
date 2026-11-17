@@ -203,9 +203,11 @@ How a run appears in Agent Observability:
 - `ml_app` is the `service.name` resource attribute (`OM_AGENT_OTEL_SERVICE_NAME`, default `open-mercato-agents`).
 - `invoke_agent` spans are agent spans, `chat` spans are LLM spans (provider, model, token usage, request parameters) and `execute_tool` spans are tool spans; `invoke_workflow` is a workflow span.
 - With content export on, prompts and completions are read from the `gen_ai.client.inference.operation.details` event, and tool arguments and results from the tool span.
-- Spans with no `gen_ai.*` attribute (`om.*` system spans, proposal dispositions and executions) are not shown in Agent Observability; they stay in the APM trace together with every `om.*` attribute, including the tenant and organization ids.
+- Spans with no `gen_ai.*` attribute (`om.*` system spans, proposal dispositions and executions) are not shown in Agent Observability; they stay in the APM trace.
+- The `om.*` attributes, including `om.tenant.id`, `om.organization.id` and `om.run.id`, become span tags in both Agent Observability and APM.
+- The trace list shows the root span's input and output. The root is the `invoke_agent` span, which never carries run input or output (see [What is never exported](#what-is-never-exported)), so the list reads "No content"; prompts and completions are on the LLM spans inside the trace.
 
-Delivery was verified against the Datadog EU intake with both `http/json` and `http/protobuf`, from the exporter and from a real agent run. How spans render in Agent Observability follows Datadog's published OpenTelemetry GenAI mapping, which the contract test (`otel-vendor-compat.test.ts`) pins.
+Verified against Datadog (EU site) with both `http/json` and `http/protobuf`: a real agent run showed up in Agent Observability as an agent span with an LLM span carrying the prompt, completion, model and token usage (Datadog added a cost estimate), and tool spans carried their arguments and results. The contract test `otel-vendor-compat.test.ts` pins the fields this relies on.
 
 ## Integration tests
 
