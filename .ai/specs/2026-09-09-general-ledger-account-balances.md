@@ -145,9 +145,14 @@ one.
 
 **"Opening balance as of a date" is not a stored concept — it's the
 same balance formula, evaluated at an earlier date.** The opening
-balance for a period is `getAccountBalance(accountId, periodStartDate
-- 1 day)`; the closing balance is `getAccountBalance(accountId,
-periodEndDate)`. There is deliberately no separate "prior period
+balance for a period is the internal balance at `periodStartDate - 1
+day`; the closing balance is the internal balance at `periodEndDate`.
+Once report-wide coverage has been verified, an account not yet effective
+at the opening boundary contributes zero there, including its descendants;
+the public balance route still returns 404 for that account before its
+effective start. Do not turn missing historical coverage into zero.
+For an effective account these internal values use the same formula as
+`getAccountBalance`. There is deliberately no separate "prior period
 closing balance" table or field: it would be a second source of truth
 that could drift from what the journal actually says, for a table
 where — per #5663's own words — "the database quietly went out of
@@ -168,8 +173,8 @@ the journal has it in January — exactly the mismatch art. 18 forbids.
 
 The inclusive whole-calendar-day rule therefore applies to
 `operation_date`: "as of date D" means `operation_date < D + 1 day`
-(UTC), so `getAccountBalance(accountId, periodStartDate - 1 day)` (the
-opening balance, above) equals exactly `operation_date <
+(UTC), so the internal opening balance at `periodStartDate - 1 day`
+uses exactly `operation_date <
 periodStartDate` — the same predicate `getTrialBalance`'s CTE uses for
 opening (Queries). `postedAt` is never a fiscal-period membership
 predicate; a separately specified recording-time snapshot is Phase 2
@@ -409,7 +414,9 @@ balances from `getAccountBalance`.
   `amountCurrency = 0` (an exchange-difference or valuation line) changes
   `balance` and leaves `balanceInAccountCurrency` unchanged. For an account
   without a `currencyId` nothing changes: `balanceInAccountCurrency` and
-  `currency` are `null`.
+  `currency` are `null`. An explicitly configured base-currency `currencyId`
+  is still a configured currency and follows the same leaf/subtree rule;
+  only absence of the ID yields the null result by that rule.
 - *Sign convention. ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).* `balance` stays normalized to the account's
   `normalBalance` (the decision above); `balanceInAccountCurrency` is debit
   side positive, as Multi-Currency R4 specifies, whatever the
@@ -772,10 +779,11 @@ wiring):
 - nullable UUID `parentAccountId` FK to `ledger_accounts.id` (`ON DELETE RESTRICT`), `NULL` for a root, always in the child's tenant and organization. Never silently detach children when deleting a parent;
 - the parent column and `(organization_id, parent_account_id)` index do not establish historical ancestry. A scoped, externally evidenced and accounting-owner-attested baseline must establish a complete, acyclic chart and coverage date before reports are enabled. Existing rows defaulting to `NULL` are not evidence that they were historical roots. Unknown or unsupported history fails closed; never rewrite journal lines to invent it;
 - baseline evidence must establish that every relevant edge, root, effective start and historical signing/currency attribute remained unchanged over the entire claimed covered interval through the atomic activation point, not merely describe the tree at activation. An empty subtree moved during that interval is not exempt. Retain the evidence and a scope-bound, versioned attestation; if any interval, writer or attribute cannot be verified, exclude that history and return the coverage error rather than infer it from the current chart;
-- Phase 1 deliberately freezes every parent edge and root assignment from that baseline, including empty accounts. New accounts may select a same-scope eligible parent at creation, with an immutable accounting-effective start no earlier than verified coverage; reject posting before that start. Reject later reparent, clear-parent, parent deletion and any undo/restore path that would alter a frozen edge. Preserve historical accounts and ancestors for all covered reports; do not hard-delete a node or omit a posted archived node from rollups. Freeze account type and normal-balance attributes used for historical figures, or fail closed until their historical values are available. Future reparenting needs effective-dated ancestry and separately specified transfers across report boundaries;
+- Phase 1 deliberately freezes every parent edge and root assignment from that baseline, including empty accounts. New accounts may select a same-scope eligible parent at creation, but an ordinary create must not add a root or edge in an already attested past interval: its immutable accounting-effective start must be strictly later than the database's current UTC accounting date at commit and no earlier than its parent's effective start. The database must enforce the date condition at the commit boundary, including a transaction crossing UTC midnight; an application-clock check alone is insufficient. Posting before that start is rejected. There is no ordinary historical import or backdated create; any future evidenced correction/re-attestation protocol requires a separate design and remains disabled. This intentionally means a new account cannot receive a posting on its creation day. Reject later reparent, clear-parent, parent deletion and any undo/restore path that would alter a frozen edge. Preserve historical accounts and ancestors for all covered reports; do not hard-delete a node or omit a posted archived node from rollups. Freeze account type and normal-balance attributes used for historical figures, or fail closed until their historical values are available. Future reparenting needs effective-dated ancestry and separately specified transfers across report boundaries;
 - a new account's parent must already exist and be effective for its entire covered lifetime. Historical account reads before that account's effective start return 404; trial-balance rows exclude accounts not effective by the requested period end. All covered journal lines must resolve to effective same-scope accounts and ancestors; an orphan, cycle, missing coverage or historical attribute makes the whole report fail closed, never a partial total. Display names and numbers are current report-snapshot metadata, not a claim of historical labels;
 - both reports require verified coverage for every date contributing to the requested figure, including the opening-balance date before a trial period. A date outside coverage returns `422 { error: 'hierarchy_history_unavailable' }`; an unavailable authority or detected corrupt covered chart returns 503 with no figures. Do not assume an opening of zero at the coverage boundary until the separate opening-entry policy proves it;
 - the entity, validators, account commands and API must enforce same-scope parents, acyclicity and eligible type/group before activation. Every chart activation, create, attempted reparent/clear/delete/restore/undo and other hierarchy mutation takes the same exclusive transaction-scoped PostgreSQL advisory lock keyed by trusted tenant and organization before checking frozen state and ancestry. All posting paths, including imports, retries and undo/redo, take a compatible shared lock before validating account coverage and hold it through commit or rollback. Specify one global order with fiscal-period and account locks across every writer; fail closed when the lock or coverage authority is unavailable. This is a coordinated #5663 posting/account compatibility change, not a read-only addition;
+- add an accounting-date `effectiveStart` field backed by a scoped persisted date, returned in account create/list/detail and undo snapshots. A new account may omit it; the default is the later of the next database UTC accounting day and the selected parent's effective start. An explicit value must meet the same lower bound. If a transaction crosses midnight, commit-time validation may reject a previously computed default; clients must retry rather than backdate it. Omission is a wire bridge, not proof that the changed posting behavior is compatible. Parent eligibility requires an existing same-tenant/organization account in the same #5663 account type/group, effective no later than the child. Reject invalid or foreign parents without revealing foreign records. The effective start is immutable after creation: an update may omit it or repeat the stored value, but a different value or an undo that would change it fails. Stage the nullable storage, attested baseline backfill and validation before any NOT NULL constraint; unknown legacy dates remain unverified and reporting fails closed. A dual-version deployment must fence/drain legacy writers before activation as below, and the compatibility bridge and generated API/OpenAPI contracts must be reviewed with #5663 before enforcement;
 - cutover must fence every legacy or unmanaged writer at the database boundary, drain in-flight transactions, acquire the exclusive scope lock, revalidate the full attested interval and current state, and publish the verified baseline, coverage and enforcement generation atomically in the same transaction. A process-level feature flag alone is insufficient. New and legacy readers fail closed until publication; if any writer cannot be fenced or evidence revalidated, abort activation and keep reports disabled. Rollback must retain the fence until a documented compatible state is restored; never reopen legacy writers while reports rely on frozen history;
 - coordinated writers acquire locks in this order: scope hierarchy lock first (shared for postings, exclusive for topology or activation), then the scoped fiscal-period lock required by #5663, then account and account-type row locks in a deterministic ID order. Period-boundary/lock and shared account-type writers must participate in the same order whenever they can affect these invariants. Do not enable until every import, reversal, retry, administrative, delete/restore and undo path, including independently deployed writers, demonstrably follows the protocol; no external call or backoff holds a database transaction open;
 - reads and ordering use the account business key `number` (formerly `slug`); `description` is the display name;
@@ -903,12 +911,24 @@ makes a date before both boundaries unambiguous.
 
 Account create/update/delete/restore and undo APIs must return a scoped
 `409 { error: 'hierarchy_frozen' }` for an edge-changing operation after
-activation, `422 { error: 'account_effective_date_invalid' }` for an
-invalid effective start, and `503 { error: 'hierarchy_authority_unavailable' }`
+activation, `409 { error: 'account_effective_start_immutable' }` for a
+different effective start on update or undo, `422 { error:
+'account_effective_date_invalid' }` for an invalid new effective start,
+`404 { error: 'parent_not_found' }` for a missing or foreign-scope parent,
+`422 { error: 'parent_ineligible' }` for a same-scope wrong-type/group
+parent, and `503 { error: 'hierarchy_authority_unavailable' }`
 when the guard cannot be checked. The account UI uses localized errors,
 keeps unsaved inputs where possible, and never displays a successful save
-for a rejected operation. Exact compatibility with #5663's existing API
-and undo contracts remains a reviewed rollout prerequisite.
+for a rejected operation. Account create/list/detail responses expose the
+effective start, and the UI explains the first permitted posting date.
+Exact compatibility with #5663's existing API
+and undo contracts remains a reviewed rollout prerequisite. For update or
+delete, after authentication, scoped lookup and input validation, check
+the supplied optimistic-lock version under the same row lock first: a
+stale version returns #5663's existing `OptimisticLockConflictBody` 409.
+Only a current-version operation proceeds to the hierarchy guard and can
+return `hierarchy_frozen` 409. Undo keeps its existing audit-token and
+scope checks first; a rejected frozen undo must not consume its token.
 
 ## Internationalization (i18n)
 
@@ -935,7 +955,8 @@ existing flat, dot-namespaced key convention (e.g.
 - `ledger.reports.errors.hierarchyHistoryUnavailable` — shared localized
   explanation for reports outside verified hierarchy coverage; clear prior
   results and direct the user to an authorized accounting administrator.
-- `ledger.accounts.errors.{hierarchyFrozen,accountEffectiveDateInvalid,
+- `ledger.accounts.errors.{hierarchyFrozen,accountEffectiveStartImmutable,
+  accountEffectiveDateInvalid,parentNotFound,parentIneligible,
   hierarchyAuthorityUnavailable}` — account write and undo failure states.
 - `ledger.reports.balancePanel.{title,asOfLabel}` — the account-page
   panel.
@@ -1030,9 +1051,9 @@ top of the live query.
 |------|--------|---------|
 | `acl.ts` | Modify | Add `ledger.reports.view` |
 | `setup.ts` | Modify | Add `ledger.reports.view` to `employee`'s `defaultRoleFeatures` |
-| `data/entities.ts` | Modify | Add nullable `LedgerAccount.parentAccountId` plus the `(organization_id, parent_account_id)` index |
-| `data/validators.ts` | Modify | Validate the optional `parentAccountId` (same tenant/organization, acyclic) |
-| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Modify/Create | Add parent storage and index; coordinate verified baseline and restrictive deletion |
+| `data/entities.ts` | Modify | Add nullable `parentAccountId`, staged `effectiveStart` date and the `(organization_id, parent_account_id)` index |
+| `data/validators.ts` | Modify | Validate optional `parentAccountId` and `effectiveStart`, same-scope eligibility and immutable update behavior |
+| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Modify/Create | Add parent and effective-start storage and index; coordinate verified baseline and restrictive deletion |
 | `commands/ledgerAccounts.ts` | Modify | Validate parent at creation and enforce frozen edges in every mutation and undo path |
 | `commands/journalEntries.ts` | Modify | Coordinate posting paths with scoped coverage and hierarchy locks; reconcile exact path with #5663 |
 | `api/accounts/route.ts` | Modify | Accept and return `parentAccountId` in the account CRUD fields |
@@ -1064,9 +1085,9 @@ top of the live query.
   - a foreign-currency account (`currencyId` EUR): debit EUR 100 and credit
     EUR 30 return `balanceInAccountCurrency = 70` and `currency` = EUR, and
     `balance` is the base-currency figure as before;
-  - a base-currency account and an account without a `currencyId` return
-    `balanceInAccountCurrency: null` and `currency: null`, with `balance`
-    unchanged from the pre-2026-10-26 behaviour;
+  - a leaf explicitly denominated in the organization's base currency
+    returns that currency and its signed amount; an account with no
+    `currencyId` returns both currency fields as null;
   - an account with `amountCurrency = 0` lines (an exchange-difference line
     of 50 base units) changes `balance` by 50 and leaves
     `balanceInAccountCurrency` unchanged;
@@ -1167,6 +1188,19 @@ top of the live query.
   rewriting journal lines. Verify account effective-start boundaries,
   including a child created after the queried date and a period spanning
   its creation; no pre-start post may appear.
+- Attempt an ordinary June create with a January effective start under an
+  attested parent, both as an empty child and a root; reject without
+  changing January rows, leaf classification or currency result. Test an
+  omitted date, future-effective parent, UTC-midnight commit race,
+  same-day posting refusal, unchanged-value update, forbidden effective
+  start update, foreign/wrong-type parent, stale parent change/delete and
+  current-version frozen change. Preserve the optimistic-lock 409 body and
+  rejected undo token; verify mixed old/new client behavior and UI messages.
+- First-period opening: an account effective January 15 appears on the
+  January 31 trial report with internal opening zero at December 31,
+  while the public balance route returns 404 for that account on the same
+  covered December date. Cover an effective child and an out-of-coverage
+  opening separately; the latter returns 422, not zero.
 - Cutover and snapshot races: exercise a January A→B move of an empty
   child before March activation with a claimed January baseline; reject
   the unverifiable interval, including a late January post. Race legacy
