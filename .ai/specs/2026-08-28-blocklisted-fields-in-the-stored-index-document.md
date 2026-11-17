@@ -16,13 +16,16 @@ runs.
 
 - **Changed**: `packages/shared/src/lib/search/config.ts` — new
   `stripBlocklistedDocFields()`, built on the existing
-  `isSearchFieldBlocklisted()`
+  `isSearchFieldBlocklisted()`; it returns the keys it removed
 - **Changed**: `packages/core/src/modules/query_index/lib/document.ts` —
   `buildIndexDocument()` strips the base row; the search config is now resolved
   once per call instead of once per call *and* once inside
   `attachAggregateSearchField()`
 - **Changed**: `packages/core/src/modules/query_index/lib/indexer.ts` —
-  `buildIndexDoc()` strips the merged base sources
+  `buildIndexDoc()` strips the merged base sources, and `upsertIndexRow()`
+  deletes the token rows of the stripped keys
+- **Changed**: `packages/core/src/modules/query_index/lib/search-tokens.ts` —
+  new `deleteSearchTokensForFields()`
 - **Not touched**: `isSearchFieldBlocklisted()` itself, the `search_text`
   aggregate, `buildSearchTokenRows()`, the `entity_indexes` schema, every
   read path. No migration.
@@ -80,6 +83,15 @@ are merged in and before `encryptIndexDocForStorage()` runs.
 document and only borrows `attachAggregateSearchField()`. Stripping the batch
 path alone would give a reindex that removes the column and an ordinary write
 that puts it straight back.
+
+**Token rows of a stripped key.** The per-record token rewrite deletes only the
+`(entity_id, field)` pairs the document carries. A key the strip removed is no
+longer one of them, so a token row stored for it before it was blocklisted (an
+`OM_SEARCH_FIELD_BLOCKLIST` entry added later) would survive every later write,
+where `main` removes it on the next one. `upsertIndexRow()` therefore deletes the
+token rows of the keys `stripBlocklistedDocFields()` reports, also when the token
+rewrite itself is deferred. The batch writer needs nothing: it counts a record's
+stored rows across all fields and deletes a changed record by `entity_id`.
 
 **Before encryption, deliberately** — so encryption sees exactly the document
 that gets stored. Stripping afterwards would seal a credential and then delete
@@ -185,11 +197,11 @@ No API changes; `stripBlocklistedDocFields` is a new export. The dated entry in
 
 | Surface | Change | Classification |
 |---------|--------|----------------|
-| Function signatures | New export `stripBlocklistedDocFields` from `@open-mercato/shared/lib/search/config` | ✓ ADDITIVE (new function in an existing module) |
+| Function signatures | New exports `stripBlocklistedDocFields` (returns the removed keys) from `@open-mercato/shared/lib/search/config` and `deleteSearchTokensForFields` from `query_index/lib/search-tokens` | ✓ ADDITIVE (new functions in existing modules) |
 | Function signatures | `buildIndexDocument`, `buildIndexDoc`, `attachAggregateSearchField`, `isSearchFieldBlocklisted` — signatures and return types unchanged | ✓ No change |
 | `buildIndexDocument` / `buildIndexDoc` behaviour | A key matching the **global** blocklist is absent from the returned document | ⚠ Deliberate behaviour narrowing |
 | `buildIndexDocument` internals | The search config is resolved once per call instead of once per call and again inside `attachAggregateSearchField` | ✓ No observable change |
-| `search_text` and `search_tokens` | No change — those paths already excluded these fields (#4624) | ✓ No change |
+| `search_text` and `search_tokens` | No change to what is written — those paths already excluded these fields (#4624). A token row stored for a stripped key before it was blocklisted is still deleted on the record's next write, as before | ✓ No change |
 | Entity-scoped blocklist entries (`<entityType>@<field>`) | No change — still un-tokenise, still stored | ✓ No change |
 | `cf:` and `l10n:` document keys | No change — exempt from the strip | ✓ No change |
 | Encryption rule `hashField` values | A `*_hash` column matching the global blocklist is stripped like any other and is **not** re-injected: `encryptFields()` skips a value that already decrypts under the current DEK, and that `continue` precedes the `hashField` block, so in steady state - where the base column is already ciphertext - the hash is never written back | ⚠ Deliberate behaviour narrowing. Nothing reads a `*_hash` out of the document: strict equality on an encrypted field goes through the base table's deterministic column (`packages/shared/src/lib/query/engine.ts`), which is untouched |
@@ -227,21 +239,28 @@ record restores the key.
   an env-added global entry, the entity-scoped narrowing, `credential` still not
   blocklisted, the `cf:`/`l10n:` exemption, and a `hashField` column stripped like
   any other match.
-- `packages/core/src/modules/query_index/__tests__/indexer.test.ts` — two cases
-  on the event path, in the existing fake-kysely harness.
+- `packages/core/src/modules/query_index/__tests__/indexer.test.ts` — three cases
+  on the event path, in the existing fake-kysely harness; the third pins that
+  `upsertIndexRow()` deletes the token rows of a stripped key, with token work
+  deferred.
 - `packages/core/src/modules/query_index/__integration__/TC-QIDX-9182-blocklisted-doc-fields.spec.ts`
   — the lifecycle on `auth:user` against a real database, with tenant data
   encryption on: a create (event path), a reindex over a row that still holds a
   `password_hash` copy from before the fix (batch path), and the next ordinary
   write (event path again). After each step `password_hash` and `email_hash` are
-  absent from the stored document, and `email` and `name` are present.
+  absent from the stored document, and `email` and `name` are present. Before the
+  last write it plants a `password_hash` token row, as one stored before the column
+  was blocklisted, and the write must delete it.
 - **Not vacuous, measured rather than asserted** (re-measured on `main`, 2026-11-10).
   With the `buildIndexDocument` call reverted, 8 tests fail and every negative
   control passes; with the `buildIndexDoc` call reverted, exactly 1 fails — the
   event-path case. Each chokepoint has its own failing test and neither covers for
   the other. In the ephemeral integration run, reverting the `buildIndexDoc` call
   fails TC-QIDX-9182 after the create, and reverting the `buildIndexDocument` call fails
-  it after the reindex.
+  it after the reindex. Disabling the token delete in `upsertIndexRow()` fails the
+  third event-path case and, in the ephemeral run, TC-QIDX-9182 at the planted
+  token. A strip that reports no keys fails the same case and the strip's own
+  return-value test.
 
 Suite totals, against a pristine baseline in a separate worktree:
 
@@ -267,3 +286,7 @@ clone that has never been built.
   The suite totals under Testing are the 2026-08-28 measurements against `develop`.
 - **2026-11-10** — Added TC-QIDX-9182, an end-to-end test of the storage lifecycle,
   after the QA run asked for integration coverage.
+- **2026-11-17** — Review follow-up: a token row stored for a stripped key before it
+  was blocklisted survived later writes, because the per-record rewrite deletes only
+  the document's own fields. `upsertIndexRow()` now deletes those rows (see *Token
+  rows of a stripped key*).
