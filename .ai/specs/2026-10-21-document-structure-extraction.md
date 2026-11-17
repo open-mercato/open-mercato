@@ -281,7 +281,7 @@ export interface AttachmentDocumentStructureService {
 }
 ```
 
-`AttachmentScope` carries `{ tenantId, organizationId, auth? }`. Every method runs `checkAttachmentAccess` and fails closed. Peers never read the new entities directly, consistent with the attachments AGENTS.md boundary.
+`AttachmentScope` carries `{ tenantId, organizationId, auth? }`. Every method runs `evaluateAttachmentAccess` (action `read`, owner-access resolvers included) when `auth` is passed, and the partition-only `checkAttachmentAccess` for principal-less system callers (CLI); both fail closed (2026-11-17, B-15). Peers never read the new entities directly, consistent with the attachments AGENTS.md boundary.
 
 ### AI tool `attachments.get_document_sections` (`attachments/ai-tools.ts`, new)
 
