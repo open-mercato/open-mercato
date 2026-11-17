@@ -28,7 +28,80 @@ function stubTransport(overrides: Partial<SmtpTransport> = {}): { sent: Sent[] }
 }
 
 describe('SmtpChannelAdapter.sendMessage', () => {
-  afterEach(() => setSmtpTransport(null))
+  const originalEnv = process.env
+
+  beforeEach(() => {
+    process.env = { ...originalEnv }
+    delete process.env.SMTP_PASSWORD
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+    setSmtpTransport(null)
+  })
+
+  it.each([
+    undefined,
+    'security@example.com',
+    'approved@example.com, security@example.com',
+    'Security <security@example.com>',
+    'approved@example.com\r\nFrom: security@example.com',
+  ])('pins the final From to the operator sender despite override %s', async (from) => {
+    process.env.NOTIFICATIONS_EMAIL_FROM = 'approved@example.com'
+    process.env.SMTP_PASSWORD = credentials.password
+    const { sent } = stubTransport()
+    const adapter = getSmtpChannelAdapter()
+    const converted = await adapter.convertOutbound({
+      body: 'Body',
+      bodyFormat: 'text',
+      channelMetadata: { to: 'recipient@example.com', subject: 'Hello', from },
+    })
+    const result = await adapter.sendMessage({
+      credentials: { ...credentials, fromAddress: 'forged@example.com', host: 'other.example.com', user: 'other-user' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      content: converted.content,
+      metadata: converted.metadata,
+    })
+
+    expect(result.status).toBe('sent')
+    expect(sent[0].message.from).toBe('approved@example.com')
+  })
+
+  it.each([undefined, 'invalid', 'one@example.com, two@example.com'])('fails closed with operator credentials and invalid operator sender %s', async (from) => {
+    delete process.env.NOTIFICATIONS_EMAIL_FROM
+    delete process.env.EMAIL_FROM
+    delete process.env.ADMIN_EMAIL
+    if (from !== undefined) process.env.EMAIL_FROM = from
+    process.env.SMTP_PASSWORD = credentials.password
+    const { sent } = stubTransport()
+    const result = await getSmtpChannelAdapter().sendMessage({
+      credentials: { ...credentials, fromAddress: 'forged@example.com', host: 'other.example.com', user: 'other-user' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      content: { text: 'Body' },
+      metadata: { to: 'recipient@example.com', subject: 'Hello', from: 'forged@example.com' },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'failed',
+      error: '[internal] Operator email sender is not configured or invalid',
+    }))
+    expect(sent).toHaveLength(0)
+  })
+
+  it.each([undefined, 'billing@tenant.example'])('retains tenant-owned credential sender selection for override %s', async (from) => {
+    process.env.NOTIFICATIONS_EMAIL_FROM = 'operator@example.com'
+    process.env.SMTP_PASSWORD = 'different-operator-password'
+    const { sent } = stubTransport()
+    const result = await getSmtpChannelAdapter().sendMessage({
+      credentials: { ...credentials, fromAddress: 'forged@example.com', host: 'other.example.com', user: 'other-user' },
+      scope: { tenantId: 'tenant', organizationId: 'org' },
+      content: { text: 'Body' },
+      metadata: { to: 'recipient@example.com', subject: 'Hello', from },
+    })
+
+    expect(result.status).toBe('sent')
+    expect(sent[0].message.from).toBe(from ?? 'forged@example.com')
+  })
 
   it('sends HTML and text through the relay and reports the provider message id', async () => {
     const { sent } = stubTransport()
