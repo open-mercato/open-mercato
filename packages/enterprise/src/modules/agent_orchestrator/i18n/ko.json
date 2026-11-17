@@ -794,6 +794,8 @@
   "agent_orchestrator.notifications.proposalPending.body": "{agent}이(가) 작업을 제안했습니다. 승인, 수정 또는 거부하기 전까지는 아무 일도 일어나지 않습니다.",
   "agent_orchestrator.notifications.proposalPending.review": "검토하기",
   "agent_orchestrator.notifications.proposalPending.title": "제안이 결정을 기다리고 있습니다",
+  "agent_orchestrator.notifications.runReviewRequested.body": "{agent}이(가) 결과를 확신하지 못해 사람의 확인을 요청했습니다. 검토가 필요한 실행을 열어 보세요.",
+  "agent_orchestrator.notifications.runReviewRequested.title": "에이전트 결과에 검토가 필요합니다",
   "agent_orchestrator.overview.empty": "아직 에이전트 활동이 없습니다.",
   "agent_orchestrator.overview.emptyDescription": "에이전트를 실행하거나 워크플로가 에이전트를 호출하면 집계가 여기에 표시됩니다.",
   "agent_orchestrator.overview.error": "개요를 불러오지 못했습니다.",

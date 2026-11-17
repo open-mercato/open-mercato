@@ -794,6 +794,8 @@
   "agent_orchestrator.notifications.proposalPending.body": "{agent} hat eine Aktion vorgeschlagen. Es passiert nichts, bis Sie sie genehmigen, bearbeiten oder ablehnen.",
   "agent_orchestrator.notifications.proposalPending.review": "Ansehen",
   "agent_orchestrator.notifications.proposalPending.title": "Ein Vorschlag wartet auf Ihre Entscheidung",
+  "agent_orchestrator.notifications.runReviewRequested.body": "{agent} war sich bei einem Ergebnis nicht sicher und bittet um eine Prüfung durch einen Menschen. Öffnen Sie die Läufe, die geprüft werden müssen.",
+  "agent_orchestrator.notifications.runReviewRequested.title": "Ein Agentenergebnis muss geprüft werden",
   "agent_orchestrator.overview.empty": "Noch keine Agentenaktivität.",
   "agent_orchestrator.overview.emptyDescription": "Führen Sie einen Agenten aus oder warten Sie, bis ein Workflow einen aufruft — die Zahlen erscheinen hier.",
   "agent_orchestrator.overview.error": "Die Übersicht konnte nicht geladen werden.",

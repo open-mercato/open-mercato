@@ -794,6 +794,8 @@
   "agent_orchestrator.notifications.proposalPending.body": "{agent} zaproponował działanie. Nic się nie wydarzy, dopóki go nie zatwierdzisz, nie poprawisz albo nie odrzucisz.",
   "agent_orchestrator.notifications.proposalPending.review": "Przejrzyj",
   "agent_orchestrator.notifications.proposalPending.title": "Propozycja czeka na Twoją decyzję",
+  "agent_orchestrator.notifications.runReviewRequested.body": "{agent} nie był pewny wyniku i prosi, żeby sprawdził go człowiek. Otwórz przebiegi wymagające przeglądu.",
+  "agent_orchestrator.notifications.runReviewRequested.title": "Wynik agenta wymaga przeglądu",
   "agent_orchestrator.overview.empty": "Brak aktywności agentów.",
   "agent_orchestrator.overview.emptyDescription": "Uruchom agenta lub poczekaj, aż wywoła go przepływ pracy — liczby pojawią się tutaj.",
   "agent_orchestrator.overview.error": "Nie udało się załadować przeglądu.",

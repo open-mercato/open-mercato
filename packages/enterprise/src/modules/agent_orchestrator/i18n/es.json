@@ -794,6 +794,8 @@
   "agent_orchestrator.notifications.proposalPending.body": "{agent} propuso una acción. No ocurre nada hasta que la apruebes, la edites o la rechaces.",
   "agent_orchestrator.notifications.proposalPending.review": "Revisar",
   "agent_orchestrator.notifications.proposalPending.title": "Una propuesta espera tu decisión",
+  "agent_orchestrator.notifications.runReviewRequested.body": "{agent} no estaba seguro de un resultado y pidió que una persona lo revise. Abre las ejecuciones que necesitan revisión.",
+  "agent_orchestrator.notifications.runReviewRequested.title": "Un resultado del agente necesita revisión",
   "agent_orchestrator.overview.empty": "Aún no hay actividad de agentes.",
   "agent_orchestrator.overview.emptyDescription": "Ejecuta un agente o espera a que un flujo de trabajo invoque uno: los recuentos aparecerán aquí.",
   "agent_orchestrator.overview.error": "No se pudo cargar el resumen.",

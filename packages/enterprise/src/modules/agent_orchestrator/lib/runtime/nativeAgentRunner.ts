@@ -45,7 +45,7 @@ import {
   buildToolConsultedPrepareStep,
   collectEnforcedToolSets,
 } from '../guardrails/integrity/rules/toolConsulted'
-import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
+import { emitRunReviewRequested, resolveInteractiveInvokerUserId } from '../guardrails/integrity/reviewRequestedEvent'
 import { readCheckRuleId } from '../guardrails/integrity/summary'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
@@ -763,6 +763,7 @@ export class NativeAgentRunner {
       workflowInstanceId: ctx.workflowInstanceId ?? null,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
+      invokedByUserId: resolveInteractiveInvokerUserId(ctx),
       reviewRequest: integrityOutcome?.reviewRequest,
     })
 

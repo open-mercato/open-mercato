@@ -1,6 +1,8 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { AgentRun } from '../../data/entities'
+import { findReviewRequestedRunIds } from '../../lib/guardrails/integrity/reviewRequestedRuns'
 import { runIdPrefixRange, runListQuerySchema } from '../../data/validators'
 import {
   createAgentOrchestratorCrudOpenApi,
@@ -75,7 +77,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       updatedAt: 'updated_at',
     },
     defaultSort: { field: 'created_at', dir: 'desc' },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       else if (query.idPrefix) {
@@ -102,10 +104,19 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       if (query.filter === 'eval-fail') filters.eval_passed = { $eq: false }
       else if (query.filter === 'low-confidence') filters.confidence = { $lt: LOW_CONFIDENCE_THRESHOLD }
       else if (query.filter === 'needs-review') {
-        // The traces-list union facet: failed eval OR low confidence.
+        // The traces-list union facet: failed eval OR low confidence OR an
+        // integrity rule that asked for a human (`abstain_or_review` warn).
+        const reviewRequestedRunIds = ctx
+          ? await findReviewRequestedRunIds((ctx.container.resolve('em') as EntityManager).fork(), {
+              tenantId: ctx.auth?.tenantId,
+              organizationIds: ctx.organizationIds,
+              createdAfter: createdAtRange.$gte ? new Date(createdAtRange.$gte) : null,
+            })
+          : []
         filters.$or = [
           { eval_passed: { $eq: false } },
           { confidence: { $lt: LOW_CONFIDENCE_THRESHOLD } },
+          ...(reviewRequestedRunIds.length > 0 ? [{ id: { $in: reviewRequestedRunIds } }] : []),
         ]
       }
       return filters

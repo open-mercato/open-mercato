@@ -794,6 +794,8 @@
   "agent_orchestrator.notifications.proposalPending.body": "{agent} proposed an action. Nothing happens until you approve, edit or reject it.",
   "agent_orchestrator.notifications.proposalPending.review": "Review it",
   "agent_orchestrator.notifications.proposalPending.title": "A proposal is waiting for your decision",
+  "agent_orchestrator.notifications.runReviewRequested.body": "{agent} was not confident in a result and asked for a human to check it. Open the runs that need review.",
+  "agent_orchestrator.notifications.runReviewRequested.title": "An agent result needs review",
   "agent_orchestrator.overview.empty": "No agent activity yet.",
   "agent_orchestrator.overview.emptyDescription": "Run an agent or wait for a workflow to invoke one — counts will appear here.",
   "agent_orchestrator.overview.error": "Failed to load overview.",

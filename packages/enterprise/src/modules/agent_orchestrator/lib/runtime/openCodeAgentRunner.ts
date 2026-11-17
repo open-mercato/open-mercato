@@ -26,7 +26,7 @@ import {
 } from '../guardrails/integrity/pipeline'
 import { isAgentIntegrityEnforced, resolveIntegritySet } from '../guardrails/integrity/integritySets'
 import type { IntegrityToolCall } from '../guardrails/integrity/types'
-import { emitRunReviewRequested } from '../guardrails/integrity/reviewRequestedEvent'
+import { emitRunReviewRequested, resolveInteractiveInvokerUserId } from '../guardrails/integrity/reviewRequestedEvent'
 import { readCheckRuleId } from '../guardrails/integrity/summary'
 import { ensureRunIntegritySetSynced, storeRunRawOutput } from './integrityRunSupport'
 import { AgentGuardrailBlockedError } from './errors'
@@ -440,6 +440,7 @@ export class OpenCodeAgentRunner {
           workflowInstanceId: ctx.workflowInstanceId ?? null,
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
+          invokedByUserId: resolveInteractiveInvokerUserId(ctx),
           reviewRequest: integrity.reviewRequest,
         })
       }

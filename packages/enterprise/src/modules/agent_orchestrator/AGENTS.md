@@ -202,7 +202,7 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md`. `defineAgent({ integrity, untrustedInputs })`; paths are relative to the result envelope (`data.findings[*]`).
 
 - Rules run in declaration order after the output schema; `abstain_or_review` MUST be last. One `AgentGuardrailCheck` per rule with `evidence.ruleId`; evidence holds counts, pointers and reason codes, never input text.
-- A rule asks for a human by writing `holdsAutoApproval: true` on a `warn` row — the disposition gate holds those (`auto_disposition_block='guardrail'`). `route: 'review'` also emits `run.review_requested`. Shadow mode (`OM_AGENT_INTEGRITY=off`) strips the flag.
+- A rule asks for a human by writing `holdsAutoApproval: true` on a `warn` row — the disposition gate holds those (`auto_disposition_block='guardrail'`). `route: 'review'` also emits `run.review_requested` (non-proposal runs notify a human: `subscribers/run-review-requested-notification.ts`). Shadow mode (`OM_AGENT_INTEGRITY=off`) strips the flag.
 - Untrusted input fields are screened as `sourceKind: 'input'` spans and rendered as nonce-delimited blocks; never interpolate them into the prompt yourself.
 - The run API `integrity` summary is derived from the check rows (`summary.ts`) — add new outcomes there, not in routes. The pre-repair output is an encrypted artifact (`rawOutputKey`, `kind=raw_output`), never inline.
 - OpenCode checks only the submitted outcome: the integrity rules when declared, else schema + `tool_scope`; no grounding or untrusted inputs.
