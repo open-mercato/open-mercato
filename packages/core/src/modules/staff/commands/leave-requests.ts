@@ -200,14 +200,19 @@ async function requireLeaveRequest(
     undefined,
     scopeForDecryption(scope),
   )
-  if (!request) throw new CrudHttpError(404, { error: 'Leave request not found.' })
-  return request
+  if (request) return request
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(404, {
+    error: translate('staff.leaveRequests.errors.notFound', 'Leave request not found.'),
+  })
 }
 
-function ensurePendingStatus(request: StaffLeaveRequest): void {
-  if (request.status !== 'pending') {
-    throw new CrudHttpError(400, { error: 'Leave request is already finalized.' })
-  }
+async function ensurePendingStatus(request: StaffLeaveRequest): Promise<void> {
+  if (request.status === 'pending') return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(400, {
+    error: translate('staff.leaveRequests.errors.alreadyFinalized', 'Leave request is already finalized.'),
+  })
 }
 
 async function ensureUndoablePending(request: StaffLeaveRequest): Promise<void> {
@@ -471,7 +476,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     const request = await requireLeaveRequest(em, parsed.id, scope)
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
-    ensurePendingStatus(request)
+    await ensurePendingStatus(request)
 
     if (parsed.memberId !== undefined) {
       const member = await requireTeamMember(em, parsed.memberId, scope, 'Team member not found')
@@ -586,7 +591,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
     const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
-    ensurePendingStatus(request)
+    await ensurePendingStatus(request)
 
     request.deletedAt = new Date()
     request.updatedAt = new Date()
@@ -667,7 +672,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
-    ensurePendingStatus(request)
+    await ensurePendingStatus(request)
 
     const memberId = typeof request.member === 'string' ? request.member : request.member.id
     const decidedByUserId = parsed.decidedByUserId ?? resolveAuthUserId(ctx)
@@ -878,7 +883,7 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
-    ensurePendingStatus(request)
+    await ensurePendingStatus(request)
 
     request.status = 'rejected'
     request.decisionComment = parsed.decisionComment ?? null
