@@ -64,7 +64,21 @@
   .req-card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 0.875rem; display: flex; flex-direction: column; gap: 0.625rem; }
   .req-card .req-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
   .req-card .req-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-  .req-card .req-acts .btn { width: 100%; justify-content: center; }
+    .req-card .req-acts .btn { width: 100%; justify-content: center; }
+  .m-form { padding-bottom: 5rem; }
+  .m-form .form-group { padding: 1rem; }
+  .m-form .url-preview { flex-wrap: wrap; }
+  .m-form .url-preview code { flex: 1 1 calc(100% - 2rem); min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+  .m-form .url-preview .btn { flex: 1; justify-content: center; }
+  .m-form .set-row, .m-form .sec > summary { flex-wrap: wrap; row-gap: 0.25rem; }
+  .m-form .set-row .set-label, .m-form .sec > summary .set-label { width: auto; flex: 1 1 100%; }
+  .m-form .sec > summary > svg { margin-left: auto; }
+  .m-form .sec > summary .sec-sum { flex: 1 1 0; }
+  .m-form .sec[open] > summary .sec-sum { display: none; }
+  .m-form .sec[open] > summary .set-label { flex: 1 1 0; }
+  .m-form .sentence { line-height: 2.5rem; }
+  .m-foot { position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding: 0.75rem 1rem; background: var(--card); border-top: 1px solid var(--border); }
+  .m-foot .btn { width: 100%; justify-content: center; }
 
   /* Mini week grid for the calendar screen */
   .wk { display: grid; grid-template-columns: 3rem repeat(5, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--card); }
@@ -121,6 +135,7 @@
   .bk-form { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-width: 30rem; }
   .bk-summary { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.75rem 1rem; border-radius: var(--radius-lg); background: color-mix(in oklab, var(--muted) 50%, transparent); }
   .bk-consent { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.875rem; }
+  .bk-consent a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
   .bk-result { max-width: 34rem; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); padding: 2rem; display: flex; flex-direction: column; gap: 1.25rem; align-items: center; text-align: center; }
   .bk-result-icon { width: 3rem; height: 3rem; border-radius: 9999px; display: grid; place-items: center; }
   .bk-result-icon svg { width: 1.5rem; height: 1.5rem; }
@@ -235,7 +250,7 @@
 <section class="screen" id="s1">
   <div class="screen-meta">
     <h2>1. My meeting booking (profile settings)</h2>
-    <p>Five things to go live: the on/off switch with the link, a page title, the meeting length, working hours and approval. Everything else sits in a collapsed Advanced section with defaults. Click a row to expand it.</p>
+    <p>Five things to go live: the on/off switch with the link, a page title, the meeting length, working hours and approval. Everything else sits in a collapsed Advanced section with defaults. Click a row to expand it. Below: the same page on a phone.</p>
     <div class="screen-refs"><span class="ref">§UI/UX My meeting booking</span><span class="ref">US-A1</span><span class="ref">US-A2</span><span class="ref">US-A3</span><span class="ref">US-A4</span><span class="ref">US-A5</span></div>
   </div>
   <div class="frame">
@@ -322,12 +337,76 @@
       </div>
     </div>
   </div>
+  <div class="frame-label">On a phone (390px)</div>
+  <div class="frame phone-frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/profile/meeting-booking</span></div>
+    <div class="m-app">
+      <div class="m-top">
+        <button class="btn btn-ghost btn-icon btn-sm" aria-label="Menu"><svg><use href="#ic-menu"/></svg></button>
+        <h1>My meeting booking</h1>
+        <span class="avatar avatar-sm">AK</span>
+      </div>
+      <form class="m-body m-form" onsubmit="return false">
+        <div class="form-group">
+          <div class="between"><div class="title">Booking page</div><span class="row" style="gap:0.5rem;font-size:0.875rem">On <span class="switch" role="switch" aria-checked="true" aria-label="Booking page on" tabindex="0"></span></span></div>
+          <div class="url-preview"><svg width="16" height="16"><use href="#ic-link"/></svg><code class="t-mono">https://crm.example.com/calendar/northwind/anna/meetings</code><button class="btn btn-outline btn-sm" type="button"><svg><use href="#ic-copy"/></svg> Copy</button><button class="btn btn-outline btn-sm" type="button" data-goto="s3"><svg><use href="#ic-external"/></svg> Open</button></div>
+          <div class="field">
+            <label for="m-ptitle">Page title <span class="req">*</span></label>
+            <input id="m-ptitle" class="input" value="Meet with Anna" />
+          </div>
+        </div>
+
+        <div class="set-list">
+          <div class="set-row">
+            <span class="set-label">Meeting length</span>
+            <div class="set-value"><span>Each booking is this long</span></div>
+            <select class="select" aria-label="Meeting length"><option>15 min</option><option selected>30 min</option><option>45 min</option><option>60 min</option><option>90 min</option></select>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Working hours</span>
+            <div class="set-value"><span>Mon to Thu, 09:00 to 17:00</span><span>Fri, 09:00 to 14:00</span><span class="t-hint">Europe/Warsaw</span></div>
+            <button class="btn btn-outline btn-sm" type="button" data-goto="s2"><svg><use href="#ic-pencil"/></svg> Edit</button>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Approval</span>
+            <div class="set-value"><span>You confirm each request</span></div>
+            <span class="switch" role="switch" aria-checked="true" aria-label="Require my approval" tabindex="0"></span>
+          </div>
+          <details class="sec">
+            <summary><span class="set-label">Advanced</span><span class="sec-sum">Up to 60 days ahead, at least 2 hours notice, 10 minutes free after each meeting</span><svg><use href="#ic-chevron-down"/></svg></summary>
+            <div class="sec-body">
+              <div class="field"><label for="m-pdesc">Description</label><textarea id="m-pdesc" class="textarea" rows="2">Intro call about your project. Pick a time that works for you.</textarea></div>
+              <div class="field"><label for="m-ploc">Location</label><input id="m-ploc" class="input" value="Northwind office, Prosta 20, Warsaw" /><span class="t-hint">Leave empty to hide it. No video link is created for you; add your own meeting link here if you use one.</span></div>
+              <div class="separator"></div>
+              <p class="sentence">People can book up to <input class="input" value="60" aria-label="Days ahead" /> days ahead, with at least <input class="input" value="2" aria-label="Hours of notice" /> hours notice.</p>
+              <p class="sentence">Keep <input class="input" value="10" aria-label="Minutes free after each meeting" /> minutes free after each meeting, and take at most <input class="input" value="" placeholder="any" aria-label="Bookings per day" /> bookings a day.</p>
+              <div class="separator"></div>
+              <div class="between" style="gap:1rem"><span style="font-size:0.875rem">Bookers can cancel and reschedule online</span><span class="switch" role="switch" aria-checked="true" aria-label="Bookers can cancel and reschedule online" tabindex="0"></span></div>
+            </div>
+          </details>
+        </div>
+
+        <div class="alert alert-info"><svg><use href="#ic-info"/></svg><div>Only your Open Mercato calendar blocks times. Meetings you keep in Google or Outlook are not checked, so add them here as events or keep your working hours to times you are free.</div></div>
+
+        <div class="form-group">
+          <div class="title">Next available times</div>
+          <div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:00</span></div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">09:30</span></div>
+            <div class="preview-slot"><span>Mon, 2 Nov</span><span class="num">10:30</span></div>
+          </div>
+        </div>
+      </form>
+      <div class="m-foot"><button class="btn btn-outline" type="button">Cancel</button><button class="btn btn-primary" type="submit"><svg><use href="#ic-save"/></svg> Save</button></div>
+    </div>
+  </div>
   <div class="notes">
     <div class="note"><b>1</b><span>First run (not drawn): the page is off and every value has a default (30 min, Mon to Fri 09:00 to 17:00 in the browser's timezone, approval on, 60 days ahead, 2 hours notice, no buffer, no daily limit, booker changes allowed). Turning the switch on and saving is enough to share the link. The link name defaults to the user's e-mail local part and can be changed from the link's Copy menu (not drawn).</span></div>
     <div class="note"><b>2</b><span>Removed from the first version: "Start times every" (starts follow the meeting length), "Saved in CRM as" (always a meeting), "Buffer before", "Respond within" (fixed at 24 h), the self-service cutoff (fixed at 1 h before the meeting), "Max new requests per day" (an admin/system abuse limit, not a per-user setting), date overrides (block a day off with a calendar event), multiple ranges per day and "Copy Monday to all weekdays".</span></div>
     <div class="note"><b>3</b><span>Advanced is collapsed by default and its summary line shows the current values, so the whole configuration reads without opening anything. The two booking-window values are edited in place inside the sentence. Save uses optimistic locking (conflict bar on 409).</span></div>
-    <div class="note"><b>4</b><span>The info alert answers the external-calendar question: this version only knows Open Mercato meetings, calls and pending requests. If a calendar integration syncs events into the CRM later, they block times without changes here.</span></div>
+    <div class="note"><b>4</b><span>The info alert answers the external-calendar question. This phase is for people who manage their calendar wholly in Open Mercato, or who block their Google or Microsoft calendar time by hand. Integration with external calendar providers is out of scope until calendar connectors exist in the codebase; once a connector syncs events into the CRM, they block times without changes here.</span></div>
     <div class="note"><b>5</b><span>The page needs <code>customers.booking.manage_own</code>, not <code>customers.interactions.manage</code>. Not drawn: the warning alert shown here and on Meeting requests when booking maintenance is not scheduled or was disabled by an admin.</span></div>
+    <div class="note"><b>6</b><span>On a phone (below 640px) the page is one column with no horizontal scroll: the link wraps onto its own line with full-width Copy and Open, each label sits above its summary and control, and the info alert and next times follow the form. Cancel and Save stay pinned to the bottom.</span></div>
   </div>
 </section>
 
@@ -773,7 +852,7 @@
   <div class="notes">
     <div class="note"><b>1</b><span>Removed: the four counter tiles (the pending count is already in the sidebar and on the tab), the status filter (duplicated the tabs), the Filters button, row selection and bulk Accept/Decline. Tabs are Pending, Upcoming and History.</span></div>
     <div class="note"><b>2</b><span><strong>Accept is one click.</strong> It creates a new CRM person for a new booker (or keeps the existing person for a reschedule), creates the meeting and sends the invite, then confirms with a toast (screen 16). Only when the slot now overlaps something does a small dialog ask for confirmation (screen 10). Linking to an existing person stays a separate action afterwards (screen 17).</span></div>
-    <div class="note"><b>3</b><span>The page has no primary button: Accept is a secondary (outline) button and Decline a ghost button, so the pending badge in the sidebar carries the emphasis. Meeting, Requested and Respond by have sort controls (server-side); Booker and About are encrypted, so they are not sortable. The default is Respond by, soonest first.</span></div>
+    <div class="note"><b>3</b><span>The page has no primary button: Accept is a secondary (outline) button and Decline a ghost button, so the pending badge in the sidebar carries the emphasis. Every column that is not encrypted sorts on the server: Meeting, Requested and Respond by here, Status and Outcome on History. Booker, About and CRM person are encrypted, so they have no sort control on any tab; this is an accepted exception. The default is Respond by, soonest first.</span></div>
     <div class="note"><b>4</b><span>"Respond by" turns into an error badge under 3 hours. The overlap hint names what the slot now overlaps. Users with <code>customers.booking.manage</code> also get an Owner column.</span></div>
   </div>
 </section>
@@ -882,7 +961,7 @@
             </div>
             <div class="scroll-x">
               <table class="table">
-                <thead><tr><th>Meeting</th><th>Booker</th><th>About</th><th aria-sort="ascending"><button class="th-sort is-active" type="button">Respond by <svg><use href="#ic-arrow-up"/></svg></button></th><th class="right"><span class="sr-only">Actions</span></th></tr></thead>
+                <thead><tr><th><button class="th-sort" type="button">Meeting <svg><use href="#ic-sort"/></svg></button></th><th>Booker</th><th>About</th><th aria-sort="ascending"><button class="th-sort is-active" type="button">Respond by <svg><use href="#ic-arrow-up"/></svg></button></th><th class="right"><span class="sr-only">Actions</span></th></tr></thead>
                 <tbody>
                   <tr class="is-expired">
                     <td><div class="cell-lines"><strong>Mon, 2 Nov</strong><span class="t-hint">13:00 to 13:30</span></div></td>
@@ -1059,7 +1138,7 @@
             <div class="wk-times"><span style="top:0">9:00</span><span style="top:5.5rem">11:00</span><span style="top:11rem">13:00</span><span style="top:16.5rem">15:00</span></div>
             <div class="wk-col">
               <div class="ev ev-meeting" style="top:2.75rem;height:2.75rem"><strong>Demo: Woodgrove</strong>10:00 to 11:00</div>
-              <div class="ev ev-pending" style="top:11rem;height:1.375rem" data-goto="s10" role="button" tabindex="0"><strong>Pending: Jordan Doe</strong></div>
+              <div class="ev ev-pending" style="top:11rem;height:1.375rem;right:calc(50% + 0.125rem)" data-goto="s10" role="button" tabindex="0"><strong>Pending: Jordan Doe</strong></div>
               <div class="ev ev-call" style="top:11.6875rem;height:1.375rem;left:50%"><strong>Call: Q4 review</strong></div>
             </div>
             <div class="wk-col"><div class="ev ev-pending" style="top:1.375rem;height:1.375rem" data-goto="s9" role="button" tabindex="0"><strong>Pending: Riley Novak</strong></div></div>
@@ -1245,7 +1324,7 @@
                   <th aria-sort="descending"><button class="th-sort is-active" type="button">Meeting <svg><use href="#ic-arrow-down"/></svg></button></th>
                   <th>Booker</th>
                   <th><button class="th-sort" type="button">Status <svg><use href="#ic-sort"/></svg></button></th>
-                  <th>Outcome</th>
+                  <th><button class="th-sort" type="button">Outcome <svg><use href="#ic-sort"/></svg></button></th>
                   <th>CRM person</th>
                   <th class="right"><span class="sr-only">Actions</span></th>
                 </tr></thead>
@@ -1295,7 +1374,7 @@
     </div>
   </div>
   <div class="notes">
-    <div class="note"><b>1</b><span>"Respond by / outcome" is split: Pending has Respond by, History has Outcome (who decided and when, plus the decline message on its own line). "Chosen on accept" is gone; CRM person shows a name or "None".</span></div>
+    <div class="note"><b>1</b><span>"Respond by / outcome" is split: Pending has Respond by, History has Outcome (who decided and when, plus the decline message on its own line). "Chosen on accept" is gone; CRM person shows a name or "None". Outcome sorts by the date it shows (when the request was decided or cancelled).</span></div>
     <div class="note"><b>2</b><span>Cancelled badges name who cancelled: "Cancelled by booker", "Cancelled by you", "Cancelled: person deleted", "Cancelled: original cancelled". Row menu: View details only; nothing can be re-opened, because the booker was already e-mailed. A moved meeting keeps only its latest request in the list; View details shows the full reschedule history.</span></div>
   </div>
 </section>
