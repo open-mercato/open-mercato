@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
-  cancelThenDeleteClaimIfPossible,
+  cleanupReceivingClaimFixture,
   createClaimFixture,
   listClaimLines,
   readClaim,
@@ -78,6 +78,16 @@ test.describe('TC-WC-016: warranty claim receiving grading', () => {
       ).toBe(true)
 
       const gradedLine = await readClaimLine(request, adminToken, claim.id!, line.id!)
+      expect(gradedLine.disposition).toBe('scrap')
+      const editResponse = await updateClaimLine(request, adminToken, {
+        id: line.id,
+        claimId: claim.id,
+        disposition: gradedLine.disposition,
+        inspectionNotes: `Edited warranty grade C ${stamp}`,
+      }, gradedLine.updatedAt)
+      expect(editResponse.status(), 'an allowed grading suggestion should remain editable').toBe(200)
+      const editedLine = await readClaimLine(request, adminToken, claim.id!, line.id!)
+      expect(editedLine.inspectionNotes).toBe(`Edited warranty grade C ${stamp}`)
       const restockResponse = await updateClaimLine(
         request,
         adminToken,
@@ -86,7 +96,7 @@ test.describe('TC-WC-016: warranty claim receiving grading', () => {
           claimId: claim.id,
           disposition: 'restock',
         },
-        gradedLine.updatedAt,
+        editedLine.updatedAt,
       )
       const restockBody = await readJsonSafe<{ error?: string }>(restockResponse)
       expect(
@@ -98,7 +108,64 @@ test.describe('TC-WC-016: warranty claim receiving grading', () => {
       const finalClaim = await readClaim(request, adminToken, claim.id!)
       expect(finalClaim.status).toBe('received')
     } finally {
-      await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
+      await cleanupReceivingClaimFixture(request, adminToken, claimId)
     }
   })
+
+  for (const conditionGrade of ['A', 'B', 'C', 'D'] as const) {
+    test(`return grade ${conditionGrade} remains editable after receiving`, async ({ request }) => {
+      const adminToken = await getAuthToken(request, 'admin')
+      const stamp = uniqueLabel(`tc-wc-016-return-${conditionGrade}`)
+      let claimId: string | null = null
+
+      try {
+        let claim = await createClaimFixture(request, adminToken, {
+          claimType: 'return',
+          customerName: `QA return grading ${stamp}`,
+          reasonCode: 'damaged',
+          currencyCode: 'USD',
+          lines: [{ productName: `QA grade ${conditionGrade}`, qtyClaimed: 1, creditAmount: 10 }],
+        })
+        claimId = claim.id
+        const [line] = await listClaimLines(request, adminToken, claim.id!)
+        expect(line?.id).toBeTruthy()
+        claim = await submitAndExpect(request, adminToken, claim)
+        for (const status of ['in_review', 'approved', 'awaiting_return', 'received']) {
+          claim = await transitionAndExpect(request, adminToken, claim, status)
+        }
+
+        const before = await readClaimLine(request, adminToken, claim.id!, line.id!)
+        const receiveResponse = await receiveClaimLine(request, adminToken, {
+          lineId: line.id!, conditionGrade, updatedAt: before.updatedAt,
+        })
+        expect(receiveResponse.status(), 'return grading should succeed').toBe(200)
+        const graded = await readClaimLine(request, adminToken, claim.id!, line.id!)
+        const expectedDisposition = conditionGrade === 'A' ? 'restock' : null
+        expect(graded.conditionGrade).toBe(conditionGrade)
+        expect(graded.disposition).toBe(expectedDisposition)
+
+        const inspectionNotes = `Edited return grade ${conditionGrade} ${stamp}`
+        const editResponse = await updateClaimLine(request, adminToken, {
+          id: line.id,
+          claimId: claim.id,
+          disposition: graded.disposition,
+          qtyClaimed: 1,
+          inspectionNotes,
+        }, graded.updatedAt)
+        const editBody = await readJsonSafe<{ error?: string }>(editResponse)
+        expect(editResponse.status(), `saving the graded line should succeed: ${JSON.stringify(editBody)}`).toBe(200)
+        const edited = await readClaimLine(request, adminToken, claim.id!, line.id!)
+        expect(edited.inspectionNotes).toBe(inspectionNotes)
+        expect(edited.conditionGrade).toBe(conditionGrade)
+        expect(edited.disposition).toBe(expectedDisposition)
+
+        const invalidResponse = await updateClaimLine(request, adminToken, {
+          id: line.id, claimId: claim.id, disposition: 'scrap',
+        }, edited.updatedAt)
+        expect(invalidResponse.status(), 'explicit scrap must still be rejected for returns').toBe(400)
+      } finally {
+        await cleanupReceivingClaimFixture(request, adminToken, claimId)
+      }
+    })
+  }
 })

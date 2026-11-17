@@ -1,6 +1,6 @@
 import * as React from 'react'
 import type { ActivityType } from './fieldConfig'
-import { isDateRequired } from './fieldConfig'
+import { isDateRequired, resolveScheduleActivityType } from './fieldConfig'
 
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
@@ -138,7 +138,12 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
   // the seeding below must agree or new records inherit edit-mode fallbacks (#5940).
   const isEditing = Boolean(editData?.id)
   const [initialStart] = React.useState(() => resolveDefaultActivityStart('meeting', new Date()))
-  const [activityType, setActivityType] = React.useState<ActivityType>('meeting')
+  // Holds the raw persisted/selected interaction type — may be a built-in Event, a
+  // custom dictionary key, or a historical key the type picker no longer offers
+  // (#7486). Lookups into the five-kind presentation maps (`FIELD_VISIBILITY`,
+  // `TYPE_CHROME`, `DEFAULT_REMINDER_MINUTES`) must resolve through
+  // `resolveScheduleActivityType` first; this state is saved back verbatim.
+  const [activityType, setActivityType] = React.useState<string>('meeting')
   const [title, setTitle] = React.useState('')
   const [date, setDate] = React.useState(() => formatLocalDateInput(initialStart))
   const [startTime, setStartTime] = React.useState(() => formatLocalTimeInput(initialStart))
@@ -164,8 +169,9 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
     if (open) {
       if (editData) {
         // Edit mode: populate from existing interaction
-        const resolvedType = (editData.interactionType as ActivityType) ?? 'meeting'
-        setActivityType(resolvedType)
+        const rawType = editData.interactionType ?? 'meeting'
+        const resolvedType = resolveScheduleActivityType(rawType)
+        setActivityType(rawType)
         setTitle(editData.title ?? '')
         // `scheduledAt` is the canonical term of anything that was ever planned, so it
         // wins whenever it is set: the save path recomputes `scheduledAt` from these
@@ -277,7 +283,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
   // Update the Reminder default when the activity type changes in create mode.
   // Skipped in edit mode (the persisted value wins), and gated by `open` to
   // avoid flipping the default in a closed-but-mounted dialog.
-  const lastReminderTypeRef = React.useRef<ActivityType>('meeting')
+  const lastReminderTypeRef = React.useRef<string>('meeting')
   React.useEffect(() => {
     if (!open || isEditing) {
       lastReminderTypeRef.current = activityType
@@ -285,7 +291,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
     }
     if (lastReminderTypeRef.current === activityType) return
     lastReminderTypeRef.current = activityType
-    setReminderMinutes(DEFAULT_REMINDER_MINUTES[activityType])
+    setReminderMinutes(DEFAULT_REMINDER_MINUTES[resolveScheduleActivityType(activityType)])
   }, [activityType, isEditing, open])
 
   const removeParticipant = React.useCallback((index: number) => {

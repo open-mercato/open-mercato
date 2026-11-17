@@ -87,6 +87,10 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       ])
 
       await loginAsAdmin(page)
+      await page.context().addCookies([
+        { name: 'om_selected_tenant', value: tenantId!, url: new URL(page.url()).origin },
+        { name: 'om_selected_org', value: organizationId!, url: new URL(page.url()).origin },
+      ])
       await page.goto('/backend/processes/definitions', { waitUntil: 'domcontentloaded' })
       const taskRow = page.getByRole('row', { name: new RegExp(taskName) })
       await expect(taskRow).toBeVisible({ timeout: 15_000 })

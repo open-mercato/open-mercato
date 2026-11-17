@@ -858,3 +858,29 @@ export async function cancelThenDeleteClaimIfPossible(
   }
   await cleanupDraftClaimWithLines(request, token, claimId)
 }
+
+export async function cleanupReceivingClaimFixture(
+  request: APIRequestContext,
+  token: string,
+  claimId: string | null,
+): Promise<void> {
+  if (!claimId) return
+  let claim = await readClaimMaybe(request, token, claimId)
+  if (!claim) return
+  if (claim.status === 'received' || claim.status === 'inspecting') {
+    const lines = await listClaimLines(request, token, claimId)
+    for (const line of lines) {
+      expect(line.id, 'cleanup line should have an id').toBeTruthy()
+      const response = await requestJson(request, 'DELETE', `/api/warranty_claims/lines?id=${encodeURIComponent(line.id!)}`, token, undefined, line.updatedAt)
+      expect(response.status(), 'cleanup should delete the receiving line').toBe(200)
+    }
+    if (claim.status === 'received') {
+      claim = await transitionAndExpect(request, token, claim, 'inspecting')
+    }
+    claim = await transitionAndExpect(request, token, claim, 'resolved')
+    claim = await transitionAndExpect(request, token, claim, 'closed')
+    await transitionAndExpect(request, token, claim, 'in_review')
+  }
+  await cancelThenDeleteClaimIfPossible(request, token, claimId)
+  expect(await readClaimMaybe(request, token, claimId), 'cleanup should remove the claim fixture').toBeNull()
+}

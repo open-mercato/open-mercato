@@ -6,7 +6,8 @@ import type {
   FindOptions,
 } from '@mikro-orm/postgresql'
 import { warnOnEncryptedLikeFilter } from './likeFilterWarning'
-import { decryptEntitiesWithFallbackScope } from './subscriber'
+import { decryptEntitiesWithFallbackScope, runWithCallerDecryptScope } from './subscriber'
+import { DecryptRefusalTally } from './decryptScope'
 import type { TenantDataEncryptionService } from './tenantDataEncryptionService'
 
 export type DecryptionScope = {
@@ -32,15 +33,17 @@ export async function findWithDecryption<Entity extends object, Hint extends str
     tenantId: scope?.tenantId,
     encryptionService: scope?.encryptionService,
   })
-  const records = (await em.find<Entity, Hint, any, any>(entityName as any, where as any, options as any)) as any as
-    | Entity[]
-    | undefined
+  const refusalTallies = new Map<string, DecryptRefusalTally>()
+  const records = (await runWithCallerDecryptScope(scope ?? {}, refusalTallies, () =>
+    em.find<Entity, Hint, any, any>(entityName as any, where as any, options as any),
+  )) as any as Entity[] | undefined
   if (!Array.isArray(records) || records.length === 0) return records ?? []
   await decryptEntitiesWithFallbackScope(records, {
     em,
     tenantId: scope?.tenantId ?? null,
     organizationId: scope?.organizationId ?? null,
     encryptionService: scope?.encryptionService ?? null,
+    refusalTallies,
   })
   return records
 }
@@ -59,15 +62,17 @@ export async function findOneWithDecryption<Entity extends object, Hint extends 
     tenantId: scope?.tenantId,
     encryptionService: scope?.encryptionService,
   })
-  const record = (await em.findOne<Entity, Hint, any, any>(entityName as any, where as any, options as any)) as any as
-    | Entity
-    | null
+  const refusalTallies = new Map<string, DecryptRefusalTally>()
+  const record = (await runWithCallerDecryptScope(scope ?? {}, refusalTallies, () =>
+    em.findOne<Entity, Hint, any, any>(entityName as any, where as any, options as any),
+  )) as any as Entity | null
   if (!record) return record
   await decryptEntitiesWithFallbackScope(record, {
     em,
     tenantId: scope?.tenantId ?? null,
     organizationId: scope?.organizationId ?? null,
     encryptionService: scope?.encryptionService ?? null,
+    refusalTallies,
   })
   return record
 }
@@ -86,11 +91,10 @@ export async function findAndCountWithDecryption<Entity extends object, Hint ext
     tenantId: scope?.tenantId,
     encryptionService: scope?.encryptionService,
   })
-  const [recordsRaw, count] = await em.findAndCount<Entity, Hint, any, any>(
-    entityName as any,
-    where as any,
-    options as any,
-  ) as any as [Entity[] | undefined, number]
+  const refusalTallies = new Map<string, DecryptRefusalTally>()
+  const [recordsRaw, count] = (await runWithCallerDecryptScope(scope ?? {}, refusalTallies, () =>
+    em.findAndCount<Entity, Hint, any, any>(entityName as any, where as any, options as any),
+  )) as any as [Entity[] | undefined, number]
   const records = Array.isArray(recordsRaw) ? recordsRaw : []
   if (!records.length) return [records, count]
   await decryptEntitiesWithFallbackScope(records, {
@@ -98,6 +102,7 @@ export async function findAndCountWithDecryption<Entity extends object, Hint ext
     tenantId: scope?.tenantId ?? null,
     organizationId: scope?.organizationId ?? null,
     encryptionService: scope?.encryptionService ?? null,
+    refusalTallies,
   })
   return [records, count]
 }
