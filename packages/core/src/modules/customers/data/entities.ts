@@ -286,6 +286,9 @@ export class CustomerCompanyProfile {
   @Property({ name: 'annual_revenue', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   annualRevenue?: string | null
 
+  @Property({ name: 'tax_id', type: 'text', nullable: true })
+  taxId?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
