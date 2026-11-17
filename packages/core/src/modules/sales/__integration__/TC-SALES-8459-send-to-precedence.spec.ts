@@ -261,7 +261,18 @@ test.describe('TC-SALES-8459: Send to precedence', () => {
         await expect(option).toBeVisible({ timeout: 3_000 })
       }).toPass({ timeout: 30_000 })
       await option.click()
-      await saveCustomerCard(page)
+      await expect(page.getByTestId('lookup-select-selected')).toContainText(noEmailName)
+      const [saved] = await Promise.all([
+        page.waitForResponse(
+          (response) => new URL(response.url()).pathname === '/api/sales/quotes' && response.request().method() === 'PUT',
+        ),
+        saveCustomerCard(page),
+      ])
+      const payload: unknown = saved.request().postDataJSON()
+      expect(payload).toMatchObject({ customerEntityId: noEmailPersonId })
+      expect(payload).not.toHaveProperty('metadata.customerEmail')
+      const savedQuote: unknown = JSON.parse(await saved.text())
+      expect(savedQuote).toMatchObject({ customerEntityId: noEmailPersonId, contactEmail: null })
 
       await expectNoRecipient(page)
       await page.reload({ waitUntil: 'domcontentloaded' })
