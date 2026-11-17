@@ -185,6 +185,45 @@ test.describe('TC-SALES-7336: negative invoice amounts and line replacement', ()
     }
   })
 
+  test('rejects a live order line from another organization', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let orderId: string | null = null
+    let orderLine: { id: string; organization_id: string } | null = null
+    try {
+      orderId = await createSalesOrderFixture(request, token, 'EUR')
+      orderLine = await withClient(async (client) => {
+        const result = await client.query<{ id: string; organization_id: string }>(
+          'select id, organization_id from sales_order_lines where order_id = $1',
+          [orderId],
+        )
+        const row = result.rows[0] ?? null
+        if (row) {
+          await client.query('update sales_order_lines set organization_id = gen_random_uuid() where id = $1', [row.id])
+        }
+        return row
+      })
+      expect(orderLine, 'the order fixture should have a line').toBeTruthy()
+
+      const response = await apiRequest(request, 'POST', INVOICES, {
+        token,
+        data: { currencyCode: 'EUR', lines: [{ ...productLine, orderLineId: orderLine?.id }] },
+      })
+      if (response.status() === 201) {
+        const body = await readJsonSafe<{ invoiceId?: string; id?: string }>(response)
+        await purgeInvoice(body?.invoiceId ?? body?.id ?? null)
+      }
+      expect(response.status(), 'an order line from another organization should be rejected').toBe(400)
+    } finally {
+      if (orderLine) {
+        const { id, organization_id: organizationId } = orderLine
+        await withClient((client) =>
+          client.query('update sales_order_lines set organization_id = $2 where id = $1', [id, organizationId]),
+        )
+      }
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
   test('replaces lines only with replaceLines, and undo restores the original line ids', async ({ request }) => {
     skipIfUndoTestsDisabled()
     const token = await getAuthToken(request, 'admin')

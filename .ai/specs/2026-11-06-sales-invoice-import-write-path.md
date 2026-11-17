@@ -545,7 +545,7 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 - **Residual risk**: A merge conflict, and these follow-ups to carry.
 
 #### Stored order line links meet order changes
-- **Scenario**: Invoice lines now keep their order line. An order update with `items` recreates its lines and an order delete removes them, so `order_line_id` (`on delete set null`) clears those links. Order undo answers 409 while an invoice line links one of the order's lines.
+- **Scenario**: Invoice lines now keep their order line. Deleting an order line (alone or through a batch line update's `deleteIds`) or the order removes those rows, so `order_line_id` (`on delete set null`) clears those links. Order undo answers 409 while an invoice line links one of the order's lines.
 - **Severity**: Low
 - **Affected area**: invoice lines with an `orderLineId`, order undo, invoice update undo
 - **Mitigation**: Invoice create and update undo answer 409 when a cleared link no longer matches their `after`. Undo of an invoice update or delete links only order lines whose row still exists, so it never fails on the foreign key.

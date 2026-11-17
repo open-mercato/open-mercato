@@ -2249,10 +2249,7 @@ async function loadInvoiceSnapshot(
     },
     lines: lines.map((line) => ({
       id: line.id,
-      orderLineId:
-        typeof line.orderLine === "string"
-          ? line.orderLine
-          : (line.orderLine?.id ?? null),
+      orderLineId: line.orderLine?.id ?? null,
       lineNumber: line.lineNumber,
       kind: line.kind ?? "product",
       name: line.name ?? null,
