@@ -640,3 +640,5 @@ Risks: sensitive recordings (high, mitigate with private storage and synthetic c
 #### Migration & Backward Compatibility (A-3)
 
 Existing CLI invocations keep live model behavior unless `--offline true` or `fixtures.model` is supplied. `--record` additionally records model calls and per-trial tool fixtures; trial 0 paths and the existing tool format remain compatible. `--fixtures-from-run` still exports only tool summaries. No entity, API, ACL, event or generated registry changes. `withModelFactoryOverride` is an additive scoped extension; outside it model resolution precedence is unchanged. No global `OM_AI_SCRIPTED_*` setting is introduced.
+
+- **2026-11-17 A-3 review fixes:** record URL preprocessing with the SDK download hook; forward it through native SDK calls and judges, replay bytes without external fetches, and require custom SDK callbacks to forward the hook. Use a bounded nonblocking regular-file reader, including a real FIFO regression. Combined execution marks tool refs trial-scoped even with the default programmatic file store. Add missing/mismatched judge-fixture tests so best-effort judge handling cannot hide replay errors.

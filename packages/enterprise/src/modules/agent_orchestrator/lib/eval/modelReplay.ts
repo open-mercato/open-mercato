@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { wrapLanguageModel, type LanguageModel } from 'ai'
+import { wrapLanguageModel, createDownload, type LanguageModel, type Experimental_DownloadFunction } from 'ai'
 import { z } from 'zod'
 import { withModelFactoryOverride } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory-context'
 import type { AiModelResolution } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
@@ -18,6 +18,10 @@ export const modelRecordingSchema = z.object({
   source: z.string(),
   sdkProvider: z.string(),
   providerOptions: z.record(z.string(), z.unknown()).optional(),
+  downloads: z.array(z.object({
+    urls: z.array(z.string()).max(1000),
+    files: z.array(z.object({ data: z.string(), mediaType: z.string().optional() }).nullable()).max(1000),
+  })).max(1000).default([]),
   calls: z.array(z.object({
     kind: z.enum(['generate', 'stream']),
     requestKey: z.string().length(64),
@@ -78,7 +82,7 @@ export function createModelReplaySession(mode: 'record' | 'replay', recordings: 
   const recorded: ModelRecording[] = []
   let resolutionIndex = 0
   let failure: ModelReplayError | null = null
-  const consumed: Array<{ recording: ModelRecording; count: () => number }> = []
+  const consumed: Array<{ recording: ModelRecording; count: () => number; downloaded: () => number }> = []
   const fail = (code: string): never => {
     failure = new ModelReplayError(code)
     throw failure
@@ -88,7 +92,7 @@ export function createModelReplaySession(mode: 'record' | 'replay', recordings: 
     assertComplete() {
       if (failure) throw failure
       if (mode === 'record' && recorded.some((entry) => entry.calls.some((call) => call.result === undefined))) fail('model_record_incomplete')
-      if (mode === 'replay' && (resolutionIndex !== recordings.length || consumed.some((entry) => entry.count() !== entry.recording.calls.length))) {
+      if (mode === 'replay' && (resolutionIndex !== recordings.length || consumed.some((entry) => entry.count() !== entry.recording.calls.length || entry.downloaded() !== entry.recording.downloads.length))) {
         fail('model_fixture_unused')
       }
     },
@@ -98,12 +102,29 @@ export function createModelReplaySession(mode: 'record' | 'replay', recordings: 
         const live = mode === 'record' ? resolveLive() : null
         const base = live ? wrapLanguageModel({ model: live.model as Exclude<LanguageModel, string>, middleware: {} }) : null
         const recording: ModelRecording = live
-          ? { inputKey, providerId: live.providerId, modelId: live.modelId, source: live.source, sdkProvider: base!.provider, providerOptions: live.providerOptions, calls: [] }
+          ? { inputKey, providerId: live.providerId, modelId: live.modelId, source: live.source, sdkProvider: base!.provider, providerOptions: live.providerOptions, downloads: [], calls: [] }
           : recordings[resolutionIndex++] ?? fail('model_fixture_missing')
         if (recording.inputKey !== inputKey) fail('model_fixture_input_mismatch')
         if (live) recorded.push(recording)
         let callIndex = 0
-        consumed.push({ recording, count: () => callIndex })
+        let downloadIndex = 0
+        consumed.push({ recording, count: () => callIndex, downloaded: () => downloadIndex })
+        const download: Experimental_DownloadFunction = async (requests) => {
+          if (!requests.length) return []
+          const urls = requests.map((request) => request.url.href)
+          if (!live) {
+            const batch = recording.downloads[downloadIndex++] ?? fail('model_fixture_download_missing')
+            if (fingerprint(urls) !== fingerprint(batch.urls) || batch.files.length !== requests.length) fail('model_fixture_download_mismatch')
+            return batch.files.map((file) => file ? { data: new Uint8Array(Buffer.from(file.data, 'base64')), mediaType: file.mediaType } : null)
+          }
+          try {
+            const files = await Promise.all(requests.map((request) => request.isUrlSupportedByModel ? null : createDownload({ maxBytes: 5 * 1024 * 1024 })({ url: request.url })))
+            recording.downloads.push({ urls, files: files.map((file) => file ? { data: Buffer.from(file.data).toString('base64'), ...(file.mediaType ? { mediaType: file.mediaType } : {}) } : null) })
+            return files
+          } catch {
+            return fail('model_record_download_failed')
+          }
+        }
         const take = (kind: 'generate' | 'stream', options: CallOptions): unknown => {
           const call = recording.calls[callIndex++] ?? fail('model_fixture_missing')
           if (call.kind !== kind || call.requestKey !== requestKey(options)) fail('model_fixture_request_mismatch')
@@ -147,7 +168,7 @@ export function createModelReplaySession(mode: 'record' | 'replay', recordings: 
             })) }
           },
         }
-        return { ...(live ?? {}), model, modelId: recording.modelId, providerId: recording.providerId,
+        return { ...(live ?? {}), model, download, modelId: recording.modelId, providerId: recording.providerId,
           ...(recording.providerOptions ? { providerOptions: recording.providerOptions as AiModelResolution['providerOptions'] } : {}),
           source: recording.source as AiModelResolution['source'], supportsInputModeration: live?.supportsInputModeration ?? false }
       }, run, { isolateTools: mode === 'record' }))

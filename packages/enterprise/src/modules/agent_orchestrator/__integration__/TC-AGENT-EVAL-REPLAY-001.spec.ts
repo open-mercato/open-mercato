@@ -46,7 +46,7 @@ test('TC-AGENT-EVAL-REPLAY-001: disk fixtures replay the real SDK tool loop and 
   const invoke = async (deps: CreateModelFactoryDependencies) => {
     const resolved = createModelFactory(createContainer(), deps).resolveModel({ moduleId: 'synthetic' })
     const result = await generateText({
-      model: resolved.model as Model, prompt: 'Look up the synthetic fixture and answer ok.',
+      model: resolved.model as Model, experimental_download: resolved.download, prompt: 'Look up the synthetic fixture and answer ok.',
       output: Output.object({ schema: z.object({ ok: z.boolean() }) }),
       stopWhen: stepCountIs(3), maxRetries: 0,
       tools: { lookup: tool({ inputSchema: z.object({ key: z.string() }), async execute(args, context) {

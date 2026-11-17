@@ -333,8 +333,8 @@ async function deterministicAssertionsFor(
  * Executes ONE pending case run: replays the case's input through the real agent
  * runtime, then scores the resulting run.
  *
- * Replay performs FRESH INFERENCE. Scoring a stored output would not detect
- * regressions, which is the entire point of the eval plane.
+ * Replay defaults to fresh inference. Explicit model fixtures reproduce SDK
+ * responses while the runtime and scorers still execute their normal checks.
  *
  * Propose-only by construction: this calls `agentRuntime.run` directly and never
  * `dispositionService.dispose`, so an `proposal` result is recorded as a
@@ -431,7 +431,7 @@ async function runCase(
       await em.flush()
       await emitCaseProgress('started', caseRun, agentDefinitionId, scope)
 
-      const toolRef = toolFixtureRefFor(source, caseRun)
+      const toolRef = { ...toolFixtureRefFor(source, caseRun), ...(options.modelFixtures ? { trialScoped: true } : {}) }
       const toolBinding = await prepareToolBinding(options.toolFixtures, toolRef)
       if (options.modelFixtures?.mode === 'replay' && (toolBinding.kind === 'live' || toolBinding.kind === 'record' || (toolBinding.kind === 'replay' && toolBinding.context.mode === 'replay' && toolBinding.context.onMiss === 'live'))) {
         throw new Error('[internal] offline_tool_fixtures_required')

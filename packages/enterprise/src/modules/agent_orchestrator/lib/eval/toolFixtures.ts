@@ -53,6 +53,7 @@ export type EvalToolFixtureCaseRef = {
   caseKey: string
   fixturePath: string | null
   trialIndex: number
+  trialScoped?: boolean
 }
 
 export type EvalToolFixtureLoad =
@@ -254,7 +255,7 @@ export function createFileToolFixtureStore(options: {
   const maxBytes = options.maxBytes ?? resolveEvalToolFixtureMaxBytes()
   const trialPath = (directory: string, ref: EvalToolFixtureCaseRef): string => {
     const conventional = conventionalToolFixturePath(directory, ref.agentId, ref.caseKey)
-    return options.perTrial && ref.trialIndex > 0
+    return (options.perTrial || ref.trialScoped) && ref.trialIndex > 0
       ? conventional.replace(/\.tools\.json$/, `.${ref.trialIndex}.tools.json`)
       : conventional
   }

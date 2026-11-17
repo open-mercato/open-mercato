@@ -31,7 +31,7 @@ function factory(results: Result[]) {
   }
   const provider = { id: 'synthetic', defaultModel: 'fixture-model', resolveApiKey: () => 'synthetic-only', createModel: () => model }
   const deps = { registry: { resolveFirstConfigured: () => provider }, env: {} } as unknown as CreateModelFactoryDependencies
-  return { resolve: () => createModelFactory(createContainer(), deps).resolveModel({ moduleId: 'test' }).model as Model, liveCall, model }
+  return { resolveOptions: () => createModelFactory(createContainer(), deps).resolveModel({ moduleId: 'test' }), resolve: () => createModelFactory(createContainer(), deps).resolveModel({ moduleId: 'test' }).model as Model, liveCall, model }
 }
 const resolveOffline = () => createModelFactory(createContainer(), {
   registry: { resolveFirstConfigured: () => { throw new Error('live provider resolution attempted') } }, env: {},
@@ -117,4 +117,77 @@ describe('A-3 model record/replay through the real SDK', () => {
     expect(() => unused.assertComplete()).toThrow('model_fixture_unused')
     expect(isOfflineModelReplay()).toBe(false)
   })
+})
+
+it.each(['image', 'file'])('records and replays unsupported URL %s downloads without network access', async (kind) => {
+  const live = factory([textResult('downloaded')])
+  const originalFetch = globalThis.fetch
+  const downloadFetch = jest.fn(async () => new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), { headers: { 'content-type': 'image/png' } }))
+  globalThis.fetch = downloadFetch
+  const input = kind === 'image'
+    ? { type: 'image' as const, image: new URL('https://example.com/synthetic.png') }
+    : { type: 'file' as const, data: new URL('https://example.com/synthetic.pdf'), mediaType: 'application/pdf' }
+  const invoke = (options: ReturnType<typeof live.resolveOptions>) => generateText({
+    model: options.model as Model, experimental_download: options.download,
+    messages: [{ role: 'user', content: [input] }], maxRetries: 0,
+  })
+  try {
+    const recorded = createModelReplaySession('record')
+    const before = await recorded.run(() => invoke(live.resolveOptions()))
+    recorded.assertComplete()
+    expect(downloadFetch).toHaveBeenCalledTimes(1)
+    globalThis.fetch = async () => { throw new Error('Offline download attempted') }
+    const replay = createModelReplaySession('replay', recorded.recorded)
+    const after = await replay.run(() => invoke(createModelFactory(createContainer(), { registry: { resolveFirstConfigured: () => { throw new Error('Live resolution attempted') } }, env: {} }).resolveModel({ moduleId: 'test' })))
+    replay.assertComplete()
+    expect(after.text).toBe(before.text)
+    expect(live.liveCall).toHaveBeenCalledTimes(1)
+  } finally { globalThis.fetch = originalFetch }
+})
+
+it('replays URL attachments through the actual object runtime with its prepared SDK options', async () => {
+  const { runAiAgentObject } = await import('@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime')
+  const { seedAgentRegistryForTests, resetAgentRegistryForTests } = await import('@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-registry')
+  const { llmProviderRegistry } = await import('@open-mercato/ai-assistant/modules/ai_assistant/lib/llm-registry')
+  const providers = [...llmProviderRegistry.list()]
+  const live = factory([textResult('{"ok":true}')])
+  const originalFetch = globalThis.fetch
+  const downloadFetch = jest.fn(async () => new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), { headers: { 'content-type': 'image/png' } }))
+  try {
+    llmProviderRegistry.reset()
+    llmProviderRegistry.register({
+      id: 'synthetic', name: 'Synthetic', envKeys: [], defaultModel: 'fixture-model', defaultModels: [],
+      isConfigured: () => true, resolveApiKey: () => 'synthetic-only', getConfiguredEnvKey: () => '', createModel: () => live.model,
+    })
+    seedAgentRegistryForTests([{
+      id: 'synthetic.attachment', moduleId: 'synthetic', label: 'Synthetic attachment', description: 'Synthetic attachment',
+      executionMode: 'object', defaultProvider: 'synthetic', defaultModel: 'fixture-model',
+      systemPrompt: 'Return a synthetic result.', allowedTools: [], mutationPolicy: 'read-only',
+      output: { schemaName: 'SyntheticOutput', schema: z.object({ ok: z.boolean() }) },
+    }])
+    const invoke = () => runAiAgentObject({
+      agentId: 'synthetic.attachment',
+      authContext: { tenantId: 'synthetic-tenant', organizationId: 'synthetic-org', userId: 'synthetic-user', features: ['*'], isSuperAdmin: true },
+      input: [{ id: 'synthetic-message', role: 'user', parts: [{ type: 'text', text: 'Inspect the image.' }, { type: 'file', mediaType: 'image/png', url: 'https://example.com/synthetic.png' }] }],
+    })
+    globalThis.fetch = downloadFetch
+    const recorded = createModelReplaySession('record')
+    const before = await recorded.run(invoke)
+    recorded.assertComplete()
+    expect(downloadFetch).toHaveBeenCalledTimes(1)
+    llmProviderRegistry.reset()
+    globalThis.fetch = async () => { throw new Error('Offline fetch attempted') }
+    const replay = createModelReplaySession('replay', recorded.recorded)
+    const after = await replay.run(invoke)
+    replay.assertComplete()
+    expect(before.mode).toBe('generate')
+    expect(after.mode).toBe('generate')
+    if (after.mode === 'generate' && before.mode === 'generate') expect(after.object).toEqual(before.object)
+    expect(live.liveCall).toHaveBeenCalledTimes(1)
+  } finally {
+    globalThis.fetch = originalFetch
+    resetAgentRegistryForTests()
+    llmProviderRegistry.reset()
+    for (const provider of providers) llmProviderRegistry.register(provider)
+  }
 })

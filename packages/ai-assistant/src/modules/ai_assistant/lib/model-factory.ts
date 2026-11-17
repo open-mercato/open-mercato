@@ -241,6 +241,7 @@ export interface AiModelResolution {
    * major version.
    */
   model: AiModelInstance
+  download?: import('ai').Experimental_DownloadFunction
   /** Resolved upstream model id (e.g. `claude-haiku-4-5-20251001`). */
   modelId: string
   /** Stable provider id from {@link LlmProvider.id}. */

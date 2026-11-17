@@ -1,3 +1,8 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
+import { withCaseModelFixtures } from '../lib/eval/modelFixtures'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -217,6 +222,34 @@ describe('replay from the frozen eval-set manifest', () => {
     const aggregate = await aggregateSuiteRun(em, CARRIER_ID, SCOPE)
     expect(aggregate.summary.tone).toEqual(expect.objectContaining({ judge: true, passed: 1 }))
     expect(aggregate.summary.mentions_golden).toEqual(expect.objectContaining({ judge: false, passed: 1 }))
+  })
+
+  it.each(['missing', 'mismatch'])('A-3 errors the case when a judge %s fixture is swallowed by best-effort scoring', async (kind) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-eval-judge-'))
+    const { em, storeFor } = createFakeEm(liveSeed())
+    storeFor(AgentEvalSuiteRun).push(suiteRun(CARRIER_ID, null))
+    storeFor(AgentEvalCaseRun).push(pendingCaseRun('cr-judge', CARRIER_ID))
+    const { container } = harness(em)
+    try {
+      await withCaseModelFixtures({ mode: 'record', directory }, { agentId: AGENT, caseKey: CASE_ID, fixturePath: null, trialIndex: 0 }, async () => undefined)
+      if (kind === 'mismatch') {
+        const file = path.join(directory, AGENT, `${CASE_ID}.0.model.json`)
+        const contents = JSON.parse(fs.readFileSync(file, 'utf8'))
+        contents.recordings = [{ inputKey: '0'.repeat(64), providerId: 'synthetic', modelId: 'synthetic', sdkProvider: 'synthetic', source: 'provider_default', downloads: [], calls: [] }]
+        fs.writeFileSync(file, JSON.stringify(contents))
+      }
+      mockModelJudge.mockImplementation(async () => {
+        createModelFactory(container).resolveModel({ moduleId: 'agent_orchestrator' })
+        return { passed: true, score: 1, feedback: '' }
+      })
+      const outcome = await executeCaseRun(container, 'cr-judge', SCOPE, 'user-1', undefined, {
+        modelFixtures: { mode: 'replay', directory },
+        toolFixtures: { mode: 'replay', onMiss: 'error', store: { load: async () => ({ ok: true, fixtures: [], fidelity: 'full' }), save: async () => undefined } },
+      })
+      expect(mockModelJudge).toHaveBeenCalled()
+      expect(outcome.status).toBe('error')
+      expect(storeFor(AgentEvalCaseRun).find((row) => row.id === 'cr-judge')?.errorMessage).toContain(kind === 'missing' ? 'model_fixture_missing' : 'model_fixture_input_mismatch')
+    } finally { fs.rmSync(directory, { recursive: true, force: true }) }
   })
 
   it('uses the live rows for a suite run without a frozen eval set', async () => {

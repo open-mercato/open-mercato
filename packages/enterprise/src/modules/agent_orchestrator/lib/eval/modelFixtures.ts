@@ -1,3 +1,4 @@
+import { readRegularFixtureFile } from './fixtureFileRead'
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -48,16 +49,9 @@ export async function withCaseModelFixtures<T>(
   const { base, file } = fixturePath(options, ref)
   let recordings: z.infer<typeof modelRecordingSchema>[] = []
   if (options.mode === 'replay') {
-    let descriptor: number | undefined
     try {
       if (!inside(fs.realpathSync(base), fs.realpathSync(file))) throw new ModelReplayError('model_fixture_path_invalid')
-      descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
-      const stat = fs.fstatSync(descriptor)
-      if (!stat.isFile() || stat.size > MAX_BYTES) throw new ModelReplayError('model_fixture_invalid')
-      const buffer = Buffer.alloc(stat.size + 1)
-      const length = fs.readSync(descriptor, buffer, 0, buffer.length, 0)
-      if (length > MAX_BYTES) throw new ModelReplayError('model_fixture_invalid')
-      const parsed = modelFixtureFileSchema.parse(JSON.parse(buffer.subarray(0, length).toString('utf8')))
+      const parsed = modelFixtureFileSchema.parse(JSON.parse(readRegularFixtureFile(file, MAX_BYTES)))
       if (parsed.agentId !== ref.agentId || parsed.caseKey !== ref.caseKey || parsed.trialIndex !== ref.trialIndex) {
         throw new ModelReplayError('model_fixture_identity_mismatch')
       }
@@ -65,8 +59,6 @@ export async function withCaseModelFixtures<T>(
     } catch (error) {
       if (error instanceof ModelReplayError) throw error
       throw new ModelReplayError('model_fixture_invalid_or_missing')
-    } finally {
-      if (descriptor !== undefined) fs.closeSync(descriptor)
     }
   }
   const session = createModelReplaySession(options.mode, recordings)

@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 import { createFileToolFixtureStore } from '../lib/eval/toolFixtures'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -52,4 +54,24 @@ it('keeps tool recordings for separate offline trials separate', async () => {
   await store.save({ ...ref, trialIndex: 1 }, [{ ...fixture, output: { trial: 1 } }])
   expect(await store.load(ref)).toMatchObject({ ok: true, fixtures: [{ output: { trial: 0 } }] })
   expect(await store.load({ ...ref, trialIndex: 1 })).toMatchObject({ ok: true, fixtures: [{ output: { trial: 1 } }] })
+})
+
+const unixTest = process.platform === 'win32' ? it.skip : it
+unixTest('rejects an in-directory FIFO without blocking the event loop', () => {
+  const fifo = path.join(directory, 'fixture.fifo')
+  const made = spawnSync('mkfifo', [fifo], { timeout: 2000 })
+  expect(made.status).toBe(0)
+  const source = pathToFileURL(path.resolve(__dirname, '../lib/eval/fixtureFileRead.ts')).href
+  const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', `
+    const { readRegularFixtureFile } = await import(process.argv[1]);
+    try {
+      readRegularFixtureFile(process.argv[2] + '/fixture.fifo', 1024);
+      process.exitCode = 1;
+    } catch (error) {
+      if (!error.message.includes('model_fixture_invalid')) throw error;
+    }
+  `, source, directory], { timeout: 5000, encoding: 'utf8' })
+  expect(result.error).toBeUndefined()
+  expect(result.stderr).toBe('')
+  expect(result.status).toBe(0)
 })
