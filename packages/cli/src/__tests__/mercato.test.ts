@@ -311,6 +311,18 @@ describe('--help never triggers side effects (issue #5581)', () => {
       })
     })
 
+    it.each(['--quiet', '-q'])('silences generation environment loading for %s only', (flag) => {
+      expect(resolveEnvBootstrapOptions(['generate', 'all', flag])).toEqual({
+        createIfMissing: true,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['db', 'generate', flag])).toEqual({
+        createIfMissing: true,
+        quiet: false,
+      })
+      expect(resolveEnvBootstrapOptions(['generate', 'all']).quiet).toBe(false)
+    })
+
     it('keeps module search and module info read-only and quiet, so --json output parses', () => {
       expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef', '--json'])).toEqual({
         createIfMissing: false,
