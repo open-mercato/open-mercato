@@ -2231,6 +2231,22 @@ export const evalCaseRunListQuerySchema = z.object({
 })
 export type EvalCaseRunListQuery = z.infer<typeof evalCaseRunListQuerySchema>
 
+/** Regression dashboard: completed suite runs of one agent, oldest → newest. */
+export const evalRunTrendQuerySchema = z.object({
+  agentDefinitionId: z.string().min(1).max(100),
+  evalSetVersion: z.string().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+})
+export type EvalRunTrendQuery = z.infer<typeof evalRunTrendQuerySchema>
+
+export const evalRunCompareQuerySchema = z
+  .object({
+    base: z.string().uuid(),
+    head: z.string().uuid(),
+  })
+  .refine((value) => value.base !== value.head, { message: 'base and head must differ', path: ['head'] })
+export type EvalRunCompareQuery = z.infer<typeof evalRunCompareQuerySchema>
+
 const queryBooleanSchema = z
   .string()
   .optional()
