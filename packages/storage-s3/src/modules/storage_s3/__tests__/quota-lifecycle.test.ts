@@ -32,7 +32,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: (key: string) => {
       if (key === 'integrationCredentialsService') {
-        return { resolve: jest.fn(async () => ({ bucket: 'bucket', region: 'us-east-1' })) }
+        return { resolve: jest.fn(async () => ({ bucket: 'bucket', region: 'us-east-1', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' })) }
       }
       if (key === 'attachmentQuotaService') return mockQuotaService
       if (key === 'storageS3QuotaRecoveryScheduler') return mockScheduleRecovery

@@ -1,6 +1,7 @@
 {
   "storage_s3.errors.activeContentBlocked": "No se permite la carga de contenido activo.",
   "storage_s3.errors.dangerousExecutable": "No se permiten archivos ejecutables como adjuntos.",
+  "storage_s3.errors.explicitCredentialsRequired": "Las integraciones S3 del inquilino requieren claves de acceso explícitas y solo campos de credenciales declarados. No se admiten la autenticación del entorno ni los prefijos de variables de entorno.",
   "storage_s3.errors.fileNotFound": "Archivo no encontrado",
   "storage_s3.errors.fileRequired": "El campo file es obligatorio",
   "storage_s3.errors.integrationNotConfigured": "La integración de S3 no está configurada.",

@@ -35,6 +35,7 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { S3StorageDriver } from '../lib/s3-driver'
 
 const BASE_CONFIG = { bucket: 'test-bucket', region: 'eu-central-1' }
+const TENANT_CONFIG = { ...BASE_CONFIG, accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' }
 
 function makeStream(data: Buffer): NodeJS.ReadableStream {
   return Readable.from([data]) as unknown as NodeJS.ReadableStream
@@ -55,6 +56,26 @@ beforeEach(() => {
 
 describe('S3StorageDriver', () => {
   describe('constructor — credential resolution', () => {
+    it.each([
+      {},
+      { authMode: 'ambient' },
+      { authMode: 'ambient', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' },
+      { authMode: 'access_keys' },
+      { accessKeyId: '', secretAccessKey: '' },
+      { accessKeyId: '   ', secretAccessKey: 'tenant-secret' },
+      { accessKeyId: 'tenant-key', secretAccessKey: '   ' },
+      { credentialsEnvPrefix: 'AWS' },
+      { credentialsEnvPrefix: 'AWS', accessKeyId: 'tenant-key', secretAccessKey: 'tenant-secret' },
+    ])('rejects unsafe tenant credentials before constructing an AWS client: %j', (credentials) => {
+      expect(() => new S3StorageDriver({
+        ...BASE_CONFIG,
+        ...credentials,
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      })).toThrow()
+      expect(S3Client).not.toHaveBeenCalled()
+    })
+
     it('uses direct accessKeyId/secretAccessKey when provided', () => {
       new S3StorageDriver({ ...BASE_CONFIG, accessKeyId: 'AKID', secretAccessKey: 'SECRET' })
       const [[arg]] = (S3Client as jest.Mock).mock.calls
@@ -206,7 +227,7 @@ describe('S3StorageDriver', () => {
         ContentType: 'text/plain',
       })
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -224,7 +245,7 @@ describe('S3StorageDriver', () => {
         ContentType: 'text/plain',
       })
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -251,7 +272,7 @@ describe('S3StorageDriver', () => {
 
     it('rejects nested foreign scope segments before reading', async () => {
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -267,7 +288,7 @@ describe('S3StorageDriver', () => {
   describe('putObject()', () => {
     it('rejects cross-tenant keys before directly putting an object when scoped', async () => {
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -299,7 +320,7 @@ describe('S3StorageDriver', () => {
 
     it('rejects cross-tenant keys before issuing DeleteObjectCommand when scoped', async () => {
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -314,7 +335,7 @@ describe('S3StorageDriver', () => {
     it('allows deleting shared namespace keys when the driver is scoped', async () => {
       mockSend.mockResolvedValueOnce({})
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -402,7 +423,7 @@ describe('S3StorageDriver', () => {
 
     it('rejects cross-tenant keys before presigning when scoped', async () => {
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -416,7 +437,7 @@ describe('S3StorageDriver', () => {
 
     it('allows download signed URLs for shared namespace keys when scoped', async () => {
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -428,7 +449,7 @@ describe('S3StorageDriver', () => {
 
     it('rejects upload signed URLs for shared namespace keys when scoped', async () => {
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })
@@ -477,7 +498,7 @@ describe('S3StorageDriver', () => {
         IsTruncated: false,
       })
       const driver = new S3StorageDriver({
-        ...BASE_CONFIG,
+        ...TENANT_CONFIG,
         organizationId: 'org-owned',
         tenantId: 'tenant-owned',
       })

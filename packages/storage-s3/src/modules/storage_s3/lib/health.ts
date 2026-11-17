@@ -1,6 +1,7 @@
 import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3'
 import { assertSafeS3Endpoint, createSafeS3RequestHandler } from './endpoint-safety'
-import type { S3DriverConfig } from './s3-driver'
+import { tenantS3CredentialsSchema } from '../data/validators'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const s3HealthCheck = {
   async check(credentials: Record<string, unknown>): Promise<{
@@ -9,63 +10,22 @@ export const s3HealthCheck = {
     details: Record<string, unknown>
     checkedAt: Date
   }> {
-    const cfg = credentials as S3DriverConfig
     const checkedAt = new Date()
-
-    if (!cfg.bucket || !cfg.region) {
+    const parsed = tenantS3CredentialsSchema.safeParse(credentials)
+    if (!parsed.success) {
+      const { t } = await resolveTranslations()
       return {
         status: 'unhealthy',
-        message: 'Missing required credentials: bucket and region are required.',
-        details: { bucket: cfg.bucket, region: cfg.region },
+        message: t('storage_s3.errors.explicitCredentialsRequired'),
+        details: {},
         checkedAt,
       }
     }
-
-    const authMode = cfg.authMode
-    const shouldUseAccessKeys =
-      authMode === 'access_keys'
-      || (
-        authMode !== 'ambient'
-        && ((cfg.accessKeyId && cfg.secretAccessKey) || Boolean(cfg.credentialsEnvPrefix))
-      )
-
-    const hasDirectKeys = Boolean(cfg.accessKeyId && cfg.secretAccessKey)
-    const hasAnyKeyPrefix = Boolean(cfg.credentialsEnvPrefix)
-    const hasAnyKeys = hasDirectKeys || hasAnyKeyPrefix
-
-    if (authMode === 'ambient' && hasAnyKeys) {
-      return {
-        status: 'unhealthy',
-        message: 'Invalid configuration: authMode=ambient cannot be combined with access keys.',
-        details: { authMode, hasAccessKeys: true },
-        checkedAt,
-      }
-    }
-
-    let credentialConfig: { accessKeyId: string; secretAccessKey: string; sessionToken?: string } | undefined
-    if (shouldUseAccessKeys) {
-      if (cfg.credentialsEnvPrefix) {
-        const prefix = cfg.credentialsEnvPrefix
-        const accessKeyId = process.env[`${prefix}_ACCESS_KEY_ID`]
-        const secretAccessKey = process.env[`${prefix}_SECRET_ACCESS_KEY`]
-        const sessionToken = process.env[`${prefix}_SESSION_TOKEN`]
-        if (accessKeyId && secretAccessKey) {
-          credentialConfig = { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}) }
-        }
-      } else if (cfg.accessKeyId && cfg.secretAccessKey) {
-        credentialConfig = {
-          accessKeyId: cfg.accessKeyId,
-          secretAccessKey: cfg.secretAccessKey,
-          ...(cfg.sessionToken ? { sessionToken: cfg.sessionToken } : {}),
-        }
-      } else {
-        return {
-          status: 'unhealthy',
-          message: 'Missing required credentials: accessKeyId and secretAccessKey are required for access_keys auth mode.',
-          details: { authMode: 'access_keys' },
-          checkedAt,
-        }
-      }
+    const cfg = parsed.data
+    const credentialConfig = {
+      accessKeyId: cfg.accessKeyId,
+      secretAccessKey: cfg.secretAccessKey,
+      ...(cfg.sessionToken ? { sessionToken: cfg.sessionToken } : {}),
     }
 
     try {

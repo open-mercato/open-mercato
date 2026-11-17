@@ -1,5 +1,25 @@
 import { z } from 'zod'
 
+const explicitS3KeySchema = z.string().refine((value) => value.trim().length > 0)
+
+export const tenantS3CredentialsSchema = z.object({
+  authMode: z.literal('access_keys').optional(),
+  accessKeyId: explicitS3KeySchema,
+  secretAccessKey: explicitS3KeySchema,
+  sessionToken: explicitS3KeySchema.optional(),
+  bucket: z.string().trim().min(1),
+  region: z.string().trim().min(1),
+  endpoint: z.string().optional(),
+  forcePathStyle: z.boolean().optional(),
+}).strict()
+
+export const tenantS3AuthenticationSchema = tenantS3CredentialsSchema.pick({
+  authMode: true,
+  accessKeyId: true,
+  secretAccessKey: true,
+  sessionToken: true,
+}).strip()
+
 export const s3StorageConfigurationSchema = z.object({
   bucket: z.string().trim().min(1).optional(),
   region: z.string().trim().min(1).optional(),
