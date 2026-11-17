@@ -311,6 +311,18 @@ describe('--help never triggers side effects (issue #5581)', () => {
       })
     })
 
+    it.each(['--quiet', '-q'])('silences generation environment loading for %s only', (flag) => {
+      expect(resolveEnvBootstrapOptions(['generate', 'all', flag])).toEqual({
+        createIfMissing: true,
+        quiet: true,
+      })
+      expect(resolveEnvBootstrapOptions(['db', 'generate', flag])).toEqual({
+        createIfMissing: true,
+        quiet: false,
+      })
+      expect(resolveEnvBootstrapOptions(['generate', 'all']).quiet).toBe(false)
+    })
+
     it('keeps module search and module info read-only and quiet, so --json output parses', () => {
       expect(resolveEnvBootstrapOptions(['module', 'search', 'ksef', '--json'])).toEqual({
         createIfMissing: false,
@@ -1415,6 +1427,20 @@ describe('module command secret output', () => {
   afterEach(() => {
     process.env = originalEnv
     jest.restoreAllMocks()
+  })
+
+  it.each(['--quiet', '-q'])('keeps generation command banners silent for %s', async (flag) => {
+    const args = [flag, '--password', 'fixture-password']
+    const handler = jest.fn().mockResolvedValue(undefined)
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([{ id: 'generate', cli: [{ command: 'fixture', run: handler }] } as Module])
+
+    expect(await mercato.run(['node', 'mercato', 'generate', 'fixture', ...args])).toBe(0)
+    expect(handler).toHaveBeenCalledWith(args)
+    const output = jest.mocked(console.log).mock.calls.flat().join('\n')
+    expect(output).not.toContain('Running generate:fixture')
+    expect(output).not.toContain('Done in')
+    expect(output).not.toContain('fixture-password')
   })
 
   it('composes old-key and password redaction in the same command echo', async () => {

@@ -146,4 +146,3 @@ test('an encryption refusal before role ACL synchronization aborts startup inste
   assert.deepEqual(steps, ['migrate'])
   assert.match(result.stdout, /Encryption compatibility rejected/)
 })
-
