@@ -33,8 +33,10 @@
 - **Recommended, and assumed by this spec:** yes, with this scope:
   - `sales.invoices.create` and `sales.invoices.update` store amounts as sent and never recompute them, so lines need not add up to the header.
   - Code that issues an invoice inside Open Mercato, such as the worker in `.ai/specs/2026-10-21-sales-recurring-orders.md`, still computes it from its order with `salesCalculationService` and links that order.
-  - Only an imported invoice may stand without an order or a channel. It is identified by a `SyncExternalIdMapping` row with `internalEntityType='sales.invoice'`, as the Xero App Spec defines. Its paid and outstanding amounts are the source system's, so later code that derives them (#7202, credit memo create in the recurring orders spec) leaves imported invoices alone.
+  - Only an imported invoice may stand without an order or a channel. It is identified by a `SyncExternalIdMapping` row with `internalEntityType='sales.invoice'`, as the Xero App Spec defines.
   - Credit memos are not covered; no phase changes them.
+
+  This decision leaves open who owns an imported invoice's paid and outstanding amounts. No phase changes how they are written (the commands store them when sent, as on `main`), and the answer belongs to the Xero App Spec and #7202, together with credit memo create in the recurring orders spec. The rule also rests on convention: invoices have no explicit amounts mode like the orders' `totals_mode`, which [Out of Scope](#out-of-scope) lists.
 
   Phase 2 records this as one line under **Always** in `sales/AGENTS.md` that points to this spec; the agent instruction budget (`yarn agents:check-budget`) lets that chain only shrink, so this section and [Negative amounts](#negative-amounts-phase-2) carry the full rule.
 - **Alternative:** a synthetic order and channel per source organization. Orders accept external totals (`totals_mode='external'`), so the amounts would fit, but each imported invoice would add an order nobody placed: it takes a number from the order sequence and shows in order lists and the new-orders dashboard widget.
@@ -437,7 +439,7 @@ Unit tests live in the new `commands/__tests__/documents.invoice-write-path.test
 
 ## Out of Scope
 
-Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, persisting a line's order line (`SalesInvoiceLine.orderLine`; `orderLineId` in the input stays unstored, as on `main`), clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
+Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, an explicit amounts mode on invoices like the orders' `totals_mode` (`.ai/specs/2026-09-07-sales-external-amounts-mode.md` names it as separate work), persisting a line's order line (`SalesInvoiceLine.orderLine`; `orderLineId` in the input stays unstored, as on `main`), clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
 
 ## Risks & Impact Review
 
