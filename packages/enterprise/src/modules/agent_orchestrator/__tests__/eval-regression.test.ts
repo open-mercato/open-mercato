@@ -228,10 +228,34 @@ describe('computeEvalTrend', () => {
       run('a', 1, 1, 'sha256:aaa', []),
       run('b', 2, 0.5, 'sha256:bbb', ['v2', 'v3']),
     ])
-    expect(mixed.versions.map((entry) => [entry.agentVersion, entry.passScoreDelta, entry.sameDataset])).toEqual([
-      [null, null, null],
-      ['v2', null, false],
-      ['v3', null, true],
+    expect(mixed.versions.map((entry) => [entry.agentVersion, entry.previousVersion, entry.passScoreDelta, entry.sameDataset])).toEqual([
+      [null, null, null, null],
+      ['v2', null, null, false],
+      ['v3', null, null, false],
+    ])
+  })
+
+  it('orders versions by latest run and compares each against the version it replaced in time', () => {
+    const rollback = computeEvalTrend('agent.one', [
+      run('r3', 3, 0.9, 'sha256:aaa', ['v1']),
+      run('r1', 1, 0.9, 'sha256:aaa', ['v1']),
+      run('r2', 2, 0.4, 'sha256:aaa', ['v2']),
+    ])
+    expect(
+      rollback.versions.map((entry) => [entry.agentVersion, entry.latestSuiteRunId, entry.previousVersion, entry.passScoreDelta, entry.sameDataset]),
+    ).toEqual([
+      ['v2', 'r2', 'v1', -0.5, true],
+      ['v1', 'r3', 'v2', 0.5, true],
+    ])
+  })
+
+  it('leaves a version without an older run of another version unanchored', () => {
+    const single = computeEvalTrend('agent.one', [
+      run('r1', 1, 0.5, 'sha256:aaa', ['v1']),
+      run('r2', 2, 0.75, 'sha256:aaa', ['v1']),
+    ])
+    expect(single.versions).toEqual([
+      expect.objectContaining({ agentVersion: 'v1', runCount: 2, previousVersion: null, passScoreDelta: null, sameDataset: null }),
     ])
   })
 

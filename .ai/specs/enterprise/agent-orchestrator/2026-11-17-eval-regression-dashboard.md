@@ -95,7 +95,7 @@ Response:
       "passScoreDelta": -0.2              // vs that point, null when none
     }
   ],
-  "versions": [ // one row per agent version, ordered by first appearance
+  "versions": [ // one row per agent version, ordered by latest run (lastSeenAt)
     {
       "agentVersion": "…|null", "runCount": 2, "firstSeenAt": "iso", "lastSeenAt": "iso",
       "latestSuiteRunId": "uuid", "latestPassScore": 0.8, "meanPassScore": 0.75,
@@ -104,7 +104,7 @@ Response:
   ]
 }
 ```
-A point executed under several versions is attributed to each of them in `versions`. `passScoreDelta` on a version compares its latest run with the latest run of the previous version and is `null` when the two ran different datasets (`sameDataset: false`).
+A point executed under several versions is attributed to each of them in `versions`. `passScoreDelta` on a version compares its latest run with the newest strictly older run that another version executed (`previousVersion` is that run's version, so a rollback v1 → v2 → v1 diffs v2 against the first v1 run and the final v1 run against v2) and is `null` when no such run exists or when the two ran different datasets (`sameDataset: false`).
 
 Errors: 400 invalid query, 401, 403.
 

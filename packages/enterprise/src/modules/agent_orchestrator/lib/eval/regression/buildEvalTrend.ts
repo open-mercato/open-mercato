@@ -63,8 +63,9 @@ export function datasetKeyOf(run: Pick<EvalTrendRunInput, 'manifestHash' | 'eval
 /**
  * Turns completed suite runs into trend points (oldest first) and a per-version
  * summary. A point's delta connects it to the previous point of the SAME
- * dataset only; a version's delta compares its latest run with the previous
- * version's latest run and is null across datasets.
+ * dataset only. Version rows are ordered by their latest run; a version's delta
+ * compares its latest run with the newest strictly older run of another
+ * version (the version it replaced) and is null across datasets.
  */
 export function computeEvalTrend(agentDefinitionId: string, runs: ReadonlyArray<EvalTrendRunInput>): EvalTrend {
   const ordered = [...runs].sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
@@ -88,51 +89,60 @@ export function computeEvalTrend(agentDefinitionId: string, runs: ReadonlyArray<
     }
   })
 
-  type VersionAccumulator = { agentVersion: string | null; runs: EvalTrendPoint[] }
+  const pointVersions = (point: EvalTrendPoint): Array<string | null> =>
+    point.agentVersions.length ? point.agentVersions : [null]
+
+  type VersionAccumulator = { agentVersion: string | null; runs: EvalTrendPoint[]; latestIndex: number }
   const byVersion = new Map<string, VersionAccumulator>()
-  for (const point of points) {
-    const versions = point.agentVersions.length ? point.agentVersions : [null]
-    for (const agentVersion of versions) {
+  points.forEach((point, index) => {
+    for (const agentVersion of pointVersions(point)) {
       const key = agentVersion ?? ''
-      const accumulator = byVersion.get(key) ?? { agentVersion, runs: [] }
+      const accumulator = byVersion.get(key) ?? { agentVersion, runs: [], latestIndex: index }
       accumulator.runs.push(point)
+      accumulator.latestIndex = index
       byVersion.set(key, accumulator)
     }
+  })
+
+  const findPreviousRun = (accumulator: VersionAccumulator): EvalTrendPoint | null => {
+    const latestTime = Date.parse(points[accumulator.latestIndex].createdAt)
+    for (let index = accumulator.latestIndex - 1; index >= 0; index -= 1) {
+      const candidate = points[index]
+      if (Date.parse(candidate.createdAt) >= latestTime) continue
+      if (!pointVersions(candidate).includes(accumulator.agentVersion)) return candidate
+    }
+    return null
   }
 
-  const versions: EvalTrendVersion[] = []
-  let previousLatest: { version: string | null; point: EvalTrendPoint } | null = null
-  for (const accumulator of byVersion.values()) {
-    const first = accumulator.runs[0]
-    const latest = accumulator.runs[accumulator.runs.length - 1]
-    const scores = accumulator.runs.map((run) => run.passScore).filter((score): score is number => score !== null)
-    const sameDataset = previousLatest
-      ? previousLatest.point.datasetKey !== null && latest.datasetKey !== null
-        ? previousLatest.point.datasetKey === latest.datasetKey
+  const versions: EvalTrendVersion[] = [...byVersion.values()]
+    .sort((left, right) => left.latestIndex - right.latestIndex)
+    .map((accumulator) => {
+      const first = accumulator.runs[0]
+      const latest = accumulator.runs[accumulator.runs.length - 1]
+      const scores = accumulator.runs.map((run) => run.passScore).filter((score): score is number => score !== null)
+      const previous = findPreviousRun(accumulator)
+      const sameDataset = previous
+        ? previous.datasetKey !== null && latest.datasetKey !== null
+          ? previous.datasetKey === latest.datasetKey
+          : null
         : null
-      : null
-    const passScoreDelta =
-      previousLatest &&
-      sameDataset === true &&
-      previousLatest.point.suiteRunId !== latest.suiteRunId &&
-      latest.passScore !== null &&
-      previousLatest.point.passScore !== null
-        ? roundDelta(latest.passScore - previousLatest.point.passScore)
-        : null
-    versions.push({
-      agentVersion: accumulator.agentVersion,
-      runCount: accumulator.runs.length,
-      firstSeenAt: first.createdAt,
-      lastSeenAt: latest.createdAt,
-      latestSuiteRunId: latest.suiteRunId,
-      latestPassScore: latest.passScore,
-      meanPassScore: scores.length ? roundDelta(scores.reduce((sum, score) => sum + score, 0) / scores.length) : null,
-      previousVersion: previousLatest ? previousLatest.version : null,
-      passScoreDelta,
-      sameDataset,
+      const passScoreDelta =
+        previous && sameDataset === true && latest.passScore !== null && previous.passScore !== null
+          ? roundDelta(latest.passScore - previous.passScore)
+          : null
+      return {
+        agentVersion: accumulator.agentVersion,
+        runCount: accumulator.runs.length,
+        firstSeenAt: first.createdAt,
+        lastSeenAt: latest.createdAt,
+        latestSuiteRunId: latest.suiteRunId,
+        latestPassScore: latest.passScore,
+        meanPassScore: scores.length ? roundDelta(scores.reduce((sum, score) => sum + score, 0) / scores.length) : null,
+        previousVersion: previous ? pointVersions(previous)[0] : null,
+        passScoreDelta,
+        sameDataset,
+      }
     })
-    previousLatest = { version: accumulator.agentVersion, point: latest }
-  }
 
   return { agentDefinitionId, points, versions }
 }
