@@ -812,7 +812,8 @@ wiring):
 **Cross-page consistency prerequisite.** A scoped, durable report revision
 must change atomically in the same database transaction as every committed
 mutation that can affect report membership, values, ordering, period/fiscal
-boundaries, hierarchy or accounting-policy validity, including undo, imports,
+boundaries, hierarchy or accounting-policy validity, including reversals,
+account undo, imports,
 metadata changes, migrations and non-command writers. Assign revisions under
 a per-scope transaction lock held through commit; committed revisions must
 never repeat, including after restore or failover. A rolled-back transaction
@@ -833,9 +834,16 @@ their own consistent snapshot before returning data. If it differs, return
 `409 { error: 'report_changed' }` without rows, totals or badge; do not
 silently start a new report on the requested page. A token is never an
 authorization credential and must not reveal foreign scopes. It is bound to
-tenant, organization, period, page size and the report contract version;
+tenant, organization, authenticated principal, period, page size and the
+report contract version;
 reject invalid, foreign, expired or mismatched tokens without disclosing
-scope existence. A stable revision guarantees that all pages use equivalent
+scope existence. Each page independently authorizes that principal and scope;
+define and verify an authoritative authorization linearization point before
+the response, including revocation and visibility changes. A request admitted
+before a concurrent revocation may finish only under the explicitly reviewed
+authorization contract; a request admitted after it must fail. If visibility
+or revocation cannot be coherently checked, pagination remains disabled. A
+stable revision guarantees that all pages use equivalent
 report-relevant committed data, even though the database snapshots differ.
 An old coherent in-flight snapshot can complete after a writer commits;
 the next page must detect that change. Capture token lifetime, signing/key
@@ -1063,7 +1071,10 @@ leaking foreign existence and resolves overlapping failure conditions.
   `DataTable`'s own pagination shape, not cursor/keyset. Validated
   with a zod schema (`z.object({ periodId: z.string().uuid(), page:
   z.coerce.number().int().min(1).default(1), pageSize:
-  z.coerce.number().int().min(1).max(100).default(100) })`); a
+  z.coerce.number().int().min(1).max(100).default(100), reportVersion:
+  z.string().min(1).max(2048).optional() }).refine(
+  ({ page, reportVersion }) => page === 1 || reportVersion !== undefined,
+  { path: ['reportVersion'] })`); a
   missing/malformed `periodId`, an out-of-range `page`/`pageSize` or a
   missing continuation version for `page > 1` is a 400. Bound the token's
   encoded length before verification; the complete version schema and
@@ -1077,8 +1088,8 @@ leaking foreign existence and resolves overlapping failure conditions.
   in one set-based pass," for why pagination applies to `rows` but
   not to `zeroSumCheck`, which is a separate query computed over the
   full chart on every request regardless of `page`/`pageSize`.
-- **Response 400**: `periodId`, `page`, or `pageSize` fails zod
-  validation.
+- **Response 400**: `periodId`, `page`, `pageSize` or `reportVersion`
+  fails zod validation, including a missing version on a later page.
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `FiscalPeriod` with that id in the caller's
   tenant/organization.
@@ -1558,8 +1569,13 @@ top of the live query.
   identical and correct on every page for the same `reportVersion`, since it
   is computed over the full chart independently of `page`/`pageSize`.
   Concurrently add or change postings, account number/metadata, hierarchy,
-  fiscal boundaries and policy after page one and verify the next page
-  returns `report_changed` with no data, rather than a mixed report. Pause
+  fiscal boundaries and policy after page one. When earlier validation
+  remains satisfied, the next page returns `report_changed` with no data,
+  rather than a mixed report. If a change also causes an earlier error,
+  assert the documented precedence instead: for example a now-future period
+  returns `report_future_date_unsupported`, and invalid policy returns
+  `accounting_policy_unavailable`; neither returns data or a stale badge.
+  Pause
   a page-one snapshot across a writer commit; its subsequent page must
   reject the old version. Exercise rollback, restore/failover epoch, token
   expiry/tampering, wrong scope/period/page size, permission revocation,
