@@ -830,8 +830,9 @@ The first page reads the revision together with the authority checks and
 figures in its repeatable-read snapshot and returns a scope- and
 period-bound opaque `reportVersion`. Subsequent page requests carry this
 version, and validate it and current authorization against the revision in
-their own consistent snapshot before returning data. If it differs, return
-`409 { error: 'report_changed' }` without rows, totals or badge; do not
+their own consistent snapshot before returning data. If it differs and no
+earlier error in API Contracts takes precedence, return `409 { error:
+'report_changed' }` without rows, totals or badge; do not
 silently start a new report on the requested page. A token is never an
 authorization credential and must not reveal foreign scopes. It is bound to
 tenant, organization, authenticated principal, period, page size and the
@@ -1575,12 +1576,18 @@ top of the live query.
   assert the documented precedence instead: for example a now-future period
   returns `report_future_date_unsupported`, and invalid policy returns
   `accounting_policy_unavailable`; neither returns data or a stale badge.
-  Pause
-  a page-one snapshot across a writer commit; its subsequent page must
-  reject the old version. Exercise rollback, restore/failover epoch, token
-  expiry/tampering, wrong scope/period/page size, permission revocation,
-  simultaneous writers and an unfenced legacy writer. An unversioned writer
-  must prevent activation. Verify UI clears old results and badge, ignores a
+  Pause a page-one snapshot across a writer commit; its subsequent page must
+  reject the old version. Assert page two without a token and empty or
+  oversized tokens return 400, a retained valid token continues successfully,
+  page one without a token starts a report, and page one with a token checks
+  that version. An authorized different principal in the same scope cannot
+  replay the first principal's token; after earlier checks succeed it receives
+  the generic 409 without data. Use barriers on both sides of the reviewed
+  authorization linearization point to verify requests admitted before and
+  after revocation follow its contract. Exercise rollback, restore/failover
+  epoch, token expiry/tampering, wrong scope/period/page size, simultaneous
+  writers and an unfenced legacy writer. An unversioned writer must prevent
+  activation. Verify UI clears old results and badge, ignores a
   delayed prior success, and restarts explicitly at page one.
 - Assert the balance and trial-balance routes each run a bounded,
   fixed number of queries regardless of the number of `LedgerAccount`
