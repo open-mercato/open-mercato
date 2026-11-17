@@ -24,10 +24,12 @@ const userHasAllFeaturesMock = jest.fn(async (_userId: string, required: string[
   required.every((feature) => grantedFeatures.includes(feature)),
 )
 
+let configsEnabled = true
+
 const container = {
-  hasRegistration: (name: string) => name === 'moduleConfigService' || name === 'cache',
+  hasRegistration: (name: string) => (name === 'moduleConfigService' && configsEnabled) || name === 'cache',
   resolve: jest.fn((name: string) => {
-    if (name === 'moduleConfigService') return { getValue: getValueMock, setValue: setValueMock }
+    if (name === 'moduleConfigService' && configsEnabled) return { getValue: getValueMock, setValue: setValueMock }
     if (name === 'cache') return cache
     if (name === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
     throw new Error(`Unexpected container resolve: ${name}`)
@@ -44,6 +46,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
   getAllMutationGuardInstances: jest.fn(() => guards),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  })),
 }))
 
 import { GET, PATCH, metadata, openApi } from '../route'
@@ -71,6 +79,7 @@ describe('catalog omnibus config route', () => {
     authValue = { sub: userId, tenantId, orgId: organizationId, features: ['catalog.settings.manage'] }
     storedValue = null
     guards = []
+    configsEnabled = true
     grantedFeatures = ['catalog.settings.manage']
     jest.clearAllMocks()
   })
@@ -340,5 +349,30 @@ describe('catalog omnibus config route', () => {
     const response = await PATCH(patchRequest({ lookbackDays: 45 }))
     expect(response.status).toBe(200)
     expect(deleteByTagsMock).toHaveBeenCalledWith([`catalog:omnibus:${tenantId}`])
+  })
+
+  describe('without the configs module', () => {
+    beforeEach(() => {
+      configsEnabled = false
+    })
+
+    it('GET returns {} instead of failing', async () => {
+      const response = await GET(getRequest())
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({})
+    })
+
+    it('PATCH returns 503 with a translated message before running mutation guards', async () => {
+      const validate = jest.fn(async () => ({ ok: true }))
+      guards = [{ id: 'test.guard', targetEntity: 'catalog.settings', operations: ['update'], validate }]
+      const response = await PATCH(patchRequest({ lookbackDays: 45 }))
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toEqual({
+        error: 'Omnibus settings cannot be saved because the configs module is not enabled.',
+      })
+      expect(validate).not.toHaveBeenCalled()
+      expect(setValueMock).not.toHaveBeenCalled()
+      expect(deleteByTagsMock).not.toHaveBeenCalled()
+    })
   })
 })

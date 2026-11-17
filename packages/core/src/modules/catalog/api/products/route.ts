@@ -171,7 +171,7 @@ async function decorateProductsAfterList(
       string,
       { name?: string | null; code?: string | null }
     >();
-    if (channelIds.length) {
+    if (channelIds.length && em.getMetadata().has(SalesChannel)) {
       const scopedChannelsWhere = buildScopedWhere(
         { id: { $in: channelIds } },
         {
