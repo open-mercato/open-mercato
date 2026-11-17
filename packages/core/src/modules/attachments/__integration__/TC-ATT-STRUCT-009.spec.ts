@@ -26,7 +26,7 @@ import {
 } from './helpers/documentStructure'
 
 /**
- * TC-ATT-STRUCT-008: an attachment citation opens the cited section
+ * TC-ATT-STRUCT-009: an attachment citation opens the cited section
  * Source: B-9 in the #8251 coverage audit (feature 40, "answers cite the exact document section").
  * Surfaces: /backend/storage/attachments/:id/sections/:anchorKey (the href that
  * attachments.get_document_sections puts on every citation), backed by
@@ -59,7 +59,7 @@ async function loginWithCredentials(page: Page, email: string, password: string,
   await expect(page).toHaveURL(/\/backend(?:\/.*)?$/)
 }
 
-test.describe('TC-ATT-STRUCT-008: citation deep link to a document section', () => {
+test.describe('TC-ATT-STRUCT-009: citation deep link to a document section', () => {
   test('opens the cited section for its organization and nothing for another one', async ({ page, request }) => {
     test.setTimeout(STRUCTURE_TEST_TIMEOUT_MS)
     const adminToken = await getAuthToken(request, 'admin')
