@@ -4,6 +4,9 @@
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { resolveDateLocaleSettings } from '@open-mercato/shared/lib/date-locale'
+import { DateLocaleSettingsProvider } from '@open-mercato/ui/primitives/date-locale-settings'
+import { buildCalendarItem } from './fixtures'
 import { TimeGrid } from '../TimeGrid'
 import type { TimeGridProps } from '../types'
 
@@ -111,4 +114,38 @@ describe('TimeGrid drag-to-create', () => {
     expect(onCreateRange).not.toHaveBeenCalled()
     expect(screen.queryByText('New event')).not.toBeInTheDocument()
   })
+})
+
+it('places meetings and creates slots in the configured zone across DST', () => {
+  const onCreateRange = jest.fn()
+  const settings = resolveDateLocaleSettings({ tenant: { timeZone: 'Europe/Warsaw', timeFormat: 'HH:mm' } })
+  const item = buildCalendarItem({
+    start: new Date('2026-10-25T21:30:00Z'),
+    end: new Date('2026-10-25T22:00:00Z'),
+  })
+  const view = renderWithProviders(
+    <DateLocaleSettingsProvider value={settings}>
+      <TimeGrid
+        days={1}
+        anchor={item.start}
+        items={[item]}
+        conflictIds={new Set()}
+        showWeekends
+        showConflicts={false}
+        aiSummaries={false}
+        onItemClick={jest.fn()}
+        onJoin={jest.fn()}
+        onNavigate={jest.fn()}
+        onCreateRange={onCreateRange}
+      />
+    </DateLocaleSettingsProvider>,
+  )
+
+  expect(screen.getByRole('button', { name: /Quarterly review.*22:30/ })).toBeInTheDocument()
+  const layer = view.container.querySelector<HTMLDivElement>('.cursor-cell')!
+  dispatchPointer(layer, 'pointerdown', 22.5 * 120)
+  dispatchPointer(layer, 'pointermove', 23 * 120)
+  dispatchPointer(layer, 'pointerup', 23 * 120)
+
+  expect(onCreateRange).toHaveBeenCalledWith(item.start, item.end)
 })

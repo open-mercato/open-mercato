@@ -1,9 +1,10 @@
+import { TZDate } from '@date-fns/tz'
 import type { ResolvedDateLocaleSettings } from '@open-mercato/shared/lib/date-locale/types'
 import { resolveDateFnsLocale } from '@open-mercato/ui/primitives/date-fns-locales'
 import { formatWithPublicDateFormat } from '@open-mercato/ui/primitives/date-format'
 import { getActiveDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-store'
 
-export type CalendarFormatSettings = Pick<ResolvedDateLocaleSettings, 'locale' | 'dateFormat' | 'timeFormat'>
+export type CalendarFormatSettings = Pick<ResolvedDateLocaleSettings, 'locale' | 'dateFormat' | 'timeFormat'> & Partial<Pick<ResolvedDateLocaleSettings, 'timeZone'>>
 
 const DATE_OPTIONS: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
 
@@ -15,10 +16,8 @@ function normalizeIntlSpacing(value: string): string {
   return value.replace(NON_CANONICAL_INTL_SPACING, ' ')
 }
 
-// Calendar dates are wall-clock values laid out on the runtime calendar grid, so a configured
-// pattern formats them as they are instead of moving them into the display timezone.
-function formatWithPattern(pattern: string | null, date: Date, locale: string): string | null {
-  return pattern ? formatWithPublicDateFormat(date, pattern, resolveDateFnsLocale(locale)) : null
+function formatWithPattern(pattern: string | null, date: Date, locale: string, timeZone?: string | null): string | null {
+  return pattern ? formatWithPublicDateFormat(timeZone ? new TZDate(date.getTime(), timeZone) : date, pattern, resolveDateFnsLocale(locale)) : null
 }
 
 function resolveLocale(locale: string, settings: CalendarFormatSettings): string {
@@ -32,8 +31,8 @@ export function formatDateLabel(
 ): string {
   const formatLocale = resolveLocale(locale, settings)
   return (
-    formatWithPattern(settings.dateFormat, date, formatLocale)
-    ?? new Intl.DateTimeFormat(formatLocale, DATE_OPTIONS).format(date)
+    formatWithPattern(settings.dateFormat, date, formatLocale, settings.timeZone)
+    ?? new Intl.DateTimeFormat(formatLocale, { ...DATE_OPTIONS, timeZone: settings.timeZone ?? undefined }).format(date)
   )
 }
 
@@ -44,10 +43,10 @@ export function formatDateRangeLabel(
   settings: CalendarFormatSettings = getActiveDateLocaleSettings(),
 ): string {
   const formatLocale = resolveLocale(locale, settings)
-  const fromLabel = formatWithPattern(settings.dateFormat, from, formatLocale)
-  const toLabel = formatWithPattern(settings.dateFormat, to, formatLocale)
+  const fromLabel = formatWithPattern(settings.dateFormat, from, formatLocale, settings.timeZone)
+  const toLabel = formatWithPattern(settings.dateFormat, to, formatLocale, settings.timeZone)
   if (fromLabel && toLabel) return `${fromLabel} – ${toLabel}`
-  const formatter = new Intl.DateTimeFormat(formatLocale, DATE_OPTIONS)
+  const formatter = new Intl.DateTimeFormat(formatLocale, { ...DATE_OPTIONS, timeZone: settings.timeZone ?? undefined })
   try {
     return normalizeIntlSpacing(formatter.formatRange(from, to))
   } catch {
@@ -62,8 +61,8 @@ export function formatTimeLabel(
 ): string {
   const formatLocale = resolveLocale(locale, settings)
   return (
-    formatWithPattern(settings.timeFormat, date, formatLocale)
-    ?? normalizeIntlSpacing(new Intl.DateTimeFormat(formatLocale, TIME_OPTIONS).format(date))
+    formatWithPattern(settings.timeFormat, date, formatLocale, settings.timeZone)
+    ?? normalizeIntlSpacing(new Intl.DateTimeFormat(formatLocale, { ...TIME_OPTIONS, timeZone: settings.timeZone ?? undefined }).format(date))
   )
 }
 
@@ -74,10 +73,10 @@ export function formatTimeRangeLabel(
   settings: CalendarFormatSettings = getActiveDateLocaleSettings(),
 ): string {
   const formatLocale = resolveLocale(locale, settings)
-  const startLabel = formatWithPattern(settings.timeFormat, start, formatLocale)
-  const endLabel = formatWithPattern(settings.timeFormat, end, formatLocale)
+  const startLabel = formatWithPattern(settings.timeFormat, start, formatLocale, settings.timeZone)
+  const endLabel = formatWithPattern(settings.timeFormat, end, formatLocale, settings.timeZone)
   if (startLabel && endLabel) return `${startLabel} – ${endLabel}`
-  const formatter = new Intl.DateTimeFormat(formatLocale, TIME_OPTIONS)
+  const formatter = new Intl.DateTimeFormat(formatLocale, { ...TIME_OPTIONS, timeZone: settings.timeZone ?? undefined })
   try {
     return normalizeIntlSpacing(formatter.formatRange(start, end))
   } catch {

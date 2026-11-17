@@ -339,7 +339,7 @@ Self-contained Playwright specs in `packages/core/src/modules/customers/__integr
 #### Timezone display vs stored timestamps
 - **Scenario**: Users in different timezones see shifted blocks and blame data.
 - **Severity**: Low
-- **Mitigation**: All rendering uses the browser timezone and says so in the footer (mockup behavior). Storage stays UTC.
+- **Mitigation**: Calendar rendering uses the viewer’s configured display time zone, falling back to the browser zone. The footer names the active zone. Storage stays UTC.
 - **Residual risk**: No per-user tz preference exists platform-wide — out of scope here.
 
 ## Final Compliance Report — 2026-06-11

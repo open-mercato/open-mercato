@@ -7,10 +7,10 @@ import { formatDateRangeLabel } from '../../lib/calendar/format';
  * Shared fixtures + date helpers for the CRM Calendar integration specs
  * (TC-CAL-001…006, spec: .ai/specs/2026-06-11-crm-calendar.md).
  *
- * All date helpers compute in HOST-LOCAL time. Playwright does not override
+ * All date helpers compute in HOST-LOCAL time. Most specs do not override
  * `timezoneId`, so the browser context and this Node process share the host
  * timezone — wall-clock expectations computed here match what the page renders
- * (the calendar renders everything in the browser timezone by design).
+ * (the default display zone follows the browser when no preference is set).
  */
 
 export const INTERACTIONS_PATH = '/api/customers/interactions';

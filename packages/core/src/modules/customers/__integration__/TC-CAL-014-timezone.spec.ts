@@ -3,9 +3,10 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { login } from '@open-mercato/core/helpers/integration/auth'
+import { restoreDateLocaleSettingsAfterEach } from '@open-mercato/core/helpers/integration/dateLocaleFixtures'
 import { escapeRegExp, gridBlockName, seedShowWeekendsPreference, waitForCalendarLoaded } from './helpers/calendarFixtures'
 
-export const integrationMeta = { dependsOnModules: ['customers', 'example'] }
+export const integrationMeta = { dependsOnModules: ['customers', 'configs', 'example'] }
 
 test.use({ timezoneId: 'UTC' })
 test.setTimeout(60_000)
@@ -163,6 +164,48 @@ test.describe('TC-CAL-014: explicit event timezone persistence and calendar rend
       await page.getByRole('button', { name: 'Edit', exact: true }).click()
       await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Time zone', exact: true })).toHaveText('Europe/Warsaw')
       await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Starts', exact: true })).toContainText('09:00')
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+})
+
+test.describe('TC-CAL-014: configured calendar display zone', () => {
+  restoreDateLocaleSettingsAfterEach()
+
+  test('puts a meeting on the configured day when the browser is on the previous day', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const title = `QA display-zone meeting ${Date.now()}`
+    let personId: string | null = null
+    let interactionId: string | null = null
+
+    try {
+      const settings = await apiRequest(request, 'PUT', '/api/configs/date-locale', {
+        token, data: { timeZone: 'Europe/Warsaw', timeFormat: 'HH:mm', firstDayOfWeek: 1 },
+      })
+      expect(settings.status()).toBe(200)
+      const profile = await apiRequest(request, 'PUT', '/api/auth/profile', { token, data: { timezone: null } })
+      expect(profile.status()).toBe(200)
+      personId = await createPersonFixture(request, token, {
+        firstName: 'DisplayZone', lastName: String(Date.now()), displayName: 'QA display-zone contact',
+      })
+      const created = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token, data: {
+          entityId: personId, interactionType: 'meeting', title,
+          scheduledAt: '2026-10-25T23:30:00.000Z', durationMinutes: 30,
+        },
+      })
+      expect(created.status()).toBe(201)
+      interactionId = (await created.json() as { id: string }).id
+
+      await page.clock.install({ time: new Date('2026-10-25T23:15:00Z') })
+      await login(page, 'admin')
+      await page.goto('/backend/calendar')
+      await waitForCalendarLoaded(page)
+      await page.locator('[data-calendar-search]').fill(title)
+      await expect(page.getByRole('button', { name: gridBlockName(title) })).toHaveAccessibleName(/00:30.*01:00/)
+      await expect(page.getByText('Europe/Warsaw (GMT+1)', { exact: true })).toBeVisible()
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)

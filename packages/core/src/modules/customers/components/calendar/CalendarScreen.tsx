@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { TZDate } from '@date-fns/tz'
 import dynamic from 'next/dynamic'
 import { addDays } from 'date-fns/addDays'
 import { isSameDay } from 'date-fns/isSameDay'
@@ -15,7 +16,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
+import { useDisplayTimeZone, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import { countByCategory } from '../../lib/calendar/categories'
 import { findConflicts } from '../../lib/calendar/conflicts'
 import { getVisibleRange } from '../../lib/calendar/range'
@@ -85,9 +86,8 @@ function useCanManageInteractions(): boolean {
   return canManage
 }
 
-function buildTimezoneLabel(): string {
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-  const offsetMinutes = -new Date().getTimezoneOffset()
+function buildTimezoneLabel(timeZone: string): string {
+  const offsetMinutes = -new TZDate(Date.now(), timeZone).getTimezoneOffset()
   const sign = offsetMinutes >= 0 ? '+' : '-'
   const absolute = Math.abs(offsetMinutes)
   const hours = Math.floor(absolute / 60)
@@ -118,7 +118,9 @@ export type CalendarScreenProps = {
 export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }: CalendarScreenProps = {}) {
   const t = useT()
   const [view, setView] = React.useState<CalendarView>('week')
-  const [anchor, setAnchor] = React.useState<Date>(() => new Date())
+  const timeZone = useDisplayTimeZone()
+  const [anchorInstant, setAnchor] = React.useState<Date>(() => new Date())
+  const anchor = React.useMemo(() => new TZDate(anchorInstant.getTime(), timeZone), [anchorInstant, timeZone])
   const [agendaHorizonDays, setAgendaHorizonDays] = React.useState(DEFAULT_AGENDA_HORIZON_DAYS)
   const [preset, setPreset] = React.useState<CalendarRangePreset | null>('thisWeek')
 
@@ -221,12 +223,12 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
             ? 'cancelled'
             : conflictCount > 0
               ? 'conflicted'
-              : isSameDay(item.start, now)
+              : isSameDay(new TZDate(item.start.getTime(), timeZone), now)
                 ? 'today'
                 : 'future'
         return { item, kind, conflictCount }
       })
-  }, [baseItems, conflictMap, preferences.conflictWarnings])
+  }, [baseItems, conflictMap, preferences.conflictWarnings, timeZone])
 
   const typeOptions = React.useMemo(() => {
     const values = new Set<string>(Object.keys(typeLabels))
@@ -255,7 +257,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
       .sort((first, second) => first.label.localeCompare(second.label))
   }, [visibleItems])
 
-  const timezoneLabel = React.useMemo(() => buildTimezoneLabel(), [])
+  const timezoneLabel = React.useMemo(() => buildTimezoneLabel(timeZone), [timeZone])
 
   const canManage = useCanManageInteractions()
 
@@ -327,9 +329,9 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
   }, [])
 
   const handleTimeGridNavigate = React.useCallback((deltaDays: number) => {
-    setAnchor((current) => addDays(current, deltaDays))
+    setAnchor((current) => addDays(new TZDate(current.getTime(), timeZone), deltaDays))
     setPreset(null)
-  }, [])
+  }, [timeZone])
 
   const handleDayOpen = React.useCallback((date: Date) => {
     setView('day')
