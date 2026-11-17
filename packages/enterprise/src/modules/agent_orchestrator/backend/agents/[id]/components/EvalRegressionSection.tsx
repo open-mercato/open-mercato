@@ -145,7 +145,7 @@ export default function EvalRegressionSection({ agentId, active, reloadToken = 0
 
       <section className="space-y-2">
         <h3 className="text-sm font-semibold text-foreground">{t('agent_orchestrator.evalRegression.versions.title')}</h3>
-        <div className="overflow-hidden rounded-lg border border-border">
+        <div className="overflow-x-auto rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -194,7 +194,7 @@ export default function EvalRegressionSection({ agentId, active, reloadToken = 0
 
       <section className="space-y-2">
         <h3 className="text-sm font-semibold text-foreground">{t('agent_orchestrator.evalRegression.runs.title')}</h3>
-        <div className="overflow-hidden rounded-lg border border-border">
+        <div className="overflow-x-auto rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow>

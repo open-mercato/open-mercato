@@ -241,7 +241,7 @@ export default function EvalRunComparePage() {
               {comparison.assertions.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t('agent_orchestrator.evalRegression.compare.noAssertions')}</p>
               ) : (
-                <div className="overflow-hidden rounded-lg border border-border">
+                <div className="overflow-x-auto rounded-lg border border-border">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -298,7 +298,7 @@ export default function EvalRunComparePage() {
                   description={t('agent_orchestrator.evalRegression.compare.noChanges.description')}
                 />
               ) : (
-                <div className="overflow-hidden rounded-lg border border-border">
+                <div className="overflow-x-auto rounded-lg border border-border">
                   <Table>
                     <TableHeader>
                       <TableRow>
