@@ -1,6 +1,10 @@
 # Lessons
 
+<<<<<<< HEAD
 This catalog indexes 149 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+=======
+This catalog indexes 188 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+>>>>>>> 62a94b74a2 (fix(communication_channels): keep provider-native conversations isolated from email thread tokens (#9773))
 
 ## How to use this catalog
 

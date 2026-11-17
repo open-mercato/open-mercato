@@ -407,7 +407,16 @@ const deliverOutboundMessageCommand: CommandHandler<
           )
         : []
       let mergedReferences = existingRefs
-      if (threadToken && !outboundBody.includes(`[OM:${threadToken}]`)) {
+      // The footer + References-id are the email-threading fallback for a
+      // recipient whose client strips RFC 5322 headers — meaningless for a
+      // provider-native conversation, where the hub already threads on the
+      // provider's own conversation id. Emitting it anyway would hand a
+      // real Discord/Slack/etc. user a visible, copyable thread marker they
+      // could paste into an unrelated conversation to graft it onto this
+      // one (the token/JWZ matcher is likewise gated off inbound for these
+      // providers in `ingest-inbound-message.ts`).
+      const isProviderNativeChannel = adapter.capabilities.recipientFormat === 'provider-native'
+      if (!isProviderNativeChannel && threadToken && !outboundBody.includes(`[OM:${threadToken}]`)) {
         // Append the body footer for the corresponding format. The hidden
         // HTML span is `display:none`; the plain-text trailer is a small
         // bracketed marker on its own line. Both survive most reply clients.
