@@ -22017,9 +22017,9 @@
       "context.forbidden",
       "patterns.forbidden"
     ],
-    "maxContextFiles": 12,
+    "maxContextFiles": 16,
     "maxInitialContextBytes": 32768,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 327680,
     "relatedCases": [
       "OMH-049",
       "OMH-051"
