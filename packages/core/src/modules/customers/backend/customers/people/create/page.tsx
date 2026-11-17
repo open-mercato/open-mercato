@@ -10,6 +10,7 @@ import { E } from '#generated/entities.ids.generated'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { extensionPoints } from '../../../../extension-points'
 import {
   buildPersonPayload,
   createPersonFormFields,
@@ -47,10 +48,15 @@ export default function CreatePersonPage() {
       <PageBody>
         <CrudForm<PersonFormValues>
           title={t('customers.people.create.title')}
+          titleHeadingLevel={1}
           backHref={returnTo ?? '/backend/customers/people'}
           fields={fields}
           groups={groups}
           initialValues={initialValues}
+          injectionSpotId={extensionPoints.hosts.personForm.spotId}
+          legacyInjectionSpotId="crud-form:customers.customer_entity"
+          entityId="customers.person"
+          resourceKind="customers.person"
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           submitLabel={t('customers.people.form.submit')}
           cancelHref={returnTo ?? '/backend/customers/people'}
@@ -126,6 +132,10 @@ export default function CreatePersonPage() {
             }
 
             flash(t('customers.people.form.success'), 'success')
+            return newId ? { resourceId: newId } : undefined
+          }}
+          onSubmitSuccess={async (_values, result) => {
+            const newId = result?.resourceId
             if (returnTo) router.push(returnTo)
             else if (newId) router.push(`/backend/customers/people-v2/${newId}`)
             else router.push('/backend/customers/people')

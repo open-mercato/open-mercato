@@ -51,6 +51,34 @@ describe('resolveSafeHostAddress — connect-time SSRF pinning', () => {
     await expect(resolveSafeHostAddress('169.254.169.254')).rejects.toThrow(/private or loopback/i)
   })
 
+  it.each(['64:ff9b::7f00:1', '2002:7f00:1::', '::7f00:1', '[64:ff9b::a9fe:a9fe]', '64:ff9b::7f00:1%eth0'])(
+    'rejects literal IPv6-embedded internal IPv4 %s without resolving it',
+    async (host) => {
+      const lookup = fakeLookup([{ address: '93.184.216.34', family: 4 }])
+      await expect(resolveSafeHostAddress(host, { lookup })).rejects.toThrow(/private or loopback/i)
+      expect(lookup).not.toHaveBeenCalled()
+    },
+  )
+
+  it('rejects a hostname whose AAAA record embeds an internal IPv4 (NAT64)', async () => {
+    const lookup = fakeLookup([{ address: '64:ff9b::a9fe:a9fe', family: 6 }])
+    await expect(resolveSafeHostAddress('nat64.attacker.test', { lookup })).rejects.toThrow(
+      /private or loopback/i,
+    )
+  })
+
+  it('pins a hostname whose NAT64 AAAA record embeds a public IPv4', async () => {
+    const lookup = fakeLookup([{ address: '64:ff9b::5db8:d822', family: 6 }])
+    const result = await resolveSafeHostAddress('imap.example.com', { lookup })
+    expect(result).toEqual({ host: '64:ff9b::5db8:d822', servername: 'imap.example.com' })
+  })
+
+  it('returns a literal IPv6-embedded internal IPv4 verbatim when OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS=true', async () => {
+    process.env.OM_CHANNEL_IMAP_ALLOW_INTERNAL_HOSTS = 'true'
+    const result = await resolveSafeHostAddress('64:ff9b::7f00:1')
+    expect(result).toEqual({ host: '64:ff9b::7f00:1' })
+  })
+
   it('throws when the hostname does not resolve to any address', async () => {
     const lookup = fakeLookup([])
     await expect(resolveSafeHostAddress('nxdomain.attacker.test', { lookup })).rejects.toThrow(

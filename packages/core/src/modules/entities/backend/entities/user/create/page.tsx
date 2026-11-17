@@ -88,6 +88,7 @@ export default function CreateEntityPage() {
       <PageBody>
         <CrudForm
           title={t('entities.userEntities.form.title', 'Create Entity')}
+          titleHeadingLevel={1}
           backHref="/backend/entities/user"
           schema={schema}
           fields={fields}

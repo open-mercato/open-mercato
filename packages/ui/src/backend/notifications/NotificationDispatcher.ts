@@ -10,7 +10,9 @@ import type {
   NotificationHandlerToastOptions,
 } from '@open-mercato/shared/modules/notifications/handler'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
+import { isSafeNotificationHref } from '@open-mercato/shared/modules/notifications/safeHref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { localizeNotificationCopy } from './localizeNotification'
 
 const logger = createLogger('ui').child({ component: 'notifications' })
 
@@ -79,6 +81,10 @@ function buildHandlerContext(runtime: RuntimeContext): NotificationHandlerContex
     },
     refreshNotifications: runtime.refreshNotifications,
     navigate(href) {
+      if (!isSafeNotificationHref(href)) {
+        logger.warn('Notification handler navigation ignored: href is not a same-origin path')
+        return
+      }
       runtime.navigate(href)
     },
     markAsRead: runtime.markAsRead,
@@ -106,6 +112,7 @@ class NotificationDispatcher {
 
       let handlerRan = false
       let hadFeatureBlockedHandler = false
+      const localized = localizeNotificationCopy(notification, runtime.t)
 
       for (const entry of sortedEntries) {
         const handler = entry.handler
@@ -117,7 +124,7 @@ class NotificationDispatcher {
         if (this.shouldDebounce(handler, notification.id)) continue
         handlerRan = true
         try {
-          void Promise.resolve(handler.handle(notification, context))
+          void Promise.resolve(handler.handle(localized, context))
         } catch (error) {
           logger.error('Notification handler failed', { handlerId: handler.id, err: error })
         }

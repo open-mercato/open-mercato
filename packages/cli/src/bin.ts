@@ -4,11 +4,10 @@
  * Called from within a Next.js app directory as: yarn mercato <command>
  * Uses dynamic app resolution to find generated files at .mercato/generated/
  */
-import {
-  getTelemetryRuntime,
-  isTelemetryBackendEnabled,
-} from '@open-mercato/shared/lib/telemetry/runtime'
+import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
+import { installNextSubpathResolveHook } from '@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook'
 import { resolveCliBootstrapMode, type CliBootstrapMode } from './lib/cli-bootstrap-mode.js'
+import { flushBeforeExit } from './lib/flush-before-exit.js'
 // `run` is imported dynamically inside `main()` so telemetry can initialize
 // before the mercato entry (and its Postgres driver) loads — see main().
 
@@ -74,6 +73,10 @@ async function tryBootstrap(mode: Exclude<CliBootstrapMode, 'none'>): Promise<bo
 
 async function main(): Promise<void> {
   assertNode24Runtime()
+  // Commands and workers run in plain Node, where a bare `next/<subpath>` such
+  // as `next/dynamic` or `next/link` does not resolve (#7102). Install the
+  // retry-with-`.js` hook before any package dist can be imported.
+  installNextSubpathResolveHook()
   const bootstrapMode = resolveCliBootstrapMode(process.argv)
 
   if (bootstrapMode !== 'none') {
@@ -116,9 +119,9 @@ async function main(): Promise<void> {
   // Postgres driver it pulls in — loads only after initTelemetry() above.
   const { run } = await import('./mercato.js')
   const code = await run(process.argv)
-  // Flush spans/logs for commands that return (workers block forever and flush via
-  // their own shutdown handler instead).
-  await getTelemetryRuntime()?.shutdown()
+  // Flush the coalesced browser broadcasts, then spans/logs, for commands that
+  // return (workers block forever and flush via their own shutdown handler instead).
+  await flushBeforeExit()
   process.exit(code ?? 0)
 }
 

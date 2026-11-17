@@ -42,12 +42,12 @@ describe('isOrganizationReadAccessAllowed', () => {
     ).toBe(true)
   })
 
-  it('denies a restricted floating user when the derived allowed set is empty (fail closed)', () => {
+  it('denies an empty restricted scope even when auth has a home organization', () => {
     expect(
       isOrganizationReadAccessAllowed({
-        scope: buildScope({ allowedIds: ['org-a'], filterIds: [] }),
-        auth: buildAuth({ orgId: null }),
-        organizationId: 'org-b',
+        scope: buildScope({ allowedIds: [], filterIds: [] }),
+        auth: buildAuth({ orgId: 'org-a' }),
+        organizationId: 'org-a',
       }),
     ).toBe(false)
   })
@@ -72,10 +72,20 @@ describe('isOrganizationReadAccessAllowed', () => {
     ).toBe(true)
   })
 
-  it('falls back to the home org when no filter ids are present', () => {
+  it('uses allowedIds instead of auth.orgId when a resolved restricted scope has no filter ids', () => {
     expect(
       isOrganizationReadAccessAllowed({
         scope: buildScope({ allowedIds: ['org-a'], filterIds: null }),
+        auth: buildAuth({ orgId: 'org-b' }),
+        organizationId: 'org-a',
+      }),
+    ).toBe(true)
+  })
+
+  it('preserves the auth.orgId fallback only when the resolved scope is absent', () => {
+    expect(
+      isOrganizationReadAccessAllowed({
+        scope: null,
         auth: buildAuth({ orgId: 'org-a' }),
         organizationId: 'org-a',
       }),

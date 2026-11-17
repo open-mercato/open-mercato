@@ -73,17 +73,25 @@ function resolveEntityId(em: EntityManager, entityName: EntityName<any>): string
  * already warn about their own `ILIKE` fallback; this covers the raw-ORM path
  * that never reaches them. Issue #5051, related to #2990.
  *
+ * A caller whose predicate the walker cannot read — a `raw()` fragment keyed by
+ * a symbol, say, which `Object.entries` never yields — passes the matched
+ * properties as `likeFields` instead, so wrapping a filter in raw SQL does not
+ * silently opt it out of the diagnostic.
+ *
  * Never throws and never blocks the query.
  */
 export async function warnOnEncryptedLikeFilter(params: {
   em: EntityManager
   entityName: EntityName<any>
-  where: unknown
+  where?: unknown
+  likeFields?: readonly string[]
   tenantId?: string | null
   encryptionService?: TenantDataEncryptionService | null
 }): Promise<void> {
   if (!isWarningEnabled()) return
-  const fields = collectLikeFilterFields(params.where)
+  const fields = Array.from(
+    new Set([...collectLikeFilterFields(params.where), ...(params.likeFields ?? [])]),
+  )
   if (!fields.length) return
   try {
     const entity = resolveEntityId(params.em, params.entityName)

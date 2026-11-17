@@ -149,6 +149,7 @@ export default function EditBusinessRulePage({ params }: { params?: { id?: strin
         <CrudForm
           key={ruleId}
           title={t('business_rules.rules.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/rules"
           schema={businessRuleFormSchema}
           fields={fields}

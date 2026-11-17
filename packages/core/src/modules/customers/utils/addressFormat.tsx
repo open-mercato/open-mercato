@@ -13,6 +13,34 @@ export type AddressValue = {
   postalCode?: string | null
   country?: string | null
   companyName?: string | null
+  /**
+   * Contact details that belong to the ADDRESS rather than to the customer: who to call about this
+   * delivery, and the tax identifier this invoice address was billed under. They remain available to
+   * address editors and snapshot payloads, but are deliberately excluded from `formatAddressLines`
+   * and `AddressView`, whose existing contract remains postal-only.
+   *
+   * `taxIdType` interprets the value in Stripe's `{country}_{kind}` vocabulary (`pl_nip`, `eu_vat`,
+   * `other`, widened additively): `1234567890` and `PL1234567890` are the same business, and only the
+   * type tells a domestic identifier from an EU VAT number. It is metadata about `taxId`, never a
+   * displayed field of its own.
+   */
+  phone?: string | null
+  taxId?: string | null
+  taxIdType?: string | null
+}
+
+/**
+ * Tax-id labels keyed by `taxIdType`, for a caller that wants the identifier named correctly rather
+ * than generically.
+ *
+ * The stored scheme is chosen explicitly rather than inferred from the identifier. `other` also
+ * covers an address written before `taxIdType` existed. An unrecognised type takes the `other` route
+ * instead of guessing a domestic scheme.
+ */
+export type TaxIdLabelByType = {
+  plNip: string
+  euVat: string
+  other: string
 }
 
 export type AddressJsonShape = {
@@ -100,6 +128,31 @@ export function formatAddressString(address: AddressValue, format: AddressFormat
   return formatAddressLines(address, format).filter(Boolean).join(separator)
 }
 
+/**
+ * Which member of a label map names which scheme. Private, and deliberately not exhaustive: an
+ * unrecognised type resolves to `other`, so the vocabulary can widen without every caller being
+ * updated in the same release.
+ */
+const TAX_ID_LABEL_KEY_BY_TYPE: Record<string, keyof TaxIdLabelByType> = {
+  pl_nip: 'plNip',
+  eu_vat: 'euVat',
+}
+
+/**
+ * The label a tax identifier should carry, given its type. Exported because the editor renders the
+ * same identifier as an input and must name it the same way this formatter does — two copies of the
+ * mapping is exactly how a foreign number ends up under a domestic scheme's name.
+ */
+export function resolveTaxIdLabel(
+  label: string | TaxIdLabelByType | undefined,
+  taxIdType: string | null | undefined,
+): string | undefined {
+  if (!label) return undefined
+  if (typeof label === 'string') return label
+  const key = TAX_ID_LABEL_KEY_BY_TYPE[typeof taxIdType === 'string' ? taxIdType : ''] ?? 'other'
+  return label[key]
+}
+
 type AddressViewProps = {
   address: AddressValue
   format: AddressFormatStrategy
@@ -107,7 +160,12 @@ type AddressViewProps = {
   lineClassName?: string
 }
 
-export function AddressView({ address, format, className, lineClassName }: AddressViewProps): React.ReactElement | null {
+export function AddressView({
+  address,
+  format,
+  className,
+  lineClassName,
+}: AddressViewProps): React.ReactElement | null {
   const lines = formatAddressLines(address, format)
   if (!lines.length) return null
   return (

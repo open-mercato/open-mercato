@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { buildPackage } from '../../scripts/build-package.mjs'
 import { buildVersionSource } from './scripts/versionSource.cjs'
 
@@ -22,4 +22,7 @@ const injectVersion = {
 await buildPackage(packageDir, {
   name: 'shared',
   extraPlugins: [injectVersion],
+  async beforeBuild() {
+    await import(pathToFileURL(join(packageDir, 'scripts/generate-countries.mjs')).href)
+  },
 })

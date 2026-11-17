@@ -1,13 +1,18 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CommunicationChannel } from '@open-mercato/core/modules/communication_channels/data/entities'
-import { channelOrgScopeWhereFromFilter } from '@open-mercato/core/modules/communication_channels/lib/access-control'
+import {
+  channelOrgScopeWhereFromFilter,
+  channelOwnerScopeWhere,
+} from '@open-mercato/core/modules/communication_channels/lib/access-control'
 import { CHANNEL_DISCORD_VIEW_FEATURE } from '../../../lib/ai-features'
+import { DISCORD_PROVIDER_KEY } from '../../../lib/channel-identity'
 import { discordChannelStateSchema } from '../../../lib/credentials'
 
 /**
@@ -50,20 +55,42 @@ export async function GET(req: Request): Promise<Response> {
   const scope = await resolveOrganizationScopeForRequest({ container, auth: auth as never, request: req })
   const orgFilter = resolveOrganizationScopeFilter(scope, auth as never)
 
-  // Same scoping the hub's own channel list uses: a Discord bot channel is
-  // usually tenant-scoped (`organization_id IS NULL`), so an equality filter on
-  // the caller's selected organization would hide exactly the rows this panel is
-  // about (#5012). `userId: null` keeps personal mailboxes out, as the hub does.
+  // Same org scoping the hub's own channel list uses: a channel connected while
+  // no organization was selected is stored with `organization_id IS NULL`, so an
+  // equality filter on the caller's selected organization would hide exactly the
+  // rows this panel is about (#5012).
+  //
+  // Ownership is scoped the way the hub's per-channel guards do rather than by a
+  // hardcoded `userId: null` (#5602). Every route the product exposes for
+  // connecting a Discord bot writes `user_id = auth.sub` — the connect widget
+  // posts to the per-user credentials route, and the tenant-wide route refuses
+  // Discord outright — so a shared-only filter matched nothing that can exist
+  // and the panel, the feature's only entry point, was always empty. The clause
+  // mirrors `assertCanAccessChannel` exactly, so widening the listing does not
+  // widen access: another operator's personal channel stays invisible, and the
+  // per-channel settings route still runs its own `manage` guard before anything
+  // can be armed.
+  //
+  // Both fragments can carry an `$or`, so they are nested under `$and` — spread
+  // side by side, the second would silently overwrite the first. The ownership
+  // clause is always present; the org fragment drops out for an unrestricted
+  // caller, so `$and` never ends up empty.
+  const scopeClauses = [
+    channelOwnerScopeWhere(auth.sub as string),
+    channelOrgScopeWhereFromFilter(orgFilter),
+  ].filter((clause) => Object.keys(clause).length > 0) as FilterQuery<CommunicationChannel>[]
+
+  const where: FilterQuery<CommunicationChannel> = {
+    tenantId: auth.tenantId as string,
+    providerKey: DISCORD_PROVIDER_KEY,
+    $and: scopeClauses,
+    deletedAt: null,
+  }
+
   const channels = await findWithDecryption(
     em,
     CommunicationChannel,
-    {
-      tenantId: auth.tenantId as string,
-      providerKey: 'discord',
-      ...channelOrgScopeWhereFromFilter(orgFilter),
-      userId: null,
-      deletedAt: null,
-    },
+    where,
     { limit: MAX_CHANNELS + 1, orderBy: { createdAt: 'desc' } },
     { tenantId: auth.tenantId as string, organizationId: orgFilter.rbacOrganizationId },
   )

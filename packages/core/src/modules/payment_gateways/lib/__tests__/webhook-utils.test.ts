@@ -57,6 +57,24 @@ describe('payment gateway webhook utils', () => {
     expect(flush).toHaveBeenCalledTimes(2)
   })
 
+  it('rethrows non-unique persistence errors instead of treating them as duplicates', async () => {
+    const failure = new Error('connection terminated')
+    const em = {
+      create: jest.fn().mockReturnValue({ id: 'evt_2' }),
+      persist: jest.fn(() => ({ flush: jest.fn().mockRejectedValue(failure) })),
+    }
+
+    await expect(
+      claimWebhookProcessing(
+        em as never,
+        'evt_2',
+        'tpay',
+        { organizationId: 'org_1', tenantId: 'tenant_1' },
+        'transaction.paid',
+      ),
+    ).rejects.toBe(failure)
+  })
+
   it('releases a webhook claim when processing fails', async () => {
     const record = { id: 'evt_1' }
     findOneWithDecryption.mockResolvedValue(record)

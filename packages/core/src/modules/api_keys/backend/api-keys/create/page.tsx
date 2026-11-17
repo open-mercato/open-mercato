@@ -153,6 +153,7 @@ export default function CreateApiKeyPage() {
         <div className="space-y-6">
           <CrudForm<FormValues>
             title={t('api_keys.form.title')}
+            titleHeadingLevel={1}
             backHref="/backend/api-keys"
             fields={fields}
             groups={groups}
@@ -163,14 +164,14 @@ export default function CreateApiKeyPage() {
               const payload: {
                 name: string
                 description: string | null
-                organizationId: string | null
+                organizationId?: string
                 roles: string[]
                 expiresAt: string | null
                 tenantId?: string | null
               } = {
                 name: values.name,
                 description: values.description || null,
-                organizationId: values.organizationId || null,
+                ...(values.organizationId ? { organizationId: values.organizationId } : {}),
                 roles: Array.isArray(values.roles) ? values.roles : [],
                 expiresAt: values.expiresAt || null,
               }

@@ -54,6 +54,7 @@ type ApiDocument = {
   status?: string | null
   customerEntityId?: string | null
   customerSnapshot?: Record<string, unknown> | null
+  contactEmail?: string | null
   channelId?: string | null
   channelName?: string | null
   lineItemCount?: number | null
@@ -530,7 +531,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         : doc.quoteNumber ?? (item as any)?.quote_number ?? id
       const customerSnapshot = (doc.customerSnapshot ?? null) as CustomerSnapshot | null
       const customerName = resolveCustomerName(customerSnapshot, doc.customerEntityId ?? null)
-      const customerEmail = resolveCustomerEmail(customerSnapshot)
+      const customerEmail = doc.contactEmail ?? resolveCustomerEmail(customerSnapshot)
       const totalNet = toNumber(doc.grandTotalNetAmount)
       const totalGross = toNumber(doc.grandTotalGrossAmount)
       const placedAt = doc.placedAt ?? null
@@ -619,6 +620,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     setPage(1)
   }, [])
 
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
   const handleRefresh = React.useCallback(() => {
     setReloadToken((token) => token + 1)
   }, [])
@@ -683,6 +689,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
             <DictionaryValue
               value={row.original.status}
               map={statusMap}
+              appearance="dot"
               fallback={<span className="text-xs text-muted-foreground">{row.original.status}</span>}
               className="text-xs text-muted-foreground font-medium"
               iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded bg-muted text-muted-foreground"
@@ -769,11 +776,12 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           stickyFirstColumn
           stickyActionsColumn
           title={(
-            <div className="flex flex-col">
+            <span className="flex flex-col">
               <span>{title}</span>
               <span className="text-sm font-normal text-muted-foreground">{subtitle}</span>
-            </div>
+            </span>
           )}
+          titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href={`/backend/sales/documents/create?kind=${kind}`}>
@@ -783,8 +791,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           )}
           columns={columns}
           data={rows}
+          sortable
+          manualSorting
           sorting={sorting}
-          onSortingChange={setSorting}
+          onSortingChange={handleSortingChange}
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={handleSearchChange}

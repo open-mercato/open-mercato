@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "file": "backend/agents/[id]/components/workspacePrimitives.tsx",
+      "kind": "jsx-attr",
+      "match": "AGENT.md",
+      "reason": "Filename of the agent definition file on disk, not UI copy — an operator reading the file tree has to see the name the repository actually uses (spec 2026-06-22-opencode-file-defined-agents.md)."
+    },
+    {
+      "file": "backend/agents/[id]/components/workspacePrimitives.tsx",
+      "kind": "jsx-attr",
+      "match": "OUTCOME.md",
+      "reason": "Filename of the outcome-schema file on disk, not UI copy — see AGENT.md above."
+    },
+    {
+      "file": "backend/processes/definitions/TriggerEditor.tsx",
+      "kind": "jsx-attr",
+      "reason": "The placeholder is a literal JSON example of a context mapping. Its keys are the wire contract; translating them would show the operator a payload the API would reject."
+    }
+  ]
+}

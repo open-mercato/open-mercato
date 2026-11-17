@@ -316,6 +316,7 @@ export function LeaveRequestForm(props: LeaveRequestFormProps) {
   return (
     <CrudForm
       title={title}
+      titleHeadingLevel={1}
       fields={fields}
       initialValues={normalizedInitialValues}
       optimisticLockUpdatedAt={normalizedInitialValues.updatedAt}

@@ -26,6 +26,7 @@ class ResizeObserverMock {
 const families: Array<{ id: string; entries: GalleryEntry[] }> = []
 
 beforeAll(async () => {
+  if (!HTMLElement.prototype.scrollIntoView) HTMLElement.prototype.scrollIntoView = jest.fn()
   ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
   for (const family of galleryFamilies) {
     const { entries } = await family.load()

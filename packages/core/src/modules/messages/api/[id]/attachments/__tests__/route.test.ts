@@ -5,6 +5,7 @@ const resolveMessageContextMock = jest.fn()
 const getMessageAttachmentsMock = jest.fn()
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/messages/lib/routeHelpers'),
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
 }))
 
@@ -19,6 +20,8 @@ describe('messages /api/messages/[id]/attachments', () => {
   let em: { findOne: jest.Mock; fork: jest.Mock }
   let emFork: { findOne: jest.Mock }
   let commandBus: { execute: jest.Mock }
+  let rbacService: { userHasAllFeatures: jest.Mock }
+  let resolveChannelThreadAccess: jest.Mock
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -33,6 +36,8 @@ describe('messages /api/messages/[id]/attachments', () => {
     }
 
     getMessageAttachmentsMock.mockResolvedValue([])
+    rbacService = { userHasAllFeatures: jest.fn(async () => true) }
+    resolveChannelThreadAccess = jest.fn(async () => null)
 
     resolveMessageContextMock.mockResolvedValue({
       ctx: {
@@ -40,6 +45,8 @@ describe('messages /api/messages/[id]/attachments', () => {
           resolve: (name: string) => {
             if (name === 'em') return em
             if (name === 'commandBus') return commandBus
+            if (name === 'rbacService') return rbacService
+            if (name === 'communicationChannelsResolveChannelThreadAccess') return resolveChannelThreadAccess
             return null
           },
         },
@@ -114,6 +121,93 @@ describe('messages /api/messages/[id]/attachments', () => {
 
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ attachments })
+    })
+  })
+
+  describe('GET on a channel-linked thread (#6354)', () => {
+    const inboundMessage = {
+      id: 'msg-1',
+      threadId: 'thread-1',
+      organizationId: 'org-1',
+      senderUserId: 'channel-system-user',
+      visibility: 'public',
+      sourceEntityType: 'communication_channels.external_conversation',
+    }
+    const grantedThread = {
+      messageThreadId: 'thread-1',
+      externalConversationId: 'conversation-1',
+      channelId: 'channel-1',
+      channelType: 'email',
+      canAccess: true,
+    }
+
+    function givenMessage(message: Record<string, unknown>) {
+      em.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === Message) return message
+        return null
+      })
+    }
+
+    it('lists the attachments of an inbound message the detail route lets the operator open', async () => {
+      const attachments = [{ id: 'att-3', filename: 'photo.jpg' }]
+      getMessageAttachmentsMock.mockResolvedValue(attachments)
+      resolveChannelThreadAccess.mockResolvedValue(grantedThread)
+      givenMessage(inboundMessage)
+
+      const response = await GET(new Request('http://localhost'), { params: { id: 'msg-1' } })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ attachments })
+      expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith('user-1', ['messages.view'], {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+      expect(resolveChannelThreadAccess).toHaveBeenCalledWith(
+        expect.anything(),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
+        { messageThreadId: 'thread-1' },
+        { userId: 'user-1', features: [] },
+      )
+    })
+
+    it('returns 403 when the channel refuses the caller', async () => {
+      resolveChannelThreadAccess.mockResolvedValue({ ...grantedThread, canAccess: false })
+      givenMessage(inboundMessage)
+
+      const response = await GET(new Request('http://localhost'), { params: { id: 'msg-1' } })
+
+      expect(response.status).toBe(403)
+      expect(getMessageAttachmentsMock).not.toHaveBeenCalled()
+    })
+
+    it('returns 403 when the caller lacks messages.view', async () => {
+      rbacService.userHasAllFeatures.mockResolvedValue(false)
+      resolveChannelThreadAccess.mockResolvedValue(grantedThread)
+      givenMessage(inboundMessage)
+
+      const response = await GET(new Request('http://localhost'), { params: { id: 'msg-1' } })
+
+      expect(response.status).toBe(403)
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+    })
+
+    it('keeps another operator internal note participant-only', async () => {
+      resolveChannelThreadAccess.mockResolvedValue(grantedThread)
+      givenMessage({ ...inboundMessage, senderUserId: 'user-2', visibility: null })
+
+      const response = await GET(new Request('http://localhost'), { params: { id: 'msg-1' } })
+
+      expect(response.status).toBe(403)
+      expect(getMessageAttachmentsMock).not.toHaveBeenCalled()
+    })
+
+    it('keeps the participant rule on an internal thread', async () => {
+      givenMessage({ ...inboundMessage, sourceEntityType: null })
+
+      const response = await GET(new Request('http://localhost'), { params: { id: 'msg-1' } })
+
+      expect(response.status).toBe(403)
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
     })
   })
 

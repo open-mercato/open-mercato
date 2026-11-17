@@ -149,6 +149,10 @@ function mockApiResponses(secretConfigured = true) {
   apiCallMock.mockImplementation((url: unknown, init?: RequestInit) => {
     const href = typeof url === 'string' ? url : ''
     const method = (init?.method ?? 'GET').toUpperCase()
+    if (href.includes('/api/auth/feature-check')) {
+      const body = { ok: true, granted: ['integrations.credentials.manage'], userId: 'user-1' }
+      return Promise.resolve({ ok: true, status: 200, result: body, response: makeResponse(200, body) })
+    }
     if (href.includes('/credentials')) {
       if (method === 'PUT') {
         return Promise.resolve({
@@ -236,6 +240,36 @@ describe('Integration credentials — optimistic-lock conflict surfacing (#3676)
       credentials: { publishableKey: 'pk_test_123' },
       unchangedSecretFields: ['secretKey'],
     })
+  })
+
+  it('keeps saving pending until refreshed credentials replace the form', async () => {
+    const originalApi = apiCallMock.getMockImplementation()!
+    let finishReload!: () => void
+    const reloadReady = new Promise<void>((resolve) => { finishReload = resolve })
+    let saved = false
+    apiCallMock.mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).endsWith('/credentials')) {
+        if (init?.method === 'PUT') {
+          saved = true
+          return { ok: true, status: 200, result: { ok: true }, response: makeResponse(200, { ok: true }) }
+        }
+        if (saved) await reloadReady
+      }
+      return originalApi(url, init)
+    })
+    const { container, getByRole } = renderWithProviders(
+      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
+      { dict },
+    )
+    await waitFor(() => expect(container.querySelector('form')).not.toBeNull())
+    const originalForm = container.querySelector('form')!
+    await act(async () => { fireEvent.submit(originalForm) })
+    await waitFor(() => expect(saved).toBe(true))
+    expect(getByRole('button', { name: 'Saving...' })).toBeDisabled()
+    expect(container.querySelector('form')).toBe(originalForm)
+    await act(async () => { finishReload() })
+    await waitFor(() => expect(container.querySelector('form')).not.toBe(originalForm))
+    expect(getByRole('button', { name: 'Save credentials' })).toBeEnabled()
   })
 
   it('keeps an unconfigured required secret mandatory and does not submit an empty value', async () => {

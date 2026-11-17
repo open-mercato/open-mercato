@@ -326,7 +326,16 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 - [ ] Documented in UPGRADE_NOTES.md
 - [ ] Spec in `.ai/specs/` with "Migration & Backward Compatibility" section
 
-## 22. Anti-Pattern Checklist
+## 23. Observability & Error Reporting
+
+- [ ] Every new `catch` that does anything other than rethrow — persists a row, sets a `failed` status, dead-letters an item, returns a fallback — also reaches `reportError`, directly or through a chokepoint that does (`integrationLogService.write` at `level: 'error'`, the queue failure paths). `logger.error` alone is NOT reporting: no span exception, no `om.errors` sample, no fingerprint
+- [ ] Every `reportError` call passes a `code`: a stable, enumerated `module.reason` token, never an interpolated string (it is a metric label and the backend's grouping key — ids belong in `attributes`). A `code` reaching a chokepoint from outside the framework is narrowed with `groupableCode(value, fallback)`, never trusted
+- [ ] Reporting is wrapped where it sits on a durable write path, so a telemetry fault degrades to a warning instead of failing the caller
+- [ ] No PII, credentials or record payloads in the reported message or attributes (`integration_logs.payload` never leaves the database)
+- [ ] `packages/core` and other non-telemetry packages reach the funnel via `getTelemetryRuntime()?.reportError(...)`, never by importing `@open-mercato/telemetry`
+- [ ] No sampling, throttling or suppression added inside `reportError` — volume control belongs to the collector and the backend
+
+## 24. Anti-Pattern Checklist
 
 Flag any of these patterns as violations:
 
@@ -355,3 +364,20 @@ Flag any of these patterns as violations:
 | One-letter variable name | Low | Use descriptive name |
 | Inline comment on self-explanatory code | Low | Remove comment |
 | Added docstring on unchanged function | Low | Remove docstring |
+| `getAuthFromRequest` / `getAuthFromCookies` in a handler that receives `ctx.auth` | High | Use `ctx.auth` from the dispatcher |
+| `createRequestContainer()` in a `lib/` helper, a loop or a per-item callback | High | Create it once per handler and pass the container or services down |
+| Query awaited per item inside a loop | High | One `$in` query or the ORM dataloader |
+| `pbkdf2Sync` / `scryptSync` / `readFileSync` on a request path | High | Async API; memoize deterministic results |
+| Database query, timer or `bus.on` inside a DI registrar | High | Do it once per process, where the service is created |
+| Runtime `information_schema` probe | Medium | ORM metadata (`em.getMetadata()`) or a process memo keyed by schema version |
+| `em.getKysely<any>()` or `'column' as any` | Medium | A typed table interface for the tables the module touches |
+
+## 25. Request-Path Performance
+
+- [ ] Handlers use `ctx.auth`; auth is resolved once per request
+- [ ] At most one `createRequestContainer()` per handler; none in `lib/` helpers, loops or callbacks
+- [ ] The request `em` is reused; every `em.fork()` states why
+- [ ] No query per item in a loop; related records load in one batched query
+- [ ] No database query, timer or event subscription inside a DI registrar
+- [ ] No `*Sync` crypto or filesystem calls on request paths
+- [ ] New or changed list, detail and write routes state their statement count

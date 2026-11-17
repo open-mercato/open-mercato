@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -19,6 +20,7 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('sales')
 
@@ -45,7 +47,7 @@ async function resolveSettingsContext(req: Request): Promise<SettingsRouteContex
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = scope?.selectedId ?? auth.orgId ?? null
+  const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
   if (!organizationId) {
     throw new CrudHttpError(400, {
       error: translate('sales.settings.errors.organization_required', 'Organization context is required'),
@@ -160,6 +162,10 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     const { translate } = await resolveTranslations()
     logger.error('sales.settings.document-numbers.put failed', { err })
     return NextResponse.json(
@@ -209,6 +215,11 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Updated numbering formats and counters', schema: settingsResponseSchema },
         { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
+        {
+          status: 403,
+          description: 'Changing a counter requires sales.documents.number.edit',
+          schema: settingsErrorSchema,
+        },
         { status: 400, description: 'Invalid payload', schema: settingsErrorSchema },
       ],
     },

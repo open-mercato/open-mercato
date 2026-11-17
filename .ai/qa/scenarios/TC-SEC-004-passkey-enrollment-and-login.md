@@ -13,12 +13,12 @@ High
 UI Test
 
 ## Description
-Verify that a user can register a passkey MFA method from the security profile and then complete a subsequent MFA login with the registered passkey. This scenario is feature-detected and must skip with an explicit reason when WebAuthn is unsupported in the CI/runtime environment.
+Verify that a user can register a passkey MFA method from the security profile and then complete a subsequent MFA login with the registered passkey. Automated coverage uses Chromium virtual authenticators. Other browser projects skip with an explicit reason; Chromium must support WebAuthn.
 
 ## Prerequisites
 - Application is running with the enterprise `security` module enabled
 - A tenant-scoped user fixture exists only for this test
-- Browser/runtime support for WebAuthn is available, or the test can skip explicitly with a recorded reason
+- Chromium with CDP virtual authenticator support, or a real authenticator for manual QA
 - The user has access to `/backend/profile/security/mfa/passkey`
 
 ## Test Steps
@@ -27,11 +27,13 @@ Verify that a user can register a passkey MFA method from the security profile a
 | 1 | Create a user fixture and sign in | User reaches the backend security area |
 | 2 | Open `/backend/profile/security/mfa` and confirm that passkey is listed as an available provider | Passkey appears in the available methods UI |
 | 3 | Navigate to `/backend/profile/security/mfa/passkey` | The passkey setup flow loads and performs a browser-support check |
-| 4 | If WebAuthn is unsupported, mark the scenario skipped with an explicit environment reason | Skip is recorded intentionally and not treated as a product failure |
-| 5 | If WebAuthn is supported, start enrollment and complete the browser credential-creation ceremony | Passkey registration succeeds |
+| 4 | Submit the legacy public-key payload with the actual setup challenge, then a malformed confirmation | Both return 400 and no active method is created |
+| 5 | Enroll two distinct passkeys through separate authenticators and real credential-creation ceremonies | Both registrations succeed |
 | 6 | Return to the MFA methods list | The new passkey method is shown as active |
 | 7 | Sign out and log in again with email/password | Login enters MFA challenge mode |
-| 8 | Select the passkey method and complete the browser verification ceremony | MFA verification succeeds and the user is redirected to `/backend` |
+| 8 | Attempt enrollment with the MFA-pending session, then submit an unsigned assertion | Enrollment returns 401; unsigned verification returns 401 and no token |
+| 9 | Complete the prepared challenge with the indicated authenticator | Signed verification succeeds and returns a verified session |
+| 10 | Remove the selected method, then repeat login using the remaining credential | The second independently enrolled credential also authenticates |
 
 ## Expected Results
 - Passkey provider is visible in the MFA management UI
@@ -42,9 +44,15 @@ Verify that a user can register a passkey MFA method from the security profile a
 ## Edge Cases / Error Scenarios
 - Cancel the browser passkey ceremony and expect the enrollment to remain incomplete
 - Attempt login challenge with a missing or rejected WebAuthn assertion and expect the session to remain MFA-pending
-- Verify that the test skips explicitly rather than failing when WebAuthn is unsupported in CI
+- Verify POST and PUT enrollment remain inaccessible to MFA-pending sessions
 
 ## Automation Coverage
-Steps 1-7 and the "no assertion" edge case are automated in `TC-SEC-004.spec.ts`, which asserts that a login challenge answered with the disclosed credential id and challenge rather than a signed assertion is refused with `401` (the second-factor bypass fixed in #3852).
 
-Step 8 — the passing browser verification ceremony — stays **manual**. A genuine assertion needs an authenticator, so automating it requires a Playwright virtual authenticator (`WebAuthn.addVirtualAuthenticator`); until that lands, a passing passkey login and a passing passkey sudo step-up must be confirmed by hand against a real authenticator.
+`TC-SEC-004.spec.ts` covers the provider UI and the real setup/confirmation, methods-list,
+login, prepare, verify and removal APIs. Two Chromium CDP virtual authenticators create real
+registration responses and sign login challenges. The test follows the credential advertised
+in `allowCredentials`, then removes it and proves the remaining passkey also works. It rejects
+legacy enrollment, malformed confirmation, MFA-pending enrollment and unsigned verification.
+
+Manual QA still checks the shipped UI's Add interaction and real hardware/browser behavior.
+Passing passkey sudo step-up remains separate coverage; this scenario does not claim it.

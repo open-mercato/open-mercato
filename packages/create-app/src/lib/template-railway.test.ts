@@ -2,9 +2,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import test from 'node:test'
+import { TEMPLATE_ONLY_RELATIVE_FILES } from '../../../../scripts/template-sync.ts'
 
 const templateRoot = resolve(import.meta.dirname, '../../template')
-const templateSyncScript = resolve(import.meta.dirname, '../../../../scripts/template-sync.ts')
+const appSrcRoot = resolve(import.meta.dirname, '../../../../apps/mercato/src')
 
 function matchesDirectoryIgnoreRule(rule: string, sourcePath: string): boolean {
   const directoryRule = rule.endsWith('/')
@@ -76,9 +77,16 @@ test('standalone template does not exclude app module data source files from loc
   assert.equal(ignoreLines.some((line) => matchesDirectoryIgnoreRule(line, 'storage/uploads/file.bin')), true)
 })
 
-test('template sync preserves Railway-only healthcheck routes', () => {
-  const source = readFileSync(templateSyncScript, 'utf8')
+test('template sync mirrors the Railway healthcheck route instead of exempting it', () => {
+  for (const rel of ['app/api/healthz/route.ts', 'app/api/healthz/__tests__/route.test.ts']) {
+    assert.equal(
+      TEMPLATE_ONLY_RELATIVE_FILES.has(rel),
+      false,
+      `${rel} now ships in both apps/mercato and the template because the dev runtime probes /api/healthz — exempting it from the mirror lets the two copies drift.`,
+    )
 
-  assert.match(source, /app\/api\/healthz\/route\.ts/)
-  assert.match(source, /app\/api\/healthz\/__tests__\/route\.test\.ts/)
+    const appSource = readFileSync(resolve(appSrcRoot, rel), 'utf8')
+    const templateSource = readFileSync(resolve(templateRoot, 'src', rel), 'utf8')
+    assert.equal(templateSource, appSource, `${rel} must stay byte-identical between apps/mercato and the template.`)
+  }
 })

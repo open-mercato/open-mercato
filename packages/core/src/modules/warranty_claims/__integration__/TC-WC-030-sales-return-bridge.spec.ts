@@ -121,7 +121,7 @@ test.describe('TC-WC-030: sales-return execution bridge', () => {
         const draftResponse = await postSalesReturn(request, token, wrongStatusProbe.id!, wrongStatusProbe.updatedAt)
         const draftBody = await readJsonSafe<SalesReturnResponse>(draftResponse)
         expect(draftResponse.status(), `draft claim should be rejected: ${JSON.stringify(draftBody)}`).toBe(400)
-        expect(draftBody?.error ?? '').toContain('salesReturnStatusNotEligible')
+        expect(draftBody?.error ?? '').toContain('A sales return can only be created for approved claims that are awaiting, receiving, or inspecting the return.')
       } finally {
         await cancelThenDeleteClaimIfPossible(request, token, wrongStatusProbe.id ?? null)
       }
@@ -139,7 +139,7 @@ test.describe('TC-WC-030: sales-return execution bridge', () => {
       const duplicateResponse = await postSalesReturn(request, token, claim.id!, linked.updatedAt)
       const duplicateBody = await readJsonSafe<SalesReturnResponse>(duplicateResponse)
       expect(duplicateResponse.status(), 'second call should be rejected').toBe(400)
-      expect(duplicateBody?.error ?? '').toContain('salesReturnAlreadyLinked')
+      expect(duplicateBody?.error ?? '').toContain('This claim is already linked to a sales return.')
 
       if (createBody?.salesReturnId) {
         await deleteSalesEntityIfExists(request, token, '/api/sales/returns', createBody.salesReturnId)
@@ -174,7 +174,7 @@ test.describe('TC-WC-030: sales-return execution bridge', () => {
       const cappedResponse = await postSalesReturn(request, token, capped.claim.id!, cappedCurrent.updatedAt)
       const cappedBody = await readJsonSafe<SalesReturnResponse>(cappedResponse)
       expect(cappedResponse.status(), `over-shipped quantity should be rejected: ${JSON.stringify(cappedBody)}`).toBe(400)
-      expect(cappedBody?.error ?? '').toContain('salesReturnQuantityRejected')
+      expect(cappedBody?.error ?? '').toContain('The sales module rejected the return quantity')
 
       const skipped = await approveClaimWithLine(request, token, orderId, null, `${stamp}-skip`, 1, 1)
       skippedClaimId = skipped.claim.id ?? null
@@ -182,7 +182,7 @@ test.describe('TC-WC-030: sales-return execution bridge', () => {
       const skippedResponse = await postSalesReturn(request, token, skipped.claim.id!, skippedCurrent.updatedAt)
       const skippedBody = await readJsonSafe<SalesReturnResponse>(skippedResponse)
       expect(skippedResponse.status(), `claim without linkable lines should 400: ${JSON.stringify(skippedBody)}`).toBe(400)
-      expect(skippedBody?.error ?? '').toContain('salesReturnNoEligibleLines')
+      expect(skippedBody?.error ?? '').toContain('No claim lines are eligible for a sales return.')
     } finally {
       await cancelThenDeleteClaimIfPossible(request, token, cappedClaimId)
       await cancelThenDeleteClaimIfPossible(request, token, skippedClaimId)

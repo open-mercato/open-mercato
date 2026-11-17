@@ -17,7 +17,9 @@
 | 1.3 | 2026-08-28 | Spec review round 2: set-diffing collides with the `is_primary` partial unique index that delete-and-recreate currently makes unreachable, so the set-diff must clear displaced flags and flush first; the lock stamp is keyed to membership **or** the primary flag and stated as a property of the whole deal write path rather than the people half; corrected the `CustomerDeal.updatedAt` citation. |
 | 1.4 | 2026-08-28 | Round-3 inline review: the `is_primary` rule was incomplete (covered a displaced row that stays, not one that is removed — inserts commit before deletes); named the `updated_at` touch mechanism and undo-path semantics; the write-path fix now ships as its own issue and PR; enumerated the real prop surface and flagged the extraction as the risky step. |
 | 2026-08-28 | Restructured delivery into three independently revertable PRs (stamp → UI → set-diff), sequencing the `linkedAt`-dependent surfaces behind the correction that makes them trustworthy. |
+| 2026-08-31 | Corrected § Data Models: PR 1 makes no-op link writes non-destructive as a side effect of the change-detection the lock stamp requires. Noted that `DealForm` submits both link lists on every Details save, which is why that side effect is user-visible rather than theoretical. |
 | 1.5 | 2026-08-28 | Split delivery into three PRs on maintainer direction: the `updated_at` stamp ships first and alone (PR 1), the UI parity work second (PR 2), and set-diffing last (PR 3). PR 2 deliberately omits the linked date and the "recently linked" sort — both depend on a durable `linkedAt` that only PR 3 delivers — so no wrong value is ever displayed. Added `availableSorts` and `PersonCard.showLinkedDate` as the switches that complete parity in PR 3. |
+| 1.6 | 2026-08-31 | Implementation feedback from PR 1 (#5757): the no-op early return the lock stamp needs also makes unchanged writes non-destructive, so `customer_deal_people` write semantics change in PR 1 as well as PR 3 — § Data Models now says so instead of claiming PR 1 leaves them untouched. |
 
 ## TLDR
 
@@ -77,7 +79,7 @@ Three components after the change, all under `packages/core/src/modules/customer
 
 | Component | Role |
 |-----------|------|
-| `LinkedPeopleSection.tsx` (new) | The shared shell. Owns search, Filters toggle, sort, the `PersonCard` grid, pagination, the link dialog, the empty state and the starred-people preference. Host-agnostic. |
+| `LinkedPeopleSection.tsx` (new) | The shared shell. Owns search, the search-and-sort disclosure, sort, the `PersonCard` grid, pagination, the link dialog, the empty state and the starred-people preference. Host-agnostic. |
 | `CompanyPeopleSection.tsx` (rewritten as a wrapper) | Company adapter. Supplies the company fetch/link/unlink handlers, `RolesSection` as a header slot, `DecisionMakersFooter` as a footer slot, and owns `CreatePersonDialog`. |
 | `DealPeopleSection.tsx` (new) | Deal adapter. Supplies the deal fetch handler, the selection-based link/unlink handlers, and owns `CreatePersonDialog`. |
 
@@ -199,9 +201,14 @@ The people CRUD route has no `dealEntityId` equivalent, so the deal link is a **
 
 No entity, migration or snapshot change. `CustomerDealPersonLink`, `CustomerPersonCompanyLink`, `CustomerEntity` and `CustomerPersonProfile` are read as they are today.
 
-**PR 3 only** changes the write semantics of `customer_deal_people`: rows survive an unrelated people update instead of being recreated, so `created_at` becomes a durable "linked at" value rather than a per-write timestamp. No backfill — existing rows keep whatever date the last write gave them, and the value only becomes meaningful going forward. Say so in the PR 3 body so the first post-deploy "recently linked" ordering is not read as a bug.
+Write semantics change across **two** of the three PRs, not one. The split follows from what each correction needs:
 
-PR 1 and PR 2 leave the table's write semantics exactly as they are today.
+- **PR 1** — deciding whether to stamp the lock token requires knowing whether the links actually changed, and once that is known, a write that changes nothing has no reason to delete and recreate every row. So a *no-op* write becomes non-destructive as of PR 1. This matters more than it sounds: `DealForm` puts `personIds` **and** `companyIds` into its payload on every Details save regardless of which groups are shown, so before PR 1 an ordinary Details save re-dated every link row on the deal.
+- **PR 3** — a *genuine* change stops deleting and recreating the untouched rows, which is what finally makes `created_at` durable in every case.
+
+No backfill in either. Existing rows keep whatever date the last write gave them, so "recently linked" only becomes meaningful going forward — increasingly so from PR 1 and fully from PR 3. Say so in the PR 3 body rather than letting the first post-deploy ordering read as a bug.
+
+PR 2 leaves the table's write semantics exactly as PR 1 left them.
 
 ## API Contracts
 
@@ -252,6 +259,8 @@ Concurrency is **not** part of this rationale. Before PR 1 the whole-set path of
 | `CreatedPersonSummary` **payload** | `companyId`/`companyName` widened `string` → `string \| null`, still always emitted | ADDITIVE — a consumer reading them still gets a property; only a consumer assigning to a non-nullable `string` needs a null check. Making them *optional* would have been a break and is explicitly rejected. |
 | `createPersonLinkAdapter` | optional option added | ADDITIVE |
 | `PersonCard` | imports its person type from the new module | NONE (structural type, re-exported) |
+| `PersonCard` — #7493 | `LinkedPeopleSection` no longer renders it; the export keeps its props and standalone card markup | DEPRECATED — `@deprecated` JSDoc, kept for at least one minor release; replaced by the `Person*Cell` exports and `buildPersonRowActionItems` |
+| `LinkedPeopleSectionProps.sectionSubtitle` — #7493 | built-in hosts stop passing it; the prop is still accepted and rendered | DEPRECATED — `@deprecated` JSDoc, kept for at least one minor release; move the text into `header` |
 | `syncDealPeople` — PR 1 | deal `updated_at` advances on link membership or primary-flag change | BEHAVIOURAL FIX — no signature or payload change. A caller that ignored the lock now receives the 409 it should always have received. |
 | `syncDealPeople` — PR 3 | link rows survive an unrelated update, so `linkedAt` becomes durable | BEHAVIOURAL FIX — no signature or payload change. No caller relies on `linkedAt` being rewritten; nothing renders it before PR 3. |
 | `PersonCard` — PR 2 | optional `showLinkedDate` prop, default `true` | ADDITIVE — company call sites unchanged |
@@ -296,7 +305,7 @@ Each PR ships its own coverage. Nothing below is deferred to a later PR than the
 1. loads from `/api/customers/deals/{id}/people` with `page`/`pageSize`/`sort`
 2. unlink saves the remaining selection
 3. search and sort changes are forwarded to the endpoint
-4. Filters toggle hides and restores the controls
+4. The search box is always visible and sorting lives in the column headers (`aria-sort` on the Name header; company tabs also get a sortable Linked column) — no disclosure toggle (#7493). Below a 576px container the Linked column collapses, so a compact sort control lists the allowed modes while that header is hidden
 5. empty state offers both link and add actions
 6. the add-person dialog opens without a company context
 7. a created person is appended to the deal selection
@@ -389,3 +398,5 @@ Applies to all three PRs. The second `yarn build:packages` rebuilds against what
 | 2026-08-27 | Spec review round 1: added § Deal Write Path (set-diffing `syncDealPeople` + `updated_at` stamp) after review showed the stated optimistic-lock guarantee did not hold and that every people write reset `linkedAt`; rewrote the no-new-endpoint rationale and Risks 2–3; corrected the integration-test path, the validation gate and the `CreatedPersonSummary` BC row; trimmed the Goals list; documented the deal refresh-event decision and the sibling-tab asymmetry. |
 | 2026-08-28 | Spec review round 2: added the `is_primary` ordering requirement (partial unique index is immediate, and set-diffing removes the delete-everything-first protection); widened the lock-stamp rule to cover primary-flag changes and both link tables; split the `syncDealCompanies` note into its deferrable and non-deferrable halves; fixed the `data/entities.ts` line citation. |
 | 2026-08-28 | Round-3 inline review: corrected the `is_primary` rule to cover a removed displaced row (inserts commit before deletes), named the `updated_at` touch mechanism and the undo-path semantics, split the write-path fix into its own issue and PR, and enumerated the real `LinkedPeopleSection` prop surface. |
+| 2026-11-04 | #7493 compatibility: `PersonCard` and `sectionSubtitle` stay as deprecated bridges instead of changing shape or disappearing. |
+| 2026-11-13 | #7493 review follow-up: a compact sort control appears while the Linked header is hidden in a narrow container, so the recency sort stays reachable at phone width. Labels `customers.linkedPeople.sortNameAsc` / `sortNameDesc` / `sortRecent` are kept and `customers.linkedPeople.sortLabel` is added. |

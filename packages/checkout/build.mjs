@@ -8,5 +8,6 @@ const watch = process.argv.includes('--watch')
 await buildPackage(packageDir, {
   name: 'checkout',
   clearDist: true,
+  copyJson: true,
   watch,
 })

@@ -13,6 +13,7 @@ const originalCrudFormFlagValue = process.env[CRUDFORM_FLAG_NAME]
 const moduleRoot = path.join(__dirname, '..', '..')
 
 const CROSS_MODULE_SPOT_IDS = [
+  'calendar:customers.event-types',
   'crud-form:customers.person:fields',
   'crud-form:customers.customer_entity:fields',
   'data-table:customers.people:columns',
@@ -38,6 +39,7 @@ const EXAMPLE_OWN_SPOT_IDS = [
   'crud-form:example.todo',
   'widget:example.injection.crud-validation:addon',
   'example:phase-c-handlers',
+  'example:override-probe',
   'menu:sidebar:main',
   'menu:topbar:profile-dropdown',
 ] as const
@@ -122,6 +124,8 @@ describe('example injection-table', () => {
     expect(contributionIds.length).toBeGreaterThan(0)
     expect(contributionIds).toContain('example.injection.crud-validation@crud-form:example.todo')
     expect(contributionIds).toContain('example.injection.customer-priority-field@crud-form:customers.person:fields')
+    expect(contributionIds).toContain('example.injection.customer-priority-field@crud-form:customers.company:fields')
+    expect(contributionIds).toContain('example.injection.customer-priority-field@crud-form:customers.deal:fields')
     expect(contributionIds).toContain('example.injection.customer-priority-column@data-table:customers.people.list:columns')
     expect(contributionIds).toContain('example.injection.sales-todos@sales.document.detail.order:tabs')
     expect(contributionIds).toContain('example.injection.catalog-seo-report@data-table:catalog.products:header')

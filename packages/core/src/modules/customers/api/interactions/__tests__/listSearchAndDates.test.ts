@@ -107,6 +107,14 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(compiled!.parameters).not.toContain('%50%_off%')
   })
 
+  test('list projection includes external_message_id for email interaction links', async () => {
+    const res = await GET(new Request('https://example.test/api/customers/interactions?interactionType=email'))
+    expect(res.status).toBe(200)
+    const compiled = rowsQuery()
+    expect(compiled).toBeDefined()
+    expect(compiled!.sql).toContain('"external_message_id"')
+  })
+
   test('valid from/to filters bind Date parameters on the occurred/scheduled/created range', async () => {
     const res = await GET(
       new Request(
@@ -138,5 +146,26 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(normalizedSql).not.toContain('"scheduled_at" <=')
     expect(normalizedSql).not.toContain('coalesce(occurred_at, scheduled_at, created_at) >=')
     expect(compiled!.parameters).toEqual(expect.arrayContaining([from, to]))
+  })
+})
+
+describe('interaction disjunction isolation (#8883)', () => {
+  test('groups search and recurrence branches on every list query', async () => {
+    const entityId = '33333333-3333-4333-8333-333333333333'
+    const response = await GET(new Request(
+      `https://example.test/api/customers/interactions?entityId=${entityId}&search=needle&recurrenceMasters=true&from=2026-02-01&to=2026-02-08&limit=1`,
+    ))
+    expect(response.status).toBe(200)
+    const queries = recordedQueries.filter((entry) => entry.sql.includes('customer_interactions'))
+    expect(queries.length).toBeGreaterThan(0)
+    for (const compiled of queries) {
+      expect(compiled.sql).toMatch(/and \(coalesce\(title, ''\) ilike \$\d+ or coalesce\(body, ''\) ilike \$\d+\)/)
+      expect(compiled.sql).toMatch(/and \(recurrence_end is null or recurrence_end >= \$\d+\)/)
+      expect(compiled.sql).toContain('"deleted_at" is null')
+      expect(compiled.sql).toContain('"tenant_id" =')
+      expect(compiled.sql).toContain('"organization_id" in')
+      expect(compiled.sql).toContain('"entity_id" =')
+      expect(compiled.parameters).toEqual(expect.arrayContaining([tenantId, orgId, entityId]))
+    }
   })
 })

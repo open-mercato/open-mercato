@@ -3,10 +3,14 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../../data/entities'
+import { loadWarrantyClaimDictionaryLabel } from '../../../../lib/dictionaries'
 import { loadPortalOwnedClaim } from '../../../../lib/portalClaimAccess'
+import { resolveLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -40,13 +44,9 @@ async function resolveClaimId(ctx: RouteContext): Promise<string | null> {
 }
 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
-  const auth = await getCustomerAuthFromRequest(req)
-  if (!auth) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
-  }
-  if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
-  }
+  const authOrResponse = await resolveLinkedCustomerAuth(req)
+  if (authOrResponse instanceof Response) return authOrResponse
+  const auth = authOrResponse
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   return {
@@ -104,13 +104,35 @@ function serializeClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) {
   }
 }
 
+async function loadRejectionReasonLabel(
+  context: PortalContext,
+  rejectionReasonCode: string | null | undefined,
+): Promise<string | null> {
+  if (!rejectionReasonCode) return null
+  try {
+    return await loadWarrantyClaimDictionaryLabel(
+      context.em.fork(),
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+      'warranty-claim-rejection-reason',
+      rejectionReasonCode,
+    )
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'warranty_claims',
+      code: 'warranty_claims.portal_rejection_label_failed',
+    })
+    return null
+  }
+}
+
 export async function GET(req: Request, ctx: RouteContext) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
+  const { translate } = await resolveTranslations()
   const claimId = await resolveClaimId(ctx)
   if (!claimId) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
   }
   const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
   const claim = await loadPortalOwnedClaim(
@@ -123,7 +145,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     claimId,
   )
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
   }
   const lines = await findWithDecryption(
     context.em,
@@ -132,7 +154,8 @@ export async function GET(req: Request, ctx: RouteContext) {
     { orderBy: { lineNo: 'ASC' } },
     scope,
   )
-  return NextResponse.json({ item: serializeClaim(claim, lines) })
+  const rejectionReasonLabel = await loadRejectionReasonLabel(context, claim.rejectionReasonCode)
+  return NextResponse.json({ item: { ...serializeClaim(claim, lines), rejectionReasonLabel } })
 }
 
 const lineSchema = z.object({
@@ -167,6 +190,7 @@ const claimSchema = z.object({
   orderNumber: z.string().nullable(),
   reasonCode: z.string().nullable(),
   rejectionReasonCode: z.string().nullable(),
+  rejectionReasonLabel: z.string().nullable().optional(),
   resolutionSummary: z.string().nullable(),
   slaDueAt: z.string().nullable(),
   submittedAt: z.string().nullable(),

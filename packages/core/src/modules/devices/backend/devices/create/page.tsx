@@ -71,6 +71,7 @@ export default function DeviceAdminCreatePage() {
       <PageBody>
         <CrudForm<FormValues>
           title={t('devices.form.createTitle')}
+          titleHeadingLevel={1}
           backHref="/backend/devices"
           fields={fields}
           groups={groups}

@@ -86,6 +86,7 @@ export default function CreateRolePage() {
       <PageBody>
         <CrudForm<CreateRoleFormValues>
           title={t('auth.roles.form.title.create', 'Create Role')}
+          titleHeadingLevel={1}
           backHref="/backend/roles"
           entityId={E.auth.role}
           fields={fields}

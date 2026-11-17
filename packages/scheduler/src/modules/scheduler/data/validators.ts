@@ -157,7 +157,7 @@ export const scheduleCreateSchema = scheduleBaseSchema
  * Update schedule schema (all fields optional except id)
  */
 export const scheduleUpdateSchema = z.object({
-  id: z.uuid(),
+  id: z.guid(),
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(500).optional().nullable(),
   
@@ -254,7 +254,7 @@ export const scheduleUpdateSchema = z.object({
  * Delete schedule schema
  */
 export const scheduleDeleteSchema = z.object({
-  id: z.uuid(),
+  id: z.guid(),
 })
 
 /**
@@ -263,7 +263,7 @@ export const scheduleDeleteSchema = z.object({
 export const scheduleListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  id: z.string().uuid().optional(),
+  id: z.guid().optional(),
   search: z.string().optional(),
   scopeType: z.enum(['system', 'organization', 'tenant']).optional(),
   isEnabled: z.string().optional().transform((val) => {
@@ -280,7 +280,7 @@ export const scheduleListQuerySchema = z.object({
  * Trigger schedule schema (manual execution)
  */
 export const scheduleTriggerSchema = z.object({
-  id: z.uuid(),
+  id: z.guid(),
 })
 
 /**
@@ -289,7 +289,7 @@ export const scheduleTriggerSchema = z.object({
 export const scheduleRunsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  scheduledJobId: z.uuid().optional(),
+  scheduledJobId: z.guid().optional(),
   status: z.enum(['running', 'completed', 'failed', 'skipped']).optional(),
   triggerType: z.enum(['scheduled', 'manual']).optional(),
   fromDate: z.string().datetime().optional(),

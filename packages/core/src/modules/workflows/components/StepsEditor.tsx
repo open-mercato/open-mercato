@@ -24,8 +24,9 @@ interface Step {
   timeout?: number
   retryPolicy?: {
     maxAttempts?: number
-    retryDelay?: number
-    backoffMultiplier?: number
+    initialIntervalMs?: number
+    backoffCoefficient?: number
+    maxIntervalMs?: number
   }
 }
 
@@ -47,6 +48,12 @@ const STEP_TYPES = [
   { value: 'WAIT_FOR_TIMER', label: 'Wait for Timer' },
 ]
 
+/**
+ * @deprecated The form editor is retired (spec section 10) — steps are authored
+ * on the canvas in `/backend/definitions/visual-editor`. This component stays
+ * exported for at least one minor release for third-party forms that embed it;
+ * it has no call site in this module any more.
+ */
 export function StepsEditor({ value = [], onChange, error }: StepsEditorProps) {
   const t = useT()
 

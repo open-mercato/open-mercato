@@ -6,6 +6,7 @@ import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
 import { SalesQuote } from '../../data/entities'
 import type { DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -90,13 +91,17 @@ describe('sales quote update cache + snapshot refresh', () => {
       findOne,
       flush: jest.fn(async () => {}),
       begin: jest.fn(async () => {}),
+      getKysely: () => createSalesDocumentLockKyselyFixture(quoteId),
       commit: jest.fn(async () => {}),
       rollback: jest.fn(async () => {}),
       fork: () => em,
     }
 
     const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
-    container.register({ em: asValue(em) })
+    container.register({
+      em: asValue(em),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
+    })
 
     const ctx: any = {
       container,

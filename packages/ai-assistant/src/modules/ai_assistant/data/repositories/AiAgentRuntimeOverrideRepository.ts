@@ -1,5 +1,5 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from '../../lib/llm-registry'
 import { canonicalProviderId } from '../../lib/model-allowlist'
 import { AiAgentRuntimeOverride } from '../entities'
 import type { AiAgentLoopStopCondition } from '../../lib/ai-agent-definition'

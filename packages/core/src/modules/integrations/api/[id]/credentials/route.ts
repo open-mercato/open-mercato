@@ -5,16 +5,21 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { emitIntegrationsEvent } from '../../../events'
 import { saveCredentialsSchema } from '../../../data/validators'
 import {
   isCredentialsEncryptionUnavailableError,
+  isCredentialsSealedWhileDisabledError,
+  isReservedOAuthGrantId,
   type CredentialsService,
 } from '../../../lib/credentials-service'
 import { collectCredentialUrlValidationErrors } from '../../../lib/credentials-field-validation'
 import {
   maskSecretCredentials,
   mergeMaskedSecretCredentials,
+  MaskedSecretDestinationChangedError,
 } from '../../../lib/credentials-masking'
 import {
   resolveUserFeatures,
@@ -22,8 +27,30 @@ import {
   runIntegrationMutationGuards,
 } from '../../guards'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
+
+const logger = createLogger('integrations').child({ component: 'credentials-route' })
+
+/**
+ * Credentials sealed before `TENANT_DATA_ENCRYPTION` was switched off cannot be opened by any key,
+ * and nothing unseals them for the operator: `mercato entities decrypt-database` decrypts the
+ * columns an encryption map covers, while this envelope sits *inside* the decrypted `credentials`
+ * value. Re-entering them is the only remedy, so the admin surface has to stay usable — a 503 on
+ * both the read and the save would leave the integration permanently unfixable from the UI.
+ *
+ * The form therefore loads as if nothing were configured. Adapters keep seeing the error, since
+ * they read through the service directly.
+ */
+function reportSealedCredentials(integrationId: string, tenantId: string): void {
+  logger.warn(
+    'Integration credentials are sealed under an encryption key that is no longer available '
+      + '(TENANT_DATA_ENCRYPTION was switched off after they were saved). The admin form will show '
+      + 'them as unconfigured; re-save the credentials to store them in the clear.',
+    { integrationId, tenantId },
+  )
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['integrations.credentials.manage'] },
@@ -33,6 +60,15 @@ export const metadata = {
 export const openApi = {
   tags: ['Integrations'],
   summary: 'Get or save integration credentials',
+}
+
+/**
+ * Ids ending in the reserved `__oauth_grant` suffix address OAuth grant rows, which this admin route
+ * never reads or writes, even when an integration with such an id is registered.
+ */
+function resolveCredentialsIntegration(integrationId: string) {
+  if (isReservedOAuthGrantId(integrationId)) return undefined
+  return getIntegration(integrationId)
 }
 
 function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: string } }): Promise<{ id?: string } | undefined> | { id?: string } | undefined {
@@ -59,7 +95,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Invalid integration id' }, { status: 400 })
   }
 
-  const integration = getIntegration(parsedParams.data.id)
+  const integration = resolveCredentialsIntegration(parsedParams.data.id)
   if (!integration) {
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
   }
@@ -74,10 +110,15 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     values = await credentialsService.resolve(integration.id, scope)
     updatedAt = await credentialsService.resolveUpdatedAt(integration.id, scope)
   } catch (error) {
-    if (isCredentialsEncryptionUnavailableError(error)) {
+    if (isCredentialsSealedWhileDisabledError(error)) {
+      reportSealedCredentials(integration.id, auth.tenantId)
+      values = null
+      updatedAt = await credentialsService.resolveUpdatedAt(integration.id, scope)
+    } else if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
+    } else {
+      throw error
     }
-    throw error
   }
 
   const schema = credentialsService.getSchema(integration.id)
@@ -108,7 +149,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Invalid integration id' }, { status: 400 })
   }
 
-  const integration = getIntegration(parsedParams.data.id)
+  const integration = resolveCredentialsIntegration(parsedParams.data.id)
   if (!integration) {
     return NextResponse.json({ error: 'Integration not found' }, { status: 404 })
   }
@@ -183,7 +224,15 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   try {
-    const existing = await credentialsService.resolve(integration.id, scope)
+    let existing: Record<string, unknown> | null = null
+    try {
+      existing = await credentialsService.resolve(integration.id, scope)
+    } catch (error) {
+      // Nothing to merge against, but the save itself must go through: this is the state the
+      // re-entry is meant to escape from.
+      if (!isCredentialsSealedWhileDisabledError(error)) throw error
+      reportSealedCredentials(integration.id, auth.tenantId)
+    }
     const credentialsToSave = mergeMaskedSecretCredentials(
       schema,
       payloadData.credentials,
@@ -192,6 +241,15 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     )
     await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
+    if (error instanceof MaskedSecretDestinationChangedError) {
+      getTelemetryRuntime()?.reportError(error, { module: 'integrations', code: 'integrations.masked_secret_destination_changed' })
+      const { t } = await resolveTranslations()
+      const message = t('integrations.credentials.errors.destinationChanged')
+      return NextResponse.json({
+        error: message,
+        details: { fieldErrors: Object.fromEntries(error.fields.map((field) => [field, message])) },
+      }, { status: 422 })
+    }
     if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
     }
