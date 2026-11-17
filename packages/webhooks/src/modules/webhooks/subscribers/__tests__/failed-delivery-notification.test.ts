@@ -6,7 +6,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
-  createLogger: () => ({ child: () => ({ error: (...args: unknown[]) => mockLogError(...args) }) }),
+  createLogger: () => ({ child: () => ({
+    error: (...args: unknown[]) => mockLogError(...args),
+    warn: (...args: unknown[]) => mockLogWarning(...args),
+  }) }),
 }))
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
@@ -27,6 +30,7 @@ import { buildFeatureNotificationFromType } from '@open-mercato/core/modules/not
 import { resolveWebhookIntegrationSettings } from '../../lib/integration-settings'
 
 const mockLogError = jest.fn()
+const mockLogWarning = jest.fn()
 
 describe('webhooks failed delivery notification subscriber', () => {
   afterEach(() => {
@@ -168,10 +172,13 @@ describe('webhooks failed delivery notification subscriber', () => {
     expect(getTelemetryRuntime).not.toHaveBeenCalled()
   })
 
-  it('still records genuine creation failures with a null organization', async () => {
+  it.each([false, true])('preserves swallowed creation failures when telemetry throws: %s', async (reporterThrows) => {
     const error = new Error('Notification storage unavailable')
+    const telemetryError = new Error('Telemetry unavailable')
     const createForFeature = jest.fn().mockRejectedValue(error)
-    const reportError = jest.fn()
+    const reportError = jest.fn(() => {
+      if (reporterThrows) throw telemetryError
+    })
     jest.mocked(getTelemetryRuntime).mockReturnValue({ reportError } as unknown as NonNullable<ReturnType<typeof getTelemetryRuntime>>)
     jest.mocked(resolveWebhookIntegrationSettings).mockResolvedValue({ notifyOnFailedDelivery: true })
     jest.mocked(findOneWithDecryption).mockResolvedValue(null)
@@ -179,7 +186,7 @@ describe('webhooks failed delivery notification subscriber', () => {
     const em = { fork: jest.fn() }
     em.fork.mockReturnValue(em)
 
-    await handler(
+    await expect(handler(
       {
         deliveryId: 'delivery-1',
         webhookId: 'webhook-1',
@@ -193,7 +200,7 @@ describe('webhooks failed delivery notification subscriber', () => {
           throw new Error(`Unexpected dependency: ${name}`)
         },
       },
-    )
+    )).resolves.toBeUndefined()
 
     expect(createForFeature).toHaveBeenCalledWith(expect.any(Object), { tenantId: 'tenant-1', organizationId: null })
     expect(mockLogError).toHaveBeenCalledWith('Failed to create notification', { err: error })
@@ -201,5 +208,12 @@ describe('webhooks failed delivery notification subscriber', () => {
       module: 'webhooks',
       code: 'webhooks.failed_delivery_notification_failed',
     })
+    expect(reportError).toHaveBeenCalledTimes(1)
+    expect(mockLogError).toHaveBeenCalledTimes(1)
+    if (reporterThrows) {
+      expect(mockLogWarning).toHaveBeenCalledWith('Failed to report webhook notification error', { err: telemetryError })
+    } else {
+      expect(mockLogWarning).not.toHaveBeenCalled()
+    }
   })
 })

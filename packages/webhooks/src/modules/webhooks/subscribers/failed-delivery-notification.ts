@@ -84,6 +84,10 @@ export default async function handle(payload: WebhookDeliveryExhaustedPayload, c
     })
   } catch (err) {
     logger.error('Failed to create notification', { err })
-    getTelemetryRuntime()?.reportError(err, { module: 'webhooks', code: 'webhooks.failed_delivery_notification_failed' })
+    try {
+      getTelemetryRuntime()?.reportError(err, { module: 'webhooks', code: 'webhooks.failed_delivery_notification_failed' })
+    } catch (telemetryError) {
+      logger.warn('Failed to report webhook notification error', { err: telemetryError })
+    }
   }
 }
