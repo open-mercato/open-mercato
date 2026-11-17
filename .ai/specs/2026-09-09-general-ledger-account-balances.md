@@ -205,14 +205,20 @@ evidenced operation date; if any captured movement would require a target
 posting before go-live, fail closed until a separately reviewed migration
 policy supports it. Fence other target writes during this transfer and
 reconciliation, admitting only the controlled initialization and bridge.
-Reconcile
-signed balances per account and applicable currency at the final watermark,
+Reconcile signed balances per account and applicable currency at the final watermark,
 and reconcile movement membership, not merely totals. Publish the
 attestation and hand off write ownership only after complete transfer and
 reconciliation are durable. Until then target reporting remains disabled.
-Recovery and rollback must preserve the fence and operation identity, or
-invalidate the attestation and keep reporting disabled until a newly
-reconciled handoff succeeds. Missing accounts, duplicate mappings, omitted
+Recovery, failover and rollback must preserve the source fence and operation
+identity without interruption; invalidating an attestation after a fence is
+released is not an alternative, because a report could race that release.
+The design must prove that no inventoried source writer can accept a write
+after the final watermark, including while authority or network state is
+unknown. An expiring lease or best-effort invalidation alone is insufficient.
+If continuous enforcement cannot be proved for a source and its failovers,
+do not activate reporting for that scope. Returning ownership to the source
+or lifting the fence requires a separate reviewed cutover protocol; it is
+not supported by this proposal. Missing accounts, duplicate mappings, omitted
 currencies, discrepancies or unverifiable source evidence invalidate the
 whole scope; an entry's balance or caller assertion is not proof. No
 partially reconciled account set is reportable. The authority must cover
@@ -1333,8 +1339,11 @@ top of the live query.
   source movement of 20, assert initialization is 100 and the uniquely
   identified transferred movement is 20 exactly once; final source and
   target each reconcile to 120. Attempt an old writer after handoff and
-  across failover and rollback: it must be fenced, or both reports remain
-  disabled. Cover incomplete writer inventory, missing or unverifiable
+  across failover and rollback while a report and target writer race: the
+  source write must always be rejected, including while attestation invalidation
+  or recovery is delayed. Assert an uncertain or unprovable continuous source
+  fence prevents activation, and a rollback cannot release it. Cover
+  incomplete writer inventory, missing or unverifiable
   watermark, dropped and duplicated movements, lost acknowledgement,
   concurrent retries and interrupted recovery. No partial results are allowed.
   For a July go-live in a January-start fiscal year, let external cash have
