@@ -59,6 +59,23 @@ const parseMetadataValue = (raw: string): unknown => {
   return trimmed
 }
 
+const entriesMatchValue = (entries: MetadataEntry[], value?: Record<string, unknown> | null): boolean => {
+  const committed: Record<string, unknown> = {}
+  for (const entry of entries) {
+    const key = entry.key.trim()
+    if (key) committed[key] = parseMetadataValue(entry.value)
+  }
+  const incoming = value && typeof value === 'object' ? value : {}
+  const committedKeys = Object.keys(committed)
+  const incomingKeys = Object.keys(incoming)
+  if (committedKeys.length !== incomingKeys.length) return false
+  return committedKeys.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(incoming, key) &&
+      JSON.stringify(committed[key]) === JSON.stringify((incoming as Record<string, unknown>)[key]),
+  )
+}
+
 export function MetadataEditor({
   value,
   onChange,
@@ -77,7 +94,7 @@ export function MetadataEditor({
       skipSyncRef.current = false
       return
     }
-    setEntries(toEntries(value))
+    setEntries((prevEntries) => (entriesMatchValue(prevEntries, value) ? prevEntries : toEntries(value)))
   }, [value])
 
   const emitChange = React.useCallback(
