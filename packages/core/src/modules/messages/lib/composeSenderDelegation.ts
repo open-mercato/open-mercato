@@ -26,11 +26,11 @@ export type ComposeSenderActor = {
 
 export type ComposeSenderResult =
   | { ok: true; messageId: string; threadId: string }
-  | { ok: false; status: number; error: string; fieldErrors: Record<string, string> }
+  | { ok: false; status: number; error: string; fieldErrors: Record<string, string>; headers?: Record<string, string> }
 
 type SendAsUserResult =
   | { ok: true; messageId: string; threadId: string; channelId: string; providerKey: string }
-  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string> }
+  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; headers?: Record<string, string> }
 
 type SendAsUserService = (
   container: ContainerLike,
@@ -178,5 +178,6 @@ export async function delegateComposeToSender(
     status: result.status,
     error: result.error,
     fieldErrors: { [COMPOSE_SENDER_FIELD]: fieldMessage },
+    ...(result.headers ? { headers: result.headers } : {}),
   }
 }
