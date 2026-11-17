@@ -18,6 +18,7 @@ const logger = createLogger('ai_assistant')
 
 const agentsById = new Map<string, AiAgentDefinition>()
 const definitionHashesById = new Map<string, string>()
+const overrideDisabledAgentIds = new Set<string>()
 let loaded = false
 
 function setRegisteredAgent(agent: AiAgentDefinition): void {
@@ -238,6 +239,10 @@ async function loadOverrideEntries(): Promise<AiAgentOverrideConfigEntry[]> {
 
 function applyOverridesToRegistry(entries: readonly AiAgentOverrideConfigEntry[]): void {
   const overrideMap = composeAgentOverrideMap(entries)
+  overrideDisabledAgentIds.clear()
+  for (const [id, value] of Object.entries(overrideMap)) {
+    if (value === null) overrideDisabledAgentIds.add(id)
+  }
   if (Object.keys(overrideMap).length === 0) return
   const overridden = applyAgentOverrideMap(Array.from(agentsById.values()), overrideMap)
   clearRegisteredAgents()
@@ -331,7 +336,9 @@ export async function loadAgentRegistry(): Promise<void> {
  * extensions) is loaded first, every candidate goes through the same shape check
  * and normalization as a generated agent, and an id that is already registered is
  * skipped rather than replaced, so a runtime agent can never shadow or alter a
- * code-defined one. Returns the ids that were registered.
+ * code-defined one. An id disabled through an override (`null` value) is refused
+ * as well, so a runtime agent cannot silently undo the disable. Returns the ids
+ * that were registered.
  */
 export async function registerRuntimeAiAgents(agents: readonly unknown[]): Promise<string[]> {
   await loadAgentRegistry()
@@ -343,6 +350,13 @@ export async function registerRuntimeAiAgents(agents: readonly unknown[]): Promi
     }
     if (candidate.id === AI_RAW_TOOL_AGENT_ID) {
       logger.error('AI Agents — Skipping runtime agent using the reserved raw-tool agent id', {
+        agentId: candidate.id,
+        moduleId: candidate.moduleId,
+      })
+      continue
+    }
+    if (overrideDisabledAgentIds.has(candidate.id)) {
+      logger.warn('AI Agents — Skipping runtime agent whose id is disabled by an override', {
         agentId: candidate.id,
         moduleId: candidate.moduleId,
       })
@@ -383,6 +397,7 @@ export function listAgentsByModule(moduleId: string): AiAgentDefinition[] {
  */
 export function resetAgentRegistryForTests(): void {
   clearRegisteredAgents()
+  overrideDisabledAgentIds.clear()
   loaded = false
 }
 
@@ -393,6 +408,7 @@ export function resetAgentRegistryForTests(): void {
  */
 export function seedAgentRegistryForTests(agents: unknown[]): void {
   clearRegisteredAgents()
+  overrideDisabledAgentIds.clear()
   populateFromAgents(agents)
   loaded = true
 }
