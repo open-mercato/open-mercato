@@ -469,6 +469,7 @@ describe('buildDocumentCrudOptions', () => {
         'SalesChannel',
         'SalesOrderRecurrence',
         'SalesRecurringPeriod',
+        'SalesOrder',
       ])
     })
 

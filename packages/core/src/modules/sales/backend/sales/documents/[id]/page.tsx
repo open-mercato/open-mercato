@@ -79,6 +79,7 @@ import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from
 import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { documentEmailForCustomerChange, readDocumentEmail, resolveSavedContactEmail, syncDocumentEmailWithSnapshot } from '@open-mercato/core/modules/sales/lib/documentEmail'
 
 const logger = createLogger('sales')
 
@@ -1759,6 +1760,7 @@ function StatusInlineEditor({
   loading,
   saveLabel,
   dictionaryMap,
+  appearance = 'plain',
 }: {
   label: string
   value: string | null | undefined
@@ -1771,6 +1773,7 @@ function StatusInlineEditor({
   loading: boolean
   saveLabel: string
   dictionaryMap: DictionaryMap
+  appearance?: 'plain' | 'dot' | 'icon'
 }) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -1860,7 +1863,6 @@ function StatusInlineEditor({
                 onChange={(next) => setDraft(next ?? undefined)}
                 fetchOptions={fetchStatusOptions}
                 allowInlineCreate={false}
-                allowAppearance
                 manageHref={manageHref}
                 sortOptions="none"
                 labels={labels}
@@ -1897,6 +1899,7 @@ function StatusInlineEditor({
               <DictionaryValue
                 value={value}
                 map={dictionaryMap}
+                appearance={appearance}
                 fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
                 className="text-sm"
                 iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
@@ -2846,11 +2849,8 @@ export default function SalesDocumentDetailPage({
   const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
   const customerName = resolveCustomerName(customerSnapshot, record?.customerName ?? record?.customerEntityId ?? null)
-  const metadataEmail =
-    record?.metadata && typeof (record.metadata as Record<string, unknown>).customerEmail === 'string'
-      ? (record.metadata as Record<string, unknown>).customerEmail
-      : null
-  const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
+  const metadataEmail = readDocumentEmail(record?.metadata as Record<string, unknown> | null | undefined)
+  const contactEmail = metadataEmail ?? resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
   const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null, locale)
   const messagePreviewMetadata: Record<string, string> = {}
@@ -3564,9 +3564,12 @@ export default function SalesDocumentDetailPage({
       setCustomerError(null)
       try {
         const payload: Record<string, unknown> = { customerEntityId: nextId }
-        if (email && email.trim().length) {
-          payload.metadata = { customerEmail: email.trim() }
-        }
+        const metadataPatch = documentEmailForCustomerChange(
+          record.metadata as Record<string, unknown> | null | undefined,
+          email,
+          changedCustomer,
+        )
+        if (metadataPatch !== undefined) payload.metadata = metadataPatch
         const call = await updateDocument(payload)
         const snapshot = (call.result?.customerSnapshot ?? null) as CustomerSnapshot | null
         const hasSnapshotInResponse =
@@ -3575,19 +3578,17 @@ export default function SalesDocumentDetailPage({
         const resolvedName =
           (call.result?.customerName as string | undefined) ??
           resolveCustomerName(snapshot, selected?.label ?? record.customerName ?? record.customerEntityId ?? null)
-        const resolvedEmail =
-          resolveCustomerEmail(snapshot) ??
-          (call.result?.contactEmail as string | undefined | null) ??
-          email ??
-          selected?.primaryEmail ??
-          null
+        const emailFallback = resolveCustomerEmail(snapshot) ?? email ?? selected?.primaryEmail ?? null
         setRecord((prev) =>
           prev
             ? {
                 ...prev,
                 customerEntityId: nextId ?? null,
+                ...(metadataPatch !== undefined
+                  ? { metadata: (call.result?.metadata as Record<string, unknown> | null | undefined) ?? metadataPatch }
+                  : {}),
                 customerName: nextId ? resolvedName ?? prev.customerName : resolvedName ?? null,
-                contactEmail: resolvedEmail ?? (nextId ? prev.contactEmail ?? null : null),
+                contactEmail: resolveSavedContactEmail(call.result, emailFallback ?? (nextId ? prev.contactEmail : null)),
                 customerSnapshot:
                   hasSnapshotInResponse || changedCustomer
                     ? snapshot
@@ -3627,7 +3628,14 @@ export default function SalesDocumentDetailPage({
       setCustomerSaving(true)
       setCustomerError(null)
       try {
-        const call = await updateDocument({ customerSnapshot: snapshot })
+        const metadataPatch = syncDocumentEmailWithSnapshot(
+          record.metadata as Record<string, unknown> | null | undefined,
+          resolveCustomerEmail(record.customerSnapshot as CustomerSnapshot | null | undefined),
+          resolveCustomerEmail(snapshot),
+        )
+        const call = await updateDocument(
+          metadataPatch === undefined ? { customerSnapshot: snapshot } : { customerSnapshot: snapshot, metadata: metadataPatch },
+        )
         const hasSnapshotInResponse =
           call.result && Object.prototype.hasOwnProperty.call(call.result, 'customerSnapshot')
         const savedSnapshot =
@@ -3636,13 +3644,17 @@ export default function SalesDocumentDetailPage({
           savedSnapshot,
           record.customerName ?? record.customerEntityId ?? null,
         )
-        const resolvedEmail =
-          resolveCustomerEmail(savedSnapshot) ??
-          (typeof call.result?.contactEmail === 'string' ? call.result.contactEmail : record.contactEmail ?? null)
+        const resolvedEmail = resolveSavedContactEmail(
+          call.result,
+          resolveCustomerEmail(savedSnapshot) ?? record.contactEmail,
+        )
         setRecord((prev) =>
           prev
             ? {
                 ...prev,
+                ...(metadataPatch !== undefined
+                  ? { metadata: (call.result?.metadata as Record<string, unknown> | null | undefined) ?? metadataPatch }
+                  : {}),
                 customerSnapshot: savedSnapshot ?? null,
                 customerName: resolvedName,
                 contactEmail: resolvedEmail ?? null,
@@ -4892,6 +4904,7 @@ export default function SalesDocumentDetailPage({
                   loading={statusLoading}
                   saveLabel={saveShortcutLabel}
                   dictionaryMap={statusDictionaryMap}
+                  appearance="dot"
                 />
               )
             }
