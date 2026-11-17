@@ -319,6 +319,23 @@ describe('AgentRuntimeService.run invoke gate', () => {
 
 describe('delegate_agent invoke inheritance', () => {
   const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
+  const PARENT_AGENT_ID = 'invoke.delegate_parent'
+
+  beforeAll(() => {
+    registerFileAgent({
+      id: PARENT_AGENT_ID,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'research',
+      schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
+      tools: [DELEGATE_TOOL_ID],
+      skills: [],
+      subAgents: ['invoke.delegate_child', 'invoke.delegate_child_open'],
+      label: 'Delegating parent',
+      description: 'Parent that declares the delegate children.',
+      instructions: 'delegate',
+      runtime: 'in-process',
+    })
+  })
 
   it('checks the child run against the parent run invoker, not the tool caller', async () => {
     registerAgent('invoke.delegate_child', ['sales.orders.view'])
@@ -339,6 +356,8 @@ describe('delegate_agent invoke inheritance', () => {
         ),
       undefined,
       parentInvoker,
+      undefined,
+      PARENT_AGENT_ID,
     )
     expect(result).toMatchObject({ ok: false, agentId: 'invoke.delegate_child' })
     expect(loadAcl).toHaveBeenCalledWith('api_key:key-parent', scope)
@@ -368,6 +387,8 @@ describe('delegate_agent invoke inheritance', () => {
         ),
       undefined,
       parentInvoker,
+      undefined,
+      PARENT_AGENT_ID,
     )
     expect(captured).toMatchObject({ invoker: parentInvoker, entryPoint: 'delegate', parentRunId: 'run-parent' })
   })
