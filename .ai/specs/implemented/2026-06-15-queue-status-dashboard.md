@@ -250,6 +250,16 @@ type QueueProcessingStats = {
 If a strategy does not implement `getProcessingStats`, the snapshot omits the metrics block
 for that queue and the UI hides it.
 
+**Completed-job retention and its residual window.** The async strategy retains a bounded
+per-queue window of completed jobs (`removeOnComplete: { count: COMPLETED_RETENTION_COUNT }`)
+solely so those metrics have a sample, and the worker's `completed` listener immediately
+rewrites each retained record to the payload-free `buildCompletedRetentionEnvelope` (ownership
+plus job type — never the handler payload). The residual window is a process death or a failed
+rewrite between completion and that scrub: the record then keeps its handler payload until
+BullMQ evicts it under the same per-queue cap. A failed rewrite is reported as
+`queue.completed_scrub_failed`; scrubbing inside the completion path itself is not exposed by
+BullMQ, so this window is accepted and bounded rather than closed.
+
 ### In-flight & aged-waiting jobs (timing, payload-free)
 
 To answer "show the items being processed right now and how long they're taking" and "how
