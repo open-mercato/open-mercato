@@ -327,21 +327,62 @@ independent implementations of the same pattern, not a shared library
     not `failed`, the same three-bucket posture Design decision 1
     already borrows from `accrueDepreciation`). Only then does the
     transaction call `commandBus.execute('ledger.postJournalEntry',
-    ...)` and set `accruedAt`/`journalEntryReferenceId` on the entry —
-    **in the same transaction as the post**, reusing Cash & Bank
-    Management's (#6055) already-established fact that a nested
-    `commandBus.execute()` call joins the caller's own
-    `em.transactional()` block rather than opening a second one (see
-    knowledge base, Changelog, "cross-module transaction pattern"
-    entry — **corrected citation, spec-checklist pass, 2026-09-21**: an
-    earlier version of this decision pointed at §3, which is "External
-    sources," not where this fact is recorded). This gives
-    the finding's required transaction/recovery boundary for free: a
-    crash between the ledger post and the marker write is a crash
-    *before commit*, so the whole transaction — ledger entry included
-    — never lands; a retry reprocesses the entry cleanly from
-    `accruedAt IS NULL`, with no double-post and no orphaned
-    half-accrued row. Per-entry locking (not one lock held across an
+    { input, ctx: { ...ctx, transactionalEm: em } })` — passing the
+    callback's **own transaction-bound `EntityManager` explicitly** as
+    `ctx.transactionalEm` — and set
+    `accruedAt`/`journalEntryReferenceId` on the entry, **inside the
+    same `em.transactional()` callback**.
+
+    **Corrected 2026-11-18 (review round, Blocker).** The earlier text
+    claimed a nested `commandBus.execute()` call joins the caller's
+    `em.transactional()` block "for free". It does not. The shared
+    contract makes `transactionalEm` an opt-in the caller must set
+    (`packages/shared/src/lib/commands/types.ts:63-69`: "When set,
+    command handlers that support it MUST run their writes within this
+    existing transactional EntityManager … instead of opening their own
+    transaction"), and the bus otherwise falls back to
+    `ctx.container.resolve('em')` and opens its own transaction on a
+    fork (`packages/shared/src/lib/commands/command-bus.ts:69`). Left
+    implicit, that fork commits the journal independently of the
+    deferral marker: a crash between the two commits leaves a posted
+    journal entry with `accruedAt` still null, and the retry posts a
+    second time.
+
+    **Rule.** Every ledger call this module makes —
+    `ledger.postJournalEntry` from `deferRevenueRecognition`,
+    `accrueRevenueRecognition` and `stopRevenueRecognitionSchedule`,
+    and `ledger.reverseJournalEntry` from `cancelRevenueDeferral` — runs
+    on the transaction callback's `EntityManager` and passes it as
+    `ctx.transactionalEm`. No command may rely on ambient joining, and
+    none may call a ledger command after its own callback has returned.
+
+    **Pinned ledger contract (assumption, verified against the unmerged
+    ledger stack, not against `main`).** `ledger` ships no code on
+    `main` yet, so this decision pins the contract it assumes, from the
+    ledger work in PR #6340 at commit `91e0e529`
+    (`packages/core/src/modules/ledger/commands/postJournalEntry.ts:484-510`
+    — `withPostingTransaction` — and `:546-552` — event emission):
+    (a) a supplied `ctx.transactionalEm` is used for every write and
+    for the row locks the posting takes; (b) an absent
+    `transactionalEm` opens a new transaction on a fork; (c) a composed
+    posting suppresses its own `ledger.journal_entry.posted` emission,
+    so **the composing caller emits it after its own real commit** —
+    this module owns that emission for the four commands (Phase 1
+    declares no events of its own, Canonical Mechanisms). If the merged
+    ledger contract differs, this decision is where it must be
+    re-verified before implementation, and the dependency is pinned by
+    PR link rather than by filename.
+
+    With the propagation explicit, the finding's required
+    transaction/recovery boundary holds: a crash between the ledger
+    post and the marker write is a crash *before the outer commit*, so
+    the whole transaction — ledger entry included — never lands; a
+    retry reprocesses the entry cleanly from `accruedAt IS NULL`, with
+    no double-post and no orphaned half-accrued row. Because that is a
+    property of the *composed* path rather than of the ledger command
+    in isolation, it is verified through the composed command path, not
+    by unit-testing `postJournalEntry` alone (Testing Strategy
+    #3/#4). Per-entry locking (not one lock held across an
     entire `/accrue` run) preserves Fixed Assets' own reason for
     per-entry transactions in the first place — one entry's failure
     must not roll back or block already-processed entries in the same
@@ -397,21 +438,71 @@ independent implementations of the same pattern, not a shared library
     and then re-attempts the final step, which is itself guarded by the
     existing `409` "already `STOPPED`/`COMPLETED`" check.
 
-    **Gating rule (added, 2026-10-15 review round).** Step 3 runs only
-    when step 2 finished with `catchUpFailed = 0` **and**
-    `catchUpSkipped = 0`. The first version let step 3 run after a
-    skipped row: its "remaining schedule balance" then included the
-    skipped row's amount, which moved it into the `stopDate` period —
-    exactly the silent absorption step 2 says it avoids. When either
-    count is non-zero the call does not run step 3: the deferral stays
-    `ACTIVE`, no row is voided, and the response is **409
-    `STOP_CATCH_UP_INCOMPLETE`**, carrying the three catch-up counts and
-    the period of each skipped row, so the caller can unlock the period
-    or fix the failure and retry `/stop` with the same `stopDate`.
+    **Gating rule (added, 2026-10-15 review round; extended 2026-11-18).**
+    Step 3 runs only when step 2 finished with `catchUpFailed = 0`
+    **and** `catchUpSkipped = 0` **and** `blockedByCorrection = 0` (the
+    last term added by the correction-hold correction below). The first
+    version let step 3 run after a skipped row: its "remaining schedule
+    balance" then included the skipped row's amount, which moved it into
+    the `stopDate` period — exactly the silent absorption step 2 says it
+    avoids. When any of these counts is non-zero the call does not run
+    step 3: the deferral stays `ACTIVE`, no row is voided, and the
+    response is **409 `STOP_CATCH_UP_INCOMPLETE`**, carrying the
+    catch-up counts (including `blockedByCorrection`) and the period of
+    each skipped and each correction-held row, so the caller can unlock
+    the period or fix the failure and retry `/stop` with the same
+    `stopDate`.
     Catch-up entries that did post stay posted (each was individually
     committed, Design decision 1) and are not posted again on the retry.
     A successful `stop` therefore always carries a
     `finalRecognitionJournalEntryId`.
+
+    **Correction holds block finalization too — corrected 2026-11-18
+    (review round, Major).** The gate above named only `catchUpFailed`
+    and `catchUpSkipped`, but Design decision 14's fourth catch-up
+    outcome — `blockedByCorrection` (a row held because a credit memo or
+    return now matches the deferral) — leaves its amount unremoved
+    exactly like a skipped row does. Left out of the gate, step 3 still
+    satisfied `catchUpFailed = 0 && catchUpSkipped = 0` and recognized
+    the *entire* remaining stale balance in one final entry, which is
+    the single largest posting the module can make. The gate is
+    therefore `catchUpFailed = 0` **and** `catchUpSkipped = 0` **and**
+    `blockedByCorrection = 0`; a non-zero correction count produces the
+    same **409 `STOP_CATCH_UP_INCOMPLETE`** body, now carrying the
+    correction count and each held row's period, with the deferral left
+    `ACTIVE`, `correctionDetectedAt` set, and no row voided.
+
+    The preflight alone cannot carry this guarantee, because a
+    correction can commit between the preflight and catch-up, or between
+    catch-up and the final step. **Step 3's final transaction therefore
+    re-checks before it posts**, as its last reads before the
+    `ledger.postJournalEntry` call (all inside the `RevenueDeferral` row
+    lock it already holds, Design decision 12): (a) the persistent
+    `correctionDetectedAt` flag, and (b) the Design decision 14 match
+    queries themselves (`SalesCreditMemo.invoice_id`,
+    `SalesCreditMemoLine`/`SalesReturnLine.order_line_id`). Either hit
+    aborts step 3 — the transaction rolls back the deletes and the
+    status change, `correctionDetectedAt` is set, and the response is
+    again **409 `STOP_CATCH_UP_INCOMPLETE`**.
+
+    **Ordering/coordination policy for concurrent correction creation.**
+    `deferred_revenue` never blocks or participates in a `sales` credit
+    memo or return insert — `sales` is a soft, read-only dependency with
+    no event this module could subscribe to (Design decision 14), and no
+    direct cross-module ORM relation or lock is introduced. Coordination
+    is therefore one-directional and detect-then-freeze: the module's
+    three write commands serialize *their own* detection and flag write
+    on the `RevenueDeferral` row lock (so two of them cannot race the
+    flag or each other), while a correction arriving from `sales` is
+    observed only at the next guard read — the preflight, the per-entry
+    check, or step 3's under-lock re-check. The residual window (a
+    correction committing between step 3's last re-read and the outer
+    commit) cannot be closed without a `sales` event or a shared lock,
+    and is accepted: it is exactly the case the frozen `ACTIVE` deferral
+    plus the accountant's manual ledger correction exists for
+    (Design decision 14, confirmed by the domain expert 2026-10-16). The
+    window is narrowed, not assumed away, and it is recorded under Risks
+    & Impact Review.
 14. **Phase 1 guard against a correction/credit-memo on an
     already-deferred line — added, maintainer-review round; match key
     and coverage corrected in the 2026-10-15 review round.** The initial
@@ -465,7 +556,16 @@ independent implementations of the same pattern, not a shared library
       rejects **409 `DEFERRED_REVENUE_CORRECTION_EXISTS`**. Without
       this, step 3 would recognize the whole remaining balance — a
       stale amount — in a single entry, bypassing the guard on the one
-      path that posts the largest amount.
+      path that posts the largest amount. **Corrected 2026-11-18
+      (review round, Major):** a preflight that runs before *any*
+      posting cannot cover a correction that lands afterwards, so the
+      guard is also re-run, together with the persistent
+      `correctionDetectedAt` flag, inside step 3's final transaction as
+      its last reads before posting (Design decision 13, "Correction
+      holds block finalization too"). A hit there rolls the final step
+      back and returns 409 `STOP_CATCH_UP_INCOMPLETE`, not
+      `DEFERRED_REVENUE_CORRECTION_EXISTS`, because catch-up has
+      already run and its per-entry commits stay posted.
 
     **The blocked state is recorded, not noted.** The first version said
     the deferral stays `ACTIVE` "with a note that it needs manual
@@ -679,7 +779,7 @@ the last part.
 |---|---|---|---|
 | `sales.SalesInvoiceLine` / `SalesInvoiceLineRevenueAccount` | Direct `entityManager` read, scoped by `organizationId`/`tenantId`, no ORM relation | `deferred_revenue` (this module owns the read; neither `sales` nor `sales_invoice_gl_posting` is aware of it) | If `sales_invoice_gl_posting` is not installed, no `SalesInvoiceLineRevenueAccount` row can exist for any line, so `POST .../deferrals` always resolves its existing **404** ("no `SalesInvoiceLineRevenueAccount` row for this line") — the same response an installed-but-not-yet-posted line already produces; no new failure mode, and `deferred_revenue` never appears in either module's own `requires` |
 | `sales.SalesCreditMemo`, `SalesCreditMemoLine`, `SalesReturnLine`, and `sales.SalesInvoiceLine.order_line_id` (Design decision 14) | Direct `entityManager` read, scoped identically. No `sales` row references `SalesInvoiceLine.id`, so the match key is `SalesCreditMemo.invoice_id` (header-level) and the `order_line_id` of credit-memo and return lines — see Design decision 14 for what stays uncovered | `deferred_revenue` | If the table doesn't exist (module not installed or the correction feature not yet shipped), the read returns no matching rows, the same as "no correction exists yet", so the guard stays silent; a future version of `sales` changing the entity shape, or adding a direct invoice-line link, is the real risk (see Risks) |
-| `ledger.postJournalEntry` / `ledger.reverseJournalEntry` | `commandBus.execute(...)`, joins the caller's own transaction (see Design decision 12) | `ledger` (hard `requires` — `deferred_revenue` cannot function at all without it) | N/A — hard dependency, module absence is not a supported configuration |
+| `ledger.postJournalEntry` / `ledger.reverseJournalEntry` | `commandBus.execute(..., { ctx: { ...ctx, transactionalEm: em } })` — the caller's transaction-bound `EntityManager` is passed **explicitly**; a nested execute does not join the caller's transaction on its own (Design decision 12, corrected 2026-11-18). The composing caller emits `ledger.journal_entry.posted` after its own commit because a composed posting suppresses its own emission | `ledger` (hard `requires` — `deferred_revenue` cannot function at all without it; contract pinned to the unmerged ledger work in PR #6340 at `91e0e529`, Design decision 12) | N/A — hard dependency, module absence is not a supported configuration |
 
 ### Tenant & Organization Scoping
 
@@ -693,10 +793,26 @@ manager context, never a separate or trusted-by-default lookup — the
 same posture Cash & Bank Management already established for reading
 `SalesInvoice` across the module boundary.
 
-### Patch to sibling spec
+### Sibling spec dependencies (no patch still needed)
 
-- `2026-09-15-default-chart-of-accounts.md` — add the `840` `LedgerAccountType`
-  row (Design decision 8).
+**Corrected 2026-11-18 (review round, Medium).** The earlier
+instruction here — "add the `840` `LedgerAccountType` row to
+`2026-09-15-default-chart-of-accounts.md`" — is already satisfied
+upstream: that spec landed with `840`
+(`2026-09-15-default-chart-of-accounts.md:503-511`, merged as
+`592356afda`, PR #6137). There is **no remaining patch to a sibling
+spec**, only pinned dependencies:
+
+- `2026-09-15-default-chart-of-accounts.md` (on `main`) — supplies the
+  `840` account in its opt-in import template, **not** automatically
+  (Migration & Backward Compatibility, "Existing-tenant account
+  provisioning").
+- The ledger contract — `ledger.postJournalEntry`/`reverseJournalEntry`
+  with `withPostingTransaction` and post-commit event emission — is
+  pinned to the unmerged ledger work in PR #6340 at `91e0e529`
+  (Design decision 12). The GL core engine spec it belongs to is not on
+  this PR's tree, so the dependency is referenced by PR and commit, not
+  by filename.
 
 ## Data Model
 
@@ -881,9 +997,15 @@ found or out of scope for the caller's organization/tenant.
   `correctionDetectedAt`.
 - **409 `STOP_CATCH_UP_INCOMPLETE`**: **added, 2026-10-15 review
   round** (Design decision 13, gating rule) — the catch-up step
-  skipped a row (locked period) or failed; the final step did not run,
-  nothing was voided, the deferral is still `ACTIVE`. The body carries
-  `{ catchUpAccrued, catchUpSkipped, catchUpFailed, skippedPeriods }`.
+  skipped a row (locked period) or failed, or a row was held because a
+  correction now matches the deferral (**correction count added
+  2026-11-18**, Design decision 13); the final step did not run,
+  nothing was voided, the deferral is still `ACTIVE` (with
+  `correctionDetectedAt` set when the correction bucket is non-zero).
+  The body carries `{ catchUpAccrued, catchUpSkipped, catchUpFailed,
+  blockedByCorrection, skippedPeriods, correctionHeldPeriods }`, the
+  last two giving the period of every skipped and every
+  correction-held row.
 - **200**: `{ catchUpAccrued: number, finalRecognitionJournalEntryId:
   string, remainingScheduleEntriesVoided: number }` — returned only
   after the final step has committed, so both fields are always
@@ -1063,6 +1185,22 @@ detection discussion.
   `STOP_CATCH_UP_INCOMPLETE`** until that period is unlocked.
   **Severity: Low** (visible, reported, no wrong posting).
   **Detection**: the `skipped` count and the 409 body's `skippedPeriods`.
+- **A correction can still land inside the final detection window —
+  added 2026-11-18 review round (Design decision 13).** The final step
+  re-reads `correctionDetectedAt` and re-runs the Design decision 14
+  match queries under the `RevenueDeferral` row lock immediately before
+  posting, which closes the preflight-to-catch-up and catch-up-to-final
+  windows. It cannot close the last one: `sales` is a soft, read-only
+  dependency with no event and no shared lock, so a credit memo
+  committed between those final reads and the outer commit is not seen,
+  and that one final entry recognizes a stale amount. Closing it would
+  need a `sales` event or a cross-module lock, both outside Phase 1's
+  coupling rules. **Severity: Low→Medium** (one posting, at most, per
+  affected deferral, and only under a genuinely concurrent correction).
+  **Detection**: the same `correctionDetectedAt` flag and
+  `blockedByCorrection` counts on the next `accrue`/`stop`, plus the
+  accountant's manual reconciliation (Design decision 14); no new
+  mechanism is invented for it.
 - **The concurrency fix (Design decision 12) adds a row lock shared by
   `accrue` and `stop` — added, maintainer-review round.** Under high
   contention (many schedule entries due for the same deferral at once,
@@ -1160,8 +1298,11 @@ risked rebuilding commands, API, and UI if the answer differed.
    2026-10-16 (for the no-refund case). No longer a gate on the steps
    below; a business owner of the decision is not named and does not
    block (Design decision 6).
-1. Patch `2026-09-15-default-chart-of-accounts.md` with the `840` account
-   (Design decision 8).
+1. Confirm account `840` is available in the target organizations (the
+   sibling spec's opt-in `ledger.importDefaultChartOfAccounts` command
+   already carries it — no patch remains, Migration & Backward
+   Compatibility), and document the import/manual-creation prerequisite
+   for new and existing organizations (Design decision 8).
 2. Scaffold `deferred_revenue`: entities (including
    `deferredRevenueLiabilityAccountId`, `currencyCode`, `updatedAt` —
    Design decisions 9/10 and Data Model), `AGENTS.md`, module
@@ -1202,21 +1343,32 @@ compatibility note — the initial draft had none).
 - **Dependency/activation order.** `deferred_revenue` depends on
   `ledger` (hard) and `sales`/`sales_invoice_gl_posting` (soft); it
   must activate after all three exist, matching the dependency
-  direction already declared in Architecture. The `840` chart-of-accounts
-  patch must land (and be provisioned per tenant, next bullet) before
-  `deferred_revenue` is enabled for that tenant — `deferRevenueRecognition`
+  direction already declared in Architecture. Account `840` existing in
+  the tenant's chart (next bullet) is a prerequisite for enabling
+  `deferred_revenue` for that tenant — `deferRevenueRecognition`
   otherwise fails closed with **422 `DEFERRED_REVENUE_ACCOUNT_UNSET`**
   (Design decision 5), never defaults.
-- **Existing-tenant account provisioning.** A tenant already running
-  `default-chart-of-accounts` before this patch does not get `840`
-  automatically — the chart-of-accounts seed only runs at initial
-  module activation, matching `640`'s own precedent when it was added.
-  An existing tenant that wants to use `deferred_revenue` must add the
-  `840` account (or an equivalent) and configure
-  `deferredRevenueLiabilityAccountId` before first use; this is an
-  operational/deployment step, not a data migration, since no
-  `RevenueDeferral` rows can exist yet for a tenant that has never run
-  this module.
+- **Account `840` provisioning is an explicit step, for new and
+  existing organizations alike.** Corrected 2026-11-18 (review round,
+  Medium): the earlier text said `840` arrives through "the
+  chart-of-accounts seed at initial module activation, matching `640`'s
+  precedent". That is not how the sibling works. `ledger` deliberately
+  seeds **no** `LedgerAccountType`/`LedgerAccount` rows — tenants build
+  their own (#5663) — and the `840` row now lives in the template of the
+  **opt-in** `ledger.importDefaultChartOfAccounts` command
+  (`2026-09-15-default-chart-of-accounts.md:34-58`,
+  `:503-511`). Adding `840` to that template provisions it for nobody:
+  a newly created organization still starts with an empty chart, and an
+  organization that ran the import before `840` was added keeps the old
+  set. The prerequisite for `deferred_revenue` is therefore explicit in
+  both cases: an accountant runs `ledger.importDefaultChartOfAccounts`
+  (which is idempotent and now includes `840`), or creates an
+  equivalent account by hand, **and then** sets
+  `deferredRevenueLiabilityAccountId` in the module configuration. The
+  same step applies to a brand-new organization — creation alone does
+  not provision the chart. This is an operational/deployment step, not
+  a data migration, since no `RevenueDeferral` rows can exist for a
+  tenant that has never run this module.
 - **Unconfigured-module behavior.** With
   `deferredRevenueLiabilityAccountId` unset, every
   `deferRevenueRecognition` call rejects (**422**); `sales_invoice_gl_posting`
@@ -1252,8 +1404,8 @@ review's own framing).
 |---|---|---|
 | 1 | Two concurrent `POST /accrue` calls both select the same due entry | Second call blocks on the `RevenueDeferral` row lock, re-reads `accruedAt IS NULL` as false, skips — exactly one `JournalEntry` posted |
 | 2 | `POST /accrue` racing `POST .../stop` on the same deferral | Whichever acquires the lock first completes; the other re-reads the now-current `status`/`accruedAt` state and reacts accordingly (accrue skips an entry `stop` already caught up or voided; stop's catch-up step correctly picks up an entry `accrue` just posted) — never a double-post, never a lost update |
-| 3 | Crash (process kill) after `ledger.postJournalEntry` commits internally but before the outer transaction commits | Not reachable — the ledger post and the `accruedAt` write share one `em.transactional()` block (Design decision 12); a crash before that block's own commit means neither lands. Simulate by killing the process mid-transaction and asserting neither the `JournalEntry` nor the `accruedAt` write survived |
-| 4 | Retry after case 3 | Re-running `/accrue` with the same `asOf` posts exactly once — the entry is still `accruedAt IS NULL` |
+| 3 | Composed-path rollback: the outer command throws (or is killed) after `ledger.postJournalEntry` returns but before its own `em.transactional()` callback commits (**revised 2026-11-18**) | No journal entry, no `accruedAt`/`journalEntryReferenceId` write and **no `ledger.journal_entry.posted` event** survive; the event is emitted only after the outer commit (Design decision 12). Exercised through the real composed command with the ledger call passed `ctx.transactionalEm`, not by unit-testing `postJournalEntry`. The earlier wording here ("not reachable") was wrong: reachability depends on that explicit propagation, which a nested `execute` does not do on its own |
+| 4 | Retry after case 3 | Re-running `/accrue` with the same `asOf` posts exactly once — the entry is still `accruedAt IS NULL`, and exactly one journal entry and one `ledger.journal_entry.posted` event exist after the retry |
 | 5 | `POST .../stop` with a locked `stopDate` period, after some catch-up entries already exist as `ACTIVE`-period entries | Rejects **409 `FISCAL_PERIOD_LOCKED`** before any catch-up posting — no catch-up entries exist afterward that wouldn't have existed before the call |
 | 6 | Partial catch-up failure inside `stop` (one entry's `ledger.postJournalEntry` throws an unexpected error) | **409 `STOP_CATCH_UP_INCOMPLETE`** with the counts; the final recognition step does not run; the deferral stays `ACTIVE`; retrying `/stop` with the same `stopDate` is safe and does not re-post entries that already posted |
 | 7 | `stop` where catch-up skips a row because its period is locked (**added 2026-10-15**) | **409 `STOP_CATCH_UP_INCOMPLETE`**; the skipped row's amount is not moved into the `stopDate` period; no row voided; status stays `ACTIVE` |
@@ -1266,6 +1418,9 @@ review's own framing).
 | 14 | `stop` with `stopDate` outside the service period, or before the last accrued `periodEndDate` (**added 2026-10-15**) | **400**, or **409 `STOP_DATE_BEFORE_LAST_ACCRUAL`** |
 | 15 | `deferRevenueRecognition` where the invoice `issueDate`'s period is locked or missing, no `reclassificationDate` given (**added 2026-10-15, revised the same day**) | **409 `FISCAL_PERIOD_LOCKED`**; no `RevenueDeferral`, schedule or entry written; the error names the two ways out |
 | 16 | The same call repeated with `reclassificationDate: 'CURRENT_DATE'` (**added 2026-10-15**) | Today's period open: succeeds, dated today, `reclassificationDated` is `CURRENT_DATE`, schedule generated as usual. Today's period locked or missing too: **409 `FISCAL_PERIOD_LOCKED`**, nothing written |
+| 17 | `stop` where a matching `SalesCreditMemo` commits **between the correction preflight and catch-up** (**added 2026-11-18**) | Catch-up holds the affected row as `blockedByCorrection` and sets `correctionDetectedAt`; step 3's gate rejects it → **409 `STOP_CATCH_UP_INCOMPLETE`** with the correction count; no row voided, status stays `ACTIVE` |
+| 18 | `stop` where a matching `SalesCreditMemo` commits **between catch-up and step 3's final post** (**added 2026-11-18**) | Step 3's under-lock re-read of `correctionDetectedAt` and the match queries aborts before posting: the transaction rolls back, no final `JournalEntry` is posted, no row is voided, status stays `ACTIVE`, **409 `STOP_CATCH_UP_INCOMPLETE`** |
+| 19 | `defer`, `accrue`, `stop` and `cancel` each call the ledger with the callback's `EntityManager` as `ctx.transactionalEm` (**added 2026-11-18**) | A ledger command invoked without `transactionalEm` opens its own transaction (fork); the tests assert each of the four commands propagates it, so the journal and the module's own marker share one commit boundary |
 
 ### Integration matrix (finding 6)
 
@@ -1284,6 +1439,49 @@ review's own framing).
 | Preview/commit agreement | `GET .../deferrals/preview` output must equal the schedule `POST .../deferrals` actually persists for the same input |
 | Restoration/correction after an erroneous pre-accrual deferral | Design decision 16 — Concurrency table #11–#12 |
 | Posting dates, `stopDate` validation, `COMPLETED` | Design decision 15 — Concurrency table #13–#16 |
+| Correction between stop's preflight and catch-up / catch-up and finalization | Concurrency table #17–#18 |
+
+#### API and key-UI integration coverage (**added 2026-11-18**, review round, Medium)
+
+Root `AGENTS.md` requires integration coverage for every affected API
+path and key UI path; the matrix above named "Access Control feature
+checks per route" without defining a single route case. These cases
+ship with the implementation PR (Implementation Plan step 8), are
+self-contained (each creates its own invoice/line fixtures through the
+API and deletes the deferral, schedule rows and any ledger entries in
+`finally`; nothing depends on seeded demo data), and each asserts the
+HTTP status, not just the UI state:
+
+| Route / path | Cases |
+|---|---|
+| `GET /api/deferred_revenue/deferrals/preview` | 200 for a `deferred_revenue.deferrals.view` holder; 403 without the feature; 401 unauthenticated; another organization's invoice line resolves as 404, never cross-org data |
+| `POST /api/deferred_revenue/deferrals` | 201 + persisted schedule; 403 without `deferred_revenue.deferrals.manage`; 422 `DEFERRED_REVENUE_ACCOUNT_UNSET`, `..._CORRECTION_EXISTS`, `..._CURRENCY_UNSUPPORTED`; 409 `FISCAL_PERIOD_LOCKED`; 409 duplicate deferral for the same line; another tenant's line → 404 |
+| `GET /api/deferred_revenue/deferrals` and `/:id` | 200 with the list/detail shape, `updatedAt` present for optimistic locking; 403 without `...deferrals.view`; 404 for another organization's id |
+| `POST /api/deferred_revenue/accrue` | 200 with the three buckets; 403 without `deferred_revenue.accrue`; 409 stale optimistic-lock version (concurrent edit conflict, re-read and retry) |
+| `POST /api/deferred_revenue/deferrals/:id/stop` | 200 with `finalRecognitionJournalEntryId`; 403 without `...deferrals.manage`; 400/409 `STOP_DATE_BEFORE_LAST_ACCRUAL`; 409 `STOP_CATCH_UP_INCOMPLETE` (skipped, failed and correction held); **409 stale-version conflict** (missing/old `updatedAt` header) with no state change |
+| `POST /api/deferred_revenue/deferrals/:id/cancel` | 200; 403 without `...deferrals.manage`; 409 `DEFERRAL_HAS_ACCRUALS`; 409 stale-version conflict with no state change |
+
+UI acceptance cases (Playwright, same self-contained fixtures):
+
+- **Preview → confirm → persisted schedule** — the preview rows the
+  accountant sees are exactly the rows the list/detail shows after
+  confirming, including the rounding remainder on the last row.
+- **Stop with the no-refund confirmation** — the dialog states that the
+  remaining amount is recognized immediately and cannot be refunded
+  (Design decision 6), requires the confirmation, and the detail view
+  then shows `STOPPED` with the final entry id.
+- **Correction freezes the deferral** — with a matching credit memo, the
+  detail view shows the `blockedByCorrection` `Alert` and both the
+  accrue and stop actions are disabled/rejected.
+- **Locked period choice** — deferring with a locked `issueDate` period
+  shows the two-way `Alert` (unlock and retry, or date it today) and the
+  `CURRENT_DATE` retry produces `reclassificationDated: 'CURRENT_DATE'`.
+- **Cancellation availability** — cancel is offered only before the
+  first accrual, and after a successful cancel the line can be deferred
+  again.
+- **Stale-version conflict recovery** — a save submitted with an
+  outdated `updatedAt` surfaces the conflict bar, and the retry after a
+  refresh succeeds.
 
 ## Canonical Mechanisms
 
@@ -1757,3 +1955,39 @@ The three questions sent on 2026-10-15 were answered by email:
 
 The business owner of the policy in Design decision 6 is still not named; it
 is recorded as informational. Not yet reviewed by a maintainer.
+
+### 2026-11-18 — Review round (PR #6193, `@haxiorz`, reviewed head `68d0d2b`)
+
+Cleared the four findings of
+[the 2026-11-05 re-review](https://github.com/open-mercato/open-mercato/pull/6193#pullrequestreview-5789100622)
+as specification edits (no implementation in this PR):
+
+- **Blocker — explicit ledger transaction and after-commit contract.**
+  Design decision 12 no longer claims a nested `commandBus.execute()`
+  joins the caller's transaction. It requires every ledger call to run
+  on the callback's `EntityManager` passed as `ctx.transactionalEm`,
+  assigns `ledger.journal_entry.posted` emission to the composing caller
+  after its own commit, and pins the assumed ledger contract to the
+  unmerged work in PR #6340 at `91e0e529`. The
+  "not reachable" crash assertion in Testing Strategy #3 was wrong and
+  is replaced by a composed-path rollback/commit case (new #3, #4, #19).
+- **Major — correction holds block `stop`'s finalization.** The gating
+  rule now includes `blockedByCorrection = 0`, step 3 re-reads
+  `correctionDetectedAt` and the correction match queries under its
+  lock as its last reads before posting, and the ordering/coordination
+  policy for concurrent correction creation (detect-then-freeze, with
+  the residual window recorded as a risk) is stated. New tests #17–#18.
+- **Medium — account `840` provisioning.** Corrected: the sibling spec
+  is the opt-in `ledger.importDefaultChartOfAccounts` command, not an
+  activation-time seed, and `840` must be imported or created manually
+  for new **and** existing organizations before configuring
+  `deferredRevenueLiabilityAccountId`. The stale "patch the sibling
+  spec" instruction is replaced by pinned dependencies (that patch
+  already landed upstream as `592356afda`, PR #6137).
+- **Medium — API and key-UI integration coverage.** The Testing
+  Strategy gains explicit route cases (permission denied, wrong scope,
+  unauthenticated, stale-version conflict, every documented 4xx) and
+  UI acceptance cases (preview→confirm→persisted schedule, stop/no-refund
+  confirmation, correction alert, locked-period choice, cancellation
+  availability, conflict recovery), all self-contained with fixture
+  creation and cleanup.
