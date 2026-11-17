@@ -184,9 +184,35 @@ evidenced source population at a defined cutoff immediately before
 go-live: every mapped account, including zero and omitted accounts, must
 match its initialized base-currency balance and each applicable account
 currency, with signed debit/credit conventions and mapping provenance
-recorded. An empty source requires evidence of emptiness. A source-side
-write freeze or audited catch-up bridge must cover changes between the
-cutoff and initialization. Missing accounts, duplicate mappings, omitted
+recorded. An empty source requires evidence of emptiness. Before reports
+are enabled, an independently verified, scope-bound inventory must identify
+every external writer and source of record. Fence and drain all those
+writers, establish a durable final source watermark and reconcile the
+complete source population at that watermark against the initialized
+target plus every movement after the cutoff. The fence must prevent source
+writes after the watermark, including during failover and rollback; absent
+proof that every writer is fenced and every accepted movement is captured,
+both reports stay disabled. A continuing capture protocol is not assumed:
+it needs a separate reviewed design before it can replace this fence.
+
+Initialize once from the cutoff snapshot; transfer each accepted source
+movement after that snapshot through the final watermark as a separately
+identified, balanced incremental journal movement, not a second opening or
+an adjustment to the already reconciled initialization. Preserve scoped
+source identities and durable receipts so retries, duplicate delivery and
+lost acknowledgements cannot omit or double-apply a movement. Preserve its
+evidenced operation date; if any captured movement would require a target
+posting before go-live, fail closed until a separately reviewed migration
+policy supports it. Fence other target writes during this transfer and
+reconciliation, admitting only the controlled initialization and bridge.
+Reconcile
+signed balances per account and applicable currency at the final watermark,
+and reconcile movement membership, not merely totals. Publish the
+attestation and hand off write ownership only after complete transfer and
+reconciliation are durable. Until then target reporting remains disabled.
+Recovery and rollback must preserve the fence and operation identity, or
+invalidate the attestation and keep reporting disabled until a newly
+reconciled handoff succeeds. Missing accounts, duplicate mappings, omitted
 currencies, discrepancies or unverifiable source evidence invalidate the
 whole scope; an entry's balance or caller assertion is not proof. No
 partially reconciled account set is reportable. The authority must cover
@@ -1302,8 +1328,15 @@ top of the live query.
   balanced initialization of 90 each: both routes must fail with
   `accounting_policy_unavailable`, despite the balanced journal. Test
   missing accounts and currencies, duplicate mapping, unverifiable evidence,
-  empty-source evidence and a source write in the cutoff-to-initialization
-  interval with and without a verified bridge. No partial results are allowed.
+  empty-source evidence and source writes racing the cutoff, initialization
+  and final watermark. For cutoff cash/equity 100 and a later balanced
+  source movement of 20, assert initialization is 100 and the uniquely
+  identified transferred movement is 20 exactly once; final source and
+  target each reconcile to 120. Attempt an old writer after handoff and
+  across failover and rollback: it must be fenced, or both reports remain
+  disabled. Cover incomplete writer inventory, missing or unverifiable
+  watermark, dropped and duplicated movements, lost acknowledgement,
+  concurrent retries and interrupted recovery. No partial results are allowed.
   For a July go-live in a January-start fiscal year, let external cash have
   gross debits 100 and credits 40 and initialize its net 60. With earlier
   error-precedence checks satisfied, assert the trial route returns
@@ -2058,3 +2091,5 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
   cutover coverage; a balanced initialization does not prove correctness.
 - Reject trial balances for the go-live fiscal year pending an approved
   presentation and gross-turnover design. No accounting approval is implied.
+- Require a verified source-writer fence, final watermark, idempotent
+  catch-up and reconciled ownership handoff before enabling either report.
