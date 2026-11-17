@@ -12,7 +12,7 @@ Every listed surface is a **public contract**. Changes MUST follow the deprecati
 
 ### Emergency Security Exception
 
-Steps 1-3 — stage the removal, deprecate first, ship a bridge — are waived, and **only** those three, when the contract surface being removed *is itself* the vulnerability: keeping it alongside the replacement would leave the flaw exploitable for the whole deprecation window. A surface that merely makes an insecure usage possible does not qualify; the exception applies only where continued acceptance of the old shape **is** the exploit.
+**Only steps 1–3** are waived when the removed contract surface *is itself* the vulnerability: retaining it alongside its replacement leaves the flaw exploitable throughout deprecation. Merely enabling insecure usage does not qualify; continued acceptance of the old shape must **be** the exploit.
 
 This is not author or reviewer discretion. Every one of the following MUST hold, and a change that cannot satisfy all of them follows the ordinary protocol instead:
 
