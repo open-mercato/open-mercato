@@ -4,6 +4,7 @@ import type { ToolExecutionOptions } from 'ai'
 import { resolveAiAgentTools } from '../agent-tools'
 import { resetAgentRegistryForTests, seedAgentRegistryForTests } from '../agent-registry'
 import { registerMcpTool, toolRegistry } from '../tool-registry'
+import { toSafeZodSchema } from '../schema-utils'
 import type { AiToolDefinition } from '../types'
 import type { AiAgentDefinition } from '../ai-agent-definition'
 
@@ -120,5 +121,120 @@ describe('agent approval paths alongside the direct HTTP refusal', () => {
     expect(resolved.tools).toEqual({})
     expect(handler).not.toHaveBeenCalled()
     expect(prepareMutationMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('confirm-required mutation input validation', () => {
+  const inputSchema = z.object({
+    personId: z.string().uuid().optional(),
+    note: z.string().min(1),
+    subtitle: z.string().max(255).nullable().optional(),
+  })
+  let handler: jest.Mock
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    resetAgentRegistryForTests()
+    toolRegistry.clear()
+    handler = jest.fn(async () => ({ written: true }))
+    const tool: AiToolDefinition = {
+      name: 'test.mutation',
+      description: 'Mutation fixture',
+      inputSchema,
+      isMutation: true,
+      requiredFeatures: ['test.records.manage'],
+      handler,
+    }
+    registerMcpTool(tool, { moduleId: 'test' })
+    prepareMutationMock.mockResolvedValue({
+      uiPart: { type: 'mutation-preview-card', data: { pendingActionId: 'action-1' } },
+      pendingAction: { id: 'action-1', expiresAt: new Date('2099-01-01'), status: 'pending' },
+      reused: false,
+    })
+    seedAgent()
+  })
+
+  afterEach(() => {
+    resetAgentRegistryForTests()
+    toolRegistry.clear()
+  })
+
+  it('refuses to stage a pending action whose input fails the tool schema', async () => {
+    const args = { personId: 'not-a-uuid', note: '' }
+    expect(toSafeZodSchema(inputSchema).safeParse(args).success).toBe(true)
+    const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
+
+    await expect(resolved.tools.test__mutation.execute?.(args, executionOptions)).rejects.toThrow(
+      /could not be prepared for confirmation: Invalid input: .*personId.*note/,
+    )
+
+    expect(prepareMutationMock).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+    expect(resolved.uiPartQueue.drain()).toEqual([])
+  })
+
+  it('refuses schema-invalid input when a destructive-confirm-required predicate gates the call', async () => {
+    toolRegistry.clear()
+    const tool: AiToolDefinition = {
+      name: 'test.mutation',
+      description: 'Mutation fixture',
+      inputSchema,
+      isMutation: true,
+      isDestructive: () => true,
+      requiredFeatures: ['test.records.manage'],
+      handler,
+    }
+    registerMcpTool(tool, { moduleId: 'test' })
+    seedAgent({ mutationPolicy: 'destructive-confirm-required' })
+    const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
+
+    await expect(
+      resolved.tools.test__mutation.execute?.({ personId: 'not-a-uuid', note: 'hello' }, executionOptions),
+    ).rejects.toThrow(/could not be prepared for confirmation: Invalid input: personId/)
+
+    expect(prepareMutationMock).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('refuses the same input on the direct path when the predicate does not gate the call', async () => {
+    toolRegistry.clear()
+    const tool: AiToolDefinition = {
+      name: 'test.mutation',
+      description: 'Mutation fixture',
+      inputSchema,
+      isMutation: true,
+      isDestructive: () => false,
+      requiredFeatures: ['test.records.manage'],
+      handler,
+    }
+    registerMcpTool(tool, { moduleId: 'test' })
+    seedAgent({ mutationPolicy: 'destructive-confirm-required' })
+    const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
+
+    await expect(
+      resolved.tools.test__mutation.execute?.({ personId: 'not-a-uuid', note: 'hello' }, executionOptions),
+    ).rejects.toThrow(/failed: Invalid input: personId/)
+
+    expect(prepareMutationMock).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('stages sanitized input with blank optional values dropped', async () => {
+    const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
+
+    await resolved.tools.test__mutation.execute?.({ personId: '', note: 'hello' }, executionOptions)
+
+    expect(prepareMutationMock).toHaveBeenCalledTimes(1)
+    const stagedArgs = prepareMutationMock.mock.calls[0]?.[0].toolCallArgs
+    expect(stagedArgs).toEqual({ note: 'hello' })
+    expect(inputSchema.safeParse(stagedArgs).success).toBe(true)
+  })
+
+  it('stages input the schema already accepts as sent, blank values included', async () => {
+    const resolved = await resolveAiAgentTools({ agentId: 'test.assistant', authContext, container })
+
+    await resolved.tools.test__mutation.execute?.({ note: 'hello', subtitle: '' }, executionOptions)
+
+    expect(prepareMutationMock.mock.calls[0]?.[0].toolCallArgs).toEqual({ note: 'hello', subtitle: '' })
   })
 })
