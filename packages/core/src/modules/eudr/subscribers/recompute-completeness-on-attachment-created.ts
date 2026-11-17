@@ -2,8 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { EudrEvidenceSubmission, EudrPlot } from '../data/entities'
-import { computeSubmissionCompleteness } from '../lib/completeness'
+import { EudrEvidenceSubmission } from '../data/entities'
+import { computeSubmissionCompleteness, countActivePlots } from '../lib/completeness'
 
 const logger = createLogger('eudr').child({ component: 'attachment-created-completeness' })
 
@@ -90,21 +90,6 @@ async function countLinkedAttachments(
   } catch {
     return undefined
   }
-}
-
-async function countActivePlots(
-  em: EntityManager,
-  submission: EudrEvidenceSubmission,
-): Promise<number> {
-  const plotIds = Array.from(new Set(Array.isArray(submission.plotIds) ? submission.plotIds : []))
-  if (plotIds.length === 0) return 0
-  return em.count(EudrPlot, {
-    id: { $in: plotIds },
-    tenantId: submission.tenantId,
-    organizationId: submission.organizationId,
-    deletedAt: null,
-    isActive: true,
-  })
 }
 
 async function emitSubmissionReindex(
