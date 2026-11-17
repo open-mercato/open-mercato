@@ -1572,7 +1572,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
               const transformedErrors = await transformValidationErrors(result.fieldErrors)
               setErrors(translateValidationErrors(transformedErrors))
             }
-            const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+            const message = translateValidationMessage(result.message) || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
             flash(message, 'error')
             return
           }
@@ -1670,10 +1670,11 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     navigateWithGuard,
     t,
     transformValidationErrors,
+    translateValidationMessage,
     triggerInjectionEvent,
     values,
   ])
-  
+
   // Determine whether this form is creating a new record (no `id` yet)
   const isNewRecord = React.useMemo(() => {
     if (explicitResourceId) return false
@@ -3301,7 +3302,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
             const transformedErrors = await transformValidationErrors(result.fieldErrors)
             setErrors(translateValidationErrors(transformedErrors))
           }
-          const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+          const message = translateValidationMessage(result.message) || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
           scrollToInjectionBlockedTarget(result.fieldErrors)
           setPending(false)
