@@ -280,6 +280,45 @@ describe('Indexer', () => {
     }
   })
 
+  test('upsertIndexRow clears the stored tokens of the columns it stripped, even with token work deferred', async () => {
+    // The per-record token rewrite deletes only the fields the document carries, so tokens stored
+    // for a column before it was blocklisted would otherwise survive every later write.
+    const originalBlocklist = process.env.OM_SEARCH_FIELD_BLOCKLIST
+    delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+    try {
+      const fake = createFakeKysely({
+        baseTable: 'users',
+        baseRows: [{
+          id: '1',
+          name: 'Ada Lovelace',
+          password_hash: '$2b$10$abcdefghijklmnopqrstuv',
+          organization_id: 'org1',
+          tenant_id: 't1',
+        }],
+        cfValues: [],
+      })
+      const em: any = { getKysely: () => fake.db }
+
+      await upsertIndexRow(em, {
+        entityType: 'auth:user',
+        recordId: '1',
+        organizationId: 'org1',
+        tenantId: 't1',
+        deferSearchTokens: true,
+      })
+
+      const tokenDeletes = fake.deletes.filter((entry) => entry.table === 'search_tokens')
+      expect(tokenDeletes).toHaveLength(1)
+      expect(tokenDeletes[0].where).toContainEqual(['entity_type', '=', 'auth:user'])
+      expect(tokenDeletes[0].where).toContainEqual(['entity_id', '=', '1'])
+      expect(tokenDeletes[0].where).toContainEqual(['field', 'in', ['password_hash']])
+      expect(fake.inserts.some((entry) => entry.table === 'search_tokens')).toBe(false)
+    } finally {
+      if (originalBlocklist === undefined) delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+      else process.env.OM_SEARCH_FIELD_BLOCKLIST = originalBlocklist
+    }
+  })
+
   test('buildIndexDoc keeps encrypted payload (no decryption on write)', async () => {
     resolveEncryptionMock.mockReturnValue({
       isEnabled: () => true,

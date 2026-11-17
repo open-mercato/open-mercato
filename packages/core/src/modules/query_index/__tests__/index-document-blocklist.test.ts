@@ -116,15 +116,16 @@ describe('stripBlocklistedDocFields keeps the keys the document is the only stor
     // it from `doc` costs nothing. Custom fields and translations are read back
     // OUT of `doc`, so stripping them is real data loss.
     delete process.env.OM_SEARCH_FIELD_BLOCKLIST
-    const stripped = stripBlocklistedDocFields({
+    const doc: Record<string, unknown> = {
       id: 'p1',
       'cf:password_hint': 'the usual one',
       'l10n:pl:token_label': 'Token dostępu',
       password_hash: BCRYPT,
-    })
-    expect(stripped['cf:password_hint']).toBe('the usual one')
-    expect(stripped['l10n:pl:token_label']).toBe('Token dostępu')
-    expect(Object.prototype.hasOwnProperty.call(stripped, 'password_hash')).toBe(false)
+    }
+    stripBlocklistedDocFields(doc)
+    expect(doc['cf:password_hint']).toBe('the usual one')
+    expect(doc['l10n:pl:token_label']).toBe('Token dostępu')
+    expect(Object.prototype.hasOwnProperty.call(doc, 'password_hash')).toBe(false)
   })
 
   it('reaches custom fields through buildIndexDocument without stripping them', () => {
@@ -141,11 +142,13 @@ describe('stripBlocklistedDocFields keeps the keys the document is the only stor
     expect(String(doc.search_text ?? '')).not.toContain('the usual one')
   })
 
-  it('mutates in place and returns the same object', () => {
-    const doc: Record<string, unknown> = { id: 'u1', token: SESSION_TOKEN }
-    const returned = stripBlocklistedDocFields(doc, resolveSearchConfig())
-    expect(returned).toBe(doc)
+  it('mutates in place and returns the keys it removed', () => {
+    delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+    const doc: Record<string, unknown> = { id: 'u1', name: 'Ada', token: SESSION_TOKEN, 'cf:token_note': 'kept' }
+    const removed = stripBlocklistedDocFields(doc, resolveSearchConfig())
+    expect(removed).toEqual(['token'])
     expect(Object.prototype.hasOwnProperty.call(doc, 'token')).toBe(false)
+    expect(doc.name).toBe('Ada')
   })
 
   // An earlier draft of this change claimed, in four documents, that a column named by an

@@ -204,16 +204,20 @@ export function resolveSearchMinTokenLength(): number {
  * `entity_indexes.doc` agrees with `search_text` and `search_tokens` (#4624). Entity-scoped
  * entries are ignored: they limit index volume, and presenters read those fields back out of
  * the document. `cf:` and `l10n:` keys are kept, because the document is their only store.
- * Call it on the base row before `encryptIndexDocForStorage()` runs. Rationale:
+ * Call it on the base row before `encryptIndexDocForStorage()` runs. Returns the removed keys,
+ * so the caller can drop search tokens stored for them before they were blocklisted. Rationale:
  * `.ai/specs/2026-08-28-blocklisted-fields-in-the-stored-index-document.md`.
  */
 export function stripBlocklistedDocFields(
   doc: Record<string, unknown>,
   config: SearchConfig = resolveSearchConfig(),
-): Record<string, unknown> {
+): string[] {
+  const removed: string[] = []
   for (const key of Object.keys(doc)) {
     if (key.startsWith('cf:') || key.startsWith('l10n:')) continue
-    if (isSearchFieldBlocklisted(key, null, config)) delete doc[key]
+    if (!isSearchFieldBlocklisted(key, null, config)) continue
+    delete doc[key]
+    removed.push(key)
   }
-  return doc
+  return removed
 }

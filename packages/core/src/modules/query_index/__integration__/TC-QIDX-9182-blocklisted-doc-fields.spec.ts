@@ -13,13 +13,15 @@ import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/qu
  *   1. on a create, which takes the event path (`buildIndexDoc`);
  *   2. on a reindex, which takes the batch path (`buildIndexDocument`) and also replaces a
  *      copy that a row written before the fix still holds;
- *   3. on the next ordinary write after that reindex, which takes the event path again.
+ *   3. on the next ordinary write after that reindex, which takes the event path again and
+ *      also drops a search token stored for `password_hash` before it was blocklisted.
  */
 
 const USER_ENTITY = 'auth:user'
 const BLOCKLISTED_KEYS = ['password_hash', 'email_hash']
 const DISPLAY_KEYS = ['email', 'name']
 const STALE_COPY = 'tc-qidx-9182-stale-copy'
+const STALE_TOKEN_HASH = 'tc-qidx-9182-stale-token'
 const EVENTS_QUEUE = 'events'
 const INDEX_TIMEOUT_MS = 15_000
 const REINDEX_TIMEOUT_MS = 60_000
@@ -44,6 +46,29 @@ async function storedValue(userId: string, key: string): Promise<string | null> 
       [USER_ENTITY, userId, key],
     )
     return result.rows[0]?.value ?? null
+  })
+}
+
+async function plantStaleToken(userId: string): Promise<void> {
+  await withClient(async (client) => {
+    await client.query(
+      `insert into search_tokens (entity_type, entity_id, organization_id, tenant_id, field, token_hash, created_at)
+       select entity_type, entity_id, organization_id, tenant_id, 'password_hash', $3, now()
+         from entity_indexes
+        where entity_type = $1 and entity_id = $2 and deleted_at is null`,
+      [USER_ENTITY, userId, STALE_TOKEN_HASH],
+    )
+  })
+}
+
+async function passwordHashTokenCount(userId: string): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ count: string }>(
+      `select count(*)::text as count from search_tokens
+        where entity_type = $1 and entity_id = $2 and field = 'password_hash'`,
+      [USER_ENTITY, userId],
+    )
+    return Number(result.rows[0]?.count ?? 0)
   })
 }
 
@@ -102,6 +127,8 @@ test.describe('TC-QIDX-9182: blocklisted columns stay out of the stored index do
       await expect.poll(() => storedValue(createdId, 'password_hash'), { timeout: REINDEX_TIMEOUT_MS }).not.toBe(STALE_COPY)
       expectNoBlocklistedKeys(await storedKeys(createdId), 'after the reindex')
 
+      await plantStaleToken(createdId)
+      expect(await passwordHashTokenCount(createdId), 'A token stored before the column was blocklisted').toBe(1)
       const nameBefore = await storedValue(createdId, 'name')
       const update = await apiRequest(request, 'PUT', '/api/auth/users', {
         token,
@@ -110,6 +137,10 @@ test.describe('TC-QIDX-9182: blocklisted columns stay out of the stored index do
       expect(update.status(), 'PUT /api/auth/users').toBe(200)
       await expect.poll(() => storedValue(createdId, 'name'), { timeout: INDEX_TIMEOUT_MS }).not.toBe(nameBefore)
       expectNoBlocklistedKeys(await storedKeys(createdId), 'after the next write')
+      await expect.poll(() => passwordHashTokenCount(createdId), {
+        timeout: INDEX_TIMEOUT_MS,
+        message: 'The next write must drop tokens stored for a stripped column',
+      }).toBe(0)
     } finally {
       await deleteUserIfExists(request, token, userId)
       if (userId) await removeIndexResidue(userId).catch(() => undefined)

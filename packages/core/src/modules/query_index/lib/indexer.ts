@@ -15,7 +15,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveSearchConfig, stripBlocklistedDocFields } from '@open-mercato/shared/lib/search/config'
-import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
+import { replaceSearchTokensForRecord, deleteSearchTokensForRecord, deleteSearchTokensForFields } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 
@@ -46,6 +46,14 @@ type BuildDocParams = {
 }
 
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {
+  const built = await buildIndexDocWithStrippedFields(em, params)
+  return built ? built.doc : null
+}
+
+async function buildIndexDocWithStrippedFields(
+  em: EntityManager,
+  params: BuildDocParams,
+): Promise<{ doc: Record<string, any>; strippedFields: string[] } | null> {
   const db = (em as any).getKysely()
   const baseTable = resolveEntityTableName(em, params.entityType)
 
@@ -85,7 +93,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   const searchConfig = resolveSearchConfig()
   // The event path builds its own document, so it strips here as well: otherwise a reindex
   // would remove the column and the next ordinary write would put it straight back.
-  stripBlocklistedDocFields(doc, searchConfig)
+  const strippedFields = stripBlocklistedDocFields(doc, searchConfig)
 
   // Attach custom fields under flat keys 'cf:<key>'
   let cfQuery = db
@@ -289,7 +297,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     throw error
   }
 
-  return doc
+  return { doc, strippedFields }
 }
 
 export type UpsertIndexResult = {
@@ -328,7 +336,8 @@ export async function upsertIndexRow(
   const existed = !!existing
   const wasDeleted = !!existing && existing.deleted_at != null
 
-  const doc = await buildIndexDoc(em, args)
+  const built = await buildIndexDocWithStrippedFields(em, args)
+  const doc = built?.doc ?? null
   if (!doc) {
     // When the caller defers token work it owns the matching token cleanup; the
     // projection-row removal below stays synchronous so list reads converge immediately.
@@ -396,6 +405,22 @@ export async function upsertIndexRow(
       } catch (error) {
         if (args.trx) throw error
       }
+    }
+  }
+
+  // The token rewrite deletes only the fields the document carries, so tokens stored for a
+  // column before it was blocklisted would outlive the strip. Cleared here, deferred or not.
+  if (built?.strippedFields.length) {
+    try {
+      await deleteSearchTokensForFields(db, {
+        entityType: args.entityType,
+        recordId: args.recordId,
+        organizationId: args.organizationId ?? null,
+        tenantId: args.tenantId ?? null,
+        fields: built.strippedFields,
+      }, { trx: args.trx })
+    } catch (error) {
+      if (args.trx) throw error
     }
   }
 
