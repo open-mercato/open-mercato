@@ -1,3 +1,4 @@
+import { readEvalRunModelMode } from '../evalRunSettings'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -367,7 +368,7 @@ export async function buildEvalReport(
       modelSettings: buildReportModelSettings(effectiveModelSettings, recordedLlmCalls),
       ...(providers.length ? { providers } : {}),
       toolMode: readEvalRunToolMode(suiteRun.summary),
-      modelMode: env.OM_AI_PROVIDER === 'scripted' ? 'scripted' : 'live',
+      modelMode: readEvalRunModelMode(suiteRun.summary),
       gitSha: readString(env.GITHUB_SHA) ?? readString(env.OM_EVAL_GIT_SHA),
       cliVersion: options.cliVersion ?? null,
       ...(environmentWarnings.length ? { warnings: environmentWarnings } : {}),

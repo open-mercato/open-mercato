@@ -55,6 +55,7 @@ export function createModelJudge(container: AwilixContainer): JudgeFn {
     for (let sample = 0; sample < rubric.samples; sample += 1) {
       const { object } = await generateObject({
         model: resolution.model as Parameters<typeof generateObject>[0]['model'],
+        ...(resolution.download ? { experimental_download: resolution.download } : {}),
         schema,
         prompt,
         temperature: rubric.temperature,

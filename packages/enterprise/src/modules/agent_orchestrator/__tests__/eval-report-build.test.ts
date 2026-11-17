@@ -594,7 +594,11 @@ describe('buildEvalReport', () => {
       cliVersion: '1.2.3',
       env: { OM_EVAL_GIT_SHA: 'abc123', OM_AI_PROVIDER: 'scripted' },
     })
-    expect(report?.environment).toMatchObject({ gitSha: 'abc123', cliVersion: '1.2.3', modelMode: 'scripted' })
+    expect(report?.environment).toMatchObject({ gitSha: 'abc123', cliVersion: '1.2.3', modelMode: 'live' })
+    const seed = baseSeed()
+    ;(seed.get(AgentEvalSuiteRun) as Row[])[0].summary = { __evalRun: { modelMode: 'scripted' } }
+    const offline = await buildEvalReport(createFakeEm(seed).em, SCOPE, 'suite-1', { env: {} })
+    expect(offline?.environment.modelMode).toBe('scripted')
   })
 
   it('computes nearest-rank percentiles', () => {

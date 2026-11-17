@@ -6,6 +6,7 @@ import { AgentEvalCase, AgentEvalSuiteRun } from '../../data/entities'
 import type { EvalSetSnapshot } from '../../data/validators'
 import { replaySuiteRun } from './evalReplayService'
 import type { EvalSetFile } from './evalSetFile'
+import type { EvalModelFixtureOptions } from './modelFixtures'
 import type { EvalToolFixtureOptions } from './toolFixtures'
 import type {
   CompleteEvalRunCommandInput,
@@ -51,6 +52,7 @@ export type EvalGateInput = {
    * In-process tool record/replay for every case run (CLI `--record`/`--replay`).
    * The resulting tool mode is stored as `summary.__evalRun.tools`.
    */
+  modelFixtures?: EvalModelFixtureOptions
   toolFixtures?: EvalToolFixtureOptions
 }
 
@@ -152,7 +154,7 @@ export async function runEvalGate(
     started.suiteRunId,
     scope,
     triggeredBy,
-    input.toolFixtures ? { toolFixtures: input.toolFixtures } : {},
+    { ...(input.toolFixtures ? { toolFixtures: input.toolFixtures } : {}), ...(input.modelFixtures ? { modelFixtures: input.modelFixtures } : {}) },
   )
 
   const { result: completed } = await commandBus.execute<

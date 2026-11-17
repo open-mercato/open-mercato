@@ -10,7 +10,17 @@ Agent Orchestrator can run an agent's eval cases from a command line and fail a 
 The CLI is a thin wrapper over the same replay engine the workbench uses, so a CI verdict matches what you see in the UI.
 
 :::note
-There is no scripted model provider. A CI run calls the real model, so results can vary between runs. Pin `--temperature` and `--seed`, replay tool fixtures, and use `--repeat` with `--fail-on-flaky` to keep the signal honest. The report states what was and was not honored.
+Native evals support fully offline model and tool replay. Record a synthetic-data run with `--record <dir>`, then use `--replay <dir> --offline true`. Offline replay needs no provider API key and refuses missing or mismatched model/tool fixtures; it never falls back to live calls. `--replay <dir>` alone retains tool-only replay and still calls the real model.
+
+Recording writes model fixtures to `<dir>/<agentId>/<caseKey>.<trialIndex>.model.json` alongside the existing `.tools.json` files. Each model fixture contains ordered model resolutions and calls, including judge calls, plus URL-download results used by SDK preprocessing. Offline replay supplies the recorded bytes without fetching attachment URLs. Recorded tool outputs encapsulate nested inference and delegated agents; replay answers those tools from their fixtures without executing children. Request fingerprints cover the prompt, tools, effective structured-output schema and model settings. A changed prompt, schema, or call sequence requires a new recording. The original provider and model identity remain in traces; the report's `modelMode: scripted` comes from the suite's recorded replay mode, not an environment variable.
+
+An eval-set case may instead reference `fixtures.model` and `fixtures.tools` relative to its file. Model fixture identity must match the agent, case key and trial index. A model-replayed case requires tool replay with `onMiss: error`. OpenCode runtimes, including nested delegated agents on OpenCode, are rejected before dispatch in offline mode. Application database and storage access still operate normally; offline means no live model or tool calls.
+
+Fixtures contain decrypted prompts, responses, downloaded attachment bytes and tool outputs. Keep production recordings private; commit only synthetic or public data. Model files are size limited, validated and written atomically with owner-only permissions. Model recordings with failed or incomplete provider calls cannot be replayed and must be recorded again. Concurrent runs use separate contexts; model resolutions within a case must occur in the same order.
+
+Custom `generateText`/`generateObject` escape-hatch callbacks must forward `experimental_download` from their prepared options when present. Direct SDK consumers of `createModelFactory` should pass `resolution.download` as `experimental_download`. The built-in runtime and judges do this automatically.
+
+For live evals, pin `--temperature` and `--seed`, replay tool fixtures, and use `--repeat` with `--fail-on-flaky` to measure variance.
 :::
 
 ## Eval-set files
@@ -102,19 +112,19 @@ yarn mercato agent_orchestrator eval --agent <id> --cases evals/marketing.eval.y
 
 # replay in CI: tool calls are answered from the files, handlers do not run
 yarn mercato agent_orchestrator eval --agent <id> --cases evals/marketing.eval.yaml \
-  --replay evals/fixtures --gate true
+  --replay evals/fixtures --offline true --gate true
 
 # seed a fixture from a stored run
 yarn mercato agent_orchestrator eval --agent <id> --tenant <t> --org <o> \
   --fixtures-from-run <runId> --record evals/fixtures --case risky-claim
 ```
 
-- Files are written to `<dir>/<agentId>/<caseKey>.tools.json` with mode `0600`. With `--repeat`, only trial 0 is recorded.
+- Tool trial 0 uses `<dir>/<agentId>/<caseKey>.tools.json`; later recorded trials use `<caseKey>.<trialIndex>.tools.json`. Offline replay reads the matching trial. Model files always include the trial index. All fixture files use mode `0600`.
 - `--record` and `--replay` are exclusive. A `--replay` directory wins over the `fixtures.tools` paths in the file.
 - A tool call with no fixture errors the case with `tool_fixture_missing`. `--on-fixture-miss live` runs the real tool instead and marks the suite as `mixed`.
 - `--fixtures-from-run` writes a best-effort fixture from the stored run summary and exits without running the suite.
 - Each fixture file is capped at `OM_AGENT_EVAL_TOOL_FIXTURE_MAX_BYTES` (default 5 MiB).
-- OpenCode agents run live and report `unsupported_runtime`.
+- Tool-only replay reports OpenCode as `unsupported_runtime`; fully offline replay rejects it before dispatch.
 
 :::warning
 Fixture files contain real tool inputs and outputs, which are tenant data. Record against a synthetic or scrubbed tenant, review every file before committing, and never commit real customer data.

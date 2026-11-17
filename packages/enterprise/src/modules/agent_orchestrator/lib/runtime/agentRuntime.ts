@@ -1,3 +1,4 @@
+import { isOfflineModelReplay, ModelReplayError } from '../eval/modelReplay'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -58,6 +59,7 @@ export class AgentRuntimeService {
     const entry = getAgentEntry(agentId)
     if (!entry) throw new AgentNotFoundError(agentId)
     await enforceAgentInvocable(this.container, entry, ctx)
+    if (entry.runtime === 'opencode' && isOfflineModelReplay()) throw new ModelReplayError('model_replay_unsupported_runtime')
     if (entry.runtime === 'opencode' && ctx.callSettings && Object.keys(ctx.callSettings).length > 0) {
       throw new AgentCallSettingsUnsupportedError(agentId)
     }
