@@ -613,6 +613,10 @@ STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.
 
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
 
+## Encrypted search contexts (#7872)
+
+STABLE: encrypted custom fields are omitted; missing/failing resolver excludes all. A bridge preserves disclosure; human exception approval is pending. [Contract/migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
+
 ## Compose encryption (2026-11-01, #7231)
 
 STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).

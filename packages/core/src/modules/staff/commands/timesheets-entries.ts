@@ -206,18 +206,18 @@ async function assertTaskBelongsToProject(
   task: StaffTimeTask | null,
   projectId: string | null,
 ): Promise<void> {
-  if (timeEntryTaskMatchesProject(task, projectId)) return
+  if (!task || task.timeProjectId === projectId) return
   const { translate } = await resolveTranslations()
   const message = translate('staff.timesheets.errors.taskNotFound', 'Task not found or not accessible.')
   throw new CrudHttpError(422, { error: message, fieldErrors: { taskId: message } })
 }
 
 /**
- * The rule the assertion above enforces, as a predicate: a task belongs to
- * exactly one project, so an entry naming both must name the same one. Exported
- * because the grid bulk save validates a whole batch at once and answers with a
- * per-row error list rather than a thrown 422 — it reuses the rule and only
- * differs in how it reports a violation.
+ * Bulk-save predicate for checking a task against an explicitly resolved project.
+ * A missing project is accepted so bulk save can derive it from the task. The
+ * single-entry assertion above is stricter: a task requires its own project,
+ * including when a caller explicitly clears the project. Bulk save uses this
+ * predicate to collect per-row errors instead of throwing a 422.
  */
 export function timeEntryTaskMatchesProject(
   task: { timeProjectId?: string | null } | null | undefined,
@@ -2036,7 +2036,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
       entry.timeProjectId = nextProjectId
       entry.rateCurrencyCode = project?.currencyCode ?? null
     }
-    if (parsed.taskId !== undefined) entry.taskId = task?.id ?? null
+    if (parsed.taskId !== undefined || parsed.timeProjectId === null) entry.taskId = task?.id ?? null
     else if (storedTaskLeftBehind) entry.taskId = null
     if (parsed.customerId !== undefined) entry.customerId = parsed.customerId ?? null
     if (parsed.dealId !== undefined) entry.dealId = parsed.dealId ?? null
