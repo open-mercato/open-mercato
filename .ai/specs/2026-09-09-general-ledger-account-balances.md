@@ -648,8 +648,8 @@ wiring):
   yet reviewed by a maintainer)); for any other account both are `null`.
 - `getTrialBalance(em, { tenantId, organizationId, periodId, page?, pageSize? })`
   — resolves the named `FiscalPeriod`'s `startDate`/`endDate` and the
-  fiscal year containing it (the earliest `FiscalPeriod` in that
-  calendar/fiscal year — see Data Models), then runs **one** `WITH
+  uniquely configured fiscal year containing the whole period (Data
+  Models), then runs **one** `WITH
   RECURSIVE` query over the whole chart of accounts computing
   opening/period-turnover/YTD-turnover/closing per account via
   conditional aggregation (Design decisions,
@@ -746,33 +746,33 @@ wiring):
 
 Both `getAccountBalance` and `getTrialBalance` read the existing
 `JournalEntry`, `JournalEntryLine`, `LedgerAccount`, and `FiscalPeriod`
-entities from #5663, as specified there. The fiscal-year resolution is
-the calendar-year rule recorded below; it is not an account-of-gaps
-rule: #5663's
-`FiscalPeriod` carries only `startDate`/`endDate`/`isLocked` (Data
-Models) — no `fiscalYear` field, and no fiscal-year-length
-configuration exists anywhere in #5663 or this codebase to
-parameterize a gap threshold with — and a gap-based heuristic gives
-the wrong answer for the ordinary case this document itself names as
-common: an organization with consecutive monthly `FiscalPeriod` rows
-from January 2025 through December 2026 has no gap anywhere, so "the
-earliest period with no gap before it" walks all the way back to
-January 2025 for a March 2026 request, not January 2026 — silently
-reporting 15 months of YTD turnover instead of 3.
+entities from #5663, as specified there. `FiscalPeriod` alone supplies
+no fiscal-year boundary: neither a January 1 default nor a gap between
+periods establishes the organization's accounting year.
 
-**Resolved: the fiscal year is the calendar year of `periodStart` —
-Phase 1 does not support non-calendar fiscal years.**
-`ytdDebit`/`ytdCredit` sum from January 1st of `periodStart`'s
-calendar year through `periodEnd`, unconditionally — no gap-walking,
-no configuration this codebase doesn't have. This is correct for the
-common case (fiscal year == calendar year) and wrong for an
-organization on a genuinely non-calendar fiscal year (per #5663's own
-"6–18 m" hot spot from Section 00 of the workshop wall) — named here
-as an explicit Phase 1 limitation, not a silently wrong default (see
-Out of scope). Closing that gap needs #5663 to add a `fiscalYear`/
-fiscal-year-start field to `FiscalPeriod` first; this document's YTD
-resolution would then switch to that field instead of the calendar
-year.
+**Fiscal-year authority is a release prerequisite.** Before the trial
+balance is enabled, #5663 or a separately reviewed prerequisite must
+provide authoritative, tenant- and organization-scoped fiscal-year
+intervals with inclusive start and end dates. Intervals must be valid,
+non-overlapping within a scope, and support irregular and non-calendar
+years. Every reportable period must be wholly contained in exactly one
+such interval. Boundary changes and period creation/update must enforce
+that invariant under concurrent writes; changes affecting posted or
+locked periods require a separately reviewed, audited correction
+workflow. Existing organizations require an explicitly attested baseline;
+do not infer historical boundaries from current period gaps or dates.
+
+Resolve the period and its unique covering year in the same scoped
+consistent read as the report. `ytdDebit`/`ytdCredit` sum from that
+year's start through `periodEnd` inclusive. If the authority is absent,
+unavailable, ambiguous, invalid, or does not wholly cover the period,
+fail the entire report without rows or totals: return `422
+{ error: 'fiscal_year_unavailable' }` for missing or invalid setup and
+`503 { error: 'fiscal_year_authority_unavailable' }` for an unavailable
+authority. Never silently substitute a calendar year. These conditions
+are release gates, not evidence that #5663 already implements the
+authority; coordinate its schema, migration, API and compatibility
+review before implementation.
 
 ## API Contracts
 
@@ -826,13 +826,17 @@ year.
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `FiscalPeriod` with that id in the caller's
   tenant/organization.
+- **Response 422**: fiscal-year setup is missing, ambiguous, invalid, or
+  does not wholly cover the period (`{ error: 'fiscal_year_unavailable' }`).
 - **Response 429**: a per-user or per-organization report rate or
   concurrency budget is exhausted (`Retry-After` in seconds; Risks &
   Impact Review, "Availability controls").
-- **Response 503**: the enforced query deadline expired
+- **Response 503**: fiscal-year authority is unavailable
+  (`{ error: 'fiscal_year_authority_unavailable' }`), the enforced
+  query deadline expired
   (`{ error: 'report_timeout' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
-  query is admitted without a valid shared decision; neither failure is
+  query is admitted without a valid shared decision; no failure is
   retried server-side.
 
 ## Internationalization (i18n)
@@ -853,6 +857,10 @@ existing flat, dot-namespaced key convention (e.g.
 - `ledger.reports.trialBalance.periodPicker.label`.
 - `ledger.reports.trialBalance.zeroSumCheck.{pass,fail}` — the
   `<StatusBadge>` text.
+- `ledger.reports.trialBalance.errors.fiscalYearUnavailable` — the
+  configuration error for a 422; the page clears prior figures and
+  directs the user to an authorized accounting administrator. Authority
+  outages use the existing localized unavailable state without stale rows.
 - `ledger.reports.balancePanel.{title,asOfLabel}` — the account-page
   panel.
 
@@ -880,6 +888,9 @@ top of the live query.
 
 ### Phase 1: Balance and ZSiO queries, read-only routes and page
 
+0. Coordinate the fiscal-year authority and its migration, scope and
+   concurrent-write rules with #5663; keep trial-balance admission
+   disabled until that prerequisite is implemented and verified.
 1. Add `ledger.reports.view` to `acl.ts` and `setup.ts`'s `employee`
    list, then run `yarn mercato auth sync-role-acls` so existing
    tenants receive the new grant (`packages/core/AGENTS.md` → ACL
@@ -1025,9 +1036,13 @@ top of the live query.
   with 24 consecutive monthly `FiscalPeriod` rows spanning two
   calendar years and no gaps anywhere, a March-of-year-2 request
   includes exactly that year's January–March, not the prior year's
-  periods too (Data Models, "the fiscal year is the calendar year of
-  `periodStart`") — the regression test for the gap-heuristic failure
-  the reviewed algorithm had.
+  periods too. Configure both years explicitly; no gap heuristic is used.
+- Fiscal-year admission: cover a non-calendar year, an irregular-length
+  year, a period spanning January 1 inside one year, missing/overlapping
+  year records, a period crossing a year boundary, wrong tenant or
+  organization, and an unavailable authority. Invalid setup returns 422;
+  authority failure returns 503; neither returns any report figures.
+  Exercise concurrent period/year-boundary changes with real transactions.
 - Assert both routes return 403 without `ledger.reports.view` and 404
   for an account/period belonging to a different tenant/organization.
 - Assert both routes return 400 for a malformed `asOf` (not a valid
@@ -1043,7 +1058,8 @@ top of the live query.
   operated December 31
   and posted January 2 (with no offsetting close): it belongs to
   December turnover and January opening/closing, but not January period
-  or calendar-year YTD turnover. Match #5663's journal membership
+  or YTD turnover when January begins an explicitly configured fiscal
+  year. Match #5663's journal membership
   (Design decisions, "Every fiscal-period boundary here...").
 - Parent-column migration and validation: `parent_account_id` starts
   `NULL` for every existing account; `createLedgerAccount`/
@@ -1237,11 +1253,9 @@ category.
 - **AP/AR "bufor" toggle** — deferred to Phase 2 (see Design decisions);
   `2026-09-06-accounts-payable.md`'s Out of scope carries the
   reciprocal note, added the same day.
-- **Non-calendar fiscal years** — `ytdDebit`/`ytdCredit` assume fiscal
-  year == calendar year (Data Models); an organization with a genuine
-  non-calendar fiscal year gets wrong YTD figures until #5663 adds a
-  `fiscalYear`/fiscal-year-start field to `FiscalPeriod` for this
-  document to read instead.
+- **Fiscal-year authority** — the source and migration are coordinated
+  prerequisites, not implemented by this design. Until they are ready,
+  trial-balance requests fail closed rather than return estimated YTD.
 - **Visual indentation of syntetyk/analityk rows by hierarchy depth in
   the ZSiO table** — `DataTable` has no tree/indentation rendering
   today (Architecture → Backend Pages); Phase 1 ships a flat table
@@ -1327,11 +1341,11 @@ category.
 
 | Check | Status | Notes |
 | --- | --- | --- |
-| Data models match architecture | Pass | No new entities; the additive parent column, migration and account write paths are specified in Data Models |
+| Data models match architecture | Pending | The parent column is specified; the separate fiscal-year authority and its migration remain prerequisites |
 | Queries defined for all reads | Pass | Both report queries are specified; hierarchy-changing account commands and undo paths validate under the same scoped transaction lock |
 | User Stories match Implementation Plan | Pass | All three stories map to Phase 1 steps 2–7 |
-| Risks cover the changes this document makes | Pass | Parent migration and hierarchy-write concurrency, recursive-query correctness, shared admission availability and read-path performance are addressed |
-| API contracts match data models | Pass | `TrialBalanceRowDto` fields are all derivable from `LedgerAccount`/`JournalEntryLine` per Architecture → Queries |
+| Risks cover the changes this document makes | Pending | Fiscal-year authority is gated; historical hierarchy, opening-entry semantics and multi-page consistency still require resolution |
+| API contracts match data models | Pending | YTD requires the not-yet-implemented scoped fiscal-year authority; reporting must fail closed until it is available |
 | Scope cohesion | Pass | Applied the same test as the rest of this document family: ZSiO stands alone; Bilans/P&L do not stand without it (see Alternatives considered) |
 | UI/UX and i18n sections agree | Pass | Every string named in Internationalization has a corresponding UI element in Architecture → Backend Pages, and vice versa |
 
@@ -1641,3 +1655,12 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
 - Define shared per-user and per-organization report rate windows and bursts, shared concurrency admission, fail-closed behavior and cross-instance sustained-load coverage. A fresh security review remains required.
 - Correct the late-entry assertions for February opening/YTD/closing and add a distinct December/January fixture.
 - The unrelated base lesson-count CI failure remains blocked on the separate correction in #9735; this design-only change does not claim CI has passed.
+
+### 2026-11-17 — fiscal-year review correction (local draft)
+
+- Replace unconditional calendar-year YTD with a scoped, authoritative
+  fiscal-year prerequisite and explicit fail-closed API behavior. Cover
+  non-calendar, irregular, ambiguous, missing, and cross-year cases.
+- Historical hierarchy, opening-entry semantics, and cross-page report
+  consistency remain unresolved release blockers; this partial correction
+  is not an implementation approval or a request for re-review.
