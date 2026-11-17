@@ -9769,8 +9769,9 @@ type InvoiceRecordScope = { organizationId: string; tenantId: string };
 
 /**
  * Maps one invoice line input to a new line entity. Create and line replacement
- * share it, so a line stores the same net on both paths. `orderLineId` is not a
- * mapped column on `SalesInvoiceLine`, so it stays unstored, as it always was.
+ * share it, so a line stores the same net on both paths. `SalesInvoiceLine` maps
+ * `order_line_id` as the `orderLine` relation, which this path does not set, so
+ * `orderLineId` stays unstored, as it always was.
  */
 function buildInvoiceLineEntity(
   em: EntityManager,

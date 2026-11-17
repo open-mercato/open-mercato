@@ -986,7 +986,7 @@ export const INVOICE_REPLACE_LINES_REQUIRES_LINES_MESSAGE_KEY = 'sales.invoices.
 export const INVOICE_REPLACE_LINES_REQUIRES_TOTALS_MESSAGE_KEY = 'sales.invoices.errors.replaceLinesRequiresTotals'
 
 /**
- * Invoice line amounts that may be negative. Invoices are caller-asserted records:
+ * Invoice line amounts that may be negative. Invoice commands store amounts as sent:
  * an accounting integration stores a discount, deposit or correction line as the
  * source system reports it, on any line `kind`. `quantity` and `discountAmount`
  * stay non-negative.

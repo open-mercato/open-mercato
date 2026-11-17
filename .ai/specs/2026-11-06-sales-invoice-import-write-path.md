@@ -225,7 +225,7 @@ This spec differs from App Spec § 0.2.3, § 6.2a and § 10 #19 on `main`, which
 - the adapter omits a negative `DiscountAmount` or `TotalDiscount`;
 - the commit estimate for this platform work grows, wherever the App Spec repeats it.
 
-That change lands on this spec's branch once #7335 merges, before Xero Phase 2 starts.
+That change lands in its own PR, before Xero Phase 2 starts.
 
 ## Data Models
 
@@ -374,14 +374,13 @@ Built on the recommended answer to the decision and on Phases 1 and 2; it merges
 | `sales/AGENTS.md` | Modify | Exemption, in Phase 2 |
 | `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md` | Modify | Dated entries, per phase |
 | `packages/core/src/modules/audit_logs/api/audit-logs/actions/undo/route.ts`, `…/redo/route.ts` | Modify | 409 (undo) and 404 (redo) statuses in `openApi` |
-| `.ai/specs/2026-09-26-app-spec-xero-integration.md` | Modify | § 0.2.3, § 6.2a, § 10 #19 and every repeat of the commit estimate, after #7335 merges |
 | `sales/commands/__tests__/documents.invoice-write-path.test.ts`, `sales/data/__tests__/validators.invoice-write-path.test.ts` | Create | Unit coverage |
 | `sales/commands/__tests__/documents.invoice-credit-memo-update.test.ts` | Modify | Pins the locked, transactional update instead of `findOneOrFail` |
 | `sales/__integration__/TC-SALES-7336-*.spec.ts` | Create | Integration coverage |
 
 ### Testing Strategy
 
-Unit tests extend `commands/__tests__/documents.undo-custom-fields.test.ts` and `documents.invoice-credit-memo-update.test.ts`. Integration tests are self-contained: new `TC-SALES-7336-*` specs, modeled on `TC-SALES-042-document-update-custom-fields.spec.ts`, create fixtures through the API and clean them up. They read lines through `withClient` (`helpers/integration/dbFixtures.ts`) or the audit `snapshotAfter`, because no API response carries lines.
+Unit tests live in the new `commands/__tests__/documents.invoice-write-path.test.ts` and extend `documents.invoice-credit-memo-update.test.ts`. Integration tests are self-contained: new `TC-SALES-7336-*` specs, modeled on `TC-SALES-042-document-update-custom-fields.spec.ts`, create fixtures through the API and clean them up. They read lines through `withClient` (`helpers/integration/dbFixtures.ts`) or the audit `snapshotAfter`, because no API response carries lines.
 
 **Phase 1 acceptance**
 - Create with `customFields` and no `customFieldSetId` stores them. So does POST or PUT with `cf_*` input, and GET returns `cf_<key>`.
@@ -438,7 +437,7 @@ Unit tests extend `commands/__tests__/documents.undo-custom-fields.test.ts` and 
 
 ## Out of Scope
 
-Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
+Invoice numbers over 191 characters (the limit of every sales document number), credit memos, an invoice UI (#100), payment allocations (#7202), lines in an invoice API response, invoice line custom fields, persisting a line's order line (`SalesInvoiceLine.orderLine`; `orderLineId` in the input stays unstored, as on `main`), clearing `dueDate` on update (the adapter omits it; `null` would store 1970-01-01), and `sales.invoices.delete` undo, which appears to insert the same id while the soft-deleted row still exists (`commands/documents.ts:10235`; not run, so it needs its own check).
 
 ## Risks & Impact Review
 
@@ -500,11 +499,11 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 - **Residual risk**: Such a line is not byte-identical to the source, and this needs to be reflected in the App Spec.
 
 #### Two updates with the same version
-- **Scenario**: Two PUTs pass the row guard before either takes the lock, and the second silently wins.
+- **Scenario**: Two PUTs pass the row guard before either takes the lock.
 - **Severity**: Low
 - **Affected area**: `PUT /api/sales/invoices`
-- **Mitigation**: The lock keeps one consistent line set. A second version check on a guarded route is forbidden.
-- **Residual risk**: Last write wins in this narrow window, as on any row-guarded route.
+- **Mitigation**: Update checks the expected version again against the row read under the lock, as `sales.orders.update` does through `lockOrderForTotalsWrite`, so the later of the two answers 409. The check reads the invoice row's own version, so it is not the double guard over an aggregate that the concurrency docs forbid.
+- **Residual risk**: A request sent without the version header is not checked.
 
 #### Negative amounts in Xero are not yet confirmed
 - **Scenario**: Xero may not produce a negative `SubTotal` on an `ACCREC` invoice, or may produce a negative total, which this spec refuses. A discount on a negative line may report a negative `DiscountAmount` or `TotalDiscount`, and `discountAmount` and `discountTotalAmount` stay ≥ 0.
