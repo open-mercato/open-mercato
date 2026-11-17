@@ -261,6 +261,7 @@ test.describe('TC-SALES-8459: Send to precedence', () => {
         await expect(option).toBeVisible({ timeout: 3_000 })
       }).toPass({ timeout: 30_000 })
       await option.click()
+      await expect(page.getByTestId('lookup-select-selected')).toContainText(noEmailName)
       await saveCustomerCard(page)
 
       await expectNoRecipient(page)
