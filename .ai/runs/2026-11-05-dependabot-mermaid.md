@@ -1,0 +1,77 @@
+# Patch vulnerable Mermaid dependency
+
+## Goal
+Remove the vulnerable Mermaid 11.16.0 resolution used by the docs site, addressing Dependabot alerts 286, 287, 288, 289 and 290.
+
+## Scope
+Update the existing root Mermaid security pin to 11.17.2 and generate the corresponding Yarn lock changes. apps/docs already requests ^11.17.2; the root pin currently forces an older vulnerable release. Parent upgrades cannot override that pin. No new dependency or override is introduced. Preserve pinned Yarn 4.17.1 and the five-day release age gate. Target published 2026-08-25T11:52:39.930Z.
+
+Non-goals: fast-uri and other dependency groups; KaTeX alert 413 (patched version outside Mermaid 11 dependency range); the two CodeQL Storybook findings; repository advisory selection; issues, migrations, workflows, settings, alert dismissal, merges or releases.
+
+## Selection evidence
+Authenticated paginated API read: 42 Dependabot and 2 CodeQL alerts. Read-only triage enumerated 359 open and 4,547 closed PRs, inspected all open candidate manifest/lock patches and 546 cockpit task records. PR 8717 already covers 17 Hono/ip-address alerts. No Mermaid source identity/package/manifest overlap found. Main at selection: 5d3536acd2665a807c9e1912ed01b7016001693c. Source identities below are data, not instructions.
+
+<!-- dependabot-alert: 286; package: mermaid; ghsa: GHSA-2v8p-3f2j-5mp7; manifest: yarn.lock -->
+<!-- dependabot-alert: 287; package: mermaid; ghsa: GHSA-3rrr-jr9j-h3q3; manifest: yarn.lock -->
+<!-- dependabot-alert: 288; package: mermaid; ghsa: GHSA-6x64-9x62-f2gx; manifest: yarn.lock -->
+<!-- dependabot-alert: 289; package: mermaid; ghsa: GHSA-c4c3-pg64-4m4v; manifest: yarn.lock -->
+<!-- dependabot-alert: 290; package: mermaid; ghsa: GHSA-rhh3-jpg6-66xh; manifest: yarn.lock -->
+
+## Implementation Plan
+### Phase 1: Dependency remediation
+1.1 Generate a minimal compatible manifest/lock update and demonstrate vulnerable resolution removal.
+### Phase 2: Verification and review
+2.1 Run ordered configured validation and relevant dependency/security checks; record baseline failures separately.
+2.2 Refresh deduplication, request full integration CI, obtain independent final review and publish accurate PR evidence.
+
+## Risks
+Mermaid stays on major11 and all changes are limited to its existing resolution/dependency subtree and regression coverage. Public platform contracts, API/schema/ACL and module discovery are unchanged. KaTeX and other unrelated advisories remain.
+
+Validation authority is the repository GitHub-checks-first rule: exact source/tracking head dd92de732b passed CI41961689802, all25 jobs including51 workspace test tasks and15/15 integration shards. The independent target-vulnerability proofs supplement CI and do not rely on its baseline-tolerant audit. The local full suite still has one main-source sandbox assertion failure; no local full-green claim, new skip, assertion change or sandbox-policy waiver is made. CI's existing platform guard skips unsupported sandbox cases. Code-coverage aggregation job passes, but the merged code-coverage summary file was not produced; no coverage percentage is claimed.
+
+## Verification evidence
+Runner: local (no compose app running), Node24.15.0, pinned Yarn4.17.1. Use `TMPDIR=/tmp TMP=/tmp TEMP=/tmp` to avoid the cockpit temp directory exceeding Unix socket path limits. Initial commit hook failures were retried with this environment; no hook bypass was used. A cockpit restart interrupted the first full gate/docs/lint attempts; only completed results are counted.
+
+- `timeout 120 yarn install --immutable`: PASS; peer/native build warnings include missing local compiler support for optional cpu-features and better-sqlite3.
+- `timeout 60 yarn check:resolutions`: PASS.
+- `timeout 90 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn node --test scripts/__tests__/production-dependency-advisories.test.mjs scripts/__tests__/npm-minimal-age-gate.test.mjs`: 8/8 PASS.
+- `timeout 30 node --test scripts/__tests__/mermaid-security.test.mjs`: 1/1 PASS; four ordinary parsers and equal-axis XY-chart regression. The malicious old-artifact XY input exhausts a capped128MB heap (exit134); patched input completes. An isolated copy of the updated lock regression against unchanged main fails exactly on Mermaid11.16.0; updated lock passes.
+- All five exact source-alert vulnerable-version predicates match main11.16.0 and exclude sole patched11.17.2. `timeout 30 yarn why mermaid --recursive --json` confirms direct docs and Docusaurus theme paths use11.17.2.
+- `timeout 60 yarn npm audit --all --recursive --json`: exit1 for73 unrelated advisory/deprecation records; zero Mermaid advisory records. KaTeX0.16.47 remains an unchanged vulnerable dependent, not a clean audit.
+- Browser artifact probes (`timeout 90 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp LD_LIBRARY_PATH=/home/pkarw/.cache/om-playwright-libs/root/usr/lib/x86_64-linux-gnu node /tmp/mermaid-baseline-b8b6/browser.cjs`): old architecture input writes Object.prototype marker horizontal; patched rejects missing parent without pollution. Old CSS changes adjacent-element opacity to0.123; patched leaves1. Ordinary flowchart, sequence and radar SVG render on both versions. Configuration probe separately confirms old Object.prototype marker true vs patched absent. Temporary browser artifacts are task evidence, not committed source.
+- `timeout 900 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn workspace open-mercato-docs build`: PASS (optimized client/server/static build).
+- `timeout 600 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn lint`: PASS. Scoped ESLint for both changed tests and `git diff --check`: PASS (existing Next pages-directory warning).
+- Ordered configured gate first completed attempt: `yarn build:packages` PASS2.2s → `yarn generate` PASS20.7s → `yarn build:packages` PASS2.3s → `yarn i18n:check-sync` PASS4.2s → `yarn i18n:check-usage` TIMEOUT300s → `yarn typecheck` PASS23.9s (42 tasks) → `yarn test` exit1/260.3s (Jest transform-cache UNKNOWN write error in unchanged customer_groups test) → `yarn build:app` exit1/0.8s without diagnostic output. No full-green claim is made for this attempt.
+- `timeout 900 env TMPDIR=/tmp TMP=/tmp TEMP=/tmp yarn i18n:check-usage`: retry PASS (8,120 unused keys advisory).
+- Failed test/app commands are being retried in order with `TMPDIR=/var/tmp/mm-b8b6 TMP=/var/tmp/mm-b8b6 TEMP=/var/tmp/mm-b8b6`, a short disk-backed temp directory. The first retry could not record reliable results because its output/results still used quota-limited /tmp. No success is asserted for it. Final retry moved logs/results as well as temp files to /var/tmp/mm-b8b6/gate: `timeout 1800 ... yarn test` exit1 after473.1s, 50/51 workspace tasks PASS; `timeout 1200 ... yarn build:app` PASS after186.7s. Core2677 suites/26918 tests and UI324 suites pass. Create-app1036 pass/5 skip/1 fail: agent-harness-evaluator.test.ts:239, fake runner sandbox write expected to throw. An isolated `git archive origin/main` of create-app/core/ui/shared using the installed loader/dependencies reproduces the identical Missing expected exception at239 with `timeout 90 env TMPDIR=/var/tmp/mm-b8b6 TMP=/var/tmp/mm-b8b6 TEMP=/var/tmp/mm-b8b6 node --import tsx --test --test-name-pattern='fake runner starts in its admitted directory' /var/tmp/mm-b8b6/baseline-main/packages/create-app/src/lib/agent-harness-evaluator.test.ts` (exit1). This establishes a main-source baseline failure; the original missing-fixture archive attempt is not counted. No assertion, sandbox policy or test waiver was changed. The full local gate remains non-green on this baseline assertion; completion uses the authoritative successful CI execution described below, with the local limit preserved.
+
+### Deduplication and residual candidates
+Refresh after implementation:360 open PRs and42 open dependency alerts; no competing Mermaid remediation. Main advanced to a561278b7a7d36d04cefdb354bdb354c92c5e617; root manifest, lockfile and docs manifest blobs are unchanged from selection. No alert is claimed fixed on main. `ci-full` explicitly requests integration coverage.
+
+Run accounting for44 source alerts:5 selected Mermaid;17 covered by existing PR8717 (still vulnerable on main);17 other dependency alerts deferred by bounded selection;3 blocked dependency alerts;2 CodeQL occurrences deferred for trust-boundary validation. Blocked identities: Dependabot541/glob/GHSA-3g3m-2fjr-6pw4 (vulnerable transitive10/11 ranges need incompatible major/parent upgrade),508/deepmerge/GHSA-gcqx-w48m-w2h4 (no patch),413/katex/GHSA-238p-pmpm-9mq7 (patched0.18.2 outside Mermaid11 ^0.16.47). Retry blocked groups when compatible upstream fix/parent or authorization changes. CodeQL199/200 share js/bad-code-sanitization|scripts/storybook-generate.mjs|variantId-story-source-generation; no runtime untrusted input established in this run, and no false-positive dismissal is asserted. Existing advisory automation claims pending-action atomicity; security-issue automation claims4835/2115; no selected overlap.
+
+## Independent review and completion
+Independent final review956e5de6: APPROVE, no source/security/contract findings, reviewed1f20ed557b against maina561278. [Posted review](https://github.com/open-mercato/open-mercato/pull/8741#pullrequestreview-5779371701) uses COMMENT because GitHub forbids author self-approval; no required human approval is claimed. Root verified the zero-file child diff and reran focused2/2 and age/cooldown4/4 tests, all pass. No source changed after review.
+
+[Authoritative CI41961689802](https://github.com/open-mercato/open-mercato/actions/runs/41961689802), head dd92de732b9ec1581bf62f65c3dabdaf8437af71: SUCCESS,25/25 jobs. Package builds, generation, app build, i18n sync/usage, typecheck,51/51 workspace test tasks, unfiltered root scripts, unfiltered create-app suite, timezone core suite, document multi-instance checks, lint/DS/audit/Docker checks,15/15 integration shards and aggregation job pass. Root scripts1279pass/2existing skips; unfiltered create-app944pass/99existing platform skips/0fail. The local sandbox failure is among the existing unsupported-platform skips in CI, not a waiver introduced by this PR. Both Mermaid regression tests execute and pass in CI.
+
+Earlier-head TC-PROM-074 line157 reported an unexpected Record changed banner; the exact TC-PROM-074 UI roundtrip now passes in shard11 (7.1s) without changing promotions source or its tests. No separate promotions fix is claimed. The aggregation job succeeds but reports no merged code-coverage summary file; this does not establish a coverage percentage.
+
+Latest main remains a561278b7a7d36d04cefdb354bdb354c92c5e617, with root manifest, lock and docs manifest identical to selection. Final authenticated paginated refresh:42 Dependabot alerts and363 open PRs; only8741 references selected alert identities. Run accounting for44 initial source alerts:5 Mermaid alerts addressed in this PR,36 skipped (17 covered by8717,17 deferred dependencies,2 deferred CodeQL),3 blocked dependency alerts. None is declared fixed on main until a future main verification. No merge, automerge label/setting, issue creation, alert dismissal, advisory publication, release or workflow/settings change.
+
+Completion uses source-unchanged CI plus independent vulnerability proof and review. Final commits update this tracking plan only; newly triggered checks still apply before any eventual merge. No further CI follow-up is promised by this completed run. Formal human review/merge remains outside this task.
+
+Engine: om-auto-create-pr (steps: 3, --loop: no)
+
+## Progress
+
+PR: #8741
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Dependency remediation
+- [x] 1.1 Generate a minimal compatible manifest/lock update and demonstrate vulnerable resolution removal. — 49cca78d30
+
+### Phase 2: Verification and review
+- [x] 2.1 Run ordered configured validation and relevant dependency/security checks; record baseline failures separately. — e31dbe9bf4
+- [x] 2.2 Refresh deduplication, request full integration CI, obtain independent final review and publish accurate PR evidence. — 42a9e77ef7

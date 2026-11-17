@@ -133,3 +133,44 @@ describe('mercato scheduler run', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 })
+
+function loadStartCommand() {
+  let commands: Array<{ command: string; run(rest: string[]): Promise<void> }> = []
+  jest.isolateModules(() => {
+    commands = require('../cli').default
+  })
+  const start = commands.find((cmd) => cmd.command === 'start')
+  if (!start) throw new Error('start command not registered')
+  return start
+}
+
+describe('mercato scheduler start', () => {
+  const previousStrategy = process.env.QUEUE_STRATEGY
+  const syncAll = jest.fn()
+  let stdout: jest.SpyInstance
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    syncAll.mockResolvedValue(undefined)
+    resolve.mockImplementationOnce(() => ({ syncAll }))
+    stdout = jest.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  })
+
+  afterEach(() => {
+    stdout.mockRestore()
+    if (previousStrategy === undefined) delete process.env.QUEUE_STRATEGY
+    else process.env.QUEUE_STRATEGY = previousStrategy
+  })
+
+  it('points operators at the real queue worker command after an async sync', async () => {
+    process.env.QUEUE_STRATEGY = 'async'
+
+    await loadStartCommand().run([])
+
+    const output = stdout.mock.calls.map(([chunk]) => String(chunk)).join('')
+    expect(resolve).toHaveBeenCalledWith('bullmqSchedulerService')
+    expect(syncAll).toHaveBeenCalledTimes(1)
+    expect(output).toContain('  yarn mercato queue worker --all\n')
+    expect(output).not.toContain('worker:start')
+  })
+})

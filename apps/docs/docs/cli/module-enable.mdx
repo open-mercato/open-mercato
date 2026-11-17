@@ -24,13 +24,13 @@ yarn mercato module enable <packageName> --eject
 yarn mercato module enable <packageName> --allow-third-party
 ```
 
-`<packageName>` is the full npm package name (e.g., `@open-mercato/test-package`), without a version suffix. Packages outside the `@open-mercato/*` scope require `--allow-third-party`.
+`<packageName>` is the installed dependency binding from the app's `package.json`, without a version suffix. It is usually the canonical npm package name (for example, `@open-mercato/test-package`), but it may be a Yarn npm alias. Packages whose canonical manifest name is outside the `@open-mercato/*` scope require `--allow-third-party`.
 
 ## Options
 
 | Option | Description |
 | --- | --- |
-| `<packageName>` | Full npm package name of the already-installed module. Scoped under `@open-mercato/*` by default; other scopes require `--allow-third-party`. Must be present in `node_modules`. |
+| `<packageName>` | Dependency binding of the already-installed module, including an npm alias when used. The canonical manifest name must be under `@open-mercato/*` by default; other scopes require `--allow-third-party`. The binding must be present in `node_modules`. |
 | `--module <moduleId>` | Select a specific module from a package that contains multiple modules. Required when the package exposes more than one module; omit for single-module packages. |
 | `--eject` | Copy the selected module source into `src/modules/<moduleId>/`, rewrite cross-module imports to the origin package, and register it as `from: '@app'`. Omit this flag to keep loading the module from `node_modules`. |
 | `--allow-third-party` | Allow enabling a package outside the `@open-mercato/*` scope. The package must still pass module-structure validation. Required as an explicit opt-in for supply-chain safety. |
