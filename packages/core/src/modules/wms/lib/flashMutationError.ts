@@ -35,6 +35,30 @@ const FORBIDDEN_FEATURE_MESSAGE_FALLBACKS: Record<string, string> = {
 }
 
 /**
+ * Maps the bare error codes returned by `lib/putaway.ts` (as `{ error: code }`
+ * bodies, surfaced verbatim by `raiseCrudError`) to translated messages.
+ */
+const ERROR_CODE_MESSAGE_KEYS: Record<string, string> = {
+  invalid_putaway_state: 'wms.errors.invalidPutawayState',
+  invalid_putaway_quantity: 'wms.errors.invalidPutawayQuantity',
+  putaway_quantity_exceeds_task: 'wms.errors.putawayQuantityExceedsTask',
+  invalid_putaway_target_location: 'wms.errors.invalidPutawayTargetLocation',
+  putaway_delete_done_forbidden: 'wms.errors.putawayDeleteDoneForbidden',
+  putaway_delete_requires_terminal_status: 'wms.errors.putawayDeleteRequiresTerminalStatus',
+  lifecycle_field_forbidden: 'wms.errors.lifecycleFieldForbidden',
+}
+
+const ERROR_CODE_MESSAGE_FALLBACKS: Record<string, string> = {
+  invalid_putaway_state: 'This putaway task cannot be updated in its current state.',
+  invalid_putaway_quantity: 'Confirmed quantity must be a number greater than zero.',
+  putaway_quantity_exceeds_task: 'Confirmed quantity cannot be greater than the task quantity.',
+  invalid_putaway_target_location: 'Stock cannot be put away to this type of location.',
+  putaway_delete_done_forbidden: 'A completed putaway task cannot be deleted.',
+  putaway_delete_requires_terminal_status: 'Only cancelled putaway tasks can be deleted.',
+  lifecycle_field_forbidden: 'Lifecycle fields cannot be edited directly.',
+}
+
+/**
  * Reads the 403 response's `requiredFeatures` (attached to the thrown error
  * by `raiseCrudError`) and, when the missing feature is a known WMS
  * permission, resolves a translated message naming it. Returns `null` when
@@ -73,6 +97,11 @@ export function flashMutationError(error: unknown, fallbackMessage: string, t?: 
   // ACL body has no mappable feature — prefer the dialog-specific fallback
   // over flashing the untranslated server token.
   const rawMessage = error instanceof Error ? error.message.trim() : ''
+  if (Object.prototype.hasOwnProperty.call(ERROR_CODE_MESSAGE_KEYS, rawMessage)) {
+    const fallback = ERROR_CODE_MESSAGE_FALLBACKS[rawMessage]
+    flash(t ? t(ERROR_CODE_MESSAGE_KEYS[rawMessage], fallback) : fallback, 'error')
+    return
+  }
   const isGenericForbidden = rawMessage.length === 0 || /^forbidden$/i.test(rawMessage)
   flash(isGenericForbidden ? fallbackMessage : rawMessage, 'error')
 }
