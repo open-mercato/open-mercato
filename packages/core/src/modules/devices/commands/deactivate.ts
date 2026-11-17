@@ -110,7 +110,7 @@ const deactivateDeviceCommand: CommandHandler<
     return parsed.expectedPushToken ? { id: device.id, deactivated: true } : { id: device.id }
   },
   buildLog: async ({ snapshots, result }) => {
-    if (result.deactivated === false) return null
+    if (result.deactivated === false) return { skipLog: true }
     const before = (snapshots.before as DeviceSnapshot | undefined) ?? null
     if (!before) return null
     return {

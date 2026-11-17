@@ -192,7 +192,7 @@ describePostgres('conditional device deactivation', () => {
         result: { id: device.id, deactivated: false },
         snapshots: {},
       } as never),
-    ).toBeNull()
+    ).toEqual({ skipLog: true })
   })
 
   it('leaves a rotated token active when the rotation committed before the call', async () => {
