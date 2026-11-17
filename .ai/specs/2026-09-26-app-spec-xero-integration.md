@@ -1120,7 +1120,7 @@ The self-heal adds at most one call per invoice page plus one per 100 Contacts t
 - [ ] An admin triggers a Contacts sync on demand and sees accurate create/update/skip/failed counts, including a sync running longer than Xero's 30-minute access token.
 - [ ] A sales/CRM user opens an imported Company: it behaves like a manually created one (editable OM-only fields) and shows the Xero badge with its link, also to a user without `integrations.view`.
 - [ ] After an invalidated grant, the admin sees the banner, reconnects through its link, the previous Organisation is re-selected (or pre-selected), and the next sync succeeds.
-- [ ] Disconnecting an `active` grant shows the revocation outcome, warns when Xero lists other Organisations, and optionally removes the Client ID and Secret; a forced Disconnect or an `invalidated` grant says that no revocation was attempted.
+- [ ] Disconnecting an `active` grant shows the revocation outcome, warns when Xero lists other Organisations, and optionally removes the Client ID and Secret; a forced Disconnect, an `invalidated` grant, or a revoke never sent (client not configured, platform unavailable) says that no revocation was attempted.
 - [ ] Jest tests cover the route-contract rules 1–11 against the core's fake authorization server (`rotation: 'strict'`, 30-minute `strictGraceMs`, 1800-second tokens); an E2E test runs connect → token → disconnect through the test seam (§ 4.5: the core's fake authorization server and the fake Xero API); runs and adapters are covered in Jest against the in-process fakes.
 
 **Value delivered:**

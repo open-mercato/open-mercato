@@ -72,6 +72,8 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
   let encryption: TenantDataEncryptionService | null = null
   const previousToggle = process.env.TENANT_DATA_ENCRYPTION
   const previousFallbackKey = process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+  const previousVaultAddr = process.env.VAULT_ADDR
+  const previousVaultToken = process.env.VAULT_TOKEN
 
   function fork(): EntityManager {
     if (!orm) throw new Error('[internal] ORM is not started')
@@ -158,6 +160,8 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
   beforeAll(async () => {
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = randomBytes(32).toString('base64')
+    delete process.env.VAULT_ADDR
+    delete process.env.VAULT_TOKEN
     const customersIds: Record<string, string> = {}
     for (const map of defaultEncryptionMaps) customersIds[map.entityId.split(':')[1]] = map.entityId
     registerEntityIds({ customers: customersIds })
@@ -209,22 +213,24 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
     await Promise.allSettled([postgres?.stop()])
     restoreEnv('TENANT_DATA_ENCRYPTION', previousToggle)
     restoreEnv('TENANT_DATA_ENCRYPTION_FALLBACK_KEY', previousFallbackKey)
+    restoreEnv('VAULT_ADDR', previousVaultAddr)
+    restoreEnv('VAULT_TOKEN', previousVaultToken)
   }, 30_000)
 
   it('claims the existing Company by its VAT ID, then writes a changed TaxNumber to the encrypted native VAT ID', async () => {
     const scope = await createScope()
-    const existingId = await createCompany(scope, 'Acme Holdings', '123 456 789')
+    const existingId = await createCompany(scope, 'Acme Holdings', 'gb 123 456 789')
     const contactId = randomUUID()
     const externalId = formatContactExternalId(XERO_ORGANISATION_ID, contactId)
 
-    const [claimed] = await runPage(scope, [contact(contactId, { TaxNumber: '123456789' })])
+    const [claimed] = await runPage(scope, [contact(contactId, { TaxNumber: 'GB123456789' })])
 
     expect(claimed).toMatchObject({ externalId, action: 'update', data: { localId: existingId } })
-    expect(await readCompanies(scope)).toEqual([{ entityId: existingId, displayName: 'Acme Ltd', taxId: '123 456 789' }])
+    expect(await readCompanies(scope)).toEqual([{ entityId: existingId, displayName: 'Acme Ltd', taxId: 'gb 123 456 789' }])
     expect((await loadXeroRunIndex(fork(), scope)).lookup(externalId)).toBe(existingId)
     const sources = await loadXeroCompanyIndexSources(fork(), scope)
     expect(sources.markers).toEqual([{ entityId: existingId, value: externalId }])
-    expect(sources.taxNumbers).toEqual([{ entityId: existingId, value: '123 456 789' }])
+    expect(sources.taxNumbers).toEqual([{ entityId: existingId, value: 'gb 123 456 789' }])
     expect(await readLogCodes(scope)).toContain('xero.company_matched_by_tax_number')
 
     const [changed] = await runPage(scope, [contact(contactId, { TaxNumber: '987654321' })])
@@ -252,7 +258,7 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
       contact(createdContactId, { Name: 'John Roe Services', TaxNumber: '900-70-1234', TaxNumberType: 'ITIN' }),
     ])
 
-    expect(matched).toMatchObject({ data: { localId: existingId } })
+    expect(matched).toMatchObject({ action: 'update', data: { localId: existingId } })
     expect(created).toMatchObject({ action: 'create' })
     const createdId = String(created.data?.localId)
     expect(await readCompanies(scope)).toEqual([
@@ -269,5 +275,6 @@ describeWithPostgres('Xero Contacts written as Companies through the customers c
       { entityId: existingId, displayName: 'Jane Doe Consulting', taxId: '123-45-6789' },
       { entityId: createdId, displayName: 'John Roe Services', taxId: null },
     ])
+    expect(await readLogCodes(scope)).not.toContain('xero.value_left_out')
   }, CASE_TIMEOUT_MS)
 })

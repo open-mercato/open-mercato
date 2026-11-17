@@ -322,6 +322,7 @@ describe('Xero tab', () => {
     { failureReason: 'client_not_configured', message: 'sync_xero.disconnect.doneWithoutRevoke', level: 'success' },
     { failureReason: 'platform_unavailable', message: 'sync_xero.disconnect.doneWithoutRevoke', level: 'success' },
     { failureReason: 'error', message: 'sync_xero.disconnect.revocationFailed', level: 'warning' },
+    { failureReason: 'cleanup_failed', message: 'sync_xero.disconnect.revocationFailed', level: 'warning' },
   ])('reports a failed revocation with reason $failureReason as $message', async ({ failureReason, message, level }) => {
     serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
     mockApiCallOrThrow.mockResolvedValueOnce({
