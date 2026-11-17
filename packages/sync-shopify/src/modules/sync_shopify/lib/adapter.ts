@@ -2,7 +2,14 @@ import type { DataMapping, DataSyncAdapter, ImportBatch, ImportItem, ValidationR
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createShopifyClient, type ShopifyClient } from './client'
 import { createShopifyImporter, type ShopifyImporter } from './importer'
-import { SHOPIFY_ENTITY_TYPES, SHOPIFY_PROVIDER_KEY, type ShopifyEntityType } from './types'
+import {
+  SHOPIFY_ENTITY_TYPES,
+  SHOPIFY_PROVIDER_KEY,
+  type ShopifyCustomerNode,
+  type ShopifyEntityType,
+  type ShopifyOrderNode,
+  type ShopifyProductNode,
+} from './types'
 
 export type ShopifyAdapterDeps = {
   createClient?: (credentials: Record<string, unknown>) => ShopifyClient
@@ -52,22 +59,31 @@ function staticMapping(entityType: ShopifyEntityType): DataMapping {
   }
 }
 
-async function importPage(
-  entityType: ShopifyEntityType,
-  nodes: unknown[],
+async function importProducts(
+  nodes: ShopifyProductNode[],
   importer: ShopifyImporter,
   currencyCode: string,
 ): Promise<ImportItem[]> {
   const items: ImportItem[] = []
-  if (entityType === 'products') {
-    for (const node of nodes) items.push(await importer.upsertProduct(node as never, currencyCode))
-    return items
-  }
-  if (entityType === 'customers') {
-    for (const node of nodes) items.push(await importer.upsertCustomer(node as never))
-    return items
-  }
-  for (const node of nodes) items.push(await importer.upsertOrder(node as never))
+  for (const node of nodes) items.push(await importer.upsertProduct(node, currencyCode))
+  return items
+}
+
+async function importCustomers(
+  nodes: ShopifyCustomerNode[],
+  importer: ShopifyImporter,
+): Promise<ImportItem[]> {
+  const items: ImportItem[] = []
+  for (const node of nodes) items.push(await importer.upsertCustomer(node))
+  return items
+}
+
+async function importOrders(
+  nodes: ShopifyOrderNode[],
+  importer: ShopifyImporter,
+): Promise<ImportItem[]> {
+  const items: ImportItem[] = []
+  for (const node of nodes) items.push(await importer.upsertOrder(node))
   return items
 }
 
@@ -118,23 +134,42 @@ export function createShopifyDataSyncAdapter(deps: ShopifyAdapterDeps = {}): Dat
       let batchIndex = 0
       while (true) {
         if (input.signal?.aborted) return
-        const page = entityType === 'products'
-          ? await client.listProducts(cursor, input.batchSize)
-          : entityType === 'customers'
-            ? await client.listCustomers(cursor, input.batchSize)
-            : await client.listOrders(cursor, input.batchSize)
-        if (input.signal?.aborted) return
-        const items = await importPage(entityType, page.nodes, importer, currencyCode)
+        let items: ImportItem[]
+        let endCursor: string | null
+        let hasNextPage: boolean
+        let processedCount: number
+        if (entityType === 'products') {
+          const page = await client.listProducts(cursor, input.batchSize)
+          if (input.signal?.aborted) return
+          items = await importProducts(page.nodes, importer, currencyCode)
+          endCursor = page.endCursor
+          hasNextPage = page.hasNextPage
+          processedCount = page.nodes.length
+        } else if (entityType === 'customers') {
+          const page = await client.listCustomers(cursor, input.batchSize)
+          if (input.signal?.aborted) return
+          items = await importCustomers(page.nodes, importer)
+          endCursor = page.endCursor
+          hasNextPage = page.hasNextPage
+          processedCount = page.nodes.length
+        } else {
+          const page = await client.listOrders(cursor, input.batchSize)
+          if (input.signal?.aborted) return
+          items = await importOrders(page.nodes, importer)
+          endCursor = page.endCursor
+          hasNextPage = page.hasNextPage
+          processedCount = page.nodes.length
+        }
         if (input.signal?.aborted) return
         yield {
           items,
-          cursor: page.endCursor ?? '',
-          hasMore: page.hasNextPage,
-          processedCount: page.nodes.length,
+          cursor: endCursor ?? '',
+          hasMore: hasNextPage,
+          processedCount,
           batchIndex,
         }
-        if (!page.hasNextPage) return
-        cursor = page.endCursor
+        if (!hasNextPage) return
+        cursor = endCursor
         batchIndex += 1
       }
     },

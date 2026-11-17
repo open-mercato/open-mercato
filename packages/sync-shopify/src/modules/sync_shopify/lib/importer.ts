@@ -449,6 +449,7 @@ export async function createShopifyImporter(scope: TenantScope): Promise<Shopify
           const variant = await findOneWithDecryption(em, CatalogProductVariant, {
             id: variantId,
             tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
             deletedAt: null,
           }, { populate: ['product'] }, scope)
           const productId = variant?.product?.id
