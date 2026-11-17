@@ -2,7 +2,7 @@
 
 > **Program:** split out of package D1 of [`2026-11-15-gdpr-ready-deployments-program.md`](2026-11-15-gdpr-ready-deployments-program.md) (tracker open-mercato/open-mercato#8593).
 > **Depends on:** the named parsing and reporting exports in Phase 1 from [`2026-11-16-operational-retention-pruners.md`](2026-11-16-operational-retention-pruners.md).
-> **Propagation dependency:** the R3-6 first-party subscriber and emitter changes in [`2026-06-17-form-to-deals.md`](../2026-06-17-form-to-deals.md), “R3-6 — The form-to-deals reason set”, and [`2026-11-16-privacy-coverage-content-ai.md`](2026-11-16-privacy-coverage-content-ai.md), Phase 1, ship before this schedule can anonymize.
+> **Propagation dependency:** the R3-6 first-party emitter changes in [`2026-11-16-privacy-coverage-content-ai.md`](2026-11-16-privacy-coverage-content-ai.md), Phase 1, always ship before this schedule can anonymize. Where the `form_to_deals` module is enabled, its R3-6/R5-6 subscriber and `TC-PRIVACY-FORMS-DEALS-001`, both owned by [`2026-06-17-form-to-deals.md`](../2026-06-17-form-to-deals.md) (“R3-6 — The form-to-deals reason set”) and shipped with that module, which does not exist today, must also ship first.
 > **Code baseline checked for this revision:** read-only snapshot `9e09023483`; specifications only, no runtime tests run.
 > **Written autonomously.** No question was put to a person; the choices are listed under Resolved assumptions.
 
@@ -17,6 +17,12 @@ A form owner can set a retention period on a form. The setting is stored and sho
 **What "anonymize" means here, unchanged by this spec:** answers to fields flagged as sensitive are replaced, uploaded content is cleared, invitation contact details are removed. Answers to fields nobody flagged stay as they are, including a name typed into an unflagged text field.
 
 **Not in this spec:** deleting submissions; consent records and the access audit, which are evidence; erasure on a data subject's request.
+
+## 📝 Overview
+
+> **Market reference.** Typeform, Jotform and Microsoft Forms all let a form owner set how long responses are kept and apply it automatically, and Google Workspace retention rules warn administrators before a rule starts acting. Adopted: the per-form period that already exists, applied on a schedule, with a durable notice to the people who manage the form before the first change. Rejected: starting irreversible anonymization on upgrade without notice.
+
+**Scope and ownership.** The forms module owns the worker, its schedule, its notice state and the hold check. It consumes the operational-pruners spec's parsing and reporting helpers and the record-retention spec's `privacyRetentionGuard` contract; what anonymization does to a submission stays with the existing forms service, and full erasure stays with the content-ai coverage spec.
 
 ## 📝 Resolved assumptions (autonomous defaults)
 
@@ -52,13 +58,13 @@ A form owner can set a retention period on a form. The setting is stored and sho
 
 ### R3-5 — Holds, honestly
 
-Scheduled forms retention resolves `privacyRetentionGuard` softly by DI and calls `excludedSubjects({ scope, setId: 'forms.submissions' })`, following DEC-C — Retention sets and holds in `2026-11-16-privacy-record-retention.md`, “Legal holds” and its `PrivacyRetentionGuard` API contract. Absence is allowed: OSS has no legal-hold engine and runs as specified. A registered guard that throws refuses that organization's pass and reports the error; it is never treated as absent.
+Scheduled forms retention resolves `privacyRetentionGuard` softly by DI and calls `excludedSubjects({ scope, setId: 'forms.submission_retention' })`, following DEC-C — Retention sets and holds in `2026-11-16-privacy-record-retention.md`, “Legal holds” and its `PrivacyRetentionGuard` API contract. `forms.submission_retention` is the fixed guard id of this worker, not a registered retention set; it is distinct from the `forms.submissions` data class, and set and class lookups never fall back to each other. That contract states how a guard answers it: no set hold can name it, subject holds are returned as for any set, and a class hold the guard cannot attribute — including one on `forms.submissions` — makes the guard throw, which refuses the organization's pass. Absence is allowed: OSS has no legal-hold engine and runs as specified. A registered guard that throws refuses that organization's pass and reports the error; it is never treated as absent.
 
-The verified first-party subject mapping is `subject_type = 'customer'` plus `subject_id` to `customer_accounts:user` (`forms/lib/portal-subject-policy.ts`). Exclude those held submissions in the selection and re-check before calling the service. For any returned held kind that cannot be matched completely, including `customers:person` or `privacy:identifier` without the required alias resolution, skip the organization's run with `hold_not_honourable`. Do not infer identity from arbitrary free-form subject types, read portal/CRM/holds tables, or assume a held person cannot appear through an invitation. A future alias-aware implementation may narrow this skip only with explicit coverage. Guard lookup and matching happen before destructive work and again for each batch; counts report held exclusions and skipped organizations separately.
+The verified first-party subject mapping is `subject_type = 'customer'` plus `subject_id` to `customer_accounts:user` (`forms/lib/portal-subject-policy.ts`). Exclude those held submissions in the selection and re-check before calling the service. For any returned held kind that cannot be matched completely, including `customers:person` or `privacy:identifier`, skip the organization's run with `hold_not_honourable`. The Enterprise guard returns one `privacy:identifier` reference per held identifier id, and a person or portal-user hold carries such ids whenever a lookup secret is configured (DSR engine, “How a hold matches”). Forms cannot match those references: its invitation `recipient_email_hash` is a lookup hash, not a derived identifier id. So on an installation with a lookup secret, a portal-user hold skips the whole organization's pass; the selective path below — excluding only the held user's direct submissions — applies only when every returned reference is a `customer_accounts:user` (no secret, or an R5-11 hold still awaiting its first computation). Do not infer identity from arbitrary free-form subject types, read portal/CRM/holds tables, or assume a held person cannot appear through an invitation. A future alias-aware implementation may narrow this skip only with explicit coverage. Guard lookup and matching happen before destructive work and again for each batch; counts report held exclusions and skipped organizations separately.
 
 The content-ai coverage spec's “Classes” also reaches a portal user through invitation `recipient_email_hash` and the user's `email_hashes`. A guard result contains subject references only, not those aliases. Therefore even a supported portal-user hold cannot safely use only the direct-id predicate when eligible invitation-attributed or unknown-type submissions exist. Before the first anonymization, a bounded existence check over that scoped pass's eligible rows tests for this attribution gap; if present, skip with `hold_not_honourable`. Recheck before each batch. With only fully understood `customer` mappings, leave out held user ids and process the others. Never interpret missing aliases as proof that an invitation belongs to no held user.
 
-Legal holds exist only with the enterprise engine. OSS record retention has `--exclude-subject` and no legal holds. Operational pruners are age/expiry hygiene rather than subject operations and holds do not apply to them; forms anonymization is the exception specified here because it acts on attributed submissions. The program's Known limits must state this same R3-5 boundary.
+Legal holds exist only with the enterprise engine. OSS record retention has `--exclude-subject` and no legal holds. Known limit: with the enterprise guard and a lookup secret, any active portal-user or person hold in an organization pauses forms retention for that whole organization until the hold ends; the run report counts it as a skipped organization. Operational pruners are age/expiry hygiene rather than subject operations and holds do not apply to them; forms anonymization is the exception specified here because it acts on attributed submissions. The program's Known limits must state this same R3-5 boundary.
 
 | Alternative | Why rejected |
 |---|---|
@@ -87,9 +93,13 @@ The system SHALL apply a form's positive retention period on a schedule, includi
 - WHEN its notice was delivered more than thirty days ago, forms mode permits delete, and the guard excludes no matching held subject
 - THEN eligible submissions are anonymized through the existing service
 
-##### Scenario: Held subject
-- WHEN a held portal user's old submission and another user's eligible submission are selected in delete mode after notice
+##### Scenario: Held subject, direct reference only
+- WHEN the guard returns only a `customer_accounts:user` reference for a held portal user, and that user's old direct submission and another user's eligible submission are selected in delete mode after notice
 - THEN the held submission stays, and only the other is anonymized
+
+##### Scenario: Held subject with identifier references
+- WHEN a lookup secret is configured and the enterprise guard returns a held portal user together with its `privacy:identifier` references
+- THEN the organization's pass is skipped with `hold_not_honourable` before any anonymization, and the skip is counted
 
 ##### Scenario: Unmatchable hold or guard failure
 - WHEN the first guard check returns a kind the worker cannot fully match or throws
@@ -141,7 +151,7 @@ Add two partial indexes on `forms_form_submission`, created concurrently in a no
 
 ## 📝 API Contracts
 
-- `OM_FORMS_RETENTION_MODE`: `report` or `delete`; unset uses forms' own release default, report for one minor then delete. Invalid values fail safe to report with a warning. Add to both example environment files, template sync and forms' own upgrade note.
+- `OM_FORMS_RETENTION_MODE`: `report` or `delete`, trimmed and case-insensitive; empty is unset; unset uses forms' own release default, report for one minor then delete. Invalid values fail safe to report with a warning, as `OM_RETENTION_HISTORY_MODE` does. Add to both example environment files, template sync and forms' own upgrade note.
 - `forms.submission.anonymized`: add `reason?: 'request' | 'erasure' | 'retention'` to `formsEventPayloadSchemas`; bridge adds it to `{ submissionId, emittedAt }`. Keep the event id, optionality and old payload acceptance. No new anonymized event is introduced.
 - `forms.retention.counted`: new persistent notice event with `{ tenantId, organizationId, formId, generation, retentionDays, eligibleCount, countTruncated }`, all validated with zod. It contains no answers or respondent identifiers. The notification type stays `forms.retention.pending`; the event uses the past-tense id and the existing anonymization event remains separate.
 - `notificationService.ensureVisibleInAppBatch`: additive service method with existing batch input/context, returns the count of currently authorized recipients with an existing or newly created visible in-app row; zero never permits acknowledgement.
@@ -179,8 +189,8 @@ Ordinary protocol under DEC-H: forms starts opt-in for one minor with its own st
 
 ### Phase 2 — Scheduling and safety
 1. Consume the named helper exports without editing them. Add system scope alongside scoped payloads, failure isolation and forms-only mode resolution. `retention-mode.test.ts` tests explicit history delete with forms report, forms delete with history report, unset defaults, invalid values and mandatory notice gate under every delete path.
-2. Implement R3-5 in `retention-holds.test.ts`: absent guard, held portal subject excluded, portal hold plus an eligible invitation/unknown-attribution submission skips, unmatchable person/identifier hold skips organization and guard failure refuses it. Inject a guard for the real-database integration test.
-3. Add the exact R3-6 enum to schema, emitters and bridge; `forms-webhook-bridge-anonymized.test.ts` checks all three values and legacy omission. The coverage owner implements the erasure emitter. Gate destructive scheduling on the first-party subscriber changes and `TC-PRIVACY-FORMS-DEALS-001` in the content-ai spec, which asserts request/erasure cleanup and retention/missing no-op; no second subscriber design is defined here.
+2. Implement R3-5 in `retention-holds.test.ts`: absent guard, the exact `forms.submission_retention` guard id, held portal subject excluded when only direct `customer_accounts:user` references are returned, a portal hold returned with `privacy:identifier` references skips the organization, a class hold on `forms.submissions` refusing through a throwing guard, portal hold plus an eligible invitation/unknown-attribution submission skips, unmatchable person/identifier hold skips organization and guard failure refuses it. Inject a guard for the real-database integration test.
+3. Add the exact R3-6 enum to schema, emitters and bridge; `forms-webhook-bridge-anonymized.test.ts` checks all three values and legacy omission. The coverage owner implements the erasure emitter. Gate destructive scheduling on content-ai Phase 1's R3-6 emitters always and, where the `form_to_deals` module is enabled, on its R3-6/R5-6 subscriber and `TC-PRIVACY-FORMS-DEALS-001`, which the form-to-deals spec owns and ships with that module and which asserts request/erasure cleanup and retention/missing no-op; no second subscriber design is defined here.
 4. Add notification declaration/renderer, pending event, forms acknowledgement service and the optional notifications-owned subscriber. `retention-notification.test.ts` covers a second run, restart, crash after notification commit, dismissed notification, concurrent ticks, `forms.*` role, deny override, other organization, no recipients, suppressed in-app preference/type override and later visibility recovery; concurrent retries with dismissal between checks prove the service lock covers all-status lookup and creation. Durable per-form clocks gate anonymization.
 5. Add forms-specific doctor check after contract Phase 1 and doctor Phase 3; schedule from the shared `retentionSchedules` definition, upgrade action, both example env files and template sync. Test missing scheduler, exact expectation/registration id parity and preservation of disabled schedules. Configuration-only doctor never reads schedule rows.
 6. Ship the remaining integration cases, docs and upgrade note. A release task in the next minor flips forms' default, tests both defaults and retains warning severity for unset mode.
@@ -210,14 +220,14 @@ Use the in-process real-database pattern of `TC-ENTITIES-009-encryption-map-conc
 | TC-FORMS-RETENTION-001 | Phase 1 selection/state and Phase 2 modes: explicit delete first counts and creates one notice; `forms.*` recipient sees it through notifications API/UI; a second run/restart does not duplicate it; before thirty days nothing changes, after thirty days submission GET shows flagged answer replaced and unflagged answer kept; changing period through forms API resets the gate with the correct optimistic-lock version |
 | TC-FORMS-RETENTION-002 | Phase 1 fair walk spans more forms than a run budget in two own organizations; later forms cannot anonymize before their own notice; no-period/recent submissions stay; deleted forms still apply after notice; cleanup removes own cursor/state |
 | TC-FORMS-RETENTION-003 | Manual anonymize POST yields request in webhook delivery payload, worker after its notice gate yields retention, coverage erasure handler yields erasure; bridge preserves each; fixtures include own webhook and teardown |
-| TC-FORMS-RETENTION-004 | Held portal user's eligible direct submission survives delete, unheld direct fixture anonymizes after notice; a portal hold with eligible invitation/unknown attribution skips before any anonymization; person hold whose aliases cannot be matched skips the organization; thrown guard refuses; absent guard runs; other-tenant and other-organization submissions never change |
+| TC-FORMS-RETENTION-004 | With an injected guard returning only the held user's `customer_accounts:user` reference (no lookup secret), that user's eligible direct submission survives delete and the unheld direct fixture anonymizes after notice; with a guard that also returns that user's `privacy:identifier` references (lookup secret configured), the organization is skipped with `hold_not_honourable` and nothing anonymizes; a portal hold with eligible invitation/unknown attribution skips before any anonymization; person hold whose aliases cannot be matched skips the organization; thrown guard refuses; absent guard runs; other-tenant and other-organization submissions never change |
 
 ## 📝 Risks & Impact Review
 
 | Scenario | Severity | Affected area | Mitigation | Residual risk |
 |---|---|---|---|---|
 | An old configured period starts anonymizing wanted data | High | Form submissions | Independent mode, opt-in minor, durable per-form count/notice and thirty days under explicit or default delete, report opt-out | Irreversible after notice; a manager may ignore it |
-| A hold is bypassed | High | Enterprise-held respondents | R3-5 guard before batches, exact known mapping, fail closed for unmatchable kinds or guard errors | Newly created hold after the final guard check remains a concurrency window owned by the engine; broad skips can delay all forms in an organization |
+| A hold is bypassed | High | Enterprise-held respondents | R3-5 guard before batches with the fixed `forms.submission_retention` id, exact known mapping, fail closed for unmatchable kinds, identifier references or guard errors | Newly created hold after the final guard check remains a concurrency window owned by the engine; with a lookup secret any portal-user or person hold pauses the whole organization's forms retention |
 | Notice cannot be delivered | Medium | Forms with missing module/recipients | Pending durable outbox, no anonymization until delivered, pending notices counted in the run report | Retention can remain blocked; operator must restore recipients/notifications |
 | Older third-party subscriber treats retention like a request | High | External modules and webhook consumers | Exact optional reason enum, bridge forwarding, R3-6 first-party filter and upgrade note | Third-party code predating reason can still cascade; this spec deliberately retains the frozen event |
 | Unflagged answer contains personal data | High | Form answers | State flagged-fields-only behaviour in notice/docs; full erasure belongs to coverage | Designers must flag fields; retention is not full erasure |
@@ -236,9 +246,15 @@ Reviewed root and specs rules, core setup/notifications/encryption/ACL guidance 
 | Integration coverage | Compliant design | Four fixture-isolated tests, selection/state test ships in Phase 1 |
 | Edition and notification default | Compliant design | OSS under DEC-2, as is the pruner helper; without a visible notice nothing is anonymized (assumptions 3 and 6) |
 
-**Verdict:** design approved. Implementation is gated on delivery of the pruner helper exports (pruners Phase 1), contract Phase 1 and doctor Phase 3; destructive scheduling is also gated on the R3-6 first-party subscriber changes. Each upstream PR goes through ordinary maintainer review (DEC-2).
+**Verdict:** design approved. Implementation is gated on delivery of the pruner helper exports (pruners Phase 1), contract Phase 1 and doctor Phase 3; destructive scheduling is also gated on content-ai Phase 1's R3-6 emitters and, where `form_to_deals` is enabled, on that module's R3-6/R5-6 subscriber and `TC-PRIVACY-FORMS-DEALS-001`. Each upstream PR goes through ordinary maintainer review (DEC-2).
 
 ## Changelog
+
+### 2026-11-17
+- R3-5 calls the guard with the fixed id `forms.submission_retention` instead of the `forms.submissions` class id, and states how the guard answers it.
+- The held-subject Delta and TC-FORMS-RETENTION-004 now match the real guard: with a lookup secret, identifier references skip the organization; the selective path applies only to direct portal-user references. The resulting pause is a stated known limit.
+- `OM_FORMS_RETENTION_MODE` parsing is trimmed and case-insensitive; an Overview section was added.
+- The destructive-scheduling gate is content-ai Phase 1's R3-6 emitters always, plus the `form_to_deals` module's R3-6/R5-6 subscriber and `TC-PRIVACY-FORMS-DEALS-001` (owned by the form-to-deals spec) only where that module is enabled.
 
 ### 2026-11-16
 - Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): align the existing forms schedule expectation to the doctor's exact pruners.unscheduled diagnostic id.

@@ -14,6 +14,12 @@ Three enterprise tables grow without bound. Expired step-up ("sudo") sessions ha
 
 **Not in this spec:** record-lock history, whose existing inline cleanup only soft-deletes rows and does not bound their physical retention; MFA methods and recovery codes, which are a user's data and belong to `2026-11-16-privacy-coverage-enterprise.md`, class `security.credentials`. This spec adds no record-lock purge.
 
+## 📝 Overview
+
+> **Market reference.** Keycloak expires authentication sessions and action tokens on a background timer, and Okta and Azure AD keep provisioning logs for a fixed, administrator-visible period. Adopted: expired step-up and challenge rows deleted on a schedule shortly after expiry; provisioning-log pruning by age only when an operator opts in. Rejected: inline cleanup on writes and pruning an audit-like provisioning log by default.
+
+**Scope and ownership.** The `security` module owns `sudo_sessions` and `mfa_challenges` cleanup; the `sso` module owns `scim_provisioning_log`. Both consume the operational-pruners spec's shared helper, schedule expectations and history-mode bridge, and each prunes only its own tables. User credentials and record-lock history belong to other specs (see "Not in this spec").
+
 ## 📝 Resolved assumptions (autonomous defaults)
 
 | # | Question | Chosen | Rationale |
@@ -182,6 +188,9 @@ Both integration tests create their own scopes and rows, restrict the handler's 
 **Verdict:** design approved; implementation depends on the parent helper and its edition decision, and the history mode/doctor release gates apply to SCIM.
 
 ## Changelog
+
+### 2026-11-17
+- Added the Overview section (market reference, scope and module ownership).
 
 ### 2026-11-16
 - Council round two fixes, pass six final fixes (GPT-6.1 Sol workers): align the SCIM default-flip prerequisite to the doctor's exact pruners.unscheduled diagnostic id.

@@ -13,10 +13,10 @@ Tools and page-context builders can send decrypted record data to a model. A fie
 
 | # | Question | Decision | Alternative considered |
 |---|---|---|---|
-| Q1 | Build a narrow field-withholding control, or record no field-level control? | B (program DEC-11): no field-level control. Provider policy stays the enforceable control; tool results, page contexts, search text, attachments, module-built prompts and user text are documented as model input. A filter would cover declared typed-tool output only, while the other routes still reach the model, and it would be read as masking | A: the narrow withholding design below; rejected and not built. A later field-level control needs its own spec and must never be described as comprehensive masking |
+| Q1 | Build a narrow field-withholding control, or record no field-level control? | B (program DEC-11): no field-level control. Provider policy stays the enforceable control; every route in the Problem Statement table, from tool results and page contexts to embeddings, text extraction and web research, is documented as model input. A filter would cover declared typed-tool output only, while the other routes still reach the model, and it would be read as masking | A: the narrow withholding design below; rejected and not built. A later field-level control needs its own spec and must never be described as comprehensive masking |
 | Q2 | Does option A preserve unmasked chat transcripts? | Moot under B: no formatter is added, so the typed chat transcript, its UI parts and stored tool output keep the current tool result. For the record, A would have put the masked/truncated result in all three | A separate model/UI output split; not designed |
 
-The program's **Decisions — DEC-11**, **Phase 0 — Decisions and hygiene** and **Known limits** record Q1=B and the disclosure gate. The carrier is `apps/docs/docs/deployment/gdpr/impact-assessment-notes.mdx#what-the-assistant-sends-to-a-model`, section **What the assistant sends to a model**, specified by [`2026-11-16-gdpr-deployment-docs.md`](2026-11-16-gdpr-deployment-docs.md), **Proposed Solution** and **Implementation Plan — Stage 1**, step 1. That design requires the section to state that decrypted tool outputs, page-context records, search titles/snippets, attachments, module-built prompts and user text may leave the installation, including through legacy OpenCode over MCP; provider permission is not field minimisation. The program's **Known limits** links that delivery artifact and states **No field-level model-input control**. These are established design requirements, not evidence that the page has shipped. B is complete when the statement ships, before #8593 closes.
+The program's **Decisions — DEC-11**, **Phase 0 — Decisions and hygiene** and **Known limits** record Q1=B and the disclosure gate. The carrier is `apps/docs/docs/deployment/gdpr/impact-assessment-notes.mdx#what-the-assistant-sends-to-a-model`, section **What the assistant sends to a model**, specified by [`2026-11-16-gdpr-deployment-docs.md`](2026-11-16-gdpr-deployment-docs.md), **Proposed Solution** and **Implementation Plan — Stage 1**, step 1. That design requires the section to name every model-input route in the **Problem Statement** table and state that the data on each route may leave the installation, including through legacy OpenCode over MCP; provider permission is not field minimisation. The program's **Known limits** links that delivery artifact and states **No field-level model-input control**. These are established design requirements, not evidence that the page has shipped. B is complete when the statement ships, before #8593 closes.
 
 ## 📝 Overview
 
@@ -30,8 +30,17 @@ Option B has no code change or new API. The controller learns from G5's section 
 | Page-context hydration | Direct tool-handler calls in `packages/core/src/modules/customers/ai-agents-context.ts:88-105` and `catalog/ai-agents-context.ts:108-127` | Declared records, through the new exported formatter |
 | Legacy OpenCode over MCP | `docker/opencode/opencode.jsonc.example` points to the app MCP endpoint; `ai_assistant/lib/mcp-server.ts:142-170` serializes `executeTool` output for OpenCode's model | Not covered; MCP is a model path as well as an interactive client path |
 | Code mode | Preformatted string output in assistant `lib/codemode-tools.ts` | Not covered |
-| Search | Presenter titles/subtitles in assistant `lib/ai-tools/search-pack.ts` | Not covered |
+| Search | Presenter titles/subtitles in `packages/ai-assistant/src/modules/ai_assistant/ai-tools/search-pack.ts` | Not covered |
 | Attachments, inbox/warranty prompts, user text | Free text/files, without result-entity declarations | Not covered |
+| Agent runtime callers | `runAiAgentText` / `runAiAgentObject` in `ai_assistant/lib/agent-runtime.ts`, called by the chat and run-object routes, `workflows/lib/ai-draft-runner.ts` and `channel_discord/lib/ai-reply.ts`; each sends its prompt, conversation and tool output | Typed-agent tool results only |
+| Agent orchestrator context and evaluation | Enterprise `agent_orchestrator/lib/runtime/nativeAgentRunner.ts` runs `runAiAgentObject` over context modules resolved by `lib/context/contextResolver.ts` (documents, retrieval, OCR); `lib/eval/llmJudge.ts` sends run output and expected output to a judge model | Not covered |
+| Assistant command routing | `ai_assistant/api/route/route.ts` sends the user query and tool names to `generateObject` | Not covered |
+| Inbox and warranty prompts | `inbox_ops/lib/llmProvider.ts`, `inbox_ops/lib/translationProvider.ts`, `inbox_ops/ai-tools.ts` and `warranty_claims/lib/aiAssist.ts` send email bodies, claim text and lines | Not covered |
+| Embeddings | `packages/search/src/vector/services/embedding.ts` sends indexed record text and search queries to the configured embedding provider (`search/lib/embedding-config.ts`) | Not covered |
+| Attachment text extraction | `attachments/lib/ocrService.ts` sends image and PDF page content to the OCR model | Not covered |
+| Web research | `packages/web-research-model/src/adapter.ts` sends the search query to a model with a web-search tool | Not covered |
+| Input moderation | `ai_assistant/lib/moderation.ts` sends the current user turn to the OpenAI moderations endpoint when a surface opts in | Not covered |
+| Decision model | `ai_assistant/lib/decision-model-service.ts` (DI `decisionModelService`) and `lib/decision-adapters/openrouter.ts` send a decision request; no first-party caller today | Not covered |
 
 `executeTool` also serves the human-facing execute route, so global filtering there changes a separate API contract. Typed chat output is different: `api/ai/chat/route.ts:268-284` extracts UI parts from the streamed tool output. Filtering the tool's returned string also filters the transcript/UI output and persisted representation. Alternative A would have accepted that effect, with no promise that chat users see the unmasked result.
 
@@ -39,7 +48,7 @@ The current formatter is private. Page builders cannot call it without a new pac
 
 ## 📝 Proposed Solution
 
-Option B, decided. No code, setting or API changes. G5 writes **What the assistant sends to a model** in its Stage 1. The section lists every route in the table above: typed-agent tools, page-context hydration, legacy OpenCode over MCP, code mode, search presenters, attachments, inbox/warranty prompts and user text. It states that provider permission is not field minimisation. The program's **Known limits** links it. F1's provider policy ([`2026-11-16-ai-data-protection.md`](2026-11-16-ai-data-protection.md)) stays the control the product enforces. G5 updates the section when later F1 controls ship.
+Option B, decided. No code, setting or API changes. G5 writes **What the assistant sends to a model** in its Stage 1. The section lists every route in the table above, including embeddings, attachment text extraction, web research, input moderation, agent-orchestrator context and evaluation, and the decision model. Routes whose provider is a separate vendor choice (embeddings, text extraction, moderation, web research) link their rows on the `sub-processors` page, which names the vendor and how to disable the flow; the section still states what data each route sends. It states that provider permission is not field minimisation. G5's model-input inventory test fails when a new model-calling file is not listed, so the table cannot silently fall behind the code. The program's **Known limits** links it. F1's provider policy ([`2026-11-16-ai-data-protection.md`](2026-11-16-ai-data-protection.md)) stays the control the product enforces. G5 updates the section when later F1 controls ship.
 
 ### Alternative A (rejected, not built)
 
@@ -108,13 +117,14 @@ No phase builds alternative A.
 ### Option B
 1. Program DEC-11 records Q1=B. The deployment-docs owner writes **What the assistant sends to a model** in G5 Stage 1; the program's **Known limits** links it.
 2. Verify the statement against the route inventory and shipped provider-policy coverage. Do not close the documentation task with an empty placeholder.
+3. G5 Stage 1 adds the model-input inventory test (`scripts/__tests__/gdpr-model-input-routes.test.mjs`, with its route list `gdpr-model-input-routes.json`). It finds every non-test source file under `packages/*/src` that imports `generateText`, `streamText`, `generateObject`, `streamObject`, `embed` or `embedMany` from `ai` or from the assistant's `lib/ai-sdk` re-export, including a dynamic `import('ai')`, or that calls `runAiAgentText` / `runAiAgentObject`. Each must be listed with its route; each route must appear in the published section; a listed file that no longer exists fails. Direct HTTP callers (moderation, decision adapters) are listed by hand.
 
 ### Alternative A
 Not built, so no steps. The review fixed what a later field-level control spec would have to deliver in one change: the exported scoped formatter with JSON Pointer validation and unit tests; declarations on the people/companies/deals tools, with both context builders routed through the formatter; the scoped `withheld_fields` setting with optimistic locking and coverage UI; and a deterministic test-only recording model adapter with self-contained integration tests.
 
 ## 🧪 Integration Coverage
 
-B adds no API or UI path, so it adds no integration test. Its gate is documentation review against the route inventory, plus G5's content checks, which assert the exact model-input heading, anchor and input categories and the provider-permission limitation. Alternative A's planned TC-AI-MIN-001 and TC-AI-MIN-002 are not delivered because A is not built.
+B adds no API or UI path, so it adds no integration test. Its gate is documentation review against the route inventory, G5's content checks, which assert the exact model-input heading, anchor, every route in the table above and the provider-permission limitation, and G5's model-input inventory test, whose unit cases use temporary fixture files and clean them in `finally`: an unlisted model caller fails, a listed one passes, a removed listed file fails and a listed route missing from the page fails. Alternative A's planned TC-AI-MIN-001 and TC-AI-MIN-002 are not delivered because A is not built.
 
 ## 📝 Edge Cases & Failure Scenarios
 
@@ -124,7 +134,8 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 | Provider permission read as field minimisation | The section states that provider permission is not field minimisation |
 | A value reaches a model through OpenCode over MCP, a search snippet, an attachment or a prompt | The route is listed in the disclosure; no route is presented as filtered |
 | Chat transcript and UI parts | Unchanged; B adds no formatter, so Q2 is moot |
-| A new model path ships later | G5 updates the section for later F1 controls; step 2 re-checks the inventory |
+| A new model path ships later | The inventory test fails until the file is listed with a route and the route is on the page; G5 also updates the section for later F1 controls |
+| A model call made by plain HTTP rather than the AI SDK | Not detected by the inventory pattern; listed by hand, and the review rule requires it |
 
 ## 📝 Risks & Impact Review
 
@@ -133,7 +144,7 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 | Narrow control read as complete protection | High | Controllers relying on masking | B builds no field-level control; the disclosure lists every route | A later spec that revisits A must list its uncovered paths beside the setting |
 | No control but documentation omitted | High | B deployments | Named docs section, G5 content checks and the program closure gate | Other owners must deliver carrier edits |
 | Personal data reaches a model with no field control | High | Tenants using the assistant | F1 provider policy, the disclosure and the controller's own assessment | Accepted under DEC-11; the controller decides from the disclosure, not from a filter |
-| Route inventory drifts as new model paths ship | Medium | Disclosure accuracy | Step 2 verifies the statement against the inventory; G5 updates it for later F1 controls | A new route can ship before the page is updated |
+| Route inventory drifts as new model paths ship | Medium | Disclosure accuracy | G5's inventory test fails on an unlisted AI SDK or agent-runtime caller; step 2 verifies the statement; G5 updates it for later F1 controls | A model call made by plain HTTP is caught only by review |
 
 ## Final Compliance Report — 2026-11-16
 
@@ -142,7 +153,7 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 | Direction decision recorded | Decided | Q1=B under program DEC-11 with a concrete carrier; Q2 moot |
 | Additive contracts and tenant scope | Compliant | B changes no contract, setting or tenant-scoped data |
 | Integration coverage | Not applicable to B | No API/UI path; G5 content checks assert the section; A's tests are not delivered because A is not built |
-| Honest limits | Compliant design | The disclosure names OpenCode/MCP and every uncovered input; provider permission is not field minimisation |
+| Honest limits | Compliant design | The disclosure names OpenCode/MCP, embeddings, text extraction, web research, moderation, agent context and every other route; an inventory test keeps the list complete for AI SDK callers; provider permission is not field minimisation |
 
 **Verdict:** B is decided (DEC-11) and complete when G5's section ships and the program's Known limits links it, before #8593 closes. Alternative A is rejected and not built.
 
@@ -154,3 +165,7 @@ B adds no API or UI path, so it adds no integration test. Its gate is documentat
 - Council round two fixes (GPT-6.1 Sol workers): r2iqa-13 — inventory and disclose OpenCode over MCP; r2iqa-37 — Q1 default and named docs/program carriers; r2iqa-38 — exported scoped formatter; r2iqa-39 — mandatory recording adapter and integrations; r2iqa-40 — JSON Pointer and byte/truncation rules; g6-28 — masked typed transcript stated and tested.
 - Council round two fixes, pass two (GPT-6.1 Sol workers): bound option B to the deployment-docs carrier's actual Stage 1 and marked its missing section explicitly; synchronized the sibling's effective-policy method, result member, settings route and version name; kept conditional withholding active independently of provider enforcement, with matching failure and test requirements.
 - Council round two fixes, pass three (GPT-6.1 Sol workers): recognized program DEC-11 and G5's already-specified model-input section and Stage 1 carrier; retained Q1 confirmation and actual statement delivery as closure gates.
+
+### 2026-11-17
+- Route inventory completed: embeddings, attachment text extraction, web research, input moderation, agent-runtime callers, agent-orchestrator context and evaluation, assistant command routing and the decision model are now listed, the search-pack path is corrected, and G5's model-input inventory test fails on an unlisted model caller.
+- Superseded by DEC-11 / Q1=B: no formatter, withholding or transcript masking is built. Entries above that describe filtering, masked transcripts or conditional withholding record Alternative A.

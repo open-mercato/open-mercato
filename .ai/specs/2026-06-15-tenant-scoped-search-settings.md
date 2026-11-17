@@ -8,7 +8,7 @@
 
 ## TLDR
 
-Search settings now have tenant-scoped storage and settings API reads/writes, but live vector workers and query routes still resolve the instance configuration and mutate one process-wide `vectorEmbeddingService`. A save or concurrent operation for Tenant A can therefore select Tenant B's embedding provider/model even though the settings rows are isolated. A cached provider probe and save-time availability guard also exist; some runtime paths still use presence-only detection.
+Search settings now have tenant-scoped storage and settings API reads/writes, but live vector workers, query routes, the embeddings reindex route and the vector subscribers still resolve the instance configuration or auto-index flag, and several mutate one process-wide `vectorEmbeddingService`. A save or concurrent operation for Tenant A can therefore select Tenant B's embedding provider/model even though the settings rows are isolated. A cached provider probe and save-time availability guard also exist; some runtime paths still use presence-only detection.
 
 **Proposed remaining work:** pass the trusted tenant into every settings consumer, use a configuration snapshot and operation-scoped embedding service for each worker/query/save, and complete probe wiring. Preserve the existing nullable `module_configs` scope columns, scoped/global/env fallback, public service signatures and settings responses. This also preserves the storage prerequisite consumed by R3-3; it adds no second settings table or migration.
 
@@ -24,16 +24,22 @@ Search settings now have tenant-scoped storage and settings API reads/writes, bu
 
 ### P1 — Cross-tenant settings overwrite (data-isolation defect)
 
-The original global-row defect is partly fixed in this checkout. `ModuleConfig` already has nullable `tenant_id` and `organization_id`, `module_configs_global_unique`, `module_configs_scoped_unique` and `module_configs_module_name_tenant_idx`. `ModuleConfigService` already accepts optional `ConfigScope`, returns `source: 'tenant' | 'instance'` and uses scope-aware `v2` cache keys. Search settings helpers and API writes already pass authenticated tenant scope.
+The original global-row defect is partly fixed in this checkout. `ModuleConfig` already has nullable `tenant_id` and `organization_id`, `module_configs_global_unique`, `module_configs_scoped_unique` and `module_configs_module_name_tenant_idx`. `ModuleConfigService` already accepts optional `ConfigScope`, returns `source: 'tenant' | 'instance'` and uses scope-aware `v2` cache keys. Search settings helpers and API writes already pass `auth.tenantId` as scope, but neither write route requires that value to be non-empty: a tenantless principal (`auth.tenantId` null) reaches `ModuleConfigService.setValue` with a null tenant, which writes the instance-default row every unset tenant inherits (`api/embeddings/route.ts:194-195,329-332`, `api/settings/global-search/route.ts:58-59,81-82`).
 
-The remaining live call sites are:
+The remaining live call sites are the complete first-party set of unscoped `resolveEmbeddingConfig` / `resolveAutoIndexingEnabled` reads and `vectorEmbeddingService.updateConfig` writes (every non-test caller in `packages/`; all are in `packages/search/src/modules/search/`):
 
 | Consumer | Current gap | Required scope |
 |---|---|---|
-| `workers/vector-index.worker.ts:228` and `:344` | Batch and single-record paths call `resolveEmbeddingConfig(ctx, { defaultValue: null })` and mutate the shared service | Each job's validated tenant; apply it to `resolveAutoIndexingEnabled` too |
+| `workers/vector-index.worker.ts:228` and `:344` | Batch and single-record paths call `resolveEmbeddingConfig(ctx, { defaultValue: null })` and mutate the shared service | Each job's validated tenant; apply it to `resolveAutoIndexingEnabled` (`:329`) too |
 | `api/search/route.ts:104` | Query reads instance configuration and calls `updateConfig` on shared DI service | Tenant derived from resolved request/auth scope |
 | `api/search/global/route.ts:108-111` | Cmd+K has the same unscoped read/mutation despite scoped strategy selection | Same trusted request tenant |
 | `api/embeddings/route.ts:341-345` | A tenant-scoped save calls process-wide `vectorEmbeddingService.updateConfig` | Save only that tenant's row; no shared service mutation |
+| `api/embeddings/reindex/route.ts:106-109` | Before enqueuing (`useQueue: true`), the route reads the instance configuration and calls `updateConfig` on the shared service; embedding itself happens later in the worker | Drop the read and the shared write; the enqueued jobs already carry `auth.tenantId`, and the worker resolves that tenant's snapshot |
+| `subscribers/vector_purge.ts:41-44` | Purge reads the instance configuration and calls `updateConfig` on the shared service although purging embeds nothing | Drop the read and the shared write; the purge stays scoped to the payload's validated `tenantId` |
+| `subscribers/vector_upsert.ts:47` and `subscribers/vector_delete.ts:47` | `resolveAutoIndexingEnabled(ctx, { defaultValue: true })` reads the instance flag although the record's `tenantId` is already resolved; a tenant that enabled auto-indexing under an instance-disabled default is never vector-indexed, and the reverse indexes a tenant that disabled it | `{ scope: { tenantId } }` from the resolved record scope |
+| `api/embeddings/route.ts:194-195` and `api/settings/global-search/route.ts:58-59` | Writes check only `auth.sub`; a null `auth.tenantId` writes the instance-default row | Refuse a tenantless write before any `setValue` |
+
+The source guard in **Test Plan** is the authoritative inventory: it fails on any first-party unscoped settings read or shared-service `updateConfig` outside this table's required replacements.
 
 These are source observations on 2026-11-16, not a claim that runtime tests have passed. Existing scoped settings storage alone cannot make interleaved jobs/queries safe. The implemented result-scope spec remains authoritative for organization filtering; selecting the correct embedding configuration never widens result visibility.
 
@@ -127,16 +133,17 @@ Thread the authenticated `tenantId` into the three search settings flows:
 - `resolveEmbeddingConfig(resolver, { scope, defaultValue })` and `saveEmbeddingConfig(resolver, config, { scope })` pass the scope through to `ModuleConfigService`. When neither a tenant nor an instance row exists, the resolver computes the **env-derived default**: `DEFAULT_EMBEDDING_CONFIG` (`packages/search/src/vector/types.ts`) narrowed to the first env-configured provider via `getConfiguredProviders()`.
 - `resolveGlobalSearchStrategies` / `saveGlobalSearchStrategies` and the auto-index flag flow take the same scope treatment.
 - Reads return a `source: 'tenant' | 'instance' | 'env'` discriminator so the UI can show whether the tenant is using its own config or inheriting.
-- **Isolation invariant:** the API derives `tenantId` from the auth context only. A client-supplied tenant is ignored. `search.manage` continues to gate writes; a tenant admin can only ever read/write its own scoped row (or read the inherited default).
+- **Isolation invariant:** the API derives `tenantId` from the auth context only. A client-supplied tenant is ignored. The existing features continue to gate writes (`search.embeddings.manage` for embeddings and auto-index, `search.manage` for global search); a tenant admin can only ever read/write its own scoped row (or read the inherited default).
+- **Tenantless writes refuse.** `POST /api/search/embeddings` and `POST /api/search/settings/global-search` return `403` with the translated `search.api.errors.tenantRequired` error when `auth.tenantId` is empty, before any `setValue`. Under Q2 the instance default is env-derived plus legacy global rows, with no editing surface; a superadmin with no tenant selected therefore cannot write the row every unset tenant inherits. Tenantless GETs keep reading the instance/env default.
 - **Migration semantics:** existing global rows (`tenant_id IS NULL`) remain untouched and act as the instance default. The first tenant save creates a tenant-scoped row; until then the tenant transparently inherits. No data backfill is required, and no tenant inherits another tenant's choices.
 
 ### 2a. Runtime configuration isolation
 
-Every vector operation resolves one immutable `EmbeddingProviderConfig` snapshot before preflight/embedding. Batch and single-record worker paths use the validated job tenant (including `vector-index.worker.ts:228` and `:344`); `api/search/route.ts:104` and `api/search/global/route.ts:108` use the trusted resolved request tenant. Thread that same scope into auto-index checks and strategy reads. A tenant job missing required scope refuses instead of falling back to the instance; an explicitly tenantless catalogue operation uses the documented instance/env path, never the last tenant's configuration.
+Every vector operation resolves one immutable `EmbeddingProviderConfig` snapshot before preflight/embedding. Batch and single-record worker paths use the validated job tenant (including `vector-index.worker.ts:228` and `:344`); `api/search/route.ts:104` and `api/search/global/route.ts:108` use the trusted resolved request tenant. Thread that same scope into auto-index checks and strategy reads, including the worker (`:329`) and the `vector_upsert` / `vector_delete` subscribers, which pass the record's resolved `tenantId`. The embeddings reindex route and the `vector_purge` subscriber resolve no embedding configuration at all: reindex only enqueues tenant-scoped jobs, and purge deletes without embedding. A tenant job missing required scope refuses instead of falling back to the instance; an explicitly tenantless catalogue operation uses the documented instance/env path, never the last tenant's configuration.
 
 Use an operation child container with its own `vectorEmbeddingService` initialized to the snapshot and a strategy/indexer resolved within that scope. Provider clients may be reused only by the full effective provider/model/dimension/base-URL configuration identity; no mutable config or tenant-selected state is shared between operations. Preflight, availability, document embeddings and query embeddings must all use the same snapshot and service. Dispose the operation scope after the work; a settings save affects subsequent operations for that tenant and cannot rewrite an already-running operation.
 
-Eliminate **all first-party process-wide** `vectorEmbeddingService.updateConfig` mutations, including workers, both query routes and `api/embeddings/route.ts:341-345`. The save writes/invalidates only its tenant's setting and returns the existing response. Keep the public `EmbeddingService.updateConfig` method and DI key available for compatibility with independently owned service instances; a scoped runtime change does not remove a stable API. `SEARCH_DISABLE_SINGLETON_CACHE=1` is not the fix: correctness must hold with normal singleton driver/client reuse enabled.
+Eliminate **all first-party process-wide** `vectorEmbeddingService.updateConfig` mutations, including workers, both query routes, `api/embeddings/route.ts:341-345`, `api/embeddings/reindex/route.ts:106-109` and `subscribers/vector_purge.ts:41-44`. The save writes/invalidates only its tenant's setting and returns the existing response. Keep the public `EmbeddingService.updateConfig` method and DI key available for compatibility with independently owned service instances; a scoped runtime change does not remove a stable API. `SEARCH_DISABLE_SINGLETON_CACHE=1` is not the fix: correctness must hold with normal singleton driver/client reuse enabled.
 
 The shared vector store's existing dimension/model compatibility check remains. Unsupported configurations refuse or request the existing reindex path for that tenant; tenant scoping does not introduce per-tenant vector tables or authorize a cross-tenant purge. Interleaving a save with another tenant's query or worker must not change its configuration snapshot or indexed results.
 
@@ -174,13 +181,13 @@ All routes are tenant-scoped via the auth context; `tenantId` is never read from
 
 | Endpoint | Method | Permission | Change |
 |----------|--------|------------|--------|
-| `/api/search/embeddings` | GET | `search.view` | Returns the tenant-resolved config + `source`; provider list carries `available` + `reason` from the probe. |
-| `/api/search/embeddings` | POST | `search.manage` | Writes only the tenant-scoped row; **rejects** an unavailable provider with a structured reason. |
-| `/api/search/settings/global-search` | GET / POST | `search.view` / `search.manage` | Tenant-scoped read/write; GET adds `source`. |
+| `/api/search/embeddings` | GET | `search.embeddings.view` | Returns the tenant-resolved config + `source`; provider list carries `available` + `reason` from the probe. |
+| `/api/search/embeddings` | POST | `search.embeddings.manage` | Writes only the tenant-scoped row; **rejects** an unavailable provider with a structured reason; refuses a tenantless caller with `403`. |
+| `/api/search/settings/global-search` | GET / POST | `search.view` / `search.manage` | Tenant-scoped read/write; GET adds `source`; POST refuses a tenantless caller with `403`. |
 | `/api/search/settings` | GET | `search.view` | Per-strategy `available` reflects the probe (vector availability is real, not assumed). |
-| auto-index flag (within `/api/search/embeddings` POST) | POST | `search.manage` | Tenant-scoped. |
+| auto-index flag (within `/api/search/embeddings` POST) | POST | `search.embeddings.manage` | Tenant-scoped. |
 
-Response additions are backward-compatible (new fields only). Zod validators live in the search module; provider id remains a closed enum.
+Response additions are backward-compatible (new fields only). The tenantless-write `403` is the one new refusal; it closes a write path to the instance-default row and is documented in UPGRADE_NOTES. Zod validators live in the search module; provider id remains a closed enum.
 
 ## UI
 
@@ -197,7 +204,7 @@ Contract surfaces consumed (per `BACKWARD_COMPATIBILITY.md`): existing **DB sche
 
 - **Schema:** scope columns and partial indexes already exist. No new migration, snapshot edit or backfill is required. Existing global rows remain the instance defaults for search; the R3-3 privacy adapter continues to discard them.
 - **`ModuleConfigService`:** preserve existing optional scope, `v2` cache keys and no-scope behavior. Retain the C1-owned optional `expectedUpdatedAt` extension if it lands first; do not claim another cache-version or signature migration here.
-- **Search APIs:** preserve existing request/response shapes, source metadata and tenant-scoped settings writes. The remaining bug fix makes workers and queries honor that same configuration; document the runtime-isolation correction in UPGRADE_NOTES.
+- **Search APIs:** preserve existing request/response shapes, source metadata and tenant-scoped settings writes. A tenantless principal can no longer write the instance-default row through either settings POST (`403`); operators set instance defaults through env vars, as Q2 already states. The remaining bug fix makes workers and queries honor that same configuration; document the runtime-isolation correction in UPGRADE_NOTES.
 - **Provider/runtime availability:** reuse the existing async probe and 409 response while keeping synchronous credential helper signatures. Remove first-party shared-service mutations without removing `EmbeddingService.updateConfig` or renaming `vectorEmbeddingService`. Document that each tenant now controls its own runtime configuration and in-flight operations retain their snapshot.
 
 No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands change.
@@ -207,7 +214,7 @@ No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands ch
 | # | Risk | Severity | Area | Mitigation | Residual |
 |---|------|----------|------|------------|----------|
 | R1 | Postgres treats NULLs as distinct → duplicate global rows | High | DB | Partial unique indexes split global vs scoped | Low |
-| R2 | A settings read leaks another tenant's row | High | Tenant isolation | Resolution order is scoped→global→env; writes always scoped to auth tenant; integration test asserts A↛B | Low |
+| R2 | A settings read leaks another tenant's row | High | Tenant isolation | Resolution order is scoped→global→env; writes always scoped to auth tenant and refused for a tenantless caller; integration test asserts A↛B | Low |
 | R3 | `ModuleConfigService` change breaks existing callers | Medium | Core contract | `scope` optional; no-scope path unchanged; unit test covers default path | Low |
 | R4 | Probe latency blocks settings page / search | Medium | UX/perf | Bounded timeout, short-TTL cache, async, fail-closed | Low |
 | R5 | Stale cache after a scoped write | Medium | Cache | `v2` key namespace + scope-aware invalidate on write | Low |
@@ -226,8 +233,8 @@ The four phases preserve existing storage first, then close runtime isolation, c
 - 1.3 Reuse/extend characterization tests for scoped→global→null, write isolation, no-scope behavior and scoped invalidation; pin that privacy discards instance fallback in its owning tests.
 
 ### Phase 2 — Tenant-scoped search settings + env-derived defaults
-- 2.1 Complete scope propagation at both worker `resolveEmbeddingConfig` calls (`:228`, `:344`), both query routes (`api/search/route.ts:104`, `api/search/global/route.ts:108`) and every worker auto-index read, using validated job or resolved auth scope. Keep already-scoped settings APIs intact.
-- 2.1a Build operation-scoped embedding service/strategy/indexer snapshots. Remove every first-party shared-service `updateConfig`, including the embeddings save at `:341-345`, while preserving its public method and DI key for isolated callers.
+- 2.1 Complete scope propagation at both worker `resolveEmbeddingConfig` calls (`:228`, `:344`), both query routes (`api/search/route.ts:104`, `api/search/global/route.ts:108`), the worker auto-index read (`:329`) and the `vector_upsert` / `vector_delete` auto-index reads (`:47`), using validated job, resolved record or resolved auth scope. Keep already-scoped settings APIs intact, and add the tenantless-write `403` to both settings POSTs.
+- 2.1a Build operation-scoped embedding service/strategy/indexer snapshots. Remove every first-party shared-service `updateConfig`, including the embeddings save at `:341-345`, the embeddings reindex route (`api/embeddings/reindex/route.ts:106-109`, which only enqueues) and `subscribers/vector_purge.ts:41-44` (purge needs no embedding), while preserving its public method and DI key for isolated callers.
 - 2.2 Preserve env-derived defaults and the existing `source` discriminator; verify worker/query snapshots use the same effective fallback as the settings GET.
 - 2.3 Integration tests in `packages/search/src/modules/search/__integration__`: interleave A/B saves, both worker paths and both query endpoints with deterministic per-config embeddings; prove immutable in-flight snapshots, tenant auto-index/strategy behavior and inherited defaults. Fixtures and teardown belong to each test; no demo tenants/provider calls.
 
@@ -238,18 +245,19 @@ The four phases preserve existing storage first, then close runtime isolation, c
 
 ### Phase 4 — UI + docs
 - 4.1 Provider cards reflect real availability (disable + reason); surface `source`/inheritance + Refresh; DS-compliant.
-- 4.2 Integration test: selecting an unreachable provider is blocked in UI and rejected by API.
+- 4.2 Integration test: selecting an unreachable provider is blocked in UI and rejected by API. The test user holds `search.embeddings.view` and `search.embeddings.manage`.
 - 4.3 Update `packages/search/AGENTS.md` (the per-tenant claim is now accurate), `packages/core/AGENTS.md` (`ModuleConfigService` scope option), and UPGRADE_NOTES.
 
 ## Test Plan / Integration Coverage
 
 - **Unit (core):** `ModuleConfigService` scoped resolution, scoped-write isolation, BC no-scope path, cache `v2` keying/invalidation, partial-unique behavior.
-- **Unit (search):** env-derived defaults; existing probe (Ollama reachable/unreachable/timeout, candidate-URL cache isolation, key-based presence); both DI branches; operation snapshot stability and every scoped call site; POST 409 guard. A source guard rejects first-party mutations of a process-shared `vectorEmbeddingService`; isolated external-instance compatibility remains characterized.
+- **Unit (search):** env-derived defaults; existing probe (Ollama reachable/unreachable/timeout, candidate-URL cache isolation, key-based presence); both DI branches; operation snapshot stability and every scoped call site; POST 409 guard. A source guard rejects first-party mutations of a process-shared `vectorEmbeddingService` and any first-party `resolveEmbeddingConfig` / `resolveAutoIndexingEnabled` call without a `scope` (the documented tenantless catalogue path is the only allowlisted exception); it is the authoritative inventory of runtime readers; isolated external-instance compatibility remains characterized.
 - **Integration (search, per-module):**
   - Tenant A sets embedding provider/model → Tenant B GET still returns env/instance default (`source: 'env'|'instance'`), never A's value.
   - Tenant A sets Cmd+K strategies → does not change Tenant B.
+  - A tenantless principal (superadmin with no tenant selected) POSTs to `/api/search/embeddings` and `/api/search/settings/global-search` → `403`; the instance-default rows are unchanged. Fixtures grant `search.embeddings.view` / `search.embeddings.manage` for the embeddings route and `search.view` / `search.manage` for global search.
   - Unreachable Ollama → provider disabled in UI and POST rejected with reason.
-  - `TC-SEARCH-SETTINGS-ISOLATION-001`: create two owned tenants/orgs/records and different same-dimension provider/model fixtures, inject deterministic embeddings through real DI in API/worker processes, pause A's batch and single-record worker operations after resolution, run B's save and workers, then release A. Inspect stored vectors/config selection; each uses its own snapshot. Repeat with A/B reversed and auto-index disabled only for one tenant.
+  - `TC-SEARCH-SETTINGS-ISOLATION-001`: create two owned tenants/orgs/records and different same-dimension provider/model fixtures, inject deterministic embeddings through real DI in API/worker processes, pause A's batch and single-record worker operations after resolution, run B's save and workers, then release A. Inspect stored vectors/config selection; each uses its own snapshot. Repeat with A/B reversed and auto-index disabled only for one tenant. Add an auto-index event case: with the instance flag off and tenant A's on (and the reverse for B), a record create/update/delete in each tenant reaches `vector_upsert` / `vector_delete` and enqueues only for the tenant whose own flag is on. Add a reindex/purge interleave: tenant A's `POST /api/search/embeddings/reindex` with `purgeFirst` runs while B's worker operation is paused after resolution; B's snapshot and vectors are unchanged and A's jobs embed under A's snapshot.
   - `TC-SEARCH-SETTINGS-ISOLATION-002`: overlap `/api/search/search` and `/api/search/search/global` for A/B with embeddings settings saves; assert captured embedding config and visible results stay with the authenticated tenant, client-supplied tenants do not override it, inherited source remains correct, and an in-flight operation ignores later saves. Keep singleton reuse enabled. Capture translated errors/progress in the Settings > Search UI.
 - Each concurrency test owns all config/map/index/provider fixtures, barriers and process overrides; release blocked operations, stop owned workers, restore DI/environment and remove records, tenant settings, vectors, organizations and tenants in `finally`. Assert actual calls/results after the barriers, never a vacuous empty index.
 - Integration tests are self-contained (API-created fixtures, cleaned up in teardown), per `.ai/qa/AGENTS.md` and the per-module colocation rule.
@@ -274,3 +282,5 @@ The four phases preserve existing storage first, then close runtime isolation, c
 - 2026-06-15 — Initial draft. Locked Q1 (scope `ModuleConfig` generally), Q2 (env-derived defaults), Q3 (active cached provider probe). Grounded in `packages/core/src/modules/configs/*` and `packages/search/src/{modules/search,vector,strategies}/*`.
 
 - Council round two fixes, pass two (GPT-6.1 Sol workers): W11 runtime handoff — trusted scope at both vector worker paths, both search routes and auto-index reads; operation-scoped immutable embeddings replace shared config mutation, including settings save; interleaved two-tenant fixtures/cleanup; current storage/probe drift corrected and R3-3 privacy fallback kept distinct.
+
+- 2026-11-17 — Runtime-isolation inventory completed from a source grep: the embeddings reindex route and `vector_purge` drop their shared-service writes, and the `vector_upsert` / `vector_delete` auto-index reads take the record tenant, with event and reindex/purge interleave tests; the source guard is the authoritative inventory. Both settings POSTs refuse a tenantless caller (`403`). API table corrected to `search.embeddings.view` / `search.embeddings.manage`.

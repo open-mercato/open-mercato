@@ -159,4 +159,5 @@ results remain required before calling the implementation merge-ready.
   create-app parity exception manifest and added a redacted warning when a
   configured collaboration endpoint cannot safely become a CSP source. A
   re-review bounds that warning to once per process, including repeated proxy calls.
-- Council round two fixes, pass three (GPT-6.1 Sol workers): linked E5's forthcoming non-essential integration recipe beside the operator-origin controls; consent-dependent loading stays inside the granted branch while the existing nonce and origin policy remains unchanged.
+- 2026-11-16: Council round two fixes, pass three (GPT-6.1 Sol workers): linked E5's forthcoming non-essential integration recipe beside the operator-origin controls; consent-dependent loading stays inside the granted branch while the existing nonce and origin policy remains unchanged.
+- 2026-11-17: Dated the 2026-11-16 changelog entry to match the other entries; no design change.

@@ -21,7 +21,7 @@ Every page shows a bar that says "We use essential cookies" with two buttons, "A
 | # | Question | Chosen | Rationale |
 |---|---|---|---|
 | 1 | With only essential cookies | A notice with one "OK" button, shown once | Showing nothing is also lawful, but ordinary public pages have no footer, so the notice is where a first visit finds the link to `/privacy`. It keeps the existing acknowledgement cookie that the test helpers pre-set, and it is the component Phase 2 extends. An operator who wants no notice edits the app-owned `GlobalNoticeBars`. |
-| 2 | Built-in browser telemetry | Not gated; nothing changes | It is off by default, same-origin, and mounted only for signed-in staff. Consent from employees is a weak basis, and regulators exempt some first-party measurement. Once started it cannot be stopped, so a gate could not honour a withdrawal, and gating it would silently cut the data of operators who use it. |
+| 2 | Built-in browser telemetry | Not gated; its behaviour does not change, but the G5 cookie and terminal-access inventory lists it | It is off by default, same-origin, and mounted only for signed-in staff. Consent from employees is a weak basis, and some regulators exempt some first-party measurement; whether that exemption applies to a given deployment is the controller's assessment, not this spec's (Known limits). Once started it cannot be stopped, so a gate could not honour a withdrawal, and gating it would silently cut the data of operators who use it. |
 | 3 | Where non-essential categories are declared | A category constant resolved inside the existing `apps/mercato/src/app/layout.tsx`, mirrored in the template, and handed to the client as a prop | No new file under the app boilerplate and no root-rule exception. An application can instead own its declaration in a custom module. |
 | 4 | Where the choice is stored | A first-party cookie holding the answer and its revision per category | No server call; works for visitors with no account. It is not proof of consent, and the spec says so. |
 | 5 | The existing `user_consents` table | Not used | It holds one current row per signed-in staff user and consent type, with no visitor key and no write route. |
@@ -53,7 +53,7 @@ The bar shows one sentence, the link to `/privacy`, and one "OK" button. It writ
 
 **Declaring.** The existing root `app/layout.tsx` resolves an inline category constant on the server, mirrored in the template. It declares id, title and description locale keys, `essential`, positive integer `revision`, and optional `cleanup`. The shipped list contains only `essential`. No `src/lib/consent.ts` is added. The layout passes the list to `AppProviders` as a prop. Applications with custom modules may import their own declaration there; no new auto-discovery convention is introduced.
 
-**Essential categories.** Always granted, on server and client, regardless of cookie, revision or refusal. `useConsent` returns `granted` for a declared essential category. Essential categories appear as fixed explanatory rows without switches in Choose, never count as unanswered, and are never changed by Accept, Reject or cleanup. Unknown categories and use outside a provider are denied. A non-essential category is `unset` until its current revision is answered; its gate renders no loader before then.
+**Essential categories.** Always granted, on server and client, regardless of cookie, revision or refusal. `useConsent` returns `granted` for a declared essential category. Essential categories appear as fixed explanatory rows without switches in Choose, never count as unanswered, and are never changed by Accept, Reject or cleanup. Unknown categories and use outside a provider are denied. Outside a provider no declaration exists, so every id, an essential one included, is denied; inside a provider a declared essential category is always granted. A non-essential category is `unset` until its current revision is answered; its gate renders no loader before then.
 
 **Per-context integration category.** Under all of `OM_INTEGRATION_TEST=true`, `OM_TEST_MODE=1`, `OM_TEST_NOTICE_BARS_MODE=opt-in`, `OM_TEST_CONSENT_MODE=opt-in`, and request cookies `om_test_notice_bars=on` and `om_test_consent_category=on`, the server appends a test-only non-essential category and passes `consentTestProbeEnabled` to `AppProviders`. Only that request/context mounts a harmless gated probe marker that creates declared first-party test storage after grant. Both integration environment blocks in `packages/cli/src/lib/testing/integration.ts` set the new mode. No category/probe is added in production or to another context, and the test cookie alone does nothing.
 
@@ -102,6 +102,8 @@ A category's optional `cleanup` declares cookies by exact `name` or non-empty `p
 - A cookie records a choice; it does not prove one. An operator who must demonstrate consent needs a server-side record, which this spec does not provide.
 - Nothing forces an operator to use the gate.
 - The link on the bar goes to `/privacy`, which names the vendor until package E1 lands; G5's `apps/docs/docs/deployment/gdpr/index.mdx` owns the cookie inventory. E5 updates it in each shipping phase and adds the Phase 2 recipe.
+- Built-in browser telemetry is ungated. This spec makes no ePrivacy Art. 5(3) determination for a deployment that enables it: a controller that turns it on decides whether its staff-browser measurement needs consent. E5 Phase 1 adds a browser-telemetry entry to G5's cookie and terminal-access inventory: purpose (staff-interface performance and error measurement), what is sent (traces and metrics to the configured `TELEMETRY_BACKEND`), that it runs only for signed-in staff on the backend, that it sets no cookie of its own, and how to disable it (leave the browser-telemetry server settings unset).
+- Outside a `ConsentProvider` no declaration exists, so every category id, an essential one included, is denied; essential-ness is a property only a provider's declared list can establish.
 
 ## 📝 Delta
 
@@ -207,7 +209,7 @@ No database entity. Four cookie names:
 
 ## 📝 API Contracts
 
-- **`@open-mercato/ui/frontend/consent`** — the four exports and the category type. New, and stable once released.
+- **`@open-mercato/ui/frontend/consent`** — the four exports and the category type, from the directory's `index.ts`. New, and stable once released. The package's `./*/*` wildcard resolves only a single file, so Phase 2 adds an explicit `./frontend/consent` entry to `packages/ui/package.json` (`types`: `./src/frontend/consent/index.ts`, `default`: `./dist/frontend/consent/index.js`), as `./backend/detail` has. `@open-mercato/ui/frontend/noticeBars` is a single file and needs no entry.
 - **`@open-mercato/ui/frontend/noticeBars`** — `resolveNoticeBarsEnabled({ env, cookieHeader }): boolean`. New.
 - **Category type** — `{ id, titleKey, descriptionKey, essential, revision, cleanup? }`; `cleanup` contains exact/prefix cookie descriptors and exact first-party storage keys as above. Validated before passing props; no new app file.
 - **`OM_TEST_NOTICE_BARS_MODE`**, **`OM_TEST_CONSENT_MODE`** — test-only variables set by both integration environment blocks; absent from production `.env.example`. Cookies are never a production feature switch.
@@ -234,7 +236,7 @@ No database entity. Four cookie names:
 - New UI exports and props are additive; category resolution stays inside the existing layout. The template is updated in the same change (`yarn template:sync:fix`).
 - The language cookie gains attributes; no reader depends on their absence.
 - Phase 1 adds the notice mode; Phase 2 adds the consent mode and a second per-context cookie. A test that does not set the opt-in cookie sees no bars, as today.
-- Nothing about telemetry changes (assumption 2). E5 is OSS under program DEC-2.
+- Telemetry behaviour does not change (assumption 2); only its G5 inventory entry is added. E5 is OSS under program DEC-2.
 
 ## 📋 Phasing
 
@@ -250,10 +252,10 @@ No database entity. Four cookie names:
 2. One button; update the characterization test and the locale keys; mirror into the template.
 3. The language cookie's attributes. Unit tests and TC-CONSENT-001 assertions on both POST and GET `Set-Cookie` responses: Path=/, SameSite=Lax, production Secure, and the existing lifetime; use a request-supported locale.
 4. `resolveNoticeBarsEnabled` and its use in the root layout of the app and of the template; `OM_TEST_NOTICE_BARS_MODE=opt-in` in both environment blocks of `integration.ts`. Unit tests for the function: outside an integration run the bars are on; under `OM_INTEGRATION_TEST=true` they are off without the cookie, off with the cookie but without `OM_TEST_MODE=1`, off with the cookie but without the mode variable, off for a cookie value other than `on`, and on with all three. Layout tests in `apps/mercato/src/app/__tests__/layout.test.tsx` and `packages/create-app/template/src/app/__tests__/layout.test.tsx`: the request's cookie header reaches the function, and `noticeBarsEnabled` is true under the opt-in.
-5. Integration test TC-CONSENT-001; `UPGRADE_NOTES.md`; update the cookie inventory on G5's `apps/docs/docs/deployment/gdpr/index.mdx` for the one-button notice and language-cookie attributes.
+5. Integration test TC-CONSENT-001; `UPGRADE_NOTES.md`; update the cookie inventory on G5's `apps/docs/docs/deployment/gdpr/index.mdx` for the one-button notice and language-cookie attributes, and add its browser-telemetry entry and the Art. 5(3) limit under Known limits.
 
 ### Phase 2
-1. The consent primitives in `packages/ui`, with named suites `ConsentProvider.test.tsx`, `ConsentGate.test.tsx`, `consent-cookie.test.ts` and `consent-cleanup.test.ts`: no cookie; accept; reject; per-category; malformed cookie; a new category; a raised revision; a removed category; outside a provider; render before mount; essential-only/mixed lists always granted with no essential switches; cookie codec version/attributes/size; declared cleanup and inaccessible-storage errors; dynamic loader never called before grant or after Reject.
+1. The consent primitives in `packages/ui` with their `index.ts` and the explicit `./frontend/consent` entry in `packages/ui/package.json`, with named suites `ConsentProvider.test.tsx`, `ConsentGate.test.tsx`, `consent-cookie.test.ts` and `consent-cleanup.test.ts`: no cookie; accept; reject; per-category; malformed cookie; a new category; a raised revision; a removed category; outside a provider (an essential id denied too); the `@open-mercato/ui/frontend/consent` import resolving from source and `dist`; render before mount; essential-only/mixed lists always granted with no essential switches; cookie codec version/attributes/size; declared cleanup and inaccessible-storage errors; dynamic loader never called before grant or after Reject.
 2. Resolve the inline list and guarded test-only category inside the existing root layout; pass it and the gated test probe flag through AppProviders. Mirror layout, providers and tests into the template. Unit/layout tests reject every missing opt-in predicate and ignore test cookies in production.
 3. The bar's second state, Choose and floating Cookie settings; notice visibility no longer unmounts withdrawal access when non-essential categories exist. Cleanup before reload on save. Component tests including server-hidden notices and active grant.
 4. `ConsentSettingsLink.test.tsx` and `AppProviders.consent.test.tsx` cover the link in the sign-in footer and the backend and portal shells, with its registration in the provider. Component tests for both list states. Component tests on `AppProviders` with a declared non-essential category and a mocked `usePathname`: accept on `/`, then render `/privacy`, where the floating button is shown, open it, switch the category off and save, and the stored answer is a refusal and the reload is requested; the floating button is shown on `/terms` and on a forms page; it remains shown when notice content is hidden and a non-essential category exists; it is not shown where a `ConsentSettingsLink` is mounted; with only `essential` declared, neither renders on any path.
@@ -262,7 +264,7 @@ No database entity. Four cookie names:
 
 | File | Action |
 |---|---|
-| `packages/ui/src/frontend/consent/*` and tests; `packages/ui/src/frontend/AuthFooter.tsx`; backend and portal shell footers | Create / modify |
+| `packages/ui/src/frontend/consent/*` (with `index.ts`) and tests; `packages/ui/package.json` (`./frontend/consent` export); `packages/ui/src/frontend/AuthFooter.tsx`; backend and portal shell footers | Create / modify |
 | `packages/ui/src/frontend/noticeBars.ts` and `packages/ui/src/frontend/__tests__/noticeBars.test.ts` | Create |
 | `packages/cli/src/lib/testing/integration.ts` | Modify |
 | `apps/mercato/src/{app/layout.tsx,app/__tests__/layout.test.tsx,components/GlobalNoticeBars.tsx,components/AppProviders.tsx,i18n/*.json}` | Modify / create |
@@ -270,7 +272,7 @@ No database entity. Four cookie names:
 | `packages/core/src/modules/auth/api/locale/route.ts` | Modify |
 | `apps/mercato/src/components/__tests__/GlobalNoticeBars.characterization.test.tsx` | Create |
 | `packages/core/src/modules/auth/__integration__/TC-CONSENT-00{1,2}.spec.ts` | Create |
-| `apps/docs/docs/deployment/gdpr/index.mdx` | Update G5 cookie inventory in each phase; add the named recipe in Phase 2 |
+| `apps/docs/docs/deployment/gdpr/index.mdx` | Update G5 cookie inventory in each phase, including the browser-telemetry entry in Phase 1; add the named recipe in Phase 2 |
 
 ## 🧪 Integration Coverage
 
@@ -339,7 +341,7 @@ The test-only category is per request and browser context. TC-CONSENT-002 is man
 - **Mitigation**: The cookie name and its presence check are unchanged; the characterization test pins it.
 - **Residual risk**: A test that clicks "Accept cookies" by its label; found by the suite.
 
-## Final Compliance Report — 2026-11-16
+## Final Compliance Report — 2026-11-17 (revised)
 
 - **Reviewed:** root `AGENTS.md`, `.ai/specs/AGENTS.md`, `packages/create-app/AGENTS.md` → Template Sync Checklist, the frontend architecture contract. Not reviewed in full: `packages/ui/AGENTS.md`.
 
@@ -359,8 +361,13 @@ The test-only category is per request and browser context. TC-CONSENT-002 is man
 
 ### 2026-11-16
 - Written autonomously with resolved assumptions.
-- Revised after independent review. The built-in telemetry is no longer gated: it is staff-only, the gate could not have stopped it once started, and an existing test opts into it by cookie. The category list is resolved on the server and passed down, because a client file cannot read the settings it would depend on, and it lives under `src/lib`, which the template sync covers. Each category carries a revision instead of the whole list being hashed. The settings link has a named place on each surface, and saving reloads the page. The integration test uses the per-request cookie that shows the bars. Browser-written cookie attributes are left out, and the two phases ship separately.
+- Revised after independent review. The built-in telemetry is no longer gated: it is staff-only, the gate could not have stopped it once started, and an existing test opts into it by cookie. The category list is resolved on the server and passed down, because a client file cannot read the settings it would depend on, and it lives under `src/lib`, which the template sync covers (superseded by the r9-22 entry below: the list is now resolved inside the existing layout). Each category carries a revision instead of the whole list being hashed. The settings link has a named place on each surface, and saving reloads the page. The integration test uses the per-request cookie that shows the bars. Browser-written cookie attributes are left out, and the two phases ship separately.
 - Council review (Opus, GPT-5.6 Sol, DeepSeek V4 Flash, Kimi K3.1 Pro), high fixes: g6-01 — the bar collapses to a "Cookie settings" button that `GlobalNoticeBars` renders on every page, public pages included, and that gives way to a footer link where one is mounted; new Delta scenario, edge cases, component tests across paths, a risk entry and a compliance row. g6-05 — the per-request cookie the integration test relied on did not exist; Phase 1 now adds `resolveNoticeBarsEnabled` with the `om_test_notice_bars=on` opt-in under `OM_TEST_MODE=1` and `OM_TEST_NOTICE_BARS_MODE=opt-in`, used by the root layout in the app and the template, with unit and layout tests in both, and TC-CONSENT-001 is rebuilt on it.
 
 - Council round two fixes (GPT-6.1 Sol workers): r9-02 — per-context category and mandatory browser consent flow; r9-22 — category list inside existing layout; r9-23 — versioned bounded cookie and attributes; r9-26 — first-party storage cleanup and limits; r9-27 — shared AuthFooter path/locales; g6-19 — essential semantics; g6-20 — granted-branch loading; corrected cookie/environment counts and added locale Set-Cookie integration assertions.
 - Council round two fixes, pass two (GPT-6.1 Sol workers): linked the legal-document and CRM carriers without conflating their evidence with browser choices; replaced the CSP caching premise with the existing nonce/origin boundary; named G5's index as the cookie-inventory and Phase 2 recipe carrier; synchronized the test-probe delivery gate and program edition qualification.
+
+### 2026-11-17
+- Browser telemetry stays ungated but gets a G5 cookie and terminal-access inventory entry in Phase 1, and Known limits states that the spec makes no ePrivacy Art. 5(3) determination for deployments that enable it.
+- Added the explicit `./frontend/consent` export to `packages/ui/package.json`, stated that every id (essential included) is denied outside a provider, and marked the superseded `src/lib` changelog sentence.
+- Dated the Final Compliance Report 2026-11-17 (revised) to match its rows.

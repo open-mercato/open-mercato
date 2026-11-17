@@ -11,6 +11,10 @@ Extends: .ai/specs/enterprise/GDPR/2026-11-16-privacy-dsr-engine.md
 
 A person may ask a controller to stop processing their data while a dispute is settled. Edits are processing too. Blocking edits is necessary for an ordinary freeze, but does not implement Art. 18 while reads, automation and disclosures continue. The product has no single path covering all those uses. **Decided (program DEC-8):** document a manual procedure and its edition-specific limits; do not claim that a legal hold or an edit freeze is technical restriction. The hold, export and contact-permission designs below are proposed controls, with availability stated per edition.
 
+## 📝 Overview
+
+This is a decision record, not a design to build. It explains why an edit freeze does not implement Art. 18, what a technical restriction would require across the codebase, and why the program chose a documented procedure (DEC-8). The operator procedure itself is OSS documentation, so its normative table lives in the OSS deployment-docs spec ([`../../GDPR/2026-11-16-gdpr-deployment-docs.md`](../../GDPR/2026-11-16-gdpr-deployment-docs.md), **Restriction and objection procedure (DEC-8)**). This record keeps the legal summary, the code evidence, the Known limits and the requirements any later freeze must meet.
+
 ## 📝 Resolved assumptions (autonomous defaults)
 
 | Question | Decision | Rationale |
@@ -25,17 +29,20 @@ A person may ask a controller to stop processing their data while a dispute is s
 
 Decision: **A** (program DEC-8). B and C are the alternatives considered and rejected for this program: B blocks some processing and would have to describe its remaining gaps; C requires a new cross-module design. The freeze requirements below are kept for any later spec; none is planned.
 
-## 📝 What the law asks
+## 📝 Problem Statement
 
-The [adopted GDPR text, Arts. 4(2), 18, 19 and 21](https://www.legislation.gov.uk/eur/2016/679/pdfs/eur_20160679_adopted_en.pdf) is the source for this summary. Alteration is processing; a storage exception does not permit ordinary editing.
+### What the law asks
+
+The [adopted GDPR text, Arts. 4(2), 18, 19 and 21, and Recital 67](https://www.legislation.gov.uk/eur/2016/679/pdfs/eur_20160679_adopted_en.pdf) is the source for this summary. Alteration is processing; a storage exception does not permit ordinary editing.
 
 - **Art. 18(1)**: restriction when accuracy is contested, when processing is unlawful and the person prefers restriction to erasure, when the controller no longer needs the data and the person needs it for a legal claim, or while an objection is assessed.
 - **Art. 18(2)**: restricted data may be stored. Any other use needs the person's consent, or is for legal claims, the protection of another person, or important public interest.
 - **Art. 18(3)**: the person must be told before the restriction is lifted.
 - **Art. 19**: recipients the data was disclosed to must be told of the restriction, unless that is impossible or disproportionate.
 - **Art. 21**: a general objection must be honoured unless the controller shows compelling grounds; an objection to direct marketing must always be honoured.
+- **Recital 67**: in automated filing systems, restriction should in principle be ensured by technical means, for example by moving the data to another processing system, making it unavailable to users or temporarily removing published data. A recital guides interpretation and says "in principle"; it is not an article, but a procedure-only answer must be weighed against it.
 
-## 📝 What the code allows
+### What the code allows
 
 **Reads have no common path.** The people list goes through `makeCrudRoute` and the query engine (`customers/api/people/route.ts:85-95`). The assistant list is `defineApiBackedAiTool` and detail uses `createAiApiOperationRunner` against the people APIs (`packages/core/src/modules/customers/ai-tools/people-pack.ts:89-90, 134, 183`); only its company-filter prequery reads profiles through `findWithDecryption` (`:111`). An API restriction could cover those list/detail calls, but cannot cover the independent paths below by itself. A dashboard widget uses the ORM (`customers/api/dashboard/widgets/new-customers/route.ts:70`). Analytics reads the table by name (`customers/analytics.ts:5-20`).
 
@@ -58,30 +65,29 @@ The [adopted GDPR text, Arts. 4(2), 18, 19 and 21](https://www.legislation.gov.u
 
 **Status codes.** 423 already signals lock conflicts in `packages/enterprise/src/modules/record_locks/api/acquire/route.ts` and a locked cart in `packages/core/src/modules/cart/lib/lockGuard.ts`. Reusing it would conflate independent conditions.
 
-## 📝 Option A — the procedure
+## 📝 Proposed Solution
 
-A page in the deployment docs, "Restriction and objection", states availability before recommending an action. The OSS export/erasure/retention commands, enterprise holds and E2 contact permissions are future controls until their respective designs ship. None currently supplies general technical restriction.
+### Option A — the procedure
 
-| Request | Edition / availability | Procedure and limits |
-|---|---|---|
-| "Do not erase; I need it for a claim" | Enterprise, only with the approved governance engine deployed | Place a legal hold. The guarded erase service, hold-aware forms retention and engine/OSS record-retention paths honour it; R3-5, "Holds, honestly", and DEC-C, "Retention sets and holds", define the boundary. Forms leave held subjects out or skip as `hold_not_honourable`; guard failure refuses. A set unable to attribute held records skips for the whole tenant with `hold_not_honourable`. A record policy with `allowUnmatchedHolds` still deletes what it cannot attribute; leave that opt-out off for preservation. A hold does not block reads or edits, and SQL/independent module delete commands bypass it |
-| The same preservation request without enterprise holds | OSS, once the manual retention command ships | Record the preservation instruction outside the product; do not run the person's erasure or independent deletion. Pass repeatable `--exclude-subject <kind:id>` for every relevant held subject/identifier reference on each `mercato privacy retention` run. An unsupported kind refuses the set rather than guaranteeing selective preservation. With no guard, omitting exclusions leaves no protection. Clear the form's retention period wherever it could anonymize this subject, and pause any retention process that cannot honour the preservation instruction |
-| "I object to marketing" | OSS, once E2 / the 10-22 contact-permissions design ships | Set the scoped person/address-purpose suppression/permission controls. Until then record the objection outside the product and stop affected outreach manually. The proposed sender policy does not govern external mail clients or every provider |
-| "I contest accuracy" or "I object" | OSS export once the contract ships; manual controls in either edition | Export through an authorized request if needed. Instruct staff: do not edit except to rectify at the person's request under a documented lawful exception; stop ordinary reads, reporting, automation and disclosure for that person by controller procedures. Record permitted exceptions and instruct downstream operators. The product does not enforce these instructions per record |
-| Telling recipients (Art. 19) | Manual in both editions | The product has no per-subject disclosure register. The [register draft](../../GDPR/2026-11-16-privacy-ropa-generator.md#declarations) lists active recipients and cannot establish who received this person's data. Review available integration execution records, webhook delivery logs, provider records and manual correspondence to reconstruct actual disclosures; those sources may lack subject linkage or already have expired. Notify the identified recipients and record any impossible/disproportionate-effort assessment; do not mark the step complete merely because the active-recipient list was checked |
+Program DEC-8 decides option A. The deployment-docs spec owns the operator procedure as its **Restriction and objection procedure (DEC-8)**: the edition/availability table for preservation, marketing objection, contested accuracy or a general objection, and Art. 19 recipient notification, followed by the reassessment and advance-notice steps before processing resumes (Art. 18(3)) and the Recital 67 caveat with its compensating measures. Keeping that table in an OSS spec means OSS documentation is not sourced from this enterprise record. This record requires that the procedure:
 
-Before ordinary processing resumes, the controller assesses whether the stated ground has ended, records the lawful basis and authorized exceptions, and tells the person before lifting the manual restriction (Art. 18(3)). Record that notice and the authorized resumption time in the controller's case record; a hold release alone does not authorize renewed processing.
+- states availability before recommending an action, and labels the OSS export/erasure/retention commands, enterprise holds and E2 contact permissions as future controls until each ships;
+- separates enterprise legal holds from the OSS manual preservation fallback (`--exclude-subject`, clearing a form's retention period, pausing processes that cannot honour the instruction);
+- instructs staff to stop ordinary edits, reads, reporting, automation and disclosure for the person, with documented rectification exceptions;
+- reconstructs actual recipients from execution records, delivery logs, provider records and correspondence, since the register draft lists recipients but is no disclosure history;
+- requires reassessment, a recorded lawful basis, advance notice to the person and a recorded resumption time before processing resumes; a hold release alone never authorizes it.
 
-### Known limits
+#### Known limits
 
 - The product has no technical restriction of processing for an individual record. A legal hold preserves data; contact permissions suppress specified outreach; neither is a general use restriction.
+- Recital 67 expects restriction in automated systems to be ensured in principle by technical means. A procedure alone may fall short of that expectation, so the controller must assess compensating measures and record the assessment. The product supports two, each per organization or per feature rather than per record: exporting the subject's data to a separate controlled store through the subject export (OSS, once the contract's export ships; deleting the live copy is a separate erasure decision), and narrowing which staff can reach the data through role and user feature grants and organization visibility (`RoleAcl` / `UserAcl` `organizations_json`, both editions today).
 - **R3-5 — Holds, honestly.** Legal holds exist only with the enterprise engine. They stop the subject erase run and protect retention sets through the optional `privacyRetentionGuard` (DEC-C, record-retention spec, "Legal holds"). Forms retention consults that guard before anonymizing: it excludes held subjects or skips the run as `hold_not_honourable`; without the guard it runs as specified (forms-retention spec, R3-5). OSS has only the record-retention command's repeatable `--exclude-subject <kind:id>`; it has no legal-hold mechanism. An OSS operator must pass the exclusion on every applicable run, clear the form's retention period when it could anonymize the subject, and not run erasure. Operational pruners apply expiry or age to tokens and logs, rather than resolving subjects; legal holds do not apply to them or to access-log rotation. A controller needing to preserve those records must separately disable the relevant prune or preserve an authorized copy under its own procedure.
 - An unmatched hold can defer a whole tenant's set. `allowUnmatchedHolds` weakens that preservation for a specific record policy, and is not a restriction mechanism.
 - No complete subject-specific disclosure history exists. Active recipients and retained delivery logs are leads for a controller's reconstruction, not proof of complete notification.
 
-These same limits belong on the deployment docs page and in the program's Known limits. This spec edits neither destination; they are listed under Needed elsewhere in the revision report. Option A adds no runtime code. The deployment-docs spec owns `restriction-and-objection`: Stage 1 publishes the Option A procedure (DEC-8) with the factual current-release limits and no enterprise prerequisite; steps that depend on an unshipped hold or command are labelled unavailable until it ships; Stage 3 adds shipped erase/retention/hold instructions. `data-subject-requests` links to that page. Planned controls are labelled unavailable until their own release.
+These same limits belong on the deployment docs page and in the program's Known limits. Option A adds no runtime code. The deployment-docs spec owns `restriction-and-objection`: Stage 1 publishes the Option A procedure (DEC-8) with the factual current-release limits and no enterprise prerequisite; steps that depend on an unshipped hold or command are labelled unavailable until it ships; Stage 3 adds shipped erase/retention/hold instructions. `data-subject-requests` links to that page. Planned controls are labelled unavailable until their own release.
 
-## 📝 Option B — requirements, if a record freeze is built
+### Option B — requirements, if a record freeze is built
 
 DEC-8 rejects a freeze for this program. A freeze must not be presented as restriction. If a later spec builds one, the first design's review sets these requirements:
 
@@ -98,14 +104,26 @@ DEC-8 rejects a freeze for this program. A freeze must not be presented as restr
 11. **Scope.** An organization column, so that one organization's administrators do not see another's frozen people.
 12. **Other mechanisms.** A legal hold keeps its preservation meaning and does not start blocking edits. A separate freeze must block ordinary edits as processing while leaving specifically authorized rectification possible. Retention sets must honour declared exclusions; OSS has no enterprise hold service. A staff-user erasure that would clear ownership on a frozen person needs an explicit decision.
 
+## 📝 Architecture
+
+None — documentation only. Option A adds no module, service, DI registration, subscriber or UI. The procedure is a page owned by the deployment-docs spec.
+
+## 📝 Data Models
+
+None — documentation only. No entity, column or migration.
+
+## 📝 API Contracts
+
+None — documentation only. No route, event, ACL feature, CLI command or type changes.
+
 ## 📝 Delta
 
 Option A changes documentation only; no API or UI runtime behavior is added. Its acceptance scenarios are that an OSS operator finds a manual preservation fallback, an enterprise operator sees the tenant-wide skip and opt-out limit, and a controller is told to stop ordinary edits and reconstruct actual recipients. B/C are not built; a later spec would need its own runtime Delta.
 
 ## 📋 Implementation Plan and validation
 
-1. Write and publish the deployment-doc `restriction-and-objection` procedure in Stage 1 (DEC-8), with the edition/availability table, the exact R3-5 Known limits and the factual current-release limits; label steps that depend on an unshipped hold or command as unavailable until it ships; Stage 3 adds only the controls shipped by then, and `data-subject-requests` links to it; verify links to the OSS commands, enterprise guard boundary and contact-permissions proposal against the implementation at that future merge.
-2. Review three documentation scenarios: OSS preservation without holds including form-period removal and separate operational-log preservation, enterprise hold-aware forms and unmatched-hold behavior with and without the opt-out, and a contested record with permitted rectification and manual recipient reconstruction. Confirm that no instruction claims an active-recipient list proves disclosure history. A lifting scenario requires documented reassessment, advance notice and authorized resumption before ordinary processing restarts; releasing a hold alone is insufficient.
+1. The deployment-docs owner writes and publishes `restriction-and-objection` in Stage 1 (DEC-8) from its **Restriction and objection procedure (DEC-8)** table, with the exact R3-5 Known limits, the Recital 67 caveat and the factual current-release limits; label steps that depend on an unshipped hold or command as unavailable until it ships; Stage 3 adds only the controls shipped by then, and `data-subject-requests` links to it; verify links to the OSS commands, enterprise guard boundary and contact-permissions proposal against the implementation at that future merge.
+2. Review three documentation scenarios: OSS preservation without holds including form-period removal and separate operational-log preservation, enterprise hold-aware forms and unmatched-hold behavior with and without the opt-out, and a contested record with permitted rectification and manual recipient reconstruction. Confirm that no instruction claims an active-recipient list proves disclosure history, and that the page states the Recital 67 caveat and lists the compensating measures with their availability. A lifting scenario requires documented reassessment, advance notice and authorized resumption before ordinary processing restarts; releasing a hold alone is insufficient.
 3. Validate Markdown tables locally. No runtime route or key UI path changes in A, so this document does not invent unit/integration implementation tests. The engine's TC-PRIVACY-GOV-001/003/004 cover its actual hold/ACL/retention paths with their own fixtures; E2 owns outreach integration coverage. Any B/C implementation must add unit and self-contained integration coverage for every enumerated read/write/sender path before shipping.
 
 ## 📝 Migration & Backward Compatibility
@@ -125,7 +143,7 @@ Option A is documentation only. It changes no API, schema, feature id, event, DI
 - **Scenario**: Nothing is built and a regulator asks how restriction is implemented.
 - **Severity**: Medium
 - **Affected area**: tenants subject to such a request
-- **Mitigation**: DEC-8 records the choice and Known limits state it. Edition/availability is explicit; an enterprise hold and OSS export may be used only when deployed. Ordinary editing is processing and is stopped by instruction, with narrowly recorded exceptions. API-backed assistant tools and independent reads are both in the future restriction inventory.
+- **Mitigation**: DEC-8 records the choice and Known limits state it, including that a procedure may fall short of Recital 67's expectation of technical means and which compensating measures exist. Edition/availability is explicit; an enterprise hold and OSS export may be used only when deployed. Ordinary editing is processing and is stopped by instruction, with narrowly recorded exceptions. API-backed assistant tools and independent reads are both in the future restriction inventory.
 - **Residual risk**: A procedure depends on people following it.
 
 #### Preservation silently depends on the edition
@@ -151,7 +169,8 @@ Option A is documentation only. It changes no API, schema, feature id, event, DI
 | Product direction | Decided | Option A under program DEC-8; B/C would need a new approved spec, and none is planned |
 | Accurate control boundaries | Designed | Edition/availability, preservation opt-out and absent disclosure ledger are explicit |
 | Integration scope | Documentation only | No changed runtime path; related engine/E2 tests remain owned there |
-| Enterprise scope in the enterprise specs directory | Compliant | Option B would touch OSS for the guard and the enricher, and says so |
+| Enterprise scope in the enterprise specs directory | Compliant | The operator procedure is specified in the OSS deployment-docs spec; this record holds the decision. Option B would touch OSS for the guard and the enricher, and says so |
+| Required spec sections | Compliant | Overview, Problem Statement, Proposed Solution, Architecture, Data Models and API Contracts present; the last three are "None — documentation only" |
 
 **Verdict:** Approved as a decision record. Option A (program DEC-8) is implemented as G5's `restriction-and-objection` page, published in Stage 1; B/C are not implementation authority.
 
@@ -163,3 +182,7 @@ Option A is documentation only. It changes no API, schema, feature id, event, DI
 - Council round two fixes (GPT-6.1 Sol workers): r7-09 — edition-aware preservation, OSS exclusions and unmatched-hold limits; r7-33 — manual subject-disclosure reconstruction and known limit; r7-50 — API-backed assistant reads and remaining independent paths; g4-29 — editing is processing, rectification exceptions and corrected options/changelog.
 - Council round two fixes, pass two (GPT-6.1 Sol workers): quote the program's exact R3-5 Known limits; add hold-aware forms, OSS form-period removal and separate operational-log preservation; align the deployment-doc page and staged availability, retain the direction gate and add manual advance-notice/lifting instructions. The corrected rationale remains that editing is processing and edit blocking alone omits other uses.
 - Council round two fixes, pass three (GPT-6.1 Sol workers): verify the program's exact R3-5 Known limits, C3 hold/skip/exclusion boundaries, the register's recipient limits and the contact-permissions seam against their merged carriers. Option A retains DEC-8/Q1 approval; the deployment-doc carrier still needs to distinguish factual Stage 1 limits from publication of the gated procedure.
+
+### 2026-11-17
+- Added the missing Overview, Problem Statement, Proposed Solution, Architecture, Data Models and API Contracts headings. The operator procedure table moved to the OSS deployment-docs spec, so OSS documentation is not sourced from this enterprise record; this record keeps the requirements the procedure must meet.
+- Recital 67 is summarized under What the law asks, and Known limits state that a procedure may fall short of its expectation of technical means, with the compensating measures the product supports.

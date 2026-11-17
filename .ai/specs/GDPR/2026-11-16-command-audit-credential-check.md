@@ -55,6 +55,14 @@ The assembled log payload: the replay input as it will be stored, the undo paylo
 5. **Check the candidate's value.** Match a non-empty string; a non-empty array containing a non-empty string; or a change-set object with a `from` or `to` side that is such a string or string array. A numeric value, including a change-set side, matches only for `pin`, `otp` or `totp`. Emit one match at the candidate key. Other objects and arrays are traversed without matching the container itself, so `tokenUsage: {…}` and `secretSantaList: [{ name: '…' }]` do not match by their container names.
 6. **Safe paths.** Do not match a key path a command lists in `auditSafePaths`. Compare the original structural path in memory, before any diagnostic sanitization. Array indexes use `*`. Never emit the original path.
 
+### Traversal order and limits
+
+- **Order.** Visit the log roots in the fixed order `commandPayload`, `snapshotBefore`, `snapshotAfter`, `changes`, `context`, then each value depth-first, pre-order: object keys in insertion order (`Object.keys`), array elements by index. Matches are emitted in visit order, so the first 50 retained paths are deterministic.
+- **Counting.** Every visited value counts as one node: each object, array, key's value and array element, including primitives. The root log object is depth 0; each key or index step adds 1. Skipped tenant-data subtrees and safe-path subtrees are not visited and do not count.
+- **Limits.** Exported constants `AUDIT_CREDENTIAL_CHECK_MAX_DEPTH = 32` and `AUDIT_CREDENTIAL_CHECK_MAX_NODES = 20000`. A value at depth greater than the depth limit is not visited: its subtree is skipped and the scan continues with the next sibling. The node that would exceed the node limit stops the whole scan; matches found before it are kept.
+- **Cycles and shared references.** A shared reference reached by two paths is visited at each path, as JSON serialization would store it twice. An object already on the current ancestor path is a cycle: its subtree is skipped with reason `cycle` and the scan continues. Such a payload cannot be serialized anyway.
+- **Reporting a limit.** Hitting any limit yields `truncated: 'depth' | 'nodes' | 'cycle'` (the highest-precedence reason met during the scan, in the order `depth`, `nodes`, `cycle`, regardless of which was met first) and one `reportError` with code `commands.audit_check_limit` per command execution, carrying only the reason and the root name. It does not throw in test mode. The scan outcome is still reported for the matches found.
+
 ### What happens on a match
 
 - Call the shared telemetry runtime's `reportError` for every occurrence, with stable code `commands.audit_credential_key` and the registered command id. Never sample, throttle or suppress at the bus or facade; volume control belongs to the collector and backend.
@@ -116,7 +124,7 @@ The system SHALL detect credential-named keys in what a command is about to log 
 
 ## 📝 Architecture
 
-- **`packages/shared/src/lib/commands/auditSecrets.ts`** (new): `findCredentialKeyPaths(value, options)` — pure, synchronous, no I/O.
+- **`packages/shared/src/lib/commands/auditSecrets.ts`** (new): `findCredentialKeyPaths(value, options)` — pure, synchronous, no I/O; returns `{ paths: string[]; truncated: null | 'depth' | 'nodes' | 'cycle' }`. Exports `AUDIT_CREDENTIAL_CHECK_MAX_DEPTH` and `AUDIT_CREDENTIAL_CHECK_MAX_NODES`.
 - **Command bus**: computes matches once on the assembled payload before log persistence; reports without changing persistence, and raises test-only failure after commit and normal post-commit work.
 - **`CommandLogMetadata.auditSafePaths?: readonly string[]`** — new optional field.
 - **Reporting**: the telemetry runtime the shared package already uses, with a structured `createLogger` error line when no backend is configured. Both use the same sanitized diagnostic, and no occurrence is throttled.
@@ -131,14 +139,15 @@ None.
 - `@open-mercato/shared/lib/commands/auditSecrets` — `findCredentialKeyPaths`, exported so module authors can assert on their own commands.
 - `CommandLogMetadata.auditSafePaths` — optional.
 - `OM_AUDIT_CREDENTIAL_CHECK` — unset (report) or `throw` (honoured only with `NODE_ENV=test`; otherwise warn once and report).
-- `findCredentialKeyPaths` returns sanitized paths only. Original paths used for safe-list matching never leave the matcher. The traversal-limit code is `commands.audit_check_limit`, with structural metadata only.
+- `findCredentialKeyPaths(value, options): { paths: string[]; truncated: null | 'depth' | 'nodes' | 'cycle' }` returns sanitized paths only, in visit order. Original paths used for safe-list matching never leave the matcher. `AUDIT_CREDENTIAL_CHECK_MAX_DEPTH` (32) and `AUDIT_CREDENTIAL_CHECK_MAX_NODES` (20000) are exported constants; changing either is a behaviour change recorded in `UPGRADE_NOTES.md`. The traversal-limit code is `commands.audit_check_limit`, with the reason and root name only.
 - Reported error code `commands.audit_credential_key`.
 
 ## 📝 Edge Cases & Failure Scenarios
 
 | Case | Behaviour |
 |---|---|
-| Deeply nested or very large payload | Traversal is bounded in depth and node count; hitting the bound is reported once as its own code |
+| Deeply nested or very large payload | Beyond depth 32 the subtree is skipped and the scan continues; at 20000 nodes the scan stops. Either is reported once per execution as `commands.audit_check_limit`; matches found before the limit are still reported |
+| Cyclic object | The repeated ancestor's subtree is skipped with reason `cycle` |
 | Arrays of objects | Each element is inspected; the path uses an index wildcard |
 | A credential under an innocuous key such as `value` | Not detected; stated in the author documentation |
 | The same match on every execution | Every occurrence reported; no source limiter |
@@ -154,7 +163,7 @@ Additive: `CommandLogMetadata.auditSafePaths` is an optional §2 member; `@open-
 
 ## 📋 Implementation Plan
 
-1. Add `auditSecrets.test.ts`: every Problem Statement example in camel, snake and kebab case; every word, pair and exempt suffix; `accessKey`, `otpauthUrl`, cookies, signatures, passphrases, `recoveryCodes: string[]`, a `{ from, to }` `passwordHash` and numeric OTP; empty values; safe paths and traversal bounds. Test raw bodies and change sets with top-level and nested `cf_token` and `cf:token`, and every skipped container, in report and throw modes. Test email-, external-id- and token-keyed maps and a credential-like key containing an email; diagnostics carry only canonical vocabulary and wildcards, within the length and count caps.
+1. Add `auditSecrets.test.ts`: every Problem Statement example in camel, snake and kebab case; every word, pair and exempt suffix; `accessKey`, `otpauthUrl`, cookies, signatures, passphrases, `recoveryCodes: string[]`, a `{ from, to }` `passwordHash` and numeric OTP; empty values; safe paths. Traversal bounds: a credential key at depth 31, 32 and 33 (found, found, skipped with `truncated: 'depth'` while a later sibling at depth 1 is still found); a payload of 19999, 20000 and 20001 nodes with a credential as the last node (found, found, not found with `truncated: 'nodes'`); deterministic match order across roots and insertion order; a shared reference reported at both paths; a cycle skipped with `truncated: 'cycle'`; a cycle met before a depth skip reports `truncated: 'depth'`, and a cycle met before the node limit reports `truncated: 'nodes'`. Test raw bodies and change sets with top-level and nested `cf_token` and `cf:token`, and every skipped container, in report and throw modes. Test email-, external-id- and token-keyed maps and a credential-like key containing an email; diagnostics carry only canonical vocabulary and wildcards, within the length and count caps.
 2. Add `command-bus.audit-secrets.test.ts`: unchanged rows, every repeated occurrence reported, test-only failure after commit and post-commit side effects, production and development `throw` returning success with one warning, no secret in messages or attributes, and a stripped replay input causing no report. Test atomic and non-atomic command paths and facade redaction. No throttle or throttle test.
 3. Set the variable in first-party jest setups that register commands. Fix or declare matches command by command. This affects test configuration only; no deployment default sets `throw`.
 4. Add TC-AUDIT-CHECK-001 below, author documentation and the `UPGRADE_NOTES.md` note, including committed-state semantics of a test failure.
@@ -165,13 +174,17 @@ Additive: `CommandLogMetadata.auditSafePaths` is an optional §2 member; `@open-
 | `packages/shared/src/lib/commands/auditSecrets.ts` and tests | Create |
 | `packages/shared/src/lib/commands/{command-bus,types}.ts` | Modify |
 | First-party jest setup files | Modify |
-| `packages/core/src/modules/audit_logs/__integration__/TC-AUDIT-CHECK-001.spec.ts` | Create — real log persistence and diagnostic boundary |
+| `packages/core/src/modules/audit_logs/__integration__/TC-AUDIT-CHECK-001.spec.ts`, `packages/core/src/helpers/integration/commandBusChild.ts` | Create — real log persistence and diagnostic boundary in a child process with its own environment |
 | Commands that trip the check | Modify |
 | Docs, `UPGRADE_NOTES.md` | Modify |
 
 ## 🧪 Integration Coverage
 
-No API or UI contract changes. Unit tests cover the matcher and bus; first-party command suites run in test-only throw mode. TC-AUDIT-CHECK-001 exercises the bus with the real `actionLogService` and a test-registered undoable command in its own fixture tenant, with a recording telemetry bridge. Two production-mode executions with `OM_AUDIT_CREDENTIAL_CHECK=throw` both return success, persist unchanged rows and report twice; an email-keyed map and `cf_token` change leak no data into either report or fallback logger. Read the rows through `GET /api/audit_logs/audit-logs/actions` as that tenant's fixture actor to verify normal audit availability. A test-mode subprocess proves the row remains committed after the diagnostic failure. Restore the bridge and environment in `finally`, unregister the command, and delete the fixture rows and tenant. Never change the running shared app's environment or depend on demo records.
+No API or UI contract changes. Unit tests cover the matcher and bus; first-party command suites run in test-only throw mode. TC-AUDIT-CHECK-001 exercises the bus with the real `actionLogService` and a test-registered undoable command in its own fixture tenant, with a recording telemetry bridge.
+
+**Harness.** New `packages/core/src/helpers/integration/commandBusChild.ts` exports `runCommandInChild({ appRoot, env, tenantId, organizationId, actorUserId, executions })`. It spawns a Node child (`process.execPath`) with the environment it is given (`NODE_ENV` and `OM_AUDIT_CREDENTIAL_CHECK` set per case; the database URL and the encryption and lookup secrets the ephemeral app itself uses, so rows are sealed under the same keys), so no setting of the running shared app changes. The child bootstraps in process with `bootstrapFromAppRoot` and `createRequestContainer`, as `helpers/integration/queue-runner.ts` and `entities/__integration__/TC-ENTITIES-009-encryption-map-concurrency.spec.ts` already do; registers the test command `test.audit_check.secret_command` in the child's command registry only; installs a recording telemetry bridge and a recording logger sink; executes the command through `commandBus.execute` with the fixture actor's auth context; and writes one JSON line to stdout per execution with the result status, the action-log id, every recorded report (code and attributes) and every fallback log line, then exits. Nothing is registered in the shared app process.
+
+Two production-mode executions with `OM_AUDIT_CREDENTIAL_CHECK=throw` both return success, persist unchanged rows and report twice; an email-keyed map and `cf_token` change leak no data into either report or fallback logger. Read the rows through `GET /api/audit_logs/audit-logs/actions` as that tenant's fixture actor to verify normal audit availability. A test-mode child proves the row remains committed after the diagnostic failure: its JSON line carries the sanitized failure and the action-log id, which the spec reads back through the API. Each child exits after its case, so the bridge, environment and command registration die with it. In `finally` delete the fixture action-log rows by the returned ids, the actor and the tenant. Never change the running shared app's environment or depend on demo records.
 
 ## 📝 Risks & Impact Review
 
@@ -207,7 +220,7 @@ No API or UI contract changes. Unit tests cover the matcher and bus; first-party
 - **Scenario**: Traversing large snapshots on each execution.
 - **Severity**: Low
 - **Affected area**: command throughput
-- **Mitigation**: Pure traversal with a depth and node bound.
+- **Mitigation**: Pure traversal bounded at depth 32 and 20000 nodes, with one limit report per execution.
 - **Residual risk**: Negligible against a database write.
 
 ## Final Compliance Report — 2026-11-16
@@ -235,3 +248,8 @@ No API or UI contract changes. Unit tests cover the matcher and bus; first-party
 - Council round two fixes, pass two (GPT-6.1 Sol workers): checked both C2 carriers and the program; narrowed the parent guarantee to its known commands, removed the stale five-command count, and classified the new matcher file subpath consistently with the contract spec's §4 rules. Report-only persistence and test-only post-commit throw are unchanged.
 
 - Council round two fixes, pass three (GPT-6.1 Sol workers): checked the merged parent/program scope and import/member compatibility references; existing matcher, report-only persistence and test-only post-commit failure already satisfy the remaining packet, with no additional contract change.
+
+### 2026-11-17
+- Defined the matcher's traversal contract: fixed root and key-insertion order, node and depth counting, exported limits (depth 32, 20000 nodes), skip-subtree on depth, stop-scan on nodes, cycle and shared-reference handling, one `commands.audit_check_limit` report per execution, and a `truncated` field on `findCredentialKeyPaths`, with boundary tests at limit−1, limit and limit+1.
+- Named the TC-AUDIT-CHECK-001 harness: `helpers/integration/commandBusChild.ts` runs each case in a Node child with its own environment, bootstrapped in process as existing integration helpers do, so the shared app is never reconfigured.
+- `truncated` reports the highest-precedence reason met (`depth`, then `nodes`, then `cycle`), not the first in time, with a unit case for a cycle met before a depth skip.

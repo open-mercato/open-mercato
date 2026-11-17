@@ -1,9 +1,9 @@
 # GDPR Data Erasure Orchestration (Enterprise)
 
 > **Superseded — design history only (2026-11-16).** Every operative section of this file is replaced: TLDR and Scope, Overview’s current-state claims, Proposed Solution and Design Decisions, User Stories, Architecture and coupling, Commands & Events, Data Model, API Contracts, durability framing, Security Considerations, Failure Scenarios, Phasing & Implementation Plan, Integration test coverage, Migration & Backward Compatibility, Risks & Impact Review and Final Compliance Report. No command, event, ledger or purge subscriber is implemented from this file.
-> **Operation successor:** [`../2026-11-16-privacy-subject-erasure.md`](../GDPR/2026-11-16-privacy-subject-erasure.md) (C4) owns module-owned erasure, anonymization, audit-history stripping, the OSS command, `eraseSubjects` and the single `privacy.subject.erased` event.
-> **Governance successor:** [`2026-11-16-privacy-dsr-engine.md`](GDPR/2026-11-16-privacy-dsr-engine.md) (C3/D5) owns enterprise policies, holds, the operation ledger, routes and admin UI.
-> **Restore successor:** [`2026-11-16-erasure-restore-replay.md`](GDPR/2026-11-16-erasure-restore-replay.md) (C9) owns external manifests, restore detection and manual replay, including infrastructure restores. The old backup-bucket manifest is withdrawn from the companion backup spec.
+> **Operation successor:** [`../GDPR/2026-11-16-privacy-subject-erasure.md`](../GDPR/2026-11-16-privacy-subject-erasure.md) (C4) owns module-owned erasure, anonymization, audit-history stripping, the OSS command, `eraseSubjects` and the single `privacy.subject.erased` event.
+> **Governance successor:** [`GDPR/2026-11-16-privacy-dsr-engine.md`](GDPR/2026-11-16-privacy-dsr-engine.md) (C3/D5) owns enterprise policies, holds, the operation ledger, routes and admin UI.
+> **Restore successor:** [`GDPR/2026-11-16-erasure-restore-replay.md`](GDPR/2026-11-16-erasure-restore-replay.md) (C9) owns external manifests, restore detection and manual replay, including infrastructure restores. The old backup-bucket manifest is withdrawn from the companion backup spec.
 
 Split from `2026-07-02-automated-backups-and-gdpr-erasure-propagation.md` (rev 5) on 2026-07-08. The rationale below is retained as history. Successor approval gates remain binding; this annotation does not approve their implementation.
 
@@ -29,11 +29,11 @@ The earlier fail-with-guidance decision for deal-linked people is superseded. C4
 
 | Responsibility | Authoritative carrier |
 |---|---|
-| Read/export contract and registry | `../2026-11-16-privacy-data-class-contract.md` (C1); R3-2 — The registry carries the whole `privacy.ts` default export; R3-3 — Tenant privacy settings live in `module_configs` |
-| Erase command, service, roots and history | `../2026-11-16-privacy-subject-erasure.md` (C4; DEC-B, R3-1, R3-14) |
+| Read/export contract and registry | [`../GDPR/2026-11-16-privacy-data-class-contract.md`](../GDPR/2026-11-16-privacy-data-class-contract.md) (C1); R3-2 — The registry carries the whole `privacy.ts` default export; R3-3 — Tenant privacy settings live in `module_configs` |
+| Erase command, service, roots and history | [`../GDPR/2026-11-16-privacy-subject-erasure.md`](../GDPR/2026-11-16-privacy-subject-erasure.md) (C4; DEC-B, R3-1, R3-14) |
 | Domain-owned dependants | The five privacy coverage specs named by the program; no generic cross-module table mutation |
-| Policies, holds, operation ledger and UI | `2026-11-16-privacy-dsr-engine.md` (C3/D5); DEC-C — Retention sets and holds; R3-9 — Organization-scope guard on every DSR route; R3-10 — One definition of a stale hold; R3-13 — No `related_subjects: include` anywhere |
-| External manifest and replay | `2026-11-16-erasure-restore-replay.md` (C9); its assumption 9 and OSS awaited-capture/verification-time handoff remain gated by the program |
+| Policies, holds, operation ledger and UI | [`GDPR/2026-11-16-privacy-dsr-engine.md`](GDPR/2026-11-16-privacy-dsr-engine.md) (C3/D5); DEC-C — Retention sets and holds; R3-9 — Organization-scope guard on every DSR route; R3-10 — One definition of a stale hold; R3-13 — No `related_subjects: include` anywhere |
+| External manifest and replay | [`GDPR/2026-11-16-erasure-restore-replay.md`](GDPR/2026-11-16-erasure-restore-replay.md) (C9); its assumption 9 settles the OSS awaited-capture/verification-time handoff, and protection is claimed only once C4 delivers that handoff and C9's crash/restore-before-repair tests pass |
 
 ## Data Model and API Contracts
 
@@ -51,7 +51,7 @@ There is no remaining implementation phase in this historical spec. Implement C1
 
 ## Integration test coverage
 
-Use C4’s linked-deal anonymization, history-strip and tenant-isolation unit/integration cases, C3’s `TC-PRIVACY-GOV-001` through `011` for the applicable holds, route/scope, settings and policy paths plus `/backend/security/privacy`, and C9’s `TC-PRIVACY-REPLAY-001` plus the program’s crash/restore-before-repair and missing-event cases. Each creates its own subject, dependent records, users and storage fixtures and removes them in `finally`. The old `/requests` and `.purged` tests are not scheduled. This documentation revision adds no API or UI path.
+Use C4’s linked-deal anonymization, history-strip and tenant-isolation unit/integration cases, C3’s **Integration Coverage** cases (`TC-PRIVACY-GOV-001` through `013`) for the applicable holds, route/scope, settings, policy and governance-evidence paths plus `/backend/security/privacy`, and C9’s `TC-PRIVACY-REPLAY-001` plus the program’s crash/restore-before-repair and missing-event cases. Each creates its own subject, dependent records, users and storage fixtures and removes them in `finally`. The old `/requests` and `.purged` tests are not scheduled. This documentation revision adds no API or UI path.
 
 ## Migration & Backward Compatibility
 
@@ -62,7 +62,7 @@ These are unimplemented design replacements, not removal of shipped API contract
 | Scenario | Severity | Affected area | Mitigation | Residual risk |
 |---|---|---|---|---|
 | An implementer follows an old request route, deal refusal or purge-confirmation design | High | Erasure operation and audit history | All operative sections are replaced by this successor map; implementation reads C4 and C3 | External copies of the July design can remain stale |
-| An operator treats archive expiry or replay as an unconditional erasure guarantee | High | Restore operations | C9 now proposes awaited durable external capture before protected completion, then completed-audit settlement/repair; assumption 9 approval and the C4-owned `privacyErasureCompletionCapture.capture` / `verifiedAt` handoff remain gates. Use `restore-status --refresh` and reviewed replay before reopening; settled evidence expires and pending work does not | Unread runbooks, lost external evidence or an operator bypass can resurrect data |
+| An operator treats archive expiry or replay as an unconditional erasure guarantee | High | Restore operations | C9 now proposes awaited durable external capture before protected completion, then completed-audit settlement/repair; C9's assumption 9 settles that design, and delivery of the C4-owned `privacyErasureCompletionCapture.capture` / `verifiedAt` handoff with C9's crash/restore-before-repair tests remains the gate. Use `restore-status --refresh` and reviewed replay before reopening; settled evidence expires and pending work does not | Unread runbooks, lost external evidence or an operator bypass can resurrect data |
 
 ## Final Compliance Report — 2026-11-16
 
@@ -79,3 +79,6 @@ This enterprise file retains history and rationale only. The OSS erase operation
 - Council round two fixes, pass two (GPT-6.1 Sol workers): cited exact DEC-B/R3-1/R3-14 owner names and aligned the historical replay warning with C9's new audit reconciliation while retaining the unresolved external-durability gate.
 
 - Council round two fixes, pass three (GPT-6.1 Sol workers): replaced withdrawn row-first replay framing with the current awaited-capture/verifiedAt approval dependency and fresh status/reapply boundary; aligned governance coverage with its expanded eleven-case catalog.
+
+### 2026-11-17
+- Fixed the successor links to the `GDPR/` folders, extended the governance test reference to the thirteen-case catalog (`TC-PRIVACY-GOV-001` through `013`, including the portal `failed_handoff` recovery case), and removed the open-gate wording for C9's settled assumption 9; only delivery of the C4 handoff and C9's tests remains a gate.
