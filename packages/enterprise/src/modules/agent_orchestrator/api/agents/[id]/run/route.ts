@@ -20,6 +20,7 @@ import {
   modelUnavailableErrorSchema,
   parseAgentRunRequest,
   unclassifiedErrorSchema,
+  outcomeSchemaRejectedErrorSchema,
 } from '../../../../lib/runtime/agentRunHttp'
 
 export const metadata = {
@@ -160,8 +161,8 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 500,
           description:
-            'The run failed for a reason this route does not classify; the body carries `code` (`agent_run_failed`) and a truncated `reason`',
-          schema: unclassifiedErrorSchema,
+            'The run failed for a reason this route does not classify (`code: "agent_run_failed"`), or the LLM provider rejected the agent output schema (`code: "outcome_schema_rejected"`); both carry a truncated `reason`',
+          schema: z.union([unclassifiedErrorSchema, outcomeSchemaRejectedErrorSchema]),
         },
         {
           status: 503,

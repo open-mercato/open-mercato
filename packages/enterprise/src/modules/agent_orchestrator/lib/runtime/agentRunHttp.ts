@@ -52,6 +52,16 @@ export const unclassifiedErrorSchema = agentRunErrorSchema.extend({
   reason: z.string().optional(),
 })
 
+/**
+ * 500 body for a provider that rejected the structured-output schema the agent
+ * sent (a 400 naming the schema). The run never reached the model: the agent's
+ * OUTCOME schema, or its strict variant, is something this provider cannot take.
+ */
+export const outcomeSchemaRejectedErrorSchema = agentRunErrorSchema.extend({
+  code: z.literal('outcome_schema_rejected'),
+  reason: z.string().optional(),
+})
+
 /** 503 body for a deployment whose LLM provider is missing or unusable. */
 export const modelUnavailableErrorSchema = agentRunErrorSchema.extend({
   code: z.enum(['no_provider_configured', 'api_key_missing', 'provider_rejected']),
@@ -104,9 +114,32 @@ function asModelFactoryError(err: unknown): { code: string } | null {
   return { code }
 }
 
+/**
+ * The AI SDK retries a retryable provider error (429, 5xx) and, when every
+ * attempt fails, throws `AI_RetryError` carrying the last attempt's error. The
+ * checks below judge that last error, so an exhausted quota is still recognised
+ * as a refusal after the retries.
+ */
+function unwrapRetryError(err: unknown): unknown {
+  if (!err || typeof err !== 'object') return err
+  const candidate = err as { name?: unknown; lastError?: unknown }
+  return candidate.name === 'AI_RetryError' && candidate.lastError ? candidate.lastError : err
+}
+
+const SCHEMA_REJECTION = /invalid schema|response_format|output_format|response_?schema|json_schema/i
+
+function isProviderSchemaRejection(err: unknown): boolean {
+  const unwrapped = unwrapRetryError(err)
+  if (!unwrapped || typeof unwrapped !== 'object') return false
+  const candidate = unwrapped as { name?: unknown; statusCode?: unknown; message?: unknown }
+  if (candidate.name !== 'AI_APICallError' || candidate.statusCode !== 400) return false
+  return typeof candidate.message === 'string' && SCHEMA_REJECTION.test(candidate.message)
+}
+
 function isProviderRefusal(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const candidate = err as { name?: unknown; statusCode?: unknown; responseBody?: unknown }
+  const unwrapped = unwrapRetryError(err)
+  if (!unwrapped || typeof unwrapped !== 'object') return false
+  const candidate = unwrapped as { name?: unknown; statusCode?: unknown; responseBody?: unknown }
   if (candidate.name !== 'AI_APICallError') return false
   const status = typeof candidate.statusCode === 'number' ? candidate.statusCode : null
   if (status !== null && PROVIDER_REFUSAL_STATUSES.has(status)) return true
@@ -236,6 +269,22 @@ export function agentRunErrorResponse(
     return NextResponse.json(
       { error: 'The configured LLM provider refused the request for this deployment', code: 'provider_rejected' },
       { status: 503 },
+    )
+  }
+  // The provider refused the agent's structured-output schema: an authoring or
+  // platform defect, not a bad model answer and not a missing provider. Named so
+  // the author can find it; the reason is the provider's message (which names the
+  // offending schema path), never its response body.
+  if (isProviderSchemaRejection(err)) {
+    logger.error('LLM provider rejected the agent structured-output schema', { agentId, runId, err })
+    const rejected = unwrapRetryError(err) as { message: string }
+    return NextResponse.json(
+      {
+        error: 'The LLM provider rejected the agent output schema',
+        code: 'outcome_schema_rejected',
+        ...(options.exposeReason === false ? {} : { reason: rejected.message.slice(0, 300) }),
+      },
+      { status: 500 },
     )
   }
   // Anything past the typed mappings above used to rethrow into an

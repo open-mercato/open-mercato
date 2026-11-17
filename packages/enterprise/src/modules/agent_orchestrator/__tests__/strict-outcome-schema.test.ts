@@ -59,8 +59,22 @@ describe('toStrictOutcomeSchema', () => {
     expect(everyObjectIsStrict(z.toJSONSchema(resultSchema) as Record<string, unknown>)).toBe(true)
   })
 
-  it('gives up on an open object a strict mode cannot describe', () => {
-    expect(toStrictOutcomeSchema({ type: 'object', properties: { meta: { type: 'object' } } })).toBeNull()
+  it('closes an open object as an empty one, which is what the authored schema accepts anyway', () => {
+    const authored = {
+      type: 'object' as const,
+      required: ['summary'],
+      properties: { summary: { type: 'string' as const }, meta: { type: 'object' as const }, note: { type: 'string' as const } },
+    }
+    const strict = toStrictOutcomeSchema(authored)
+    expect(strict.properties!.meta).toEqual({ type: 'object', properties: {}, required: [], additionalProperties: false, nullable: true })
+    expect(strict.required).toEqual(['summary', 'meta', 'note'])
+    const { resultSchema } = compileOutcome({ kind: 'research', schema: strict })
+    expect(everyObjectIsStrict(z.toJSONSchema(resultSchema) as Record<string, unknown>)).toBe(true)
+    const authoredResult = compileOutcome({ kind: 'research', schema: authored }).resultSchema
+    expect(authoredResult.parse({ kind: 'research', data: { summary: 'x', meta: { lost: 1 } } })).toEqual({
+      kind: 'research',
+      data: { summary: 'x', meta: {} },
+    })
   })
 })
 
