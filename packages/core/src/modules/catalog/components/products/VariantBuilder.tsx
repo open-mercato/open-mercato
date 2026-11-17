@@ -92,6 +92,18 @@ export function VariantBuilder({
   )
 }
 
+const OMNIBUS_EXEMPT_SELECT_VALUES: Record<string, boolean | null> = {
+  inherit: null,
+  yes: true,
+  no: false,
+}
+
+function parseOmnibusExemptSelectValue(value: string): boolean | null | undefined {
+  return Object.prototype.hasOwnProperty.call(OMNIBUS_EXEMPT_SELECT_VALUES, value)
+    ? OMNIBUS_EXEMPT_SELECT_VALUES[value]
+    : undefined
+}
+
 export function VariantBasicsSection({ values, setValue, errors }: VariantSectionBaseProps) {
   const t = useT()
   return (
@@ -162,7 +174,11 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
           </Label>
           <Select
             value={values.omnibusExempt === null || values.omnibusExempt === undefined ? 'inherit' : values.omnibusExempt ? 'yes' : 'no'}
-            onValueChange={(value) => setValue('omnibusExempt', value === 'inherit' ? null : value === 'yes')}
+            onValueChange={(value) => {
+              const next = parseOmnibusExemptSelectValue(value)
+              if (next === undefined) return
+              setValue('omnibusExempt', next)
+            }}
           >
             <SelectTrigger id="catalog-variant-omnibus-exempt">
               <SelectValue />
