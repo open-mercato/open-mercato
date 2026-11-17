@@ -13,6 +13,10 @@ function initTranslator(env: NodeJS.ProcessEnv) {
   return createTranslator(dictionary)
 }
 
+export function resolveInitCompletionMessage(env: NodeJS.ProcessEnv = process.env) {
+  return initTranslator(env)('cli.init.complete')
+}
+
 type EnvReader = (key: string) => string | undefined
 
 function readEnvValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
