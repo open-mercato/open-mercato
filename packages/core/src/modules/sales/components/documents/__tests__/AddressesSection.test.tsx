@@ -4,6 +4,8 @@
 
 import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { SalesDocumentAddressesSection } from '../AddressesSection'
 
 type TabEmptyStateMockProps = Pick<
@@ -13,16 +15,16 @@ type TabEmptyStateMockProps = Pick<
 
 const mockApiCall = jest.fn()
 const mockApiCallOrThrow = jest.fn()
+const mockScopedHeaders = jest.fn()
 const mockTranslate = (_key: string, fallback?: string) => fallback ?? _key
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: any[]) => mockApiCall(...args),
   apiCallOrThrow: (...args: any[]) => mockApiCallOrThrow(...args),
-  withScopedApiRequestHeaders: async (_headers: unknown, operation: () => Promise<unknown>) => operation(),
-}))
-
-jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
-  buildOptimisticLockHeader: () => ({}),
+  withScopedApiRequestHeaders: async (headers: unknown, operation: () => Promise<unknown>) => {
+    mockScopedHeaders(headers)
+    return operation()
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
@@ -644,5 +646,74 @@ describe('SalesDocumentAddressesSection on a document with no customer (#3531)',
     const payload = JSON.parse(request.body)
     expect(payload).toMatchObject({ documentId: 'order-1', documentKind: 'order', addressLine1: '1 Dock Road' })
     expect(payload).not.toHaveProperty('customerAddressId')
+  })
+})
+
+describe('SalesDocumentAddressesSection document version on save', () => {
+  const loadedVersion = '2026-11-17T01:00:00.000Z'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/customers/settings/address-format') return { ok: true, result: { addressFormat: 'line_first' } }
+      return { ok: true, result: { items: [] } }
+    })
+  })
+
+  async function saveCustomShipping() {
+    fireEvent.click(await screen.findByLabelText('Define new address'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Fill address line' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+  }
+
+  it('sends the loaded document version and adopts the fresh one', async () => {
+    const freshVersion = '2026-11-17T01:05:00.000Z'
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: { updatedAt: freshVersion } })
+    const onUpdated = jest.fn()
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId={null}
+        documentUpdatedAt={loadedVersion}
+        onUpdated={onUpdated}
+      />,
+    )
+
+    await saveCustomShipping()
+
+    expect(mockScopedHeaders).toHaveBeenCalledWith({ [OPTIMISTIC_LOCK_HEADER_NAME]: loadedVersion })
+    await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(expect.objectContaining({ updatedAt: freshVersion })))
+  })
+
+  it('reloads instead of reporting success when another user saved the document first', async () => {
+    mockApiCallOrThrow.mockRejectedValue(Object.assign(new Error('Conflict'), {
+      status: 409,
+      body: {
+        error: 'record_modified',
+        code: 'optimistic_lock_conflict',
+        currentUpdatedAt: '2026-11-17T01:03:00.000Z',
+        expectedUpdatedAt: loadedVersion,
+      },
+    }))
+    const onUpdated = jest.fn()
+    const onReload = jest.fn()
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId={null}
+        documentUpdatedAt={loadedVersion}
+        onUpdated={onUpdated}
+        onReload={onReload}
+      />,
+    )
+
+    await saveCustomShipping()
+
+    await waitFor(() => expect(onReload).toHaveBeenCalled())
+    expect(onUpdated).not.toHaveBeenCalled()
+    expect(flash).not.toHaveBeenCalledWith('Document updated.', 'success')
   })
 })

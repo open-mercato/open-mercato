@@ -94,4 +94,55 @@ test.describe('TC-SALES-3531: ship-to address on an order without a customer', (
       await deleteGeneralEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
   })
+
+  test('a stale address save is rejected and keeps the billing address saved meanwhile', async ({ page, request }) => {
+    const token = await loginAdmin(page)
+    const stamp = Date.now()
+    const otherBillingCity = `${stamp} Other User Billing`
+    let orderId: string | null = null
+
+    try {
+      const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token,
+        data: {
+          currencyCode: 'USD',
+          lines: [{ currencyCode: 'USD', quantity: 1, name: `QA stale address line ${stamp}`, unitPriceNet: 10, unitPriceGross: 12 }],
+        },
+      })
+      expect(orderResponse.ok(), `Order create failed: ${orderResponse.status()}`).toBeTruthy()
+      const orderPayload = await readJsonSafe<{ id?: string; orderId?: string }>(orderResponse)
+      orderId = expectId(orderPayload?.id ?? orderPayload?.orderId, 'Order create returned no id')
+
+      await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId)}?kind=order`, { waitUntil: 'domcontentloaded' })
+      await page.getByRole('button', { name: 'Addresses' }).click()
+      const shippingCard = page
+        .getByText('Shipping address', { exact: true })
+        .locator('xpath=ancestor::div[contains(@class,"rounded")][1]')
+      await shippingCard.getByRole('switch', { name: 'Define new address' }).click()
+      await shippingCard.getByRole('textbox', { name: 'Address line 1' }).fill(`${stamp} Stale Shipping Road`)
+
+      const otherSave = await apiRequest(request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, billingAddressSnapshot: { addressLine1: `${stamp} Billing Street`, city: otherBillingCity } },
+      })
+      expect(otherSave.ok(), `Concurrent billing save failed: ${otherSave.status()}`).toBeTruthy()
+
+      const updateResponsePromise = page.waitForResponse((response) => {
+        const url = new URL(response.url())
+        return url.pathname === '/api/sales/orders' && response.request().method() === 'PUT'
+      })
+      await page.getByRole('button', { name: 'Update addresses' }).click()
+      const updateResponse = await updateResponsePromise
+      expect(updateResponse.status(), 'A save from the older form should be rejected').toBe(409)
+      await expect(page.getByText('This record was modified by someone else')).toBeVisible()
+
+      const readResponse = await apiRequest(request, 'GET', `/api/sales/orders?id=${encodeURIComponent(orderId)}`, { token })
+      const read = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(readResponse)
+      const order = read?.items?.[0] ?? {}
+      const billing = (order.billingAddressSnapshot ?? order.billing_address_snapshot) as { city?: string } | null | undefined
+      expect(billing?.city).toBe(otherBillingCity)
+    } finally {
+      await deleteGeneralEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
 })

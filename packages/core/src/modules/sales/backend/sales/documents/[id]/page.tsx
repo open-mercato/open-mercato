@@ -4357,7 +4357,9 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           billingAddressSnapshot={billingSnapshot ?? null}
           lockedReason={addressGuardMessage}
+          documentUpdatedAt={record.updatedAt ?? null}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
+          onReload={() => setReloadKey((prev) => prev + 1)}
         />
       )
     }
