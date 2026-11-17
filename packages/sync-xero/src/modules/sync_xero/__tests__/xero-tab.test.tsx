@@ -318,6 +318,24 @@ describe('Xero tab', () => {
     await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict['sync_xero.disconnect.doneWithoutRevoke'], 'success'))
   })
 
+  it.each([
+    { failureReason: 'client_not_configured', message: 'sync_xero.disconnect.doneWithoutRevoke', level: 'success' },
+    { failureReason: 'error', message: 'sync_xero.disconnect.revocationFailed', level: 'warning' },
+  ])('reports a failed revocation with reason $failureReason as $message', async ({ failureReason, message, level }) => {
+    serve(connectionView(), { ...organisations, selected: XERO_ORG_A })
+    mockApiCallOrThrow.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      result: { erased: true, revocation: 'failed', failureReason, steps: { healthCheck: 'ok', disable: 'ok', removeClientCredentials: 'skipped' } },
+    })
+    renderTab()
+    fireEvent.click(await screen.findByRole('button', { name: enDict['sync_xero.disconnect.open'] }))
+    const dialog = await screen.findByTestId('sync-xero-disconnect-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: enDict['sync_xero.disconnect.confirm'] }))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith(enDict[message], level))
+    expect(mockFlash).toHaveBeenCalledTimes(1)
+  })
+
   it('offers only Disconnect anyway for a grant the platform cannot read', async () => {
     serve(connectionView({}, { status: 'unavailable', connectionState: 'unavailable', unavailableReason: 'platform', organisation: null }))
     renderTab()

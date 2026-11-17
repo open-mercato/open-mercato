@@ -19,6 +19,8 @@ export type XeroDisconnectResponse = {
 
 type DisconnectBody = { force?: boolean; removeClientCredentials: boolean }
 
+const REVOCATION_NOT_ATTEMPTED_REASONS: ReadonlySet<string> = new Set(['undecryptable', 'client_not_configured'])
+
 type UseXeroDisconnectInput = {
   revisedAt: string | null
   confirm: UseConfirmDialogReturn['confirm']
@@ -52,7 +54,7 @@ export function useXeroDisconnect({ revisedAt, confirm, run, onDone }: UseXeroDi
         return
       }
       if (result.revocation === 'confirmed') flash(t('sync_xero.disconnect.done'), 'success')
-      else if (result.revocation === 'failed' && result.failureReason !== 'undecryptable') flash(t('sync_xero.disconnect.revocationFailed'), 'warning')
+      else if (result.revocation === 'failed' && !REVOCATION_NOT_ATTEMPTED_REASONS.has(result.failureReason ?? '')) flash(t('sync_xero.disconnect.revocationFailed'), 'warning')
       else flash(t('sync_xero.disconnect.doneWithoutRevoke'), 'success')
       const failed = (Object.keys(result.steps) as DisconnectStep[]).filter((step) => result.steps[step] === 'failed')
       if (failed.length > 0) {
