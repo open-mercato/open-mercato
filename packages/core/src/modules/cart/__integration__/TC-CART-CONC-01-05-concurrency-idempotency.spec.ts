@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   CART_LINES_PATH,
@@ -200,5 +202,54 @@ test.describe('TC-CART-CONC-01/02/03/04/05: concurrency, idempotency and the re-
     const lines = await readCartLinesForProduct(cart.cartId, product.productId);
     expect(lines, 'exactly one line should exist for this product — never 20 duplicate rows').toHaveLength(1);
     expect(Number(lines[0].quantity)).toBe(20);
+  });
+
+  test('TC-CART-CONC-06: 20 public mutations finish before pool timeout with 200 active budget promotions', async () => {
+    const promotionIds = Array.from({ length: 200 }, () => randomUUID());
+    let cartId: string | undefined;
+    try {
+      await withClient(async (client) => {
+        await client.query(`
+          insert into promotions (id, organization_id, tenant_id, name, "order", active, cumulative,
+            tags, excluded_tags, exclude_flags, eligible_currencies, max_budget, budget_currency, created_at, updated_at)
+          select id, $2, $3, 'Cart concurrency budget fixture', position, true, true,
+            '{}', '{}', '{}', '{USD}', 1000, 'USD', now(), now()
+          from unnest($1::uuid[]) with ordinality as fixture(id, position)
+        `, [promotionIds, store.organizationId, store.tenantId]);
+        await client.query(`
+          insert into promotion_rule_groups (id, organization_id, tenant_id, promotion_id, operator, sort_order, created_at, updated_at)
+          select gen_random_uuid(), $2, $3, id, 'and', 0, now(), now() from unnest($1::uuid[]) as fixture(id)
+        `, [promotionIds, store.organizationId, store.tenantId]);
+        await client.query(`
+          insert into promotion_rules (id, organization_id, tenant_id, promotion_id, rule_group_id, rule_type, config, sort_order, created_at, updated_at)
+          select gen_random_uuid(), $2, $3, promotion_id, id, 'product',
+            jsonb_build_object('operator', 'gte', 'productId', $4::text, 'quantity', 1000), 0, now(), now()
+          from promotion_rule_groups where promotion_id = any($1::uuid[]) and organization_id = $2 and tenant_id = $3
+        `, [promotionIds, store.organizationId, store.tenantId, product.productId]);
+      });
+      const cart = await createStorefrontCart(store.hostname);
+      cartId = cart.cartId;
+      const startedAt = Date.now();
+      const responses = await Promise.all(Array.from({ length: 20 }, () => cartStorefrontRequest(store.hostname, CART_LINES_PATH, {
+        method: 'POST', cartToken: cart.token, body: { productId: product.productId, quantity: '1' },
+      })));
+      expect(Date.now() - startedAt, 'concurrent mutations should finish before the 15-second pool acquisition timeout').toBeLessThan(15_000);
+      for (const response of responses) {
+        expect([200, 201], response.text).toContain(response.status);
+        expect((response.body as { cart: { lines: Array<{ productId: string }> } }).cart.lines.some((line) => line.productId === product.productId)).toBe(true);
+      }
+      const lines = await readCartLinesForProduct(cart.cartId, product.productId);
+      expect(lines).toHaveLength(1);
+      expect(Number(lines[0].quantity)).toBe(20);
+    } finally {
+      await withClient(async (client) => {
+        if (cartId) {
+          await client.query('delete from cart_promotion_applications where cart_id = $1 and organization_id = $2 and tenant_id = $3', [cartId, store.organizationId, store.tenantId]);
+          await client.query('delete from cart_lines where cart_id = $1 and organization_id = $2 and tenant_id = $3', [cartId, store.organizationId, store.tenantId]);
+          await client.query('delete from carts where id = $1 and organization_id = $2 and tenant_id = $3', [cartId, store.organizationId, store.tenantId]);
+        }
+        await client.query('delete from promotions where id = any($1::uuid[]) and organization_id = $2 and tenant_id = $3', [promotionIds, store.organizationId, store.tenantId]);
+      });
+    }
   });
 });

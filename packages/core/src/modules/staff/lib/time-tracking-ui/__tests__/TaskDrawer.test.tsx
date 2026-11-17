@@ -2,12 +2,14 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { APP_EVENT_DOM_NAME } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useEventBridge } from '@open-mercato/ui/backend/injection/eventBridge'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import { TaskDrawer } from '../TaskDrawer'
+import { TASK_DRAWER_MUTATION_CONTEXT_ID, TaskDrawer } from '../TaskDrawer'
 import { buildEntryClocks } from '../taskDrawerData'
 import { todayIsoDate } from '../taskDrawerData'
 
@@ -75,9 +77,14 @@ jest.mock('@open-mercato/ui/backend/conflicts', () => ({
   }),
 }))
 
+const mockMutationContexts: Array<Record<string, unknown>> = []
+
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
-    runMutation: async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
+    runMutation: async ({ operation, context }: { operation: () => Promise<unknown>; context: Record<string, unknown> }) => {
+      mockMutationContexts.push(context)
+      return operation()
+    },
     retryLastMutation: jest.fn(async () => true),
   }),
 }))
@@ -173,6 +180,7 @@ let commentRows: Row[]
 let entryRows: Row[]
 let runningRows: Row[]
 let tagRows: Row[]
+let attachmentRows: Row[]
 
 function ok<T>(result: T) {
   return { ok: true, status: 200, result, response: {} as Response, cacheStatus: null }
@@ -181,6 +189,7 @@ function ok<T>(result: T) {
 function installApiRouter() {
   mockApiCall.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input)
+    if (url.includes('/api/attachments?')) return ok({ items: attachmentRows }) as never
     if (url.includes('/comments')) return ok({ items: commentRows, total: commentRows.length }) as never
     if (url.includes('/task-statuses')) return ok({ items: statusRows, total: statusRows.length }) as never
     if (url.includes('/timesheets/tasks?')) {
@@ -219,6 +228,7 @@ function writeCalls(pattern: string) {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockMutationContexts.length = 0
   taskRow = {
     id: TASK_ID,
     title: 'Migracja koszyka B2B',
@@ -252,6 +262,7 @@ beforeEach(() => {
     },
   ]
   commentRows = []
+  attachmentRows = []
   entryRows = [
     {
       id: 'entry-1',
@@ -597,7 +608,395 @@ describe('TaskDrawer', () => {
     await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/comments`).length).toBe(1))
     const [, init] = writeCalls(`/tasks/${TASK_ID}/comments`)[0]
     expect(init?.method).toBe('POST')
-    expect(JSON.parse(String(init?.body))).toEqual({ body: 'Rabaty liczymy od netto.' })
+    expect(JSON.parse(String(init?.body))).toEqual({ body: 'Rabaty liczymy od netto.', visibility: 'internal' })
+  })
+
+  it('offers Claim only when the server says the caller can claim the task', async () => {
+    renderDrawer()
+    await screen.findByTestId('task-drawer-comment-input')
+
+    expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-release')).not.toBeInTheDocument()
+  })
+
+  it('claims through the claim endpoint when the server allows it', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    renderDrawer()
+
+    fireEvent.click(await screen.findByTestId('task-drawer-claim'))
+
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/claim`).length).toBe(1))
+    expect(writeCalls(`/tasks/${TASK_ID}/claim`)[0][1]?.method).toBe('POST')
+    expect(mockWithScopedHeaders).not.toHaveBeenCalled()
+  })
+
+  it('tells the loser of a claim race inside the drawer that someone else took the task', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes(`/tasks/${TASK_ID}/claim`)) {
+        taskRow = {
+          ...taskRow,
+          assignee_staff_member_id: OTHER_TASK_ID,
+          updated_at: VERSION_TWO,
+          _staffAssignment: { canClaim: false, canRelease: false },
+        }
+        throw Object.assign(new Error('Someone else already took this task.'), {
+          status: 409,
+          code: 'task_already_claimed',
+        })
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.click(await screen.findByTestId('task-drawer-claim'))
+
+    expect(await screen.findByTestId('task-drawer-notice')).toHaveTextContent('Someone else already took this task.')
+    await waitFor(() => expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument())
+  })
+
+  it('shows a conflicting save inside the drawer instead of only behind it', async () => {
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes(`/tasks/${TASK_ID}/status`)) {
+        throw Object.assign(new Error('Conflict'), {
+          status: 409,
+          body: { code: 'optimistic_lock_conflict', currentUpdatedAt: VERSION_TWO, expectedUpdatedAt: VERSION_ONE },
+        })
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.change(await screen.findByTestId('task-drawer-status-select'), { target: { value: DONE_ID } })
+
+    expect(await screen.findByTestId('task-drawer-notice')).toHaveTextContent('Someone else changed this task.')
+  })
+
+  it('keeps its writes out of record locking with one form id per task across versions', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes(`/tasks/${TASK_ID}/status`)) {
+        taskRow = { ...taskRow, task_status_id: DONE_ID, updated_at: VERSION_TWO }
+        return ok({ updatedAt: VERSION_TWO }) as never
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.change(await screen.findByTestId('task-drawer-status-select'), { target: { value: DONE_ID } })
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/status`).length).toBe(1))
+    fireEvent.click(await screen.findByTestId('task-drawer-claim'))
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/claim`).length).toBe(1))
+
+    expect(mockMutationContexts.length).toBeGreaterThanOrEqual(2)
+    for (const context of mockMutationContexts) {
+      expect(context).not.toHaveProperty('resourceKind')
+      expect(context).not.toHaveProperty('resourceId')
+      expect(context.formId).toBe(`${TASK_DRAWER_MUTATION_CONTEXT_ID}:${TASK_ID}`)
+    }
+  })
+
+  it('reports a save a guard refused as a conflict when the task moved underneath it', async () => {
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).includes(`/tasks/${TASK_ID}/status`)) {
+        taskRow = { ...taskRow, task_status_id: BACKLOG_ID, updated_at: VERSION_TWO }
+        throw new Error('Record conflict detected')
+      }
+      return ok({ ok: true }) as never
+    })
+    renderDrawer()
+
+    fireEvent.change(await screen.findByTestId('task-drawer-status-select'), { target: { value: DONE_ID } })
+
+    await waitFor(() =>
+      expect(screen.getByTestId('task-drawer-notice')).toHaveTextContent('Someone else changed this task.'),
+    )
+  })
+
+  it('offers Release to the assignee the server names', async () => {
+    taskRow = {
+      ...taskRow,
+      assignee_staff_member_id: SELF_ID,
+      _staffAssignment: { canClaim: false, canRelease: true },
+    }
+    renderDrawer()
+
+    expect(await screen.findByTestId('task-drawer-release')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument()
+  })
+
+  function broadcastAssignment(payload: Record<string, unknown>) {
+    act(() => {
+      window.dispatchEvent(new CustomEvent(APP_EVENT_DOM_NAME, {
+        detail: { id: 'staff.timesheets.time_task.assignee_changed', payload },
+      }))
+    })
+  }
+
+  it('refreshes an open drawer when another user claims the task', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    renderDrawer()
+    expect(await screen.findByTestId('task-drawer-claim')).toBeInTheDocument()
+
+    taskRow = {
+      ...taskRow,
+      assignee_staff_member_id: OTHER_TASK_ID,
+      updated_at: VERSION_TWO,
+      _staffAssignment: { canClaim: false, canRelease: false },
+    }
+    broadcastAssignment({ id: TASK_ID, changeKind: 'claim', assigneeStaffMemberId: OTHER_TASK_ID })
+
+    await waitFor(() => expect(screen.queryByTestId('task-drawer-claim')).not.toBeInTheDocument())
+  })
+
+  it('refreshes an open drawer when the assignee is released remotely', async () => {
+    taskRow = {
+      ...taskRow,
+      assignee_staff_member_id: SELF_ID,
+      _staffAssignment: { canClaim: false, canRelease: true },
+    }
+    renderDrawer()
+    expect(await screen.findByTestId('task-drawer-release')).toBeInTheDocument()
+
+    taskRow = {
+      ...taskRow,
+      assignee_staff_member_id: null,
+      updated_at: VERSION_TWO,
+      _staffAssignment: { canClaim: true, canRelease: false },
+    }
+    broadcastAssignment({ id: TASK_ID, changeKind: 'release', assigneeStaffMemberId: null })
+
+    expect(await screen.findByTestId('task-drawer-claim')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-release')).not.toBeInTheDocument()
+  })
+
+  it('ignores assignment changes of other tasks', async () => {
+    taskRow = { ...taskRow, _staffAssignment: { canClaim: true, canRelease: false } }
+    renderDrawer()
+    expect(await screen.findByTestId('task-drawer-claim')).toBeInTheDocument()
+    const taskFetches = () => mockApiCall.mock.calls.filter(([url]) => String(url).includes(`/timesheets/tasks?id=${TASK_ID}`)).length
+    const before = taskFetches()
+
+    broadcastAssignment({ id: OTHER_TASK_ID, changeKind: 'claim', assigneeStaffMemberId: SELF_ID })
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(taskFetches()).toBe(before)
+  })
+
+  it('shows the two-button support composer on a portal ticket', async () => {
+    taskRow = {
+      ...taskRow,
+      source: 'portal',
+      _staffSupport: {
+        ticket: {
+          id: 'ticket-1',
+          supportReference: 'SUP-1001',
+          category: { value: 'billing', label: 'Billing' },
+          routedVia: 'category',
+          portalStatus: 'in_progress',
+          customerSnapshot: { displayName: 'Nordvik AS', kind: 'company' },
+          reportedByCustomerUserId: null,
+          unnotifiedAt: null,
+          customerRequest: { subject: 'Invoice question', body: 'Why two invoices?' },
+        },
+      },
+    }
+    renderDrawer()
+
+    expect(await screen.findByTestId('task-drawer-comment-reply-customer')).toBeInTheDocument()
+    expect(screen.getByTestId('task-drawer-comment-internal-note')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-drawer-comment-submit')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('task-drawer-comment-input'), { target: { value: 'Checking now.' } })
+    fireEvent.click(screen.getByTestId('task-drawer-comment-reply-customer'))
+
+    await waitFor(() => expect(writeCalls(`/tasks/${TASK_ID}/comments`).length).toBe(1))
+    const [, init] = writeCalls(`/tasks/${TASK_ID}/comments`)[0]
+    expect(JSON.parse(String(init?.body))).toEqual({ body: 'Checking now.', visibility: 'customer' })
+  })
+
+  function makeSupportTicket() {
+    taskRow = {
+      ...taskRow,
+      source: 'portal',
+      _staffSupport: {
+        ticket: {
+          id: 'ticket-1',
+          supportReference: 'SUP-1001',
+          category: { value: 'billing', label: 'Billing' },
+          routedVia: 'category',
+          portalStatus: 'in_progress',
+          customerSnapshot: { displayName: 'Nordvik AS', kind: 'company' },
+          reportedByCustomerUserId: null,
+          unnotifiedAt: null,
+          customerRequest: { subject: 'Invoice question', body: 'Why two invoices?' },
+        },
+      },
+    }
+  }
+
+  function broadcastSupportActivity(kind: string, eventTaskId = TASK_ID) {
+    act(() => {
+      window.dispatchEvent(new CustomEvent(APP_EVENT_DOM_NAME, {
+        detail: {
+          id: 'staff.support_ticket.activity_recorded',
+          payload: { id: 'ticket-1', taskId: eventTaskId, projectId: PROJECT_ID, kind },
+        },
+      }))
+    })
+  }
+
+  const customerFile = {
+    id: 'attachment-1',
+    url: '/api/attachments/file/attachment-1',
+    fileName: 'invoice-scan.pdf',
+    fileSize: 2048,
+    tags: ['customer-visible', 'customer-upload:customer-user-1'],
+  }
+
+  it('refetches the ticket files when a customer uploads and replies while the drawer stays open', async () => {
+    makeSupportTicket()
+    renderDrawer()
+    expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+
+    attachmentRows = [customerFile]
+    commentRows = [
+      {
+        id: 'comment-1',
+        body: 'Scan attached.',
+        visibility: 'customer',
+        author_kind: 'customer',
+        created_at: '2026-08-12T12:00:00.000Z',
+        updated_at: '2026-08-12T12:00:00.000Z',
+      },
+    ]
+    broadcastSupportActivity('attachment_added')
+    broadcastSupportActivity('customer_replied')
+
+    expect(await screen.findByText('Scan attached.')).toBeInTheDocument()
+    expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+    expect(within(screen.getByTestId('support-attachments-section')).getByText('From customer')).toBeInTheDocument()
+    expect(screen.queryByText('No files on this ticket.')).not.toBeInTheDocument()
+  })
+
+  it('refetches the ticket files on a customer upload that comes without a reply', async () => {
+    makeSupportTicket()
+    renderDrawer()
+    expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+
+    attachmentRows = [customerFile]
+    broadcastSupportActivity('attachment_added')
+
+    expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+  })
+
+  describe('through the real browser event bridge', () => {
+    class BridgeEventSource {
+      static instances: BridgeEventSource[] = []
+      onopen: ((event: Event) => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: Event) => void) | null = null
+      close = jest.fn()
+      constructor() {
+        BridgeEventSource.instances.push(this)
+      }
+    }
+
+    const originalEventSource = (window as unknown as { EventSource?: typeof EventSource }).EventSource
+
+    function BridgeHost() {
+      useEventBridge()
+      return null
+    }
+
+    function renderDrawerWithBridge() {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+      render(
+        <QueryClientProvider client={queryClient}>
+          <BridgeHost />
+          <TaskDrawer taskId={TASK_ID} open onOpenChange={jest.fn()} projectName="Nordvik" />
+        </QueryClientProvider>,
+      )
+      const source = BridgeEventSource.instances[0]
+      act(() => source.onopen?.(new Event('open')))
+      return source
+    }
+
+    function streamAttachmentActivity(source: BridgeEventSource, attachmentId: string) {
+      act(() => {
+        source.onmessage?.(new MessageEvent('message', {
+          data: JSON.stringify({
+            id: 'staff.support_ticket.activity_recorded',
+            payload: { id: 'ticket-1', taskId: TASK_ID, projectId: PROJECT_ID, kind: 'attachment_added', attachmentId },
+            timestamp: Date.now(),
+            organizationId: 'org-1',
+          }),
+        }))
+      })
+    }
+
+    const secondFile = { ...customerFile, id: 'attachment-2', url: '/api/attachments/file/attachment-2', fileName: 'receipt.pdf' }
+    const attachmentFetches = () => mockApiCall.mock.calls.filter(([url]) => String(url).includes('/api/attachments?')).length
+
+    beforeEach(() => {
+      BridgeEventSource.instances = []
+      ;(window as unknown as { EventSource?: unknown }).EventSource = BridgeEventSource
+    })
+
+    afterEach(() => {
+      ;(window as unknown as { EventSource?: unknown }).EventSource = originalEventSource
+    })
+
+    it('refreshes again for a second upload that arrives within 500 ms of the first', async () => {
+      makeSupportTicket()
+      const source = renderDrawerWithBridge()
+      expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+
+      const startedAt = Date.now()
+      attachmentRows = [customerFile]
+      streamAttachmentActivity(source, customerFile.id)
+      expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+
+      attachmentRows = [customerFile, secondFile]
+      streamAttachmentActivity(source, secondFile.id)
+      expect(Date.now() - startedAt).toBeLessThan(500)
+
+      expect(await screen.findByText('receipt.pdf')).toBeInTheDocument()
+    })
+
+    it('still drops an identical repeat within 500 ms, which is why each upload carries its attachment id', async () => {
+      makeSupportTicket()
+      const source = renderDrawerWithBridge()
+      expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+
+      attachmentRows = [customerFile]
+      streamAttachmentActivity(source, customerFile.id)
+      expect(await screen.findByText('invoice-scan.pdf')).toBeInTheDocument()
+      const afterFirst = attachmentFetches()
+
+      attachmentRows = [customerFile, secondFile]
+      streamAttachmentActivity(source, customerFile.id)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      expect(attachmentFetches()).toBe(afterFirst)
+      expect(screen.queryByText('receipt.pdf')).not.toBeInTheDocument()
+    })
+  })
+
+  it('leaves the ticket files alone when the activity belongs to another ticket', async () => {
+    makeSupportTicket()
+    renderDrawer()
+    expect(await screen.findByText('No files on this ticket.')).toBeInTheDocument()
+    const attachmentFetches = () => mockApiCall.mock.calls.filter(([url]) => String(url).includes('/api/attachments?')).length
+    const before = attachmentFetches()
+
+    attachmentRows = [customerFile]
+    broadcastSupportActivity('attachment_added', OTHER_TASK_ID)
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(attachmentFetches()).toBe(before)
+    expect(screen.queryByText('invoice-scan.pdf')).not.toBeInTheDocument()
   })
 
   it('shows the inclusive rollup as the headline and the own/children split beneath it', async () => {

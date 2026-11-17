@@ -11,8 +11,10 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { LookupSelect } from '@open-mercato/ui/backend/inputs/LookupSelect'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud, createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -31,6 +33,8 @@ import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { KpiCard, Sparkline } from '@open-mercato/ui/backend/charts'
 import { ProjectTeamDrawer } from '../../../../../lib/time-tracking-ui/ProjectTeamDrawer'
 import { NoProjectAccess } from '../../../../../lib/time-tracking-ui/NoProjectAccess'
+import { useProjectAccessScope } from '../../../../../lib/time-tracking-ui/projectAccessScope'
+import { readResolvedProjectAccessScope } from '../../../../../lib/time-tracking-ui/projectAccessScopeHeaders'
 import { ProjectBudgetCell } from '../../../../../lib/timesheets-projects-ui/ProjectBudgetCell'
 import { computeBudgetBurn } from '../../../../../lib/timesheets-projects/budgetBurn'
 import { resolveProjectColorHex } from '../../../../../lib/timesheets-ui/colors'
@@ -102,6 +106,9 @@ type EmployeeAssignment = {
   assignedEndDate: string | null
   displayName: string | null
   teamName: string | null
+  isAssigner: boolean
+  hasUserAccount: boolean | null
+  updatedAt: string | null
 }
 
 type EmployeesResponse = {
@@ -113,6 +120,8 @@ type StaffMemberRecord = {
   id: string
   display_name?: string
   displayName?: string
+  user_id?: string | null
+  userId?: string | null
   team?: { id: string; name: string } | null
 }
 
@@ -167,7 +176,10 @@ function RailFact({ label, value }: { label: string; value: React.ReactNode }) {
 export default function TimesheetProjectDetailPage({ params }: { params?: { id?: string } }) {
   const projectId = params?.id
   const t = useT()
+  const translateRef = React.useRef(t)
+  React.useEffect(() => { translateRef.current = t }, [t])
   const scopeVersion = useOrganizationScopeVersion()
+  const { scopeKey: projectAccessScopeKey, resolvedScope, resolveScope } = useProjectAccessScope(projectId)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
   const pathname = usePathname()
@@ -177,13 +189,9 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
-  // Keyed by project id so a route change to another project never shows the
-  // previous project's guard (with a live request button) while the new one loads.
-  const [accessDeniedProjectId, setAccessDeniedProjectId] = React.useState<string | null>(null)
-  const accessDenied = accessDeniedProjectId !== null && accessDeniedProjectId === projectId
-  // The id the last finished load was for. Until it matches the route, the page
-  // is still loading — never the previous project's error or empty state.
-  const [settledProjectId, setSettledProjectId] = React.useState<string | null>(null)
+  const [accessDeniedScopeKey, setAccessDeniedScopeKey] = React.useState<string | null>(null)
+  const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
+  const accessDenied = accessDeniedScopeKey === projectAccessScopeKey
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -398,15 +406,16 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         const call = await apiCall<ProjectResponse>(
           `/api/staff/timesheets/time-projects?${queryParams.toString()}`,
         )
+        if (!cancelled) resolveScope(readResolvedProjectAccessScope(call.response))
         // Screen 17: the route answers 404 with this discriminator for a project
         // the caller is not a member of, without naming it.
         if (call.status === 404 && readDenialReason(call.result) === NO_PROJECT_ACCESS_REASON) {
-          if (!cancelled) setAccessDeniedProjectId(projectId ?? null)
+          if (!cancelled) setAccessDeniedScopeKey(projectAccessScopeKey)
           return
         }
-        if (!cancelled) setAccessDeniedProjectId(null)
+        if (!cancelled) setAccessDeniedScopeKey(null)
         if (!call.ok) {
-          throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
+          throw new Error(translateRef.current('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
         const payload = call.result
         const record = Array.isArray(payload?.items) ? payload.items[0] : null
@@ -417,18 +426,19 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
         if (!cancelled) setProject(record)
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
+          setAccessDeniedScopeKey(null)
+          setError(loadError instanceof Error ? loadError.message : translateRef.current('staff.timesheets.projects.errors.load', 'Failed to load project.'))
         }
       } finally {
         if (!cancelled) {
+          setLoadedScopeKey(projectAccessScopeKey)
           setLoading(false)
-          setSettledProjectId(projectId ?? null)
         }
       }
     }
     loadProject()
     return () => { cancelled = true }
-  }, [projectId, t, scopeVersion])
+  }, [projectId, scopeVersion, projectAccessScopeKey, resolveScope])
 
   // --- Load employees with name resolution ---
   const loadEmployees = React.useCallback(async () => {
@@ -438,7 +448,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       const payload = await readApiResultOrThrow<EmployeesResponse>(
         `/api/staff/timesheets/time-projects/${projectId}/employees?page=1&pageSize=100`,
         undefined,
-        { errorMessage: t('staff.timesheets.projects.employees.empty', 'No employees assigned yet.'), fallback: { items: [], total: 0 } },
+        { errorMessage: translateRef.current('staff.timesheets.projects.employees.empty', 'No employees assigned yet.'), fallback: { items: [], total: 0 } },
       )
       const items = Array.isArray(payload.items) ? payload.items : []
 
@@ -475,6 +485,9 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
             : null,
           displayName: staff?.display_name ?? staff?.displayName ?? null,
           teamName: staff?.team?.name ?? null,
+          isAssigner: item.is_assigner === true || item.isAssigner === true,
+          hasUserAccount: staff ? Boolean(staff.user_id ?? staff.userId) : null,
+          updatedAt: typeof (item.updated_at ?? item.updatedAt) === 'string' ? String(item.updated_at ?? item.updatedAt) : null,
         }
       })
 
@@ -484,7 +497,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     } finally {
       setEmployeesLoading(false)
     }
-  }, [projectId, accessDenied, t])
+  }, [projectId, accessDenied])
 
   React.useEffect(() => {
     void loadEmployees()
@@ -561,6 +574,37 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       flash(t('staff.timesheets.projects.employees.removeError', 'Failed to remove employee.'), 'error')
     }
   }, [projectId, confirm, employeeMutationContext, runMutation, t])
+
+  const handleToggleAssigner = React.useCallback(async (emp: EmployeeAssignment, nextValue: boolean) => {
+    const payload = { id: emp.id, isAssigner: nextValue }
+    try {
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(emp.updatedAt), () =>
+            updateCrud(`staff/timesheets/time-projects/${projectId}/employees`, payload, {
+              errorMessage: t('staff.time_tracking.assigners.saveError', 'Could not change the assigner setting.'),
+            }),
+          ),
+        context: employeeMutationContext(emp.id),
+        mutationPayload: payload,
+      })
+      flash(
+        nextValue
+          ? t('staff.time_tracking.assigners.enabled', 'Member is now an assigner.')
+          : t('staff.time_tracking.assigners.disabled', 'Member is no longer an assigner.'),
+        'success',
+      )
+      setReloadToken((token) => token + 1)
+    } catch (toggleError) {
+      if (surfaceRecordConflict(toggleError, t, { onRefresh: () => setReloadToken((token) => token + 1) })) return
+      flash(
+        toggleError instanceof Error && toggleError.message
+          ? toggleError.message
+          : t('staff.time_tracking.assigners.saveError', 'Could not change the assigner setting.'),
+        'error',
+      )
+    }
+  }, [projectId, employeeMutationContext, runMutation, t])
 
   // --- Add employee dialog ---
   const openAddDialog = React.useCallback(() => {
@@ -666,10 +710,10 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   // resolving late) keeps the guard mounted instead of resetting a request the
   // user has just sent.
   if (accessDenied) {
-    return <NoProjectAccess timeProjectId={projectId} />
+    return <NoProjectAccess timeProjectId={projectId} resolvedScope={resolvedScope} />
   }
 
-  if (loading || settledProjectId !== (projectId ?? null)) {
+  if (loading || loadedScopeKey !== projectAccessScopeKey) {
     return (
       <Page>
         <PageBody>
@@ -1104,6 +1148,11 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                           </div>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
+                          {emp.isAssigner ? (
+                            <Badge variant="info" data-testid={`project-member-assigner-badge-${emp.id}`}>
+                              {t('staff.time_tracking.assigners.badge', 'Assigner')}
+                            </Badge>
+                          ) : null}
                           <Badge
                             variant={(emp.status ?? 'active') === 'active' ? 'success' : 'neutral'}
                             className="capitalize"
@@ -1155,6 +1204,25 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                                 <dd>{emp.teamName}</dd>
                               </div>
                             ) : null}
+                            <div className="col-span-2">
+                              <dt className="font-medium text-muted-foreground">
+                                {t('staff.time_tracking.assigners.label', 'Assigner')}
+                              </dt>
+                              <dd className="flex items-center gap-2 pt-1">
+                                <Switch
+                                  checked={emp.isAssigner}
+                                  disabled={!canManageProjects || emp.hasUserAccount === false}
+                                  onCheckedChange={(checked) => { void handleToggleAssigner(emp, checked === true) }}
+                                  aria-label={t('staff.time_tracking.assigners.label', 'Assigner')}
+                                  data-testid={`project-member-assigner-switch-${emp.id}`}
+                                />
+                                <span className="text-xs text-muted-foreground">
+                                  {emp.hasUserAccount === false
+                                    ? t('staff.time_tracking.assigners.needsUser', 'Only members with a user account can be assigners.')
+                                    : t('staff.time_tracking.assigners.help', 'Assigners are notified about new and released work and can claim unassigned tasks.')}
+                                </span>
+                              </dd>
+                            </div>
                           </dl>
                           {canManageProjects && (
                             <div className="flex justify-end">

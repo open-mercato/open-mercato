@@ -10,7 +10,7 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { E } from '#generated/entities.ids.generated'
-import { SalesOrder, SalesOrderLine, SalesShipment, SalesShipmentItem } from '../data/entities'
+import { SalesOrder, SalesOrderLine, SalesShipment, SalesShipmentItem, SalesShippingMethod } from '../data/entities'
 import {
   shipmentCreateSchema,
   shipmentUpdateSchema,
@@ -31,6 +31,7 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   enforceSalesDocumentOptimisticLock,
+  lockSalesDocumentRow,
   SALES_RESOURCE_KIND_ORDER,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
@@ -312,8 +313,16 @@ async function deleteShipmentWithItems(em: EntityManager, shipment: SalesShipmen
   await em.flush()
 }
 
+async function lockOrderBeforeLines(em: EntityManager, order: SalesOrder): Promise<void> {
+  await lockSalesDocumentRow(em, 'sales_orders', order.id, {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+  })
+}
+
 async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder): Promise<void> {
   const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  await lockOrderBeforeLines(em, order)
   const shipments = await findWithDecryption(em, SalesShipment, { order, deletedAt: null }, {}, scope)
   const shipmentIds = shipments.map((entry) => entry.id)
   const shipmentItems = shipmentIds.length
@@ -386,6 +395,7 @@ async function validateShipmentItems(params: {
     throw new CrudHttpError(400, { error: translate('sales.shipments.items_required', 'Add at least one line to ship.') })
   }
   const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  if (lockOrderLines) await lockOrderBeforeLines(em, order)
   const orderLines = await findWithDecryption(
     em,
     SalesOrderLine,
@@ -448,6 +458,19 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const shipment = await em.transactional(async (tx) => {
       const order = await loadOrder(tx, input.orderId, { tenantId: input.tenantId, organizationId: input.organizationId })
       ensureSameScope(order, input.organizationId, input.tenantId)
+      const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+      if (input.shippingMethodId) {
+        const method = await findOneWithDecryption(tx, SalesShippingMethod, {
+          id: input.shippingMethodId, ...scope, deletedAt: null,
+        }, {}, scope)
+        if (!method) {
+          throw new CrudHttpError(400, { error: translate('sales.documents.detail.shippingMethodInvalid', 'Selected shipping method could not be found.') })
+        }
+      }
+      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
+      if (input.statusEntryId && !statusValue) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
       // Guard the parent order's aggregate version (Gap B): a shipment mutation
       // recalculates the order's fulfilled quantities, so a stale parent must 409
       // before we touch it.
@@ -457,7 +480,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         if (isCancelledOrderStatus(requestedOrderStatus)) {
           await assertOrderCanBeCancelled(tx, order, {
             shipment: {
-              status: await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId }),
+              status: statusValue,
             },
           })
         }
@@ -468,7 +491,6 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         items: input.items,
         lockOrderLines: true,
       })
-      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId })
       const trackingNumbers = parseTrackingNumbers(input.trackingNumbers) ?? null
       const metadata =
         mergeAddressSnapshot(
@@ -726,12 +748,24 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         : null
       const normalizedItems = validatedItems?.items ?? null
       const lineMap = validatedItems?.lineMap ?? new Map<string, SalesOrderLine>()
+      const scope = { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }
+      if (input.shippingMethodId) {
+        const method = await findOneWithDecryption(tx, SalesShippingMethod, {
+          id: input.shippingMethodId, ...scope, deletedAt: null,
+        }, {}, scope)
+        if (!method) {
+          throw new CrudHttpError(400, { error: translate('sales.documents.detail.shippingMethodInvalid', 'Selected shipping method could not be found.') })
+        }
+      }
       // Resolve the status label BEFORE mutating shipment scalars so this
       // dictionary read does not interleave with (and drop) the pending
       // shipment changeset under MikroORM v7 (SPEC-018 / #2453 class).
       const resolvedShipmentStatus = input.statusEntryId !== undefined
-        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
+        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
         : undefined
+      if (input.statusEntryId && !resolvedShipmentStatus) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
       if (input.documentStatusEntryId && !isCancelledOrderStatus(order.status)) {
         const requestedOrderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId, { tenantId: shipmentEntity.tenantId })
         if (isCancelledOrderStatus(requestedOrderStatus)) {
