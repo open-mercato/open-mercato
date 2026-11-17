@@ -490,7 +490,9 @@ describe('Records API CRUD operations', () => {
       )
       expect(customEntityLookups.length).toBeGreaterThan(0)
       // Every restriction-deciding lookup carries a tenant scope.
-      expect(customEntityLookups[0][1]).toEqual(expect.objectContaining({ tenantId: 't1' }))
+      expect(customEntityLookups[0][1]).toEqual(expect.objectContaining({
+        $or: [{ tenantId: 't1' }, { tenantId: null, organizationId: null }],
+      }))
     })
   })
 })
