@@ -152,7 +152,7 @@ const invoiceItemSchema = z.object({
 })
 
 const customFieldsDescription =
-  'Custom field values keyed by field key. `cf_<key>`, `cf:<key>` and `customValues` body keys are folded in. Rich-text values are sanitized; values are not validated against the field definitions.'
+  'Custom field values keyed by field key; a `[{ key, value }]` array is also accepted. `cf_<key>`, `cf:<key>` and `customValues` body keys are folded in. Rich-text values are sanitized; values are not validated against the field definitions.'
 
 const invoiceCreateRequestSchema = invoiceCreateSchema.extend({
   customFields: z.record(z.string(), z.unknown()).nullable().optional().describe(customFieldsDescription),
