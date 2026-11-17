@@ -37,14 +37,25 @@ Two independent tasks maximum: a read-only audit of main's failed snapshot run, 
 - Adding `ci-full` does not trigger CI itself; the stabilization branch already selects full coverage on opening and pushes.
 - New commits invalidate previous green checks; inspect checks and workflow runs at the exact final SHA.
 
+## Evidence
+
+- Read-only audit task `50ab8f56-260b-4ede-bb7a-26f0704a3c0e` changed no files; no child branch was merged. Parent independently read the [failed snapshot job](https://github.com/open-mercato/open-mercato/actions/runs/44184339256/job/134406511123): publication succeeded, then standalone Next.js typechecking rejected `FilterQuery<NoInfer<T>>` in `engine.ts` at both ORM mutation lookups.
+- The monorepo locks MikroORM 7.1.14; new apps permit `^7.1.14`. MikroORM 7.2.9 moved `NoInfer` outside the query conditional. Its November 12 publication crossed the scaffold's five-day age gate on November 17, matching the first build failures. The failed run retained no lockfile; its exact resolved version is inferred from the range, timing, declarations, and diagnostics.
+- Fix `c1b90fcb04` derives the lookup query parameter from the installed `findOne<T>` signature in both methods. Public signatures, queries, persistence, and deletion behavior are unchanged. No dependency, cooldown, template, database, or API change.
+- The regression extracts the actual two methods and compiles them with TypeScript 6.0.3 against both query-signature forms. Before the fix: legacy passes, modern fails with the two original TS2345 errors. After the fix: both pass. A separate isolated fixture with actual MikroORM 7.2.9 packages also reproduces the two errors before and zero after; this is compiler proof, not a claimed full standalone build or integration run.
+- Runner: local (no configured compose app running). Immutable install completed with native optional-dependency build warnings. Focused regression: two tests passed. The configured eight-command gate is running in order. Commit hooks passed translation sync and template parity after using a short temporary directory for the local Unix-socket path limit.
+- Standalone harness routing/knowledge contracts are unchanged; this implementation-only compatibility fix needs no new agent-harness knowledge case. Existing runtime coverage remains selected by the full PR suite.
+
 ## Progress
+
+PR: #9789
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and repair
 
-- [ ] 1.1 Independently audit main CI and snapshot failures, identify actionable root causes, and implement only necessary regression fixes.
-- [ ] 1.2 Validate focused changes and document the evidence and any external blocker.
+- [x] 1.1 Independently audit main CI and snapshot failures, identify actionable root causes, and implement only necessary regression fixes. — c1b90fcb04
+- [x] 1.2 Validate focused changes and document the evidence and any external blocker. — c1b90fcb04
 
 ### Phase 2: Verify the stabilization PR
 
