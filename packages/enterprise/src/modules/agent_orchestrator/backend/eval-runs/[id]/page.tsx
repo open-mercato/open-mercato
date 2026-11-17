@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Download,
   Gauge,
+  GitCompareArrows,
   MinusCircle,
   Octagon,
   ScrollText,
@@ -44,6 +45,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
 import { formatDateTime, formatDurationMs } from '../../../components/types'
 import { agentLabelFor, useAgentLabelMap } from '../../../components/useAgentLabels'
+import { compareRunsHref } from '../../../components/evalRegression'
 import {
   evalCaseRunStatusVariant,
   evalSuiteOutcomeVariant,
@@ -744,6 +746,14 @@ export default function AgentEvalRunDetailPage({ params }: { params?: { id?: str
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {run.baselineSuiteRunId && !isActiveSuiteStatus(run.status) ? (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={compareRunsHref(run.baselineSuiteRunId, run.id)}>
+                          <GitCompareArrows className="size-4" />
+                          {t('agent_orchestrator.evalRegression.compare.withBaseline')}
+                        </Link>
+                      </Button>
+                    ) : null}
                     {mayExport ? (
                       <DownloadReportMenu suiteRunId={run.id} isActive={isActiveSuiteStatus(run.status)} />
                     ) : null}

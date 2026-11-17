@@ -206,6 +206,20 @@ The same file format is available over HTTP so a set authored in git can be edit
 
 `POST /api/agent_orchestrator/eval-runs` is unchanged: runs of a file go through the CLI, the gate command or the import API.
 
+## Tracking regressions across agent versions
+
+Every agent run records the agent version it ran (a short hash of the agent definition). The regression dashboard groups completed eval runs by that version, so you can see when a prompt, tool or model change moved the pass score.
+
+- **Agent → Evaluation → Regressions** shows the pass score of the newest completed runs over time, one row per agent version (latest and average pass score, change against the previous version) and a list of runs with a **Compare with previous** link. A run whose cases ran under more than one version is marked *mixed*.
+- **Compare** (`/backend/eval-runs/compare?base=…&head=…`, also **Compare with baseline** on an eval run page) puts two finished runs of the same agent side by side: pass-score change, per-assertion pass rates, and a per-case diff — *regressed* (passed → failed or errored), *fixed*, *changed* (same status, different score or assertion verdicts), *added*, *removed*. Each case links to both traces.
+
+Pass rates are only comparable over the same cases. Deltas in the trend connect runs of the same dataset (frozen manifest hash, else the `evalSetVersion` pin), the version change is left empty when two versions last ran different datasets, and the comparison page warns when the frozen eval sets differ. Pin a snapshot (`snapshot: "latest"` or `--eval-set`) when you want version-to-version numbers you can trust.
+
+Both views use read-only endpoints gated by `agent_orchestrator.eval.manage`; they return verdicts and scores, never inputs, outputs or evidence:
+
+- `GET /api/agent_orchestrator/eval-runs/trend?agentDefinitionId=<id>[&evalSetVersion=<pin>][&limit=30]` — completed runs oldest first with `agentVersions` and dataset-scoped `passScoreDelta`, plus a per-version summary.
+- `GET /api/agent_orchestrator/eval-runs/compare?base=<suiteRunId>&head=<suiteRunId>` — the comparison; `404` for a run outside your organization, `409` (`run_not_finished`) while a run is in progress, `422` (`agent_mismatch`) for runs of different agents.
+
 ## Environment variables
 
 | Variable | Purpose |

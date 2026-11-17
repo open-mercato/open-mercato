@@ -43,6 +43,8 @@ export type EvalRunDetailView = EvalRunRow & {
   evalSetVersion: string | null
   /** Assertion keys that regressed against the baseline. Non-empty blocks a gate. */
   safetyRegressions: string[]
+  /** The suite run this one was compared against (the comparison page's base). */
+  baselineSuiteRunId: string | null
   /** `file` when the run replayed an eval-set file: its case runs have no case rows. */
   evalSetSource: 'db' | 'file' | null
   summary: unknown
@@ -168,6 +170,7 @@ export function mapEvalRunDetail(item: Record<string, unknown>): EvalRunDetailVi
     releaseId: readString(item, 'release_id'),
     evalSetVersion: readString(item, 'eval_set_version'),
     safetyRegressions: readStringList(item.safety_regressions),
+    baselineSuiteRunId: readString(item, 'baseline_suite_run_id'),
     evalSetSource: readEvalSetSource(item.summary),
     summary: item.summary ?? null,
   }
