@@ -26,6 +26,14 @@ import {
  * `OM_TEST_RATE_LIMIT_MODE=enabled RATE_LIMIT_AI_AGENT_TOOL_POINTS=1`. The call that exceeds the
  * ceiling is refused before the agent starts, so no model provider is needed for the assertion.
  *
+ * Opt-in manual check (waiver recorded in the source spec): CI does not start the app with these
+ * settings, so this spec always skips there. The CI evidence for the rate limit is the unit test
+ * `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/tool-executor.agent-tool-rate-limit.test.ts`.
+ * To run it manually, start the app with `OM_TEST_RATE_LIMIT_MODE=enabled`,
+ * `RATE_LIMIT_AI_AGENT_TOOL_POINTS` between 1 and 3 and the `agent_examples` module enabled
+ * (`OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`), and run the spec
+ * with the same `OM_TEST_RATE_LIMIT_MODE` / `RATE_LIMIT_AI_AGENT_TOOL_POINTS` values.
+ *
  * Fixtures: two fresh users (fresh buckets), removed in `finally`.
  */
 
@@ -33,6 +41,11 @@ const AGENT_TOOL = 'agent_examples.triage_ticket';
 const AGENT_TOOL_ARGS = { subject: 'Printer offline', body: 'The office printer stopped responding this morning.' };
 const TOOL_FEATURES = ['ai_assistant.view', 'agent_orchestrator.agents.view'];
 const MAX_POINTS_FOR_SPEC = 3;
+const MANUAL_CHECK_HINT =
+  'opt-in manual check, skipped in CI. Needs the app started with OM_TEST_RATE_LIMIT_MODE=enabled, ' +
+  `RATE_LIMIT_AI_AGENT_TOOL_POINTS=1..${MAX_POINTS_FOR_SPEC} and the agent_examples module ` +
+  '(OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true), and the spec run with the same values. ' +
+  'CI coverage: packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/tool-executor.agent-tool-rate-limit.test.ts';
 
 type ExposureTool = { name?: unknown; exposed?: unknown; agentRef?: unknown };
 type AccessLogItem = { resourceId: string; context: Record<string, unknown> | null };
@@ -50,15 +63,18 @@ test.describe('TC-AI-MCP-RATE-LIMIT-018: agent tool rate limit', () => {
     const points = Number(process.env.RATE_LIMIT_AI_AGENT_TOOL_POINTS ?? 30);
     test.skip(
       process.env.OM_TEST_RATE_LIMIT_MODE !== 'enabled',
-      'rate limits are disabled in this environment (start the app with OM_TEST_RATE_LIMIT_MODE=enabled)',
+      `rate limits are disabled in this environment; ${MANUAL_CHECK_HINT}`,
     );
     test.skip(
       !Number.isInteger(points) || points < 1 || points > MAX_POINTS_FOR_SPEC,
-      `set RATE_LIMIT_AI_AGENT_TOOL_POINTS between 1 and ${MAX_POINTS_FOR_SPEC} so the spec does not start many agent runs`,
+      `RATE_LIMIT_AI_AGENT_TOOL_POINTS must be 1..${MAX_POINTS_FOR_SPEC} so the spec does not start many agent runs; ${MANUAL_CHECK_HINT}`,
     );
 
     const adminToken = await getAuthToken(request, 'admin');
-    test.skip(!(await isAgentToolExposed(request, adminToken)), `${AGENT_TOOL} is not registered in this app`);
+    test.skip(
+      !(await isAgentToolExposed(request, adminToken)),
+      `${AGENT_TOOL} is not registered in this app; ${MANUAL_CHECK_HINT}`,
+    );
 
     let limitedUser: ScopedUserFixture | null = null;
     let otherUser: ScopedUserFixture | null = null;

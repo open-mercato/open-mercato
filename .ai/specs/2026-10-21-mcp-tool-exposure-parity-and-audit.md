@@ -617,6 +617,13 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 - `TC-AI-MCP-AUDIT-014`: after a call, `GET /api/audit_logs/audit-logs/access?resourceKind=ai_assistant.mcp_tool_call` returns a row with `apiKeyId`, `outcome`, `durationMs`, no argument values.
 - Extend `TC-AI-TOOLS-EXECUTE-007-direct-tool-execution.spec.ts` with the audit assertion.
 - Enterprise (Phase 5): `TC-AO-MCP-DISPATCH-001`: an AO researcher agent exposed via `defineAgentTool({ agentId: <AO id> })`; a call creates an `agent_runs` row whose `run.manifest` span carries `om.correlation_id` equal to the audit row's `correlationId` and `om.entry_point = 'tool'`.
+- `TC-AI-MCP-RATE-LIMIT-018`: an agent-tool call over the per-user ceiling gets `429` + `Retry-After` and a `denied` audit row; another user keeps a separate bucket.
+
+**Waiver — agent-tool rate limit (`TC-AI-MCP-RATE-LIMIT-018`):**
+- Not covered in CI: the end-to-end 429 / `Retry-After` / audit-row path through a running app. The spec skips in CI.
+- Why: it needs an app started with `OM_TEST_RATE_LIMIT_MODE=enabled`, `RATE_LIMIT_AI_AGENT_TOOL_POINTS` between 1 and 3 and the `agent_examples` module (`OM_ENABLE_ENTERPRISE_MODULES=true`, `OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`). CI runs with rate limits off and default points, and a dedicated CI profile is not worth it for this one check.
+- What covers it: `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/tool-executor.agent-tool-rate-limit.test.ts` (key per API key / session user, `RATE_LIMITED` + `retryAfterSeconds`, `RATE_LIMIT_UNAVAILABLE` on a failing limiter, channel and plain-tool exemptions). This unit test is the accepted CI evidence.
+- How to run manually: start the app with the env above, then run the spec with the same `OM_TEST_RATE_LIMIT_MODE` and `RATE_LIMIT_AI_AGENT_TOOL_POINTS` values, e.g. `OM_TEST_RATE_LIMIT_MODE=enabled RATE_LIMIT_AI_AGENT_TOOL_POINTS=1 yarn test:integration TC-AI-MCP-RATE-LIMIT-018`.
 
 ## Risks & Impact Review
 
@@ -803,3 +810,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 
 - Agent-tool rate limit (roadmap-gaps item C-3; the risk register promised it, but no MCP path called a limiter). `executeTool` consumes one point from `ai_agent_tool` for every tool with `agentRef` on the `mcp` and `tools-api` channels, after the ACL and input checks and before the handler. The key is `tenant:key:<apiKeyId>` for API-key callers, `tenant:user:<userId>` for session-token callers. Over the limit it returns `RATE_LIMITED` with `retryAfterSeconds` (audit `denied`; `/tools/execute` answers `429` with `Retry-After`). A registered limiter that throws or reports `degraded` gives `RATE_LIMIT_UNAVAILABLE` (audit `error`; `503`). No registered limiter, or `RATE_LIMIT_ENABLED=false`, means no limit. The `agent` channel (in-loop calls), plain tools and workers are unchanged.
 - Not covered: per-key rate limiting of plain `tools/call` (the approval-queue risk entry above still claims it exists).
+
+### 2026-11-18
+
+- Testing: recorded a waiver for `TC-AI-MCP-RATE-LIMIT-018`. It is an opt-in manual check that skips in CI; `tool-executor.agent-tool-rate-limit.test.ts` is the CI evidence. No CI profile is added. The spec's skip messages now name the required env vars and module and point to the unit test.

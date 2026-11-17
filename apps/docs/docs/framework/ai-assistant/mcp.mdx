@@ -355,6 +355,8 @@ Each agent-tool call runs a full agent loop, so calls over the MCP servers (`mcp
 - When a limiter is registered but cannot decide (for example Redis is unreachable), the call returns `RATE_LIMIT_UNAVAILABLE` (`503` on `/tools/execute`, audit `outcome: error`) instead of running unmetered.
 - With no limiter registered, or `RATE_LIMIT_ENABLED=false`, calls are not limited.
 
+To check the limit end to end, start the app with `OM_TEST_RATE_LIMIT_MODE=enabled`, `RATE_LIMIT_AI_AGENT_TOOL_POINTS=1` and the `agent_examples` module (`OM_ENABLE_ENTERPRISE_MODULES=true OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`), then run the integration spec `TC-AI-MCP-RATE-LIMIT-018` with the same two rate-limit variables. CI skips this spec and relies on the unit test `tool-executor.agent-tool-rate-limit.test.ts`.
+
 #### Audit
 
 A call to an agent tool writes the usual `access_logs` row (see [Audit of MCP tool calls](#audit-of-mcp-tool-calls)) with three extra `context` fields: `agentId`, `aiAgentRunId` (the `runId` above) and `agentRunId`, so a call can be traced to the agent run it started.
