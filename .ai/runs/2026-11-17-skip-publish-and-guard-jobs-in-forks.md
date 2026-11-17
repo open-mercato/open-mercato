@@ -33,9 +33,11 @@ Why upstream enforcement is unchanged: `pull_request` workflows for fork → ups
 
 ## Progress
 
+PR: #9737
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Gate the jobs
 
-- [ ] 1.1 Add the fork gate to both jobs
-- [ ] 1.2 Add the regression test
+- [x] 1.1 Add the fork gate to both jobs — 75c0e103ef
+- [x] 1.2 Add the regression test — 75c0e103ef
