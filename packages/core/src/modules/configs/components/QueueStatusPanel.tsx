@@ -437,7 +437,7 @@ export function QueueStatusPanel() {
   const snapshot = state.snapshot
   if (!snapshot) return null
 
-  const queueOptions = Array.from(new Set(snapshot.queues.map((q) => q.queue))).sort()
+  const queueOptions = Array.from(new Set(snapshot.queues.map((q) => q.queue))).sort((a, b) => a.localeCompare(b))
 
   return (
     <section className="space-y-6 rounded-lg border bg-background p-6">

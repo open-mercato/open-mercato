@@ -138,6 +138,8 @@
   "auth.acl.features.configs.cache.manage": "Manage cache",
   "auth.acl.features.configs.cache.view": "View cache overview",
   "auth.acl.features.configs.manage": "Manage configuration",
+  "auth.acl.features.configs.queues_status.inspect_payloads": "Inspect queue job payloads",
+  "auth.acl.features.configs.queues_status.view": "View queue status",
   "auth.acl.features.configs.system_status.view": "View system status",
   "auth.acl.features.currencies.fetch.manage": "Manage currency fetch configuration",
   "auth.acl.features.currencies.fetch.view": "View currency fetch configuration",
