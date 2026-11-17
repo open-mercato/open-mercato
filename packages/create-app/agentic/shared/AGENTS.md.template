@@ -30,8 +30,7 @@ Route first; skip unmatched context.
 
 ## Validation
 
-Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn test && yarn build`; integration: `yarn test:integration:ephemeral`. Never migrate to validate.
-`yarn ci` (`scripts/ci.mjs`) runs that chain in order, stops at the first failure; CI calls it.
+Broad: `yarn ci` (generate, typecheck, lint, ds:check, test, build — stops at the first failure); integration: `yarn test:integration:ephemeral`. Never migrate to validate.
 
 ## Production Deployment
 

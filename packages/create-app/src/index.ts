@@ -113,7 +113,6 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --agents all
   npx create-mercato-app my-store --agents none
   npx create-mercato-app my-store --ci none
-  npx create-mercato-app my-prm --app prm
   npx create-mercato-app my-store --preset crm --modules gateway_stripe
   npx create-mercato-app my-store --module-picker
   npx create-mercato-app my-store --no-module-picker
