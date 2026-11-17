@@ -117,6 +117,18 @@ function emptyResult(
 }
 
 function buildToolAuth(ctx: McpToolContext, organizationId: string): AuthContext {
+  const apiKeyId = typeof ctx.apiKeyId === 'string' && ctx.apiKeyId.length > 0 ? ctx.apiKeyId : null
+  if (apiKeyId) {
+    return {
+      sub: `api_key:${apiKeyId}`,
+      isApiKey: true,
+      keyId: apiKeyId,
+      tenantId: ctx.tenantId,
+      orgId: organizationId,
+      features: [...ctx.userFeatures],
+      isSuperAdmin: ctx.isSuperAdmin === true,
+    }
+  }
   return {
     sub: ctx.userId ?? TOOL_PRINCIPAL,
     ...(ctx.userId ? { userId: ctx.userId } : {}),

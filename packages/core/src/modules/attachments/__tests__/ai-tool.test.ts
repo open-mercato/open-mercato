@@ -201,6 +201,21 @@ describe('attachments.get_document_sections', () => {
     expectNoWrites(service)
   })
 
+  it('reads as the API key itself, not as its creator, when an API key calls the tool', async () => {
+    const service = makeService()
+    service.getStructure.mockResolvedValue(null)
+    const handler = tool.handler as (input: unknown, ctx: McpToolContext) => Promise<{ status: string }>
+    const result = await handler(
+      { attachmentId: ATTACHMENT_ID },
+      makeCtx(service, { apiKeyId: 'key-1' }),
+    )
+    expect(result.status).toBe('not_found')
+    const scope = service.getStructure.mock.calls[0][0].scope
+    expect(scope.auth).toMatchObject({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', orgId: ORG_ID })
+    expect(scope.auth).not.toHaveProperty('userId')
+    expect(service.listSections).not.toHaveBeenCalled()
+  })
+
   it('returns an outline without content when includeText is false', async () => {
     const service = makeService()
     service.getStructure.mockResolvedValue(completedStructure('partial'))
