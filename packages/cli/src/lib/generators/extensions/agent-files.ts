@@ -100,6 +100,8 @@ type DiscoveredAgent = {
   sampleInput?: unknown
   /** Optional `FACTS.json` declarations driving the Caseload facts panel. */
   facts?: DiscoveredFact[]
+  /** Optional `GOVERNANCE.json` declarations, validated in full when the agent loads. */
+  governance?: DiscoveredGovernance
   /** Baked token-usage breakdown of the agent's construction files (Phase: token accounting). */
   tokenUsage: FileAgentTokenUsage
   /** Baked raw content of every construction file, for the read-only Files tab (#12 files). */
@@ -138,6 +140,13 @@ type FileAgentTokenUsage = {
   skills: SkillTokenUsage[]
   tools: ToolTokenUsage[]
   subAgents: SubAgentTokenUsage[]
+}
+
+type DiscoveredGovernance = {
+  principal?: Record<string, unknown>
+  integrity?: unknown[]
+  untrustedInputs?: unknown[]
+  modelSettings?: Record<string, unknown>
 }
 
 type DiscoveredFact = {
@@ -406,6 +415,62 @@ function discoverFacts(dir: string): DiscoveredFact[] | undefined {
       ...(fact.format !== undefined ? { format: fact.format as DiscoveredFact['format'] } : {}),
     }
   })
+}
+
+const GOVERNANCE_FILE = 'GOVERNANCE.json'
+const GOVERNANCE_OBJECT_KEYS = ['principal', 'modelSettings'] as const
+const GOVERNANCE_LIST_KEYS = ['integrity', 'untrustedInputs'] as const
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Read the optional `agents/<id>/GOVERNANCE.json`: the same `principal`,
+ * `integrity`, `untrustedInputs` and `modelSettings` declarations `defineAgent`
+ * accepts. Only the top-level shape is checked here — an unknown key, a key of
+ * the wrong type, or invalid JSON fails generation LOUDLY. The agent loader
+ * validates every declaration with the `defineAgent` parsers and refuses to
+ * register an agent whose declaration does not parse.
+ */
+function discoverGovernance(dir: string): DiscoveredGovernance | undefined {
+  const governancePath = path.join(dir, GOVERNANCE_FILE)
+  if (!fs.existsSync(governancePath)) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fs.readFileSync(governancePath, 'utf8'))
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`[internal] malformed ${GOVERNANCE_FILE} at ${dir}: ${detail}`)
+  }
+  if (!isPlainObject(parsed)) {
+    throw new Error(`[internal] malformed ${GOVERNANCE_FILE} at ${dir}: expected a JSON object`)
+  }
+  const allowed = [...GOVERNANCE_OBJECT_KEYS, ...GOVERNANCE_LIST_KEYS] as readonly string[]
+  const unknownKey = Object.keys(parsed).find((key) => !allowed.includes(key))
+  if (unknownKey) {
+    throw new Error(
+      `[internal] malformed ${GOVERNANCE_FILE} at ${dir}: unknown key "${unknownKey}" (allowed: ${allowed.join(', ')})`,
+    )
+  }
+  const governance: DiscoveredGovernance = {}
+  for (const key of GOVERNANCE_OBJECT_KEYS) {
+    const value = parsed[key]
+    if (value === undefined) continue
+    if (!isPlainObject(value)) {
+      throw new Error(`[internal] malformed ${GOVERNANCE_FILE} at ${dir}: "${key}" must be an object`)
+    }
+    governance[key] = value
+  }
+  for (const key of GOVERNANCE_LIST_KEYS) {
+    const value = parsed[key]
+    if (value === undefined) continue
+    if (!Array.isArray(value)) {
+      throw new Error(`[internal] malformed ${GOVERNANCE_FILE} at ${dir}: "${key}" must be an array`)
+    }
+    governance[key] = value
+  }
+  return Object.keys(governance).length > 0 ? governance : undefined
 }
 
 /**
@@ -696,6 +761,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       model: agent.model,
       sampleInput: discoverSampleInput(dir),
       facts: discoverFacts(dir),
+      governance: discoverGovernance(dir),
       tokenUsage: discoverAgentTokenUsage(dir),
       sourceFiles: collectAgentFiles(dir),
     })
@@ -800,7 +866,7 @@ function discoverAgentTokenUsage(agentDir: string, depth = 0): FileAgentTokenUsa
 // --- Raw source-file collection (feeds the read-only Files tab, #12 files) ---
 
 /** Files present at the agent root but NOT part of the constructed prompt. */
-const AGENT_AUX_FILES = ['SAMPLE.json', 'FACTS.json']
+const AGENT_AUX_FILES = ['SAMPLE.json', 'FACTS.json', GOVERNANCE_FILE]
 
 /**
  * Walks every construction file of a file-defined agent and returns its raw
@@ -1091,6 +1157,9 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
   if (agent.facts !== undefined) {
     optional.push(`${indent}  facts: ${JSON.stringify(agent.facts)},`)
   }
+  if (agent.governance !== undefined) {
+    optional.push(`${indent}  governance: ${JSON.stringify(agent.governance)},`)
+  }
   const skillsContent = agent.skillsContent.map((skill) => ({
     id: skill.id,
     instructions: skill.instructions,
@@ -1189,6 +1258,13 @@ export type FileAgentFact = {
   format?: 'text' | 'number' | 'boolean' | 'percent'
 }
 
+export type FileAgentGovernance = {
+  principal?: Record<string, unknown>
+  integrity?: unknown[]
+  untrustedInputs?: unknown[]
+  modelSettings?: Record<string, unknown>
+}
+
 export type FileAgentDescriptor = {
   id: string
   moduleId: string
@@ -1211,7 +1287,7 @@ export type FileAgentDescriptor = {
   tokenUsage?: AgentTokenUsage
   /**
    * Baked raw content of every construction file (AGENT.md, OUTCOME.md, skills,
-   * tools, sub-agents, and auxiliary SAMPLE.json/FACTS.json), for the read-only
+   * tools, sub-agents, and auxiliary SAMPLE.json/FACTS.json/GOVERNANCE.json), for the read-only
    * Files tab. Each carries its \`o200k_base\` token count; paths are relative to
    * the agent root (sub-agent files prefixed \`sub-agents/<id>/\`). Baked so the
    * runtime never reads agent dirs from disk.
@@ -1242,6 +1318,13 @@ export type FileAgentDescriptor = {
    * input / proposal payload / run output.
    */
   facts?: FileAgentFact[]
+  /**
+   * Optional governance declarations read from \`agents/<id>/GOVERNANCE.json\`:
+   * the same \`principal\`, \`integrity\`, \`untrustedInputs\` and
+   * \`modelSettings\` keys \`defineAgent\` accepts, as plain JSON. The loader
+   * validates them with the \`defineAgent\` parsers.
+   */
+  governance?: FileAgentGovernance
 }
 
 export const fileAgentDescriptors: FileAgentDescriptor[] = [${
@@ -1344,6 +1427,7 @@ export function createAgentFilesExtension(resolver?: AgentFilesResolver): Genera
         model: agent.model,
         sampleInput: discoverSampleInput(dir),
         facts: discoverFacts(dir),
+        governance: discoverGovernance(dir),
         tokenUsage: discoverAgentTokenUsage(dir),
         sourceFiles: collectAgentFiles(dir),
       })

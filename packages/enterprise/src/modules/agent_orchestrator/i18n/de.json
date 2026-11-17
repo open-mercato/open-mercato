@@ -739,6 +739,7 @@
   "agent_orchestrator.files.fileCount": "{count} Dateien",
   "agent_orchestrator.files.fileDefined": "dateidefiniert",
   "agent_orchestrator.files.filter": "Dateien filtern…",
+  "agent_orchestrator.files.governance": "Governance",
   "agent_orchestrator.files.lines": "Zeilen",
   "agent_orchestrator.files.loading": "Dateien werden geladen…",
   "agent_orchestrator.files.noMatches": "Keine Datei entspricht dem Filter.",

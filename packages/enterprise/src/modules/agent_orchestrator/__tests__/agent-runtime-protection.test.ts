@@ -53,7 +53,7 @@ jest.mock('../lib/guardrails/syncGroundingSets', () => ({
 }))
 
 import { z } from 'zod'
-import { AgentRuntimeService, AgentRunTimeoutError } from '../lib/runtime/agentRuntime'
+import { AgentCallSettingsUnsupportedError, AgentRuntimeService, AgentRunTimeoutError } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { resetAgentAdmissionForTests, isAgentCapacityError } from '../lib/runtime/admission'
 
@@ -223,5 +223,46 @@ describe('admission gate in AgentRuntimeService.run', () => {
     runAiAgentObjectMock.mockResolvedValueOnce(VALID_MODEL_OUTPUT)
     const result = await service.run('protection.release_agent', {}, runCtx)
     expect(result.kind).toBe('research')
+  })
+})
+
+describe('call-time model settings on the OpenCode runtime', () => {
+  function registerOpenCodeAgent(id: string): void {
+    if (getAgentEntry(id)) return
+    registerFileAgent({
+      id,
+      moduleId: 'agent_orchestrator',
+      resultKind: 'artifact',
+      schema: z.object({ kind: z.literal('artifact') }),
+      tools: [],
+      skills: [],
+      subAgents: [],
+      label: 'OpenCode test agent',
+      description: 'An agent that stays on OpenCode.',
+      instructions: 'write a report',
+      runtime: 'opencode',
+      definitionSource: 'file',
+    })
+  }
+
+  it('refuses before writing a run row instead of dropping the settings', async () => {
+    registerOpenCodeAgent('protection.opencode_agent')
+    const service = makeService()
+
+    await expect(
+      service.run('protection.opencode_agent', {}, { ...runCtx, callSettings: { temperature: 0 } }),
+    ).rejects.toBeInstanceOf(AgentCallSettingsUnsupportedError)
+    expect(createRunMock).not.toHaveBeenCalled()
+    expect(runAiAgentObjectMock).not.toHaveBeenCalled()
+  })
+
+  it('still applies call settings to a native agent', async () => {
+    registerInProcessAgent('protection.native_settings_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+    const service = makeService()
+
+    await service.run('protection.native_settings_agent', {}, { ...runCtx, callSettings: { temperature: 0 } })
+
+    expect(runAiAgentObjectMock).toHaveBeenCalledWith(expect.objectContaining({ callSettings: { temperature: 0 } }))
   })
 })

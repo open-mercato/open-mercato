@@ -1,5 +1,13 @@
 # Upgrade Notes
 
+## File-defined agents declare governance in `GOVERNANCE.json` (#9648, B-3)
+
+**New (enterprise `agent_orchestrator`).** A file agent (`agents/<id>/`, also its sub-agents) can ship an optional `GOVERNANCE.json` with the `principal`, `integrity`, `untrustedInputs` and `modelSettings` keys `defineAgent` accepts. They are validated with the same parsers and enforced by the native runtime: principal provisioning and `toolAcl: 'intersect'`, output-integrity rules, untrusted-input screening and agent-level model settings. Agents without the file are unchanged, including their agent version.
+
+**Behaviour change.** Fail-closed cases: an agent whose `GOVERNANCE.json` does not validate is not registered (a warning names the agent and the rule). An agent that has to run on OpenCode — `artifact` outcome, `OM_AGENT_FILE_AGENT_RUNTIME=opencode`, or a failed native registration — and declares `untrustedInputs`, `modelSettings`, a principal in `intersect` mode (declared, or inherited from `OM_AGENT_TOOL_ACL_MODE=intersect`) or a `prepare_step` integrity rule is not registered either, because OpenCode cannot enforce them. Call-time `callSettings` sent to an agent on OpenCode used to be dropped silently; the run now refuses with `agent_call_settings_unsupported` before any run row is written, and `POST /api/ai_assistant/ai/run-object` answers `422 dispatch_option_unsupported`. `AiAgentDispatchDeniedCode` (and so the exported `AgentToolDenyCode`) gains the additive `agent_call_settings_unsupported` member; an exhaustive `switch` over it needs a new case.
+
+**Action:** none unless you run file agents on OpenCode and send `callSettings` to them — drop the settings or move the agent to the native runtime.
+
 ## Refused MCP calls are audited on the HTTP and dev servers (#9648, B-2)
 
 **Behaviour change (`ai_assistant`).** `mcp:serve-http` and `mcp:dev` now write the `ai_assistant.mcp_tool_call` access-log row for calls the MCP SDK refuses before the tool handler runs, as the stdio server already did. A call for an unknown tool, or for a tool hidden by the exposure config, the mutation mode or the caller's ACL, records `outcome: 'denied'` / `errorCode: 'NOT_FOUND'`; arguments rejected by the input schema record `outcome: 'invalid_input'` / `errorCode: 'VALIDATION_ERROR'`. The result returned to the client is unchanged apart from an added `_meta.correlationId`. On all MCP servers and `/tools/execute`, `argKeys` in the audit row is now capped at 64 argument names of at most 128 characters. On `mcp:serve-http` the row is attributed to the request's verified principal (the `x-om-session-token` header user, else the API key), never to a `_sessionToken` argument.

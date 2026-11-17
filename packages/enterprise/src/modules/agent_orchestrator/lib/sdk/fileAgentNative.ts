@@ -11,6 +11,7 @@ import {
   type AgentRegistryEntry,
   type AgentRuntime,
 } from './defineAgent'
+import { buildUntrustedInputInstruction } from '../guardrails/integrity/untrustedInput'
 import { compileOutcome, type JsonSchemaNode } from './outcomeSchema'
 import { stripOptionalNulls, toStrictOutcomeSchema } from './strictOutcomeSchema'
 import type { FileAgentFile } from '../tokens/types'
@@ -226,8 +227,9 @@ export function buildFileAgentAiDefinition(
     entry.outcomeSchema,
     extractOutcomeProse(entry.sourceFiles),
   )
+  const untrustedInputSection = buildUntrustedInputInstruction(entry.untrustedInputs)
   const systemPrompt = rewriteOpenCodeToolNames(
-    [entry.instructions.trim(), skillsSection, subAgentSection, outcomeSection]
+    [entry.instructions.trim(), skillsSection, subAgentSection, untrustedInputSection, outcomeSection]
       .filter((section): section is string => Boolean(section))
       .join('\n\n'),
     allowedTools,
@@ -244,6 +246,7 @@ export function buildFileAgentAiDefinition(
     mutationPolicy: 'read-only',
     defaultProvider: entry.defaultProvider,
     defaultModel: entry.defaultModel,
+    ...(entry.modelSettings ? { modelSettings: entry.modelSettings } : {}),
     loop: entry.loop,
     output: { schemaName: entry.id.replace(/\W+/g, '_'), schema: entry.modelSchema ?? entry.schema },
     ...(entry.requiredFeatures ? { requiredFeatures: entry.requiredFeatures } : {}),

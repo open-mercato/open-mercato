@@ -32,6 +32,8 @@ import { ActivityTab } from './components/ActivityTab'
 import { ConfigurationTab } from './components/ConfigurationTab'
 import EvaluationTab from './components/EvaluationTab'
 import { FilesTab } from './components/FilesTab'
+import { AgentIntegrityRulesSection } from './components/AgentIntegrityRulesSection'
+import { AgentAccessSection } from './components/AgentAccessSection'
 import { TokenCalculatorTab } from './components/TokenCalculatorTab'
 import { computeAgentMetrics, computeRuntimeTokens, type Autonomy, type WorkspaceTab } from './components/workspaceShared'
 
@@ -316,7 +318,13 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
           </TabsContent>
           {fileDefined ? (
             <>
-              <TabsContent value="files" className="pt-4">
+              <TabsContent value="files" className="space-y-4 pt-4">
+                {agent.integrityRules.length || agent.principal ? (
+                  <div className="grid items-start gap-4 lg:grid-cols-2">
+                    <AgentIntegrityRulesSection agent={agent} />
+                    <AgentAccessSection principal={agent.principal} agentId={agent.id} onPrincipalChange={updatePrincipal} />
+                  </div>
+                ) : null}
                 <FilesTab agentId={agent.id} agent={agent} active={activeValue === 'files'} />
               </TabsContent>
               <TabsContent value="tokens" className="pt-4">

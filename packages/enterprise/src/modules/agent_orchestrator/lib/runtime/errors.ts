@@ -59,6 +59,32 @@ export class AgentPrincipalMissingError extends Error {
 
 export const AGENT_PRINCIPAL_MISSING_CODE = 'agent_principal_missing' as const
 
+export const AGENT_CALL_SETTINGS_UNSUPPORTED_CODE = 'agent_call_settings_unsupported' as const
+
+/**
+ * Call-time model settings were sent for an agent on the OpenCode runtime, which
+ * cannot apply them. The run refuses before any row is written instead of
+ * running with the settings silently dropped.
+ */
+export class AgentCallSettingsUnsupportedError extends Error {
+  readonly code = AGENT_CALL_SETTINGS_UNSUPPORTED_CODE
+  readonly agentId: string
+  constructor(agentId: string) {
+    super(`[internal] agent "${agentId}" runs on OpenCode, which does not support call-time model settings`)
+    this.name = 'AgentCallSettingsUnsupportedError'
+    this.agentId = agentId
+  }
+}
+
+/** Structural match, like {@link isAgentInvokeDeniedError}. */
+export function isAgentCallSettingsUnsupportedError(
+  err: unknown,
+): err is { code: typeof AGENT_CALL_SETTINGS_UNSUPPORTED_CODE; agentId?: string } {
+  if (err instanceof AgentCallSettingsUnsupportedError) return true
+  if (!err || typeof err !== 'object') return false
+  return (err as { code?: unknown }).code === AGENT_CALL_SETTINGS_UNSUPPORTED_CODE
+}
+
 /** Structural match, like {@link isAgentInvokeDeniedError}. */
 export function isAgentPrincipalMissingError(
   err: unknown,
