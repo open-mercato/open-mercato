@@ -51,7 +51,7 @@ Emitting citations does not change the tool's own result; agents that ignore the
 
 The built-in `search.hybrid_search` and `search.get_record_context` tools emit `record` citations for the hits they return (`ref` is `<entityId>:<recordId>`, `label` is the search presenter title, `href` is the record URL when it is safe).
 
-`attachments.get_document_sections` emits one `attachment` citation per returned section (`ref` is `<attachmentId>#<anchorKey>`, `label` is the section citation, `locator` is the number label or `p. N`, `quote` is the first 1000 characters of the section text when text was requested, `href` is the attachments library page). No client resolver is registered for `attachment`; the label fallback renders it.
+`attachments.get_document_sections` emits one `attachment` citation per section it returns with text (`ref` is `<attachmentId>#<anchorKey>`, `label` is the section citation, `locator` is the number label or `p. N`, `quote` is the first 1000 characters of the section text, `href` is the cited-section page `/backend/storage/attachments/<attachmentId>/sections/<anchorKey>`). Outline calls (`includeText: false`) emit no citations. The page reads the section through the scoped structure API, so the tenant, organization and attachment access are checked again when the link is opened. No client resolver is registered for `attachment`; the label fallback renders it.
 
 ## Payload schema
 
