@@ -111,6 +111,12 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
               tenantId: ctx.auth?.tenantId,
               organizationIds: ctx.organizationIds,
               createdAfter: createdAtRange.$gte ? new Date(createdAtRange.$gte) : null,
+              createdBefore: createdAtRange.$lt ? new Date(createdAtRange.$lt) : null,
+              agentId: query.agentId ?? null,
+              status: query.status ?? null,
+              resultKind: query.resultKind ?? null,
+              agentType: query.agentType ?? null,
+              flagged: query.flagged ?? null,
             })
           : []
         filters.$or = [
