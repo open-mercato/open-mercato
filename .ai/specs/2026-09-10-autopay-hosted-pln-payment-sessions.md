@@ -281,7 +281,7 @@ payment-gateway status poller for its own transactions.
 | `targetQueue` | `gateway-autopay-status-poller` (this module's queue). |
 | `targetPayload` | `{ limit: 100 }` only. |
 | `sourceType` / `sourceModule` | `module` / `gateway_autopay`. |
-| `isEnabled` | `true`. An organization without pending Autopay transactions costs one scoped DB query per run and no provider call. |
+| `isEnabled` | Not passed. The scheduler creates the row enabled and keeps the stored value on later setup runs, so an operator pause survives `mercato seed:defaults`. An organization without pending Autopay transactions costs one scoped DB query per run and no provider call. |
 
 **Worker** (`workers/status-poller.ts`, id `gateway_autopay:status-poller`,
 concurrency 1): reads the trusted `payload.scope.{tenantId,organizationId}`
@@ -683,6 +683,8 @@ to a follow-up spec and does not block this spec's MVP scope.
   is absent, and a registration failure is reported without failing tenant
   setup. Documented why the shared core queue cannot be targeted by a
   provider-authored schedule.
+- Review follow-up: the registration no longer passes `isEnabled`, so a
+  schedule an operator disabled stays disabled when setup runs again.
 
 ### 2026-11-04
 

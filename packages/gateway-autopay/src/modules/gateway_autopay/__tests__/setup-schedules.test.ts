@@ -78,7 +78,6 @@ describe('gateway_autopay setup schedules', () => {
       targetPayload: { limit: AUTOPAY_STATUS_POLLER_BATCH_LIMIT },
       sourceType: 'module',
       sourceModule: 'gateway_autopay',
-      isEnabled: true,
     }))
   })
 
@@ -90,6 +89,16 @@ describe('gateway_autopay setup schedules', () => {
 
     const registration = register.mock.calls[0][0] as ScheduleRegistration
     expect(registration.targetPayload).toEqual({ limit: AUTOPAY_STATUS_POLLER_BATCH_LIMIT })
+  })
+
+  it('leaves isEnabled to the scheduler so an operator pause survives a re-run of setup', async () => {
+    const { context, register } = createSetupContext({})
+    const { seedDefaults } = await loadSetup()
+
+    await seedDefaults(context)
+
+    const registration = register.mock.calls[0][0] as ScheduleRegistration
+    expect(registration).not.toHaveProperty('isEnabled')
   })
 
   it('registers the same schedule for an organization created later', async () => {

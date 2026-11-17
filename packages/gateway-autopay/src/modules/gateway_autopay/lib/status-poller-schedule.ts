@@ -55,6 +55,10 @@ export function buildStatusPollerScheduleId(scope: StatusPollerScheduleScope): s
  * dispatches a module-authored schedule onto a queue the same module owns,
  * and it strips any `scope` from the stored payload, so the provider filter
  * has to live in this module's worker, not in the payload.
+ *
+ * `isEnabled` is deliberately not passed: the scheduler keeps the stored
+ * value on an existing row (and creates a new one enabled), so an operator
+ * who paused reconciliation stays paused across `mercato seed:defaults`.
  */
 export async function registerAutopayStatusPollerSchedule(
   container: AwilixContainer | undefined,
@@ -82,7 +86,6 @@ export async function registerAutopayStatusPollerSchedule(
     targetPayload: { limit: AUTOPAY_STATUS_POLLER_BATCH_LIMIT },
     sourceType: 'module',
     sourceModule: 'gateway_autopay',
-    isEnabled: true,
   })
   return true
 }
