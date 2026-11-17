@@ -14,6 +14,7 @@
   "api.errors.invalidPayload": "Carga no válida.",
   "api.errors.localeForced": "El idioma está fijado por configuración",
   "api.errors.notFound": "No encontrado",
+  "api.errors.organizationSelectionInvalid": "La organización seleccionada ya no está disponible. Selecciona otra organización e inténtalo de nuevo.",
   "api.errors.rateLimit": "Demasiadas solicitudes. Inténtelo de nuevo más tarde.",
   "api.errors.rateLimitUnavailable": "El servicio no está disponible temporalmente. Inténtelo de nuevo más tarde.",
   "api.errors.serviceUnavailable": "Servicio no disponible temporalmente. Inténtelo de nuevo en un momento.",

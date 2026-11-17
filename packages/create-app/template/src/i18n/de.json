@@ -14,6 +14,7 @@
   "api.errors.invalidPayload": "Ungültige Nutzlast.",
   "api.errors.localeForced": "Die Sprache ist durch die Konfiguration festgelegt",
   "api.errors.notFound": "Nicht gefunden",
+  "api.errors.organizationSelectionInvalid": "Die ausgewählte Organisation ist nicht mehr verfügbar. Wählen Sie eine Organisation aus und versuchen Sie es erneut.",
   "api.errors.rateLimit": "Zu viele Anfragen. Bitte versuchen Sie es später erneut.",
   "api.errors.rateLimitUnavailable": "Der Dienst ist vorübergehend nicht verfügbar. Bitte versuchen Sie es später erneut.",
   "api.errors.serviceUnavailable": "Dienst vorübergehend nicht verfügbar. Bitte versuchen Sie es gleich erneut.",

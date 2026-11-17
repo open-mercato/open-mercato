@@ -5,6 +5,7 @@
   "cart.audit.lines.remove": "Remove cart line",
   "cart.audit.merge": "Merge cart",
   "cart.errors.busy": "장바구니가 사용 중입니다. 다시 시도해 주세요.",
+  "cart.errors.code_requires_identified_customer": "이 코드를 사용하려면 고객과 연결된 계정이 필요합니다. 연결된 계정으로 로그인하거나 지원팀에 계정 연결을 요청하세요.",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.unexpected": "Unexpected error",
   "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",

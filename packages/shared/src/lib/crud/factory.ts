@@ -1583,7 +1583,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   // org-scoped record operation so the client re-selects. Recovery surfaces
   // (org switcher, nav, profile) are custom routes, not this factory, so they
   // keep working. Returns a 422 Response when rejected, otherwise null.
-  function rejectInvalidOrgSelection(ctx: CrudCtx, action: 'list' | 'create' | 'update' | 'delete'): Response | null {
+  async function rejectInvalidOrgSelection(ctx: CrudCtx, action: 'list' | 'create' | 'update' | 'delete'): Promise<Response | null> {
     if (!ormCfg.orgField) return null
     if (!(ctx.organizationScope as OrganizationScope | null | undefined)?.selectionRejected) return null
     logForbidden({
@@ -1602,9 +1602,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     const headers: Record<string, string> = action === 'list'
       ? { 'set-cookie': CLEAR_SELECTED_ORG_COOKIE }
       : {}
+    const { translate } = await resolveTranslations()
     return json(
       {
-        error: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+        error: translate('api.errors.organizationSelectionInvalid', 'Your selected organization is no longer available. Please re-select an organization and try again.'),
         code: 'organization_selection_invalid',
       },
       { status: 422, headers },
@@ -1638,7 +1639,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         finishProfile({ reason: 'unauthorized' })
         return json({ error: 'Unauthorized' }, { status: 401 })
       }
-      const listSelectionRejected = rejectInvalidOrgSelection(ctx, 'list')
+      const listSelectionRejected = await rejectInvalidOrgSelection(ctx, 'list')
       if (listSelectionRejected) {
         finishProfile({ reason: 'organization_selection_invalid' })
         return listSelectionRejected
@@ -2382,7 +2383,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.create && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      const createSelectionRejected = rejectInvalidOrgSelection(ctx, 'create')
+      const createSelectionRejected = await rejectInvalidOrgSelection(ctx, 'create')
       if (createSelectionRejected) return createSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
@@ -2700,7 +2701,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      const updateSelectionRejected = rejectInvalidOrgSelection(ctx, 'update')
+      const updateSelectionRejected = await rejectInvalidOrgSelection(ctx, 'update')
       if (updateSelectionRejected) return updateSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
@@ -3040,7 +3041,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     try {
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
-      const deleteSelectionRejected = rejectInvalidOrgSelection(ctx, 'delete')
+      const deleteSelectionRejected = await rejectInvalidOrgSelection(ctx, 'delete')
       if (deleteSelectionRejected) return deleteSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
