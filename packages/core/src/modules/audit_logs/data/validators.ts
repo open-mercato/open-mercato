@@ -70,6 +70,7 @@ export const accessLogCreateSchema = baseScopeSchema.extend({
 export const accessLogListSchema = z.object({
   tenantId: uuid.optional(),
   organizationId: uuid.optional(),
+  organizationIds: z.array(uuid).max(1000).optional(),
   actorUserId: uuid.optional(),
   resourceKind: z.string().optional(),
   accessType: z.string().optional(),
