@@ -298,9 +298,6 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
   )
 }
 
-/**
- * Hook to trigger injection widget events imperatively
- */
 function useOptionalPortalAuth() {
   try {
     return usePortalContext().auth
@@ -309,6 +306,9 @@ function useOptionalPortalAuth() {
   }
 }
 
+/**
+ * Hook to trigger injection widget events imperatively
+ */
 export function useInjectionSpotEvents<
   TContext = unknown,
   TData = unknown,
@@ -328,7 +328,7 @@ export function useInjectionSpotEvents<
   const backendChromeReady = staffChromeReady && portalAuth?.loading !== true
   const grantedFeatureList = React.useMemo(
     () => portalAuth ? portalAuth.resolvedFeatures : payload?.grantedFeatures ?? [],
-    [portalAuth?.resolvedFeatures, payload?.grantedFeatures],
+    [portalAuth, payload?.grantedFeatures],
   )
   const hasBackendChromePayload = portalAuth !== null || payload !== null
   const prefetchedEventWidgets = React.useMemo(() => {
