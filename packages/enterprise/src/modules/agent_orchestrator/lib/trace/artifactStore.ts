@@ -103,6 +103,9 @@ type MinimalContainer = {
 /** An offload fn bound to a container + scope, injected into `ingestTrace`. */
 export type ArtifactOffloader = (ref: ArtifactEncryptionRef, value: unknown) => Promise<string | null>
 
+/** Like `ArtifactOffloader`, but reports why a payload was not stored. */
+export type ArtifactResultOffloader = (ref: ArtifactEncryptionRef, value: unknown) => Promise<ArtifactPutResult>
+
 function tryResolve<T>(container: MinimalContainer, name: string): T | null {
   const hasRegistration =
     typeof container.hasRegistration === 'function' ? container.hasRegistration.bind(container) : null
@@ -158,6 +161,8 @@ export async function putArtifactResult(
     const wrapper = await sealArtifactPayload(enc, scope, ref, serialized)
     if (!wrapper) {
       logger.warn('artifact offload skipped; tenant data encryption is unavailable', {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
         entityId: ref.entityId,
         field: ref.field,
       })
@@ -173,6 +178,8 @@ export async function putArtifactResult(
     return key ? { status: 'stored', key } : { status: 'storage_unavailable' }
   } catch (error) {
     logger.warn('artifact offload failed; keeping inline summary', {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
       error: error instanceof Error ? error.message : String(error),
     })
     return { status: 'storage_unavailable' }
@@ -286,4 +293,12 @@ export async function deleteArtifact(
 /** Build an offloader bound to a container + scope for `ingestTrace`. */
 export function createArtifactOffloader(container: MinimalContainer, scope: ArtifactScope): ArtifactOffloader {
   return (ref, value) => putArtifact(container, scope, ref, value)
+}
+
+/** Build an outcome-reporting offloader bound to a container + scope for `ingestTrace`. */
+export function createArtifactResultOffloader(
+  container: MinimalContainer,
+  scope: ArtifactScope,
+): ArtifactResultOffloader {
+  return (ref, value) => putArtifactResult(container, scope, ref, value)
 }

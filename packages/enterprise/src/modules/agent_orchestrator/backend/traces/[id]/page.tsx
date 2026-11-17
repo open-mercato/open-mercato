@@ -47,6 +47,8 @@ import { LlmStepMetadataCard, useCanViewContent } from '../../../components/trac
 import { RunCopyMenu } from '../../../components/trace/RunCopyMenu'
 import { OtelTraceLink } from '../../../components/trace/OtelTraceLink'
 import { RunActionsCard } from '../../../components/trace/RunActionsCard'
+import { RunFilesCard } from '../../../components/trace/RunFilesCard'
+import { OffloadStatusNote } from '../../../components/trace/OffloadStatusNote'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 
 // llm / tool / system get distinct DS tokens so the waterfall reads at a glance
@@ -351,6 +353,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
                         </p>
                         <SummaryDisplay value={toolCall.requestSummary} />
                         <ArtifactExpander runId={runId} artifactKey={toolCall.requestArtifactKey} kind="tool_request" />
+                        <OffloadStatusNote summary={toolCall.requestSummary} />
                       </div>
                     ) : null}
                     {hasSummary(toolCall.responseSummary) ? (
@@ -360,6 +363,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
                         </p>
                         <SummaryDisplay value={toolCall.responseSummary} />
                         <ArtifactExpander runId={runId} artifactKey={toolCall.responseArtifactKey} kind="tool_response" />
+                        <OffloadStatusNote summary={toolCall.responseSummary} />
                       </div>
                     ) : null}
                   </div>
@@ -521,89 +525,6 @@ function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
           )
         })}
       </ul>
-    </InspectorCard>
-  )
-}
-
-// File plane (#12): files the agent produced during the run (AgentRunArtifact),
-// fetched from the dedicated list endpoint and downloadable. Distinct from the
-// trace `ArtifactExpander` above (which loads offloaded tool-call payloads).
-type RunArtifactRow = {
-  id: string
-  fileName: string
-  mimeType: string
-  fileSize: number
-  caption: string | null
-  promotedAttachmentId: string | null
-  createdAt: string
-}
-
-function formatArtifactSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function FilesCard({ runId }: { runId: string }) {
-  const t = useT()
-  const locale = useLocale()
-  const [rows, setRows] = React.useState<RunArtifactRow[] | null>(null)
-  React.useEffect(() => {
-    let active = true
-    void (async () => {
-      const call = await apiCall<{ items: RunArtifactRow[] }>(
-        `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/artifacts`,
-        undefined,
-        { fallback: { items: [] } },
-      )
-      if (active && call.ok) setRows(call.result?.items ?? [])
-    })()
-    return () => {
-      active = false
-    }
-  }, [runId])
-
-  // Hide the card entirely when the run produced no files (the common case).
-  if (rows != null && rows.length === 0) return null
-
-  return (
-    <InspectorCard title={t('agent_orchestrator.artifacts.title')}>
-      {rows == null ? (
-        <p className="text-sm text-muted-foreground">{t('agent_orchestrator.artifacts.loading')}</p>
-      ) : (
-        <ul className="space-y-2">
-          {rows.map((row) => (
-            <li
-              key={row.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate font-mono text-xs text-foreground">{row.fileName}</span>
-                  {row.promotedAttachmentId ? (
-                    <span className="rounded-md border border-status-success-border bg-status-success-bg px-1.5 py-0.5 text-xs text-status-success-text">
-                      {t('agent_orchestrator.artifacts.promoted')}
-                    </span>
-                  ) : null}
-                </div>
-                {row.caption ? (
-                  <p className="truncate text-xs text-muted-foreground">{row.caption}</p>
-                ) : null}
-                <p className="text-xs text-muted-foreground">
-                  {formatArtifactSize(row.fileSize)} · {formatDateTime(row.createdAt, locale)}
-                </p>
-              </div>
-              <a
-                href={`/api/agent_orchestrator/artifacts/file/${encodeURIComponent(row.id)}?download=1`}
-                className="shrink-0 rounded-md border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
-                aria-label={t('agent_orchestrator.artifacts.download')}
-              >
-                {t('agent_orchestrator.artifacts.download')}
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
     </InspectorCard>
   )
 }
@@ -1233,6 +1154,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       <div className="space-y-1">
                         <JsonDisplay data={run.output} />
                         <ArtifactExpander runId={run.id} artifactKey={run.outputArtifactKey} kind="output" />
+                        <OffloadStatusNote summary={run.output} />
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
@@ -1256,7 +1178,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       returnedOutput={run.output}
                     />
                   ) : null}
-                  <FilesCard runId={run.id} />
+                  <RunFilesCard runId={run.id} />
                   <RunActionsCard runId={run.id} />
                   {detail.contextBundle ? <ContextAssembledCard bundle={detail.contextBundle} /> : null}
                   <RunManifestCard spans={detail.spans} agentVersion={run.agentVersion} />

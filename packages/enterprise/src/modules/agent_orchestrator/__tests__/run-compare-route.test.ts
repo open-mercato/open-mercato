@@ -255,6 +255,29 @@ describe('GET /api/agent_orchestrator/runs/:id/compare', () => {
     expect(readArtifactMock).not.toHaveBeenCalled()
   })
 
+  it('reports encryption_unavailable for a step whose content was not stored for lack of encryption', async () => {
+    const leftSpans = SPANS[LEFT_RUN_ID]
+    SPANS[LEFT_RUN_ID] = [
+      manifestSpan(LEFT_RUN_ID, 'hash-1'),
+      llmSpan(LEFT_RUN_ID, 1, { 'gen_ai.request.temperature': 0.2, 'om.content.status': 'encryption_unavailable' }),
+    ]
+    try {
+      readArtifactMock.mockImplementation(async () => ({ status: 'ok', value: RIGHT_PAYLOAD }))
+      await setup()
+
+      const res = await GET(makeRequest({ with: RIGHT_RUN_ID, step: '0' }), {
+        params: Promise.resolve({ id: LEFT_RUN_ID }),
+      })
+      const body = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(body.left.contentStatus).toBe('encryption_unavailable')
+      expect(readArtifactMock).toHaveBeenCalledTimes(1)
+    } finally {
+      SPANS[LEFT_RUN_ID] = leftSpans
+    }
+  })
+
   it('treats a key older than the retention window as expired without reading it', async () => {
     await setup({ retentionDays: 0 })
 

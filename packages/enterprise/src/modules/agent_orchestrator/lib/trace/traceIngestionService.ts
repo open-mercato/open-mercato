@@ -9,7 +9,13 @@ import {
   type AgentToolCallStatus,
 } from '../../data/entities'
 import { traceIngestSchema, type TraceIngest, type TraceSpanIngest } from '../../data/validators'
-import { ARTIFACT_REFS, type ArtifactEncryptionRef, type ArtifactOffloader } from './artifactStore'
+import {
+  ARTIFACT_REFS,
+  type ArtifactEncryptionRef,
+  type ArtifactOffloader,
+  type ArtifactPutResult,
+  type ArtifactResultOffloader,
+} from './artifactStore'
 import { computeCostMinor } from '../runtime/modelPricing'
 import { redactSecrets } from './redactToolSummary'
 import { hasGenAiVocabularyKey, normalizeGenAiAttributes } from './genAiAttributes'
@@ -39,6 +45,13 @@ export type IngestTraceOptions = {
    * pure over the EntityManager.
    */
   offloadArtifact?: ArtifactOffloader
+  /**
+   * Like `offloadArtifact`, but reports why a payload was not offloaded; takes
+   * precedence when both are supplied. The reason is stamped as `offloadStatus`
+   * on the truncated inline summary so the trace UI can explain the missing
+   * full payload.
+   */
+  offloadArtifactResult?: ArtifactResultOffloader
   /**
    * The capture resolved for the ingested run. Decides whether span `llm`
    * request/response bodies are offloaded (`full`) or dropped, and is written
@@ -152,12 +165,14 @@ function resolveManifestPlacement(spans: TraceSpanIngest[]): { sequence: number;
 /**
  * Cap a keyed payload inline, offloading the full value to encrypted storage
  * when it exceeds the cap and an offloader is available. Returns the inline
- * summary to persist plus the artifact key (or null when not offloaded).
+ * summary to persist plus the artifact key (or null when not offloaded). When
+ * the offloader reports why nothing was stored, the summary carries it as
+ * `offloadStatus` (`encryption_unavailable` | `storage_unavailable`).
  */
 async function offloadOrCap(
   value: unknown,
   ref: ArtifactEncryptionRef,
-  offload: ArtifactOffloader | undefined,
+  offload: PayloadOffloader | undefined,
 ): Promise<{ summary: unknown; key: string | null }> {
   if (value === undefined || value === null) return { summary: value ?? null, key: null }
   let serialized: string
@@ -167,10 +182,28 @@ async function offloadOrCap(
     return { summary: { _unserializable: true }, key: null }
   }
   if (serialized.length <= SUMMARY_CHAR_LIMIT) return { summary: value, key: null }
-  const key = offload ? await offload(ref, value) : null
+  const result = offload ? await offload(ref, value) : null
+  const key = result?.status === 'stored' ? result.key : null
   return {
-    summary: { _truncated: true, offloaded: key != null, preview: serialized.slice(0, SUMMARY_CHAR_LIMIT) },
+    summary: {
+      _truncated: true,
+      offloaded: key != null,
+      ...(result && result.status !== 'stored' ? { offloadStatus: result.status } : {}),
+      preview: serialized.slice(0, SUMMARY_CHAR_LIMIT),
+    },
     key,
+  }
+}
+
+type PayloadOffloader = (ref: ArtifactEncryptionRef, value: unknown) => Promise<ArtifactPutResult | null>
+
+function resolvePayloadOffloader(options: IngestTraceOptions): PayloadOffloader | undefined {
+  if (options.offloadArtifactResult) return options.offloadArtifactResult
+  const legacy = options.offloadArtifact
+  if (!legacy) return undefined
+  return async (ref, value) => {
+    const key = await legacy(ref, value)
+    return key ? { status: 'stored', key } : null
   }
 }
 
@@ -194,7 +227,7 @@ export async function ingestTrace(
 ): Promise<IngestTraceResult> {
   const payload: TraceIngest = traceIngestSchema.parse(rawPayload)
   const { tenantId, organizationId } = scope
-  const offload = options.offloadArtifact
+  const offload = resolvePayloadOffloader(options)
 
   // 1. Upsert the run, then flush so its id is available and run-level scalar
   //    changes are committed before any subsequent find (avoids the MikroORM

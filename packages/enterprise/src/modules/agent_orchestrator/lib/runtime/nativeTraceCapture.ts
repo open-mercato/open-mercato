@@ -7,7 +7,7 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/loop-step-extraction'
 import type { TraceIngest, TraceSpanIngest } from '../../data/validators'
 import { ingestTrace, SUMMARY_CHAR_LIMIT } from '../trace/traceIngestionService'
-import { createArtifactOffloader } from '../trace/artifactStore'
+import { createArtifactResultOffloader } from '../trace/artifactStore'
 import { evaluateRun } from '../eval/evalRuntimeService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { invalidateAgentRunCache } from '../crudCache'
@@ -478,7 +478,7 @@ export async function captureNativeRunTrace(
     const prepared = await offloadNativeTraceContent(container, scope, input)
     const result = await withRuntimeAuditWrite(() =>
       ingestTrace(em, scope, buildNativeTracePayload(prepared), {
-        offloadArtifact: createArtifactOffloader(container, scope),
+        offloadArtifactResult: createArtifactResultOffloader(container, scope),
         trustSpanContentKeys: true,
       }),
     )

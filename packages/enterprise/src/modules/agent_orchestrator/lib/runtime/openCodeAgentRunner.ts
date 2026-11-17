@@ -451,7 +451,7 @@ export class OpenCodeAgentRunner {
       // never fails an otherwise-successful run (the JSON outcome still stands).
       if (workspace) {
         try {
-          const summary = await collectArtifacts({
+          await collectArtifacts({
             commandBus: this.commandBus,
             commandCtx,
             outDir: workspace.outDir,
@@ -459,16 +459,18 @@ export class OpenCodeAgentRunner {
             tenantId: ctx.tenantId,
             organizationId: ctx.organizationId,
           })
-          if (summary.failed.length > 0) {
-            logger.warn('artifact capture could not store files (storage-s3 unavailable?)', {
-              agentId,
-              failedCount: summary.failed.length,
-            })
-          }
         } catch (err) {
           logger.warn('artifact capture threw', {
             agentId,
+            runId,
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
             error: err instanceof Error ? err.message : String(err),
+          })
+          getTelemetryRuntime()?.reportError(err, {
+            module: 'agent_orchestrator',
+            code: 'artifact_capture_failed',
+            attributes: { runId, agentId },
           })
         }
       }

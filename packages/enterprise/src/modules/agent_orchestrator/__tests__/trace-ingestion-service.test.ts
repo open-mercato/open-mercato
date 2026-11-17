@@ -284,6 +284,66 @@ describe('ingestTrace — artifact offload (F1)', () => {
     expect((toolCall.requestSummary as { _truncated?: boolean })._truncated).toBe(true)
   })
 
+  it('stamps encryption_unavailable on the truncated output summary when the payload could not be sealed', async () => {
+    const { em, storeFor } = createFakeEm()
+    const offloadArtifactResult = jest.fn(async () => ({ status: 'encryption_unavailable' as const }))
+    const offloadArtifact = jest.fn(async () => 'never-used')
+    const payload = { ...basePayload(), output: bigOutput }
+
+    await ingestTrace(em, SCOPE, payload, { offloadArtifact, offloadArtifactResult })
+
+    const run = storeFor(AgentRun)[0]
+    expect(run.outputArtifactKey).toBeNull()
+    expect(run.output).toMatchObject({ _truncated: true, offloaded: false, offloadStatus: 'encryption_unavailable' })
+    expect(offloadArtifact).not.toHaveBeenCalled()
+  })
+
+  it('stamps storage_unavailable on truncated tool-call summaries and keeps keys of stored parts', async () => {
+    const { em, storeFor } = createFakeEm()
+    const offloadArtifactResult = jest.fn(async (ref: { field: string }) =>
+      ref.field === 'request_summary'
+        ? ({ status: 'stored', key: 'req-key' } as const)
+        : ({ status: 'storage_unavailable' } as const),
+    )
+    const payload = {
+      ...basePayload(),
+      spans: [
+        {
+          externalSpanId: 'span-tool',
+          sequence: 0,
+          name: 'search',
+          kind: 'tool' as const,
+          startedAt: '2026-06-23T00:00:00.000Z',
+          toolCalls: [
+            {
+              toolName: 'search',
+              status: 'ok' as const,
+              requestSummary: { q: 'y'.repeat(5000) },
+              responseSummary: { r: 'z'.repeat(5000) },
+            },
+          ],
+        },
+      ],
+    }
+
+    await ingestTrace(em, SCOPE, payload, { offloadArtifactResult })
+
+    const toolCall = storeFor(AgentToolCall)[0]
+    expect(toolCall.requestArtifactKey).toBe('req-key')
+    expect(toolCall.requestSummary).not.toHaveProperty('offloadStatus')
+    expect(toolCall.responseArtifactKey).toBeNull()
+    expect(toolCall.responseSummary).toMatchObject({ offloaded: false, offloadStatus: 'storage_unavailable' })
+  })
+
+  it('stamps no offloadStatus when the legacy key-only offloader returns null', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = { ...basePayload(), output: bigOutput }
+
+    await ingestTrace(em, SCOPE, payload, { offloadArtifact: async () => null })
+
+    expect(storeFor(AgentRun)[0].output).not.toHaveProperty('offloadStatus')
+  })
+
   it('offloads nothing when no offloader is supplied (back-compat path)', async () => {
     const { em, storeFor } = createFakeEm()
     const payload = { ...basePayload(), output: bigOutput }

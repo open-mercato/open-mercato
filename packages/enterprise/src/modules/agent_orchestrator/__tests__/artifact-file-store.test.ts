@@ -1,4 +1,9 @@
-import { AGENT_ARTIFACT_FILE_NAMESPACE, getArtifactBytes, putArtifactBytes } from '../lib/runtime/artifactFileStore'
+import {
+  AGENT_ARTIFACT_FILE_NAMESPACE,
+  getArtifactBytes,
+  putArtifactBytes,
+  putArtifactBytesResult,
+} from '../lib/runtime/artifactFileStore'
 import { createTestArtifactEncryption, passThroughArtifactEncryption } from './support/artifactEncryption'
 
 const SCOPE = { tenantId: 't1', organizationId: 'o1' }
@@ -85,6 +90,61 @@ describe('artifactFileStore — putArtifactBytes', () => {
     })
 
     expect(await putArtifactBytes(container, SCOPE, FILE)).toBeNull()
+    expect(blobs.size).toBe(0)
+  })
+})
+
+describe('artifactFileStore — putArtifactBytesResult reasons', () => {
+  it('reports stored with the key', async () => {
+    const encryption = createTestArtifactEncryption()
+    const { proxy } = makeStorage()
+    const container = makeContainer({ storageService: proxy, tenantEncryptionService: encryption.service })
+
+    expect(await putArtifactBytesResult(container, SCOPE, FILE)).toEqual({ status: 'stored', key: 'f-1' })
+  })
+
+  it('reports storage_unavailable when storage is not registered', async () => {
+    const encryption = createTestArtifactEncryption()
+    const container = makeContainer({ tenantEncryptionService: encryption.service })
+
+    expect(await putArtifactBytesResult(container, SCOPE, FILE)).toEqual({ status: 'storage_unavailable' })
+  })
+
+  it('reports storage_unavailable when the upload throws', async () => {
+    const encryption = createTestArtifactEncryption()
+    const container = makeContainer({
+      storageService: {
+        _resolveService: async () => ({
+          upload: async () => {
+            throw new Error('[internal] s3 down')
+          },
+          download: async () => ({ buffer: Buffer.alloc(0) }),
+        }),
+      },
+      tenantEncryptionService: encryption.service,
+    })
+
+    expect(await putArtifactBytesResult(container, SCOPE, FILE)).toEqual({ status: 'storage_unavailable' })
+  })
+
+  it.each([
+    ['no tenant encryption service is registered', {}],
+    ['encryption passes the bytes through', { tenantEncryptionService: passThroughArtifactEncryption }],
+    [
+      'encryption throws',
+      {
+        tenantEncryptionService: {
+          encryptEntityPayload: async () => {
+            throw new Error('[internal] kms down')
+          },
+        },
+      },
+    ],
+  ])('reports encryption_unavailable and uploads nothing when %s', async (_label, registrations) => {
+    const { proxy, blobs } = makeStorage()
+    const container = makeContainer({ storageService: proxy, ...registrations })
+
+    expect(await putArtifactBytesResult(container, SCOPE, FILE)).toEqual({ status: 'encryption_unavailable' })
     expect(blobs.size).toBe(0)
   })
 })
