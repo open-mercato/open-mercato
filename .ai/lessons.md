@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 187 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 188 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
