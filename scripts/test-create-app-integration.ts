@@ -280,6 +280,7 @@ async function runTemplateImportCase(params: {
   scaffoldDir: string
   tempRoot: string
   installEnv: NodeJS.ProcessEnv
+  run: (command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }) => Promise<void>
 }): Promise<void> {
   console.log(cyan('Creating an app from a locally served app template (--template)'))
   const archive = await packTemplateFixture(params.scaffoldDir, params.tempRoot)
@@ -343,8 +344,8 @@ async function runTemplateImportCase(params: {
   // As the printed next steps say: cp .env.example .env, then install and generate (no second build, to keep the lane short).
   const envExample = path.join(templateAppDir, '.env.example')
   if (fs.existsSync(envExample)) fs.copyFileSync(envExample, path.join(templateAppDir, '.env'))
-  runCommand('yarn', ['install'], { cwd: templateAppDir, env: params.installEnv })
-  runCommand('yarn', ['generate'], { cwd: templateAppDir, env: params.installEnv })
+  await params.run('yarn', ['install'], { cwd: templateAppDir, env: params.installEnv })
+  await params.run('yarn', ['generate'], { cwd: templateAppDir, env: params.installEnv })
   console.log(green('✔ App created from the template installs and generates'))
 }
 
@@ -418,6 +419,7 @@ async function main(): Promise<void> {
       scaffoldDir: appDir,
       tempRoot,
       installEnv: standaloneInstallEnv,
+      run: commandRunner.run,
     })
 
     writeStandaloneEnv(appDir, appEnv)
