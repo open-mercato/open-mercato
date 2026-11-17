@@ -330,6 +330,20 @@ describe('progress jobs route', () => {
     expect(filter).not.toHaveProperty('organizationId')
   })
 
+  it.each([
+    ['', { createdAt: 'DESC', id: 'DESC' }],
+    ['?sortDir=asc', { createdAt: 'DESC', id: 'DESC' }],
+    ['?sortField=createdAt&sortDir=asc', { createdAt: 'ASC', id: 'ASC' }],
+    ['?sortField=startedAt&sortDir=desc', { startedAt: 'DESC', id: 'DESC' }],
+    ['?sortField=finishedAt&sortDir=asc', { finishedAt: 'ASC', id: 'ASC' }],
+  ])('breaks sort ties by id so offset pages stay stable (%s)', async (query, expectedOrderBy) => {
+    await listHandler(new Request(`http://localhost/api/progress/jobs${query}`))
+
+    const options = mockFindAndCount.mock.calls[0][2]
+    expect(options.orderBy).toEqual(expectedOrderBy)
+    expect(Object.keys(options.orderBy)).toEqual(Object.keys(expectedOrderBy))
+  })
+
   it('returns same-organization detail and passes the finite scope to the service', async () => {
     mockGetJob.mockResolvedValue({
       id: 'job-1',

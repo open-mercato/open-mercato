@@ -116,6 +116,7 @@
   "messages.errors.conversationActionFailed": "Konversation konnte nicht aktualisiert werden.",
   "messages.errors.conversationHasNoChannelThread": "Diese Unterhaltung hat keinen Kanal-Thread, in den zugestellt werden kann",
   "messages.errors.deleteFailed": "Nachricht konnte nicht gelöscht werden.",
+  "messages.errors.externalRecipientDailyLimit": "Das tägliche Limit für externe Empfänger wurde erreicht. Versuche es morgen erneut.",
   "messages.errors.forwardPreviewFailed": "Weiterleitungs-Vorschau konnte nicht geladen werden.",
   "messages.errors.invalidComposePayload": "Ungültige Nachrichtendaten",
   "messages.errors.invalidContext": "Nachrichtenkontext fehlt.",

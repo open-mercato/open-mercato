@@ -26,7 +26,7 @@ import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-rout
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { WorkflowDefinition, WorkflowInstance, StepInstance } from '../data/entities'
+import { WorkflowInstance, StepInstance } from '../data/entities'
 import type { StepInstanceStatus } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
 import { logWorkflowEvent } from './event-logger'
@@ -35,6 +35,8 @@ import type { ActivityContext } from './activity-executor'
 import { SUB_WORKFLOW_SIGNAL_NAME } from './activity-executor'
 import { getActivityType, type ActivityExecuteDeps } from './activity-registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+
+import { assertTrustedEventTriggerIdentity } from './event-trigger-identity'
 
 const logger = createLogger('workflows').child({ component: 'activity-worker' })
 const INVOKE_AGENT_QUEUE_MAX_ATTEMPTS = 3
@@ -51,6 +53,7 @@ export async function executeRegistryActivity(
   activityContext: ActivityContext,
   deps: ActivityExecuteDeps
 ): Promise<unknown> {
+  assertTrustedEventTriggerIdentity(activityContext.workflowInstance)
   const entry = getActivityType(payload.activityType)
   if (!entry) {
     throw new Error(`Unsupported activity type: ${payload.activityType}`)
@@ -445,6 +448,8 @@ export async function handleInvokeAgentJob(
     )
   }
 
+  assertTrustedEventTriggerIdentity(instance)
+
   // The step attempt is this invocation's identity. Its ABSENCE means the
   // parking transaction is still not observable (the instance has not reached
   // the step yet) — a re-delivery, never a drop. `instance.currentStepId` cannot
@@ -707,7 +712,8 @@ export async function resumeParentAfterSubWorkflow(
 
   // COMPLETED child: map its output against the SUB_WORKFLOW step's outputMapping
   // and the child's declared io output ports.
-  const parentDefinition = await em.findOne(WorkflowDefinition, { id: parent.definitionId })
+  const { findWorkflowDefinition, findDefinitionForInstance } = await import('./find-definition')
+  const parentDefinition = await findDefinitionForInstance(em, parent)
   const stepDef = parentDefinition?.definition.steps.find((s: any) => s.stepId === parentStepId)
   const { subWorkflowId, outputMapping, version } = (stepDef?.config || {}) as {
     subWorkflowId?: string
@@ -724,7 +730,6 @@ export async function resumeParentAfterSubWorkflow(
     throw new Error(`Child workflow instance ${childInstanceId} not found for resume_subworkflow_parent job`)
   }
 
-  const { findWorkflowDefinition } = await import('./find-definition')
   const childDefinition = subWorkflowId
     ? await findWorkflowDefinition(em, { workflowId: subWorkflowId, version, tenantId, organizationId })
     : null
