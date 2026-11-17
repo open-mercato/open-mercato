@@ -504,7 +504,13 @@ stated across a 1996 data-modeling text, a 1997 analysis-patterns
 text, and the current edition of the standard intermediate-accounting
 textbook.
 
-**Balance in the account's currency (added 2026-10-26). ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).**
+**Balance in the account's currency (proposed Phase 2, added 2026-10-26). ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer).**
+Phase 1 returns `currency: null` and `balanceInAccountCurrency: null` for
+every account, including configured foreign- or base-currency accounts; it
+does not compute or display an account-currency figure. The rules below are
+proposals and tests for Phase 2 only; they require the existing accounting
+owner decision and a compatible rollout before use. Null means unavailable,
+not zero or the base currency.
 Required by Multi-Currency, "Revaluation of foreign-currency ledger accounts
 (bank, cash)", decision R4 (`2026-09-17-multi-currency.md`), which reads both
 balances from `getAccountBalance`.
@@ -782,11 +788,11 @@ convention or a statement that callers are trusted is not enforcement.
   (already normalized to the account's `normalBalance` side). Its
   coverage/authority checks, whole-scope integrity validation and balance
   query also share the same scoped repeatable-read, read-only transaction
-  and database snapshot described for `getTrialBalance` below. Since
-  2026-10-26 it also returns `balanceInAccountCurrency` and `currency` for
-  an account with a `currencyId` (Design decisions, "Balance in the
-  account's currency"; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not
-  yet reviewed by a maintainer)); for any other account both are `null`.
+  and database snapshot described for `getTrialBalance` below.
+  Phase 1 returns `balanceInAccountCurrency` and `currency` as `null` for
+  every account. Returning currency figures is a Phase 2 proposal that
+  requires human approval (Design decisions, "Balance in the account's
+  currency").
 - `getTrialBalance(em, { tenantId, organizationId, periodId, page?, pageSize?, reportVersion? })`
   — resolves the named `FiscalPeriod`'s `startDate`/`endDate` and the
   uniquely configured fiscal year containing the whole period (Data
@@ -1033,6 +1039,33 @@ disabled for the affected scope.
 
 ## API Contracts
 
+**Exact monetary values (both routes and internal query functions).** #5663
+stores posting amounts as `numeric(19,4)`; aggregate sums can exceed that
+column's integer width. SQL aggregation, signs, reconciliation, service
+operations and comparisons must preserve exact decimal values at scale four;
+never pass them through JavaScript `Number`, floating-point SQL, or a
+rounding currency formatter. Serialize `balance`, `openingBalance`,
+`periodDebit`, `periodCredit`, `ytdDebit`, `ytdCredit`, `closingBalance`
+and any future non-null `balanceInAccountCurrency` as canonical base-10 JSON
+strings with exactly four fractional digits, no exponent, leading plus or
+leading integer zeroes, and `0.0000` rather than negative zero. Dates, counts
+and `zeroSumCheck` keep their existing types. OpenAPI, validators and client
+types must declare these decimal strings; the UI must preserve all four
+digits and localize separators by string/decimal-safe formatting, never
+through binary floating point. No display rounding or implicit currency
+conversion is performed in this phase. Numeric examples in this document
+represent exact decimal arithmetic; wire assertions use the string form.
+
+Before activation, certify a finite aggregate and response-size capacity
+large enough for supported postings and the resource budgets; enforce it
+without truncation or partial rows. If a value or exact aggregate cannot be
+represented within that certified capacity, both routes fail closed with
+`503 { error: 'report_resource_limit' }` and no figures. Exact zero-sum
+comparison happens before serialization, without epsilon. Since #5663 is
+unmerged, verify the decimal and consumer compatibility contract with that
+prerequisite and require a staged bridge for any existing numeric clients
+before enabling these routes.
+
 ### `GET /api/ledger/accounts/:id/balance`
 
 - **Query params**: `asOf?` (date, defaults to the trusted pre-snapshot
@@ -1041,14 +1074,12 @@ disabled for the affected scope.
   before the query runs; an unparseable `asOf` is a 400, not passed
   through to the CTE.
 - **Response 200**: `{ accountId, asOf, balance, currency,
-  balanceInAccountCurrency }`. `balance` is the base-currency balance,
-  normalized to `normalBalance`, as before. `currency` and
-  `balanceInAccountCurrency` (added 2026-10-26, ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)) are the account's
-  `currencyId` and its balance in that currency, debit side positive, when
-  the account has a `currencyId` and is a leaf or has a single-currency
-  subtree (Design decisions, "Balance in the account's currency"); otherwise
-  both are explicitly `null` rather than omitted, so a client can't mistake
-  their absence for "same as the tenant's base currency" by accident.
+  balanceInAccountCurrency }`. `balance` is the exact base-currency decimal
+  string normalized to `normalBalance`. In Phase 1, `currency` and
+  `balanceInAccountCurrency` are explicitly `null` for every account; the
+  UI treats them as unavailable. Their non-null behavior is proposed only
+  for Phase 2 and requires human approval (Design decisions, "Balance in the
+  account's currency").
 - **Response 400**: `asOf` fails zod validation (not a valid date).
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `LedgerAccount` with that id in the caller's
@@ -1346,8 +1377,11 @@ top of the live query.
 - Assert `getAccountBalance(accountId, asOf)` for a covered date on or
   after the account's effective start but before any entry returns zero,
   and that entries posted after `asOf` are excluded.
-- Balance in the account's currency (Design decisions, "Balance in the
-  account's currency"; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not yet reviewed by a maintainer)):
+- Phase 1 account-currency absence: configured foreign-currency, configured
+  base-currency and unconfigured accounts all return explicit null for both
+  currency fields; the panel does not present null as zero or base currency.
+- Phase 2 only, after human approval: balance in the account's currency
+  (Design decisions, "Balance in the account's currency"):
   - a foreign-currency account (`currencyId` EUR): debit EUR 100 and credit
     EUR 30 return `balanceInAccountCurrency = 70` and `currency` = EUR, and
     `balance` is the base-currency figure as before;
@@ -1365,6 +1399,14 @@ top of the live query.
     `balance` is still returned;
   - lines after `asOf` are excluded from `balanceInAccountCurrency` exactly
     as from `balance`.
+- Exact decimal transport: a valid `900719925474.0993` posting returns
+  exactly as decimal value `900719925474.0993` through SQL and service,
+  as `"900719925474.0993"` in JSON, and with every digit intact in the
+  localized UI, never as a rounded JS number. Aggregate two `999999999999999.9999` postings to
+  `"1999999999999999.9998"` and cover negative, zero, trailing-zero and
+  debit/credit cases, page boundaries, the balance identity and exact
+  zero-sum comparison. Exercise both APIs, their declared schemas and localized
+  UI; an exceeded certified capacity returns 503 with no partial figures.
 - Generate a ZSiO for a period with a known set of postings and assert
   every row's `openingBalance + periodDebit - periodCredit ==
   closingBalance` for `DEBIT`-normal accounts (sides swapped for
@@ -1676,9 +1718,9 @@ top of the live query.
     response; loading, error and empty states show; a user without
     `ledger.reports.view` gets the forbidden state.
   - account page Balance panel — the as-of date control refetches
-    `GET /api/ledger/accounts/:id/balance` and renders the base and
-    (when present) account-currency figures with the panel's
-    loading/error states.
+    `GET /api/ledger/accounts/:id/balance`, renders the base figure with
+    loading/error states, and presents account-currency figures as unavailable
+    in Phase 1. A future approved phase may render those figures.
 
 ## Risks & Impact Review
 
