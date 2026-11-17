@@ -675,6 +675,9 @@ None.
 
 ## Changelog
 
+### 2026-11-15
+- The CSV inventory import read a `quantity` that isn't a number (for example `1,000` with a comma thousands separator, a decimal comma like `1,5`, or other text) as 0, so the row was skipped in additive mode or set the bucket to 0 in reconcile mode. Validation now rejects it with the existing `quantity_invalid` row error, whose message now asks for a plain number with a dot for decimals. Coverage: `inventoryImportService.test.ts`, `TC-WMS-035`.
+
 ### 2026-10-29
 - Warehouse create and update undo no longer fail on `wms_warehouses_org_primary_unique_idx` when another warehouse became primary after the undone command. Update undo restores the warehouse's own `isPrimary` only when the undone update changed it, and then demotes the current primary first, as `execute()` does. Both undos re-promote a demoted sibling only while it is live, active and no other warehouse is primary, run in one `withAtomicFlush({ transaction: true })`, and map a lost race to the existing `409` (`wms.validation.warehouse.primaryConflict`). Delete undo is unchanged. Coverage: `configuration.primaryWarehouse.test.ts`, `TC-WMS-033`.
 
