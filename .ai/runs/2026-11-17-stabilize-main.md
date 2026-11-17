@@ -31,8 +31,8 @@ No product redesign, unrelated cleanup, production changes, base-branch merges, 
 
 ## Resume evidence
 - The previous owner execution 7ed9f417 and child e3eef2d3 are confirmed failed/stopped. Retain persisted claim run f3238c56-d85f-4432-aa90-d69d08715725, comment 6932135961 and lock f24407bf1054730a9be86db70ab61873e4056b15.
-- Independent artifact diagnosis found cold app bootstrap consumed the encryption tests’ scenario budget before assertions. The inherited worker fixture gives bootstrap a bounded startup budget while preserving per-test containers, original assertions and scenario budgets; CI validation is pending.
-- PR run 43976766879 exposed a sales recipient test failure. New read-only child d73121ae investigates the cause while parent owns all source changes.
+- Independent artifact diagnosis found cold app bootstrap consumed the encryption tests’ scenario budget before assertions. The inherited worker fixture gives bootstrap a bounded startup budget while preserving per-test containers, original assertions and scenario budgets; The full CI run 44110082420 on 6ffd13709a passed encryption shard 8/15 and sales shard 12/15; remaining shards are pending.
+- PR run 43976766879 exposed a sales recipient test failure. Read-only child d73121ae inspected both retry traces and proved the failed Save sent the original customer ID and email. Focused Chromium probes of the compiled full detail page pass with the selected-summary precondition. Parent strengthens the existing regression with that precondition and request/response assertions; product behavior remains unchanged.
 
 ## Risks
 CI may reveal additional failures beyond the baseline. Local dependencies and service availability must be established; document actual validation limits. Keep draft and withhold automerge until full exact-head checks pass. Existing older stabilization PRs have active claims; leave them untouched.
@@ -45,7 +45,7 @@ PR: #9729
 ### Phase 1: Root-cause repairs
 
 - [x] 1.1 Investigate and repair script-test failures with focused regression coverage. — 52b52b13bf
-- [ ] 1.2 Independently investigate integration shard 8/15 and repair demonstrated defects.
+- [x] 1.2 Independently investigate integration shard 8/15 and repair demonstrated defects. — b3227db79f
 
 ### Phase 2: Verification and handoff
 
