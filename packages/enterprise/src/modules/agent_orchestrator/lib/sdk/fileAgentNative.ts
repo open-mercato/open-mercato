@@ -29,7 +29,10 @@ const OPENCODE_MCP_SERVER_KEY = 'open-mercato'
  */
 export const FILE_AGENT_RUNTIME_ENV = 'OM_AGENT_FILE_AGENT_RUNTIME'
 
-let bridgeWarningLogged = false
+// On globalThis, not a module-level flag: Next.js can bootstrap the app again in
+// the same process with a fresh copy of this module, which re-armed a module flag.
+const BRIDGE_WARNING_KEY = '__openMercatoFileAgentRuntimeBridgeWarningEmitted__'
+const bridgeWarningState = globalThis as Record<string, unknown>
 
 export type FileAgentSkillSource = {
   id: string
@@ -54,8 +57,8 @@ export function resolveFileAgentRuntime(
   entry: Pick<AgentRegistryEntry, 'id' | 'resultKind' | 'files'>,
 ): AgentRuntime {
   if ((process.env[FILE_AGENT_RUNTIME_ENV] ?? '').trim().toLowerCase() === 'opencode') {
-    if (!bridgeWarningLogged) {
-      bridgeWarningLogged = true
+    if (bridgeWarningState[BRIDGE_WARNING_KEY] !== true) {
+      bridgeWarningState[BRIDGE_WARNING_KEY] = true
       logger.warn(
         `${FILE_AGENT_RUNTIME_ENV}=opencode is deprecated: file-defined agents run on the native runtime by default and the OpenCode runtime will be removed`,
       )
@@ -100,7 +103,7 @@ export function attachStrictModelSchema(entry: AgentRegistryEntry): void {
 
 /** @internal Test hook — re-arm the once-per-process bridge warning. */
 export function resetFileAgentRuntimeWarningForTests(): void {
-  bridgeWarningLogged = false
+  delete bridgeWarningState[BRIDGE_WARNING_KEY]
 }
 
 /**
