@@ -5,12 +5,13 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 type RuleExecutionLog = {
   id: string
@@ -41,6 +42,8 @@ export default function ExecutionLogDetailPage({ params }: { params?: { id?: str
   const logId = params?.id
 
   const t = useT()
+
+  const locale = useLocale()
 
   const { data: log, isLoading, error } = useQuery({
     queryKey: ['business-rules', 'logs', logId],
@@ -150,7 +153,7 @@ export default function ExecutionLogDetailPage({ params }: { params?: { id?: str
                   {t('business_rules.logs.fields.executedAt')}
                 </dt>
                 <dd className="mt-1 text-sm text-foreground">
-                  {new Date(log.executedAt).toLocaleString()}
+                  {formatDisplayDateTime(log.executedAt, locale)}
                 </dd>
               </div>
               <div>

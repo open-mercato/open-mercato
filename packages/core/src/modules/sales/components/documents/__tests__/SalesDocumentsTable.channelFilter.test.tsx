@@ -60,7 +60,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   // Stable reference: the real useT() is memoized. Returning a fresh function
   // each render would re-create the data-load callback and loop the effect.
   const translate = (key: string, fallback?: string) => fallback ?? key
-  return { useT: () => translate }
+  return { useLocale: () => 'en', useT: () => translate }
 })
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/dictionaryAppearance', () => ({

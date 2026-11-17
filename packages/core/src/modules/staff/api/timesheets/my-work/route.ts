@@ -46,9 +46,7 @@ import { computeProjectFinancials } from '../../../lib/timesheets-projects/compu
 import { computeBudgetBurn } from '../../../lib/timesheets-projects/budgetBurn'
 import {
   addUtcDays,
-  getFirstDayOfMonthUtc,
-  getFirstDayOfNextMonthUtc,
-  getMondayUtc,
+  resolveMyWorkPeriods,
   toDateOnlyString,
 } from '../../../lib/timesheets-projects/dateBuckets'
 import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
@@ -57,6 +55,7 @@ import {
   readSearchParamsRecord,
   runTimesheetInterceptors,
 } from '../_shared/withTimesheetInterceptors'
+import { resolveDateLocaleSettingsForScope } from '@open-mercato/shared/lib/date-locale/registry'
 
 const logger = createLogger('staff').child({ component: 'api/timesheets/my-work' })
 
@@ -174,12 +173,8 @@ export async function GET(req: Request) {
     const { session } = interceptors
 
     const em = container.resolve('em') as EntityManager
-    const now = new Date()
-    const todayDate = toDateOnlyString(now)
-    const weekStart = getMondayUtc(now)
-    const weekEnd = addUtcDays(weekStart, 6)
-    const monthStart = getFirstDayOfMonthUtc(now)
-    const nextMonthStart = getFirstDayOfNextMonthUtc(now)
+    const dateLocaleSettings = await resolveDateLocaleSettingsForScope(container, { tenantId, userId: auth.sub })
+    const { todayDate, weekStart, weekEnd, monthStart, nextMonthStart } = resolveMyWorkPeriods(new Date(), dateLocaleSettings.timeZone)
     const monthEnd = addUtcDays(nextMonthStart, -1)
 
     let dailyHours: number | null = null

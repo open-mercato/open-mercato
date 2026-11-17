@@ -2,7 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 import type { MessageContentProps } from '@open-mercato/shared/modules/messages/types'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
 
@@ -35,15 +36,13 @@ function toErrorMessage(payload: unknown): string | null {
   return null
 }
 
-function formatDateTime(value: string | null): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString()
+function formatDateTime(value: string | null, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? '—'
 }
 
 export function MessageConfirmationContent({ message }: MessageContentProps) {
   const t = useT()
+  const locale = useLocale()
 
   const confirmationQuery = useQuery({
     queryKey: ['messages', 'confirmation', message.id],
@@ -78,7 +77,7 @@ export function MessageConfirmationContent({ message }: MessageContentProps) {
             : t('messages.confirmation.notConfirmed', 'Not confirmed')}
         </p>
         <p className="text-xs text-muted-foreground">
-          {t('messages.confirmation.confirmedAt', 'Confirmed at')}: {formatDateTime(confirmation?.confirmedAt ?? null)}
+          {t('messages.confirmation.confirmedAt', 'Confirmed at')}: {formatDateTime(confirmation?.confirmedAt ?? null, locale)}
         </p>
       </div>
     </div>

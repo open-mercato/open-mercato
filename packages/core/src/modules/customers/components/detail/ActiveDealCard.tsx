@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { ArrowUpRight, EyeOff, Handshake } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -23,6 +24,7 @@ type PipelineStageOption = {
 
 export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
   const t = useT()
+  const locale = useLocale()
   const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>([])
 
   const activeDeals = React.useMemo(
@@ -129,7 +131,7 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
         <p className="font-semibold text-foreground">{topDeal.title}</p>
         {topDeal.createdAt && (
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {t('customers.companies.dashboard.created', 'Created')} {new Date(topDeal.createdAt).toLocaleDateString()}
+            {t('customers.companies.dashboard.created', 'Created')} {formatDisplayDate(topDeal.createdAt, locale)}
           </p>
         )}
 

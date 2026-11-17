@@ -1,7 +1,8 @@
 'use client'
 import * as React from 'react'
 import { Check, ListTodo, Phone, Mail, Users, StickyNote, User } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -9,6 +10,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
 import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
+import { toLocalZonedDate } from '../../lib/localDay'
+import { formatZonedDateParts } from '../../lib/displayDate'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
@@ -82,6 +85,7 @@ function TimelineEntry({
   onEdit?: (activity: InteractionSummary) => void
   onMarkDone?: (activityId: string, updatedAt?: string | null) => void | Promise<void>
 }) {
+  const locale = useLocale()
   const dateStr = activity.scheduledAt ?? activity.occurredAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
   const title = activity.title ?? activity.body ?? activity.interactionType
@@ -113,10 +117,10 @@ function TimelineEntry({
         {/* Column 1: Date */}
         <div className="shrink-0">
           <span className="block text-xs font-semibold leading-tight text-foreground">
-            {dateStr ? formatRelativeDate(dateStr, t) : t('customers.timeline.date.unknown', 'Unknown date')}
+            {dateStr ? formatRelativeDate(dateStr, t, locale) : t('customers.timeline.date.unknown', 'Unknown date')}
           </span>
           <span className="block text-xs leading-tight text-muted-foreground">
-            {dateStr ? formatTime(dateStr) : null}
+            {dateStr ? formatTime(dateStr, locale) : null}
           </span>
         </div>
 
@@ -178,26 +182,27 @@ function TimelineEntry({
   )
 }
 
-function formatRelativeDate(isoString: string, t: TranslateFn): string {
+function formatRelativeDate(isoString: string, t: TranslateFn, locale: string): string {
   try {
     const date = new Date(isoString)
-    const now = new Date()
+    const zoned = toLocalZonedDate(date)
+    const now = toLocalZonedDate(new Date())
     // Compare calendar dates (not time-based diff) to correctly handle same-day future times
-    const dateDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    const dateDay = new Date(zoned.getFullYear(), zoned.getMonth(), zoned.getDate())
     const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const diffDays = Math.round((nowDay.getTime() - dateDay.getTime()) / (1000 * 60 * 60 * 24))
 
     if (diffDays === 0) return t('customers.timeline.date.today', 'today')
     if (diffDays === 1) return t('customers.timeline.date.yesterday', 'yesterday')
-    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+    return formatZonedDateParts(date, { day: 'numeric', month: 'short' }, locale)
   } catch {
     return ''
   }
 }
 
-function formatTime(isoString: string): string {
+function formatTime(isoString: string, locale: string): string {
   try {
-    return new Date(isoString).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    return formatDisplayTime(new Date(isoString), locale) ?? ''
   } catch {
     return ''
   }

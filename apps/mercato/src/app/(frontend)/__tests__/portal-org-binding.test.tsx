@@ -129,6 +129,17 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   })),
 }))
 
+const portalDateLocaleSettings = { locale: 'de-DE', timeZone: 'Europe/Berlin' }
+const mockResolveDateLocaleSettingsForScope = jest.fn(async () => portalDateLocaleSettings)
+jest.mock('@open-mercato/shared/lib/date-locale/registry', () => ({
+  resolveDateLocaleSettingsForScope: (...args: unknown[]) => mockResolveDateLocaleSettingsForScope(...(args as [])),
+}))
+
+const dateLocaleProviderMock = jest.fn(({ children }: { children: React.ReactNode }) => <>{children}</>)
+jest.mock('@open-mercato/ui/primitives/date-locale-settings', () => ({
+  DateLocaleSettingsProvider: (props: any) => dateLocaleProviderMock(props),
+}))
+
 import FrontendLayout from '../layout'
 import SiteCatchAll from '../[...slug]/page'
 
@@ -267,4 +278,25 @@ describe('frontend customer portal org binding', () => {
       }))
     },
   )
+
+  it('renders portal pages with the URL organization tenant date & time settings', async () => {
+    mockGetCustomerAuthFromCookies.mockResolvedValue(null)
+    headerStore.get.mockReturnValue('/org-b/portal/login')
+
+    const element = await FrontendLayout({ children: <div>public</div> })
+    renderToStaticMarkup(element as React.ReactElement)
+
+    expect(mockResolveDateLocaleSettingsForScope).toHaveBeenCalledWith(expect.anything(), { tenantId: 'tenant-1' })
+    expect(dateLocaleProviderMock).toHaveBeenCalledWith(expect.objectContaining({ value: portalDateLocaleSettings }))
+  })
+
+  it('leaves non-portal pages on the root layout settings', async () => {
+    headerStore.get.mockReturnValue('/about')
+
+    const element = await FrontendLayout({ children: <div>public</div> })
+    renderToStaticMarkup(element as React.ReactElement)
+
+    expect(mockResolveDateLocaleSettingsForScope).not.toHaveBeenCalled()
+    expect(dateLocaleProviderMock).not.toHaveBeenCalled()
+  })
 })

@@ -10,6 +10,7 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import { getPgSessionConfig } from '@open-mercato/shared/lib/db/session'
 
 export type SchedulerScheduleProbeResult = {
   enabledSchedules: number
@@ -84,6 +85,7 @@ export async function probeEnabledSchedules(env: NodeJS.ProcessEnv = process.env
   const client = new Client({
     connectionString: databaseUrl,
     ssl: getSslConfig(),
+    ...getPgSessionConfig(env),
   })
 
   try {

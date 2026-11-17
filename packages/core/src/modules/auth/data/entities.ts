@@ -58,6 +58,11 @@ export class User {
   @Property({ name: 'kind', type: 'varchar', length: 20, default: 'human' })
   kind: UserKind = 'human'
 
+  // Personal display timezone (IANA). Null follows the organization default
+  // (see `.ai/specs/2026-05-18-date-locale-settings.md`).
+  @Property({ name: 'timezone', type: 'text', nullable: true })
+  timezone?: string | null
+
   @Property({ name: 'last_login_at', type: Date, nullable: true })
   lastLoginAt?: Date
 

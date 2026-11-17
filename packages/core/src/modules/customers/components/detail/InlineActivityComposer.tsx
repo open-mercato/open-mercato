@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { SquarePen, Calendar, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { z } from 'zod'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -26,7 +26,7 @@ const composerSchema = z.object({
 
 type TranslateFn = (key: string, fallback?: string, params?: Record<string, string>) => string
 
-function formatDateBadge(isoLocal: string, t: TranslateFn): string {
+function formatDateBadge(isoLocal: string, t: TranslateFn, locale: string): string {
   if (!isoLocal) return ''
   const now = new Date()
   const date = new Date(isoLocal.replace('T', ' '))
@@ -37,7 +37,7 @@ function formatDateBadge(isoLocal: string, t: TranslateFn): string {
     date.getDate() === now.getDate()
   const dayLabel = isToday
     ? t('customers.activityComposer.today', 'Today')
-    : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+    : new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short' }).format(date)
   return `${dayLabel} · ${time}`
 }
 
@@ -61,6 +61,7 @@ export function InlineActivityComposer({
   useCanonicalInteractions,
 }: InlineActivityComposerProps) {
   const t = useT()
+  const locale = useLocale()
   const calendarRefreshRef = React.useRef<(() => void) | null>(null)
   const [selectedType, setSelectedType] = React.useState<ActivityType | null>('call')
   const [description, setDescription] = React.useState('')
@@ -234,7 +235,7 @@ export function InlineActivityComposer({
         </div>
         <label className="mt-[22px] flex shrink-0 cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2.5 text-sm text-muted-foreground">
           <Calendar className="size-4" />
-          <span className="text-sm font-medium text-foreground">{formatDateBadge(occurredAt, t)}</span>
+          <span className="text-sm font-medium text-foreground">{formatDateBadge(occurredAt, t, locale)}</span>
           <input
             type="datetime-local"
             value={occurredAt}

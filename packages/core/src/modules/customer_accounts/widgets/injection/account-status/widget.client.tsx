@@ -8,7 +8,8 @@ import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -266,6 +267,7 @@ function InviteForm({
 
 export default function AccountStatusWidget({ context }: AccountStatusProps) {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
   const canCancelInvitation = chromeReady && hasFeature(chromePayload?.grantedFeatures, 'customer_accounts.invite')
@@ -433,7 +435,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">{t('customer_accounts.widgets.invitationExpires', 'Invitation expires')}</span>
-              <span>{new Date(pendingInvitation.expiresAt).toLocaleDateString()}</span>
+              <span>{formatDisplayDate(pendingInvitation.expiresAt, locale)}</span>
             </div>
           </div>
         ) : (
@@ -503,7 +505,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
         {data.lastLoginAt && (
           <div className="flex justify-between">
             <span className="text-muted-foreground">{t('customer_accounts.widgets.lastLogin', 'Last Login')}</span>
-            <span>{new Date(data.lastLoginAt).toLocaleDateString()}</span>
+            <span>{formatDisplayDate(data.lastLoginAt, locale)}</span>
           </div>
         )}
       </div>

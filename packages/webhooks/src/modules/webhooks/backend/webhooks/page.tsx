@@ -13,7 +13,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
@@ -57,6 +58,7 @@ export default function WebhooksListPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const access = useWebhookFeatureAccess()
@@ -214,7 +216,7 @@ export default function WebhooksListPage() {
         const isFailure = lastFailureAt !== null && lastFailureAt >= (lastSuccessAt ?? 0)
         return (
           <span className={isFailure ? 'text-destructive' : 'text-muted-foreground'}>
-            {new Date(lastTimestamp).toLocaleString()}
+            {formatDisplayDateTime(new Date(lastTimestamp), locale)}
           </span>
         )
       },
@@ -223,14 +225,10 @@ export default function WebhooksListPage() {
       accessorKey: 'createdAt',
       header: t('webhooks.list.columns.createdAt'),
       cell: ({ row }) => {
-        try {
-          return new Date(row.original.createdAt).toLocaleDateString()
-        } catch {
-          return '—'
-        }
+        return formatDisplayDate(row.original.createdAt, locale) ?? '—'
       },
     },
-  ], [t])
+  ], [t, locale])
 
   return (
     <Page>

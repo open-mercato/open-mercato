@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Sparkles } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { formatTimeRange } from './EventBlock'
@@ -43,6 +44,7 @@ export function EventPeekPopover({
 }: EventPeekPopoverProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const title = item.title || t('customers.calendar.grid.untitled', 'Untitled')
   const dateLabel = React.useMemo(
     () => new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric' }).format(item.start),
@@ -50,7 +52,7 @@ export function EventPeekPopover({
   )
   const timeRange = item.allDay
     ? t('customers.calendar.grid.allDay', 'All day')
-    : formatTimeRange(locale, item.start, item.end)
+    : formatTimeRange(locale, item.start, item.end, dateSettings)
 
   const attendeeCount = item.participants.length
   const attendeesLabel =

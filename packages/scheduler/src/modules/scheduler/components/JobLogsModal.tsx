@@ -8,7 +8,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 
 type BullMQJob = {
@@ -42,6 +43,7 @@ export function JobLogsModal({
   scheduleName,
 }: JobLogsModalProps) {
   const t = useT()
+  const locale = useLocale()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [job, setJob] = React.useState<BullMQJob | null>(null)
@@ -158,7 +160,7 @@ export function JobLogsModal({
                   <div>
                     <Label className="text-sm font-medium">{t('scheduler.job_logs.processed', 'Processed')}</Label>
                     <p className="mt-1 text-sm">
-                      {new Date(job.processedOn).toLocaleString()}
+                      {formatDisplayDateTime(job.processedOn, locale)}
                     </p>
                   </div>
                 )}
@@ -167,7 +169,7 @@ export function JobLogsModal({
                   <div>
                     <Label className="text-sm font-medium">{t('scheduler.job_logs.finished', 'Finished')}</Label>
                     <p className="mt-1 text-sm">
-                      {new Date(job.finishedOn).toLocaleString()}
+                      {formatDisplayDateTime(job.finishedOn, locale)}
                     </p>
                   </div>
                 )}

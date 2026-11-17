@@ -96,3 +96,19 @@ describe('formatTimeRangeLabel', () => {
     expect(label).not.toMatch(HYDRATION_UNSTABLE_SPACING)
   })
 })
+
+describe('configured date pattern', () => {
+  const polishPattern = { locale: 'pl-PL', dateFormat: 'd MMMM yyyy', timeFormat: null }
+
+  it('names the month in the formatting locale', () => {
+    expect(formatDateLabel('en', JUN_15, polishPattern)).toBe('15 czerwca 2026')
+  })
+
+  it('falls back to the app locale when no formatting locale is configured', () => {
+    expect(formatDateLabel('pl', JUN_15, { ...polishPattern, locale: null })).toBe('15 czerwca 2026')
+  })
+
+  it('names the month in the formatting locale on both ends of a range', () => {
+    expect(formatDateRangeLabel('en', JUN_15, JUN_21, polishPattern)).toBe('15 czerwca 2026 – 21 czerwca 2026')
+  })
+})

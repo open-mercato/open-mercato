@@ -6,7 +6,8 @@ import { RotateCw } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
@@ -100,6 +101,7 @@ const DELIVERY_AUTO_REFRESH_INTERVAL_MS = 30000
 export default function WebhookDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
   const t = useT()
+  const locale = useLocale()
   const webhookId = params?.id ?? null
 
   const [webhook, setWebhook] = React.useState<Webhook | null>(null)
@@ -424,11 +426,10 @@ export default function WebhookDetailPage({ params }: { params?: { id?: string }
       accessorKey: 'createdAt',
       header: t('webhooks.deliveries.columns.enqueuedAt'),
       cell: ({ row }) => {
-        try { return new Date(row.original.enqueuedAt).toLocaleString() }
-        catch { return '—' }
+        return formatDisplayDateTime(row.original.enqueuedAt, locale) ?? '—'
       },
     },
-  ], [t])
+  ], [t, locale])
 
   const fields = React.useMemo(() => buildWebhookFormFields(t), [t])
   const groups = React.useMemo(() => buildWebhookFormGroups(t), [t])

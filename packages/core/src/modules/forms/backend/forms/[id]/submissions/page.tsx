@@ -8,7 +8,8 @@ import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import {
@@ -33,16 +34,14 @@ type InboxResponse = {
   totalPages: number
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString()
+function formatDate(value: string | null, locale: string): string {
+  return formatDisplayDateTime(value, locale) ?? ''
 }
 
 export default function FormSubmissionInboxPage({ params }: { params?: { id?: string } }) {
   const formId = params?.id ?? ''
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
 
   const [rows, setRows] = React.useState<InboxResponse['items']>([])
@@ -197,15 +196,15 @@ export default function FormSubmissionInboxPage({ params }: { params?: { id?: st
       {
         header: t('forms.inbox.columns.submitted_at', { fallback: 'Submitted' }),
         accessorKey: 'submittedAt',
-        cell: ({ row }) => formatDate(row.original.submittedAt) || '—',
+        cell: ({ row }) => formatDate(row.original.submittedAt, locale) || '—',
       },
       {
         header: t('forms.inbox.columns.updated_at', { fallback: 'Updated' }),
         accessorKey: 'updatedAt',
-        cell: ({ row }) => formatDate(row.original.updatedAt),
+        cell: ({ row }) => formatDate(row.original.updatedAt, locale),
       },
     ],
-    [t],
+    [locale, t],
   )
 
   return (

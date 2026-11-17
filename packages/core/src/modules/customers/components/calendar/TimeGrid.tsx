@@ -9,6 +9,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { useDateLocaleSettings, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import {
   collapseDenseClusters,
@@ -208,6 +209,7 @@ export function TimeGrid({
 }: TimeGridProps) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const isMobile = useIsMobile()
   const peekSide = isMobile ? 'bottom' : 'right'
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
@@ -227,11 +229,12 @@ export function TimeGrid({
     setDrag(next)
   }
 
+  const weekStartsOn = useWeekStartsOn()
   const dayStarts = React.useMemo(() => {
-    const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0).from
+    const rangeStart = getVisibleRange(days === 7 ? 'week' : 'day', new Date(anchorMs), 0, weekStartsOn).from
     const all = Array.from({ length: days }, (_, index) => addDays(rangeStart, index))
     return days === 7 ? applyWeekendVisibility(all, showWeekends, new Date(todayMs)) : all
-  }, [days, anchorMs, showWeekends, todayMs])
+  }, [days, anchorMs, showWeekends, todayMs, weekStartsOn])
 
   React.useEffect(() => {
     const node = scrollRef.current
@@ -538,7 +541,7 @@ export function TimeGrid({
                       {t('customers.calendar.actions.newEvent', 'New event')}
                     </span>
                     <span className="text-overline text-muted-foreground">
-                      {formatTimeRange(locale, dragRange.start, dragRange.end)}
+                      {formatTimeRange(locale, dragRange.start, dragRange.end, dateSettings)}
                     </span>
                   </div>
                 ) : null}

@@ -7,6 +7,7 @@ import { AppProviders } from '@/components/AppProviders'
 import { THEME_INIT_SCRIPT } from '@open-mercato/ui/theme/theme-init-script'
 import { detectLocale, loadDictionary, resolveSupportedLocalesForRequest } from '@open-mercato/shared/lib/i18n/server'
 import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
+import { resolveDateLocaleSettingsForRequest } from '@open-mercato/shared/lib/date-locale/registry'
 import { resolveDevRuntimeLayoutConfig } from '@open-mercato/shared/lib/dev-runtime/layout'
 import { DevRuntimeDiagnosticsBanner } from '@open-mercato/ui/backend/dev/DevRuntimeDiagnosticsBanner'
 import { DevRuntimeReporter } from '@open-mercato/ui/backend/dev/DevRuntimeReporter'
@@ -30,6 +31,7 @@ export default async function RootLayout({
   const supportedLocales = await resolveSupportedLocalesForRequest()
   const locale = await detectLocale({ supportedLocales })
   const dict = await loadDictionary(locale)
+  const dateLocaleSettings = await resolveDateLocaleSettingsForRequest()
   const localeLocked = resolveForcedLocale(process.env) !== null
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
   const noticeBarsEnabled = process.env.OM_INTEGRATION_TEST !== 'true'
@@ -43,7 +45,7 @@ export default async function RootLayout({
       </head>
       <body className="antialiased" suppressHydrationWarning data-gramm="false">
         <script id="om-theme-init" nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-        <AppProviders nonce={nonce} locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
+        <AppProviders nonce={nonce} locale={locale} dict={dict} localeLocked={localeLocked} supportedLocales={supportedLocales} dateLocaleSettings={dateLocaleSettings} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
           {devRuntime.enabled ? <DevRuntimeReporter /> : null}
           {devRuntime.bannerEnabled ? <DevRuntimeDiagnosticsBanner /> : null}
           {children}

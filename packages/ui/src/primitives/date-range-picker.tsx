@@ -14,8 +14,9 @@ import {
   defaultDateRangePresets,
   type DateRangePresetItem,
 } from './date-picker-helpers'
-import { formatWithPublicDateFormat, resolvePublicDateFormat } from './date-format'
-import { useDateFnsLocale } from './date-locale'
+import { formatLocalDisplayValue, type DisplaySettings } from './date-format'
+import { useDateLocaleSettings } from './date-locale-settings'
+import { resolveDateFnsLocale, useDateFnsLocale } from './date-locale'
 
 export type { DateRangePresetItem } from './date-picker-helpers'
 
@@ -48,9 +49,8 @@ export type DateRangePickerProps = {
   'aria-describedby'?: string
 }
 
-function defaultFormatRange(range: DateRange, locale?: Locale): string {
-  const fmt = resolvePublicDateFormat(locale)
-  return `${formatWithPublicDateFormat(range.start, fmt, locale) ?? ''} – ${formatWithPublicDateFormat(range.end, fmt, locale) ?? ''}`
+function defaultFormatRange(range: DateRange, locale?: Locale, settings?: DisplaySettings): string {
+  return `${formatLocalDisplayValue(range.start, { locale, settings }) ?? ''} – ${formatLocalDisplayValue(range.end, { locale, settings }) ?? ''}`
 }
 
 function toRDPRange(range: DateRange | null | undefined): RDPRange | undefined {
@@ -116,7 +116,13 @@ export function DateRangePicker({
   )
 
   const placeholderText = placeholder ?? t('ui.dateRangePicker.placeholder', 'Pick a date range')
-  const formatter = formatRange ?? defaultFormatRange
+  const dateLocaleSettings = useDateLocaleSettings()
+  const patternLocale = dateLocaleSettings.locale ? resolveDateFnsLocale(dateLocaleSettings.locale) ?? locale : locale
+  const formatter = React.useCallback(
+    (range: DateRange, rangeLocale?: Locale) =>
+      formatRange ? formatRange(range, rangeLocale) : defaultFormatRange(range, patternLocale, dateLocaleSettings),
+    [dateLocaleSettings, formatRange, patternLocale],
+  )
   const formattedValue = React.useMemo(() => {
     if (!value) return null
     return formatter(value, locale)

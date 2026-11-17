@@ -16,6 +16,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { E } from '#generated/entities.ids.generated'
 import type { ExpiryWindow } from '../../lib/expiry'
@@ -83,16 +84,6 @@ export default function WmsLotsListPage() {
     setSorting(nextSorting)
     setPage(1)
   }, [])
-
-  const expiryFormatter = React.useMemo(
-    () =>
-      new Intl.DateTimeFormat(locale, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }),
-    [locale],
-  )
 
   const queryKey = React.useMemo(
     () => ['wms-lots-list', expiryWindow, warehouseId, page, search, sorting],
@@ -170,7 +161,7 @@ export default function WmsLotsListPage() {
           const variant = resolveLotStatusVariant(expiresAt, row.original.status, nowMs)
           return (
             <StatusBadge variant={variant} dot>
-              {expiryFormatter.format(new Date(expiresAt))}
+              {formatDisplayDate(toUtcDateInputValue(expiresAt), locale) ?? expiresAt}
             </StatusBadge>
           )
         },
@@ -192,7 +183,7 @@ export default function WmsLotsListPage() {
         },
       },
     ],
-    [expiryFormatter, nowMs, t],
+    [locale, nowMs, t],
   )
 
   const rowActions = React.useCallback(

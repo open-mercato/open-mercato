@@ -26,6 +26,7 @@ jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => (_key: string, fallback: string, values?: Record<string, string>) => {
     let text = fallback || _key
     for (const [name, value] of Object.entries(values ?? {})) {

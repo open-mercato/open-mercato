@@ -1,4 +1,5 @@
 import type { MessageObjectAction } from '@open-mercato/shared/modules/messages/types'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import type { MessageAction } from './types'
 
 export function toErrorMessage(payload: unknown): string | null {
@@ -24,11 +25,8 @@ export function toErrorMessage(payload: unknown): string | null {
   return null
 }
 
-export function formatDateTime(value: string | null | undefined, unknownDate = '—'): string {
-  if (!value) return unknownDate
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return unknownDate
-  return date.toLocaleString()
+export function formatDateTime(value: string | null | undefined, unknownDate = '—', locale?: string): string {
+  return formatDisplayDateTime(value, locale) ?? unknownDate
 }
 
 const SAFE_NAVIGATION_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:'])

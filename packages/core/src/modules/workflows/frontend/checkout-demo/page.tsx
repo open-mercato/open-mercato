@@ -18,9 +18,10 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { AlertCircle, AlertTriangle, Check, CheckCircle2, Info, Zap, Minus, Plus, X } from 'lucide-react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { deriveCurrentStep } from './deriveCurrentStep'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { formatDisplayDate, formatDisplayDateTime, formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 
 const logger = createLogger('workflows')
 
@@ -67,6 +68,7 @@ interface WorkflowEvent {
 export default function CheckoutDemoPage() {
   const queryClient = useQueryClient()
   const t = useT()
+  const locale = useLocale()
   const [loading, setLoading] = useState(false)
   const [advancing, setAdvancing] = useState(false)
   const [result, setResult] = useState<WorkflowResult | null>(null)
@@ -1452,7 +1454,7 @@ export default function CheckoutDemoPage() {
                   <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">{t('workflows.checkoutDemo.completed.orderDateLabel', 'Order Date:')}</span>
-                      <span className="text-gray-900">{new Date().toLocaleDateString()}</span>
+                      <span className="text-gray-900">{formatDisplayDate(new Date(), locale)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">{t('workflows.checkoutDemo.completed.paymentMethodLabel', 'Payment Method:')}</span>
@@ -1645,7 +1647,7 @@ export default function CheckoutDemoPage() {
                               )}
                               {task.dueDate && (
                                 <p className="text-xs text-gray-500 mt-2">
-                                  {t('workflows.checkoutDemo.progress.duePrefix', 'Due: ')}{new Date(task.dueDate).toLocaleString()}
+                                  {t('workflows.checkoutDemo.progress.duePrefix', 'Due: ')}{formatDisplayDateTime(task.dueDate, locale)}
                                 </p>
                               )}
                             </div>
@@ -1768,7 +1770,7 @@ export default function CheckoutDemoPage() {
                           {formatEventType(event.eventType)}
                         </span>
                         <span className="text-xs text-gray-500">
-                          {new Date(event.occurredAt).toLocaleTimeString()}
+                          {formatDisplayTime(event.occurredAt, locale)}
                         </span>
                       </div>
                       {event.eventData && Object.keys(event.eventData).length > 0 && (

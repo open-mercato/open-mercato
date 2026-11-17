@@ -2,12 +2,14 @@
 import * as React from 'react'
 import { Phone, Mail, Users, StickyNote, Clock, AlertCircle, CalendarClock, Check, MoreHorizontal, Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayTime } from '@open-mercato/ui/primitives/date-format'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import type { InteractionSummary } from './types'
-import { isSameDay } from '../../lib/localDay'
+import { isSameDay, toLocalZonedDate } from '../../lib/localDay'
+import { formatZonedDateParts } from '../../lib/displayDate'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
@@ -26,6 +28,7 @@ interface PlannedActivitiesSectionProps {
 
 export function PlannedActivitiesSection({ activities, onComplete, onSchedule, onEdit, onCancel }: PlannedActivitiesSectionProps) {
   const t = useT()
+  const locale = useLocale()
 
   if (activities.length === 0) return null
 
@@ -171,7 +174,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                   {activity.title ?? activity.body ?? activity.interactionType}
                 </span>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt, t) : ''}</span>
+                  <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt, t, locale) : ''}</span>
                   {activity.authorName && (
                     <>
                       <span>·</span>
@@ -235,17 +238,17 @@ function formatRelativeOverdue(isoString: string, t: TranslateFn): string {
   }
 }
 
-function formatScheduledDate(isoString: string, t: TranslateFn): string {
+function formatScheduledDate(isoString: string, t: TranslateFn, locale: string): string {
   try {
     const date = new Date(isoString)
-    const tomorrow = new Date()
+    const tomorrow = toLocalZonedDate(new Date())
     tomorrow.setDate(tomorrow.getDate() + 1)
 
-    const dayName = date.toLocaleDateString(undefined, { weekday: 'short' })
-    const dateStr = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-    const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    const dayName = formatZonedDateParts(date, { weekday: 'short' }, locale)
+    const dateStr = formatZonedDateParts(date, { day: 'numeric', month: 'short' }, locale)
+    const timeStr = formatDisplayTime(date, locale) ?? ''
 
-    if (isSameDay(date, tomorrow)) {
+    if (isSameDay(toLocalZonedDate(date), tomorrow)) {
       return t('customers.timeline.planned.tomorrow', 'Tomorrow {{time}}', { time: timeStr })
     }
     return `${dayName}, ${dateStr} · ${timeStr}`

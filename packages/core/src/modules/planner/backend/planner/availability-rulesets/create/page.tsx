@@ -7,13 +7,14 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AvailabilityRuleSetForm, buildAvailabilityRuleSetPayload, type AvailabilityRuleSetFormValues } from '@open-mercato/core/modules/planner/components/AvailabilityRuleSetForm'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 
 export default function PlannerAvailabilityRuleSetCreatePage() {
   const translate = useT()
   const router = useRouter()
 
   const handleSubmit = React.useCallback(async (values: AvailabilityRuleSetFormValues) => {
-    const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    const defaultTimezone = resolveDisplayTimeZone()
     const payload = buildAvailabilityRuleSetPayload(values, { timezone: defaultTimezone })
     const response = await createCrud('planner/availability-rule-sets', payload, {
       errorMessage: translate('planner.availabilityRuleSets.form.errors.create', 'Failed to create schedule.'),

@@ -12,7 +12,8 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { formatApiKeyExpiry } from '@open-mercato/core/modules/api_keys/lib/expiryDisplay'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
@@ -40,15 +41,8 @@ type ResponsePayload = {
   totalIsCapped?: boolean
 }
 
-function formatDate(value: string | null, t: (key: string, params?: Record<string, string | number>) => string) {
-  if (!value) return t('api_keys.list.noDate')
-  try {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return t('api_keys.list.noDate')
-    return date.toLocaleString()
-  } catch {
-    return t('api_keys.list.noDate')
-  }
+function formatDate(value: string | null, t: (key: string, params?: Record<string, string | number>) => string, locale: string) {
+  return formatDisplayDateTime(value, locale) ?? t('api_keys.list.noDate')
 }
 
 export default function ApiKeysListPage() {
@@ -166,14 +160,14 @@ export default function ApiKeysListPage() {
     {
       accessorKey: 'lastUsedAt',
       header: t('api_keys.list.columns.lastUsed'),
-      cell: ({ row }) => formatDate(row.original.lastUsedAt, t),
+      cell: ({ row }) => formatDate(row.original.lastUsedAt, t, locale),
     },
     {
       accessorKey: 'expiresAt',
       header: t('api_keys.list.columns.expires'),
       cell: ({ row }) => formatApiKeyExpiry(row.original.expiresAt, locale) ?? t('api_keys.list.noDate'),
     },
-  ], [locale, t])
+  ], [t, locale])
 
   return (
     <Page>

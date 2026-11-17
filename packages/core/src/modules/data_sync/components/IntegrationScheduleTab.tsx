@@ -22,7 +22,9 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { isValidScheduleInterval } from '@open-mercato/shared/lib/schedule/interval'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
+import { resolveDisplayTimeZone } from '@open-mercato/ui/primitives/date-locale-settings'
 import { hasScheduleValueFieldError } from '../lib/schedule-value'
 import { getSyncSummaryVariant } from '../lib/syncRunStatus'
 import type { RunParameter } from '../lib/adapter'
@@ -92,7 +94,6 @@ type IntegrationScheduleTabProps = {
   isEnabled: boolean
 }
 
-const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
 function formatEntityTypeLabel(entityType: string): string {
   return entityType
@@ -106,7 +107,7 @@ function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState 
   return {
     scheduleType: 'interval',
     scheduleValue: longerInterval ? '6h' : '1h',
-    timezone: DEFAULT_TIMEZONE,
+    timezone: resolveDisplayTimeZone(),
     fullSync: normalized !== 'products',
     isEnabled: true,
     lastRunAt: null,
@@ -170,6 +171,7 @@ function buildScheduleEditors(
 
 export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: 'data_sync.integrationTab',
@@ -617,7 +619,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                     </td>
                     <td className="px-3 py-3 text-muted-foreground">
                       {scheduleState.lastRunAt
-                        ? new Date(scheduleState.lastRunAt).toLocaleString()
+                        ? formatDisplayDateTime(scheduleState.lastRunAt, locale)
                         : scheduleState.id
                           ? t('data_sync.dashboard.schedule.neverRun', 'Saved, but no scheduled execution has completed yet.')
                           : t('data_sync.dashboard.schedule.none', 'No recurring schedule saved for this target yet.')}

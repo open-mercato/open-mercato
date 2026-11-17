@@ -17,7 +17,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
@@ -49,11 +50,8 @@ type UsersResponse = {
   totalIsCapped?: boolean
 }
 
-function formatDate(value: string | null | undefined, fallback: string): string {
-  if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleDateString()
+function formatDate(value: string | null | undefined, fallback: string, locale: string): string {
+  return formatDisplayDate(value, locale) ?? fallback
 }
 
 type RoleOption = { value: string; label: string; id: string }
@@ -321,6 +319,7 @@ export function PortalUsersPageClient({
 }: PortalUsersPageClientProps) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [rows, setRows] = React.useState<UserRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -567,7 +566,7 @@ export function PortalUsersPageClient({
       {
         accessorKey: 'lastLoginAt',
         header: t('customer_accounts.admin.columns.lastLogin', 'Last Login'),
-        cell: ({ row }) => formatDate(row.original.lastLoginAt, '-') || noValue,
+        cell: ({ row }) => formatDate(row.original.lastLoginAt, '-', locale) || noValue,
       },
       {
         accessorKey: 'roles',
@@ -581,10 +580,10 @@ export function PortalUsersPageClient({
       {
         accessorKey: 'createdAt',
         header: t('customer_accounts.admin.columns.createdAt', 'Created'),
-        cell: ({ row }) => formatDate(row.original.createdAt, '-'),
+        cell: ({ row }) => formatDate(row.original.createdAt, '-', locale),
       },
     ]
-  }, [t])
+  }, [locale, t])
 
   return (
     <>

@@ -59,6 +59,7 @@ function safeParse(value: string, fallback: Date): Date {
   return parseIsoDay(value) ?? fallback
 }
 
+/** Today's calendar day in the browser zone — the frame time entries are typed, stored and read back in. */
 export function todayIso(now: Date = new Date()): string {
   return toIsoDay(now)
 }
@@ -84,11 +85,15 @@ export function addMonthsIso(iso: string, months: number): string {
   return toIsoDay(new Date(targetMonthFirst.getFullYear(), targetMonthFirst.getMonth(), day))
 }
 
-/** Monday of the week containing `iso` — the module's week starts on Monday everywhere. */
-export function startOfWeekIso(iso: string): string {
+/**
+ * First day of the week containing `iso`. Monday by default: the week PERIOD (its
+ * range, the `W29` ISO week label, the server's `my-work` week) is Monday-based so
+ * the totals agree with the API. Only presentational grids pass another start.
+ */
+export function startOfWeekIso(iso: string, weekStartsOn: number = 1): string {
   const base = parseIsoDay(iso)
   if (!base) return iso
-  const weekday = (base.getDay() + 6) % 7
+  const weekday = (base.getDay() - weekStartsOn + 7) % 7
   return addDaysIso(iso, -weekday)
 }
 
@@ -200,15 +205,20 @@ export type TimesheetCalendarCell = {
 }
 
 /**
- * The month grid of screen 11: whole Monday-to-Sunday weeks covering the month,
+ * The month grid of screen 11: whole weeks covering the month, starting on
+ * `weekStartsOn` (the configured first day of the week; Monday by default),
  * with the leading/trailing days of the neighbouring months kept as `inPeriod:
  * false` cells so the grid stays rectangular (the mockup draws `29 cze` and
  * `30 cze` in the first row).
  */
-export function buildCalendarWeeks(anchorIso: string, todayIsoValue: string = todayIso()): TimesheetCalendarCell[][] {
+export function buildCalendarWeeks(
+  anchorIso: string,
+  todayIsoValue: string = todayIso(),
+  weekStartsOn: number = 1,
+): TimesheetCalendarCell[][] {
   const range = resolvePeriodRange('month', anchorIso)
-  const gridStart = startOfWeekIso(range.from)
-  const lastWeekStart = startOfWeekIso(range.to)
+  const gridStart = startOfWeekIso(range.from, weekStartsOn)
+  const lastWeekStart = startOfWeekIso(range.to, weekStartsOn)
   const gridEnd = addDaysIso(lastWeekStart, 6)
   const days = eachDayIso({ from: gridStart, to: gridEnd })
   const weeks: TimesheetCalendarCell[][] = []

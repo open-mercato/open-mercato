@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { getPgSessionConfig } from '@open-mercato/shared/lib/db/session'
 import { searchDebugWarn, searchWarn } from '../../../lib/debug'
 import { compileIndexDocFilterExists, compileSearchScopePredicate } from '../../../lib/index-doc-filter'
 
@@ -110,7 +111,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       if (!conn) {
         throw new Error('[vector.pgvector] DATABASE_URL is not configured')
       }
-      return new Pool({ connectionString: conn }) as unknown as PgPool
+      return new Pool({ connectionString: conn, ...getPgSessionConfig() }) as unknown as PgPool
     })()
 
   let ready: Promise<void> | null = null

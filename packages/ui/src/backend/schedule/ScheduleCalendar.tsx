@@ -20,6 +20,9 @@ import type { ScheduleItem, ScheduleRange, ScheduleSlot, ScheduleViewMode } from
 import { Button } from '../../primitives/button'
 import { expandRecurringItems } from './recurrence'
 import { getScheduleItemStyle } from './presentation'
+import { deriveTimeDisplayFormat } from '../../primitives/date-locale'
+import { useDateLocaleSettings, useWeekStartsOn } from '../../primitives/date-locale-settings'
+import type { FirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/types'
 
 type CalendarEvent = {
   id: string
@@ -30,13 +33,17 @@ type CalendarEvent = {
   allDay: boolean
 }
 
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek,
-  getDay,
-  locales: scheduleLocales,
-})
+type StartOfWeekOptions = Parameters<typeof startOfWeek>[1]
+
+function createLocalizer(weekStartsOn: FirstDayOfWeek) {
+  return dateFnsLocalizer({
+    format,
+    parse,
+    startOfWeek: (date: Date, options?: StartOfWeekOptions) => startOfWeek(date, { ...options, weekStartsOn }),
+    getDay,
+    locales: scheduleLocales,
+  })
+}
 
 const VIEW_MAP: Record<ScheduleViewMode, View> = {
   day: 'day',
@@ -45,12 +52,12 @@ const VIEW_MAP: Record<ScheduleViewMode, View> = {
   agenda: 'agenda',
 }
 
-function deriveRange(date: Date, view: ScheduleViewMode, agendaLength: number, locale: string): ScheduleRange {
+function deriveRange(date: Date, view: ScheduleViewMode, agendaLength: number, weekStartsOn: FirstDayOfWeek): ScheduleRange {
   if (view === 'day') {
     return { start: startOfDay(date), end: endOfDay(date) }
   }
   if (view === 'week') {
-    return { start: startOfWeek(date, { locale: getScheduleLocale(locale) }), end: endOfWeek(date, { locale: getScheduleLocale(locale) }) }
+    return { start: startOfWeek(date, { weekStartsOn }), end: endOfWeek(date, { weekStartsOn }) }
   }
   if (view === 'month') {
     return { start: startOfMonth(date), end: endOfMonth(date) }
@@ -63,7 +70,7 @@ function normalizeRange(
   nextRange: Date[] | { start: Date; end: Date } | null | undefined,
   view: ScheduleViewMode,
   agendaLength: number,
-  locale: string,
+  weekStartsOn: FirstDayOfWeek,
 ): ScheduleRange | null {
   if (!nextRange) return null
   if (Array.isArray(nextRange)) {
@@ -71,10 +78,10 @@ function normalizeRange(
     if (view === 'agenda') {
       return { start: nextRange[0], end: nextRange[nextRange.length - 1] }
     }
-    return deriveRange(nextRange[0], view, agendaLength, locale)
+    return deriveRange(nextRange[0], view, agendaLength, weekStartsOn)
   }
   if (nextRange.start && nextRange.end) return { start: nextRange.start, end: nextRange.end }
-  return deriveRange(new Date(), view, agendaLength, locale)
+  return deriveRange(new Date(), view, agendaLength, weekStartsOn)
 }
 
 function isAllDay(item: ScheduleItem): boolean {
@@ -103,6 +110,8 @@ export default function ScheduleCalendar({
 }: ScheduleCalendarProps) {
   const locale = useOptionalLocale() ?? 'en'
   const t = useT()
+  const weekStartsOn = useWeekStartsOn()
+  const localizer = React.useMemo(() => createLocalizer(weekStartsOn), [weekStartsOn])
   const agendaLength = React.useMemo(
     () => Math.max(1, differenceInCalendarDays(range.end, range.start) + 1),
     [range.end, range.start],
@@ -123,22 +132,22 @@ export default function ScheduleCalendar({
 
   const handleNavigate = React.useCallback((date: Date, nextView?: View) => {
     const resolvedView = (nextView ?? currentView) as ScheduleViewMode
-    onRangeChange(deriveRange(date, resolvedView, agendaLength, locale))
-  }, [agendaLength, currentView, locale, onRangeChange])
+    onRangeChange(deriveRange(date, resolvedView, agendaLength, weekStartsOn))
+  }, [agendaLength, currentView, onRangeChange, weekStartsOn])
 
   const handleRangeChange = React.useCallback((nextRange: Date[] | { start: Date; end: Date }, nextView?: View) => {
     const resolvedView = (nextView ?? currentView) as ScheduleViewMode
-    const normalized = normalizeRange(nextRange, resolvedView, agendaLength, locale)
+    const normalized = normalizeRange(nextRange, resolvedView, agendaLength, weekStartsOn)
     if (normalized) onRangeChange(normalized)
-  }, [agendaLength, currentView, locale, onRangeChange])
+  }, [agendaLength, currentView, onRangeChange, weekStartsOn])
 
   const handleViewChange = React.useCallback((nextView: View) => {
     const resolved = nextView as ScheduleViewMode
     if (resolved !== view) {
       onViewChange(resolved)
-      onRangeChange(deriveRange(range.start, resolved, agendaLength, locale))
+      onRangeChange(deriveRange(range.start, resolved, agendaLength, weekStartsOn))
     }
-  }, [agendaLength, locale, onRangeChange, onViewChange, range.start, view])
+  }, [agendaLength, onRangeChange, onViewChange, range.start, view, weekStartsOn])
 
   const handleSelectEvent = React.useCallback(
     (event: CalendarEvent) => onItemClick?.(event.resource),
@@ -203,11 +212,16 @@ export default function ScheduleCalendar({
     [locale, onItemClick, t],
   )
 
-  const formats = React.useMemo(() => ({
-    timeGutterFormat: (date: Date) => format(date, 'HH:mm'),
-    eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${format(start, 'HH:mm')}–${format(end, 'HH:mm')}`,
-    agendaTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${format(start, 'HH:mm')}–${format(end, 'HH:mm')}`,
-  }), [])
+  const dateLocaleSettings = useDateLocaleSettings()
+  const formats = React.useMemo(() => {
+    const timePattern = dateLocaleSettings.timeFormat ?? (deriveTimeDisplayFormat(dateLocaleSettings.locale ?? locale) === '24h' ? 'HH:mm' : 'h:mm a')
+    const formatTime = (date: Date) => format(date, timePattern, { locale: getScheduleLocale(locale) })
+    return {
+      timeGutterFormat: formatTime,
+      eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${formatTime(start)}–${formatTime(end)}`,
+      agendaTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) => `${formatTime(start)}–${formatTime(end)}`,
+    }
+  }, [dateLocaleSettings.locale, dateLocaleSettings.timeFormat, locale])
 
   return (
     <Calendar

@@ -15,6 +15,8 @@ import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolic
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { resolveUserDataSubject } from '@open-mercato/core/modules/auth/lib/userDataSubject'
+import { userTimeZoneSchema } from '@open-mercato/shared/lib/date-locale/validation'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 
 const logger = createLogger('auth').child({ component: 'profile' })
 
@@ -22,6 +24,8 @@ const profileResponseSchema = z.object({
   email: z.string().email(),
   name: z.string().nullable().optional(),
   roles: z.array(z.string()),
+  timezone: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 const passwordSchema = buildPasswordSchema()
@@ -30,11 +34,12 @@ const updateSchemaBase = z.object({
   email: z.string().email().optional(),
   currentPassword: z.string().trim().min(1).optional(),
   password: passwordSchema.optional(),
+  timezone: userTimeZoneSchema,
 })
 
 function buildUpdateSchema(translate: (key: string, fallback: string) => string) {
   return updateSchemaBase.superRefine((data, ctx) => {
-    if (!data.email && !data.password) {
+    if (!data.email && !data.password && data.timezone === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: translate(
@@ -72,6 +77,8 @@ const updateSchema = buildUpdateSchema((_key, fallback) => fallback)
 const profileUpdateResponseSchema = z.object({
   ok: z.literal(true),
   email: z.string().email(),
+  timezone: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 export const metadata = {
@@ -122,6 +129,8 @@ export async function GET(req: Request) {
       email: String(user.email),
       name: displayName.length > 0 ? displayName : null,
       roles: auth.roles ?? [],
+      timezone: user.timezone ?? null,
+      updatedAt: user.updatedAt instanceof Date ? user.updatedAt.toISOString() : null,
     })
   } catch (err) {
     logger.error('Profile load failed', { err })
@@ -145,7 +154,8 @@ export async function PUT(req: Request) {
       return NextResponse.json(
         {
           error: translate('auth.profile.form.errors.invalid', 'Invalid profile update.'),
-          issues: parsed.error.issues,
+          // Shared schemas (the time zone one) report i18n keys; translate them like the inline ones.
+          issues: parsed.error.issues.map((issue) => ({ ...issue, message: translate(issue.message, issue.message) })),
         },
         { status: 400 },
       )
@@ -153,17 +163,23 @@ export async function PUT(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const authService = container.resolve('authService') as AuthService
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { id: auth.sub, deletedAt: null },
+      undefined,
+      { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+    )
+    if (!user) {
+      return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
+    }
+    await enforceCommandOptimisticLockWithGuards(container, {
+      resourceKind: 'auth.user',
+      resourceId: auth.sub,
+      current: user.updatedAt,
+      request: req,
+    })
     if (parsed.data.password) {
-      const user = await findOneWithDecryption(
-        em,
-        User,
-        { id: auth.sub, deletedAt: null },
-        undefined,
-        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
-      )
-      if (!user) {
-        return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
-      }
       const currentPassword = parsed.data.currentPassword?.trim() ?? ''
       const isCurrentPasswordValid = await authService.verifyPassword(user, currentPassword)
       if (!isCurrentPasswordValid) {
@@ -182,17 +198,26 @@ export async function PUT(req: Request) {
     }
     const commandBus = (container.resolve('commandBus') as CommandBus)
     const ctx = buildCommandContext(container, auth, req)
-    const { result } = await commandBus.execute<{ id: string; email?: string; password?: string }, User>(
+    const { result } = await commandBus.execute<{ id: string; email?: string; password?: string; timezone?: string | null }, User>(
       'auth.users.update',
       {
         input: {
           id: auth.sub,
           email: parsed.data.email,
           password: parsed.data.password,
+          ...(parsed.data.timezone !== undefined ? { timezone: parsed.data.timezone } : {}),
         },
         ctx,
       },
     )
+    const res = NextResponse.json({
+      ok: true,
+      email: String(result.email),
+      ...(parsed.data.timezone !== undefined ? { timezone: result.timezone ?? null } : {}),
+      updatedAt: result.updatedAt instanceof Date ? result.updatedAt.toISOString() : null,
+    })
+    // Only credential changes renew the session token; a preference save must not extend the session.
+    if (parsed.data.email === undefined && !parsed.data.password) return res
     const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
     const jwt = signJwt({
       sub: String(result.id),
@@ -202,7 +227,6 @@ export async function PUT(req: Request) {
       email: result.email,
       roles,
     })
-    const res = NextResponse.json({ ok: true, email: String(result.email) })
     res.cookies.set('auth_token', jwt, {
       httpOnly: true,
       path: '/',
@@ -230,7 +254,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get current profile',
-      description: 'Returns the email address, display name, and roles for the signed-in user. The display name is null when unset.',
+      description: 'Returns the email address, display name, roles and personal time zone for the signed-in user. The display name and time zone are null when unset.',
       responses: [
         { status: 200, description: 'Profile payload', schema: profileResponseSchema },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
@@ -240,7 +264,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update current profile',
-      description: 'Updates the email address or password for the signed-in user.',
+      description: 'Updates the email address, password or personal time zone for the signed-in user. A null time zone returns to the organization default. Send the `updatedAt` from GET as the optimistic-lock header to reject a save over a newer change with 409.',
       requestBody: {
         contentType: 'application/json',
         schema: updateSchema,
@@ -250,6 +274,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid payload', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Interactive session required', schema: z.object({ error: z.string() }) },
+        { status: 404, description: 'User not found', schema: z.object({ error: z.string() }) },
+        { status: 409, description: 'The profile changed since it was loaded (optimistic lock conflict)', schema: z.object({ error: z.string() }) },
       ],
     },
   },

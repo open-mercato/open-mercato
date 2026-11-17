@@ -21,6 +21,10 @@
       "types": "./src/lib/openapi/index.ts",
       "default": "./dist/lib/openapi/index.js"
     },
+    "./lib/date-locale": {
+      "types": "./src/lib/date-locale/index.ts",
+      "default": "./dist/lib/date-locale/index.js"
+    },
     "./lib/commands": {
       "types": "./src/lib/commands/index.ts",
       "default": "./dist/lib/commands/index.js"

@@ -5,6 +5,7 @@ import { Clock, Search } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
@@ -44,7 +45,7 @@ export type ActivitiesSectionProps = {
 function toDateOnly(value: string | null | undefined): string {
   if (!value) return ''
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
+  return Number.isNaN(date.getTime()) ? '' : todayInZone(undefined, date)
 }
 
 function normalizeLegacyActivity(activity: ActivitySummary): InteractionSummary {

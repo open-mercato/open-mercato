@@ -33,6 +33,7 @@ import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components/PortalCard'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import {
   ATTACHMENT_ACCEPT_TYPES,
   validateAttachmentFile,
@@ -215,13 +216,7 @@ function defaultQuantity(value: string | number | null | undefined): string {
 
 function formatDate(value: string | null, fallback: string, locale: string): string {
   if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(locale || undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+  return formatDisplayDate(value, locale || undefined) ?? value
 }
 
 function formatQuantity(value: string | number | null | undefined, fallback: string, locale: string): string {

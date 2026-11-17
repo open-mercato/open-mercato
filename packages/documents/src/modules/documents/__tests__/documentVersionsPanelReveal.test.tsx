@@ -34,7 +34,7 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: jest.fn(async () => false), ConfirmDialogElement: null }),
 }))
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => translate }))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useLocale: () => 'en', useT: () => translate }))
 jest.mock('@open-mercato/ui/primitives/link-button', () => ({ LinkButton: () => null }))
 jest.mock('@open-mercato/ui/primitives/tooltip', () => ({
   SimpleTooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,

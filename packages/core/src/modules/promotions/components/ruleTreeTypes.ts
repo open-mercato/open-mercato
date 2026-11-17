@@ -14,6 +14,7 @@
 // the write-path allow-list (the hidden types, including `delivery_discount`, are never
 // referenced here).
 
+import { todayInZone } from '@open-mercato/ui/primitives/date-format'
 import {
   RELEASE_4_SHIPPED_RULE_TYPES,
   RELEASE_4_SHIPPED_BENEFIT_TYPES,
@@ -113,7 +114,7 @@ export function buildDefaultRuleConfig(ruleType: RuleTypeId): Record<string, unk
     case 'order_value':
       return { value: '0', operator: 'eq', taxInclusive: false, limitToCategory: null }
     case 'order_date':
-      return { date: new Date().toISOString().slice(0, 10), operator: 'eq' }
+      return { date: todayInZone(), operator: 'eq' }
     case 'product_count':
       return { value: 0, operator: 'eq' }
     case 'row_total':

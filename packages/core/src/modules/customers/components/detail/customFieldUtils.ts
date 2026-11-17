@@ -1,6 +1,6 @@
 "use client"
 
-import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDate, formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 
 function stripCustomFieldPrefix(value: string): string {
   return value.replace(/^(?:cf|Cf)(?:[_:\s-]+)/, '')
@@ -68,6 +68,7 @@ export function isEmptyCustomValue(value: unknown): boolean {
 
 const DATE_FIELD_KINDS = new Set(['date', 'datetime'])
 const ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}([T ]|$)/
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export function stringifyCustomValue(value: unknown, options?: { kind?: string }): string {
   if (value === null || value === undefined) return ''
@@ -80,7 +81,7 @@ export function stringifyCustomValue(value: unknown, options?: { kind?: string }
   }
   if (value instanceof Date) {
     const iso = value.toISOString()
-    return formatDateTime(iso) ?? iso
+    return formatDisplayDateTime(iso) ?? iso
   }
   if (typeof value === 'string') {
     const trimmed = value.trim()
@@ -91,7 +92,7 @@ export function stringifyCustomValue(value: unknown, options?: { kind?: string }
     // to mangle plain text such as "Report 2024" into a date.
     const kind = options?.kind
     if (kind ? DATE_FIELD_KINDS.has(kind) : ISO_DATE_PREFIX_RE.test(trimmed)) {
-      return formatDateTime(trimmed) ?? trimmed
+      return (DATE_ONLY_RE.test(trimmed) ? formatDisplayDate(trimmed) : formatDisplayDateTime(trimmed)) ?? trimmed
     }
     return trimmed
   }

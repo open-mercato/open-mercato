@@ -7,7 +7,7 @@ import { PipelineStepper } from '../PipelineStepper'
 
 describe('PipelineStepper', () => {
   const formatTransitionDate = (value: string) =>
-    new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(value))
 
   it('renders achieved stage dates and marks the current stage like the detail mockup', () => {
     const qualificationDate = formatTransitionDate('2026-03-12T09:00:00.000Z')

@@ -2,10 +2,11 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 
 type EntitlementClaim = {
   id?: string | null
@@ -60,18 +61,13 @@ function statusVariant(status: string | null | undefined): StatusBadgeVariant {
   return 'neutral'
 }
 
-function formatDateLabel(value: string, fallback: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return fallback
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
+function formatDateLabel(value: string, fallback: string, locale: string): string {
+  return formatDisplayDate(value, locale || undefined) ?? fallback
 }
 
 export function EntitlementLookupBadge({ claim, lines }: EntitlementLookupBadgeProps) {
   const t = useT()
+  const locale = useLocale()
   const query = buildEntitlementQuery(claim, lines)
   const [debouncedQuery, setDebouncedQuery] = React.useState<string | null>(query)
   const [result, setResult] = React.useState<EntitlementResult | null>(null)
@@ -163,7 +159,7 @@ export function EntitlementLookupBadge({ claim, lines }: EntitlementLookupBadgeP
       {result.expiresAt ? (
         <span className="text-xs text-muted-foreground">
           {t('warranty_claims.entitlement.expiresAt', 'Expires {date}', {
-            date: formatDateLabel(result.expiresAt, result.expiresAt),
+            date: formatDateLabel(result.expiresAt, result.expiresAt, locale),
           })}
         </span>
       ) : null}

@@ -12,7 +12,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -47,6 +48,7 @@ type ResponsePayload = {
 
 export default function ExchangeRatesPage() {
   const t = useT()
+  const locale = useLocale()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [rows, setRows] = React.useState<ExchangeRateRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -187,13 +189,7 @@ export default function ExchangeRatesPage() {
     {
       accessorKey: 'date',
       header: t('exchangeRates.list.columns.date'),
-      cell: ({ row }) => new Date(row.original.date).toLocaleString(undefined, {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-      }),
+      cell: ({ row }) => formatDisplayDateTime(row.original.date, locale) ?? '—',
     },
       {
         accessorKey: 'source',
@@ -224,7 +220,7 @@ export default function ExchangeRatesPage() {
         header: t('exchangeRates.list.columns.createdAt'),
         cell: ({ row }) => {
           const date = row.original.createdAt
-          return date ? new Date(date).toLocaleString() : '—'
+          return formatDisplayDateTime(date, locale) ?? '—'
         },
       },
       {
@@ -232,11 +228,11 @@ export default function ExchangeRatesPage() {
         header: t('exchangeRates.list.columns.updatedAt'),
         cell: ({ row }) => {
           const date = row.original.updatedAt
-          return date ? new Date(date).toLocaleString() : '—'
+          return formatDisplayDateTime(date, locale) ?? '—'
         },
       },
     ],
-    [t]
+    [locale, t]
   )
 
   const filterDefs = React.useMemo<FilterDef[]>(

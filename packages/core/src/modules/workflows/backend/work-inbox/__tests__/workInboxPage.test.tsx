@@ -24,6 +24,7 @@ const mockTranslate = (key: string, fallbackOrVars?: unknown) =>
   typeof fallbackOrVars === 'string' ? fallbackOrVars : key
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => 'en',
   useT: () => mockTranslate,
 }))
 

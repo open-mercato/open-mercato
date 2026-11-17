@@ -21,6 +21,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { SortingState } from '@tanstack/react-table'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { formatDisplayDate, formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import {
   riskConclusionBadgeVariant,
   riskTierBadgeVariant,
@@ -59,16 +60,12 @@ type MutationContext = {
 
 function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleString(locale || undefined)
+  return formatDisplayDateTime(value, locale || undefined) ?? emptyLabel
 }
 
 function formatDate(value: string | null | undefined, emptyLabel: string, locale: string): string {
   if (!value) return emptyLabel
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return emptyLabel
-  return date.toLocaleDateString(locale || undefined)
+  return formatDisplayDate(value, locale || undefined) ?? emptyLabel
 }
 
 function isOverdue(value: string | null | undefined): boolean {

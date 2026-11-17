@@ -10,6 +10,7 @@ import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useDateLocaleSettings } from '@open-mercato/ui/primitives/date-locale-settings'
 import { eventDisplayTitle, pluralCategory } from '../../lib/calendar/labels'
 import { formatTimeLabel, formatTimeRangeLabel } from '../../lib/calendar/format'
 import type { AgendaListProps, CalendarCategory, CalendarItem } from './types'
@@ -114,6 +115,7 @@ function AgendaRow({
 }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const canceled = item.status === 'canceled'
   const done = item.status === 'done'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
@@ -129,9 +131,9 @@ function AgendaRow({
     : item.locationKind === 'url' && item.location
       ? formatUrlHost(item.location)
       : item.location
-  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTimeLabel(locale, item.start)
-  const endLabel = item.allDay ? null : formatTimeLabel(locale, item.end)
-  const ariaTime = item.allDay ? startLabel : formatTimeRangeLabel(locale, item.start, item.end)
+  const startLabel = item.allDay ? t('customers.calendar.grid.allDay', 'All day') : formatTimeLabel(locale, item.start, dateSettings)
+  const endLabel = item.allDay ? null : formatTimeLabel(locale, item.end, dateSettings)
+  const ariaTime = item.allDay ? startLabel : formatTimeRangeLabel(locale, item.start, item.end, dateSettings)
   return (
     <Button
       type="button"

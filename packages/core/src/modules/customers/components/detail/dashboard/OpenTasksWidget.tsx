@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { CheckCircle2, AlertCircle, ArrowUpRight } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDisplayDate } from '@open-mercato/ui/primitives/date-format'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import type { TodoLinkSummary } from '../../formConfig'
@@ -32,6 +34,7 @@ export function OpenTasksWidget({
   t: TranslateFnWithParams
   onViewAll: () => void
 }) {
+  const locale = useLocale()
   const [taskFilter, setTaskFilter] = React.useState<'all' | 'mine' | 'overdue'>('all')
   const overdueTasks = tasks.filter((task) => isOverdue(task.dueAt))
   const mineTasks = currentUserId
@@ -95,7 +98,7 @@ export function OpenTasksWidget({
                     {overdue && <AlertCircle className="mr-1 inline size-3" />}
                     {overdue
                       ? t('customers.companies.dashboard.overdueBy', 'Overdue by {{days}} days', { days: Math.ceil((Date.now() - new Date(task.dueAt).getTime()) / 86_400_000) })
-                      : t('customers.companies.dashboard.dueOn', 'Due: {{date}}', { date: new Date(task.dueAt).toLocaleDateString() })
+                      : t('customers.companies.dashboard.dueOn', 'Due: {{date}}', { date: formatDisplayDate(task.dueAt, locale) ?? '' })
                     }
                   </p>
                 )}

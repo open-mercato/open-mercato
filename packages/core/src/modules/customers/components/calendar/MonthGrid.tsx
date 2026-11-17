@@ -8,6 +8,8 @@ import { isToday } from 'date-fns/isToday'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useDateLocaleSettings, useWeekStartsOn } from '@open-mercato/ui/primitives/date-locale-settings'
+import type { FirstDayOfWeek } from '@open-mercato/shared/lib/date-locale/types'
 import { getVisibleRange } from '../../lib/calendar/range'
 import { eventDisplayTitle } from '../../lib/calendar/labels'
 import { formatTimeRangeLabel } from '../../lib/calendar/format'
@@ -29,8 +31,8 @@ function isWeekend(date: Date): boolean {
   return weekday === 0 || weekday === 6
 }
 
-function buildWeeks(anchor: Date): Date[][] {
-  const range = getVisibleRange('month', anchor, 0)
+function buildWeeks(anchor: Date, weekStartsOn: FirstDayOfWeek): Date[][] {
+  const range = getVisibleRange('month', anchor, 0, weekStartsOn)
   const weeks: Date[][] = []
   let cursor = range.from
   while (cursor.getTime() <= range.to.getTime()) {
@@ -59,9 +61,10 @@ function groupItemsByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
 function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (item: CalendarItem) => void }) {
   const t = useT()
   const locale = useLocale()
+  const dateSettings = useDateLocaleSettings()
   const canceled = item.status === 'canceled'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
-  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end)}`
+  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end, dateSettings)}`
   const tintStyle = item.color
     ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: item.color }
     : undefined
@@ -186,7 +189,8 @@ function MonthDayCell({
 export function MonthGrid({ anchor, items, onItemClick, onDayOpen }: MonthGridProps) {
   const t = useT()
   const locale = useLocale()
-  const weeks = React.useMemo(() => buildWeeks(anchor), [anchor])
+  const weekStartsOn = useWeekStartsOn()
+  const weeks = React.useMemo(() => buildWeeks(anchor, weekStartsOn), [anchor, weekStartsOn])
   const itemsByDay = React.useMemo(() => groupItemsByDay(items), [items])
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background">

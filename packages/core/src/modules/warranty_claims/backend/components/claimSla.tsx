@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatRelativeTime } from '@open-mercato/shared/lib/time'
+import { formatDisplayDateTime } from '@open-mercato/ui/primitives/date-format'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 
 export type ClaimSlaTier = 'none' | 'ok' | 'at_risk' | 'overdue' | 'paused'
@@ -111,7 +112,7 @@ export function ClaimSlaIndicator({
     )
   }
   const relative = formatRelativeTime(state.dueAt ? state.dueAt.toISOString() : null, { locale })
-  const absolute = formatDateTime(state.dueAt ? state.dueAt.toISOString() : null)
+  const absolute = formatDisplayDateTime(state.dueAt ? state.dueAt.toISOString() : null)
   const prefix =
     state.tier === 'overdue'
       ? `${t('warranty_claims.sla.overdue')} — `
