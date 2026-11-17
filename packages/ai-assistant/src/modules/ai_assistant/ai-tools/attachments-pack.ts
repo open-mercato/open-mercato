@@ -11,6 +11,8 @@ import { z } from 'zod'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { defineAiTool } from '../lib/ai-tool-definition'
 import type { AiToolDefinition } from '../lib/types'
+import { filterAttachmentRowsByOwnerAccess } from '../lib/attachment-owner-access'
+import { resolveAttachmentTransferDeniedMessage } from '../lib/pending-action-messages'
 
 type AttachmentMetadataModule = {
   readAttachmentMetadata: (raw: unknown) => {
@@ -53,7 +55,7 @@ type AttachmentRow = {
   content?: string | null
   tenantId?: string | null
   organizationId?: string | null
-  partitionCode?: string
+  partitionCode: string
   createdAt?: Date
 }
 
@@ -101,11 +103,12 @@ const listRecordAttachmentsTool = defineAiTool({
       { orderBy: { createdAt: 'desc' } as any },
       { tenantId, organizationId: ctx.organizationId },
     )) as AttachmentRow[]
+    const { allowed } = await filterAttachmentRowsByOwnerAccess(ctx, rows, 'metadata')
     return {
       entityType: input.entityType,
       recordId: input.recordId,
-      total: rows.length,
-      items: rows.map((row) => ({
+      total: allowed.length,
+      items: allowed.map((row) => ({
         id: row.id,
         entityType: row.entityId,
         recordId: row.recordId,
@@ -152,6 +155,13 @@ const readAttachmentTool = defineAiTool({
     )) as AttachmentRow | null
     if (!row) {
       return { found: false as const, attachmentId: input.attachmentId }
+    }
+    const actions = input.includeExtractedText === true ? (['metadata', 'read'] as const) : (['metadata'] as const)
+    for (const action of actions) {
+      const { allowed } = await filterAttachmentRowsByOwnerAccess(ctx, [row], action)
+      if (allowed.length === 0) {
+        return { found: false as const, attachmentId: input.attachmentId }
+      }
     }
     const metadata = readAttachmentMetadata(row.storageMetadata)
     return {
@@ -206,6 +216,7 @@ const transferRecordAttachmentsTool = defineAiTool({
     const em = resolveEm(ctx)
     const Attachment = await loadAttachmentEntity()
     const { readAttachmentMetadata, mergeAttachmentMetadata } = await loadAttachmentMetadata()
+    const { ATTACHMENT_ROW_WRITE_LOCK } = await import('@open-mercato/core/modules/attachments/lib/access-rows')
     const where: Record<string, unknown> = {
       entityId: input.fromEntityType,
       recordId: input.fromRecordId,
@@ -215,48 +226,60 @@ const transferRecordAttachmentsTool = defineAiTool({
     if (input.attachmentIds && input.attachmentIds.length > 0) {
       where.id = { $in: input.attachmentIds }
     }
-    const rows = (await findWithDecryption<AttachmentRow>(
-      em,
-      Attachment as unknown as new () => AttachmentRow,
-      where,
-      undefined,
-      { tenantId, organizationId: ctx.organizationId },
-    )) as AttachmentRow[]
-    if (!rows.length) {
+    return em.transactional(async (tx) => {
+      const principal = { ...ctx, em: tx }
+      const loadedRows = (await findWithDecryption<AttachmentRow>(
+        tx,
+        Attachment as unknown as new () => AttachmentRow,
+        where,
+        ATTACHMENT_ROW_WRITE_LOCK,
+        { tenantId, organizationId: ctx.organizationId },
+      )) as AttachmentRow[]
+      const { allowed: rows } = await filterAttachmentRowsByOwnerAccess(principal, loadedRows, 'metadata')
+      const { denied } = await filterAttachmentRowsByOwnerAccess(principal, rows, 'reassign', {
+        entityId: input.toEntityType,
+        recordId: input.toRecordId,
+        moveAssignments: true,
+      })
+      if (denied.length > 0) {
+        throw new Error(await resolveAttachmentTransferDeniedMessage())
+      }
+      if (!rows.length) {
+        return {
+          transferred: 0,
+          fromEntityType: input.fromEntityType,
+          fromRecordId: input.fromRecordId,
+          toEntityType: input.toEntityType,
+          toRecordId: input.toRecordId,
+        }
+      }
+      for (const row of rows) {
+        const previousRecordId = row.recordId
+        row.recordId = input.toRecordId
+        const metadata = readAttachmentMetadata(row.storageMetadata)
+        const nextAssignments =
+          metadata.assignments?.map((assignment) => {
+            const matchesType = assignment.type === input.fromEntityType
+            const matchesRecord = assignment.id === previousRecordId
+            if (matchesType && matchesRecord) {
+              return { ...assignment, id: input.toRecordId }
+            }
+            return assignment
+          }) ?? []
+        row.storageMetadata = mergeAttachmentMetadata(row.storageMetadata, {
+          assignments: nextAssignments,
+        })
+      }
+      await tx.persist(rows).flush()
       return {
-        transferred: 0,
+        transferred: rows.length,
         fromEntityType: input.fromEntityType,
         fromRecordId: input.fromRecordId,
         toEntityType: input.toEntityType,
         toRecordId: input.toRecordId,
+        attachmentIds: rows.map((row) => row.id),
       }
-    }
-    for (const row of rows) {
-      const previousRecordId = row.recordId
-      row.recordId = input.toRecordId
-      const metadata = readAttachmentMetadata(row.storageMetadata)
-      const nextAssignments =
-        metadata.assignments?.map((assignment) => {
-          const matchesType = assignment.type === input.fromEntityType
-          const matchesRecord = assignment.id === previousRecordId
-          if (matchesType && matchesRecord) {
-            return { ...assignment, id: input.toRecordId }
-          }
-          return assignment
-        }) ?? []
-      row.storageMetadata = mergeAttachmentMetadata(row.storageMetadata, {
-        assignments: nextAssignments,
-      })
-    }
-    await em.persist(rows).flush()
-    return {
-      transferred: rows.length,
-      fromEntityType: input.fromEntityType,
-      fromRecordId: input.fromRecordId,
-      toEntityType: input.toEntityType,
-      toRecordId: input.toRecordId,
-      attachmentIds: rows.map((row) => row.id),
-    }
+    })
   },
 })
 

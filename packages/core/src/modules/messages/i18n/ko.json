@@ -113,6 +113,7 @@
   "messages.email.viewCta": "메시지 보기",
   "messages.errors.actionFailed": "작업을 실행하지 못했습니다.",
   "messages.errors.archiveSenderMessageUnsupported": "본인이 보낸 메시지는 보관할 수 없습니다.",
+  "messages.errors.attachmentAccessDenied": "이 파일 중 하나 이상을 첨부할 수 없습니다.",
   "messages.errors.conversationActionFailed": "대화 업데이트에 실패했습니다.",
   "messages.errors.conversationHasNoChannelThread": "이 대화에는 메시지를 전달할 채널 스레드가 없습니다",
   "messages.errors.deleteFailed": "메시지 삭제에 실패했습니다.",

@@ -22,6 +22,7 @@ import {
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { AttachmentTargetAccessService } from '@open-mercato/core/modules/attachments/lib/target-access-service'
+import { buildAttachmentAccessAuth } from '@open-mercato/core/modules/attachments'
 import { buildWarrantyClaimTriageSuggestion } from './lib/triage'
 
 export interface WarrantyClaimsToolContext {
@@ -32,6 +33,8 @@ export interface WarrantyClaimsToolContext {
   userFeatures: string[]
   isSuperAdmin: boolean
   apiKeySecret?: string
+  apiKeyId?: string | null
+  apiKeyUserId?: string | null
   sessionId?: string
   approvedPendingActionId?: string
 }
@@ -110,6 +113,8 @@ function buildAttachmentAuthContext(ctx: WarrantyClaimsToolContext, scope: Scope
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     userId: ctx.userId,
+    apiKeyId: ctx.apiKeyId ?? null,
+    apiKeyUserId: ctx.apiKeyUserId ?? null,
     features: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
   }
@@ -119,16 +124,18 @@ function buildAttachmentRecordAuthContext(
   ctx: WarrantyClaimsToolContext,
   scope: Scope,
 ): Exclude<AuthContext, null> {
-  if (!ctx.userId) {
+  const auth = buildAttachmentAccessAuth({
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: ctx.userId,
+    apiKeyId: ctx.apiKeyId,
+    apiKeyUserId: ctx.apiKeyUserId,
+    isSuperAdmin: ctx.isSuperAdmin,
+  })
+  if (!auth) {
     throw new Error('[internal] User context is required for warranty_claims attachment-aware tools.')
   }
-  return {
-    sub: ctx.userId,
-    userId: ctx.userId,
-    tenantId: scope.tenantId,
-    orgId: scope.organizationId,
-    isSuperAdmin: ctx.isSuperAdmin,
-  }
+  return auth
 }
 
 async function assertAttachmentLinkedToClaim(

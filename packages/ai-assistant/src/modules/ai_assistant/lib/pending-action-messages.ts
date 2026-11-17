@@ -1,6 +1,8 @@
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const TOOL_FEATURES_DENIED_MESSAGE_FALLBACK = "Caller lacks one of the tool's required features: {features}"
+const ATTACHMENT_TRANSFER_DENIED_MESSAGE_FALLBACK = 'You cannot move one or more of these attachments.'
+const ATTACHMENT_ACCESS_DENIED_MESSAGE_FALLBACK = 'You do not have access to one or more of these attachments.'
 
 /**
  * Localized message for the `tool_features_denied` refusal, shared by the
@@ -12,6 +14,16 @@ export async function resolveToolFeaturesDeniedMessage(requiredFeatures: string[
   return translate('ai_assistant.errors.toolFeaturesDenied', TOOL_FEATURES_DENIED_MESSAGE_FALLBACK, {
     features: requiredFeatures.join(', '),
   })
+}
+
+export async function resolveAttachmentTransferDeniedMessage(): Promise<string> {
+  const { translate } = await resolveTranslations()
+  return translate('ai_assistant.errors.attachmentTransferDenied', ATTACHMENT_TRANSFER_DENIED_MESSAGE_FALLBACK)
+}
+
+export async function resolveAttachmentAccessDeniedMessage(): Promise<string> {
+  const { translate } = await resolveTranslations()
+  return translate('ai_assistant.errors.attachmentAccessDenied', ATTACHMENT_ACCESS_DENIED_MESSAGE_FALLBACK)
 }
 
 export async function resolvePendingActionAlreadyResolvedMessage(): Promise<string> {

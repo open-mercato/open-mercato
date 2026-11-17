@@ -1,4 +1,4 @@
-import { generateObject, generateText } from 'ai'
+import { convertToModelMessages, generateObject, generateText, type UIMessage } from 'ai'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
@@ -14,6 +14,8 @@ import {
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../data/entities'
 import type {
   WarrantyClaimDisposition,
@@ -27,6 +29,7 @@ import type {
 } from '../data/validators'
 
 const MODULE_ID = 'warranty_claims'
+const logger = createLogger(MODULE_ID)
 const AI_TIMEOUT_MS = 30_000
 
 type GenerateTextModel = Parameters<typeof generateText>[0]['model']
@@ -377,6 +380,14 @@ function resolveWarrantyObjectModel(container: AwilixContainer): GenerateObjectM
   return resolveWarrantyModel(container) as GenerateObjectModel
 }
 
+export const ATTACHMENT_CONVERSION_FAILED_CODE = 'warranty_claims.ai_attachment_conversion_failed'
+
+function readErrorCode(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null) return undefined
+  const code = (err as { code?: unknown }).code
+  return typeof code === 'string' ? code : undefined
+}
+
 async function buildAttachmentMessages(input: {
   container: AwilixContainer
   attachmentId: string
@@ -394,15 +405,33 @@ async function buildAttachmentMessages(input: {
   if (fileParts.length === 0) {
     throw new WarrantyAiUnavailableError('[internal] warranty ai attachment content unavailable')
   }
-  return [
-    {
-      role: 'user',
-      content: [
-        { type: 'text', text: input.prompt },
-        ...fileParts,
-      ],
-    },
-  ] as GenerateObjectMessages
+  try {
+    return await toWarrantyModelMessages(input.prompt, fileParts)
+  } catch (err) {
+    logger.warn('warranty_claims.ai.attachment_conversion_failed', {
+      attachmentId: input.attachmentId,
+      errorName: err instanceof Error ? err.name : typeof err,
+      errorCode: readErrorCode(err),
+    })
+    getTelemetryRuntime()?.reportError(err, {
+      module: MODULE_ID,
+      code: ATTACHMENT_CONVERSION_FAILED_CODE,
+      attributes: { attachmentId: input.attachmentId },
+    })
+    throw new WarrantyAiUnavailableError('[internal] warranty ai attachment conversion failed')
+  }
+}
+
+export async function toWarrantyModelMessages(
+  prompt: string,
+  fileParts: ReturnType<typeof attachmentPartsToUiFileParts>,
+): Promise<GenerateObjectMessages> {
+  const message: UIMessage = {
+    id: 'warranty-ai-attachment',
+    role: 'user',
+    parts: [{ type: 'text', text: prompt }, ...fileParts],
+  }
+  return convertToModelMessages([message])
 }
 
 async function generateWarrantyObject<T extends Record<string, unknown>>(input: {

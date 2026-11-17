@@ -40,6 +40,8 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
   let userId: string | null = null
   let userFeatures: string[] = []
   let isSuperAdmin = false
+  let apiKeyId: string | undefined
+  let apiKeyUserId: string | undefined
 
   // API key authentication takes precedence
   if (apiKeySecret) {
@@ -52,6 +54,8 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     userId = authResult.userId
     userFeatures = authResult.features
     isSuperAdmin = authResult.isSuperAdmin
+    apiKeyId = authResult.keyId
+    apiKeyUserId = authResult.apiKeyUserId
     writeStderrLine(`[MCP Server] Authenticated via API key: ${authResult.keyName}`)
   } else if (context && context.userId) {
     // Manual context with a real user — load that user's ACL.
@@ -105,6 +109,8 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     userFeatures,
     isSuperAdmin,
     apiKeySecret,
+    ...(apiKeyId ? { apiKeyId } : {}),
+    ...(apiKeyId && apiKeyUserId ? { apiKeyUserId } : {}),
   }
 
   const server = new Server(

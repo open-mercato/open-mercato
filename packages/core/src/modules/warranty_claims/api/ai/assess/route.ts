@@ -15,6 +15,7 @@ import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mer
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
+import { resolveRequestApiKeyPrincipal } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-key-principal'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AttachmentTargetAccessService } from '@open-mercato/core/modules/attachments/lib/target-access-service'
 import { WarrantyClaimLine } from '../../../data/entities'
@@ -109,7 +110,7 @@ function isSuperAdmin(auth: CommandRuntimeContext['auth']): boolean {
   return Boolean(auth && toRecord(auth).isSuperAdmin === true)
 }
 
-function buildAuthContext(context: AssessRouteContext): AiChatRequestContext {
+async function buildAuthContext(context: AssessRouteContext): Promise<AiChatRequestContext> {
   const userId = context.ctx.auth?.sub
   if (!userId) {
     throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
@@ -118,6 +119,7 @@ function buildAuthContext(context: AssessRouteContext): AiChatRequestContext {
     tenantId: context.tenantId,
     organizationId: context.organizationId,
     userId,
+    ...(await resolveRequestApiKeyPrincipal(context.container, context.ctx.auth ?? null)),
     features: [],
     isSuperAdmin: isSuperAdmin(context.ctx.auth),
   }
@@ -318,7 +320,7 @@ export async function POST(req: Request) {
         claimId: input.claimId,
         lineId: input.lineId,
         attachmentId: input.attachmentId,
-        authContext: buildAuthContext(context),
+        authContext: await buildAuthContext(context),
       })
       await persistAssessmentPayload(context, line, 'damage', assessment, input.updatedAt)
       await guarded?.runAfterSuccess()
@@ -337,7 +339,7 @@ export async function POST(req: Request) {
       container: context.container,
       scope,
       attachmentId: input.attachmentId,
-      authContext: buildAuthContext(context),
+      authContext: await buildAuthContext(context),
     })
     if (line) {
       await persistAssessmentPayload(context, line, 'proof', extraction, input.updatedAt)

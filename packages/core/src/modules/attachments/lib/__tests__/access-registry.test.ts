@@ -1,3 +1,4 @@
+import { BOOTSTRAP_REGISTRATIONS_FAILED_KEY, markBootstrapRegistrationsFailed } from '@open-mercato/shared/lib/bootstrap/bootstrapRegistrations'
 import {
   collectAttachmentAccessTargets,
   getAttachmentAccessRegistry,
@@ -18,6 +19,17 @@ const record: AttachmentAccessRecord = {
 
 beforeEach(() => registerAttachmentAccessResolvers([]))
 afterEach(() => registerAttachmentAccessResolvers([]))
+
+describe('failed bootstrap registrations', () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[BOOTSTRAP_REGISTRATIONS_FAILED_KEY]
+  })
+
+  it('treats the registry as invalid even when nothing was registered', () => {
+    markBootstrapRegistrationsFailed()
+    expect(getAttachmentAccessRegistry()).toMatchObject({ invalid: true, resolvers: [], protectedTargets: [] })
+  })
+})
 
 describe('attachment access registry', () => {
   it('orders by priority, then module and declaration order without replacing matched policies', () => {
@@ -58,7 +70,9 @@ describe('attachment access registry', () => {
   ])('fails closed on invalid/duplicate registration %#', (entry) => {
     registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [resolver('documents.previous')] }])
     expect(() => registerAttachmentAccessResolvers([entry])).toThrow()
-    expect(getAttachmentAccessRegistry()).toEqual({ invalid: true, resolvers: [], protectedTargets: [] })
+    expect(getAttachmentAccessRegistry()).toEqual({
+      invalid: true, resolvers: [], protectedTargets: [], ownerAccessEnforcingModules: [],
+    })
   })
 })
 

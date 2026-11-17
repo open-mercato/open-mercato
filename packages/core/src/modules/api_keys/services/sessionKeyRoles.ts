@@ -1,10 +1,32 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ApiKey } from '../data/entities'
-import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export function isSessionBoundApiKey(key: ApiKey): boolean {
   return Boolean(key.sessionTokenHash || key.sessionUserId || key.sessionSecretEncrypted || key.opencodeSessionId)
+}
+
+/**
+ * Returns the user a session-bound key acts for, verified as API-key authentication
+ * verifies it: not deleted, confirmed, and in the key's tenant and organization.
+ * Regular keys and session keys whose user fails verification return null.
+ */
+export async function resolveVerifiedSessionKeyUserId(em: EntityManager, key: ApiKey): Promise<string | null> {
+  if (!isSessionBoundApiKey(key)) return null
+  const userId = key.sessionUserId?.trim()
+  if (!userId) return null
+  const tenantId = key.tenantId ?? null
+  const organizationId = key.organizationId ?? null
+  const user = await findOneWithDecryption(em, User, {
+    id: userId,
+    deletedAt: null,
+    isConfirmed: true,
+    tenantId,
+    organizationId,
+  }, { refresh: true }, { tenantId, organizationId })
+  if (!user || (user.tenantId ?? null) !== tenantId || (user.organizationId ?? null) !== organizationId) return null
+  return userId
 }
 
 export async function resolveApiKeyRoleIds(

@@ -16,6 +16,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
 }))
 
+const resolveRequestApiKeyPrincipalMock = jest.fn()
+
+jest.mock('../../../../../../lib/api-key-principal', () => ({
+  resolveRequestApiKeyPrincipal: (...args: unknown[]) => resolveRequestApiKeyPrincipalMock(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
@@ -23,6 +29,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => attachmentFindMock(...args),
   findOneWithDecryption: jest.fn(),
+}))
+
+const filterAttachmentRowsByOwnerAccessMock = jest.fn(async (_principal: unknown, rows: unknown[]) => ({ allowed: rows, denied: [] }))
+
+jest.mock('../../../../../../lib/attachment-owner-access', () => ({
+  filterAttachmentRowsByOwnerAccess: (...args: [unknown, unknown[]]) => filterAttachmentRowsByOwnerAccessMock(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
@@ -193,6 +205,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     getAgentMock.mockReturnValue(makeAgent())
     getToolMock.mockReturnValue(makeTool())
     attachmentFindMock.mockResolvedValue([])
+    resolveRequestApiKeyPrincipalMock.mockResolvedValue({})
 
     repoSetStatusMock.mockImplementation(async (id: string, status: string, _scope: unknown, extra?: any) => {
       return { ...makeRow({ id, status }), ...(extra?.executionResult ? { executionResult: extra.executionResult } : {}) }
@@ -218,6 +231,36 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(body.ok).toBe(true)
     expect(body.pendingAction.status).toBe('confirmed')
     expect(body.mutationResult).toEqual({ recordId: 'p-1', commandName: 'catalog.product.update' })
+  })
+
+  it('confirms with the key principal of a key-authenticated request', async () => {
+    const tool = makeTool()
+    getToolMock.mockReturnValue(tool)
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1', orgId: 'org-1' }
+    authMock.mockResolvedValue(keyAuth)
+    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+
+    const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(200)
+    expect(resolveRequestApiKeyPrincipalMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
+    expect(tool.handler).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: 'api_key:key-1', apiKeyId: 'key-1', apiKeyUserId: 'user-1' }))
+  })
+
+  it('rechecks attachments with the key principal of a key-authenticated request', async () => {
+    repoGetByIdMock.mockResolvedValueOnce(makeRow({ attachmentIds: ['a-1'] }))
+    attachmentFindMock.mockResolvedValue([{ id: 'a-1', tenantId: 'tenant-1', organizationId: 'org-1' }])
+    authMock.mockResolvedValue({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+
+    await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
+
+    expect(filterAttachmentRowsByOwnerAccessMock).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' }),
+      expect.anything(),
+      'read',
+    )
   })
 
   it('409 invalid_status: already cancelled', async () => {

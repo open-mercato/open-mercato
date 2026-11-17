@@ -24,6 +24,12 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+const resolveRequestApiKeyPrincipalMock = jest.fn()
+
+jest.mock('../../../../lib/api-key-principal', () => ({
+  resolveRequestApiKeyPrincipal: (...args: unknown[]) => resolveRequestApiKeyPrincipalMock(...args),
+}))
+
 jest.mock('../../../../lib/tool-loader', () => ({
   loadAllModuleTools: (...args: unknown[]) => loadAllModuleToolsMock(...args),
 }))
@@ -58,9 +64,23 @@ describe('POST /api/ai_assistant/tools/execute approval boundary', () => {
     loadAclMock.mockResolvedValue({ features: ['test.records.manage'], isSuperAdmin: false })
     resolveMock.mockReturnValue({ loadAcl: loadAclMock })
     loadAllModuleToolsMock.mockResolvedValue(undefined)
+    resolveRequestApiKeyPrincipalMock.mockResolvedValue({})
   })
 
   afterEach(() => toolRegistry.clear())
+
+  it('passes the key principal of a key-authenticated request to read tools', async () => {
+    const handler = registerTool(false)
+    const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1', orgId: 'org-1' }
+    authMock.mockResolvedValue(keyAuth)
+    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+
+    const response = await POST(request({ toolName: 'test.direct_execution', args: { title: 'Read' } }))
+
+    expect(response.status).toBe(200)
+    expect(resolveRequestApiKeyPrincipalMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
+    expect(handler).toHaveBeenCalledWith({ title: 'Read' }, expect.objectContaining({ userId: 'api_key:key-1', apiKeyId: 'key-1', apiKeyUserId: 'user-1' }))
+  })
 
   it.each([false, true])('refuses mutations before their handler runs (superadmin=%s)', async (isSuperAdmin) => {
     const handler = registerTool(true)

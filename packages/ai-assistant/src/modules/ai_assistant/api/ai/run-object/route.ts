@@ -10,6 +10,7 @@ import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import { runAiAgentObject } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { resolveRequestApiKeyPrincipal } from '../../../lib/api-key-principal'
 
 const logger = createLogger('ai_assistant')
 
@@ -174,6 +175,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
         userId: auth.sub,
+        ...(await resolveRequestApiKeyPrincipal(container, auth)),
         features: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
       },

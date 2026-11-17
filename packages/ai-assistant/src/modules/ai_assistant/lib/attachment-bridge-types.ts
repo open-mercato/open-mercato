@@ -19,6 +19,10 @@ export interface AiChatRequestContext {
   tenantId: string | null
   organizationId: string | null
   userId: string
+  /** Set for key-authenticated calls. */
+  apiKeyId?: string | null
+  /** The verified user a session-bound `apiKeyId` acts for. */
+  apiKeyUserId?: string | null
   features: string[]
   isSuperAdmin: boolean
 }

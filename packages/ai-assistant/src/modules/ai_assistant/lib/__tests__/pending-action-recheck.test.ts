@@ -18,7 +18,9 @@ import type { AiPendingAction } from '../../data/entities'
 const findWithDecryptionMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+  findWithDecryption: (em: unknown, entity: unknown, ...rest: unknown[]) => (
+    (entity as { name?: string } | undefined)?.name === 'AttachmentPartition' ? Promise.resolve([]) : findWithDecryptionMock(em, entity, ...rest)
+  ),
   findOneWithDecryption: jest.fn(),
 }))
 
@@ -100,11 +102,11 @@ function makeCtx(overrides: Partial<PendingActionAuthContext> = {}): PendingActi
     isSuperAdmin: false,
     container: {
       resolve: (name: string) => {
-        if (name === 'em') return {}
+        if (name === 'em') return { find: async () => [] }
         throw new Error(`unknown dep ${name}`)
       },
     } as unknown as AwilixContainer,
-    em: {} as never,
+    em: { find: async () => [] } as never,
     ...overrides,
   }
 }

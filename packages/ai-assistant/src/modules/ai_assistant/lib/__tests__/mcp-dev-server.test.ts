@@ -1,4 +1,22 @@
-import { isMatchingApiKey } from '../mcp-dev-server'
+import { buildDevToolContext, isMatchingApiKey } from '../mcp-dev-server'
+
+describe('buildDevToolContext', () => {
+  const authResult = {
+    success: true as const, tenantId: 'tenant-1', organizationId: 'org-1', userId: 'creator-1',
+    keyId: 'key-1', features: [], isSuperAdmin: false,
+  }
+
+  test('carries the key so a regular key is evaluated as the key', () => {
+    const context = buildDevToolContext(authResult as never, {} as never, 'omk_secret', 'session-1')
+    expect(context).toMatchObject({ apiKeyId: 'key-1', sessionId: 'session-1' })
+    expect(context).not.toHaveProperty('apiKeyUserId')
+  })
+
+  test('carries the verified user of a session key', () => {
+    const context = buildDevToolContext({ ...authResult, apiKeyUserId: 'user-1' } as never, {} as never, 'omk_secret', 'session-1')
+    expect(context).toMatchObject({ apiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+  })
+})
 
 describe('isMatchingApiKey', () => {
   test('accepts an exact match', () => {

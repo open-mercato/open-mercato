@@ -17,6 +17,7 @@ import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { resolveVerifiedSessionKeyUserId } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 
 const logger = createLogger('ai_assistant').child({ component: 'mcp-http' })
@@ -44,7 +45,7 @@ export type McpHttpServerOptions = {
  * Returns null if session token is invalid or expired.
  * Includes the decrypted API key secret for making authenticated API calls.
  */
-async function resolveSessionContext(
+export async function resolveSessionContext(
   sessionToken: string,
   baseContext: McpToolContext,
   debug?: boolean
@@ -77,6 +78,7 @@ async function resolveSessionContext(
       tenantId: sessionKey.tenantId ?? null,
       organizationId: sessionKey.organizationId ?? null,
     })
+    const apiKeyUserId = await resolveVerifiedSessionKeyUserId(em, sessionKey)
 
     if (debug) {
       logger.debug('Session context resolved', {
@@ -98,6 +100,8 @@ async function resolveSessionContext(
       isSuperAdmin: acl.isSuperAdmin,
       // Use the decrypted session secret for API calls (not the MCP server key)
       apiKeySecret: sessionSecret,
+      apiKeyId: sessionKey.id,
+      ...(apiKeyUserId ? { apiKeyUserId } : {}),
     }
   } catch (error) {
     if (debug) {
@@ -111,7 +115,7 @@ async function resolveSessionContext(
  * Resolve user context from the server-level API key (header-based auth fallback).
  * Used when no session token is provided — loads the API key's ACL for RBAC.
  */
-async function resolveApiKeyContext(
+export async function resolveApiKeyContext(
   apiKeyRecord: ApiKey,
   baseContext: McpToolContext,
   debug?: boolean
@@ -130,6 +134,10 @@ async function resolveApiKeyContext(
       tenantId: apiKeyRecord.tenantId ?? null,
       organizationId: apiKeyRecord.organizationId ?? null,
     })
+    const apiKeyUserId = await resolveVerifiedSessionKeyUserId(
+      baseContext.container.resolve<EntityManager>('em'),
+      apiKeyRecord,
+    )
 
     if (debug) {
       logger.debug('API key context resolved', {
@@ -149,6 +157,8 @@ async function resolveApiKeyContext(
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
       apiKeySecret: baseContext.apiKeySecret,
+      apiKeyId: apiKeyRecord.id,
+      ...(apiKeyUserId ? { apiKeyUserId } : {}),
     }
   } catch (error) {
     if (debug) {
@@ -532,6 +542,7 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
       userFeatures: [],
       isSuperAdmin: false,
       apiKeySecret: providedApiKey,
+      apiKeyId: apiKeyRecord.id,
     }
 
     try {

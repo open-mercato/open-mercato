@@ -20,6 +20,10 @@ export interface CatalogToolContext {
   userFeatures: string[]
   isSuperAdmin: boolean
   apiKeySecret?: string
+  /** Key id when the call is key-authenticated; owner access checks evaluate the key, not `userId`. */
+  apiKeyId?: string
+  /** The verified user a session-bound `apiKeyId` acts for. */
+  apiKeyUserId?: string
   sessionId?: string
   expectedRecordVersions?: Readonly<Record<string, string>>
 }

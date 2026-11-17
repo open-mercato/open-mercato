@@ -35,6 +35,7 @@ function createEm(overrides: Partial<Record<'find' | 'findOne' | 'create' | 'per
     create: overrides.create ?? jest.fn((_entity, payload) => payload),
     persist: overrides.persist ?? jest.fn(),
     flush: overrides.flush ?? jest.fn(async () => {}),
+    isInTransaction: jest.fn(() => true),
   }
 }
 
@@ -86,6 +87,7 @@ describe('messages attachments helpers', () => {
         tenantId: 'tenant-1',
         $or: [{ organizationId: 'org-1' }, { organizationId: null }],
       }),
+      expect.objectContaining({ refresh: true, lockMode: expect.anything() }),
     )
     expect(attachments[0].entityId).toBe('messages:message')
     expect(attachments[0].recordId).toBe('message-1')
@@ -167,6 +169,7 @@ describe('messages attachments helpers', () => {
         tenantId: 'tenant-1',
         $or: [{ organizationId: 'org-1' }, { organizationId: null }],
       }),
+      expect.objectContaining({ refresh: true, lockMode: expect.anything() }),
     )
     expect(attachments[0].entityId).toBe('messages:message')
     expect(attachments[0].recordId).toBe('message-1')
