@@ -704,7 +704,13 @@ wiring):
   not a shared-component extension. It renders `LoadingMessage` /
   `ErrorMessage` from `@open-mercato/ui/backend/detail` while the load
   is pending or fails, and the table's own empty state when `rows` is
-  empty; `onPageChange` (and the period picker, a `FiscalPeriod`
+  empty. Each load carries a monotonically increasing request identity
+  bound to period, page and page size. Invalidate the prior identity and
+  clear figures, totals and badge immediately on a parameter change or
+  current-request error; only the latest still-mounted request may update
+  success, error or loading state. Cancellation may reduce work but is not
+  the correctness guard: a late response must be ignored even if the
+  transport cannot cancel it. `onPageChange` (and the period picker, a `FiscalPeriod`
   select) updates the corresponding state and reloads. The response is
   passed straight into `<DataTable entityId="ledger.trialBalanceRow"
   columns={columns} data={rows} pagination={{ page, pageSize, total,
@@ -735,7 +741,7 @@ wiring):
 
 ## Data Models
 
-**One additive schema change, no new entities: `LedgerAccount.parentAccountId` returns with this feature.** #5663 removed the earlier structural `parentAccountId` on 2026-10-12 and delegated its return to this account-balances rollup — the first consumer that aggregates over it (`2026-08-18-general-ledger-core-engine.md`, revised "`LedgerAccount` has no parent column"). This document owns the additive column:
+**Report-side schema: `LedgerAccount.parentAccountId` returns with this feature.** The separate fiscal-year authority may require its own schema and migration, which are not yet designed. #5663 removed the earlier structural `parentAccountId` on 2026-10-12 and delegated its return to this account-balances rollup — the first consumer that aggregates over it (`2026-08-18-general-ledger-core-engine.md`, revised "`LedgerAccount` has no parent column"). This document owns the additive column:
 
 - nullable UUID `parentAccountId` FK to `ledger_accounts.id` (`ON DELETE SET NULL`), `NULL` for a root, always the same `tenant_id`/`organization_id` as the child;
 - one migration adds the column plus `(organization_id, parent_account_id)`; no backfill is needed (every existing row is a root), and no data is rewritten;
@@ -773,6 +779,17 @@ authority. Never silently substitute a calendar year. These conditions
 are release gates, not evidence that #5663 already implements the
 authority; coordinate its schema, migration, API and compatibility
 review before implementation.
+
+The authority prerequisite must inventory every existing period writer,
+including #5663's generated periods, imports, commands, API and undo paths.
+It must specify attested migration and reconciliation of existing periods,
+staged deployment and mixed-version writer behavior. #5663 currently
+accepts non-overlapping periods without this containment rule; rejecting
+previously accepted writes is a compatibility change, not a consequence
+of merely adding a table. Follow the repository's deprecation and bridge
+protocol or obtain an explicitly authorized alternative before enforcement.
+Until compatible enforcement covers every writer, trial-balance remains
+disabled for the affected scope.
 
 ## API Contracts
 
@@ -1043,6 +1060,19 @@ top of the live query.
   organization, and an unavailable authority. Invalid setup returns 422;
   authority failure returns 503; neither returns any report figures.
   Exercise concurrent period/year-boundary changes with real transactions.
+- Numeric boundary fixture: configure 2025-07-01 through 2026-06-30 as
+  one fiscal year and 2025-12-15 through 2026-01-14 as a period. For one
+  account, post balanced entries with debits 10 on June 30, 20 on July 1,
+  30 and credit 7 on January 14, and 40 on January 15; also post credit 5
+  on July 2. The report's YTD is debit 50 and credit 12; its period is
+  debit 30 and credit 7. The June 30 and January 15 entries are excluded
+  from YTD for this report. Include corresponding offsetting lines so
+  each journal entry balances, and repeat boundary assertions for an
+  explicitly configured irregular-length year.
+- UI race: delay an old successful response, then select a new period or
+  receive the current request's 422/503 before releasing it. Assert the
+  stale 200 cannot restore rows, totals or badge; also verify a stale error
+  cannot replace a newer success and an unmounted page cannot update state.
 - Assert both routes return 403 without `ledger.reports.view` and 404
   for an account/period belonging to a different tenant/organization.
 - Assert both routes return 400 for a malformed `asOf` (not a valid
@@ -1234,8 +1264,9 @@ here.
 
 Both queries filter by `tenant_id`/`organization_id` on every table
 they touch (`JournalEntryLine` carries its own, per #5663's Data
-Models), matching the isolation boundary #5663 already established;
-this document adds no new isolation surface to reason about.
+Models). The fiscal-year authority is an additional isolation surface:
+scope its records, lookup, migration, attestation and all writer checks
+to the same trusted tenant and organization; fail closed across scopes.
 
 ### Migration & deployment
 
@@ -1243,10 +1274,11 @@ One additive migration (Data Models): add the nullable
 `ledger_accounts.parent_account_id` column with `ON DELETE SET NULL` and
 the `(organization_id, parent_account_id)` index. No backfill (existing
 rows are roots) and no data rewrite; the routes and query layer are
-otherwise additive over #5663's already-migrated tables. Because the
-column is nullable with a `NULL` default and nothing is renamed or
-removed, this stays inside `BACKWARD_COMPATIBILITY.md`'s additive
-category.
+otherwise additive over #5663's already-migrated tables. The parent
+column alone is additive, but fiscal-year containment can reject an
+existing valid period write. The prerequisite must provide the staged
+compatibility and mixed-version writer plan above before enforcement;
+no blanket additive-only claim covers that behavioral change.
 
 ## Out of scope (tracked separately)
 
@@ -1319,13 +1351,13 @@ category.
 
 | Rule Source | Rule | Status | Notes |
 | --- | --- | --- | --- |
-| `AGENTS.md` | No direct ORM relationships between modules | Compliant | One additive nullable `parentAccountId` column on `LedgerAccount`; no new entities and no cross-module ORM relationship (FK id only) |
+| `AGENTS.md` | No direct ORM relationships between modules | Pending | Parent link is a same-module FK; the separate fiscal-year authority design must also preserve module boundaries |
 | `AGENTS.md` | Filter by tenant/organization | Compliant | Both queries filter every table by `tenant_id`/`organization_id` — see Data Models, Risks |
 | `AGENTS.md` | Write operations via Command pattern | Compliant | Report functions are read-only; account create/update/delete/restore and undo changes use the existing commands and hold the scoped hierarchy lock through commit |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | Both new routes export `openApi`; `api/openapi.ts` updated (File Manifest) |
 | `packages/core/AGENTS.md` → API Routes | All user input validated with zod before business logic | Compliant | `asOf`/`periodId` both validated, 400 on failure (API Contracts) |
 | `packages/core/AGENTS.md` → Declarative feature guards | `acl.ts` synced to `setup.ts` `defaultRoleFeatures`, plus `sync-role-acls` for already-provisioned tenants | Compliant | `ledger.reports.view` added to both (Architecture → Access Control / Module Setup); `yarn mercato auth sync-role-acls` added as Implementation Plan step 1 so existing tenants receive it too |
-| `packages/core/AGENTS.md` → Encryption | PII/GDPR fields declared in `<module>/encryption.ts` | N/A | No new entities or PII-bearing fields; both queries read existing, already-reviewed #5663 columns only |
+| `packages/core/AGENTS.md` → Encryption | PII/GDPR fields declared in `<module>/encryption.ts` | Pending | Review the fiscal-year authority's eventual data model and attestation fields; existing report queries read #5663 columns |
 | `packages/ui/AGENTS.md` | Lists use `DataTable` with stable `entityId` | Compliant | `trial-balance/page.tsx` is read-only and uses `DataTable`; hierarchy writes remain on existing account surfaces |
 | `packages/ui/AGENTS.md` | HTTP via `apiCall`/`apiCallOrThrow`, never raw `fetch` | Compliant | Both new pages call the new routes through the existing `apiCall` helper, consistent with the rest of the `ledger` module's backend pages |
 | `.ai/ds-rules.md` / `.ai/ui-components.md` | Semantic status tokens; `<StatusBadge>` for entity/derived status; no hardcoded Tailwind shades | Compliant | Zero-sum check rendered via `<StatusBadge>` (`success`/`error` variants) — Architecture → Backend Pages |
@@ -1334,7 +1366,7 @@ category.
 | root `AGENTS.md` → UI & HTTP | Keep `pageSize` at or below 100 | Compliant | `trial-balance` `rows` are paginated via `DataTable`'s own `page`/`pageSize` contract, capped at 100 (API Contracts, Architecture → Backend Pages). Cursor/keyset pagination is not a rule anywhere in this codebase — this row previously cited a `packages/core/AGENTS.md` → Pagination section that does not exist |
 | — (no rule source; engineering judgment) | Bulk/multi-row reads should avoid N+1 across the result set | N/A, justified | `packages/core/AGENTS.md` has no Performance section — this row's prior citation was invented. The judgment stands on its own: `getTrialBalance` computes every account's row in one set-based query, not `getAccountBalance` called per account (Design decisions, Queries) |
 | `packages/core/AGENTS.md` → API Routes | Route files export `metadata` with per-method `requireAuth`/`requireFeatures` | Compliant | Both routes' `metadata` export documented (Architecture → API Routes) |
-| `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | Nullable `parent_account_id`, its FK and index are additive; migration has no backfill. Existing account writes gain scoped validation and locking |
+| `BACKWARD_COMPATIBILITY.md` | Stable contracts and database schema | Pending | Parent column is additive; fiscal-period containment needs a reviewed compatibility and rollout plan before enforcement |
 | `.ai/specs/AGENTS.md` | Never leave stale endpoints, entities, or assumptions in an updated spec | Compliant | Cross-references to `2026-09-06-accounts-payable.md`'s bufor note and #5663's exact route name (`GET /api/ledger/accounts/:id/balance`) checked against those documents' current text at write time |
 
 ### Internal Consistency Check
@@ -1351,33 +1383,20 @@ category.
 
 ### Non-Compliant Items
 
-None found against `AGENTS.md` rules. One design risk is explicitly
-flagged rather than resolved outright: recursive-CTE performance and
-correctness under a very large or malformed (cyclic) account tree is
-new territory for this codebase (no prior recursive-query precedent
-exists to lean on) — addressed with a required cycle guard (Risks &
-Impact Review) rather than assumed away.
+Fiscal-year writer compatibility and migration are not yet specified.
+Historical hierarchy semantics, annual opening-entry treatment and
+cross-page consistency remain unresolved. The prior checklist cannot be
+treated as a compliance approval until these issues are resolved and
+independently reviewed.
 
 ### Verdict
 
-**Fully compliant — approved, ready for implementation.** Scope is
-fixed at four boundaries, each with an explicit rationale recorded in
-Design decisions: posted-only in Phase 1 (with a live cross-reference
-from `2026-09-06-accounts-payable.md`), a live query rather than a
-maintained balance table, ZSiO only (excluding Bilans/P&L/Cash Flow),
-and `ledger` Phase 2 rather than a new module. The design has also been
-cross-checked against three references the team uses (David Hay's
-*Data Model Patterns*, Martin Fowler's *Analysis Patterns*, and
-Kieso/Weygandt/Warfield's *Intermediate Accounting*, 17e) — see Design
-decisions for what that check confirmed (the recursive summary-account
-pattern, the single-parent tree, the `normalBalance` sign convention)
-and the one substantive addition it produced (turnover figures include
-every `JournalEntry.type`, `CLOSING` included, resolved in favor of
-art. 18 journal-reconciliation over filtering by type). See the Review
-entry in the Changelog for the checklist-driven review pass this
-document has since been through. As with #5663 at the same stage, an
-independent maintainer PR review is still recommended before this is
-treated as fully settled.
+**Blocked — not ready for implementation.** Resolve the fiscal-year
+authority and compatibility prerequisite, historical hierarchy,
+opening-entry policy and multi-page report consistency; reconcile the
+result with #5663 and obtain fresh independent and security review.
+The existing accounting references and earlier checklist do not resolve
+these issues or authorize release.
 
 ## Changelog
 
@@ -1493,7 +1512,9 @@ minors, plus a merge conflict against develop in `.ai/specs/README.md`.
   value that doesn't exist.** Replaced with: fiscal year = calendar
   year of `periodStart`; non-calendar fiscal years are now an
   explicit Phase 1 limitation (Out of scope) pending a `fiscalYear`
-  field on #5663's `FiscalPeriod`.
+  field on #5663's `FiscalPeriod`. **Superseded:** the calendar-year
+  default was subsequently replaced by the fail-closed authority
+  prerequisite in the 2026-11-17 local correction.
 - **Major — the undeclared hard dependency on #5663 (unmerged,
   `packages/core/src/modules/ledger/` doesn't exist yet).** Added a
   Prerequisites section stating this explicitly and softened
