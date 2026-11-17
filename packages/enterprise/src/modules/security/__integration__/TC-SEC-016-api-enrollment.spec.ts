@@ -98,9 +98,9 @@ for (const features of [
       const removeFixture = async (path: string, options: { headers?: Record<string, string>; data?: unknown } = {}) => {
         try {
           const response = await apiRequest(request, 'DELETE', path, { token: adminToken, ...options })
-          expect(response.status(), `cleanup ${path}`).toBe(200)
+          if (response.status() !== 200) failures.push(`${path}: HTTP ${response.status()}`)
         } catch {
-          failures.push(path)
+          failures.push(`${path}: request failed`)
         }
       }
       if (policyId) await removeFixture(`/api/security/enforcement/${policyId}`)

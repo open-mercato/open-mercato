@@ -135,9 +135,9 @@ test.describe('TC-SEC-005: Enforcement cascade, redirect, and compliance', () =>
     const removeFixture = async (path: string, data?: unknown) => {
       try {
         const response = await fetchJson(request, 'DELETE', path, { token: adminToken, data })
-        expect(response.status, `cleanup ${path}`).toBe(200)
+        if (response.status !== 200) failures.push(`${path}: HTTP ${response.status}`)
       } catch {
-        failures.push(path)
+        failures.push(`${path}: request failed`)
       }
     }
     for (const policyId of [...policyIds].reverse()) {

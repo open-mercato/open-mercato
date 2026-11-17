@@ -131,9 +131,9 @@ test.describe('TC-SEC-009: MFA mutation feature authorization', () => {
       const removeFixture = async (path: string, data?: unknown) => {
         try {
           const response = await apiRequest(request, 'DELETE', path, { token: adminToken, data })
-          expect(response.status(), `cleanup ${path}`).toBe(200)
+          if (response.status() !== 200) failures.push(`${path}: HTTP ${response.status()}`)
         } catch {
-          failures.push(path)
+          failures.push(`${path}: request failed`)
         }
       }
       if (policyId) {
