@@ -37,6 +37,21 @@ export function formatCompactAmount(amount: number, currency: string, locale?: s
   }
 }
 
+export function formatFullAmount(amount: number, currency: string, locale?: string): string {
+  if (!currency) {
+    try {
+      return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(amount)
+    } catch {
+      return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(amount)
+    }
+  }
+  try {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`
+  }
+}
+
 export function visibleTimelineAmounts(
   amounts: DealTimelineCurrencyTotal[] | null | undefined,
   showWon: boolean,
@@ -46,7 +61,9 @@ export function visibleTimelineAmounts(
     .sort((left, right) => right.open - left.open || left.currency.localeCompare(right.currency))
 }
 
-type AmountLine = { key: 'open' | 'weighted' | 'won'; label: string; value: string }
+type AmountLine = { key: 'open' | 'weighted' | 'won'; label: string; value: string; fullValue: string }
+
+export type TimelineAmountsLayout = 'inline' | 'stacked'
 
 export function timelineAmountLines(
   t: Translator,
@@ -55,20 +72,22 @@ export function timelineAmountLines(
   locale?: string,
   capped = false,
 ): AmountLine[] {
-  const format = (amount: number) => {
-    const value = formatCompactAmount(amount, entry.currency, locale)
-    return capped ? translateWithFallback(t, 'customers.deals.timeline.partialCount', '{count}+', { count: value }) : value
-  }
+  const withCap = (value: string) =>
+    capped ? translateWithFallback(t, 'customers.deals.timeline.partialCount', '{count}+', { count: value }) : value
+  const format = (amount: number) => withCap(formatCompactAmount(amount, entry.currency, locale))
+  const formatFull = (amount: number) => withCap(formatFullAmount(amount, entry.currency, locale))
   const lines: AmountLine[] = [
     {
       key: 'open',
       label: translateWithFallback(t, 'customers.deals.timeline.amounts.open', 'Open'),
       value: format(entry.open),
+      fullValue: formatFull(entry.open),
     },
     {
       key: 'weighted',
       label: translateWithFallback(t, 'customers.deals.timeline.amounts.weighted', 'Weighted'),
       value: format(entry.weighted),
+      fullValue: formatFull(entry.weighted),
     },
   ]
   if (showWon) {
@@ -76,18 +95,26 @@ export function timelineAmountLines(
       key: 'won',
       label: translateWithFallback(t, 'customers.deals.timeline.amounts.won', 'Won'),
       value: format(entry.won),
+      fullValue: formatFull(entry.won),
     })
   }
   return lines
 }
 
-function AmountLines({ lines }: { lines: AmountLine[] }): React.ReactElement {
+function AmountLines({ lines, layout = 'inline' }: { lines: AmountLine[]; layout?: TimelineAmountsLayout }): React.ReactElement {
   return (
-    <dl className="flex flex-col text-xs leading-normal">
+    <dl className="flex w-full min-w-0 flex-col text-xs leading-normal">
       {lines.map((line) => (
-        <div key={line.key} className="flex items-baseline justify-between gap-2">
-          <dt className="text-muted-foreground">{line.label}</dt>
-          <dd className="font-medium tabular-nums text-foreground">{line.value}</dd>
+        <div
+          key={line.key}
+          className={layout === 'stacked' ? 'flex min-w-0 flex-col' : 'flex min-w-0 items-baseline justify-between gap-2'}
+          data-amount-line={line.key}
+        >
+          <dt className={layout === 'stacked' ? 'truncate text-muted-foreground' : 'shrink-0 text-muted-foreground'}>{line.label}</dt>
+          <dd className="min-w-0 truncate font-medium tabular-nums text-foreground" title={line.fullValue}>
+            <span aria-hidden="true">{line.value}</span>
+            <span className="sr-only">{line.fullValue}</span>
+          </dd>
         </div>
       ))}
     </dl>
@@ -99,17 +126,24 @@ export type TimelineAmountsProps = {
   showWon: boolean
   scopeLabel: string
   capped?: boolean
+  layout?: TimelineAmountsLayout
 }
 
-export function TimelineAmounts({ amounts, showWon, scopeLabel, capped = false }: TimelineAmountsProps): React.ReactElement | null {
+export function TimelineAmounts({
+  amounts,
+  showWon,
+  scopeLabel,
+  capped = false,
+  layout = 'inline',
+}: TimelineAmountsProps): React.ReactElement | null {
   const t = useT()
   const locale = useLocale()
   const entries = React.useMemo(() => visibleTimelineAmounts(amounts, showWon), [amounts, showWon])
   if (!entries.length) return null
   const [first, ...rest] = entries
   return (
-    <div className="flex flex-col gap-0.5" data-testid="timeline-amounts">
-      <AmountLines lines={timelineAmountLines(t, first, showWon, locale, capped)} />
+    <div className="flex w-full min-w-0 flex-col gap-0.5" data-testid="timeline-amounts">
+      <AmountLines lines={timelineAmountLines(t, first, showWon, locale, capped)} layout={layout} />
       {rest.length ? (
         <Popover>
           <PopoverTrigger asChild>

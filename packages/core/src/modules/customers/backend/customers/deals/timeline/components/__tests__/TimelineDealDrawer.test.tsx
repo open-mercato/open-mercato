@@ -17,6 +17,31 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
     (fallback ?? key).replace(/\{(\w+)\}/g, (_match, name: string) => String(params?.[name] ?? '')),
 }))
 
+jest.mock('@open-mercato/ui/primitives/date-picker', () => ({
+  DatePicker: ({
+    value,
+    onChange,
+    'aria-label': ariaLabel,
+  }: {
+    value?: Date | null
+    onChange: (value: Date | null) => void
+    'aria-label'?: string
+  }) => {
+    const pad = (part: number) => String(part).padStart(2, '0')
+    const text = value ? `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}` : ''
+    return (
+      <input
+        aria-label={ariaLabel}
+        value={text}
+        onChange={(event) => {
+          const [year, month, day] = event.target.value.split('-').map((part) => Number(part))
+          onChange(event.target.value ? new Date(year, month - 1, day) : null)
+        }}
+      />
+    )
+  },
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
   readApiResultOrThrow: jest.fn().mockResolvedValue(null),

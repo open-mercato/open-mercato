@@ -213,7 +213,7 @@ export function TimelineLane({
     <div role="row" data-timeline-lane={lane.key} className="grid border-b border-border" style={{ gridTemplateColumns: gridTemplate }}>
       <div
         role="rowheader"
-        className="sticky left-0 z-10 flex min-w-0 items-start gap-2 border-r border-border bg-background px-2 py-2"
+        className="sticky left-0 z-10 flex min-w-0 items-start gap-2 overflow-hidden border-r border-border bg-background px-2 py-2"
       >
         <IconButton
           type="button"
@@ -230,12 +230,18 @@ export function TimelineLane({
         ) : (
           <span aria-hidden="true" className={`mt-1 h-4 w-1 shrink-0 rounded-full ${display.accentClass}`} />
         )}
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col" data-testid="timeline-lane-header-text">
           <span className="truncate text-sm font-semibold leading-snug text-foreground" title={display.label}>
             {display.label}
           </span>
-          <span className="text-xs leading-normal text-muted-foreground">{countLabel}</span>
-          <TimelineAmounts amounts={lane.amounts} showWon={showWonAmounts} scopeLabel={display.label} capped={amountsCapped} />
+          <span className="truncate text-xs leading-normal text-muted-foreground">{countLabel}</span>
+          <TimelineAmounts
+            amounts={lane.amounts}
+            showWon={showWonAmounts}
+            scopeLabel={display.label}
+            capped={amountsCapped}
+            layout={compactHeader ? 'stacked' : 'inline'}
+          />
         </div>
       </div>
       {columns.map((column) => {

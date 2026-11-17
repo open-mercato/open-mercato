@@ -137,7 +137,11 @@ describe('TimelineDealCard', () => {
   it('marks an open deal with no planned activity and names it in the accessible label', () => {
     renderCard({ item: { ...deal, openActivityCount: 0 } })
     const card = screen.getByRole('button')
-    expect(screen.getByTestId('timeline-card-no-activity').textContent).toContain('No planned activity')
+    const marker = screen.getByTestId('timeline-card-no-activity')
+    expect(marker.textContent).toBe('')
+    expect(marker.getAttribute('title')).toBe('No planned activity')
+    expect(marker.className).toContain('text-status-warning-icon')
+    expect(marker.parentElement?.textContent).toContain('2026')
     expect(card.getAttribute('aria-label')).toContain('No planned activity')
   })
 

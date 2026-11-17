@@ -40,6 +40,7 @@ describe('timeline URL state', () => {
       from: null,
       dealId: null,
       filters: emptyTimelineFilters(),
+      showEmptyStages: false,
     })
     expect(resolveTimelineFrom(state, '2026-11-05')).toBe('2026-10-26')
   })

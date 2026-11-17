@@ -475,6 +475,126 @@ test.describe('TC-CRM-TL-002: deals timeline page (read-only)', () => {
     }
   });
 
+  test('lane totals stay inside the lane column at 1440 and 390 px, and a phone opens on the current column', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(240_000);
+    const token = await getAuthToken(request, 'admin');
+    const adminUserId = getTokenScope(token).userId;
+    const today = todayKey();
+    let scope: TimelineFixtureScope | null = null;
+    try {
+      scope = await createTimelineScope(request, token, 'TC-CRM-TL-002 Totals');
+      const dealId = await addTimelineDeal(request, token, scope, {
+        title: `TL002T Large ${scope.stamp}`,
+        date: today,
+        ownerUserId: adminUserId,
+        valueAmount: 1234567.89,
+      });
+      await installDevNoticeHandler(page);
+      await login(page, 'admin');
+      for (const viewport of [
+        { width: 1440, height: 900 },
+        { width: 390, height: 844 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await openTimeline(page, `pipelineId=${scope.pipelineId}`);
+        const rowHeader = page.locator(`[data-timeline-lane="${adminUserId}"] [role="rowheader"]`);
+        await expect(rowHeader.getByTestId('timeline-amounts')).toBeVisible();
+        const overflow = await rowHeader.evaluate((header) => {
+          const headerRect = header.getBoundingClientRect();
+          const escapes = Array.from(header.querySelectorAll<HTMLElement>('dt, dd, span'))
+            .filter((element) => element.getClientRects().length > 0 && !element.classList.contains('sr-only'))
+            .filter((element) => element.getBoundingClientRect().right > headerRect.right + 0.5)
+            .map((element) => element.textContent ?? '');
+          const text = header.querySelector<HTMLElement>('[data-testid="timeline-lane-header-text"]');
+          return { escapes, textOverflows: text ? text.scrollWidth > text.clientWidth + 1 : true };
+        });
+        expect(overflow.escapes, `no lane text crosses the lane column border at ${viewport.width}px`).toEqual([]);
+        expect(overflow.textOverflows, `the lane header text fits its column at ${viewport.width}px`).toBe(false);
+
+        if (viewport.width === 390) {
+          const placement = await page.getByRole('grid').evaluate((grid) => {
+            const current = grid.querySelector<HTMLElement>('[data-current-column="true"]');
+            const lane = grid.querySelector<HTMLElement>('[data-lane-header-column="true"]');
+            if (!current || !lane) return null;
+            const gridRect = grid.getBoundingClientRect();
+            const currentRect = current.getBoundingClientRect();
+            return {
+              startsAfterLane: currentRect.left >= lane.getBoundingClientRect().right - 1,
+              startsInsideGrid: currentRect.left < gridRect.right - 1,
+            };
+          });
+          expect(placement, 'the current column header is rendered').not.toBeNull();
+          expect(placement!.startsAfterLane, 'the current column is not hidden behind the pinned lane column').toBe(true);
+          expect(placement!.startsInsideGrid, 'the current column is visible without scrolling at 390px').toBe(true);
+          await expect(timelineCard(page, dealId)).toBeVisible();
+        }
+      }
+    } finally {
+      await cleanupTimelineScope(request, token, scope);
+    }
+  });
+
+  test('stage view hides empty stages until asked; overdue and undated are quiet counters, not alerts', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(240_000);
+    const token = await getAuthToken(request, 'admin');
+    const adminUserId = getTokenScope(token).userId;
+    const today = todayKey();
+    let scope: TimelineFixtureScope | null = null;
+    try {
+      scope = await createTimelineScope(request, token, 'TC-CRM-TL-002 Stages', 4);
+      await addTimelineDeal(request, token, scope, { title: `TL002S Current ${scope.stamp}`, date: today, ownerUserId: adminUserId });
+      const overdueDate = addDays(today, -45);
+      await addTimelineDeal(request, token, scope, { title: `TL002S Overdue ${scope.stamp}`, date: overdueDate, ownerUserId: adminUserId });
+      await addTimelineDeal(request, token, scope, { title: `TL002S Undated ${scope.stamp}`, ownerUserId: adminUserId });
+      await installDevNoticeHandler(page);
+      await login(page, 'admin');
+      await openTimeline(page, `pipelineId=${scope.pipelineId}&groupBy=stage`);
+
+      await expect(page.locator(`[data-timeline-lane="${scope.stageIds[0]}"]`)).toBeVisible();
+      for (const emptyStage of scope.stageIds.slice(1)) {
+        await expect(page.locator(`[data-timeline-lane="${emptyStage}"]`), 'empty stages are hidden by default').toHaveCount(0);
+      }
+      const toggle = page.getByTestId('timeline-empty-stages-toggle');
+      await expect(toggle).toHaveText(/Show empty stages \(3\)/);
+      await toggle.click();
+      await expect(page).toHaveURL(/emptyStages=show/);
+      await expect(page.locator(`[data-timeline-lane="${scope.stageIds[3]}"]`)).toBeVisible();
+      await expect(toggle).toHaveText(/Hide empty stages/);
+      await toggle.click();
+      await expect(page).not.toHaveURL(/emptyStages=show/);
+      await expect(page.locator(`[data-timeline-lane="${scope.stageIds[3]}"]`)).toHaveCount(0);
+
+      const overdue = page.getByTestId('timeline-overdue-before');
+      const undated = page.getByTestId('timeline-undated');
+      await expect(overdue).toBeVisible();
+      await expect(undated).toBeVisible();
+      await expect(overdue.locator('xpath=ancestor::*[@data-slot="alert"]')).toHaveCount(0);
+      await expect(undated.locator('xpath=ancestor::*[@data-slot="alert"]')).toHaveCount(0);
+      const alertsAboveGrid = await page.getByRole('grid').evaluate((grid) => {
+        const board = grid.parentElement;
+        if (!board) return -1;
+        let count = 0;
+        for (const child of Array.from(board.children)) {
+          if (child === grid) break;
+          if (child.matches('[data-slot="alert"]') || child.querySelector('[data-slot="alert"]')) count += 1;
+        }
+        return count;
+      });
+      expect(alertsAboveGrid, 'with no recent action no alert sits above the grid').toBe(0);
+      await expect(undated).toHaveAttribute('href', /hasExpectedCloseAt=false/);
+      await overdue.click();
+      await expect(page).toHaveURL(new RegExp(`from=${alignToBucketStart(overdueDate, 'week')}`));
+    } finally {
+      await cleanupTimelineScope(request, token, scope);
+    }
+  });
+
   test('deal drawer: URL state, focus, Back, links and popover rows', async ({ page, request }) => {
     test.setTimeout(240_000);
     const token = await getAuthToken(request, 'admin');

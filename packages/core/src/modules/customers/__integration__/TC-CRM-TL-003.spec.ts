@@ -23,7 +23,7 @@ import {
   timelineCell,
   type TimelineFixtureScope,
 } from './helpers/timelineFixtures';
-import { expectFocusedDeal, utcMonthDayLabel } from './helpers/timelineUi';
+import { expectFocusedDeal, pickCalendarDate, utcMonthDayLabel } from './helpers/timelineUi';
 
 /**
  * TC-CRM-TL-003: Deals timeline rescheduling (UI, Phase 2)
@@ -68,10 +68,13 @@ async function dragCardTo(page: Page, card: Locator, target: Locator): Promise<v
 async function changeDateInDrawer(page: Page, dateKey: string): Promise<void> {
   const drawer = page.getByTestId('timeline-deal-drawer');
   await drawer.getByRole('button', { name: 'Change close date' }).click();
-  const dialog = page.getByRole('dialog').filter({ has: page.locator('input[type="date"]') });
+  const dialog = page.getByRole('dialog').filter({ has: page.locator('[data-slot="date-picker-trigger"]') });
   await expect(dialog).toBeVisible();
-  await dialog.locator('input[type="date"]').fill(dateKey);
-  await dialog.locator('input[type="date"]').press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+  await expect(dialog.locator('input[type="date"]'), 'the dialog uses the house date picker').toHaveCount(0);
+  const trigger = dialog.locator('[data-slot="date-picker-trigger"]');
+  await pickCalendarDate(page, trigger, dateKey);
+  await expect(trigger).toBeFocused();
+  await trigger.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
   await expect(dialog).toBeHidden();
 }
 

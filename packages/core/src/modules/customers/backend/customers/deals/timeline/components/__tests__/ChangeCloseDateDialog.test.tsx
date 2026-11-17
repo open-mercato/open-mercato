@@ -4,13 +4,18 @@
 
 import * as React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { ChangeCloseDateDialog, buildQuickDateChips } from '../ChangeCloseDateDialog'
+import { ChangeCloseDateDialog, buildQuickDateChips, dateKeyToLocalDate, localDateToDateKey } from '../ChangeCloseDateDialog'
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useLocale: () => 'en',
-  useT: () => (key: string, fallback?: string, params?: Record<string, unknown>) =>
-    (fallback ?? key).replace(/\{(\w+)\}/g, (_match, name: string) => String(params?.[name] ?? '')),
-}))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const translate = (key: string, fallback?: string, params?: Record<string, unknown>) =>
+    (fallback ?? key).replace(/\{(\w+)\}/g, (_match, name: string) => String(params?.[name] ?? ''))
+  return {
+    useLocale: () => 'en',
+    useOptionalLocale: () => 'en',
+    useT: () => translate,
+    useOptionalT: () => translate,
+  }
+})
 
 describe('buildQuickDateChips', () => {
   it('computes chips relative to the current close date', () => {
@@ -29,6 +34,23 @@ describe('buildQuickDateChips', () => {
   })
 })
 
+describe('date key conversion for the date picker', () => {
+  it('maps a UTC date key to the same local calendar day and back without shifting', () => {
+    const local = dateKeyToLocalDate('2026-12-31')
+    expect(local?.getFullYear()).toBe(2026)
+    expect(local?.getMonth()).toBe(11)
+    expect(local?.getDate()).toBe(31)
+    expect(localDateToDateKey(local)).toBe('2026-12-31')
+    expect(localDateToDateKey(new Date(2027, 0, 1, 23, 59))).toBe('2027-01-01')
+  })
+
+  it('rejects invalid keys and empty dates', () => {
+    expect(dateKeyToLocalDate('2026-13-01')).toBeNull()
+    expect(dateKeyToLocalDate(null)).toBeNull()
+    expect(localDateToDateKey(null)).toBe('')
+  })
+})
+
 describe('ChangeCloseDateDialog', () => {
   function renderDialog(overrides: Partial<React.ComponentProps<typeof ChangeCloseDateDialog>> = {}) {
     const onSubmit = jest.fn().mockResolvedValue(undefined)
@@ -42,37 +64,46 @@ describe('ChangeCloseDateDialog', () => {
         {...overrides}
       />,
     )
-    return { onSubmit, onCancel, input: screen.getByLabelText('New close date') as HTMLInputElement }
+    const trigger = screen.getByRole('button', { name: 'New close date' })
+    return { onSubmit, onCancel, trigger }
   }
 
-  it('starts from the current date and keeps save disabled until it changes', () => {
-    const { input } = renderDialog()
-    expect(input.value).toBe('2026-11-04')
+  it('uses the house date picker showing the current date and keeps save disabled until it changes', () => {
+    const { trigger } = renderDialog()
+    expect(trigger).toHaveAttribute('data-slot', 'date-picker-trigger')
+    expect(document.querySelector('input[type="date"]')).toBeNull()
+    expect(trigger.textContent).toMatch(/2026|Nov|11/)
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 
   it('applies a quick chip and saves with Cmd/Ctrl+Enter', async () => {
-    const { input, onSubmit } = renderDialog()
+    const { trigger, onSubmit } = renderDialog()
     fireEvent.click(screen.getByRole('button', { name: '+1 week' }))
-    expect(input.value).toBe('2026-11-11')
     await act(async () => {
-      fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+      fireEvent.keyDown(trigger, { key: 'Enter', ctrlKey: true })
     })
     expect(onSubmit).toHaveBeenCalledWith('2026-11-11')
   })
 
-  it('submits an exact date typed into the input', async () => {
-    const { input, onSubmit } = renderDialog()
-    fireEvent.change(input, { target: { value: '2026-12-24' } })
+  it('submits an exact day picked in the calendar as a date key', async () => {
+    const { trigger, onSubmit } = renderDialog()
+    await act(async () => {
+      fireEvent.click(trigger)
+    })
+    const day = document.querySelector<HTMLElement>('[data-day="2026-11-24"] button')
+    expect(day).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(day!)
+    })
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     })
-    expect(onSubmit).toHaveBeenCalledWith('2026-12-24')
+    expect(onSubmit).toHaveBeenCalledWith('2026-11-24')
   })
 
   it('cancels with Escape', () => {
-    const { input, onCancel, onSubmit } = renderDialog()
-    fireEvent.keyDown(input, { key: 'Escape' })
+    const { trigger, onCancel, onSubmit } = renderDialog()
+    fireEvent.keyDown(trigger, { key: 'Escape' })
     expect(onCancel).toHaveBeenCalled()
     expect(onSubmit).not.toHaveBeenCalled()
   })

@@ -4,11 +4,13 @@
 import { act, renderHook } from '@testing-library/react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
+  filterTimelineLanes,
   isTimelineItemDraggable,
   keepDismissedOnOpen,
   mergeCollapsedLaneToggles,
   nextPushedDrawerDealId,
   resolveTimelineCountCaps,
+  scrollCurrentColumnIntoView,
 } from '../DealsTimelineBoard'
 import {
   formatTimelineCount,
@@ -18,11 +20,13 @@ import {
 } from '../TimelineLane'
 import {
   TIMELINE_BACK_NAVIGATION_TIMEOUT_MS,
+  buildTimelineSearchParams,
   parseTimelineUrlState,
   resolveTimelineFrom,
   useTimelineUrlState,
 } from '../useTimelineUrlState'
 import { addBuckets } from '../../../../../../lib/dealsTimeline'
+import type { DealTimelineLane } from '../../../../../../lib/dealsTimelineTypes'
 import {
   EMPTY_DEAL_WRITE_LOCKS,
   lockDealWrite,
@@ -270,5 +274,78 @@ describe('drawer write locks on the board', () => {
     const settled = settleDealWrite(started, item.id, 500, false)
     expect(isTimelineItemDraggable(item, context(releaseFreshDealWrites(settled, 500)))).toBe(false)
     expect(isTimelineItemDraggable(item, context(releaseFreshDealWrites(settled, 501)))).toBe(true)
+  })
+})
+
+describe('empty stage lanes', () => {
+  const lane = (key: string, total: number): DealTimelineLane => ({
+    key,
+    kind: 'stage',
+    owner: null,
+    stage: { label: key, pipelineId: 'p-1' },
+    total,
+    partial: false,
+    amounts: [],
+    cells: [],
+  })
+  const lanes = [lane('qualified', 0), lane('proposal', 3), lane('won', 0), lane('negotiation', 1)]
+
+  it('hides stage lanes without deals by default', () => {
+    expect(filterTimelineLanes(lanes, { groupBy: 'stage', showEmptyStages: false }).map((entry) => entry.key)).toEqual([
+      'proposal',
+      'negotiation',
+    ])
+  })
+
+  it('shows every stage when asked and never filters owner lanes', () => {
+    expect(filterTimelineLanes(lanes, { groupBy: 'stage', showEmptyStages: true })).toHaveLength(4)
+    expect(filterTimelineLanes(lanes, { groupBy: 'owner', showEmptyStages: false })).toHaveLength(4)
+  })
+
+  it('keeps a lane that is part of an interaction even when it has no deals', () => {
+    const kept = filterTimelineLanes(lanes, { groupBy: 'stage', showEmptyStages: false, keepLaneKeys: new Set(['won']) })
+    expect(kept.map((entry) => entry.key)).toEqual(['proposal', 'won', 'negotiation'])
+  })
+
+  it('round-trips the empty-stages switch through the URL and omits it by default', () => {
+    const shown = parseTimelineUrlState(new URLSearchParams('groupBy=stage&emptyStages=show'))
+    expect(shown.showEmptyStages).toBe(true)
+    expect(buildTimelineSearchParams(shown).get('emptyStages')).toBe('show')
+    const hidden = parseTimelineUrlState(new URLSearchParams('groupBy=stage'))
+    expect(hidden.showEmptyStages).toBe(false)
+    expect(buildTimelineSearchParams(hidden).has('emptyStages')).toBe(false)
+  })
+})
+
+describe('scrollCurrentColumnIntoView', () => {
+  function rect(left: number, width: number): DOMRect {
+    return { left, right: left + width, width, top: 0, bottom: 10, height: 10, x: left, y: 0, toJSON: () => ({}) } as DOMRect
+  }
+
+  function buildGrid(currentLeft: number) {
+    const container = document.createElement('div')
+    const laneHeader = document.createElement('div')
+    laneHeader.setAttribute('data-lane-header-column', 'true')
+    const current = document.createElement('div')
+    current.setAttribute('data-current-column', 'true')
+    container.append(laneHeader, current)
+    container.getBoundingClientRect = () => rect(0, 390)
+    laneHeader.getBoundingClientRect = () => rect(0, 128)
+    current.getBoundingClientRect = () => rect(currentLeft, 192)
+    return container
+  }
+
+  it('scrolls an off-screen current column to sit right after the pinned lane column', () => {
+    const container = buildGrid(320)
+    expect(scrollCurrentColumnIntoView(container)).toBe(true)
+    expect(container.scrollLeft).toBe(192)
+  })
+
+  it('leaves the scroll position alone when the current column is already visible or absent', () => {
+    const visible = buildGrid(150)
+    expect(scrollCurrentColumnIntoView(visible)).toBe(false)
+    expect(visible.scrollLeft).toBe(0)
+    expect(scrollCurrentColumnIntoView(document.createElement('div'))).toBe(false)
+    expect(scrollCurrentColumnIntoView(null)).toBe(false)
   })
 })

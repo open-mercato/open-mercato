@@ -27,6 +27,7 @@ export type TimelineUrlState = {
   from: string | null
   filters: DealTimelineFilters
   dealId: string | null
+  showEmptyStages?: boolean
 }
 
 const LIST_PARAMS = ['status', 'ownerUserId', 'personId', 'companyId'] as const
@@ -130,7 +131,7 @@ export function parseTimelineUrlState(params: URLSearchParams): TimelineUrlState
     companyId: readUuidList(params, 'companyId'),
     excludeClosed: params.get('closed') !== 'all',
   })
-  return { bucket, groupBy, from, filters, dealId }
+  return { bucket, groupBy, from, filters, dealId, showEmptyStages: params.get('emptyStages') === 'show' }
 }
 
 export function buildTimelineSearchParams(state: TimelineUrlState): URLSearchParams {
@@ -146,6 +147,7 @@ export function buildTimelineSearchParams(state: TimelineUrlState): URLSearchPar
     if (values.length) params.set(key, values.join(','))
   }
   if (!filters.excludeClosed) params.set('closed', 'all')
+  if (state.showEmptyStages) params.set('emptyStages', 'show')
   if (state.dealId) params.set('deal', state.dealId)
   return params
 }

@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatTimelineDate } from './TimelineDealCard'
@@ -39,6 +39,19 @@ type QuickChip = {
 export function formatUtcDateKey(key: string | null, locale?: string): string | null {
   if (!key) return null
   return formatTimelineDate(key, locale) ?? key
+}
+
+export function dateKeyToLocalDate(key: string | null): Date | null {
+  if (!key || !isValidDateKey(key)) return null
+  const [year, month, day] = key.split('-').map((part) => Number(part))
+  return new Date(year, month - 1, day)
+}
+
+export function localDateToDateKey(date: Date | null): string {
+  if (!date || Number.isNaN(date.getTime())) return ''
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
 }
 
 export function buildQuickDateChips(
@@ -129,16 +142,20 @@ export function ChangeCloseDateDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3 py-1">
-          <label className="flex flex-col gap-1.5 text-sm font-medium text-foreground" htmlFor="timeline-close-date-input">
-            {t('customers.deals.timeline.reschedule.dialog.inputLabel', 'New close date')}
-            <Input
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-foreground">
+              {t('customers.deals.timeline.reschedule.dialog.inputLabel', 'New close date')}
+            </span>
+            <DatePicker
               id="timeline-close-date-input"
-              type="date"
-              value={draft}
-              autoFocus
-              onChange={(event) => setDraft(event.target.value)}
+              value={dateKeyToLocalDate(draft)}
+              onChange={(date) => setDraft(localDateToDateKey(date))}
+              footer="none"
+              aria-label={t('customers.deals.timeline.reschedule.dialog.inputLabel', 'New close date')}
+              placeholder={t('customers.deals.timeline.reschedule.dialog.placeholder', 'Pick a date')}
+              disabled={isSubmitting}
             />
-          </label>
+          </div>
           {chips.length ? (
             <div
               className="flex flex-wrap gap-2"

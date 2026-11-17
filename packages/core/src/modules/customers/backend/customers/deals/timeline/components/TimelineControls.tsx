@@ -23,6 +23,7 @@ export type TimelineControlsProps = {
   onPrevious: () => void
   onToday: () => void
   onNext: () => void
+  children?: React.ReactNode
 }
 
 export function TimelineControls({
@@ -34,6 +35,7 @@ export function TimelineControls({
   onPrevious,
   onToday,
   onNext,
+  children,
 }: TimelineControlsProps): React.ReactElement {
   const t = useT()
   const groupByLabel = translateWithFallback(t, 'customers.deals.timeline.groupBy.label', 'Group by')
@@ -79,6 +81,11 @@ export function TimelineControls({
           </SegmentedControlItem>
         </SegmentedControl>
       </div>
+      {children ? (
+        <div className="flex flex-wrap items-center gap-1" data-testid="timeline-controls-extras">
+          {children}
+        </div>
+      ) : null}
       <div className="flex items-center gap-1 sm:ml-auto">
         <IconButton
           type="button"

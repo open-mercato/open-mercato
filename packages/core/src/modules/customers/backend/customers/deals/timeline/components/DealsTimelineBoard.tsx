@@ -21,7 +21,7 @@ import {
   type KeyboardCoordinateGetter,
   type Over,
 } from '@dnd-kit/core'
-import { AlertTriangle, CalendarClock, Plus } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CalendarX, Plus } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -51,6 +51,7 @@ import {
   toUtcDateKey,
   DEAL_TIMELINE_UNASSIGNED_LANE,
   type DealTimelineBucket,
+  type DealTimelineGroupBy,
 } from '../../../../../lib/dealsTimeline'
 import { isOpenDealStatus, isWonDealStatus } from '../../../../../lib/dealStatus'
 import { buildDealsListHref } from '../../../../../lib/dealsListHref'
@@ -194,6 +195,28 @@ export function isTimelineItemDraggable(
 }
 
 export type TimelineCountCaps = { columns: ReadonlyMap<number, boolean>; overdue: boolean; undated: boolean }
+
+export function filterTimelineLanes(
+  lanes: DealTimelineLane[],
+  options: { groupBy: DealTimelineGroupBy; showEmptyStages: boolean; keepLaneKeys?: ReadonlySet<string> },
+): DealTimelineLane[] {
+  if (options.groupBy !== 'stage' || options.showEmptyStages) return lanes
+  return lanes.filter((lane) => lane.total > 0 || options.keepLaneKeys?.has(lane.key) === true)
+}
+
+export function scrollCurrentColumnIntoView(container: HTMLElement | null): boolean {
+  if (!container) return false
+  const current = container.querySelector<HTMLElement>('[data-current-column="true"]')
+  const laneHeader = container.querySelector<HTMLElement>('[data-lane-header-column="true"]')
+  if (!current) return false
+  const containerRect = container.getBoundingClientRect()
+  const currentRect = current.getBoundingClientRect()
+  const laneWidth = laneHeader ? laneHeader.getBoundingClientRect().width : 0
+  const visibleStart = containerRect.left + laneWidth
+  if (currentRect.left >= visibleStart && currentRect.right <= containerRect.right) return false
+  container.scrollLeft += currentRect.left - visibleStart
+  return true
+}
 
 export function resolveTimelineCountCaps(
   data: Pick<DealTimelineResponse, 'columns' | 'overdueBefore' | 'undatedCountCapped'> | null | undefined,
@@ -784,6 +807,34 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
     })
   }, [data, ownerNames])
 
+  const showEmptyStages = state.showEmptyStages === true
+  const keepLaneKeys = React.useMemo(
+    () =>
+      new Set(
+        [activeDrag?.laneKey, popover?.laneKey, pendingReveal?.laneKey, moveNotice?.laneKey].filter(
+          (key): key is string => typeof key === 'string' && key.length > 0,
+        ),
+      ),
+    [activeDrag?.laneKey, moveNotice?.laneKey, pendingReveal?.laneKey, popover?.laneKey],
+  )
+  const visibleLanes = React.useMemo(
+    () => filterTimelineLanes(sortedLanes, { groupBy: data?.groupBy ?? groupBy, showEmptyStages, keepLaneKeys }),
+    [data?.groupBy, groupBy, keepLaneKeys, showEmptyStages, sortedLanes],
+  )
+  const hiddenEmptyLaneCount = sortedLanes.length - visibleLanes.length
+
+  const gridScrollRef = React.useRef<HTMLDivElement | null>(null)
+  const scrolledWindowRef = React.useRef<string | null>(null)
+  const loadedWindowKey = data ? `${data.bucket}:${data.from}` : null
+  React.useEffect(() => {
+    if (!loadedWindowKey || scrolledWindowRef.current === loadedWindowKey) return
+    scrolledWindowRef.current = loadedWindowKey
+    const frame = window.requestAnimationFrame(() => {
+      scrollCurrentColumnIntoView(gridScrollRef.current)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [loadedWindowKey])
+
   const monthFormatter = React.useMemo(() => utcFormatter(locale, { month: 'long', year: 'numeric' }), [locale])
   const shortRangeFormatter = React.useMemo(() => utcFormatter(locale, { day: 'numeric', month: 'short' }), [locale])
   const columnLabel = React.useCallback(
@@ -1111,7 +1162,47 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         onPrevious={() => moveWindow(-1)}
         onToday={() => update({ from: null })}
         onNext={() => moveWindow(1)}
-      />
+      >
+        {data && data.overdueBefore.count > 0 && data.overdueBefore.latestExpectedCloseAt ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            data-testid="timeline-overdue-before"
+            onClick={() => update({ from: alignToBucketStart(data.overdueBefore.latestExpectedCloseAt!, bucket) })}
+          >
+            <AlertTriangle className="size-4 text-status-error-icon" aria-hidden="true" />
+            {translateWithFallback(t, 'customers.deals.timeline.overdueBefore', '{count} overdue before {date}', {
+              count: formatTimelineCount(t, data.overdueBefore.count, countCaps.overdue),
+              date: formatTimelineDate(data.overdueBefore.before, locale) ?? data.overdueBefore.before,
+            })}
+          </Button>
+        ) : null}
+        {data && data.undatedCount > 0 ? (
+          <Button asChild variant="ghost" size="sm">
+            <Link href={undatedHref} data-testid="timeline-undated">
+              <CalendarX className="size-4 text-status-warning-icon" aria-hidden="true" />
+              {formatTimelineUndatedLabel(t, locale, data.undatedCount, countCaps.undated)}
+            </Link>
+          </Button>
+        ) : null}
+        {(data?.groupBy ?? groupBy) === 'stage' && (showEmptyStages || hiddenEmptyLaneCount > 0) ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-pressed={showEmptyStages}
+            data-testid="timeline-empty-stages-toggle"
+            onClick={() => update({ showEmptyStages: !showEmptyStages })}
+          >
+            {showEmptyStages
+              ? translateWithFallback(t, 'customers.deals.timeline.emptyStages.hide', 'Hide empty stages')
+              : translateWithFallback(t, 'customers.deals.timeline.emptyStages.show', 'Show empty stages ({count})', {
+                  count: hiddenEmptyLaneCount,
+                })}
+          </Button>
+        ) : null}
+      </TimelineControls>
 
       {timelineQuery.isError && data ? (
         <Alert
@@ -1189,44 +1280,6 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
         </Alert>
       ) : null}
 
-      {(data && data.overdueBefore.count > 0 && data.overdueBefore.latestExpectedCloseAt) || (data && data.undatedCount > 0) ? (
-        <div className="grid gap-2 md:grid-cols-2">
-          {data.overdueBefore.count > 0 && data.overdueBefore.latestExpectedCloseAt ? (
-            <Alert
-              status="error"
-              size="sm"
-              data-testid="timeline-overdue-before"
-              action={
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => update({ from: alignToBucketStart(data.overdueBefore.latestExpectedCloseAt!, bucket) })}
-                >
-                  {translateWithFallback(t, 'customers.deals.timeline.overdueBeforeAction', 'Show overdue deals')}
-                </Button>
-              }
-            >
-              <AlertDescription>
-                {translateWithFallback(t, 'customers.deals.timeline.overdueBefore', '{count} overdue before {date}', {
-                  count: formatTimelineCount(t, data.overdueBefore.count, countCaps.overdue),
-                  date: formatTimelineDate(data.overdueBefore.before, locale) ?? data.overdueBefore.before,
-                })}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          {data.undatedCount > 0 ? (
-            <Alert status="warning" size="sm" data-testid="timeline-undated">
-              <AlertDescription>
-                <Link href={undatedHref} className="font-medium text-foreground underline underline-offset-2 hover:no-underline">
-                  {formatTimelineUndatedLabel(t, locale, data.undatedCount, countCaps.undated)}
-                </Link>
-              </AlertDescription>
-            </Alert>
-          ) : null}
-        </div>
-      ) : null}
-
       {noResults ? (
         <EmptyState
           icon={<CalendarClock className="size-8" aria-hidden="true" />}
@@ -1258,6 +1311,7 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
           }}
         >
           <div
+            ref={gridScrollRef}
             role="grid"
             aria-busy={isLoadingInitial || isRefreshing}
             aria-label={translateWithFallback(t, 'customers.nav.deals.timeline', 'Deals Timeline')}
@@ -1266,7 +1320,11 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
           >
             <div className="w-full" style={{ minWidth: gridMinWidth }}>
               <div role="row" className="grid border-b border-border bg-muted/40" style={{ gridTemplateColumns: gridTemplate }}>
-                <div role="columnheader" className="sticky left-0 z-10 border-r border-border bg-muted px-2 py-2 text-xs font-semibold uppercase text-muted-foreground">
+                <div
+                  role="columnheader"
+                  data-lane-header-column="true"
+                  className="sticky left-0 z-10 border-r border-border bg-muted px-2 py-2 text-xs font-semibold uppercase text-muted-foreground"
+                >
                   {groupBy === 'owner'
                     ? translateWithFallback(t, 'customers.deals.timeline.groupBy.owner', 'Owner')
                     : translateWithFallback(t, 'customers.deals.timeline.groupBy.stage', 'Stage')}
@@ -1275,7 +1333,8 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                   <div
                     key={column.index}
                     role="columnheader"
-                    className={`flex flex-col gap-0.5 border-l border-border px-2 py-2 ${column.isCurrent ? 'bg-accent-indigo/5' : ''}`}
+                    data-current-column={column.isCurrent ? 'true' : undefined}
+                    className={`flex min-w-0 flex-col gap-0.5 border-l border-border px-2 py-2 ${column.isCurrent ? 'bg-accent-indigo/5' : ''}`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-foreground">{columnLabel(column, bucket)}</span>
@@ -1318,9 +1377,9 @@ export function DealsTimelineBoard({ state, update, permissions }: DealsTimeline
                   </div>
                 ))
               ) : (
-                sortedLanes.map((lane, index) => {
+                visibleLanes.map((lane, index) => {
                   const display = laneDisplay(lane)
-                  const previous = index > 0 ? sortedLanes[index - 1] : null
+                  const previous = index > 0 ? visibleLanes[index - 1] : null
                   const showHeading =
                     lane.kind === 'stage' &&
                     !!display.pipelineHeading &&

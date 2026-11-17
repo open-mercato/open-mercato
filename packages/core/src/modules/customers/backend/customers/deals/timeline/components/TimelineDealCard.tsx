@@ -190,6 +190,7 @@ function TimelineDealCardImpl({
   }
 
   const noPlannedActivity = hasNoPlannedActivity(item)
+  const noPlannedActivityLabel = translateWithFallback(t, 'customers.deals.timeline.card.noPlannedActivity', 'No planned activity')
 
   return (
     <div
@@ -220,7 +221,9 @@ function TimelineDealCardImpl({
       ) : null}
       <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${accentClass}`} />
       <div className="flex items-start justify-between gap-2">
-        <span className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">{title}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 break-words hyphens-auto text-sm font-semibold leading-snug text-foreground">
+          {title}
+        </span>
         {closedKind ? (
           <StatusBadge variant={CLOSED_KIND_VARIANT[closedKind]} className="shrink-0">
             {timelineClosedLabel(t, closedKind)}
@@ -233,27 +236,33 @@ function TimelineDealCardImpl({
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs leading-normal">
         <span className="whitespace-nowrap font-medium text-foreground">{valueLabel ?? '—'}</span>
-        {dateLabel ? (
-          <span
-            className={`inline-flex shrink-0 items-center gap-1 ${
-              overdue ? 'font-semibold text-status-error-text' : 'text-muted-foreground'
-            }`}
-          >
-            {overdue ? (
-              <AlertTriangle className="size-3" aria-hidden="true" />
-            ) : (
-              <Calendar className="size-3" aria-hidden="true" />
-            )}
-            {dateLabel}
-          </span>
-        ) : null}
-      </div>
-      {noPlannedActivity ? (
-        <span data-testid="timeline-card-no-activity" className="inline-flex items-center gap-1 text-xs leading-normal text-status-warning-text">
-          <CalendarX className="size-3 shrink-0" aria-hidden="true" />
-          {translateWithFallback(t, 'customers.deals.timeline.card.noPlannedActivity', 'No planned activity')}
+        <span className="inline-flex shrink-0 items-center gap-1.5">
+          {noPlannedActivity ? (
+            <span
+              data-testid="timeline-card-no-activity"
+              title={noPlannedActivityLabel}
+              aria-hidden="true"
+              className="inline-flex items-center text-status-warning-icon"
+            >
+              <CalendarX className="size-3" />
+            </span>
+          ) : null}
+          {dateLabel ? (
+            <span
+              className={`inline-flex items-center gap-1 ${
+                overdue ? 'font-semibold text-status-error-text' : 'text-muted-foreground'
+              }`}
+            >
+              {overdue ? (
+                <AlertTriangle className="size-3" aria-hidden="true" />
+              ) : (
+                <Calendar className="size-3" aria-hidden="true" />
+              )}
+              {dateLabel}
+            </span>
+          ) : null}
         </span>
-      ) : null}
+      </div>
       {item.primaryCompany?.label || ownerLabel ? (
         <div className="flex items-center justify-between gap-2 text-xs leading-normal text-muted-foreground">
           <span className="truncate">{item.primaryCompany?.label ?? ''}</span>
@@ -282,10 +291,10 @@ export function TimelineDealCardPreview({
   const dateLabel = formatTimelineDate(item.expectedCloseAt, locale)
   const overdue = isTimelineDealOverdue(item, todayKey)
   return (
-    <div className="flex w-56 flex-col gap-1">
+    <div className="flex w-full min-w-0 flex-col gap-1">
       <div className="relative flex flex-col gap-1 overflow-hidden rounded-md border border-accent-indigo bg-card py-2 pl-3 pr-2.5 shadow-md">
         <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1 ${accentClass}`} />
-        <span className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
+        <span className="line-clamp-2 break-words hyphens-auto text-sm font-semibold leading-snug text-foreground">
           {item.title || translateWithFallback(t, 'customers.deals.pipeline.untitled', 'Untitled deal')}
         </span>
         {dateLabel ? (

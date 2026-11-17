@@ -16,17 +16,18 @@ const MONTHS = [
 ];
 
 export async function pickCalendarDate(page: Page, trigger: Locator, dateKey: string): Promise<void> {
-  const [year, month, day] = dateKey.split('-').map((part) => Number(part));
-  const monthName = MONTHS[month - 1];
   await trigger.click();
-  const dayButton = page.getByRole('button', {
-    name: new RegExp(`${monthName} ${day}(st|nd|rd|th)?,? ${year}`),
-  });
-  for (let attempt = 0; attempt < 24; attempt += 1) {
-    if (await dayButton.first().isVisible().catch(() => false)) break;
-    await page.getByRole('button', { name: /next month/i }).first().click();
+  const dayButton = page.locator(`[data-day="${dateKey}"]:not([data-outside]) button`).first();
+  for (let attempt = 0; attempt < 48; attempt += 1) {
+    if (await dayButton.isVisible().catch(() => false)) break;
+    const shownDays = await page.locator('[data-day]:not([data-outside])').evaluateAll((cells) =>
+      cells.map((cell) => cell.getAttribute('data-day') ?? '').filter(Boolean).sort(),
+    );
+    const firstShown = shownDays[0] ?? '';
+    const direction = firstShown && dateKey < firstShown ? /previous month/i : /next month/i;
+    await page.getByRole('button', { name: direction }).first().click();
   }
-  await dayButton.first().click();
+  await dayButton.click();
 }
 
 export function utcMonthDayLabel(dateKey: string): RegExp {

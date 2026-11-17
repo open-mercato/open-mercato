@@ -77,4 +77,37 @@ describe('TimelineAmounts', () => {
     expect(text).toContain('1.5K+')
     expect(text).toContain('600+')
   })
+
+  it('keeps a seven-digit total inside its column with truncation and the full value available', () => {
+    render(
+      <TimelineAmounts
+        amounts={[{ currency: 'USD', open: 1234567.89, weighted: 802100, won: 0 }]}
+        showWon={false}
+        scopeLabel="Alex Chen"
+      />,
+    )
+    const root = screen.getByTestId('timeline-amounts')
+    expect(root.className).toContain('min-w-0')
+    const openLine = root.querySelector('[data-amount-line="open"]') as HTMLElement
+    expect(openLine.className).toContain('min-w-0')
+    const value = openLine.querySelector('dd') as HTMLElement
+    expect(value.className).toContain('truncate')
+    expect(value.getAttribute('title')).toBe('$1,234,567.89')
+    expect(value.querySelector('.sr-only')?.textContent).toBe('$1,234,567.89')
+    expect(value.querySelector('[aria-hidden="true"]')?.textContent).toBe('$1.2M')
+  })
+
+  it('stacks label over amount in the narrow layout', () => {
+    render(
+      <TimelineAmounts
+        amounts={[{ currency: 'USD', open: 1234567.89, weighted: 802100, won: 0 }]}
+        showWon={false}
+        scopeLabel="Alex Chen"
+        layout="stacked"
+      />,
+    )
+    const openLine = screen.getByTestId('timeline-amounts').querySelector('[data-amount-line="open"]') as HTMLElement
+    expect(openLine.className).toContain('flex-col')
+    expect(openLine.querySelector('dt')?.className).toContain('truncate')
+  })
 })
