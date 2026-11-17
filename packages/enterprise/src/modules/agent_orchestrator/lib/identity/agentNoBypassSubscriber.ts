@@ -1,4 +1,4 @@
-import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
+import type { EventArgs, EventSubscriber, FlushEventArgs } from '@mikro-orm/core'
 import { getAgentActorScope, isAuditedCommandActive, isRuntimeAuditWriteActive } from './agentWriteScope'
 
 /**
@@ -81,10 +81,14 @@ export const RUNTIME_AUDIT_AGENT_RUN_FIELDS: ReadonlySet<string> = new Set([
   'updatedAt',
 ])
 
-function entityIdentityKeyOf(args: EventArgs<unknown>): string | null {
-  const meta = args.meta as { className?: unknown; tableName?: unknown } | undefined
+function identityKeyOfMeta(value: unknown): string | null {
+  const meta = value as { className?: unknown; tableName?: unknown } | undefined
   if (typeof meta?.className !== 'string' || typeof meta.tableName !== 'string') return null
   return identityKey({ className: meta.className, tableName: meta.tableName })
+}
+
+function entityIdentityKeyOf(args: EventArgs<unknown>): string | null {
+  return identityKeyOfMeta(args.meta)
 }
 
 export function isRuntimeAuditEntity(args: EventArgs<unknown>): boolean {
@@ -93,11 +97,29 @@ export function isRuntimeAuditEntity(args: EventArgs<unknown>): boolean {
   return RUNTIME_AUDIT_ENTITY_KEYS.has(key) || RUNTIME_AUDIT_CREATE_ONLY_ENTITY_KEYS.has(key)
 }
 
+/**
+ * The fields each `AgentRun` change set carried when the flush computed it, taken
+ * in `onFlush`, before any `beforeUpdate` hook runs. The tenant encryption
+ * subscriber is registered ahead of this guard and re-encrypts `input`/`output`
+ * into the payload of every `AgentRun` update, so the payload this guard sees in
+ * `beforeUpdate` is not what the runtime asked to write.
+ */
+const changedFieldsAtFlush = new WeakMap<object, readonly string[]>()
+
+function changedFieldsOf(changeSet: { payload?: unknown } | undefined): readonly string[] | null {
+  if (!changeSet) return null
+  const recorded = changedFieldsAtFlush.get(changeSet)
+  if (recorded) return recorded
+  const payload = changeSet.payload
+  if (!payload || typeof payload !== 'object') return null
+  return Object.keys(payload)
+}
+
 function isRuntimeAuditTraceUpdate(operation: 'create' | 'update' | 'delete', args: EventArgs<unknown>): boolean {
   if (operation !== 'update') return false
-  const payload = (args.changeSet as { payload?: unknown } | undefined)?.payload
-  if (!payload || typeof payload !== 'object') return false
-  return Object.keys(payload).every((field) => RUNTIME_AUDIT_AGENT_RUN_FIELDS.has(field))
+  const fields = changedFieldsOf(args.changeSet as { payload?: unknown } | undefined)
+  if (!fields) return false
+  return fields.every((field) => RUNTIME_AUDIT_AGENT_RUN_FIELDS.has(field))
 }
 
 export function isRuntimeAuditWriteAllowed(
@@ -157,6 +179,16 @@ export class AgentKindNoBypassSubscriber implements EventSubscriber<unknown> {
     if (isRuntimeAuditWriteActive() && isRuntimeAuditWriteAllowed(operation, args)) return
     // Agent actor active + no audited-command context → fail closed.
     throw new AgentWriteBypassError(operation, entityNameOf(args))
+  }
+
+  onFlush(args: FlushEventArgs): void {
+    if (!getAgentActorScope() || isAuditedCommandActive() || !isRuntimeAuditWriteActive()) return
+    for (const changeSet of args.uow.getChangeSets()) {
+      if (identityKeyOfMeta(changeSet.meta) !== AGENT_RUN_IDENTITY_KEY) continue
+      const payload = changeSet.payload as unknown
+      if (!payload || typeof payload !== 'object') continue
+      changedFieldsAtFlush.set(changeSet, Object.keys(payload))
+    }
   }
 
   beforeCreate(args: EventArgs<unknown>): void {
