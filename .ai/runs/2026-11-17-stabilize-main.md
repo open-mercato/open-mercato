@@ -4,7 +4,7 @@
 Restore green CI on a stabilization PR branched from main, with the full 15-shard suite and an independent final review before requesting automerge.
 
 ## Scope
-Diagnose the current main failures (run 43945783902 at 61fb2a0f4c): script tests and integration shard 8/15. Repair demonstrated root causes with regression coverage. Existing trusted `stabilize/` and `ci-full` handling already enables full coverage; preserve it.
+Diagnose main failures from run 43945783902 at 61fb2a0f4c and latest run 44085283375 at 7228410734: script tests and integration shard 8/15. Resume the stopped persisted chain on the same branch and PR; synchronize already-reviewed upstream main changes without rewriting history. Repair demonstrated root causes with regression coverage. Existing trusted `stabilize/` and `ci-full` handling already enables full coverage; preserve it.
 
 ## Non-goals
 No product redesign, unrelated cleanup, production changes, base-branch merges, or weakening/skipping checks. Do not adopt active older stabilization PRs or their claims.
@@ -27,7 +27,12 @@ No product redesign, unrelated cleanup, production changes, base-branch merges, 
 
 ## Validation evidence
 - Runner: local (no Compose app container running).
-- Reproduced the exact catalog failure before the fix; all 5 catalog regressions and `yarn lessons:check` equivalent pass after correcting 186 to 187.
+- Reproduced the exact catalog failure before the fix; all 5 catalog regressions and `yarn lessons:check` equivalent pass after correcting 186 to 187, then 188 after synchronizing the newly added upstream lesson. Catalog and full-suite selection regressions: 30/30 passed on 2026-11-17.
+
+## Resume evidence
+- The previous owner execution 7ed9f417 and child e3eef2d3 are confirmed failed/stopped. Retain persisted claim run f3238c56-d85f-4432-aa90-d69d08715725, comment 6932135961 and lock f24407bf1054730a9be86db70ab61873e4056b15.
+- Independent artifact diagnosis found cold app bootstrap consumed the encryption tests’ scenario budget before assertions. The inherited worker fixture gives bootstrap a bounded startup budget while preserving per-test containers, original assertions and scenario budgets; CI validation is pending.
+- PR run 43976766879 exposed a sales recipient test failure. New read-only child d73121ae investigates the cause while parent owns all source changes.
 
 ## Risks
 CI may reveal additional failures beyond the baseline. Local dependencies and service availability must be established; document actual validation limits. Keep draft and withhold automerge until full exact-head checks pass. Existing older stabilization PRs have active claims; leave them untouched.
