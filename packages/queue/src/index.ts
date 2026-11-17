@@ -22,6 +22,13 @@
 
 export * from './types'
 export { createQueue, createModuleQueue, resolveQueueStrategy } from './factory'
+export {
+  QueueIntrospectionUnavailableError,
+  QUEUE_FAILURE_CODES,
+  classifyFailureReason,
+  resolveJobType,
+} from './introspection'
+export type { QueueFailureCode } from './introspection'
 
 // Worker utilities
 export * from './worker/registry'

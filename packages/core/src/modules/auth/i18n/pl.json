@@ -138,6 +138,8 @@
   "auth.acl.features.configs.cache.manage": "Zarządzaj pamięcią podręczną",
   "auth.acl.features.configs.cache.view": "Wyświetl przegląd pamięci podręcznej",
   "auth.acl.features.configs.manage": "Zarządzaj konfiguracją",
+  "auth.acl.features.configs.queues_status.inspect_payloads": "Przeglądaj ładunki zadań w kolejkach",
+  "auth.acl.features.configs.queues_status.view": "Wyświetl stan kolejek",
   "auth.acl.features.configs.system_status.view": "Wyświetl stan systemu",
   "auth.acl.features.currencies.fetch.manage": "Zarządzaj konfiguracją pobierania walut",
   "auth.acl.features.currencies.fetch.view": "Wyświetl konfigurację pobierania walut",
