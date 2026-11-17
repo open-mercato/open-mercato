@@ -124,6 +124,17 @@ class ImapChannelAdapter implements ChannelAdapter {
       logger.warn('failed to append outbound message to Sent folder', { err: appendError })
     }
 
+    const rejected = result.rejected ?? []
+    if (rejected.length > 0) {
+      return {
+        externalMessageId: result.messageId,
+        conversationId: input.conversationId,
+        status: 'failed',
+        error: `SMTP_SEND_PARTIALLY_REJECTED: relay rejected ${rejected.join(', ')}`,
+        metadata: { response: result.response, accepted: result.accepted ?? [], rejected },
+      }
+    }
+
     return {
       externalMessageId: result.messageId,
       conversationId: input.conversationId,

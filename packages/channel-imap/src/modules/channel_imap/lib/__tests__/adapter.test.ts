@@ -143,6 +143,44 @@ describe('ImapChannelAdapter.sendMessage', () => {
     })
     expect(result.status).toBe('sent')
   })
+
+  it('reports a send the server refused for some recipients as failed', async () => {
+    const appendCalls: Buffer[] = []
+    setSmtpClient({
+      verify: async () => undefined,
+      send: async () => ({
+        messageId: '<partial@example.com>',
+        raw: Buffer.from('RAW'),
+        response: '250 2.0.0 Ok: queued',
+        accepted: ['bob@example.com'],
+        rejected: ['ghost@example.com'],
+      }),
+    })
+    setImapClient({
+      connectAndValidate: async () => ({ capabilities: [] }),
+      selectInbox: async () => ({}),
+      fetchUidRange: async () => [],
+      appendSent: async (_options, raw) => {
+        appendCalls.push(raw)
+      },
+    })
+    const adapter = getImapChannelAdapter()
+    const result = await adapter.sendMessage({
+      content: { text: 'hi', bodyFormat: 'text' },
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      metadata: { to: ['bob@example.com', 'ghost@example.com'] },
+    })
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('SMTP_SEND_PARTIALLY_REJECTED: relay rejected ghost@example.com')
+    expect(result.externalMessageId).toBe('<partial@example.com>')
+    expect(result.metadata).toEqual({
+      response: '250 2.0.0 Ok: queued',
+      accepted: ['bob@example.com'],
+      rejected: ['ghost@example.com'],
+    })
+    expect(appendCalls).toHaveLength(1)
+  })
 })
 
 describe('ImapChannelAdapter.fetchHistory', () => {
