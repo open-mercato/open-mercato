@@ -32,10 +32,13 @@ interceptor that returns no `headers` behaves exactly as before.
   returns a descriptor, not a response: the export route builds the file response with its
   own `content-type` / `content-disposition`, and interceptor headers do not reach it. Whether
   an interceptor may set headers on a file download is a separate decision, left open here.
-- **Changed (factory)**: `packages/shared/src/lib/crud/factory.ts` — the three command-backed
-  `actions.*` success responses (POST create, PUT update, DELETE) now carry the after-interceptor
-  headers. They forwarded them on the `!ok` branch only and built the success response without
-  them; that was inert before this change and a dropped header after it
+- **Changed (factory)**: `packages/shared/src/lib/crud/factory.ts` — every `makeCrudRoute`
+  response branch now carries the after-interceptor headers on success. The three command-backed
+  `actions.*` success responses (POST create, PUT update, DELETE) were the first gap; the list
+  success branches (cache hit, query-engine, empty scope, ORM fallback and its empty scope) and
+  the legacy non-command create success response were the second. All of them forwarded them on
+  the `!ok` branch only and built the success response without them; that was inert before this
+  change and a dropped header after it
 - **Not touched**: `InterceptorBeforeResult` (it already carries `headers`, on the request
   side), `packages/core/src/modules/integrations/api/umes-read.ts` (a fifth
   `runApiInterceptorsAfter` caller, which already forwards `intercepted.headers` on both
@@ -62,20 +65,23 @@ Independently, the four `runCustomRouteAfterInterceptors` callers build their re
 `NextResponse.json(body, { status })` and never read `interceptedResponse.headers`. So even
 the headers a route seeds itself are dropped on the way out.
 
-`makeCrudRoute` mostly does the opposite. Its list, detail and legacy non-command
-create/update/delete branches all return
-`json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })`,
-on the rejection path as well as the success path.
+`makeCrudRoute` used to honour them on its rejection branches only. Its list and legacy
+non-command create/update/delete branches returned
+`json(afterInterceptors.body, { status: afterInterceptors.statusCode, headers: afterInterceptors.headers })`
+when the interceptor rejected, but several success branches dropped the headers: the list
+responses built through `respondWithPayload` (cache hit, query-engine, empty scope, ORM fallback
+and its empty scope) and the legacy non-command create response built as
+`json(payload, { status: 201 })` never read `afterInterceptors.headers`.
 
-Three branches do not: the `actions.*` paths wired through a `commandId` (POST create,
-PUT update, DELETE) forward the headers when the interceptor *rejects* and then build the
-success response as `json(resolvedPayload, { status })`. That was harmless before this
-change — those call sites pass no `headers` to `applyInterceptorsAfter`, so the runner
-seeded `{}` and echoed it back — but adding `headers` to the contract is exactly what turns
-it into a dropped header. Fixing the custom routes without fixing these would leave a
-distinction that is invisible from `api/interceptors.ts`: an interceptor targeting a CRUD
-entity keeps its header on `GET` and on the legacy write paths, and loses it on any entity
-whose route is wired through `opts.actions.*.commandId`.
+Three `actions.*` branches (POST create, PUT update, DELETE) did the same: they forwarded the
+headers when the interceptor *rejected* and then built the success response as
+`json(resolvedPayload, { status })`. That was harmless before this change — those call sites pass
+no `headers` to `applyInterceptorsAfter`, so the runner seeded `{}` and echoed it back — but
+adding `headers` to the contract is exactly what turns it into a dropped header. Fixing the
+custom routes without fixing these would leave a distinction that is invisible from
+`api/interceptors.ts`: an interceptor targeting a CRUD entity keeps its header on the legacy
+write paths and loses it on the list responses and on any entity whose route is wired through
+`opts.actions.*.commandId`.
 
 The result is a seam that is honoured unevenly, with no error anywhere. An extension adding
 a cache hint, a correlation id or a `Set-Cookie` to `auth/login`, a `wms` route or a
@@ -170,7 +176,8 @@ interceptor that opts in.
   runner's attributed 500 and leave the seeded headers intact.
 - `packages/shared/src/lib/crud/__tests__/crud-factory.test.ts` — the POST create, PUT update
   and DELETE command-backed action success responses each carry an interceptor header, and the
-  operation header still attaches alongside it.
+  operation header still attaches alongside it; the GET list success response and the legacy
+  non-command create success response carry it too.
 - `packages/core/src/modules/auth/api/__tests__/login.test.ts` — the header reaches the
   actual HTTP response, the auth cookies the route sets survive it, and a header accumulated
   by a higher-priority interceptor before a lower-priority one throws reaches the 500.
@@ -188,7 +195,8 @@ alone and watching it fail:
 
 | Reverted | Fails |
 |---|---|
-| `factory.ts` success-branch `headers:` (×3) | 4 `crud-factory.test.ts` cases |
+| `factory.ts` command success-branch `headers:` (×3) | 4 `crud-factory.test.ts` cases |
+| `factory.ts` list / legacy-create success `headers:` | 2 `crud-factory.test.ts` cases |
 | `interceptor-runner.ts` normalise + validate | 4 `custom-route-interceptor.test.ts` cases |
 | `login.ts:230` (failure path) | the accumulated-header case — 16/16 passed before this change |
 | any wms `headers: intercepted.headers` | the coverage sweep |
@@ -212,3 +220,4 @@ alone and watching it fail:
 | 2026-08-28 | `InterceptorAfterResult.headers` added; runner merges it; the four `runCustomRouteAfterInterceptors` call sites forward it on both response paths. |
 | 2026-09-10 | Review round 1. The three command-backed `makeCrudRoute` action success branches now forward the headers too (they were dropping them, which this change is what made a bug); header names merge case-insensitively; an invalid name or NUL/CR/LF value fails through the runner's attributed error instead of throwing unattributed at the call site; the wms callers' two byte-identical return arms collapsed to one; the login failure-path test made discriminating; a source-sweep coverage guard added; `packages/core/AGENTS.md` and `SPEC-041e-api-interceptors.md` corrected. |
 | 2026-10-11 | Review round 2, after merging current `develop`. The `packages/core/AGENTS.md` line is back to the length of the one it replaces, so the instruction-budget ratchet passes; the collision rule stays in the field's doc comment, and it and the `set-cookie` caveat stay in this spec. #6932's `withTimesheetInterceptors.ts` is the sixth call site: its descriptor rejection branch now forwards the headers, and the coverage guard follows a local runner wrapper and names the file when it cannot. Header values above U+00FF fail through the attributed path, matching `new Headers()` exactly. The narrative comments at the wms and login call sites are gone. |
+| 2026-11-17 | Review round 3. The list success branches (cache hit, query-engine, empty scope, ORM fallback and its empty scope) and the legacy non-command create success branch now forward the after-interceptor headers through `respondWithPayload`/`json` instead of dropping them; the Problem Statement's claim that those branches already forwarded them was wrong and is corrected. Two `crud-factory.test.ts` cases pin the GET list and legacy create paths. |

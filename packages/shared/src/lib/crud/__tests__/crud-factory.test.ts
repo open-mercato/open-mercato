@@ -2314,6 +2314,59 @@ describe('CRUD Factory', () => {
     expect(body._interceptor).toEqual({ ok: true, count: 1 })
   })
 
+  // The list success branches built their response through `respondWithPayload`, which only
+  // knows the route's own `x-om-*` headers. An after interceptor that returned a header got a
+  // 200 and no header - the same silent split the command-aware branches closed.
+  it('GET list success response carries after-interceptor headers', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.list-header',
+            targetRoute: 'example/todos',
+            methods: ['GET'],
+            async after() {
+              return { headers: { 'x-correlation-id': 'list-1' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-correlation-id')).toBe('list-1')
+  })
+
+  // Same gap on the legacy (non-`actions.*`) create success path, which built its response as
+  // `json(payload, { status: 201 })` after replacing `payload` with the interceptor body.
+  it('legacy non-command create success response carries after-interceptor headers', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.create-header',
+            targetRoute: 'example/todos',
+            methods: ['POST'],
+            async after() {
+              return { headers: { 'x-correlation-id': 'create-1' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Header item', is_done: false }),
+      headers: { 'content-type': 'application/json' },
+    }))
+    expect(res.status).toBe(201)
+    expect(res.headers.get('x-correlation-id')).toBe('create-1')
+  })
+
   it('preserves exact and prefix interceptor identity through cloned and reconstructed aliases', async () => {
     const beforeCalls: string[] = []
     const afterCalls: string[] = []
