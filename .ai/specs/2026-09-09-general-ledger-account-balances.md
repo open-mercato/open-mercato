@@ -1097,12 +1097,16 @@ before enabling these routes.
   hierarchy is invalid (`hierarchy_authority_unavailable` or
   `report_hierarchy_invalid`), a pending hierarchy verification blocks
   reporting (`hierarchy_verification_pending`), accounting-policy authority
-  is unavailable (`accounting_policy_authority_unavailable`), or the enforced query deadline expired
+  is unavailable (`accounting_policy_authority_unavailable`), or the enforced operation deadline expired
   (`{ error: 'report_timeout' }`), the resource bound cannot be met
   (`{ error: 'report_resource_limit' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
   query is admitted without a valid shared decision; no failure is
-  retried server-side.
+  retried server-side. `report_timeout` means the single elapsed deadline
+  for the admitted operation expired (default 5 s), not just one SQL statement.
+  It returns no figures; cancellation and rollback use a separate bounded
+  cleanup window, and the admission slot remains fenced until the database
+  confirms all work stopped (Risks & Impact Review, "Availability controls").
 
 After authentication, feature authorization, syntax validation, shared
 admission and trusted-clock acquisition, take the snapshot and resolve the
@@ -1166,12 +1170,16 @@ leaking foreign existence and resolves overlapping failure conditions.
   `hierarchy_authority_unavailable` or `report_hierarchy_invalid`), or
   a hierarchy verification is pending (`hierarchy_verification_pending`),
   accounting-policy authority is unavailable (`accounting_policy_authority_unavailable`); the enforced
-  query deadline expired
+  operation deadline expired
   (`{ error: 'report_timeout' }`), the resource bound cannot be met
   (`{ error: 'report_resource_limit' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
   query is admitted without a valid shared decision; no failure is
-  retried server-side.
+  retried server-side. `report_timeout` means the single elapsed deadline
+  for the admitted operation expired (default 5 s), not just one SQL statement.
+  It returns no figures; cancellation and rollback use a separate bounded
+  cleanup window, and the admission slot remains fenced until the database
+  confirms all work stopped (Risks & Impact Review, "Availability controls").
 
 After authentication, feature authorization, syntax validation, shared
 admission and trusted-clock acquisition, take the snapshot and resolve
