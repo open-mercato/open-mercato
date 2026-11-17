@@ -1,15 +1,4 @@
 import type { EventArgs, EventSubscriber } from '@mikro-orm/core'
-import {
-  AgentContextBundle,
-  AgentEvalResult,
-  AgentGuardrailCheck,
-  AgentGuardrailSet,
-  AgentRun,
-  AgentRunArtifact,
-  AgentRunSession,
-  AgentSpan,
-  AgentToolCall,
-} from '../../data/entities'
 import { getAgentActorScope, isAuditedCommandActive, isRuntimeAuditWriteActive } from './agentWriteScope'
 
 /**
@@ -30,30 +19,46 @@ export class AgentWriteBypassError extends Error {
   }
 }
 
+export type RuntimeAuditEntityIdentity = { className: string; tableName: string }
+
+function identityKey(identity: RuntimeAuditEntityIdentity): string {
+  return `${identity.className}:${identity.tableName}`
+}
+
 /**
  * Agent-orchestrator runtime-audit entities admitted under an agent actor while
- * `withRuntimeAuditWrite` is active. `AgentRun` is admitted only for the narrow
- * trace-field update below. Every other entity keeps failing closed.
+ * `withRuntimeAuditWrite` is active, keyed by ORM metadata identity (class name
+ * AND table name), never by class object: a production Next.js build loads the
+ * entity module twice (server and SSR chunk graphs), so after a server render
+ * the ORM metadata can carry the other copy of the class. `AgentRun` is
+ * admitted only for the narrow trace-field update below. Every other entity
+ * keeps failing closed.
  */
-const RUNTIME_AUDIT_ENTITY_CLASSES = [
-  AgentGuardrailCheck,
-  AgentContextBundle,
-  AgentSpan,
-  AgentToolCall,
-  AgentEvalResult,
-  AgentRunArtifact,
-  AgentRunSession,
-  AgentRun,
-] as const
-
-const RUNTIME_AUDIT_ENTITY_CLASS_SET: ReadonlySet<unknown> = new Set<unknown>(RUNTIME_AUDIT_ENTITY_CLASSES)
+export const RUNTIME_AUDIT_ENTITIES: readonly RuntimeAuditEntityIdentity[] = [
+  { className: 'AgentGuardrailCheck', tableName: 'agent_guardrail_checks' },
+  { className: 'AgentContextBundle', tableName: 'agent_context_bundles' },
+  { className: 'AgentSpan', tableName: 'agent_spans' },
+  { className: 'AgentToolCall', tableName: 'agent_tool_calls' },
+  { className: 'AgentEvalResult', tableName: 'agent_eval_results' },
+  { className: 'AgentRunArtifact', tableName: 'agent_run_artifacts' },
+  { className: 'AgentRunSession', tableName: 'agent_run_sessions' },
+  { className: 'AgentRun', tableName: 'agent_runs' },
+]
 
 /**
  * Append-only AO entities the runtime may only INSERT under
  * `withRuntimeAuditWrite`: the integrity guardrail set a run syncs on first use
  * (`agent_guardrail_sets` rows are immutable per `(org, capability, version)`).
  */
-const RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES: ReadonlySet<unknown> = new Set<unknown>([AgentGuardrailSet])
+export const RUNTIME_AUDIT_CREATE_ONLY_ENTITIES: readonly RuntimeAuditEntityIdentity[] = [
+  { className: 'AgentGuardrailSet', tableName: 'agent_guardrail_sets' },
+]
+
+const AGENT_RUN_IDENTITY_KEY = identityKey({ className: 'AgentRun', tableName: 'agent_runs' })
+const RUNTIME_AUDIT_ENTITY_KEYS: ReadonlySet<string> = new Set(RUNTIME_AUDIT_ENTITIES.map(identityKey))
+const RUNTIME_AUDIT_CREATE_ONLY_ENTITY_KEYS: ReadonlySet<string> = new Set(
+  RUNTIME_AUDIT_CREATE_ONLY_ENTITIES.map(identityKey),
+)
 
 /**
  * `AgentRun` properties the runtime may change on an EXISTING run under
@@ -76,16 +81,16 @@ export const RUNTIME_AUDIT_AGENT_RUN_FIELDS: ReadonlySet<string> = new Set([
   'updatedAt',
 ])
 
-function entityClassOf(args: EventArgs<unknown>): unknown {
-  const meta = args.meta as { class?: unknown } | undefined
-  if (typeof meta?.class === 'function') return meta.class
-  const ctor = (args.entity as { constructor?: unknown } | null | undefined)?.constructor
-  return typeof ctor === 'function' ? ctor : undefined
+function entityIdentityKeyOf(args: EventArgs<unknown>): string | null {
+  const meta = args.meta as { className?: unknown; tableName?: unknown } | undefined
+  if (typeof meta?.className !== 'string' || typeof meta.tableName !== 'string') return null
+  return identityKey({ className: meta.className, tableName: meta.tableName })
 }
 
 export function isRuntimeAuditEntity(args: EventArgs<unknown>): boolean {
-  const entityClass = entityClassOf(args)
-  return RUNTIME_AUDIT_ENTITY_CLASS_SET.has(entityClass) || RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES.has(entityClass)
+  const key = entityIdentityKeyOf(args)
+  if (!key) return false
+  return RUNTIME_AUDIT_ENTITY_KEYS.has(key) || RUNTIME_AUDIT_CREATE_ONLY_ENTITY_KEYS.has(key)
 }
 
 function isRuntimeAuditTraceUpdate(operation: 'create' | 'update' | 'delete', args: EventArgs<unknown>): boolean {
@@ -99,10 +104,11 @@ export function isRuntimeAuditWriteAllowed(
   operation: 'create' | 'update' | 'delete',
   args: EventArgs<unknown>,
 ): boolean {
-  if (!isRuntimeAuditEntity(args)) return false
-  const entityClass = entityClassOf(args)
-  if (RUNTIME_AUDIT_CREATE_ONLY_ENTITY_CLASSES.has(entityClass)) return operation === 'create'
-  if (entityClass !== AgentRun) return true
+  const key = entityIdentityKeyOf(args)
+  if (!key) return false
+  if (RUNTIME_AUDIT_CREATE_ONLY_ENTITY_KEYS.has(key)) return operation === 'create'
+  if (!RUNTIME_AUDIT_ENTITY_KEYS.has(key)) return false
+  if (key !== AGENT_RUN_IDENTITY_KEY) return true
   return isRuntimeAuditTraceUpdate(operation, args)
 }
 
@@ -166,12 +172,25 @@ export class AgentKindNoBypassSubscriber implements EventSubscriber<unknown> {
   }
 }
 
-const registeredEventManagers = new WeakSet<object>()
+const REGISTERED_EVENT_MANAGERS_KEY = Symbol.for('@open-mercato/agent_orchestrator/agentNoBypassSubscriber')
+
+function resolveRegisteredEventManagers(): WeakSet<object> {
+  const registry = globalThis as typeof globalThis & { [REGISTERED_EVENT_MANAGERS_KEY]?: WeakSet<object> }
+  const existing = registry[REGISTERED_EVENT_MANAGERS_KEY]
+  if (existing) return existing
+  const created = new WeakSet<object>()
+  registry[REGISTERED_EVENT_MANAGERS_KEY] = created
+  return created
+}
+
+const registeredEventManagers = resolveRegisteredEventManagers()
 
 /**
  * Register the no-bypass subscriber on an EntityManager's event manager exactly
  * once (mirrors `registerTenantEncryptionSubscriber`'s `registeredEventManagers`
- * WeakSet guard so the subscriber attaches once per EventManager).
+ * WeakSet guard so the subscriber attaches once per EventManager). The WeakSet
+ * lives on `globalThis`, so a second copy of this module (the SSR chunk graph of
+ * a production build) does not attach a second subscriber.
  */
 export function registerAgentKindNoBypassSubscriber(
   em:
