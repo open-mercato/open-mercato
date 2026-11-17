@@ -8,7 +8,7 @@ Use the sales module for orders, quotes, invoices, shipments, and payments. This
 2. **MUST follow document flow**: Quote → Order → Invoice (quote optional)
 3. **MUST scope all documents to a channel** — channel selection affects pricing, numbering, and visibility
 
-Invoices/credit memos are caller-asserted, exempt from 1–3: `.ai/specs/2026-11-06-sales-invoice-import-write-path.md`.
+Invoices keep amounts as sent; only imported invoices skip 2–3: `.ai/specs/2026-11-06-sales-invoice-import-write-path.md`.
 
 ## Ask First
 

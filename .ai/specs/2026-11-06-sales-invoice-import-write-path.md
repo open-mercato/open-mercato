@@ -26,12 +26,18 @@
 
 ## Decision needed
 
-`sales/AGENTS.md:7-9` asks for `salesCalculationService` for document math, the Quote → Order → Invoice flow and a channel on every document. Invoices already work differently: `SalesInvoice` has no channel column, `orderId` is optional and is not stored (TC-SALES-032 reads it back null), and `.ai/specs/2026-09-07-sales-external-amounts-mode.md` leaves invoices out because they already take caller-asserted amounts.
+`sales/AGENTS.md:7-9` asks for `salesCalculationService` for document math, the Quote → Order → Invoice flow and a channel on every document. Invoices already work differently: `SalesInvoice` has no channel column, `orderId` is optional, and `.ai/specs/2026-09-07-sales-external-amounts-mode.md` leaves invoices out because they already take caller-asserted amounts.
 
-**Question for the sales maintainers:** are invoices and credit memos caller-asserted records, exempt from those three rules?
+**Question for the sales maintainers:** may the invoice commands store amounts as the caller sends them, and may an invoice imported from an external ledger exist without an order or a channel?
 
-- **Recommended, and assumed by this spec:** yes. Phase 2 records the exemption as one line under **Always** in `sales/AGENTS.md` that points to this spec; the agent instruction budget (`yarn agents:check-budget`) lets that chain only shrink, so this section and [Negative amounts](#negative-amounts-phase-2) carry the full rule.
-- **Alternative:** a synthetic order and channel per source organization. It adds documents nobody issued, and it needs the order link persisted, since `orderId` is not stored.
+- **Recommended, and assumed by this spec:** yes, with this scope:
+  - `sales.invoices.create` and `sales.invoices.update` store amounts as sent and never recompute them, so lines need not add up to the header.
+  - Code that issues an invoice inside Open Mercato, such as the worker in `.ai/specs/2026-10-21-sales-recurring-orders.md`, still computes it from its order with `salesCalculationService` and links that order.
+  - Only an imported invoice may stand without an order or a channel. It is identified by a `SyncExternalIdMapping` row with `internalEntityType='sales.invoice'`, as the Xero App Spec defines. Its paid and outstanding amounts are the source system's, so later code that derives them (#7202, credit memo create in the recurring orders spec) leaves imported invoices alone.
+  - Credit memos are not covered; no phase changes them.
+
+  Phase 2 records this as one line under **Always** in `sales/AGENTS.md` that points to this spec; the agent instruction budget (`yarn agents:check-budget`) lets that chain only shrink, so this section and [Negative amounts](#negative-amounts-phase-2) carry the full rule.
+- **Alternative:** a synthetic order and channel per source organization. Orders accept external totals (`totals_mode='external'`), so the amounts would fit, but each imported invoice would add an order nobody placed: it takes a number from the order sequence and shows in order lists and the new-orders dashboard widget.
 
 Phase 1 does not depend on the answer. Phases 2 and 3 are built on the recommended answer and need it confirmed before merge.
 
@@ -528,6 +534,13 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 - **Mitigation**: Whichever lands second rebases. Both keep the command id and its input additive. That spec also makes credit memo create write the invoice's `outstanding`, and it refuses delete on generated invoices. So whichever lands second must take this row lock in that new writer, add its ledger row to create undo's dependant count and its delete refusal to create undo, and refuse `replaceLines` on generated invoices, or recompute the order's derived totals.
 - **Residual risk**: A merge conflict, and these follow-ups to carry.
 
+#### Overlap with the invoice order-link fix
+- **Scenario**: PR #9482 persists the invoice's order through the `order` relation, while this work still reads and writes `orderId` in create, the invoice snapshot and `restoreInvoiceHeader`.
+- **Severity**: Medium
+- **Affected area**: `commands/documents.ts`, the order link of every invoice
+- **Mitigation**: Whichever lands second moves all three sites to the `order` relation. The stale check stays compatible, because rows written before the fix read the link as `null` on both sides.
+- **Residual risk**: A conflict resolved toward this side silently drops the link again. #9482's `documents.invoice-order-link.test.ts` catches it when it runs on the merged result.
+
 ## Related
 
 `.ai/specs/2026-10-21-sales-recurring-orders.md`, #4951 (the order and quote fix Phase 1 mirrors), #4143 (duplicate-invoice race), #7202, #100, PR #6046.
@@ -581,7 +594,7 @@ Fully compliant for Phase 1. Phases 2 and 3 follow the recommended answer to the
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Custom fields and safe undo | Done | 2026-11-08 | Steps 1–5; unit and integration tests |
-| Phase 2 — Negative amounts | Done | 2026-11-08 | Implemented on the recommended answer (invoices and credit memos are caller-asserted); the exemption is one line in `sales/AGENTS.md` and still needs the sales maintainers' confirmation |
+| Phase 2 — Negative amounts | Done | 2026-11-08 | Implemented on the recommended answer (invoice commands keep amounts as sent; only imported invoices may lack an order or a channel); the exemption is one line in `sales/AGENTS.md` and still needs the sales maintainers' confirmation |
 | Phase 3 — Line replacement | Done | 2026-11-08 | Steps 1–3 |
 | Xero App Spec alignment | Not started | — | Its own PR, now that #7335 has merged |
 
@@ -591,7 +604,7 @@ Fully compliant for Phase 1. Phases 2 and 3 follow the recommended answer to the
 - [x] P1.3 Update writes custom fields in their own phase; audit `changes` include `customFields`
 - [x] P1.4 Update undo: one transaction under the row lock, stale check, custom-field reset, index side effects, `invoice` kind of `throwDocumentUndoStale`, 409 in the undo route `openApi`
 - [x] P1.5 Create undo: `FOR UPDATE`, stale check, dependant count (allocations, credit memos incl. soft-deleted, notes), custom-field row delete, line index removal
-- [x] P2.1 Exemption in `sales/AGENTS.md`: one line under **Always** that points to this spec; two rules the file already states elsewhere are removed
+- [x] P2.1 Exemption in `sales/AGENTS.md`: one line under **Always** that points to this spec; it drops two rules the file already states as “never reimplement pricing inline” (Pricing Calculations) and “Never skip configured document workflow states” (Never)
 - [x] P2.2 Five signed line fields with the negative-line rule
 - [x] P2.3 Three signed header fields
 - [x] P3.1 `replaceLines` and `invoiceUpdateInputSchema`
