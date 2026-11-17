@@ -204,7 +204,7 @@ Undo entries written before deployment already carry `customFields`, because `lo
 - It requires `subtotalNetAmount`, `subtotalGrossAmount`, `taxTotalAmount`, `grandTotalNetAmount` and `grandTotalGrossAmount`, and answers 400 otherwise. `discountTotalAmount`, `paidTotalAmount` and `outstandingAmount` stay optional and keep their values when omitted.
 - Without the flag, or with `replaceLines: false`, `lines` stays accepted and ignored, as today.
 - The `replaceLines` rule goes on a separate `invoiceUpdateInputSchema = invoiceUpdateSchema.superRefine(…)` used by the route and the command, so the exported schemas stay unrefined and their `.partial()` keeps working. This is the pattern at `commands/documents.ts:629-732`: an unrefined base with refined schemas built from it.
-- Create and replacement share one line mapper, so a line stores the same net and order line on both paths. A line's `orderLineId` is stored as the `orderLine` relation and must be a live order line in the invoice's organization and tenant (400 otherwise). Undo re-inserts stored snapshot values, the order line included, as they are, without the mapper.
+- Create and replacement share one line mapper, so a line stores the same net and order line on both paths. A line's `orderLineId` is stored as the `orderLine` relation and must be a live order line in the invoice's organization and tenant (400 otherwise). Undo re-inserts stored snapshot values as they are, without the mapper, and links each order line while its row exists.
 - The audit keeps lines in `snapshotBefore` and `snapshotAfter`, as for orders.
 
 **Update undo with lines.** It touches lines only when the update replaced them, which means the ids of `before.lines` and `after.lines` differ. Then it deletes the current lines and re-inserts the before-snapshot lines with their ids. A header-only undo leaves the lines alone.
@@ -545,10 +545,10 @@ The blast radius is limited to invoices. A large replacement holds one row lock 
 - **Residual risk**: A merge conflict, and these follow-ups to carry.
 
 #### Stored order line links meet order changes
-- **Scenario**: Invoice lines now keep their order line. An order update with `items` recreates its lines and an order delete removes them, so `order_line_id` (`on delete set null`) clears those links. Order undo answers 409 while an invoice line links one of the order's lines, as it already does for credit memos.
+- **Scenario**: Invoice lines now keep their order line. An order update with `items` recreates its lines and an order delete removes them, so `order_line_id` (`on delete set null`) clears those links. Order undo answers 409 while an invoice line links one of the order's lines.
 - **Severity**: Low
 - **Affected area**: invoice lines with an `orderLineId`, order undo, invoice update undo
-- **Mitigation**: Invoice update undo answers 409 when a cleared link no longer matches its `after`. Undo of an invoice update or delete links only order lines whose row still exists, so it never fails on the foreign key.
+- **Mitigation**: Invoice create and update undo answer 409 when a cleared link no longer matches their `after`. Undo of an invoice update or delete links only order lines whose row still exists, so it never fails on the foreign key.
 - **Residual risk**: A link cleared by an order change stays cleared; the imports this spec serves send no `orderLineId`.
 
 #### Overlap with the invoice order-link fix

@@ -119,6 +119,8 @@ const INVOICE_ID = '33333333-3333-4333-8333-333333333333'
 const LINE_ID = '44444444-4444-4444-8444-444444444444'
 const ORDER_LINE_ID = '66666666-6666-4666-8666-666666666666'
 const FOREIGN_ORDER_LINE_ID = '77777777-7777-4777-8777-777777777777'
+const SOFT_DELETED_ORDER_LINE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const GONE_ORDER_LINE_ID = '99999999-9999-4999-8999-999999999999'
 
 type Row = Record<string, unknown>
 
@@ -131,6 +133,12 @@ type FakeState = {
 const orderLines: Row[] = [
   { id: ORDER_LINE_ID, organizationId: ORG_ID, tenantId: TENANT_ID, deletedAt: null },
   { id: FOREIGN_ORDER_LINE_ID, organizationId: OTHER_ORG_ID, tenantId: TENANT_ID, deletedAt: null },
+  {
+    id: SOFT_DELETED_ORDER_LINE_ID,
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    deletedAt: new Date('2026-11-02T00:00:00.000Z'),
+  },
 ]
 
 function makeInvoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
@@ -502,6 +510,7 @@ describe('sales invoice write path (#7336)', () => {
     it.each([
       ['another organization', FOREIGN_ORDER_LINE_ID],
       ['no stored order line', '88888888-8888-4888-8888-888888888888'],
+      ['a soft-deleted order line', SOFT_DELETED_ORDER_LINE_ID],
     ])('answers 400 and stores nothing for an order line in %s', async (_label, orderLineId) => {
       const state = baseState({ invoice: null, lines: [] })
       const em = makeFakeEm(state)
@@ -885,8 +894,7 @@ describe('sales invoice write path (#7336)', () => {
     })
 
     it('restores a replaced line without its order line once that order line row is gone', async () => {
-      const goneOrderLineId = '99999999-9999-4999-8999-999999999999'
-      const state = baseState({ lines: [makeLine({ orderLine: { id: goneOrderLineId } })] })
+      const state = baseState({ lines: [makeLine({ orderLine: { id: GONE_ORDER_LINE_ID } })] })
       const undo = await updateAndCapture(state, {
         replaceLines: true,
         lines: [{ quantity: 3, currencyCode: 'EUR' }],
@@ -1081,6 +1089,35 @@ describe('sales invoice write path (#7336)', () => {
 
       await expectStatus(runUndo('sales.invoices.update', undo, ctx), 403)
       expect(lockMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('delete undo', () => {
+    it('links a live or soft-deleted order line and leaves out one whose row is gone', async () => {
+      const state = baseState({ invoice: null, lines: [] })
+      const create = handler('sales.invoices.create')
+      const { ctx: createCtx } = makeCtx(makeFakeEm(state))
+      const input = {
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        currencyCode: 'EUR',
+        lines: [1, 2, 3].map(() => ({ quantity: 1, currencyCode: 'EUR', orderLineId: ORDER_LINE_ID })),
+      }
+      const result = await create.execute(input as never, createCtx)
+      const before = (await create.captureAfter?.(input as never, result, createCtx)) as { lines: Row[] }
+      before.lines[1].orderLineId = SOFT_DELETED_ORDER_LINE_ID
+      before.lines[2].orderLineId = GONE_ORDER_LINE_ID
+      state.invoice = null
+      state.lines = []
+      const { ctx } = makeCtx(makeFakeEm(state))
+
+      await runUndo('sales.invoices.delete', { before }, ctx)
+
+      expect(state.lines.map((line) => line.orderLine)).toEqual([
+        { id: ORDER_LINE_ID },
+        { id: SOFT_DELETED_ORDER_LINE_ID },
+        null,
+      ])
     })
   })
 

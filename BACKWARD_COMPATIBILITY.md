@@ -673,4 +673,4 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## #7336 2026-11-15
 
-STABLE §7 invoices + undo: additive fields; 500/400 to 404; stale undo 409; unstorable custom fields 500; incomplete replaceLines 400. No step waived. [Migration](UPGRADE_NOTES.md#sales-invoice-write-path-for-imported-invoices-7336)
+STABLE §7 invoices + undo: additive fields; 500/400 to 404; stale undo 409; unstorable custom fields 500; incomplete replaceLines 400; unknown orderLineId 400. No step waived. [Migration](UPGRADE_NOTES.md#sales-invoice-write-path-for-imported-invoices-7336)
