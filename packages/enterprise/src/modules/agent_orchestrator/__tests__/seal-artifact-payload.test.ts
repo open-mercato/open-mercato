@@ -29,11 +29,25 @@ describe('sealArtifactPayload', () => {
     expect(encryptEntityPayload).toHaveBeenCalledWith(REF.entityId, { input: PLAINTEXT }, 't1', 'o1')
   })
 
-  it('returns null without a service', async () => {
+  it('returns the plaintext wrapper without calling a service when encryption is turned off', async () => {
+    const original = process.env.TENANT_DATA_ENCRYPTION
+    process.env.TENANT_DATA_ENCRYPTION = 'false'
+    try {
+      const encryptEntityPayload = jest.fn()
+      expect(await sealArtifactPayload({ encryptEntityPayload }, SCOPE, REF, PLAINTEXT)).toEqual({ input: PLAINTEXT })
+      expect(await sealArtifactPayload(null, SCOPE, REF, PLAINTEXT)).toEqual({ input: PLAINTEXT })
+      expect(encryptEntityPayload).not.toHaveBeenCalled()
+    } finally {
+      if (original === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+      else process.env.TENANT_DATA_ENCRYPTION = original
+    }
+  })
+
+  it('returns null without a service while encryption is on', async () => {
     expect(await sealArtifactPayload(null, SCOPE, REF, PLAINTEXT)).toBeNull()
   })
 
-  it('returns null when the service passes the payload through', async () => {
+  it('returns null when the service passes the payload through while encryption is on', async () => {
     expect(await sealArtifactPayload(passThroughArtifactEncryption, SCOPE, REF, PLAINTEXT)).toBeNull()
   })
 
@@ -152,9 +166,27 @@ describe('sealArtifactPayload', () => {
       expect(await sealArtifactPayload(realService(), REAL_SCOPE, ref, PLAINTEXT)).toBeNull()
     })
 
-    it('returns null when tenant data encryption is disabled', async () => {
+    it('returns the plaintext wrapper when tenant data encryption is turned off', async () => {
       process.env.TENANT_DATA_ENCRYPTION = 'false'
-      expect(await sealArtifactPayload(realService(), REAL_SCOPE, ARTIFACT_REFS.llmRequest, PLAINTEXT)).toBeNull()
+      expect(await sealArtifactPayload(realService(), REAL_SCOPE, ARTIFACT_REFS.llmRequest, PLAINTEXT)).toEqual({
+        input: PLAINTEXT,
+      })
+    })
+
+    it('stores and round-trips plaintext through both stores when encryption is turned off', async () => {
+      process.env.TENANT_DATA_ENCRYPTION = 'false'
+      const { container, blobs } = storageWith(realService())
+      const value = { prompt: 'refund order for jane.doe@example.com' }
+
+      const key = await putArtifact(container, REAL_SCOPE, ARTIFACT_REFS.llmRequest, value)
+      expect(key).not.toBeNull()
+      expect(JSON.parse(blobs.get(key!)!.toString('utf8'))).toEqual({ input: JSON.stringify(value) })
+      expect(await getArtifact(container, REAL_SCOPE, ARTIFACT_REFS.llmRequest, key!)).toEqual(value)
+
+      const bytes = Buffer.from('statement for jane.doe@example.com', 'utf8')
+      const fileKey = await putArtifactBytes(container, REAL_SCOPE, { buffer: bytes, fileName: 'a.txt' })
+      expect(fileKey).not.toBeNull()
+      expect(await getArtifactBytes(container, REAL_SCOPE, fileKey!)).toEqual(bytes)
     })
 
     it('returns null when the KMS is unhealthy', async () => {

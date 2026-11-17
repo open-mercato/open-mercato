@@ -11,11 +11,12 @@
  * step throws, the offload returns `null` and the caller keeps the inline
  * summary — trace ingestion must never fail because an artifact could not be
  * stored. The blob is encrypted through `TenantDataEncryptionService` under an
- * already-declared field map (`encryption.ts`). Writes fail CLOSED on
- * encryption: when the service is absent, encryption is disabled, or no DEK is
- * available, nothing is uploaded and the offload returns `null` — captured
- * prompts and responses are never written to object storage as plaintext.
- * Reads still accept blobs stored as plaintext by earlier versions.
+ * already-declared field map (`encryption.ts`). With tenant data encryption
+ * turned off (`TENANT_DATA_ENCRYPTION` false) the blob is stored as plaintext
+ * JSON, like every other encrypted column in that mode. With encryption on,
+ * writes fail CLOSED: when the service is absent, the KMS is unhealthy, or no
+ * DEK is available, nothing is uploaded and the offload reports
+ * `encryption_unavailable`. Reads accept both sealed and plaintext blobs.
  */
 
 import { createLogger } from '@open-mercato/shared/lib/logger'

@@ -42,11 +42,13 @@
 
 **Action:** none. Expect more audit rows from clients that probe for tools; dashboards that read `outcome: 'denied'` as "permission denied" should also check `errorCode`.
 
-## Agent trace artifacts are never stored unencrypted (#9648, B-6)
+## Agent trace artifacts are never stored unencrypted while encryption is on (#9648, B-6)
 
-**Behaviour change (enterprise `agent_orchestrator`).** Offloads to `storage_s3` used to upload the payload as plaintext JSON when tenant data encryption was not in effect. This covered full-content trace capture (LLM request/response and context payload), full run output, tool request/response, integrity evidence and agent-produced file artifacts. Plaintext was written when the `tenantEncryptionService` was not registered, `TENANT_DATA_ENCRYPTION=false`, the KMS was unhealthy, or no DEK could be resolved. These writes now fail closed: nothing is uploaded and the caller degrades as it does when storage is unavailable. Trace steps record the new `om.content.status = encryption_unavailable` value (the trace UI says so), the context bundle keeps `payloadRef = null`, and file artifacts are reported as failed captures. Runs never fail because of this.
+**Behaviour change (enterprise `agent_orchestrator`).** Offloads to `storage_s3` used to upload the payload as plaintext JSON whenever encryption did not take effect, even with tenant data encryption on. This covered full-content trace capture (LLM request/response and context payload), full run output, tool request/response, integrity evidence and agent-produced file artifacts. With `TENANT_DATA_ENCRYPTION` on, these writes now fail closed when the `tenantEncryptionService` is not registered, the KMS is unhealthy, or no DEK can be resolved. Nothing is uploaded and the caller degrades as it does when storage is unavailable. Trace steps record the new `om.content.status = encryption_unavailable` value (the trace UI says so), the context bundle keeps `payloadRef = null`, and file artifacts are reported as failed captures. Runs never fail because of this.
 
-**Action:** deployments that rely on full content capture or file artifacts must run with tenant data encryption enabled and a healthy KMS. Installations with encryption turned off will stop collecting these artifacts. Blobs stored as plaintext by earlier versions stay readable; to remove them, delete them from the `agent-trace-content`, `agent-trace-artifacts` and `agent-run-artifacts` namespaces. Content retention expires only the `agent-trace-content` blobs (LLM request/response and context payload).
+With `TENANT_DATA_ENCRYPTION=false` nothing changes: artifacts are stored unencrypted, like every other encrypted column in that mode.
+
+**Action:** none for deployments with a healthy KMS. With encryption on, a KMS outage now pauses content and file-artifact capture instead of writing plaintext. Blobs stored as plaintext by earlier versions stay readable; to remove them, delete them from the `agent-trace-content`, `agent-trace-artifacts` and `agent-run-artifacts` namespaces. Content retention expires only the `agent-trace-content` blobs (LLM request/response and context payload).
 
 ## Production Compose tenant encryption key (#7231)
 

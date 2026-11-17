@@ -65,7 +65,7 @@ describe('artifactFileStore — putArtifactBytes', () => {
     expect(blobs.size).toBe(0)
   })
 
-  it('uploads nothing when encryption passes the bytes through (disabled / no DEK)', async () => {
+  it('uploads nothing when encryption passes the bytes through (KMS unhealthy / no DEK)', async () => {
     const { proxy, blobs } = makeStorage()
     const container = makeContainer({ storageService: proxy, tenantEncryptionService: passThroughArtifactEncryption })
 

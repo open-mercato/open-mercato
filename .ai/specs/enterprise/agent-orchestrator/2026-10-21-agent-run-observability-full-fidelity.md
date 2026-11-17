@@ -620,7 +620,10 @@ Phase 0 spike results (installed `ai` 7.0.83, `@ai-sdk/provider` 4.0.8, pinned `
   - **"Copy run" with content fetches the artifacts at click time,** four at a time, and only when the caller holds `trace.view_content`.
 
 ### 2026-11-16
-- **Content capture fails closed on encryption (#9648, B-6).** Content is never uploaded unencrypted. When tenant data encryption is unavailable, the step records the new `om.content.status = encryption_unavailable` value instead of `storage_unavailable`, and the trace UI names the cause.
+- **Content capture fails closed on encryption (#9648, B-6).** With tenant data encryption on, content is never uploaded unencrypted: when the service, the KMS or the tenant DEK is unavailable, the step records the new `om.content.status = encryption_unavailable` value instead of `storage_unavailable`, and the trace UI names the cause.
+
+### 2026-11-18
+- **Encryption turned off by the operator stores plaintext (#9648, B-6).** With `TENANT_DATA_ENCRYPTION=false`, artifacts are stored unencrypted, consistent with every other encrypted column in that mode. Fail-closed applies only while encryption is on.
 
 ### 2026-11-17
 - **Retention resumes from a cursor (#9648, C-4).** The `trace-content-retention` worker no longer scans a fixed seven-day window before the cutoff. It keeps a per-organization `(created_at, id)` cursor per row family (`llm` spans, context bundles) in tenant-scoped module config (`trace_content_retention_cursor:<organizationId>:<source>`; a stand-in, no AO DDL until the next re-squash, which adds the table `agent_trace_content_retention_cursors`), walks every row created before the cutoff, and resumes there on the next run. A missed run, a lowered `retentionDays` and a backlog over the 10,000-row per-run cap are therefore caught up. The cursor never moves past a row whose expired key failed to delete, or whose key has not expired yet. Keys are still read from the database, not by listing storage, and spans and bundles stay append-only.

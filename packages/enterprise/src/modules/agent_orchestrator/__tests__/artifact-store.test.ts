@@ -103,7 +103,7 @@ describe('artifactStore — encrypt → upload → download → decrypt round-tr
   })
 })
 
-describe('artifactStore — putArtifact fails closed without encryption', () => {
+describe('artifactStore — putArtifact fails closed when encryption is on but unavailable', () => {
   it('uploads nothing when no tenant encryption service is registered', async () => {
     const { proxy, blobs } = makeStorage()
     const container = makeContainer({ storageService: proxy })
@@ -112,7 +112,7 @@ describe('artifactStore — putArtifact fails closed without encryption', () => 
     expect(blobs.size).toBe(0)
   })
 
-  it('uploads nothing when the service returns the payload unencrypted (encryption disabled / no DEK)', async () => {
+  it('uploads nothing when the service returns the payload unencrypted (KMS unhealthy / no DEK)', async () => {
     const { proxy, blobs } = makeStorage()
     const container = makeContainer({ storageService: proxy, tenantEncryptionService: passThroughArtifactEncryption })
 
@@ -342,5 +342,32 @@ describe('artifactStore — putArtifactResult reports why nothing was stored', (
     expect(await putArtifactResult(container, SCOPE, ARTIFACT_REFS.llmRequest, {})).toEqual({
       status: 'storage_unavailable',
     })
+  })
+})
+
+describe('artifactStore — encryption turned off by the operator', () => {
+  const original = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'false'
+  })
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = original
+  })
+
+  it('stores a plaintext wrapper and round-trips it, with or without an encryption service', async () => {
+    for (const registrations of [{}, { tenantEncryptionService: passThroughArtifactEncryption }]) {
+      const { proxy, blobs } = makeStorage()
+      const container = makeContainer({ storageService: proxy, ...registrations })
+      const value = { prompt: 'hello' }
+
+      const result = await putArtifactResult(container, SCOPE, ARTIFACT_REFS.llmRequest, value)
+
+      expect(result).toEqual({ status: 'stored', key: 'k-1' })
+      expect(JSON.parse(blobs.get('k-1')!.toString('utf8'))).toEqual({ input: JSON.stringify(value) })
+      expect(await getArtifact(container, SCOPE, ARTIFACT_REFS.llmRequest, 'k-1')).toEqual(value)
+    }
   })
 })

@@ -350,6 +350,28 @@ describe('offloadModelCallContent', () => {
     expect(call.contentOutcome?.responseKey).toBeNull()
   })
 
+  it('stores content unencrypted with status stored when the operator turned encryption off', async () => {
+    const original = process.env.TENANT_DATA_ENCRYPTION
+    process.env.TENANT_DATA_ENCRYPTION = 'false'
+    try {
+      const { service } = storageContainer(sequentialKeys())
+      const container = containerOf({
+        storageService: { _resolveService: async () => service },
+        em: { fork: () => ({}) },
+      })
+
+      const [call] = await offloadModelCallContent(container, SCOPE, [buildCall('call-1', 0)], { redactPii: false })
+
+      expect(service.upload).toHaveBeenCalledTimes(2)
+      expect(call.contentOutcome?.status).toBe('stored')
+      const stored = JSON.parse((service.upload.mock.calls[0][0] as UploadInput).buffer.toString('utf8'))
+      expect(typeof (stored.input ?? stored.output)).toBe('string')
+    } finally {
+      if (original === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+      else process.env.TENANT_DATA_ENCRYPTION = original
+    }
+  })
+
   it('keeps storage_unavailable when the storage write fails even though encryption works', async () => {
     const { container, service } = storageContainer(async () => {
       throw new Error('[internal] storage down')

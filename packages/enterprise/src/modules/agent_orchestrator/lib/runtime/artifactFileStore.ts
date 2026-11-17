@@ -12,9 +12,10 @@
  * recorded when the encrypted bytes are durably stored. When `storage-s3` is
  * unconfigured for the tenant or any step throws, `putArtifactBytes` returns
  * `null` and the collector marks the file capture failed rather than recording a
- * row that points at bytes that were never stored. The same holds when the bytes
- * cannot be encrypted (service absent, encryption disabled, no DEK): plaintext
- * is never uploaded. Reads still accept blobs stored as plaintext by earlier versions.
+ * row that points at bytes that were never stored. The same holds when encryption
+ * is on but the bytes cannot be encrypted (service absent, KMS unhealthy, no DEK).
+ * With tenant data encryption turned off the bytes are stored unencrypted, like
+ * every other encrypted column in that mode. Reads accept both forms.
  */
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
