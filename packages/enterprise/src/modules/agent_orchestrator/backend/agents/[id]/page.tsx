@@ -38,7 +38,7 @@ import { TokenCalculatorTab } from './components/TokenCalculatorTab'
 import { computeAgentMetrics, computeRuntimeTokens, type Autonomy, type WorkspaceTab } from './components/workspaceShared'
 
 type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
-type EvalSection = 'assertions' | 'cases' | 'runs'
+type EvalSection = 'assertions' | 'cases' | 'runs' | 'regressions'
 
 const TAB_IDS: WorkspaceTab[] = ['overview', 'activity', 'evaluation', 'configuration', 'files', 'tokens']
 
@@ -60,7 +60,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
   })()
   const initialSection = ((): EvalSection => {
     const raw = searchParams?.get('section')
-    return raw === 'assertions' || raw === 'cases' || raw === 'runs' ? raw : 'assertions'
+    return raw === 'assertions' || raw === 'cases' || raw === 'runs' || raw === 'regressions' ? raw : 'assertions'
   })()
 
   const [state, setState] = React.useState<PageState>('loading')
