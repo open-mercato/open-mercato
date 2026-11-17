@@ -15,6 +15,7 @@ export type RecurrenceSchedule = {
 export type PeriodBounds = { start: string; end: string }
 
 const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+const MIN_YEAR = 1900
 const MS_PER_DAY = 86_400_000
 const FACTOR_SCALE = 10_000
 
@@ -30,7 +31,13 @@ function parseIsoDate(value: string): CalendarDate {
   const match = ISO_DATE_PATTERN.exec(value)
   if (!match) throw new Error(`[internal] Invalid ISO date: ${value}`)
   const date = { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) }
-  if (date.month < 1 || date.month > 12 || date.day < 1 || date.day > daysInMonth(date.year, date.month)) {
+  if (
+    date.year < MIN_YEAR ||
+    date.month < 1 ||
+    date.month > 12 ||
+    date.day < 1 ||
+    date.day > daysInMonth(date.year, date.month)
+  ) {
     throw new Error(`[internal] Invalid ISO date: ${value}`)
   }
   return date

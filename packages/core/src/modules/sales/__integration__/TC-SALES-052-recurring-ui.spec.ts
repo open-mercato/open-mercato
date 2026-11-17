@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
+import { expect, test, type APIRequestContext, type APIResponse, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
@@ -9,7 +9,8 @@ import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 /**
  * TC-SALES-052 — recurring billing UI (spec 2026-10-21-sales-recurring-orders, phase 1 step 4).
  *
- * The create form previews the calculated dates, the order detail page shows the schedule
+ * The create form previews the calculated dates and stores the submitted schedule (fixed-length and
+ * open-ended), the order detail page shows the schedule
  * and edits it through the recurrence dialog, and the public quote page shows the schedule.
  */
 
@@ -46,27 +47,85 @@ async function createDocument(
 
 const line = { currencyCode: 'USD', name: 'QA TC-SALES-052 service', quantity: 1, unitPriceNet: 100, unitPriceGross: 123, taxRate: 23 }
 
+async function openQuoteCreateFormWithSchedule(page: Page) {
+  await login(page, 'admin')
+  const numbered = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/api/sales/document-numbers' && response.request().method() === 'POST',
+  )
+  await page.goto('/backend/sales/documents/create?kind=quote', { waitUntil: 'domcontentloaded' })
+  expect((await numbered).ok(), 'the create form should generate a document number').toBeTruthy()
+  await expect(page.getByTestId('sales-recurrence-fields')).toBeVisible({ timeout: 60_000 })
+
+  const toggle = page.getByTestId('sales-recurrence-toggle')
+  await expect(async () => {
+    if ((await toggle.getAttribute('data-state')) !== 'checked') await toggle.click()
+    await expect(toggle).toHaveAttribute('data-state', 'checked', { timeout: 2_000 })
+  }).toPass({ timeout: 30_000 })
+  await expect(page.getByTestId('sales-recurrence-period-count')).toHaveValue('12')
+}
+
+async function submitQuoteCreateForm(page: Page): Promise<string> {
+  const created = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === '/api/sales/quotes' && response.request().method() === 'POST',
+  )
+  await page.getByRole('button', { name: 'Create', exact: true }).last().click()
+  const response = await created
+  expect(response.status(), 'quote creation should return 201').toBe(201)
+  const id = ((await response.json()) as JsonRecord).id
+  expect(typeof id, 'quote creation should return an id').toBe('string')
+  return id as string
+}
+
+async function readQuoteRecurrence(request: APIRequestContext, token: string, quoteId: string): Promise<unknown> {
+  const response = await apiRequest(request, 'GET', `/api/sales/quotes?id=${encodeURIComponent(quoteId)}`, { token })
+  expect(response.status()).toBe(200)
+  const item = (((await readJson(response)).items ?? []) as JsonRecord[]).find((entry) => entry.id === quoteId)
+  expect(item, 'the created quote should be readable').toBeTruthy()
+  return item?.recurrence
+}
+
 test.describe('TC-SALES-052 recurring billing UI', () => {
-  test('the create form previews the first invoice and end date of a monthly schedule', async ({ page }) => {
+  test('the create form submits a fixed-length schedule and stores it on the quote', async ({ page, request }) => {
     test.slow()
-    await login(page, 'admin')
-    await page.goto('/backend/sales/documents/create?kind=order', { waitUntil: 'domcontentloaded' })
-    const fields = page.getByTestId('sales-recurrence-fields')
-    await expect(fields).toBeVisible({ timeout: 60_000 })
+    const token = await getAuthToken(request, 'admin')
+    let quoteId: string | null = null
+    try {
+      await openQuoteCreateFormWithSchedule(page)
+      await page.getByTestId('sales-recurrence-frequency').click()
+      await page.getByRole('option', { name: 'Quarterly', exact: true }).click()
+      await page.getByTestId('sales-recurrence-period-count').fill('6')
+      const preview = page.getByTestId('sales-recurrence-preview')
+      await expect(preview).toContainText('First invoice on')
+      await expect(preview).toContainText('Ends on')
 
-    const toggle = page.getByTestId('sales-recurrence-toggle')
-    await expect(async () => {
-      if ((await toggle.getAttribute('data-state')) !== 'checked') await toggle.click()
-      await expect(toggle).toHaveAttribute('data-state', 'checked', { timeout: 2_000 })
-    }).toPass({ timeout: 30_000 })
-    await expect(page.getByTestId('sales-recurrence-period-count')).toHaveValue('12')
-    const preview = page.getByTestId('sales-recurrence-preview')
-    await expect(preview).toContainText('First invoice on')
-    await expect(preview).toContainText('Ends on')
+      quoteId = await submitQuoteCreateForm(page)
+      expect(await readQuoteRecurrence(request, token, quoteId)).toMatchObject({
+        frequency: 'quarterly',
+        periodCount: 6,
+      })
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+    }
+  })
 
-    await page.getByTestId('sales-recurrence-open-ended').click()
-    await expect(preview).toContainText('No end date')
-    await expect(page.getByTestId('sales-recurrence-period-count')).toBeDisabled()
+  test('the create form submits an open-ended schedule with no period count', async ({ page, request }) => {
+    test.slow()
+    const token = await getAuthToken(request, 'admin')
+    let quoteId: string | null = null
+    try {
+      await openQuoteCreateFormWithSchedule(page)
+      await page.getByTestId('sales-recurrence-open-ended').click()
+      await expect(page.getByTestId('sales-recurrence-preview')).toContainText('No end date')
+      await expect(page.getByTestId('sales-recurrence-period-count')).toBeDisabled()
+
+      quoteId = await submitQuoteCreateForm(page)
+      expect(await readQuoteRecurrence(request, token, quoteId)).toMatchObject({
+        frequency: 'monthly',
+        periodCount: null,
+      })
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+    }
   })
 
   test('the order detail page shows the schedule and saves an edited one', async ({ page, request }) => {

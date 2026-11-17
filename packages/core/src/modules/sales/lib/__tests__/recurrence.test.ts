@@ -3,11 +3,13 @@ import {
   anniversary,
   endsOn,
   isAnchorDayValid,
+  isIsoDate,
   localToday,
   periodBounds,
   prorationFactor,
   type RecurrenceSchedule,
 } from '../recurrence'
+import { recurrenceInputSchema } from '../recurrenceInput'
 
 function anniversaries(schedule: RecurrenceSchedule, count: number): string[] {
   return Array.from({ length: count }, (_, index) => anniversary(schedule, index))
@@ -150,5 +152,21 @@ describe('date helpers', () => {
   it('reads the local calendar date, not the UTC one', () => {
     expect(localToday(new Date(2026, 9, 26, 23, 30))).toBe('2026-10-26')
     expect(localToday(new Date(2026, 9, 27, 0, 15))).toBe('2026-10-27')
+  })
+
+  it('accepts real calendar dates from 1900 on and rejects earlier years', () => {
+    expect(isIsoDate('1900-01-01')).toBe(true)
+    expect(isIsoDate('9999-12-31')).toBe(true)
+    expect(isIsoDate('1899-12-31')).toBe(false)
+    expect(isIsoDate('0000-01-01')).toBe(false)
+    expect(isIsoDate('2027-02-29')).toBe(false)
+  })
+})
+
+describe('recurrenceInputSchema', () => {
+  it('refuses a start date in year 0000 as a validation error', () => {
+    const parsed = recurrenceInputSchema.safeParse({ frequency: 'monthly', startsOn: '0000-01-01', periodCount: 3 })
+    expect(parsed.success).toBe(false)
+    expect(parsed.error?.issues.map((issue) => issue.message)).toContain('sales.recurring.errors.invalidStartsOn')
   })
 })
