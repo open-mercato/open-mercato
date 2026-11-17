@@ -1,3 +1,4 @@
+import type { EvalModelFixtureOptions } from '../lib/eval/modelFixtures'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -148,6 +149,7 @@ async function runSuite(input: {
   plan: Record<string, ToolCallPlan[]>
   toolFixtures?: EvalToolFixtureOptions
   runtimeKind?: string
+  modelFixtures?: EvalModelFixtureOptions
 }) {
   const { em, storeFor } = createFakeEm()
   await startEvalRunCommand.execute(
@@ -178,7 +180,7 @@ async function runSuite(input: {
     }),
   }
   const container = { resolve: (name: string) => (name === 'em' ? em : runtime) } as unknown as AwilixContainer
-  await replaySuiteRun(container, suite.id as string, SCOPE, 'user-1', input.toolFixtures ? { toolFixtures: input.toolFixtures } : {})
+  await replaySuiteRun(container, suite.id as string, SCOPE, 'user-1', { ...(input.toolFixtures ? { toolFixtures: input.toolFixtures } : {}), ...(input.modelFixtures ? { modelFixtures: input.modelFixtures } : {}) })
   const caseRuns = storeFor(AgentEvalCaseRun)
   const byKey = (key: string) => {
     const index = input.caseKeys.indexOf(key)
@@ -474,4 +476,20 @@ describe('eval CLI tool fixture flags', () => {
     expect(parseEvalCliToolFixtureFlags({ fixturesFromRun: 'run-1' }).ok).toBe(false)
     expect(parseEvalCliToolFixtureFlags({ fixturesFromRun: 'run-1', record: 'a' }).ok).toBe(true)
   })
+})
+
+it('A-3 persists model mode from execution and refuses a programmatic live-tool fallback', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-eval-model-'))
+  try {
+    const recorded = await runSuite({ caseKeys: ['case-a'], plan: {}, modelFixtures: { mode: 'record', directory } })
+    expect(recorded.byKey('case-a').status).not.toBe('error')
+    const { store } = memoryStore({ 'case-a': { ok: true, fidelity: 'full', fixtures: [] } })
+    const replayed = await runSuite({ caseKeys: ['case-a'], plan: {}, modelFixtures: { mode: 'replay', directory }, toolFixtures: { mode: 'replay', onMiss: 'error', store } })
+    expect(replayed.byKey('case-a').status).not.toBe('error')
+    expect(replayed.suite.summary).toMatchObject({ __evalRun: { modelMode: 'scripted' } })
+    const fallback = await runSuite({ caseKeys: ['case-a'], plan: {}, modelFixtures: { mode: 'replay', directory }, toolFixtures: { mode: 'replay', onMiss: 'live', store } })
+    expect(fallback.byKey('case-a').status).toBe('error')
+    expect(fallback.runtime.run).not.toHaveBeenCalled()
+    expect(fallback.byKey('case-a').errorMessage).toContain('offline_tool_fixtures_required')
+  } finally { fs.rmSync(directory, { recursive: true, force: true }) }
 })

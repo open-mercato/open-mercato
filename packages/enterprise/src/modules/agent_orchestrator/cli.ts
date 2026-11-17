@@ -1,3 +1,4 @@
+import { parseEvalCliModelFixtureFlags } from './lib/eval/modelFixtures'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -580,7 +581,7 @@ const EVAL_REPORT_FILE_NAMES: Record<EvalReportFormat, string> = {
   junit: 'junit.xml',
 }
 const EVAL_GATE_USAGE =
-  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]\n' +
+  'Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v> | --snapshot <sha256:...|latest> | --cases <file.json|.yaml|.yml>] [--require-snapshot true] [--baseline <suiteRunId>] [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] [--offline true] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]\n' +
   '  --tenant/--org fall back to OM_EVAL_TENANT_ID/OM_EVAL_ORG_ID.'
 
 function isEvalReportFormat(value: string): value is EvalReportFormat {
@@ -644,7 +645,7 @@ function writeEvalErrorReport(dir: string, input: BuildEvalErrorReportInput): vo
  *     [--repeat <n>] [--gate true] [--report <dir>] [--format json,md,junit] \
  *     [--include-payloads true] [--fail-on-flaky true] [--min-pass-score <0..1>] \
  *     [--temperature <n>] [--seed <int>] [--record <dir> | --replay <dir>] \
- *     [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]
+ *     [--offline true] [--on-fixture-miss error|live] [--fixtures-from-run <runId> --record <dir> [--case <key>]]
  *
  * A thin wrapper over the SAME library the workbench uses — one scorer registry,
  * one replay engine, no second implementation to drift. With `--gate true` the
@@ -795,12 +796,22 @@ const evalGate: ModuleCli = {
       record: args.record,
       replay: args.replay,
       onFixtureMiss: args['on-fixture-miss'],
+      perTrial: args.record !== undefined || args.offline === 'true' || Boolean(casesFile?.cases.some((entry) => entry.fixtures?.model)),
       fixturesFromRun: args['fixtures-from-run'],
       casesFile: casesFile ?? null,
       evalSetDir,
     })
     if (!toolFixtures.ok) {
       console.error(toolFixtures.message)
+      process.exitCode = 2
+      return
+    }
+    const modelFixtures = parseEvalCliModelFixtureFlags({
+      offline: args.offline, record: args.record, replay: args.replay,
+      onFixtureMiss: args['on-fixture-miss'], evalSetDir, casesFile: casesFile ?? null,
+    })
+    if (!modelFixtures.ok) {
+      console.error(modelFixtures.message)
       process.exitCode = 2
       return
     }
@@ -815,7 +826,7 @@ const evalGate: ModuleCli = {
       return
     }
     if (toolFixtures.recordDir) {
-      console.warn(`Warning: recording tool fixtures into ${toolFixtures.recordDir}. ${EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING}`)
+      console.warn(`Warning: recording model and tool fixtures into ${toolFixtures.recordDir}. ${EVAL_TOOL_FIXTURE_TENANT_DATA_WARNING} Model fixtures also contain prompts and responses.`)
     }
     if (requireSnapshot && !snapshot && !casesFile) {
       console.error(
@@ -843,6 +854,7 @@ const evalGate: ModuleCli = {
         triggeredBy: 'ci',
         ...(callSettings.value ? { callSettings: callSettings.value } : {}),
         ...(toolFixtures.options ? { toolFixtures: toolFixtures.options } : {}),
+        ...(modelFixtures.options ? { modelFixtures: modelFixtures.options } : {}),
       })
     } catch (error) {
       const message = errorMessageOf(error)

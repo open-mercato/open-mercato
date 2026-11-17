@@ -1,3 +1,4 @@
+import { createModelReplaySession } from '../lib/eval/modelReplay'
 // Runtime-protection tests (performance hardening Phase 2): the in-process
 // wall-clock timeout and the top-level admission gate in AgentRuntimeService.
 // The model execution and the persistence/guardrail helpers are mocked so the
@@ -265,4 +266,13 @@ describe('call-time model settings on the OpenCode runtime', () => {
 
     expect(runAiAgentObjectMock).toHaveBeenCalledWith(expect.objectContaining({ callSettings: { temperature: 0 } }))
   })
+})
+
+it('A-3 rejects OpenCode before dispatch in offline model replay', async () => {
+  const native = registerInProcessAgent('protection.offline_opencode')
+  registerFileAgent({ ...native, id: 'protection.offline_opencode_bridge', runtime: 'opencode' })
+  const session = createModelReplaySession('replay')
+  await expect(session.run(() => makeService().run('protection.offline_opencode_bridge', {}, runCtx))).rejects.toThrow('model_replay_unsupported_runtime')
+  expect(createRunMock).not.toHaveBeenCalled()
+  expect(runAiAgentObjectMock).not.toHaveBeenCalled()
 })

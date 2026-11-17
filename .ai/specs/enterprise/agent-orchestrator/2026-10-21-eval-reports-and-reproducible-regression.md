@@ -1,7 +1,7 @@
 # Eval Reports and Reproducible Regression
 
 > **Status:** Draft · **Created:** 2026-10-21 · **Module:** `agent_orchestrator` (enterprise), with one additive seam in `ai-assistant`
-> **Extends (does not replace):** `next/2026-07-19-agent-eval-workbench-and-gate.md` (owns the replay engine, `AgentEvalSuiteRun`, `runEvalGate`, the CLI), `next/2026-06-20-agent-eval-harness-and-metrics.md` (scorers, judge, export envelope), `2026-07-25-continuous-online-eval-and-golden-match.md` (golden input-match), `2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md` §G (scripted LLM provider)
+> **Extends (does not replace):** `next/2026-07-19-agent-eval-workbench-and-gate.md` (owns the replay engine, `AgentEvalSuiteRun`, `runEvalGate`, the CLI), `next/2026-06-20-agent-eval-harness-and-metrics.md` (scorers, judge, export envelope), `2026-07-25-continuous-online-eval-and-golden-match.md` (golden input-match), `2026-10-12-process-flow-trace-replay-and-embeddable-decision-card.md` §G (original scripted-model proposal; implemented here through scoped model replay)
 > **Consumed by:** `next/2026-06-19-agent-deployment-and-regression-gating.md` (`EvalGateRunner` calls `runEvalGate`)
 > **Related specs (2026-10-21 set):** [`../../2026-10-21-chat-run-tracing-and-citations.md`](../../2026-10-21-chat-run-tracing-and-citations.md) (OSS; **owns** `AiAgentCallSettings`, call-time `callSettings` and definition `modelSettings`, §6 — this spec consumes them), [`2026-10-21-agent-run-observability-full-fidelity.md`](./2026-10-21-agent-run-observability-full-fidelity.md) (records the settings actually sent; the report reads `honored` from it), [`2026-10-21-output-integrity-guardrails.md`](./2026-10-21-output-integrity-guardrails.md) (adds the `guardrail_check` scorer, which eval sets can assert), [`2026-10-21-agent-invocation-access-and-identity-binding.md`](./2026-10-21-agent-invocation-access-and-identity-binding.md) (eval replay invoker = operator, agent principal via `runAs`). Umbrella: [`../../2026-10-21-agent-platform-capabilities-roadmap.md`](../../2026-10-21-agent-platform-capabilities-roadmap.md).
 
@@ -53,7 +53,7 @@ Verified against the code on 2026-10-21:
 1. **No portable report.** `cli.ts:548` (`evalGate`) prints suite id, agent, case-run count, pass score, baseline and outcome. Per-case results, scorer evidence, judge feedback, cost and latency exist only in `agent_eval_case_runs` / `agent_eval_results`. The UI and `GET /eval-runs/:id` (feature `eval.manage`) can read them, but a CI log cannot.
 2. **The dataset pin is a label.** `AgentEvalSuiteRun.evalSetVersion` is `varchar(100)`, free text. `resolveBaselineSuiteRun` matches baselines by string equality. Cases (`AgentEvalCase`, carrying `updated_at`) and assertions (`AgentEvalAssertion`) stay editable, so two runs under the same label can execute different inputs, expectations and scorer configs. `runEvalGate` always loads the agent's **current** approved cases (`evalGate.ts`), and `scoreCaseRun` loads the **current** enabled assertions (`evalReplayService.ts`).
 3. **Cases must be authored in the database.** Cases come from corrections or golden runs (`sourceType: 'correction' | 'golden_run'`, `sourceId uuid NOT NULL`). `GET /eval-cases/export` (envelope `version: 1`) exports approved cases, but it carries assertion **references** only, not their definitions, and there is no import. A CI pipeline cannot bring its own regression set.
-4. **Replays are not reproducible.** Replay deliberately runs fresh inference (`executeCaseRun` doc comment). Tools execute live against current data. The scripted provider (`ai-assistant/lib/llm-adapters/scripted.ts`, bound by `withScriptedLlmContext` in `nativeAgentRunner.ts`) makes the **model** deterministic, but it scripts tool *calls*, and the real tools still run. Nothing records or replays tool *results*. `defineAgent` has no temperature or seed, and `runAiAgentObject` has no call-settings input. Only the judge rubric pins `temperature`/`seed`.
+4. **Original reproducibility gap (closed by A-3):** tool replay shipped first, but every eval still called a real model. The scripted-provider paths previously described here did not exist. A-3 implements model-call recording and async-scoped replay through the shared model factory, with no process-global scripted provider.
 5. **Judge results are missing from the suite summary.** `runLlmJudgeForRun` (`llmJudge.ts`) persists judge `AgentEvalResult` rows **without `evalCaseRunId`**. `aggregateSuiteRun` selects results by `evalCaseRunId ∈ caseRuns`, so judge buckets never enter the eval-plane summary, and `__judgeDeltas` is always empty for replayed suites. The judge is also called without the case's `expected` value, and it ignores per-case assertion refs.
 6. **Rubrics are inline only.** A judge rubric lives in one assertion's `config`. A team cannot share "rationale quality" across agents or version it.
 
@@ -108,7 +108,7 @@ flowchart LR
   SR --> RP[replaySuiteRun<br/>reads cases/assertions from manifest]
   RP --> RT[agentRuntime.run]
   RT -->|withToolReplayContext| TL[tool wrapper<br/>agent-tools.ts]
-  RT -->|withScriptedLlmContext| LLM[model or scripted provider]
+  RT -->|withModelFactoryOverride| LLM[live or replayed model calls]
   RP --> SC[deterministic scorers + judge<br/>linked to evalCaseRunId]
   SC --> AG[aggregate + compareToBaseline]
   AG --> REP[buildEvalReport]
@@ -220,8 +220,8 @@ export function withToolReplayContext<T>(ctx: ToolReplayContext, fn: () => Promi
 - `argsKey = canonicalInputKey(args)`. `strict` matches `(toolName, argsKey, occurrence)`. `ordered` matches the n-th call of `toolName` regardless of args, for inputs that carry generated ids.
 - A miss with `onMiss: 'error'` throws `tool_fixture_missing`, which errors the case run (never a silent live call). `onMiss: 'live'` runs the real tool and flags the case `toolMode: 'mixed'` in the report.
 - Replay never invokes a handler. This is safe for AO because its agents are read-only, and the wrapper refuses replay for `isMutation` tools as defence in depth.
-- **Record:** `eval … --record <dir>` runs live and writes `<dir>/<agentId>/<caseKey>.tools.json`. It also writes a scripted-model fixture `<dir>/<agentId>/<inputKey>.json` built from the native runner's step records: each step's tool calls plus the final object. This is the format `scripted.ts` already reads, so `OM_AI_PROVIDER=scripted OM_AI_SCRIPTED_FIXTURES_DIR=<dir>` replays the model offline.
-- **Replay:** `eval … --replay <dir>` (or per-case `fixtures.tools` in the file) binds `withToolReplayContext` around `agentRuntime.run` in `runCase`. The scripted model is opt-in through the existing env vars. The report records the mode.
+- **Record (A-3):** `eval … --record <dir>` records tool fixtures and ordered model-call fixtures at `<dir>/<agentId>/<caseKey>.<trialIndex>.model.json`. A generic async-scoped model-factory override lives in ai-assistant; enterprise owns fixture storage and replay. Calls are captured at the SDK model boundary, so structured output and tool loops run their normal validation on replay. Failed/incomplete provider recordings are rejected.
+- **Replay (A-3):** `--replay <dir>` retains tool-only semantics. Add `--offline true` to replay both models and tools without credentials or live fallback. `fixtures.model` also opts into model replay. Validate agent/case/trial identity, input and request fingerprints (including strict response schema, tools and settings); reject unused and missing calls. Bind across the whole case, including synchronous judge scoring. Recorded tool outputs encapsulate nested inference and delegation; those child calls are not recorded again or executed on replay. Reject OpenCode dispatch before execution. Files are CLI-only, limited to 5 MiB, validated, contained beneath their fixture directory and atomically written as mode 0600. Offline does not remove database/storage requirements. Raw tenant content is sensitive.
 - **Best-effort export from a stored run:** `--fixtures-from-run <runId>` reads `agent_tool_calls`. It marks a fixture `fidelity: 'summary'` when the stored response is a redacted or truncated summary, and replay of such a fixture produces a report warning.
 - **Scope:** native (in-process) runtime only. OpenCode file agents execute tools in `mcp:serve-http`, a different process. They report `toolMode: 'unsupported_runtime'` and run live. Cross-process replay through `AgentRunSession` is out of scope.
 
@@ -251,8 +251,6 @@ jobs:
       postgres: { image: pgvector/pgvector:pg17, env: { POSTGRES_PASSWORD: postgres }, ports: ['5432:5432'] }
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      OM_AI_PROVIDER: scripted
-      OM_AI_SCRIPTED_FIXTURES_DIR: agents/content_review.validator/evals/fixtures
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -264,7 +262,7 @@ jobs:
           yarn mercato agent_orchestrator eval --agent content_review.validator \
             --tenant "$OM_EVAL_TENANT_ID" --org "$OM_EVAL_ORG_ID" \
             --cases agents/content_review.validator/evals/regression.json \
-            --replay agents/content_review.validator/evals/fixtures \
+            --replay agents/content_review.validator/evals/fixtures --offline true \
             --repeat 3 --gate true --fail-on-flaky true \
             --report eval-report --format json,md,junit
       - if: always()
@@ -274,7 +272,7 @@ jobs:
         run: cat eval-report/report.md >> "$GITHUB_STEP_SUMMARY"
 ```
 
-A second, optional job runs nightly against a live provider: no `OM_AI_PROVIDER=scripted`, no `--replay`, provider keys from repository secrets, `--gate false`. It tracks judge deltas and drift without blocking merges.
+A second, optional job runs nightly against a live provider: no `--offline true`, no `--replay`, provider keys from repository secrets, `--gate false`. It tracks judge deltas and drift without blocking merges.
 
 **Exit codes** (unchanged meaning, extended triggers):
 
@@ -406,7 +404,7 @@ Eval run detail (`backend/eval-runs/[id]/page.tsx`):
 | `OM_AGENT_EVAL_SET_MAX_BYTES` | `5242880` | Manifest/file size cap |
 | `OM_EVAL_TENANT_ID` / `OM_EVAL_ORG_ID` | unset | CLI scope fallback (Q4) |
 | `OM_EVAL_GIT_SHA` | unset | Stamped into the report when `GITHUB_SHA` is absent |
-| `OM_AI_PROVIDER=scripted`, `OM_AI_SCRIPTED_FIXTURES_DIR`, `OM_AI_SCRIPTED_ALLOW` | existing | Offline model replay |
+| `--offline true` with `--replay <dir>` (or per-case `fixtures.model`) | A-3 | Async-scoped offline model replay; no process-global scripted provider |
 
 ## Migration & Backward Compatibility
 
@@ -493,9 +491,9 @@ Existing suite runs have no `__evalSet`. Their reports show `evalSet.manifestHas
 - `TC-AGENT-EVAL-REPORT-002`: eval run page "Download report" menu present with `eval.export`, absent without; JSON download parses.
 - `TC-AGENT-EVAL-SET-001`: `POST /eval-sets/import` (draft + approved), then `GET /eval-sets/current/export` round trip; 422 on an invalid scorer config; undo removes the imported cases.
 - `TC-AGENT-EVAL-SET-002`: `POST /eval-runs { snapshot: 'latest' }` twice with a case edit in between. The pinned replay of the first hash ignores the edit, and the report shows `sameDataset`.
-- `TC-AGENT-EVAL-REPLAY-001`: with `OM_AI_PROVIDER=scripted` and a fixture directory, a CLI run with `--replay` produces identical case verdicts across two runs, and a missing tool fixture errors the case.
+- `TC-AGENT-EVAL-REPLAY-001`: self-contained file-store + real SDK tool-loop integration; two offline replays reproduce structured output without provider credentials, live tool handlers or fetch calls. A missing tool fixture fails. Unit coverage separately verifies CLI forwarding and eval-suite persistence.
 
-All agent runs in tests use the scripted provider. No test relies on seeded demo data.
+Offline replay tests use synthetic SDK model responses and recorded fixtures. No test relies on seeded demo data.
 
 ## Risks & Impact Review
 
@@ -626,7 +624,19 @@ None. One ask-first item (generated descriptor field) is open; the YAML dependen
   - The tool replay seam gains an additive `observeMiss`. Fixtures are CLI-only, written as `0600` files; a `--replay` directory wins over per-case fixtures; with `--repeat` only trial 0 is recorded; OpenCode agents are unsupported.
   - There are no per-case `callSettings`. Report `modelSettings` come from the definition read at build time (not stored per run, no DDL) and `providerOptions` are never included (flag only). `seed honored` is derived from the llm spans of the run tree.
   - File-agent rubric files are deferred. A per-case override may tune a rubric but cannot change its `rubricRef`.
-- Step 7.12: `TC-AGENT-EVAL-SET-001` covers JSON/YAML import, idempotent re-import, undo, the 413/422 contracts, the `current` export round trip with the judge-gate downgrade header, `eval.manage`/`eval.export` checks, eval-run `callSettings`, the built-in rubrics in `/eval-scorers` and the file-case label on the case page. The import command and its undo now flush the eval-case and eval-assertion list caches, so imported rows show at once under `ENABLE_CRUD_API_CACHE`. `TC-AGENT-EVAL-REPLAY-001` stays deferred (no scripted provider).
+- Step 7.12: `TC-AGENT-EVAL-SET-001` covers JSON/YAML import, idempotent re-import, undo, the 413/422 contracts, the `current` export round trip with the judge-gate downgrade header, `eval.manage`/`eval.export` checks, eval-run `callSettings`, the built-in rubrics in `/eval-scorers` and the file-case label on the case page. The import command and its undo now flush the eval-case and eval-assertion list caches, so imported rows show at once under `ENABLE_CRUD_API_CACHE`. `TC-AGENT-EVAL-REPLAY-001` was deferred at that step; delivered by A-3 below.
 
 ### 2026-11-13
 - Recorded retroactively (until now only in the wave-1 run plan, `.ai/runs/2026-10-22-agent-platform-wave-1/PLAN.md` Phase 6): Phase 1 was implemented on 2026-10-22 in agent platform wave 1 (PR #7794). Replayed judge results link to their eval case run and receive `expected` (`llmJudge.ts`, `evalReplayService.runCase`); the portable report model with flaky detection (`lib/eval/report/{reportSchema,flaky,buildEvalReport}.ts`); Markdown and JUnit renderers with escaping golden tests; CLI `--report`, `--format`, `--include-payloads`, `--fail-on-flaky`, `--min-pass-score` and the `OM_EVAL_TENANT_ID` / `OM_EVAL_ORG_ID` fallbacks; `GET /api/agent_orchestrator/eval-runs/:id/report` (409 while running, `?partial`) and the run page download menu. Integration: `TC-AGENT-EVAL-REPORT-001/002`.
+
+### A-3 implementation update — 2026-11-17
+
+Provider-native output hardening in A-2 remains owned by the strict-schema and native-runner code. Model replay preserves the provider response and passes through the same SDK output checks. Recordings must be refreshed if A-2 changes the effective schema. No API/DB/ACL contracts change; the CLI flag and generic scoped model-factory hook are additive. Existing tool-only replay remains available.
+
+Coverage: scoped override isolation and credential bypass; real SDK model/tool loop and structured output round trips; per-case fixture containment, identity, size limits and trial isolation; replay misses and unused calls; eval case judge scope and persisted report mode. `TC-AGENT-EVAL-REPLAY-001` exercises offline SDK execution from recorded synthetic fixtures without a live provider. No UI paths change.
+
+Risks: sensitive recordings (high, mitigate with private storage and synthetic checked-in data); stale schemas/prompts (fail closed using request fingerprints); hidden live calls (tool error-only replay, factory override before credential resolution, OpenCode dispatch rejection); parallel resolution reordering (requires matching order and fails closed). Recording failed provider calls is unsupported; regenerate a successful fixture rather than fabricating provider errors. Tool trial 0 retains `.tools.json`; later offline trials use `.<trialIndex>.tools.json` so varying live tool outputs do not contaminate another trial. No migration or new dependency.
+
+#### Migration & Backward Compatibility (A-3)
+
+Existing CLI invocations keep live model behavior unless `--offline true` or `fixtures.model` is supplied. `--record` additionally records model calls and per-trial tool fixtures; trial 0 paths and the existing tool format remain compatible. `--fixtures-from-run` still exports only tool summaries. No entity, API, ACL, event or generated registry changes. `withModelFactoryOverride` is an additive scoped extension; outside it model resolution precedence is unchanged. No global `OM_AI_SCRIPTED_*` setting is introduced.

@@ -112,6 +112,16 @@ describe('agent_orchestrator eval CLI exit codes and reports', () => {
     process.env = { ...originalEnv }
   })
 
+  it('A-3 forwards explicit offline model replay and rejects live fallback', async () => {
+    mockRunEvalGate.mockResolvedValue(gateResult())
+    mockFork.mockReturnValueOnce({ forked: true, findOne: async () => null } as ReturnType<typeof mockFork>)
+    await runEval([...scopeArgs, '--replay', reportDir, '--offline', 'true'])
+    expect(mockRunEvalGate.mock.calls[0][1]).toMatchObject({ modelFixtures: { mode: 'replay', directory: reportDir }, toolFixtures: { mode: 'replay', onMiss: 'error' } })
+    mockRunEvalGate.mockClear()
+    expect(await runEval([...scopeArgs, '--replay', reportDir, '--offline', 'true', '--on-fixture-miss', 'live'])).toBe(2)
+    expect(mockRunEvalGate).not.toHaveBeenCalled()
+  })
+
   it('exits 0 on a passing gate and writes json + md by default', async () => {
     mockRunEvalGate.mockResolvedValue(gateResult())
     mockBuildEvalReport.mockResolvedValue(completedReport())

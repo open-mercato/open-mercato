@@ -1,8 +1,8 @@
 # Agent Orchestrator — Agent Guidelines
 
-Use this enterprise module to run **propose-only** AI agents: an agent always returns a typed, validated `AgentResult` (`research | proposal | artifact`), persists an `AgentRun` (+ an `AgentProposal` for proposal results), and never writes domain state directly — every write flows through `proposal → disposition → effector (command)`. Two runtimes coexist behind one registry and one `agentRuntime.run()`; trace/eval/guardrail/context/identity overlays wrap every run.
+Use this enterprise module to run **propose-only** AI agents: an agent always returns a typed, validated `AgentResult` (`research | proposal | artifact`), persists an `AgentRun` (+ an `AgentProposal` for proposal results), and never writes domain state directly — every write flows through `proposal → disposition → effector (command)`. `agentRuntime.run()` dispatches both runtimes through shared overlays.
 
-See `.ai/specs/2026-06-22-opencode-file-defined-agents.md` (+ `-phase0-findings.md`) for the file-agent design, and `.ai/specs/enterprise/agent-orchestrator/` for the baseline, identity, trace-eval, guardrails, and context specs.
+Specs: `.ai/specs/2026-06-22-opencode-file-defined-agents.md` and `.ai/specs/enterprise/agent-orchestrator/`. Offline native evals: `--record <dir>`, then `--replay <dir> --offline true`; see `apps/docs/docs/framework/ai-assistant/agent-eval-ci.mdx`.
 
 ## Agent Taxonomy (spec `2026-08-11-agent-taxonomy.md`)
 

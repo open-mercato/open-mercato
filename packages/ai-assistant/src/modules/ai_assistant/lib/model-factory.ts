@@ -65,6 +65,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
 import { llmProviderRegistry } from './llm-registry'
+import { getModelFactoryOverride } from './model-factory-context'
 import {
   intersectAllowlists,
   canonicalProviderId,
@@ -584,7 +585,7 @@ export function resolveAllowRuntimeOverride(input: {
  * current implementation only needs the registry + env. No breaking change
  * when later implementations DO consult the container.
  */
-export function createModelFactory(
+function createBaseModelFactory(
   _container: AwilixContainer,
   deps: CreateModelFactoryDependencies = {},
 ): AiModelFactory {
@@ -950,4 +951,17 @@ function pickAllowedModel(input: {
   if (preferred && allowed.includes(preferred)) return preferred
   if (allowed.includes(provider.defaultModel)) return provider.defaultModel
   return allowed[0] ?? provider.defaultModel
+}
+
+export function createModelFactory(
+  container: AwilixContainer,
+  deps: CreateModelFactoryDependencies = {},
+): AiModelFactory {
+  const factory = createBaseModelFactory(container, deps)
+  return {
+    resolveModel(input) {
+      const override = getModelFactoryOverride()
+      return override ? override(input, () => factory.resolveModel(input)) : factory.resolveModel(input)
+    },
+  }
 }
