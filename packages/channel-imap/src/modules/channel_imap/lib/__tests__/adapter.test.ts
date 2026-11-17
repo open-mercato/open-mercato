@@ -172,7 +172,7 @@ describe('ImapChannelAdapter.sendMessage', () => {
       metadata: { to: ['bob@example.com', 'ghost@example.com'] },
     })
     expect(result.status).toBe('failed')
-    expect(result.error).toBe('SMTP_SEND_PARTIALLY_REJECTED: relay rejected ghost@example.com')
+    expect(result.error).toBe('SMTP_SEND_PARTIALLY_REJECTED: relay rejected 1 of 2 recipients')
     expect(result.externalMessageId).toBe('<partial@example.com>')
     expect(result.metadata).toEqual({
       response: '250 2.0.0 Ok: queued',
