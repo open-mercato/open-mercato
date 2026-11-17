@@ -400,3 +400,11 @@ Approved for implementation, with one justified exception to integration coverag
   - the title/filename mismatch;
   - an explicit MVP statement.
 - **Verdict**: Approved
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Seam and resolver | Done | 2026-11-17 | `lookup` / `observeHit` on `ToolReplayContext`; `lib/eval/toolMocks.ts` |
+| Phase 2 — Schema and manifest | Not Started | — | — |
+| Phase 3 — Replay integration and usage report | Not Started | — | — |
