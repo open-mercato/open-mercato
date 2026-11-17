@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 188 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 189 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -252,3 +252,4 @@ This catalog indexes 188 focused lessons. Route the task first, then read only r
 
 - [Jest must transform transitive ESM sanitizer dependencies](lessons/jest-transform-transitive-esm-sanitizer-dependencies.md) — area:testing; module:sync_shopify; topic:jest,esm,package-runtime
 - [Resolve script entrypoints through symlinks](lessons/resolve-script-entrypoints-through-symlinks.md) — area:debugging,testing; module:starter,create_app; topic:symlinks,script-entrypoints,encryption,setup
+- [Handle timestamp ties when filtering undone price history](lessons/catalog-history-undo-timestamp-ties.md) — area:module-data,testing; module:catalog; topic:undo-redo,data-integrity,timestamp-ordering
