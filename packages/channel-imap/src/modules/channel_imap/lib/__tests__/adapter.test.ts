@@ -181,6 +181,34 @@ describe('ImapChannelAdapter.sendMessage', () => {
     })
     expect(appendCalls).toHaveLength(1)
   })
+
+  it('keeps reporting sent when the server rejected no recipients', async () => {
+    setSmtpClient({
+      verify: async () => undefined,
+      send: async () => ({
+        messageId: '<clean@example.com>',
+        raw: Buffer.from('RAW'),
+        response: '250 OK',
+        accepted: ['bob@example.com'],
+        rejected: [],
+      }),
+    })
+    setImapClient({
+      connectAndValidate: async () => ({ capabilities: [] }),
+      selectInbox: async () => ({}),
+      fetchUidRange: async () => [],
+      appendSent: async () => undefined,
+    })
+    const adapter = getImapChannelAdapter()
+    const result = await adapter.sendMessage({
+      content: { text: 'hi', bodyFormat: 'text' },
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      metadata: { to: ['bob@example.com'] },
+    })
+    expect(result.status).toBe('sent')
+    expect(result.metadata).toEqual({ response: '250 OK' })
+  })
 })
 
 describe('ImapChannelAdapter.fetchHistory', () => {
