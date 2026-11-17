@@ -295,7 +295,7 @@ there, a validation-layer change like adding a dimension type.
 
 `data/validators.ts` declares
 `setJournalEntryLineDimensionSchema = z.object({ journalEntryLineId:
-z.string().uuid(), dimensionType: z.enum(DIMENSION_TYPES), writer: z.enum(DIMENSION_WRITERS), dimensionIds: z.array(z.string().min(1)).min(1) }).refine((v) => new
+z.string().uuid(), dimensionType: z.enum(DIMENSION_TYPES), writer: z.enum(DIMENSION_WRITERS), dimensionIds: z.array(z.string().min(1)).min(1), tenantId: z.string().uuid().optional(), organizationId: z.string().uuid().optional() }).refine((v) => new
 Set(v.dimensionIds).size === v.dimensionIds.length, { message:
 'dimensionIds must not contain duplicates', path: ['dimensionIds'] })`.
 `dimensionIds` is validated as a non-empty string, not `.uuid()`:
@@ -543,10 +543,18 @@ no structural change needed.
   system-actor caller also sets `ctx.selectedOrganizationId` to the target
   organization: under `OM_ENFORCE_ORG_SCOPE_STRICT` the shared
   `ensureOrganizationScope` rejects a system actor without one. Implementation: the handler sets
-  `prepareSnapshotInsideTransaction`, so the command bus runs `prepare()`
-  inside the write transaction, right after the pair's advisory lock
-  (step 4), on the transaction's own EntityManager; it loads the existing
-  rows for that pair (`{ before: existingRows }`). `execute`
+  `prepareSnapshotInsideTransaction: true`, which makes the command bus
+  install `ctx.beforeTransactionalWrite` instead of calling `prepare()`
+  itself (`packages/shared/src/lib/commands/command-bus.ts:354-372`);
+  the handler therefore MUST invoke
+  `await ctx.beforeTransactionalWrite?.(transactionalEm, parsedInput)`
+  itself after taking the pair's advisory lock (step 4) and before
+  deleting any rows, with both the callback's reads and the write on that
+  transaction's EntityManager. `withAtomicFlush` does not invoke it.
+  `prepare()` then loads the existing rows for that pair
+  (`{ before: existingRows }`); without the explicit call `prepare()`
+  never runs, `before` stays empty and `undo` cannot restore the replaced
+  tags. `execute`
   (1) parses the input; (2) loads the `ledger.JournalEntryLine` by id
   under the caller's tenant and organization
   (`findOneWithDecryption`, because `ledger:journal_entry_line` has an
@@ -563,7 +571,10 @@ no structural change needed.
   covers the date; (4) in the same transaction
   takes the advisory lock on the pair (see Risks), loads the pair's
   existing rows and rejects when any of them has a `writer` other than
-  the input's, then hard-deletes the existing rows
+  the input's, then calls
+  `await ctx.beforeTransactionalWrite?.(transactionalEm, parsedInput)` on
+  that transaction's EntityManager so `prepare()` snapshots the pair's
+  rows into `before`, and only then hard-deletes the existing rows
   and inserts the new `dimensionIds` set with the input's `writer` and
   `ON CONFLICT DO NOTHING`. The `{ transaction: true }` option is named
   explicitly because `withAtomicFlush` does not open a transaction unless
@@ -601,7 +612,7 @@ consumers read.
   ['journal_entry_line_dimensions']` (alongside whatever else it
   needs). For writes, it calls
   `container.resolve('commandBus').execute('journal_entry_line_dimensions.dimensions.set',
-  input, ctx)` — the same generic mechanism `workflows`'
+  { input, ctx })` — the same generic mechanism `workflows`'
   `UPDATE_ENTITY` already uses for a hard-dependency call by string
   `commandId`. For reads, it imports `JournalEntryLineDimension` from
   `journal_entry_line_dimensions/data/entities` and queries it directly
@@ -768,6 +779,15 @@ packages/core/src/modules/journal_entry_line_dimensions/
 - The command rejects a `journalEntryLineId` that does not exist, and one
   that belongs to another tenant/organization — no row is written in
   either case.
+- The parsed-input path is exercised for both scope cases: a system-actor
+  input carrying `tenantId`/`organizationId` passes
+  `setJournalEntryLineDimensionSchema` and supplies the write scope, and
+  the same fields supplied alongside `ctx.auth` are rejected when they
+  differ from the context scope.
+- A handler-path test through the real command bus and handler proves the
+  snapshot callback ordering: `prepare()` runs after the pair's advisory
+  lock via `ctx.beforeTransactionalWrite`, and `undo` restores the
+  replaced tags from the captured `before` rows.
 - The command rejects a write (and an `undo`) for a line whose entry's
   `operationDate` falls in a locked `FiscalPeriod`, and accepts it in an
   unlocked one.
@@ -941,9 +961,11 @@ One new, additive table. No backfill, no default config, no
 - Handing a pair's tags from one writer to another (releasing an
   ownership claim): not supported; a change after the fact is a
   correcting entry with its own tags.
-- Dimension types `BankAccount`, `FixedAsset` and `Currency` — added to
-  `DIMENSION_TYPES` when a consumer that writes them exists (`Currency`
-  only if GL's one-currency-per-entry model changes).
+- Dimension types `BankAccount` and `FixedAsset` — added to
+  `DIMENSION_TYPES` when a consumer that writes them exists. `Currency`
+  is not a candidate: #5663 makes `currencyId`, `exchangeRate` and
+  `amountCurrency` columns of the line (see Data Model), so a currency
+  tag would duplicate and could contradict that column.
 - The posting-rule logic that decides *which* dimension to attach
   (e.g. "check `DefaultAccountPostingRule` if no explicit dimension
   exists") — that decision logic belongs to each consumer
@@ -1333,6 +1355,20 @@ heads (#5663, #6015, #6014) before editing:
   differs from the context's is rejected (`403`) instead of being
   ignored; a system-actor caller sets `ctx.selectedOrganizationId`, which
   `OM_ENFORCE_ORG_SCOPE_STRICT` requires.
+
+### 2026-11-17 — fourth review round (PR #5972): command contract corrections
+
+- Corrected the consumer example to the real `CommandBus.execute` shape,
+  `execute(commandId, { input, ctx })` (`command-bus.ts`).
+- `setJournalEntryLineDimensionSchema` now declares the optional
+  `tenantId`/`organizationId` fields the command contract reads for a
+  system actor; the testing strategy covers the parsed-input path for
+  both scope cases.
+- `prepareSnapshotInsideTransaction` installs
+  `ctx.beforeTransactionalWrite`; the handler now explicitly invokes it
+  after the pair lock and before the delete, and a test proves the
+  ordering and undo restoration.
+- Finished the currency cleanup in Out of scope and in the README summary.
 
 ### 2026-10-23 — currency is a column of the line
 
