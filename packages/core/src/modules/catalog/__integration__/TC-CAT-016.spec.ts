@@ -31,7 +31,7 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
       await login(page, 'admin')
       await page.goto(`/backend/catalog/categories/${categoryId}/edit`, { waitUntil: 'domcontentloaded' })
 
-      const nameField = page.getByRole('textbox', { name: 'e.g., Footwear' })
+      const nameField = page.getByLabel('Name', { exact: false })
       await expect(nameField).toBeVisible()
       await nameField.clear()
       await nameField.fill(updatedName)

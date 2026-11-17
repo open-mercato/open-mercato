@@ -13,6 +13,8 @@ import { officialModuleEntries } from './official-modules.generated'
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
   overrides?: ModuleOverrides
 }
 
@@ -153,6 +155,7 @@ export const enabledModules: ModuleEntry[] = [
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
   { id: 'channel_resend', from: '@open-mercato/channel-resend' },
   { id: 'channel_ses', from: '@open-mercato/channel-ses' },
+  { id: 'channel_smtp', from: '@open-mercato/channel-smtp' },
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   // Mobile push providers for the push_notifications channel. Each registers a

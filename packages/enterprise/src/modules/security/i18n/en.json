@@ -329,6 +329,8 @@
   "security.notifications.enforcementDeadline.bodyOverdue": "Your MFA enrollment deadline passed on {deadline}. Set up MFA immediately to keep account access.",
   "security.notifications.enforcementDeadline.bodyWithDeadline": "Your organization now requires MFA. Set it up within {days} day(s) before {deadline} to keep account access.",
   "security.notifications.enforcementDeadline.title": "MFA enrollment required",
+  "security.notifications.mfaEmergencyBypass.body": "MFA emergency bypass was detected in your organization. MFA protections may be disabled. Ask your system operator to disable OM_SECURITY_MFA_EMERGENCY_BYPASS after the emergency.",
+  "security.notifications.mfaEmergencyBypass.title": "MFA emergency bypass detected",
   "security.notifications.mfaEnrolled.body": "{method} was enabled for your account.",
   "security.notifications.mfaEnrolled.title": "MFA method enabled",
   "security.notifications.mfaReset.body": "An administrator reset your MFA methods. Reason: {reason}",

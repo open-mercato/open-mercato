@@ -124,7 +124,7 @@
     "ai-sdk-ollama": "4.1.0",
     "meilisearch": "^0.60.0",
     "pg": "8.23.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "peerDependencies": {
     "@open-mercato/core": "workspace:*",

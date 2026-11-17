@@ -12,6 +12,7 @@ import {
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures';
 import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue';
 
 type CreateResponse = { id?: string };
 type ProductListResponse = { items?: Array<Record<string, unknown>> };
@@ -20,6 +21,7 @@ type ProgressJobResponse = { id?: string; status?: string; errorMessage?: string
 
 const PROGRESS_POLL_INTERVAL_MS = 300;
 const PROGRESS_POLL_TIMEOUT_MS = 30_000;
+const BULK_DELETE_QUEUE = 'catalog-product-bulk-delete';
 
 /**
  * TC-CAT-043: Bulk-delete progress job and worker payload stay scoped to the
@@ -239,6 +241,7 @@ async function waitForProgressJob(
   selectedOrgId: string,
   jobId: string,
 ): Promise<ProgressJobResponse> {
+  await drainIntegrationQueue(BULK_DELETE_QUEUE);
   const deadline = Date.now() + PROGRESS_POLL_TIMEOUT_MS;
   let last: ProgressJobResponse | null = null;
   while (Date.now() < deadline) {

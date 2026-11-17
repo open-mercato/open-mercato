@@ -145,6 +145,7 @@
       "description": "Daily standalone architecture, implementation, extension, debugging, and harness-maintenance skills.",
       "skills": [
         "om-help",
+        "om-find-module",
         "om-implement-spec",
         "om-backend-ui-design",
         "om-module-scaffold",
