@@ -128,6 +128,8 @@
   "wms.backend.asns.receive.summary.expected": "Prevista",
   "wms.backend.asns.receive.summary.received": "Recibida",
   "wms.backend.asns.search": "Buscar avisos de envío",
+  "wms.backend.asns.staging.missing.action": "Añádela en WMS → Ubicaciones",
+  "wms.backend.asns.staging.missing.message": "Este almacén no tiene ninguna ubicación de tipo Muelle o Preparación.",
   "wms.backend.asns.status.closed": "Cerrado",
   "wms.backend.asns.status.draft": "Borrador",
   "wms.backend.asns.status.in_transit": "En tránsito",

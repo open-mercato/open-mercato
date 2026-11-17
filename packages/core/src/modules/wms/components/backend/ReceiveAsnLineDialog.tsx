@@ -39,6 +39,7 @@ import {
   loadStagingLocationOptions,
   resolveLocationLabel,
 } from './inventoryMutationLoaders'
+import { StagingLocationMissingHint, useStagingLocationsMissing } from './StagingLocationMissingHint'
 import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 export type ReceiveAsnLineTarget = {
@@ -127,6 +128,7 @@ export function ReceiveAsnLineDialog({
   const [rejectionReason, setRejectionReason] = React.useState('')
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
+  const stagingLocationsMissing = useStagingLocationsMissing(warehouseId, open && qcStatus === 'passed')
   const [lockUpdatedAt, setLockUpdatedAt] = React.useState<string | null>(null)
   /** Fresh If-Match after 409; ref so guarded retry reads latest without re-seed. */
   const lockUpdatedAtRef = React.useRef<string | null>(null)
@@ -441,26 +443,29 @@ export function ReceiveAsnLineDialog({
             </FormField>
 
             {qcStatus === 'passed' ? (
-              <FormField
-                label={t('wms.backend.asns.receive.form.staging', 'Staging location')}
-                required
-                error={fieldErrors.targetStagingLocationId}
-              >
-                <ComboboxInput
-                  value={targetStagingLocationId}
-                  onChange={setTargetStagingLocationId}
-                  loadSuggestions={async (query) =>
-                    warehouseId ? loadStagingLocationOptions(warehouseId, query) : []
-                  }
-                  resolveLabel={async (value) => (await resolveLocationLabel(value)) ?? value}
-                  placeholder={t(
-                    'wms.backend.asns.receive.form.stagingPlaceholder',
-                    'Select staging or dock',
-                  )}
-                  allowCustomValues={false}
-                  disabled={submitting || !warehouseId}
-                />
-              </FormField>
+              <>
+                <FormField
+                  label={t('wms.backend.asns.receive.form.staging', 'Staging location')}
+                  required
+                  error={fieldErrors.targetStagingLocationId}
+                >
+                  <ComboboxInput
+                    value={targetStagingLocationId}
+                    onChange={setTargetStagingLocationId}
+                    loadSuggestions={async (query) =>
+                      warehouseId ? loadStagingLocationOptions(warehouseId, query) : []
+                    }
+                    resolveLabel={async (value) => (await resolveLocationLabel(value)) ?? value}
+                    placeholder={t(
+                      'wms.backend.asns.receive.form.stagingPlaceholder',
+                      'Select staging or dock',
+                    )}
+                    allowCustomValues={false}
+                    disabled={submitting || !warehouseId}
+                  />
+                </FormField>
+                {stagingLocationsMissing ? <StagingLocationMissingHint /> : null}
+              </>
             ) : (
               <FormField
                 label={t('wms.backend.asns.receive.form.rejectionReason', 'Rejection reason')}

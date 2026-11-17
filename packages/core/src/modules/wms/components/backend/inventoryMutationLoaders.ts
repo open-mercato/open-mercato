@@ -425,6 +425,14 @@ export async function loadStagingLocationOptions(
   }
 }
 
+export async function hasStagingLocations(warehouseId: string): Promise<boolean> {
+  const [staging, dock] = await Promise.all([
+    loadLocationPage(warehouseId, { type: 'staging', pageSize: 1 }),
+    loadLocationPage(warehouseId, { type: 'dock', pageSize: 1 }),
+  ])
+  return (staging.items?.length ?? 0) > 0 || (dock.items?.length ?? 0) > 0
+}
+
 export async function loadZoneOptions(
   warehouseId: string,
   query?: string,
