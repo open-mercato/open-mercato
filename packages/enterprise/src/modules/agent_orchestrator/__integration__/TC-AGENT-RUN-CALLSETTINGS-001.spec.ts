@@ -18,7 +18,8 @@ import {
  * - A file-defined (OpenCode) agent refuses non-empty `callSettings` with
  *   `call_settings_unsupported` instead of silently running on its defaults.
  * - Live (LLM provider required): a native run records the sent
- *   `maxOutputTokens` / `seed` on its llm spans.
+ *   `maxOutputTokens` on its llm spans, and `seed` either as sent or, when the
+ *   provider dropped it, in `om.params.ignored` (never both).
  */
 
 type AgentListItem = { id?: string; sampleInput?: unknown; runtime?: string; invocable?: boolean }
@@ -104,7 +105,14 @@ test.describe('TC-AGENT-RUN-CALLSETTINGS-001: call-time model settings on AO run
       expect(llmSpans.length).toBeGreaterThan(0)
       for (const span of llmSpans) {
         expect(span.attributes?.['gen_ai.request.max_tokens']).toBe(4096)
-        expect(span.attributes?.['gen_ai.request.seed']).toBe(7)
+        // A provider may drop a setting it does not support (the OpenAI Responses API drops `seed`);
+        // the trace then names it in om.params.ignored instead of claiming it was applied.
+        const ignored = (span.attributes?.['om.params.ignored'] as string[] | undefined) ?? []
+        if (ignored.includes('seed')) {
+          expect(span.attributes).not.toHaveProperty('gen_ai.request.seed')
+        } else {
+          expect(span.attributes?.['gen_ai.request.seed']).toBe(7)
+        }
       }
     } finally {
       await deleteAgentRunsWithTraceByIds(runIds).catch(() => undefined)

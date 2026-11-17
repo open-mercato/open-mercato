@@ -117,6 +117,34 @@ describe('runAiAgentObject — generate mode', () => {
     expect(callArg.model.id).toBe('provider-default-model')
   })
 
+  it('passes provider warnings of the generate call through, and omits the key when there are none', async () => {
+    const schema = z.object({ name: z.string() })
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extractor',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        mutationPolicy: 'read-only',
+        output: { schemaName: 'ExtractedAttributes', schema },
+      }),
+    ])
+    generateObjectMock.mockImplementationOnce(async () => ({
+      object: { name: 'X' },
+      finishReason: 'stop',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      warnings: [{ type: 'unsupported', feature: 'temperature', details: 'temperature is not supported for reasoning models' }],
+    }))
+
+    const withWarnings = await runAiAgentObject({ agentId: 'catalog.extractor', input: 'x', authContext: baseAuth })
+    const withoutWarnings = await runAiAgentObject({ agentId: 'catalog.extractor', input: 'x', authContext: baseAuth })
+
+    if (withWarnings.mode !== 'generate' || withoutWarnings.mode !== 'generate') throw new Error('unreachable')
+    expect(withWarnings.warnings).toEqual([
+      { type: 'unsupported', feature: 'temperature', details: 'temperature is not supported for reasoning models' },
+    ])
+    expect(withoutWarnings).not.toHaveProperty('warnings')
+  })
+
   it('aborts the model call when the caller abortSignal fires', async () => {
     seedAgentRegistryForTests([
       makeAgent({

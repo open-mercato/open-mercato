@@ -891,6 +891,29 @@ function contentBundle(content: RunExportContent, toolAttributes: Record<string,
   }
 }
 
+describe('mapAgentRunToOtlp provider-dropped settings', () => {
+  it('exports om.params.ignored and no gen_ai.request key for the dropped setting', () => {
+    const bundle = buildBundle({
+      spans: [
+        buildSpan({
+          id: LLM_SPAN_ID,
+          kind: 'llm',
+          name: 'llm.step',
+          attributes: {
+            'gen_ai.provider.name': 'openai',
+            'gen_ai.request.model': 'gpt-5-mini',
+            'gen_ai.request.seed': 7,
+            'om.params.ignored': ['temperature'],
+          },
+        }),
+      ],
+    })
+    const chatSpan = allSpans(mapAgentRunToOtlp(bundle, OPTIONS)).find((span) => span.name.startsWith('chat'))
+    expect(chatSpan?.attributes).toMatchObject({ 'gen_ai.request.seed': 7, 'om.params.ignored': ['temperature'] })
+    expect(chatSpan?.attributes).not.toHaveProperty('gen_ai.request.temperature')
+  })
+})
+
 describe('mapAgentRunToOtlp content', () => {
   const exported = () => contentFor({ status: 'exported', request: LLM_REQUEST, response: LLM_RESPONSE })
 

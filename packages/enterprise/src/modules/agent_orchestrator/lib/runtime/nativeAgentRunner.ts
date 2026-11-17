@@ -55,6 +55,7 @@ import { runWithProviderBudget } from './providerBudget'
 import { computeCostMinor } from './modelPricing'
 import {
   buildNativeStepRecord,
+  extractIgnoredCallSettings,
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
   type NativeStepRecord,
@@ -424,6 +425,7 @@ export class NativeAgentRunner {
     const modelStartMs = Date.now()
     let rawObject: unknown
     let fallbackUsage: { inputTokens?: number; outputTokens?: number } | null = null
+    let fallbackIgnoredSettings: ReturnType<typeof extractIgnoredCallSettings> = []
     // Usage + estimated-cost stamp for the terminal transition (data-honesty
     // spec §3.2): tokens summed from the recorded steps (or the object-mode
     // fallback usage), cost from the static pricing table for the model that
@@ -509,6 +511,7 @@ export class NativeAgentRunner {
           fallbackUsage,
           fallbackModel: entry.defaultModel ?? null,
           fallbackCall: attached.fallbackCall,
+          ...(fallbackIgnoredSettings.length > 0 ? { fallbackIgnoredSettings } : {}),
           manifest: buildManifest(),
           ...(runCapture ? { captureLevel: runCapture.level, redactPii: runCapture.redactPii } : {}),
         },
@@ -560,6 +563,7 @@ export class NativeAgentRunner {
                   return await objectResult.object
                 }
                 fallbackUsage = objectResult.usage ?? null
+                fallbackIgnoredSettings = extractIgnoredCallSettings(objectResult.warnings)
                 return objectResult.object
               }),
             ),

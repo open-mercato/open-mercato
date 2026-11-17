@@ -2476,8 +2476,25 @@ export type RunAiAgentObjectGenerateResult<TSchema> = {
    * Present only when at least one was created.
    */
   pendingActionIds?: string[]
+  /**
+   * Provider warnings of the toolless `generateObject` call (e.g. an
+   * `unsupported` setting the provider dropped). The tool-loop branch reports
+   * them per step through `loop.onStepFinish` instead. Additive.
+   */
+  warnings?: AiAgentCallWarning[]
   /** Run identifier the call is traced under (`ai_agent_runs.id`). */
   runId?: string
+}
+
+export type AiAgentCallWarning = { type: string; feature?: string; details?: string; message?: string }
+
+function readCallWarnings(result: unknown): AiAgentCallWarning[] | undefined {
+  const warnings = (result as { warnings?: unknown } | null)?.warnings
+  if (!Array.isArray(warnings) || warnings.length === 0) return undefined
+  return warnings.filter(
+    (warning): warning is AiAgentCallWarning =>
+      Boolean(warning) && typeof warning === 'object' && typeof (warning as { type?: unknown }).type === 'string',
+  )
 }
 
 export type RunAiAgentObjectStreamResult<TSchema> = {
@@ -2880,11 +2897,13 @@ export async function runAiAgentObject<TSchema = unknown>(
       }
       const genResult = typedResult as { object: unknown; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } }
       await synthesizedModelCall?.end(readSynthesizedResultMetadata(typedResult))
+      const genWarnings = readCallWarnings(typedResult)
       return {
         mode: 'generate',
         object: genResult.object as TSchema,
         finishReason: genResult.finishReason,
         usage: genResult.usage,
+        ...(genWarnings ? { warnings: genWarnings } : {}),
       }
     }
 
@@ -2934,11 +2953,13 @@ export async function runAiAgentObject<TSchema = unknown>(
 
     const result = await generateObject(generateArgs)
     await synthesizedModelCall?.end(readSynthesizedResultMetadata(result))
+    const resultWarnings = readCallWarnings(result)
     return {
       mode: 'generate',
       object: (result as { object: unknown }).object as TSchema,
       finishReason: (result as { finishReason?: string }).finishReason,
       usage: (result as { usage?: { inputTokens?: number; outputTokens?: number } }).usage,
+      ...(resultWarnings ? { warnings: resultWarnings } : {}),
     }
   }
 

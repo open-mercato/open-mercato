@@ -8,6 +8,10 @@
 
 **Action:** none unless you run file agents on OpenCode and send `callSettings` to them — drop the settings or move the agent to the native runtime.
 
+## Agent traces stop reporting settings the provider dropped (#9648, B-10)
+
+**Behaviour change (enterprise `agent_orchestrator`, additive `ai-assistant` field).** A native agent trace used to record every requested call setting under `gen_ai.request.*`, even one the provider dropped with an `unsupported` warning. The OpenAI Responses API drops `seed`, and OpenAI reasoning models drop `temperature` and `topP`. Those settings are now left out of `gen_ai.request.*` and listed in the new span attribute `om.params.ignored`. The trace page shows them as "Ignored by the model", and OTLP exports the same key. `runAiAgentObject` exposes the toolless call's provider warnings as an optional `warnings` field. Traces recorded before this change are not rewritten.
+
 ## Agent run doors accept call-time model settings (#9648, B-10)
 
 **Additive (enterprise `agent_orchestrator`, core `workflows`).** `POST /agents/{id}/run`, `POST /agent-api/agents/{id}/run`, `POST /runs/{id}/rerun` (optional body) and the workflow `INVOKE_AGENT` activity (`config.callSettings`) accept `callSettings`, using the same contract as `POST /api/ai_assistant/ai/run-object`: strict keys, capped values, no `providerOptions`. The Playground gains a **Model settings** section. Before this change these doors ignored a `callSettings` key without a word. They now validate it (422 on a bad value) and apply it.

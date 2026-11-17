@@ -67,6 +67,7 @@ Each LLM span carries these keys when the level is `metadata` or above.
 | `om.content.redactions` | `{ rule, count }` per redaction rule applied to the stored content. |
 | `om.capture.fidelity` | `exact`, `reconstructed` or `reported`. |
 | `om.params.defaults` | `true` when no request parameters were sent at all, so every parameter was left to the provider default. Not written when any parameter was sent. |
+| `om.params.ignored` | Requested settings the provider reported as unsupported and dropped (`unsupported` warnings of the AI SDK), for example `temperature` and `topP` on OpenAI reasoning models or `seed` on the OpenAI Responses API. A dropped setting is not written as `gen_ai.request.*`; the trace page shows it as "Ignored by the model". Exported over OTLP as the same key. |
 
 The legacy keys `inputTokens`, `outputTokens` and `finishReason` are still written, so existing consumers keep working.
 

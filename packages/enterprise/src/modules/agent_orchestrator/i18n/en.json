@@ -1616,6 +1616,7 @@
   "agent_orchestrator.trace.parameterName": "Parameter",
   "agent_orchestrator.trace.parameterValue": "Value",
   "agent_orchestrator.trace.parameters": "Parameters",
+  "agent_orchestrator.trace.paramsIgnored": "Ignored by the model: {names}",
   "agent_orchestrator.trace.providerDefault": "Provider default",
   "agent_orchestrator.trace.request": "Request",
   "agent_orchestrator.trace.response": "Response",

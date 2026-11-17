@@ -1616,6 +1616,7 @@
   "agent_orchestrator.trace.parameterName": "매개변수",
   "agent_orchestrator.trace.parameterValue": "값",
   "agent_orchestrator.trace.parameters": "매개변수",
+  "agent_orchestrator.trace.paramsIgnored": "모델이 무시함: {names}",
   "agent_orchestrator.trace.providerDefault": "제공자 기본값",
   "agent_orchestrator.trace.request": "요청",
   "agent_orchestrator.trace.response": "응답",

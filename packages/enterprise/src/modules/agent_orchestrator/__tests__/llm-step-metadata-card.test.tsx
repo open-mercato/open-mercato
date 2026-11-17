@@ -127,6 +127,16 @@ describe('deriveLlmStepRows', () => {
     expect(row.currency).toBe('USD')
   })
 
+  it('lists the settings the provider dropped with their display names', () => {
+    const [row] = deriveLlmStepRows(
+      [span({ attributes: { ...RECORDED_ATTRIBUTES, [OM_LLM_ATTRIBUTES.paramsIgnored]: ['temperature', 'maxOutputTokens'] } })],
+      'USD',
+    )
+    expect(row.ignoredParameters).toEqual(['temperature', 'max_tokens'])
+    const [plain] = deriveLlmStepRows([span({ attributes: RECORDED_ATTRIBUTES })], 'USD')
+    expect(plain.ignoredParameters).toEqual([])
+  })
+
   it('serializes stop sequences', () => {
     const [row] = deriveLlmStepRows(
       [span({ attributes: { [GEN_AI_ATTRIBUTES.requestStopSequences]: ['END', 'STOP'] } })],
@@ -188,6 +198,26 @@ describe('LlmStepMetadataCard', () => {
     const legacy = within(rows[2])
     expect(legacy.getByText('agent_orchestrator.trace.notRecorded')).not.toBeNull()
     expect(legacy.getByText('stop')).not.toBeNull()
+  })
+
+  it('notes the settings the model ignored, next to the parameters and next to provider defaults', () => {
+    renderWithProviders(
+      <LlmStepMetadataCard
+        runId={RUN_ID}
+        spans={[
+          span({ id: 'a', sequence: 0, attributes: { ...RECORDED_ATTRIBUTES, [OM_LLM_ATTRIBUTES.paramsIgnored]: ['topP'] } }),
+          span({ id: 'b', sequence: 1, attributes: { ...DEFAULTS_ATTRIBUTES, [OM_LLM_ATTRIBUTES.paramsIgnored]: ['temperature'] } }),
+          span({ id: 'c', sequence: 2, attributes: RECORDED_ATTRIBUTES }),
+        ]}
+        currency="USD"
+      />,
+    )
+    const rows = screen.getAllByTestId('llm-step-row')
+    expect(within(rows[0]).getByText('temperature=0.2')).not.toBeNull()
+    expect(within(rows[0]).getByTestId('llm-step-params-ignored')).not.toBeNull()
+    expect(within(rows[1]).getByText('agent_orchestrator.trace.providerDefault')).not.toBeNull()
+    expect(within(rows[1]).getByTestId('llm-step-params-ignored')).not.toBeNull()
+    expect(within(rows[2]).queryByTestId('llm-step-params-ignored')).toBeNull()
   })
 
   it('loads step content lazily only when a row is expanded', async () => {
