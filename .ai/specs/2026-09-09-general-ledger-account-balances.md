@@ -772,7 +772,7 @@ wiring):
   an account with a `currencyId` (Design decisions, "Balance in the
   account's currency"; ⚠ NEEDS HUMAN CONFIRMATION (decided by the team, not
   yet reviewed by a maintainer)); for any other account both are `null`.
-- `getTrialBalance(em, { tenantId, organizationId, periodId, page?, pageSize? })`
+- `getTrialBalance(em, { tenantId, organizationId, periodId, page?, pageSize?, reportVersion? })`
   — resolves the named `FiscalPeriod`'s `startDate`/`endDate` and the
   uniquely configured fiscal year containing the whole period (Data
   Models), then runs **one** `WITH
@@ -788,8 +788,8 @@ wiring):
   be sent before every check succeeds. The authorities must be stored and
   versioned in that same transactionally consistent database, or provide
   a separately proven coherent snapshot contract; otherwise fail closed.
-  This per-request snapshot does not solve cross-page consistency, which
-  remains an independent release gate. Two results come out of this call
+  Cross-page consistency additionally requires the version protocol below;
+  its complete writer coverage and deployment remain a release gate. Two results come out of this call
   from two separate statements in that same snapshot:
   - `rows` (one `TrialBalanceRowDto` per account) — the per-account
     CTE result above, returned **page/pageSize-paginated**, ordered by
@@ -808,6 +808,40 @@ wiring):
     (UTC)), with no join to `LedgerAccount` and no recursion. Computed once per
     request, unaffected by `page`/`pageSize`, and cheaper than the
     per-account CTE, not just independent of it.
+
+**Cross-page consistency prerequisite.** A scoped, durable report revision
+must change atomically in the same database transaction as every committed
+mutation that can affect report membership, values, ordering, period/fiscal
+boundaries, hierarchy or accounting-policy validity, including undo, imports,
+metadata changes, migrations and non-command writers. Assign revisions under
+a per-scope transaction lock held through commit; committed revisions must
+never repeat, including after restore or failover. A rolled-back transaction
+does not publish a revision. Restore requires a non-reused durable epoch
+before reports resume; its source and ordering still need a concrete design.
+Define a single lock order
+with the existing clock, operation, hierarchy, period, type and account
+locks and migrate or fence all legacy writers. If any writer, restore or
+external authority cannot participate in the same coherent versioning
+contract, the trial report remains disabled; this is not guaranteed by a
+counter added only to these routes.
+
+The first page reads the revision together with the authority checks and
+figures in its repeatable-read snapshot and returns a scope- and
+period-bound opaque `reportVersion`. Subsequent page requests carry this
+version, and validate it and current authorization against the revision in
+their own consistent snapshot before returning data. If it differs, return
+`409 { error: 'report_changed' }` without rows, totals or badge; do not
+silently start a new report on the requested page. A token is never an
+authorization credential and must not reveal foreign scopes. It is bound to
+tenant, organization, period, page size and the report contract version;
+reject invalid, foreign, expired or mismatched tokens without disclosing
+scope existence. A stable revision guarantees that all pages use equivalent
+report-relevant committed data, even though the database snapshots differ.
+An old coherent in-flight snapshot can complete after a writer commits;
+the next page must detect that change. Capture token lifetime, signing/key
+rotation, retention and failover guarantees in the prerequisite design;
+until verified, do not enable paginated trial reports. High write volume
+may force repeated restarts rather than displaying a mixed report.
 
 Before either report starts its repeatable-read transaction, acquire a
 conservative trusted UTC-day bound on that connection. The bound must be
@@ -850,8 +884,8 @@ before release; it is not established by `REPEATABLE READ` alone.
   callback; it has no `apiPath` prop and performs no request of its
   own, so this page must drive the load. The page holds `periodId`,
   `page`, `pageSize`, the response `rows`, `total`, `totalPages` and
-  `zeroSumCheck` in state, and loads
-  `GET /api/ledger/reports/trial-balance?periodId=<id>&page=<n>&pageSize=<n>`
+  `zeroSumCheck` and `reportVersion` in state, and loads
+  `GET /api/ledger/reports/trial-balance?periodId=<id>&page=<n>&pageSize=<n>&reportVersion=<version>`
   through `apiCallOrThrow` from
   `@open-mercato/ui/backend/utils/apiCall` — not a second request and
   not a shared-component extension. It renders `LoadingMessage` /
@@ -863,7 +897,12 @@ before release; it is not established by `REPEATABLE READ` alone.
   current-request error; only the latest still-mounted request may update
   success, error or loading state. Cancellation may reduce work but is not
   the correctness guard: a late response must be ignored even if the
-  transport cannot cancel it. `onPageChange` (and the period picker, a `FiscalPeriod`
+  transport cannot cancel it. The initial page-one request starts a new
+  version; all later page requests, including a return to page one, send
+  that version. Changing the period or page size clears it and resets
+  to page one. On `report_changed` or an invalid/expired version, clear all
+  prior figures, totals and badge and offer a localized restart at page one;
+  never splice pages across versions. `onPageChange` (and the period picker, a `FiscalPeriod`
   select) updates the corresponding state and reloads. The response is
   passed straight into `<DataTable entityId="ledger.trialBalanceRow"
   columns={columns} data={rows} pagination={{ page, pageSize, total,
@@ -1019,14 +1058,19 @@ leaking foreign existence and resolves overlapping failure conditions.
 ### `GET /api/ledger/reports/trial-balance`
 
 - **Query params**: `periodId` (required, a `FiscalPeriod` id),
-  `page?` (default 1), `pageSize?` (default 100, max 100) —
+  `page?` (default 1), `pageSize?` (default 100, max 100), and
+  `reportVersion?` (required when `page > 1`) —
   `DataTable`'s own pagination shape, not cursor/keyset. Validated
   with a zod schema (`z.object({ periodId: z.string().uuid(), page:
   z.coerce.number().int().min(1).default(1), pageSize:
   z.coerce.number().int().min(1).max(100).default(100) })`); a
-  missing/malformed `periodId` or an out-of-range `page`/`pageSize` is
-  a 400.
-- **Response 200**: `{ periodId, periodStart, periodEnd, zeroSumCheck: boolean, rows: TrialBalanceRowDto[], page: number, pageSize: number, total: number, totalPages: number }`
+  missing/malformed `periodId`, an out-of-range `page`/`pageSize` or a
+  missing continuation version for `page > 1` is a 400. Bound the token's
+  encoded length before verification; the complete version schema and
+  verification contract are prerequisites described in Queries. A page-one
+  request without a version starts a new report; if a version is supplied
+  on any page, including page one, validate it before returning data.
+- **Response 200**: `{ periodId, periodStart, periodEnd, reportVersion: string, zeroSumCheck: boolean, rows: TrialBalanceRowDto[], page: number, pageSize: number, total: number, totalPages: number }`
   where `TrialBalanceRowDto` is `{ accountId, accountNumber, description, parentAccountId, openingBalance, periodDebit, periodCredit, ytdDebit, ytdCredit, closingBalance }` (`number` and `description` are #5663's account business key and display name).
   `rows` is paginated by account number via `page`/`pageSize` — see
   Design decisions, "`getTrialBalance` computes every account's row
@@ -1038,6 +1082,9 @@ leaking foreign existence and resolves overlapping failure conditions.
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `FiscalPeriod` with that id in the caller's
   tenant/organization.
+- **Response 409**: report data changed or the supplied version is invalid,
+  expired or incompatible (`{ error: 'report_changed' }`); no figures.
+  Do not distinguish foreign tokens from other invalid versions.
 - **Response 422**: fiscal-year setup is missing, ambiguous, invalid, or
   does not wholly cover the period (`{ error: 'fiscal_year_unavailable' }`).
 - **Response 422**: requested history is outside verified hierarchy
@@ -1068,7 +1115,8 @@ the period in the trusted scope (404 if absent or foreign). For an
 existing period, check pending verification (503), future end date (422),
 hierarchy coverage (422), accounting-policy coverage (422 or 503), then fiscal-year authority/containment
 (422 for invalid setup or 503 for unavailable authority), then the go-live
-period and fiscal-year restriction (422). Finally validate
+period and fiscal-year restriction (422), then the report version (409).
+Finally validate
 the complete scoped hierarchy and journal membership; any corruption or
 authority failure is 503 with no rows, totals or badge. Rate-limit or
 clock-service failures may occur before scoped lookup and return their
@@ -1130,6 +1178,8 @@ existing flat, dot-namespaced key convention (e.g.
 - `ledger.reports.trialBalance.errors.goLiveReportingUnsupported` — localized
   explanation that this period or fiscal year includes pre-go-live reporting,
   directing the user to an accounting administrator without retaining figures.
+- `ledger.reports.trialBalance.errors.reportChanged` — localized explanation
+  that the report changed and must be restarted from the first page.
 - `ledger.reports.balancePanel.availableFrom` — localized pre-effective
   state with the verified first available accounting date.
 - `ledger.accounts.errors.{hierarchyFrozen,accountEffectiveStartImmutable,
@@ -1505,9 +1555,17 @@ top of the live query.
   (`pageSize`) and assert: `rows.length <= pageSize`; `total`/
   `totalPages` are correct; walking every page via `page` yields every
   account exactly once, in a stable order; and `zeroSumCheck` is
-  identical and correct on every page, since it is a separate query
-  computed over the full chart independently of `page`/`pageSize`
-  (Design decisions).
+  identical and correct on every page for the same `reportVersion`, since it
+  is computed over the full chart independently of `page`/`pageSize`.
+  Concurrently add or change postings, account number/metadata, hierarchy,
+  fiscal boundaries and policy after page one and verify the next page
+  returns `report_changed` with no data, rather than a mixed report. Pause
+  a page-one snapshot across a writer commit; its subsequent page must
+  reject the old version. Exercise rollback, restore/failover epoch, token
+  expiry/tampering, wrong scope/period/page size, permission revocation,
+  simultaneous writers and an unfenced legacy writer. An unversioned writer
+  must prevent activation. Verify UI clears old results and badge, ignores a
+  delayed prior success, and restarts explicitly at page one.
 - Assert the balance and trial-balance routes each run a bounded,
   fixed number of queries regardless of the number of `LedgerAccount`
   rows involved (one recursive CTE per call, not one per account) —
@@ -2102,3 +2160,10 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
   presentation and gross-turnover design. No accounting approval is implied.
 - Require a verified source-writer fence, final watermark, idempotent
   catch-up and reconciled ownership handoff before enabling either report.
+
+### 2026-11-17 — pagination consistency proposal (local draft)
+
+- Propose a scope-bound report revision and fail-closed restart when a
+  relevant write occurs between pages. Complete writer coverage, lock
+  order, restore/failover epochs and token validation are release gates;
+  this design has not been implemented or independently approved.
