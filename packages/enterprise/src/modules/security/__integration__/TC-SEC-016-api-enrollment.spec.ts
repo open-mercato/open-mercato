@@ -24,6 +24,7 @@ for (const features of [
     const password = `Qa1!${stamp}`
     let organizationId: string | null = null
     let roleId: string | null = null
+    let keyRoleId: string | null = null
     let userId: string | null = null
     let policyId: string | null = null
     let keyId: string | null = null
@@ -32,12 +33,16 @@ for (const features of [
       organizationId = await createOrganizationFixture(request, adminToken, { name: roleName, tenantId })
       roleId = await createRoleFixture(request, adminToken, { name: roleName, tenantId })
       await setRoleAclFeatures(request, adminToken, { roleId, features, organizations: [organizationId] })
+      keyRoleId = await createRoleFixture(request, adminToken, { name: `${roleName}-key`, tenantId })
+      await setRoleAclFeatures(request, adminToken, {
+        roleId: keyRoleId, features: ['sales.*', 'dashboards.*'], organizations: [organizationId],
+      })
       userId = await createUserFixture(request, adminToken, { email, password, organizationId, roles: [roleName] })
       const session = await loginViaApi(request, email, password)
       expect(getTokenContext(session.token).organizationId).toBe(organizationId)
       const logoutSession = await loginViaApi(request, email, password)
       const key = await apiRequest(request, 'POST', '/api/api_keys/keys', {
-        token: session.token, data: { name: roleName, roles: [roleId], organizationId },
+        token: session.token, data: { name: roleName, roles: [keyRoleId], organizationId },
       })
       expect(key.status()).toBe(201)
       const keyBody = await readJsonSafe<{ id: string; secret: string }>(key)
@@ -108,6 +113,7 @@ for (const features of [
       if (quoteId) await removeFixture(`/api/sales/quotes?id=${quoteId}`, { headers: scopedHeaders })
       if (keyId) await removeFixture(`/api/api_keys/keys?id=${keyId}`, { headers: scopedHeaders })
       if (userId) await removeFixture(`/api/auth/users?id=${userId}`)
+      if (keyRoleId) await removeFixture(`/api/auth/roles?id=${keyRoleId}`)
       if (roleId) await removeFixture(`/api/auth/roles?id=${roleId}`)
       if (organizationId) await removeFixture('/api/directory/organizations', { data: { id: organizationId } })
       expect(failures, 'All API enrollment fixtures must be removed').toEqual([])

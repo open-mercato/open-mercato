@@ -1,6 +1,6 @@
 ---
 title: "Verify integration fixture cleanup against the actual endpoint"
-modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog","workflows"]
+modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog","workflows","security"]
 areas: ["testing","integration"]
 topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","proposal-origin","error-handling"]
 ---
@@ -26,3 +26,5 @@ Review of #9156 found that the generic sales cleanup helper sends only an ID, wh
 Review of #9657 found that an order's updated status does not prove its approval workflow is ready for cancellation: the stock async event activity can leave the instance in `WAITING_FOR_ACTIVITIES`, while the cancel endpoint accepts only `RUNNING` or `PAUSED`. Drain the integration queues with the shared bounded helpers, refresh owned instances before cancellation, and retry transient non-cancellable states within the shared polling budget. Cancel workflows before deleting their target records, and attempt versioned definition deletion in `finally` even when cancellation fails. Evidence: `TC-WC-040-replacement-order-undo.spec.ts`, `sales/workflows.ts`, and `workflows/api/instances/[id]/cancel/route.ts`.
 
 The subsequent hosted trace showed that empty queues still did not prove the fixture's notification transition had advanced. For undo coverage that asserts the status command and its audit history, configure notification dispatch inline in the isolated copied definition; retain the real domain event trigger, scoped grant, status mutation and undo assertions. Do not make fixture teardown depend on unrelated asynchronous notification scheduling. Queue-specific workflow tests retain their async execution configuration. Evidence: PR #9657 run 43825646616 shard 13, retry trace for `TC-WC-040`.
+
+PR #9753's global-wildcard MFA case stopped before its enforcement assertions because API-key creation intentionally forbids ordinary users from granting `*`, even when their own feature ACL is `*`. Keep the cookie principal's tested permissions intact and issue the key with a separate organization-scoped role containing only the needed module grants. Remove that role in cleanup. Evidence: `TC-SEC-016-api-enrollment.spec.ts`, `auth/lib/grantChecks.ts`, and run44099607461 shard15's key-create403 response.
