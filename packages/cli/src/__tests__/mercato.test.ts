@@ -1478,6 +1478,162 @@ describe('init on an already initialized database', () => {
   })
 })
 
+describe('init on a database that does not exist yet (#8974)', () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@db.example.com:6543/fresh_db'
+  })
+
+  afterEach(() => {
+    jest.dontMock('child_process')
+    jest.dontMock('pg')
+    jest.dontMock('../lib/generators')
+    jest.dontMock('../lib/resolver')
+    jest.resetModules()
+  })
+
+  afterAll(() => {
+    process.env.DATABASE_URL = originalDatabaseUrl
+  })
+
+  // Full `mockInitDependencies`-equivalent (child_process/generators/db/resolver/bootstrap/DI
+  // all mocked so a fresh init can run to completion), but `pg_database` reports no matching
+  // row — the database genuinely does not exist yet — and every `CREATE DATABASE` statement
+  // is recorded so a test can assert it was (or was not) issued.
+  function mockMissingDatabase({ authSetup }: { authSetup: jest.Mock }) {
+    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
+    const createDatabaseStatements: string[] = []
+    jest.doMock('child_process', () => ({ execSync: jest.fn() }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        end: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockImplementation(async (sql: string) => {
+          if (sql.includes('CREATE DATABASE')) {
+            createDatabaseStatements.push(sql)
+            return { rows: [] }
+          }
+          if (sql.includes('pg_database')) return { rows: [] }
+          if (sql.includes('to_regclass')) return { rows: [{ regclass: null }] }
+          return { rows: [{ org_id: 'org-1', tenant_id: 'tenant-1' }] }
+        }),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds,
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/db', () => ({
+      dbMigrate: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({ getAppDir: () => '/tmp/test-app' }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'restore-defaults', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+          {
+            id: 'auth',
+            cli: [
+              { command: 'setup', run: authSetup },
+              { command: 'seed-roles', run: jest.fn().mockResolvedValue(undefined) },
+            ],
+          },
+          {
+            id: 'entities',
+            cli: [{ command: 'seed-encryption', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+          {
+            id: 'query_index',
+            cli: [{ command: 'reindex', run: jest.fn().mockResolvedValue(undefined) }],
+          },
+        ],
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/di/container', () => ({
+      createRequestContainer: jest.fn().mockResolvedValue({
+        resolve: jest.fn().mockReturnValue({}),
+      }),
+    }))
+    jest.doMock(
+      '@open-mercato/core/modules/auth/lib/setup-app',
+      () => ({
+        ensureCustomRoleAcls: jest.fn().mockResolvedValue(undefined),
+      }),
+      { virtual: true },
+    )
+    return { generateEntityIds, createDatabaseStatements }
+  }
+
+  it('does not create the target database for a rejected fresh production init', async () => {
+    // Regression for the #8974 review finding: deferring credential validation to
+    // recover an EXISTING database (above) must never also defer it for a database
+    // that does not exist yet — doing so lets a rejected ordinary init (missing or
+    // placeholder production password) persist a brand-new empty database before the
+    // credential error is returned. The prior fresh-init test
+    // ('rejects unsafe production init on a fresh database...') could not catch this:
+    // its generic pg mock always reports the database as already existing, so
+    // `CREATE DATABASE` was never reached either way.
+    const previousEnv = { ...process.env }
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    const { generateEntityIds, createDatabaseStatements } = mockMissingDatabase({ authSetup })
+    process.env.NODE_ENV = 'production'
+    delete process.env.OM_INIT_SUPERADMIN_PASSWORD
+    try {
+      const mercato = await import('../mercato')
+      const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+      expect(exitCode).toBe(1)
+      expect(createDatabaseStatements).toHaveLength(0)
+      expect(generateEntityIds).not.toHaveBeenCalled()
+      expect(authSetup).not.toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+      consoleErrorSpy.mockRestore()
+      consoleLogSpy.mockRestore()
+    }
+  })
+
+  it('still creates the target database once production credentials are valid', async () => {
+    // Preserves the legitimate fresh-init behavior the ordering fix must not break:
+    // a real fresh init with a valid production password still creates the database.
+    const previousEnv = { ...process.env }
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    const { createDatabaseStatements } = mockMissingDatabase({ authSetup })
+    process.env.NODE_ENV = 'production'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'Unique-Owner-937!'
+    try {
+      const mercato = await import('../mercato')
+      const exitCode = await mercato.run(['node', 'mercato', 'init', '--no-demo-users'])
+
+      expect(exitCode).toBe(0)
+      expect(createDatabaseStatements).toHaveLength(1)
+      expect(createDatabaseStatements[0]).toContain('fresh_db')
+      expect(authSetup).toHaveBeenCalled()
+    } finally {
+      process.env = previousEnv
+      consoleErrorSpy.mockRestore()
+      consoleLogSpy.mockRestore()
+    }
+  })
+})
+
 describe('seed:defaults command', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL
 
