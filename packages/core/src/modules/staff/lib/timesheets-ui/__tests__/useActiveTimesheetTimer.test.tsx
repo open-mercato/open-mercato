@@ -131,4 +131,50 @@ describe('useActiveTimesheetTimer', () => {
 
     expect(apiCallMock.mock.calls.filter(([url]) => String(url).startsWith('/api/staff/timesheets/time-entries?'))).toHaveLength(2)
   })
+
+  it('does not let a refresh after a write reuse a background fetch that started before the write', async () => {
+    const { queryClient, wrapper } = createWrapper()
+    let entriesCalls = 0
+    let releaseBackgroundFetch: () => void = () => undefined
+    apiCallMock.mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/api/staff/team-members/self') return ok({ member: { id: 'member-1' } })
+      if (url.startsWith('/api/staff/timesheets/time-projects?')) return ok({ items: [] })
+      if (url.startsWith('/api/staff/timesheets/time-entries?')) {
+        entriesCalls += 1
+        const entry = (notes: string, updatedAt: string) => ok({
+          items: [{ id: 'entry-1', started_at: '2026-06-19T08:00:00.000Z', ended_at: null, notes, updated_at: updatedAt }],
+        })
+        if (entriesCalls === 1) return entry('Before the write', '2026-06-19T09:00:00.000Z')
+        if (entriesCalls === 2) {
+          await new Promise<void>((resolve) => {
+            releaseBackgroundFetch = resolve
+          })
+          return entry('Before the write', '2026-06-19T09:00:00.000Z')
+        }
+        return entry('After the write', '2026-06-19T09:30:00.000Z')
+      }
+      return ok({})
+    })
+
+    const { result } = renderHook(() => useActiveTimesheetTimer(), { wrapper })
+    await waitFor(() => expect(result.current.notes).toBe('Before the write'))
+
+    let backgroundFetch: Promise<unknown> = Promise.resolve()
+    act(() => {
+      backgroundFetch = queryClient.refetchQueries({ queryKey: activeTimesheetTimerQueryKey() })
+    })
+    await waitFor(() => expect(entriesCalls).toBe(2))
+
+    let refreshed: Awaited<ReturnType<typeof refreshActiveTimesheetTimer>> | null = null
+    await act(async () => {
+      const refresh = refreshActiveTimesheetTimer(queryClient)
+      releaseBackgroundFetch()
+      refreshed = await refresh
+      await backgroundFetch.catch(() => undefined)
+    })
+
+    expect(refreshed).toEqual(expect.objectContaining({ notes: 'After the write', updatedAt: '2026-06-19T09:30:00.000Z' }))
+    await waitFor(() => expect(result.current.notes).toBe('After the write'))
+  })
 })

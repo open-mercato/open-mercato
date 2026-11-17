@@ -366,11 +366,21 @@ async function completeConditionWait(
   )
 
   if (!transitionResult.success) {
-    throw new ConditionWaitError(
-      'Transition failed after condition was met',
-      'TRANSITION_FAILED',
-      { error: transitionResult.error }
-    )
+    const { handleTransitionFailure } = await import('./workflow-executor')
+    const failure = await handleTransitionFailure(em, container, instance, transitionResult, {
+      evalContext: transitionContext,
+      fromStepId: stepInstance.stepId,
+      toStepId: firstValidTransition.transition.toStepId,
+      source: 'condition',
+    })
+    if (failure.kind === 'parked') return
+    if (failure.kind === 'failed') {
+      throw new ConditionWaitError(
+        'Transition failed after condition was met',
+        'TRANSITION_FAILED',
+        { error: transitionResult.error }
+      )
+    }
   }
 
   await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })

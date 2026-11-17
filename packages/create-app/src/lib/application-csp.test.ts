@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { transformSync } from 'esbuild'
 import * as policy from '../../../shared/src/lib/security/contentSecurityPolicy'
+import { openMercatoServerExternalPackages } from '../../../shared/src/lib/nextjs/server-external-packages'
 import { stripeContentSecurityPolicy } from '../../../gateway-stripe/src/contentSecurityPolicy'
 import { resolveDocumentsCollaborationCspOrigins } from '../../../documents/src/contentSecurityPolicy'
 
@@ -34,6 +35,7 @@ type NextConfigFactory = (phase: string) => { env?: Record<string, string | unde
 const sharedDependencies = {
   'next/constants': nextConstants,
   '@open-mercato/shared/lib/security/contentSecurityPolicy': policy,
+  '@open-mercato/shared/lib/nextjs/server-external-packages': { openMercatoServerExternalPackages },
   '@open-mercato/gateway-stripe/contentSecurityPolicy': { stripeContentSecurityPolicy },
   '@open-mercato/documents/contentSecurityPolicy': { resolveDocumentsCollaborationCspOrigins },
 }
