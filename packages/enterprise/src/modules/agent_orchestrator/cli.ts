@@ -57,8 +57,10 @@ import { loadRunExportBundle } from './lib/trace/otel/loadRunExportBundle'
 import {
   createPrincipalSyncDeps,
   formatPrincipalSyncSummary,
+  listPrincipalSyncScopes,
   runPrincipalSync,
 } from './lib/identity/principalSyncCommand'
+import { registerTraceContentRetentionSchedules } from './lib/trace/contentRetentionSchedule'
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {}
@@ -1326,6 +1328,54 @@ const principalsSync: ModuleCli = {
   },
 }
 
-const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, evalSet, tokenUsage, otelExport, principalsSync]
+/**
+ * Registers the daily trace content retention schedule for organizations that
+ * existed before the schedule shipped (setup registers it only for new tenants
+ * and organizations). Without flags every live organization of every tenant is
+ * covered; `--tenant` / `--org` narrow the set. Idempotent upsert.
+ *
+ *   yarn mercato agent_orchestrator trace-retention:schedule [--tenant <tenantId>] [--org <organizationId>]
+ */
+const traceRetentionSchedule: ModuleCli = {
+  command: 'trace-retention:schedule',
+  async run(rest: string[]) {
+    const args = parseArgs(rest ?? [])
+    const container = await createRequestContainer()
+    const scopes = await listPrincipalSyncScopes((container.resolve('em') as EntityManager).fork(), {
+      tenantId: args.tenant,
+      organizationId: args.org,
+    })
+    if (scopes.length === 0) {
+      console.error('No organization found for the given --tenant/--org.')
+      process.exitCode = 1
+      return
+    }
+    const summary = await registerTraceContentRetentionSchedules(container, scopes)
+    if (summary.status === 'scheduler_unavailable') {
+      console.error('The scheduler module is not enabled; no retention schedule was registered.')
+      process.exitCode = 1
+      return
+    }
+    let failed = 0
+    for (const outcome of summary.outcomes) {
+      const label = `tenant=${outcome.scope.tenantId} org=${outcome.scope.organizationId}`
+      if (outcome.status === 'failed') failed += 1
+      console.log(outcome.status === 'failed' ? `${label}: failed (${outcome.error ?? 'unknown error'})` : `${label}: registered`)
+    }
+    console.log(`Done. ${summary.outcomes.length} organization(s): ${summary.outcomes.length - failed} registered, ${failed} failed.`)
+    if (failed > 0) process.exitCode = 1
+  },
+}
+
+const agentOrchestratorCliCommands = [
+  rebuildProcesses,
+  seedDemo,
+  evalGate,
+  evalSet,
+  tokenUsage,
+  otelExport,
+  principalsSync,
+  traceRetentionSchedule,
+]
 
 export default agentOrchestratorCliCommands

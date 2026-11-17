@@ -116,6 +116,7 @@ AO migrations are squash-only: `packages/enterprise/src/modules/agent_orchestrat
 | `agent_runs.raw_output_key` | check-row evidence `rawOutput.key`, manifest `om.integrity.raw_output_key` | integrity |
 | table `agent_trace_exports` (export ledger) | logs + `reportError` | OTel |
 | table `agent_eval_set_snapshots` | `agent_eval_suite_runs.summary.__evalSet` | eval |
+| table `agent_trace_content_retention_cursors` | module config `trace_content_retention_cursor:<orgId>:<source>` | observability (C-4) |
 
 ### 2. One agent-dispatch seam
 

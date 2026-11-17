@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Trace content retention resumes from a cursor and can be scheduled for existing organizations (#9648, C-4)
+
+**Fixed (enterprise `agent_orchestrator`).** The daily `trace-content-retention` worker used to scan only rows created in the seven days before the retention cutoff, at most 10,000 per run. Content stayed in storage when the worker did not run for a week, when `retentionDays` was lowered, or when an organization produced more rows than one run could read. The worker now keeps a per-organization cursor (tenant-scoped module config rows `agent_orchestrator` / `trace_content_retention_cursor:<organizationId>:<llm_span|context_bundle>`; no migration) and walks every `llm` span and context bundle created before the cutoff, resuming where the previous run stopped. A failed delete, or a key that has not expired yet, holds the cursor so the next run retries it. The first run after the upgrade walks the whole history in batches over the following days and deletes content that the old window missed.
+
+**Action:** organizations created before the retention worker shipped have no retention schedule, because setup registers it only for new tenants and organizations. Register it once with `yarn mercato agent_orchestrator trace-retention:schedule` (every organization; `--tenant <id>` / `--org <id>` narrow the set). It is an idempotent upsert, so running it again is safe. It needs the scheduler module.
+
 ## `delegate_agent` only reaches the calling agent's declared sub-agents (#9648, B-13)
 
 **Behaviour change (enterprise `agent_orchestrator`).** `agent_orchestrator.delegate_agent` used to run any registered `research` agent without `subAgents`, whichever agent called it. It now resolves the calling agent server-side (the native run context, or the OpenCode run session) and runs the target only when that agent lists it in `subAgents`. A call that belongs to no agent run returns `{ ok: false, error: 'no_active_run' }`; a target the calling agent did not declare returns `{ ok: false, error: 'sub_agent_not_allowed' }`. Both are returned as data, like the existing refusals.

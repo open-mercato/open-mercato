@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { seedAgentOrchestratorExamples } from './lib/seeds'
@@ -7,40 +6,14 @@ import { seedDefaultAgentIcons } from './lib/settings/agentSettings'
 import { syncGroundingSets } from './lib/guardrails/syncGroundingSets'
 import { syncIntegritySets } from './lib/guardrails/integrity/integritySets'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE, AGENT_ORCHESTRATOR_TRACE_CONTENT_RETENTION_QUEUE } from './lib/queue'
+import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
+import {
+  registerTraceContentRetentionSchedule,
+  stableScheduleUuid,
+  type SchedulerServiceLike,
+} from './lib/trace/contentRetentionSchedule'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'setup' })
-
-/** Mirrors the @open-mercato/scheduler ScheduleRegistration field names. */
-type SchedulerServiceLike = {
-  register: (registration: {
-    id: string
-    name: string
-    scopeType: 'system' | 'organization' | 'tenant'
-    organizationId?: string
-    tenantId?: string
-    scheduleType: 'cron' | 'interval'
-    scheduleValue: string
-    timezone?: string
-    targetType: 'queue' | 'command'
-    targetQueue?: string
-    targetPayload?: unknown
-    sourceType?: 'user' | 'module'
-    sourceModule?: string
-    isEnabled?: boolean
-    description?: string
-  }) => Promise<void>
-}
-
-/**
- * `scheduled_jobs.id` is a uuid column, so a module-owned schedule's stable
- * registration key must be hashed into a uuid — this keeps register() an
- * idempotent upsert across seedDefaults re-runs.
- */
-function stableScheduleUuid(stableKey: string): string {
-  const hex = createHash('sha256').update(stableKey).digest('hex')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
-}
 
 async function ensureMetricRollupSchedule(ctx: {
   container: import('awilix').AwilixContainer
@@ -82,28 +55,10 @@ async function ensureTraceContentRetentionSchedule(ctx: {
   tenantId: string
   organizationId: string
 }): Promise<void> {
-  const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
-  if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
-
   try {
-    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
-    const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
-    await schedulerService.register({
-      id: stableScheduleUuid(`agent_orchestrator:trace-content-retention:${ctx.organizationId}`),
-      name: 'Agent trace content retention',
-      description: 'Deletes full-fidelity trace content artifacts older than the tenant retention window once a day.',
-      scopeType: 'organization',
-      organizationId: ctx.organizationId,
+    await registerTraceContentRetentionSchedule(ctx.container, {
       tenantId: ctx.tenantId,
-      scheduleType: 'interval',
-      scheduleValue: '86400s',
-      timezone: 'UTC',
-      targetType: 'queue',
-      targetQueue: AGENT_ORCHESTRATOR_TRACE_CONTENT_RETENTION_QUEUE,
-      targetPayload: { scope },
-      sourceType: 'module',
-      sourceModule: 'agent_orchestrator',
-      isEnabled: true,
+      organizationId: ctx.organizationId,
     })
   } catch (error) {
     logger.warn('failed to register trace-content-retention schedule', {

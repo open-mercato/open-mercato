@@ -116,9 +116,9 @@ The other artifact kinds (`output`, `tool_request`, `tool_response`, `raw_output
 
 ### Retention
 
-The `agent_orchestrator:trace-content-retention` worker runs once a day per organization (a schedule registered by the module's tenant setup). It reads content keys from the database, from `llm` spans and context bundles created between seven days before the retention cutoff and the cutoff, and deletes those objects. An object that is already gone counts as deleted, and when storage is unavailable the organization is skipped until the next run. Span and bundle rows are append-only and are not changed: the route answers 410 from the key's age.
+The `agent_orchestrator:trace-content-retention` worker runs once a day per organization (a schedule registered by the module's tenant setup; for organizations that existed before the worker shipped, register it with `yarn mercato agent_orchestrator trace-retention:schedule [--tenant <id>] [--org <id>]`). It reads content keys from the database, from `llm` spans and context bundles created before the retention cutoff, and deletes those objects. It walks the rows in creation order from a per-organization cursor (kept in tenant-scoped module config as `trace_content_retention_cursor:<organizationId>:<llm_span|context_bundle>`), so a run that was missed, a lowered `retentionDays` or a backlog larger than one run (10,000 rows per row family) is caught up by the next runs. A failed delete, or a key that has not expired yet, holds the cursor so the next run retries it. An object that is already gone counts as deleted, and when storage is unavailable the organization is skipped until the next run. Span and bundle rows are append-only and are not changed: the route answers 410 from the key's age.
 
-Because the worker only looks back seven days past the cutoff, content from periods when it did not run is not swept later. Add a bucket lifecycle rule that expires objects under the `agent-trace-content` prefix after your longest `retentionDays` as a backstop.
+A bucket lifecycle rule that expires objects under the `agent-trace-content` prefix after your longest `retentionDays` remains a useful backstop for objects no span or bundle references.
 
 Captured content counts against the tenant's attachment storage quota.
 

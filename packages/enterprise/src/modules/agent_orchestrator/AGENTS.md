@@ -217,6 +217,7 @@ No AO DDL until then (squash-only). Each item lives in a stand-in today; the re-
 - `agent_guardrail_checks.rule_id` ← `evidence.ruleId`.
 - Table `agent_trace_exports` (OTel P2.4 ledger) ← logs + `reportError`, health in module config `otel_export_health`.
 - Table `agent_eval_set_snapshots` ← `agent_eval_suite_runs.summary.__evalSet` (EVAL-Q1).
+- Table `agent_trace_content_retention_cursors` ← module config `trace_content_retention_cursor:<orgId>:<source>` (C-4).
 - Candidate: table `agent_llm_calls` ← `llm` spans (observability alternatives).
 - Not scheduled (ROAD-Q3). `migrations/adopt-squash.mjs` cannot adopt the current squash and refuses to run.
 
