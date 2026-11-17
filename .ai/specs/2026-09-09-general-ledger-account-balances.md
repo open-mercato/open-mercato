@@ -754,10 +754,25 @@ those prerequisites are reviewed.
 Following the project's convention that reads are direct entity
 queries by trusted, in-module or hard-dependency code (not commands —
 commands are for writes; see root `AGENTS.md` Task Router), this
-document adds two query functions, not commands. Both take the request
-`em` (resolved from the Awilix container by the calling route, the
-same pattern every other `ledger` query already uses — no new DI
-wiring):
+document adds two query functions, not commands. Both use a scoped `em`
+resolved through the new DI-managed admission boundary described below;
+calling code cannot use the raw helpers to bypass that boundary:
+
+The SQL helpers are internal implementation details, not an unrestricted
+API for hard dependencies. Both routes, scheduled jobs and every other
+externally triggerable caller must enter one DI-managed report execution
+boundary that derives tenant, organization and authenticated user or
+authorized service principal from trusted context, reauthorizes the scope,
+and acquires the same global, organization and principal admission and
+database resource budget before invoking either query. Caller-supplied IDs
+or an old continuation token are not authorization. A route delegates once
+to this boundary so it is not double-charged; non-HTTP callers receive
+equivalent typed exhaustion/unavailability errors and never run the report
+SQL on refusal. Inventory and enforce this for internal modules, jobs and
+database access, including future financial-statements consumers. If any
+externally triggerable caller can bypass it, keep that path and reporting
+disabled until a reviewed boundary prevents bypass; a TypeScript export
+convention or a statement that callers are trusted is not enforcement.
 
 - `getAccountBalance(em, { accountId, tenantId, organizationId, asOf })`
   — runs the `WITH RECURSIVE` CTE described in Design decisions,
@@ -963,6 +978,7 @@ before release; it is not established by `REPEATABLE READ` alone.
 - add an accounting-date `effectiveStart` field backed by a scoped persisted date, returned in account create/list/detail and undo snapshots. A new account may omit it; after the first commit the default is the later of the next observed database UTC day and the selected parent's effective start. An explicit value must meet the same lower bound; otherwise reject the pending create without publishing an edge. Omission is a wire bridge, not proof that the changed posting behavior is compatible. Parent eligibility requires an existing, active, non-deleted same-tenant/organization account with the exact same `accountTypeId`, effective no later than the child. Different type IDs are ineligible even when their nullable `accountGroupId` values match or are both null. Reject missing or foreign parents without revealing foreign records; a same-scope inactive/deleted or different-type parent is ineligible. Preserve this predicate under concurrent delete/type change. The effective start is immutable after creation: an update may omit it or repeat the stored value, but a different value or an undo that would change it fails. Stage the nullable storage, attested baseline backfill and validation before any NOT NULL constraint; unknown legacy dates remain unverified and reporting fails closed. A dual-version deployment must fence/drain legacy writers before activation as below, and the compatibility bridge and generated API/OpenAPI contracts must be reviewed with #5663 before enforcement;
 - post-commit observation protocol: after the operation-identity lock and then the exclusive scoped hierarchy lock, the first transaction reserves a durable operation identity and pending proposal in the same database transaction; it does not publish the edge or permit posting. After that commit is known, a recoverable verifier obtains the non-regressing trusted UTC-day observation described in Queries, then in a second transaction rechecks parent eligibility, locks and identity, chooses or validates `effectiveStart` strictly after that observed day, and atomically publishes the edge and records a retained success outcome. Invalid dates or newly ineligible parents atomically record a retained rejection without publishing. Either terminal transition clears only its own pending marker in the same transaction; another operation's marker remains. A response is sent only after the terminal outcome is known. An uncertain commit acknowledgement is not evidence that a marker remains: query the durable primary for that operation's terminal or pending state; if the outcome cannot be established, return 503 and keep recovery/reporting fail-closed until it can. Reports return `503 { error: 'hierarchy_verification_pending' }` for an authorized existing resource while any scoped marker remains. A report snapshot taken before the proposal commits uses a day bound established before that snapshot, which cannot exceed the later verifier observation; it cannot successfully request the new edge's strictly later effective day. A snapshot after proposal commit sees either pending and fails closed, or a terminal result. This proof depends on the clock and snapshot ordering in Queries, and requires real concurrency and recovery tests before release;
 - reserve a tenant/organization- and actor-scoped operation ID with a canonical digest of all semantically relevant submitted inputs, including the distinction between omitted and explicit effective date. Resolve an omitted date once after the first commit and retain that result; retries must not recalculate it. Authenticate and reauthorize every reservation, replay and status lookup. Same ID and digest replay the retained pending, success or rejection outcome; reuse with a different digest returns 409 without side effects. Preserve terminal outcomes at least as long as the existing create/retry guarantee; no automatic expiry may weaken an existing lifetime guarantee. Verifier leases require fencing so a recovered worker cannot publish after a terminal decision. A client without a stable retry identity cannot safely resolve a lost response by inventing a new one: the existing #5663 create contract requires a concrete compatible bridge or an explicitly authorized alternative before activation. Until then, disable the new writer protocol and reports for that scope rather than claim old-client replay safety;
+- before a new account-create operation reserves a marker or retained identity, enforce shared, atomic per-actor, per-scope and deployment-wide rate, pending-count, queue and retained count/byte quotas. Authenticate and look up an existing scoped ID first so authorized status and exact retries remain available at capacity while their receipt store is readable; mismatched digests still fail. Reject new work without a marker with `429 { error: 'account_create_capacity' }` and `Retry-After` when limits are exhausted, or `503 { error: 'account_create_admission_unavailable' }` when the authority is unavailable; retained-outcome capacity may not clear merely by waiting. A receipt-store outage also fails closed. Document these new responses and stage their compatibility with #5663's existing create API before activation. Retain pending and uncertain operations until reconciled and terminal outcomes for their required retry lifetime; never evict evidence merely to admit more creates. Configure and review finite limits, capacity and compatible legacy-writer enforcement before activation. Reserve bounded verifier capacity and use fair scheduling between scopes, recovery and reports so a continuous stream of new creates cannot indefinitely starve already-waiting reports when verifiers and the database are healthy. Monitor pending age and backlog with a documented recovery objective and alert; if recovery or fencing is unavailable, keep affected reports fail-closed and surface the outage rather than clearing uncertain markers. A privileged writer or sustained verifier outage can still deny its scope service; the operator must be able to suspend new creates and recover without weakening replay or history guarantees;
 - first-reservation recovery: every reservation, same-ID retry and status resolution takes the same transaction-scoped operation-identity lock before reading or inserting, backed by a real unique constraint on the full scoped ID. A retry blocks behind an in-flight original transaction; a bounded wait returns 503 with outcome unknown, never a new ID or assumed abort. After acquiring the lock, read the durable primary using a fresh read-committed snapshot: a committed row yields its pending/terminal outcome and digest check; no row means no reservation committed as of that serialized check, so retry may reserve the same ID. A status response reporting no committed row must not assert that an earlier request still in transit can never start; a later same-ID original and retry remain serialized by the same lock and unique constraint. If primary transaction resolution or lock acquisition cannot be established, preserve outcome-unknown and retry the same ID. Hash collisions in advisory lock keys may only add contention; the full scoped ID and database uniqueness decide identity. A primary read that sees no committed marker does not require a fictitious scope gate: reports on snapshots before the eventual first commit are safe because their pre-snapshot day bound cannot exceed the later verifier observation, and the eventual effective start is strictly later. Once committed, the pending marker gates snapshots until its own terminal transition. Test this proof; do not enable if primary ordering, failover durability or the non-regressing clock cannot be established;
 - existing archived baseline ancestors remain traversable and appear as root rows where needed even without direct postings. New children cannot attach to deleted or inactive parents. Deletion of a parent with children is rejected; restoring an existing child while its parent is inactive/deleted is rejected without consuming the undo token until the parent is restored. Re-read the parent under the hierarchy lock to serialize concurrent deletion, restore and creation;
 - baseline validation applies the same exact-type predicate to every retained edge; an attested legacy chart that violates it remains unsupported until an independently reviewed correction. A shared account type's group or normal-balance change must not reinterpret any covered account, including empty descendants;
@@ -1048,7 +1064,8 @@ disabled for the affected scope.
   `report_hierarchy_invalid`), a pending hierarchy verification blocks
   reporting (`hierarchy_verification_pending`), accounting-policy authority
   is unavailable (`accounting_policy_authority_unavailable`), or the enforced query deadline expired
-  (`{ error: 'report_timeout' }`), or shared admission control is
+  (`{ error: 'report_timeout' }`), the resource bound cannot be met
+  (`{ error: 'report_resource_limit' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
   query is admitted without a valid shared decision; no failure is
   retried server-side.
@@ -1116,7 +1133,8 @@ leaking foreign existence and resolves overlapping failure conditions.
   a hierarchy verification is pending (`hierarchy_verification_pending`),
   accounting-policy authority is unavailable (`accounting_policy_authority_unavailable`); the enforced
   query deadline expired
-  (`{ error: 'report_timeout' }`), or shared admission control is
+  (`{ error: 'report_timeout' }`), the resource bound cannot be met
+  (`{ error: 'report_resource_limit' }`), or shared admission control is
   unavailable (`{ error: 'report_admission_unavailable' }`). No report
   query is admitted without a valid shared decision; no failure is
   retried server-side.
@@ -1187,6 +1205,8 @@ existing flat, dot-namespaced key convention (e.g.
 - `ledger.reports.errors.accountingPolicyUnavailable` — localized
   incomplete/unsupported policy state, directing an authorized user to
   an accounting administrator; authority outages use the unavailable state.
+- `ledger.reports.errors.resourceLimit` — localized unavailable state for
+  a report exceeding certified capacity, without retaining stale figures.
 - `ledger.reports.trialBalance.errors.goLiveReportingUnsupported` — localized
   explanation that this period or fiscal year includes pre-go-live reporting,
   directing the user to an accounting administrator without retaining figures.
@@ -1255,10 +1275,11 @@ top of the live query.
    `api/reports/trial-balance/route.ts`, both behind
    `ledger.reports.view`, both validating query params with zod
    (`asOf`, `periodId`; see API Contracts) before querying, both
-   exporting `openApi`; enforce both shared rate budgets, leased
-   concurrency admission and the query deadline described under
-   Availability controls. Provide and register a generic shared semaphore
-   through DI, and document the shared Redis prerequisite for these routes.
+   exporting `openApi`; delegate to the common authorized, scoped report
+   boundary for global and per-scope admission, coordinator continuity,
+   resource caps and deadlines under Availability controls. Register the
+   DI-managed boundary and shared semaphore, and complete the coordinator
+   failover and writer-coverage prerequisites before enabling any caller.
 6. Add the "Balance" panel to the existing `accounts/[id]/page.tsx`.
 7. Implement `backend/ledger/reports/trial-balance/page.tsx`
    (page-owned `apiCallOrThrow` loading plus `periodId`/`page`/`pageSize`
@@ -1304,6 +1325,7 @@ top of the live query.
 | `api/reports/trial-balance/route.ts` | Create | `GET .../trial-balance`, `metadata` + `openApi` export, `page`/`pageSize` pagination |
 | `api/openapi.ts` | Modify | Register the two new routes' schemas |
 | `packages/shared/src/lib/concurrency/` and DI registration | Create/Modify | Generic shared leased semaphore, coordinator wiring and tests; no ledger-specific shared helper |
+| `lib/reportExecution.ts` and DI registration | Create/Modify | Scoped principal authorization, global admission and resource-budget boundary for every report caller; coordinator continuity and writer limits are prerequisites, not implemented by this manifest alone |
 | `backend/ledger/accounts/[id]/page.tsx` | Modify | Add read-only Balance panel |
 | `backend/ledger/reports/trial-balance/page.tsx` | Create | ZSiO `DataTable` + period picker |
 | `backend/ledger/reports/trial-balance/page.meta.ts` | Create | Nav entry + icon, following existing `ledger` backend pages' convention |
@@ -1556,6 +1578,30 @@ top of the live query.
   configuration (`503`) for each budget and semaphore, missing DI or
   constructor failure with no report query, crash/abort slot release and a slow query
   returning `503` and releasing its connection and admission slot.
+- Coordinator continuity: acknowledge active leases and rate usage on one
+  instance, promote a replica missing those writes, and partition an old
+  coordinator while its database queries still run. Assert no new epoch
+  grants until every old backend is confirmed terminated and rate windows
+  are restored or conservatively elapsed. Cover delayed cancellation,
+  clock regression, restart, split brain, service callers and unavailable
+  recovery authority; no timeout or lease expiry alone releases a live slot.
+- Resource fairness: exercise the longest allowed hierarchy, a deep chain
+  just over the depth and pair caps, wide charts, invalid metadata and
+  concurrently admitted reports from many organizations. Measure bounded
+  query and validation work, memory, temp files and connections on the
+  actual configured database governor; over-limit cases return the documented
+  503 with no partial figures. Unrelated workloads retain their reserved
+  capacity. Exercise both routes and a service/job caller together; direct
+  callers cannot bypass auth, global or scoped budgets, and denied or
+  foreign-scope calls do not execute report SQL.
+- Writer availability: race many distinct valid and invalid account-create
+  IDs across actors and scopes while a verifier is paused, unavailable or
+  restarting. Assert per-actor/scope/global quotas bound pending and retained
+  bytes, new refusals commit no marker, exact authorized retries and status
+  remain available, and uncertain outcomes are never evicted. Confirm fair
+  recovery and waiting reports make progress under sustained creates when
+  dependencies are healthy; when they are not, reports fail closed and an
+  operator can suspend creates and recover without destroying evidence.
 - Post a year-end `CLOSING` entry that zeroes a revenue account (debit
   equal to its full-year credit balance) and assert: the account's
   `getAccountBalance` as of period end is `0`; the ZSiO row's
@@ -1682,26 +1728,38 @@ or the balance panel.**
 
 **A report query must not let one tenant monopolize shared database
 capacity (security review, 2026-11-16).** Phase 1 keeps the live query
-(Design decisions, "Live query..."), so both routes enforce:
+(Design decisions, "Live query..."), so the common execution boundary
+enforces the following for both routes and every admitted direct caller:
 
-- **Shared rate budgets** across both routes: fixed 60-second windows,
-  default 30 requests per authenticated user per organization and 120 per
+- **Shared rate budgets** across both routes and authorized service callers:
+  fixed 60-second windows, default 30 requests per authenticated principal
+  per organization and 120 per
   organization, configurable by operators. Maximum burst is the full
   window allowance; adjacent windows can admit two bursts back-to-back.
-  Keys include trusted tenant and organization IDs; user keys also include
-  the authenticated user ID. Both routes count against both budgets before
+  Keys include trusted tenant and organization IDs; principal keys also include
+  the authenticated user or authorized service identity. Every caller counts against both budgets before
   a report query runs. Exhaustion returns `429` and integer `Retry-After`
   seconds until the exhausted window resets (at least 1).
 - **Per-user and per-organization concurrency caps** shared by both routes
   (defaults: 2 per user, 8 per organization; configurable) also return
   `429` with `Retry-After` when exhausted. Shared atomic admission spans
-  instances. Bounded leases outlive the query deadline, are released in
-  `finally` or expire after a crashed worker, and use owner tokens so an
-  expired lease cannot release a successor's slot. The lease must remain
+  instances. Bounded leases outlive the query deadline and use owner tokens
+  so an expired lease cannot release a successor's slot. Expiry or a
+  `finally` block initiates release; the slot is not reusable until database
+  work has actually stopped as required below. The lease must remain
   valid throughout database execution: enforce the server-side statement
   timeout below its expiry with a safety margin, renew while needed, and
   cancel execution before expiry if renewal cannot be confirmed. Reject
   before the query.
+- **Deployment-wide fair admission** bounds the total live report work
+  across all organizations and service principals, not only each tenant.
+  Size a dedicated connection/work budget below independently protected
+  capacity reserved for unrelated workloads. Use bounded per-scope queues
+  and a reviewed fair scheduler; reject rather than building an unbounded
+  queue. Do not release a slot merely because its lease expired or a cancel
+  was requested: retain/fence it until the database confirms the old backend
+  has stopped or its connection is terminated. Account for a slow or lost
+  cancellation in the failover recovery below.
 - Use DI-provided `RateLimiterService` with `requireShared`, backed by a
   shared Redis deployment; call `checkRateLimit` with `failClosed: true`
   and the `report_admission_unavailable` unavailable message, or check
@@ -1714,6 +1772,35 @@ capacity (security review, 2026-11-16).** Phase 1 keeps the live query
   coordinator even on one instance: an unavailable or missing coordinator
   fails closed with `503 { error: 'report_admission_unavailable' }`. This
   is not a prerequisite for unrelated ledger operations.
+- **Coordinator continuity is a release prerequisite.** `requireShared`
+  and `failClosed` detect unavailable storage, not an acknowledged lease or
+  rate counter lost during replica promotion. Use a coordinator with proven
+  durable linearizable continuity, or an independently durable recovery
+  epoch that fences all old admissions, cancels/drains their database work
+  and verifies termination before new grants. Preserve acknowledged rate
+  windows, or conservatively deny new grants for a complete maximum window
+  measured from the last possible old admission using a non-regressing
+  clock. A promoted but stale coordinator must not grant against an old or
+  unknown epoch, including under split brain, partition or process restart.
+  If continuity, old-query termination or window recovery cannot be proved,
+  keep the boundary unavailable with 503. The current Redis helpers and
+  semaphore are not by themselves evidence of this guarantee; design and
+  test the independent fencing and rollout before activation.
+- **Bound work as well as duration.** Before enabling the live query,
+  configure deployment-certified hard limits for chart nodes, hierarchy
+  depth, total ancestor/descendant pairs and other measured input/plan work;
+  operators may lower but not exceed the certified caps. Enforce them
+  before an unbounded recursive expansion, with same-snapshot scoped
+  metadata maintained by every applicable writer or another proven bounded
+  validation algorithm. Unknown, corrupt, over-limit or unverified metadata
+  fails closed with `503 { error: 'report_resource_limit' }`, no figures or
+  partial totals. Set conservative server-side statement, temporary-file
+  and per-worker memory limits, and use a verified deployment-level memory
+  and temp-storage governor: PostgreSQL `work_mem` alone is per plan node,
+  not a hard total-query cap. Bound validation itself and count its work
+  against the same global admission. If the host cannot enforce these limits
+  or safe cancellation, do not enable live reports. Page size and timeout
+  limit neither full-chart intermediate memory nor quadratic chain work.
 - **An enforced query deadline** (a server-side statement timeout,
   default 5 s) that aborts the query and returns `503` with
   `{ error: 'report_timeout' }`; above the supported live-query budget
@@ -2190,3 +2277,11 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
   relevant write occurs between pages. Complete writer coverage, lock
   order, restore/failover epochs and token validation are release gates;
   this design has not been implemented or independently approved.
+
+### 2026-11-17 — report availability security correction (local draft)
+
+- Require a common scoped admission boundary for all report callers,
+  coordinator continuity, global fairness and database resource bounds.
+- Bound account-create admission and retained work without discarding retry
+  evidence; verifier outage remains an explicit fail-closed availability risk.
+  These controls are unimplemented release prerequisites.
