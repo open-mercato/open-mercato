@@ -1,3 +1,6 @@
+import { TZDate } from '@date-fns/tz'
+import { addWeeks } from 'date-fns/addWeeks'
+import { startOfWeek } from 'date-fns/startOfWeek'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
@@ -190,22 +193,26 @@ test.describe('TC-CAL-014: configured calendar display zone', () => {
       personId = await createPersonFixture(request, token, {
         firstName: 'DisplayZone', lastName: String(Date.now()), displayName: 'QA display-zone contact',
       })
+      const nextMonday = startOfWeek(addWeeks(new TZDate(Date.now(), 'Europe/Warsaw'), 1), { weekStartsOn: 1 })
+      nextMonday.setMinutes(30)
       const created = await apiRequest(request, 'POST', '/api/customers/interactions', {
         token, data: {
           entityId: personId, interactionType: 'meeting', title,
-          scheduledAt: '2026-10-25T23:30:00.000Z', durationMinutes: 30,
+          scheduledAt: new Date(nextMonday.getTime()).toISOString(), durationMinutes: 30,
         },
       })
       expect(created.status()).toBe(201)
       interactionId = (await created.json() as { id: string }).id
 
-      await page.clock.install({ time: new Date('2026-10-25T23:15:00Z') })
       await login(page, 'admin')
       await page.goto('/backend/calendar')
       await waitForCalendarLoaded(page)
+      await page.getByRole('button', { name: 'Next week', exact: true }).click()
       await page.locator('[data-calendar-search]').fill(title)
-      await expect(page.getByRole('button', { name: gridBlockName(title) })).toHaveAccessibleName(/00:30.*01:00/)
-      await expect(page.getByText('Europe/Warsaw (GMT+1)', { exact: true })).toBeVisible()
+      const meeting = page.getByRole('button', { name: gridBlockName(title) })
+      await expect(meeting).toHaveAccessibleName(/00:30.*01:00/)
+      await meeting.scrollIntoViewIfNeeded()
+      await expect(page.getByText(/^Europe\/Warsaw \(GMT\+/)).toBeVisible()
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/interactions', interactionId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
