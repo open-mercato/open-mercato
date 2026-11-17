@@ -490,6 +490,18 @@ describe('native routing across bridge, worker, command and provider conversion 
     expect(fixture.originalAdapter.sendMessage).not.toHaveBeenCalled()
     expect(fixture.selectedAdapter.sendMessage).not.toHaveBeenCalled()
   })
+  it('accepts a root parent whose platform thread is represented by its own id', async () => {
+    const fixture = makeFixture({ withLink: false })
+    const { parent, parentLink } = withParent(fixture, 'selected', 'inbound')
+    parent.id = fixture.message.threadId ?? ''
+    parent.threadId = null
+    parentLink.messageId = parent.id
+    fixture.message.parentMessageId = parent.id
+    const result = await bridgeAndDeliver(fixture, true)
+    expect(result.outcomes).toEqual([expect.objectContaining({ status: 'delivered', providerKey: 'imap' })])
+    expect(fixture.originalAdapter.sendMessage).not.toHaveBeenCalled()
+  })
+
   it('uses source provenance before a parent channel link exists', async () => {
     const fixture = makeFixture({ withLink: false })
     withParent(fixture, 'selected', 'inbound')

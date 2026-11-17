@@ -46,10 +46,10 @@ export async function resolveOutboundRouting(
     }
     if (message.parentMessageId) {
       const parent = await findOneWithDecryption(
-        em, Message, { id: message.parentMessageId, threadId: message.threadId, deletedAt: null, ...scope },
+        em, Message, { id: message.parentMessageId, deletedAt: null, ...scope },
         undefined, scope,
       )
-      if (!parent) return refuse('parent_not_in_thread_scope')
+      if (!parent || (parent.threadId ?? parent.id) !== message.threadId) return refuse('parent_not_in_thread_scope')
       const parentLink = await findOneWithDecryption(
         em, MessageChannelLink, { messageId: parent.id, ...scope }, undefined, scope,
       )
