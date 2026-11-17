@@ -43,7 +43,7 @@ export const guardrailBlockedErrorSchema = agentRunErrorSchema.extend({
 
 /** 422 body when per-call model settings target an agent whose runtime cannot apply them. */
 export const callSettingsUnsupportedErrorSchema = agentRunErrorSchema.extend({
-  code: z.literal('call_settings_unsupported'),
+  code: z.literal('agent_call_settings_unsupported'),
 })
 
 /** 500 body for a failure this route could not classify — it names itself. */
@@ -176,7 +176,7 @@ export function agentRunErrorResponse(
   }
   if (isAgentCallSettingsUnsupportedError(err)) {
     return NextResponse.json(
-      { error: 'This agent does not accept per-call model settings', code: 'call_settings_unsupported' },
+      { error: 'This agent does not accept per-call model settings', code: 'agent_call_settings_unsupported' },
       { status: 422 },
     )
   }

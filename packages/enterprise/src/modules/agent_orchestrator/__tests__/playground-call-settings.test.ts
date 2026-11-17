@@ -40,10 +40,10 @@ describe('buildPlaygroundCallSettings — server ranges', () => {
   })
 })
 
-describe('runErrorStateFromBody — call_settings_unsupported', () => {
+describe('runErrorStateFromBody — agent_call_settings_unsupported', () => {
   it('maps the code to its locale key instead of the English route text', () => {
     expect(
-      runErrorStateFromBody({ error: 'This agent does not accept per-call model settings', code: 'call_settings_unsupported' }),
+      runErrorStateFromBody({ error: 'This agent does not accept per-call model settings', code: 'agent_call_settings_unsupported' }),
     ).toEqual({ kind: 'generic', messageKey: 'agent_orchestrator.errors.call_settings_unsupported', message: null })
   })
 })

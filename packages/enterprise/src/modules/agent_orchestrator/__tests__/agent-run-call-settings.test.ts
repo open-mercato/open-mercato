@@ -198,7 +198,7 @@ describe('POST /agents/:id/run — call-time overrides', () => {
     runtimeFailure = new AgentCallSettingsUnsupportedError(AGENT_ID)
     const { status, body } = await callRun({ input: {}, callSettings: { temperature: 0 } })
     expect(status).toBe(422)
-    expect(body).toEqual({ error: expect.any(String), code: 'call_settings_unsupported' })
+    expect(body).toEqual({ error: expect.any(String), code: 'agent_call_settings_unsupported' })
   })
 })
 
@@ -232,7 +232,7 @@ describe('POST /runs/:id/rerun — call-time overrides', () => {
     runtimeFailure = new AgentCallSettingsUnsupportedError(AGENT_ID)
     const { status, body } = await callRerun({ callSettings: { temperature: 0 } })
     expect(status).toBe(422)
-    expect(body.code).toBe('call_settings_unsupported')
+    expect(body.code).toBe('agent_call_settings_unsupported')
   })
 })
 

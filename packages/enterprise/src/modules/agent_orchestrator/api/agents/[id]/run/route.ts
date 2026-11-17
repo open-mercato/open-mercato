@@ -153,7 +153,7 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid input or `callSettings`, invalid model output, run wall-clock timeout, `callSettings` sent to an agent whose runtime cannot apply them (`code: "call_settings_unsupported"`, file-defined OpenCode agents) — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason and `ruleId` (the integrity rule that blocked, null otherwise)',
+            'Invalid input or `callSettings`, invalid model output, run wall-clock timeout, `callSettings` sent to an agent whose runtime cannot apply them (`code: "agent_call_settings_unsupported"`, file-defined OpenCode agents) — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason and `ruleId` (the integrity rule that blocked, null otherwise)',
           schema: z.union([errorSchema, guardrailBlockedErrorSchema, callSettingsUnsupportedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },

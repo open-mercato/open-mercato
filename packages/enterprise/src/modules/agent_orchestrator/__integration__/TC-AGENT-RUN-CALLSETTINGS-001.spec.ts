@@ -16,7 +16,7 @@ import {
  *   `callSettings` with the run-object HTTP contract (strict keys, capped values,
  *   no `providerOptions`); a bad value is a 422 before any model work.
  * - A file-defined (OpenCode) agent refuses non-empty `callSettings` with
- *   `call_settings_unsupported` instead of silently running on its defaults.
+ *   `agent_call_settings_unsupported` instead of silently running on its defaults.
  * - Live (LLM provider required): a native run records the sent
  *   `maxOutputTokens` on its llm spans, and `seed` either as sent or, when the
  *   provider dropped it, in `om.params.ignored` (never both).
@@ -74,7 +74,7 @@ test.describe('TC-AGENT-RUN-CALLSETTINGS-001: call-time model settings on AO run
     })
     expect(response.status(), await response.text()).toBe(422)
     const body = await readJsonSafe<{ code?: string }>(response)
-    expect(body?.code).toBe('call_settings_unsupported')
+    expect(body?.code).toBe('agent_call_settings_unsupported')
   })
 
   test('a native run applies and records the sent callSettings', async ({ request }) => {

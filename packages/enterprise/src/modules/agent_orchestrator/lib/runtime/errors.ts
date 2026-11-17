@@ -100,7 +100,7 @@ export function isAgentPrincipalMissingError(
  * instead of silently running with the agent's defaults.
  */
 export class AgentCallSettingsUnsupportedError extends Error {
-  readonly code = 'call_settings_unsupported'
+  readonly code = 'agent_call_settings_unsupported'
   readonly agentId: string
   constructor(agentId: string) {
     super(`[internal] agent "${agentId}" runs on a runtime that does not accept per-call model settings`)
@@ -109,7 +109,7 @@ export class AgentCallSettingsUnsupportedError extends Error {
   }
 }
 
-export const AGENT_CALL_SETTINGS_UNSUPPORTED_CODE = 'call_settings_unsupported' as const
+export const AGENT_CALL_SETTINGS_UNSUPPORTED_CODE = 'agent_call_settings_unsupported' as const
 
 /** Structural match, like {@link isAgentInvokeDeniedError}. */
 export function isAgentCallSettingsUnsupportedError(

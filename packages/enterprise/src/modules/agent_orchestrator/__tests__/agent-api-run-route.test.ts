@@ -251,14 +251,14 @@ describe('POST /agent-api/agents/:id/run', () => {
     expect(run).not.toHaveBeenCalled()
   })
 
-  it('maps call_settings_unsupported from the runtime to 422', async () => {
+  it('maps agent_call_settings_unsupported from the runtime to 422', async () => {
     setupContainer(async () => {
       throw new AgentCallSettingsUnsupportedError(AGENT_ID)
     })
     verifyMock.mockResolvedValue(verified('agent_orchestrator.agents.run'))
     const res = await POST(makeRequest(undefined, { input: {}, callSettings: { seed: 1 } }), { params: params() })
     expect(res.status).toBe(422)
-    expect(await res.json()).toEqual({ error: expect.any(String), code: 'call_settings_unsupported' })
+    expect(await res.json()).toEqual({ error: expect.any(String), code: 'agent_call_settings_unsupported' })
   })
 
   it('accepts a per-agent scope and generates a correlation id when none is sent', async () => {

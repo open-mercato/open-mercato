@@ -147,7 +147,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     }
     if (isAgentCallSettingsUnsupportedError(err)) {
       return NextResponse.json(
-        { error: 'This agent does not accept per-call model settings', code: 'call_settings_unsupported' },
+        { error: 'This agent does not accept per-call model settings', code: 'agent_call_settings_unsupported' },
         { status: 422 },
       )
     }
@@ -244,7 +244,7 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid `callSettings`, invalid model output, run wall-clock timeout, `callSettings` the agent\'s runtime cannot apply (`code: "call_settings_unsupported"`) — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason',
+            'Invalid `callSettings`, invalid model output, run wall-clock timeout, `callSettings` the agent\'s runtime cannot apply (`code: "agent_call_settings_unsupported"`) — or a runtime guardrail block, in which case the body carries `code: "guardrail_blocked"` plus the typed `kind`/`phase`/`guardrailSetVersion` reason',
           schema: z.union([errorSchema, guardrailBlockedErrorSchema, callSettingsUnsupportedErrorSchema]),
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },

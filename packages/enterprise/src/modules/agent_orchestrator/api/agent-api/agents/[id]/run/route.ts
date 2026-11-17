@@ -191,7 +191,7 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 422,
           description:
-            'Invalid input or `callSettings`, invalid model output, run wall-clock timeout, `callSettings` the agent\'s runtime cannot apply (`code: "call_settings_unsupported"`), or a runtime guardrail block (`code: "guardrail_blocked"`, with `kind`/`phase`/`guardrailSetVersion` and the blocking integrity `ruleId` or null)',
+            'Invalid input or `callSettings`, invalid model output, run wall-clock timeout, `callSettings` the agent\'s runtime cannot apply (`code: "agent_call_settings_unsupported"`), or a runtime guardrail block (`code: "guardrail_blocked"`, with `kind`/`phase`/`guardrailSetVersion` and the blocking integrity `ruleId` or null)',
           schema: z.union([agentRunErrorSchema, guardrailBlockedErrorSchema, callSettingsUnsupportedErrorSchema]),
         },
         {

@@ -374,7 +374,7 @@ Agent Orchestrator agents accept the same HTTP contract (strict keys, capped val
 | `POST /api/agent_orchestrator/runs/{id}/rerun` | Optional body `{ callSettings }`; without it the new run uses the agent's current settings. | `422` |
 | Workflow `INVOKE_AGENT` | `config.callSettings` on the activity (static values). | The step fails |
 
-File-defined agents run on OpenCode, which cannot apply per-call settings, so these doors refuse non-empty `callSettings` for them with `422` and `code: "call_settings_unsupported"` rather than running on the agent's defaults. The ai-assistant dispatcher path (`run-object`, MCP agent tools) is unchanged for file agents.
+File-defined agents run on OpenCode, which cannot apply per-call settings, so these doors refuse non-empty `callSettings` for them with `422` and `code: "agent_call_settings_unsupported"` rather than running on the agent's defaults. The ai-assistant dispatcher path (`run-object`, MCP agent tools) is unchanged for file agents.
 
 ```ts
 const result = await runAiAgentObject({
