@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -71,6 +71,8 @@ export default function AuditLogsPage() {
   const [accessFilters, setAccessFilters] = React.useState<FilterValues>({})
   const [canViewTenantAccess, setCanViewTenantAccess] = React.useState(false)
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const requestedLogId = searchParams?.get('logId') ?? null
   const [linkedEntry, setLinkedEntry] = React.useState<ActionLogItem | null>(null)
 
@@ -118,10 +120,9 @@ export default function AuditLogsPage() {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
-    const actorScope = readFilterText(accessFilters.actorScope) === ACCESS_ACTOR_SCOPE_SELF
-      ? ACCESS_ACTOR_SCOPE_SELF
-      : ACCESS_ACTOR_SCOPE_ALL
-    params.set('actorScope', actorScope)
+    if (readFilterText(accessFilters.actorScope) === ACCESS_ACTOR_SCOPE_ALL) {
+      params.set('actorScope', ACCESS_ACTOR_SCOPE_ALL)
+    }
     const resourceKind = readFilterText(accessFilters.resourceKind)
     if (resourceKind) params.set('resourceKind', resourceKind)
     const accessType = readFilterText(accessFilters.accessType)
@@ -231,8 +232,8 @@ export default function AuditLogsPage() {
         label: t('audit_logs.access.filters.actor_scope'),
         type: 'select',
         options: [
-          { value: ACCESS_ACTOR_SCOPE_ALL, label: t('audit_logs.access.filters.actor_scope_all') },
           { value: ACCESS_ACTOR_SCOPE_SELF, label: t('audit_logs.access.filters.actor_scope_self') },
+          { value: ACCESS_ACTOR_SCOPE_ALL, label: t('audit_logs.access.filters.actor_scope_all') },
         ],
       })
     }
@@ -251,6 +252,20 @@ export default function AuditLogsPage() {
     )
     return defs
   }, [canViewTenantAccess, t])
+
+  const accessFilterValues = React.useMemo<FilterValues>(() => {
+    if (!canViewTenantAccess || readFilterText(accessFilters.actorScope)) return accessFilters
+    return { ...accessFilters, actorScope: ACCESS_ACTOR_SCOPE_SELF }
+  }, [accessFilters, canViewTenantAccess])
+
+  const handleLinkedEntryClose = React.useCallback(() => {
+    setLinkedEntry(null)
+    if (!searchParams?.has('logId')) return
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.delete('logId')
+    const query = nextParams.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [pathname, router, searchParams])
 
   const headerExtras = (
     <>
@@ -310,7 +325,7 @@ export default function AuditLogsPage() {
             isLoading={loading}
             actions={renderRefreshButton()}
             filters={accessFilterDefs}
-            filterValues={accessFilters}
+            filterValues={accessFilterValues}
             onFiltersApply={setAccessFilters}
             onFiltersClear={() => setAccessFilters({})}
             pagination={{
@@ -324,7 +339,7 @@ export default function AuditLogsPage() {
           />
         )}
         {linkedEntry ? (
-          <ActionLogDetailsDialog item={linkedEntry} onClose={() => setLinkedEntry(null)} />
+          <ActionLogDetailsDialog item={linkedEntry} onClose={handleLinkedEntryClose} />
         ) : null}
       </PageBody>
     </Page>

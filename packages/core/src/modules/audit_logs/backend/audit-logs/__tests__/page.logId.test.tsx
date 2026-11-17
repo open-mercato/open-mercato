@@ -4,15 +4,16 @@
 
 import '@testing-library/jest-dom'
 import * as React from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
 const LOG_ID = '55555555-5555-4555-8555-555555555555'
 let mockSearch = new URLSearchParams()
+const mockReplace = jest.fn()
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn(), refresh: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), refresh: jest.fn(), replace: mockReplace, prefetch: jest.fn() }),
   usePathname: () => '/backend/audit-logs',
   useSearchParams: () => mockSearch,
 }))
@@ -32,8 +33,11 @@ jest.mock('../../../components/AccessLogsTable', () => ({
 }))
 
 jest.mock('../../../components/ActionLogDetailsDialog', () => ({
-  ActionLogDetailsDialog: ({ item }: { item: { id: string } }) => (
-    <div data-testid="action-log-details-dialog">{item.id}</div>
+  ActionLogDetailsDialog: ({ item, onClose }: { item: { id: string }; onClose: () => void }) => (
+    <div data-testid="action-log-details-dialog">
+      {item.id}
+      <button type="button" onClick={onClose}>close-dialog</button>
+    </div>
   ),
 }))
 
@@ -51,6 +55,7 @@ function respond(linked: Array<{ id: string }>) {
 
 beforeEach(() => {
   mockedRead.mockReset()
+  mockReplace.mockReset()
   mockSearch = new URLSearchParams()
 })
 
@@ -67,6 +72,19 @@ describe('AuditLogsPage ?logId=', () => {
       undefined,
       expect.anything(),
     )
+  })
+
+  it('removes logId from the URL when the deep-linked dialog is closed', async () => {
+    mockSearch = new URLSearchParams({ logId: LOG_ID, tab: 'actions' })
+    respond([{ id: LOG_ID }])
+
+    renderWithProviders(<AuditLogsPage />)
+
+    await screen.findByTestId('action-log-details-dialog')
+    fireEvent.click(screen.getByText('close-dialog'))
+
+    expect(screen.queryByTestId('action-log-details-dialog')).not.toBeInTheDocument()
+    expect(mockReplace).toHaveBeenCalledWith('/backend/audit-logs?tab=actions')
   })
 
   it('shows a not-found message when the entry is missing or out of scope', async () => {
