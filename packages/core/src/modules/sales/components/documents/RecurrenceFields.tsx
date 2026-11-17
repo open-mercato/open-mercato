@@ -95,6 +95,9 @@ export function RecurrenceFields({ value, onChange, disabled, hideToggle, errors
     return { firstInvoiceOn: result.recurrence.startsOn, endsOn: endsOn(result.recurrence) }
   }, [value])
   const translateError = (message?: string) => (message ? t(message, message) : undefined)
+  const fieldIdPrefix = React.useId()
+  const frequencyId = `${fieldIdPrefix}-frequency`
+  const frequencyError = translateError(errors?.frequency)
 
   return (
     <div className="space-y-4" data-testid="sales-recurrence-fields">
@@ -110,13 +113,18 @@ export function RecurrenceFields({ value, onChange, disabled, hideToggle, errors
       )}
       {value.enabled ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label={t('sales.recurring.form.frequency', 'Frequency')} error={translateError(errors?.frequency)} disabled={disabled}>
+          <FormField id={frequencyId} label={t('sales.recurring.form.frequency', 'Frequency')} error={frequencyError} disabled={disabled}>
             <Select
               value={value.frequency}
               onValueChange={(next) => update({ frequency: next as SalesRecurrenceFrequency, anchorDay: null })}
               disabled={disabled}
             >
-              <SelectTrigger data-testid="sales-recurrence-frequency">
+              <SelectTrigger
+                id={frequencyId}
+                aria-describedby={frequencyError ? `${frequencyId}-error` : undefined}
+                aria-invalid={frequencyError ? true : undefined}
+                data-testid="sales-recurrence-frequency"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -128,8 +136,8 @@ export function RecurrenceFields({ value, onChange, disabled, hideToggle, errors
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label={t('sales.recurring.form.startsOn', 'Start date')} error={translateError(errors?.startsOn)} disabled={disabled}>
-            <div data-testid="sales-recurrence-starts-on">
+          <div data-testid="sales-recurrence-starts-on">
+            <FormField label={t('sales.recurring.form.startsOn', 'Start date')} error={translateError(errors?.startsOn)} disabled={disabled}>
               <DatePicker
                 value={toLocalDate(value.startsOn)}
                 onChange={(date) => {
@@ -138,8 +146,8 @@ export function RecurrenceFields({ value, onChange, disabled, hideToggle, errors
                 footer="none"
                 disabled={disabled}
               />
-            </div>
-          </FormField>
+            </FormField>
+          </div>
           <FormField
             label={t('sales.recurring.form.periodCount', 'Number of periods')}
             error={translateError(errors?.periodCount ?? errors?.anchorDay)}
