@@ -613,3 +613,60 @@ describe('search.* record citations', () => {
     })
   })
 })
+
+describe('search viewer for per-record visibility (PR #9648 B-8)', () => {
+  function resolverFor(service: unknown, lookup: unknown) {
+    return (name: string) => {
+      if (name === 'searchService') return service
+      if (name === 'searchIndexer') return lookup
+      return undefined
+    }
+  }
+
+  it('search.hybrid_search passes the calling user as the viewer', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx()
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    expect(calls[0].options.viewer).toEqual({
+      auth: {
+        sub: 'user-1',
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        orgId: 'org-1',
+        features: ['search.view'],
+        isSuperAdmin: false,
+      },
+      container: ctx.container,
+    })
+  })
+
+  it('search.hybrid_search passes the viewer on the superadmin branch too', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx({ userFeatures: [], isSuperAdmin: true })
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    expect((calls[0].options.viewer as { auth: Record<string, unknown> }).auth).toMatchObject({
+      sub: 'user-1',
+      isSuperAdmin: true,
+    })
+  })
+
+  it('runs an API-key caller as the key itself, with no user identity', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = { ...makeCtx(), apiKeyId: 'key-1' }
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup()))
+    await findTool('search.hybrid_search').handler({ q: 'clause' }, ctx as any)
+    const auth = (calls[0].options.viewer as { auth: Record<string, unknown> }).auth
+    expect(auth).toMatchObject({ sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1' })
+    expect(auth).not.toHaveProperty('userId')
+  })
+
+  it('search.get_record_context passes the viewer', async () => {
+    const { service, calls } = makeSearchService([])
+    const ctx = makeCtx()
+    ;(ctx.container.resolve as jest.Mock).mockImplementation(resolverFor(service, permissiveLookup(['catalog:product'])))
+    await findTool('search.get_record_context').handler({ entityId: 'catalog:product', recordId: 'rec-1' }, ctx as any)
+    expect((calls[0].options.viewer as { auth: Record<string, unknown> }).auth).toMatchObject({ sub: 'user-1', tenantId: 'tenant-1' })
+  })
+})
