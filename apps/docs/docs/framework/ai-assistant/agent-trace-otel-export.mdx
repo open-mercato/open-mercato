@@ -187,7 +187,7 @@ Verified against a self-hosted Langfuse 4.81.0 with both `http/json` and `http/p
 
 ## Datadog
 
-Datadog's OTLP traces intake accepts `http/json` and `http/protobuf` (not gRPC) and answers `202`. Agent Observability (LLM Observability) only converts spans when conversion is switched on, which the exporter does through the `DD-LLMObs-Enabled` header:
+Datadog's OTLP traces intake accepts `http/json` and `http/protobuf` (not gRPC) and answers a successful export with `200` or `202`, both treated as delivered. Agent Observability (LLM Observability) only converts spans when conversion is switched on, which the exporter does through the `DD-LLMObs-Enabled` header:
 
 ```bash
 OM_AGENT_OTEL_EXPORT=on
@@ -196,7 +196,7 @@ OM_AGENT_OTEL_EXPORT_PROTOCOL=http/protobuf
 OM_AGENT_OTEL_EXPORT_HEADERS="dd-api-key=$DD_API_KEY,dd-otlp-source=llmobs,DD-LLMObs-Enabled=true"
 ```
 
-Use the endpoint of your Datadog site (for example `https://otlp.us3.datadoghq.com/v1/traces` or `https://otlp.datadoghq.eu/v1/traces`); a wrong site is answered with `403`. Without `DD-LLMObs-Enabled=true` the spans still arrive in APM but not in Agent Observability; the exporter does not set the alternative `dd_llmobs_enabled` resource attribute.
+Use the endpoint of your Datadog site (for example `https://otlp.us3.datadoghq.com/v1/traces` or `https://otlp.datadoghq.eu/v1/traces`); a wrong site or an invalid API key is answered with `403`, and the export is dropped, not retried. Without `DD-LLMObs-Enabled=true` the spans still arrive in APM but not in Agent Observability; the exporter does not set the alternative `dd_llmobs_enabled` resource attribute.
 
 How a run appears in Agent Observability:
 
@@ -205,7 +205,7 @@ How a run appears in Agent Observability:
 - With content export on, prompts and completions are read from the `gen_ai.client.inference.operation.details` event, and tool arguments and results from the tool span.
 - Spans with no `gen_ai.*` attribute (`om.*` system spans, proposal dispositions and executions) are not shown in Agent Observability; they stay in the APM trace together with every `om.*` attribute, including the tenant and organization ids.
 
-The Datadog mapping is checked by a contract test (`otel-vendor-compat.test.ts`) against Datadog's published OpenTelemetry GenAI mapping, not by a recorded run.
+Delivery was verified against the Datadog EU intake with both `http/json` and `http/protobuf`, from the exporter and from a real agent run. How spans render in Agent Observability follows Datadog's published OpenTelemetry GenAI mapping, which the contract test (`otel-vendor-compat.test.ts`) pins.
 
 ## Integration tests
 

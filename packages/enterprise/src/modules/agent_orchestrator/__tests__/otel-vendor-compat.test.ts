@@ -26,7 +26,7 @@ import type {
  * - Datadog LLM Observability (OTel GenAI 1.37+ mapping): same span-kind table,
  *   `service.name` becomes `ml_app`, messages from direct attributes or the same
  *   event; messages must be JSON arrays of `{ role, parts }`; spans without any
- *   `gen_ai.*` attribute are kept in APM only. The intake answers `202`.
+ *   `gen_ai.*` attribute are kept in APM only. The intake answers `200` or `202`, and `403` for a wrong site or key.
  */
 
 const LANGFUSE_TYPES: Readonly<Record<string, string>> = {
@@ -171,8 +171,10 @@ describe('OTLP export compatibility with Langfuse and Datadog', () => {
     }
   })
 
-  test('the Datadog intake 202 Accepted counts as delivered', () => {
+  test('the Datadog intake answers count as delivered, and a rejected key is dropped', () => {
+    expect(classifyOtlpStatus(200)).toBe('ok')
     expect(classifyOtlpStatus(202)).toBe('ok')
+    expect(classifyOtlpStatus(403)).toBe('drop')
     expect(classifyOtlpStatus(413)).toBe('drop')
   })
 })
