@@ -179,7 +179,18 @@ incremental movements rather than duplicated carry-forwards. Never infer
 that fact from type, amount, date, balanced totals or a missing label.
 Pre-go-live source-system balances may be introduced only through the
 attested initialization entries; existing earlier ledger entries cannot
-be silently dropped. The authority must cover every entry in the report's contributing history,
+be silently dropped. The authority must reconcile the entire independently
+evidenced source population at a defined cutoff immediately before
+go-live: every mapped account, including zero and omitted accounts, must
+match its initialized base-currency balance and each applicable account
+currency, with signed debit/credit conventions and mapping provenance
+recorded. An empty source requires evidence of emptiness. A source-side
+write freeze or audited catch-up bridge must cover changes between the
+cutoff and initialization. Missing accounts, duplicate mappings, omitted
+currencies, discrepancies or unverifiable source evidence invalidate the
+whole scope; an entry's balance or caller assertion is not proof. No
+partially reconciled account set is reportable. The authority must cover
+every entry in the report's contributing history,
 including reversals, late entries and corrections, and must be updated or
 invalidated atomically with every relevant post under the scoped writer
 protocol. A claimed classification from an arbitrary caller is not itself
@@ -189,10 +200,17 @@ exclude or rewrite entries to make a report balance.
 For an authorized certified scope, balances sum all certified movements
 from go-live through the requested date; period and fiscal-year turnover
 include every certified movement in their respective ranges, irrespective
-of entry type. An opening on go-live is zero only when the authority
-affirmatively establishes no prior ledger activity; go-live initialization
-entries then appear in that period's turnover. Otherwise the opening date
-must itself be covered. Missing, stale, ambiguous, incomplete or duplicated
+of entry type. This initial design does **not** define statutory
+presentation of imported balances or external gross turnover in a period
+or fiscal year containing go-live. Trial-balance requests therefore require
+both `periodStart` and the authoritative fiscal-year start to be strictly
+after go-live; otherwise, subject to the error precedence in API Contracts,
+return `422 { error: 'go_live_reporting_unsupported' }` with no figures. A separate
+accounting-owner-approved design must reconcile external gross debits and
+credits and explicitly define opening/turnover presentation before this
+restriction can be lifted. No absence of earlier *internal* journal lines
+proves zero earlier external activity. For supported periods the opening
+date must itself be covered. Missing, stale, ambiguous, incomplete or duplicated
 carry-forward history fails the entire report with `422 { error:
 'accounting_policy_unavailable' }`; an unavailable authority returns
 `503 { error: 'accounting_policy_authority_unavailable' }`. No figures,
@@ -860,7 +878,7 @@ before release; it is not established by `REPEATABLE READ` alone.
 - baseline evidence must establish that every relevant edge, root, effective start and historical signing/currency attribute remained unchanged over the entire claimed covered interval through the atomic activation point, not merely describe the tree at activation. An empty subtree moved during that interval is not exempt. Retain the evidence and a scope-bound, versioned attestation; if any interval, writer or attribute cannot be verified, exclude that history and return the coverage error rather than infer it from the current chart;
 - Phase 1 deliberately freezes every parent edge and root assignment from that baseline, including empty accounts. New accounts may select a same-scope eligible parent at creation, but ordinary creation must not add a root or edge to an already observable accounting day. The post-commit observation protocol below chooses an immutable effective start strictly after an observed post-commit UTC day and no earlier than its parent's effective start. Posting before that start is rejected. There is no ordinary historical import or backdated create; any future evidenced correction/re-attestation protocol requires a separate design and remains disabled. The **proposal day** is the trusted UTC day observed before starting its first reservation transaction; posting on that day is prohibited. A verifier can publish after a later midnight, in which case a posting on the publication/response day is allowed if that day is on or after `effectiveStart`; this is not a promise of a one-day delay after the response. Reject later reparent, clear-parent, parent deletion and any undo/restore path that would alter a frozen edge. Preserve historical accounts and ancestors for all covered reports; do not hard-delete a node or omit an archived ancestor from rollups or root rows, even if that ancestor has no direct postings. Freeze account type and normal-balance attributes used for historical figures, or fail closed until their historical values are available. Future reparenting needs effective-dated ancestry and separately specified transfers across report boundaries;
 - a new account's parent must already exist and be effective for its entire covered lifetime. Historical account reads before that account's effective start return 404; trial-balance rows exclude accounts not effective by the requested period end. All covered journal lines must resolve to effective same-scope accounts and ancestors; an orphan, cycle, missing coverage or historical attribute makes the whole report fail closed, never a partial total. Display names and numbers are current report-snapshot metadata, not a claim of historical labels;
-- both reports require verified coverage for every date contributing to the requested figure, including the opening-balance date before a trial period. A date outside coverage returns `422 { error: 'hierarchy_history_unavailable' }`; an unavailable authority or detected corrupt covered chart returns 503 with no figures. For a period beginning exactly at go-live, the internal opening can be zero without a pre-baseline tree only if the hierarchy and opening-policy authorities jointly attest that no earlier scoped journal activity exists; otherwise reject the report. The public as-of route still rejects dates outside coverage;
+- both reports require verified coverage for every date contributing to the requested figure, including the opening-balance date before a trial period. A date outside coverage returns `422 { error: 'hierarchy_history_unavailable' }`; an unavailable authority or detected corrupt covered chart returns 503 with no figures. Trial periods or fiscal years containing go-live are unsupported as described in the opening policy; the public as-of route also rejects dates outside coverage;
 - the entity, validators, account commands and API must enforce same-scope parents, acyclicity and exact eligible type identity before activation. Every chart activation, create, attempted reparent/clear/delete/restore/undo and other hierarchy mutation takes the same exclusive transaction-scoped PostgreSQL advisory lock keyed by trusted tenant and organization before checking frozen state and ancestry. All posting paths, including imports, retries and undo/redo, take a compatible shared lock before validating account coverage and hold it through commit or rollback. Specify one global order with fiscal-period and account locks across every writer; fail closed when the lock or coverage authority is unavailable. This is a coordinated #5663 posting/account compatibility change, not a read-only addition;
 - add an accounting-date `effectiveStart` field backed by a scoped persisted date, returned in account create/list/detail and undo snapshots. A new account may omit it; after the first commit the default is the later of the next observed database UTC day and the selected parent's effective start. An explicit value must meet the same lower bound; otherwise reject the pending create without publishing an edge. Omission is a wire bridge, not proof that the changed posting behavior is compatible. Parent eligibility requires an existing, active, non-deleted same-tenant/organization account with the exact same `accountTypeId`, effective no later than the child. Different type IDs are ineligible even when their nullable `accountGroupId` values match or are both null. Reject missing or foreign parents without revealing foreign records; a same-scope inactive/deleted or different-type parent is ineligible. Preserve this predicate under concurrent delete/type change. The effective start is immutable after creation: an update may omit it or repeat the stored value, but a different value or an undo that would change it fails. Stage the nullable storage, attested baseline backfill and validation before any NOT NULL constraint; unknown legacy dates remain unverified and reporting fails closed. A dual-version deployment must fence/drain legacy writers before activation as below, and the compatibility bridge and generated API/OpenAPI contracts must be reviewed with #5663 before enforcement;
 - post-commit observation protocol: after the operation-identity lock and then the exclusive scoped hierarchy lock, the first transaction reserves a durable operation identity and pending proposal in the same database transaction; it does not publish the edge or permit posting. After that commit is known, a recoverable verifier obtains the non-regressing trusted UTC-day observation described in Queries, then in a second transaction rechecks parent eligibility, locks and identity, chooses or validates `effectiveStart` strictly after that observed day, and atomically publishes the edge and records a retained success outcome. Invalid dates or newly ineligible parents atomically record a retained rejection without publishing. Either terminal transition clears only its own pending marker in the same transaction; another operation's marker remains. A response is sent only after the terminal outcome is known. An uncertain commit acknowledgement is not evidence that a marker remains: query the durable primary for that operation's terminal or pending state; if the outcome cannot be established, return 503 and keep recovery/reporting fail-closed until it can. Reports return `503 { error: 'hierarchy_verification_pending' }` for an authorized existing resource while any scoped marker remains. A report snapshot taken before the proposal commits uses a day bound established before that snapshot, which cannot exceed the later verifier observation; it cannot successfully request the new edge's strictly later effective day. A snapshot after proposal commit sees either pending and fails closed, or a terminal result. This proof depends on the clock and snapshot ordering in Queries, and requires real concurrency and recovery tests before release;
@@ -994,6 +1012,8 @@ leaking foreign existence and resolves overlapping failure conditions.
   coverage (`{ error: 'hierarchy_history_unavailable' }`); return no rows or totals.
 - **Response 422**: accounting-policy coverage is missing, ambiguous or
   invalid (`{ error: 'accounting_policy_unavailable' }`); return no rows or totals.
+- **Response 422**: the period or its fiscal year begins on or before
+  go-live (`{ error: 'go_live_reporting_unsupported' }`); return no rows or totals.
 - **Response 422**: the period end is after the trusted pre-snapshot day
   (`{ error: 'report_future_date_unsupported' }`); return no rows or totals.
 - **Response 429**: a per-user or per-organization report rate or
@@ -1015,7 +1035,8 @@ admission and trusted-clock acquisition, take the snapshot and resolve
 the period in the trusted scope (404 if absent or foreign). For an
 existing period, check pending verification (503), future end date (422),
 hierarchy coverage (422), accounting-policy coverage (422 or 503), then fiscal-year authority/containment
-(422 for invalid setup or 503 for unavailable authority). Finally validate
+(422 for invalid setup or 503 for unavailable authority), then the go-live
+period and fiscal-year restriction (422). Finally validate
 the complete scoped hierarchy and journal membership; any corruption or
 authority failure is 503 with no rows, totals or badge. Rate-limit or
 clock-service failures may occur before scoped lookup and return their
@@ -1074,6 +1095,9 @@ existing flat, dot-namespaced key convention (e.g.
 - `ledger.reports.errors.accountingPolicyUnavailable` — localized
   incomplete/unsupported policy state, directing an authorized user to
   an accounting administrator; authority outages use the unavailable state.
+- `ledger.reports.trialBalance.errors.goLiveReportingUnsupported` — localized
+  explanation that this period or fiscal year includes pre-go-live reporting,
+  directing the user to an accounting administrator without retaining figures.
 - `ledger.reports.balancePanel.availableFrom` — localized pre-effective
   state with the verified first available accounting date.
 - `ledger.accounts.errors.{hierarchyFrozen,accountEffectiveStartImmutable,
@@ -1272,13 +1296,30 @@ top of the live query.
   be true, assert both routes return `accounting_policy_unavailable` and
   no figures. Under an independently certified continuous ledger, a
   separately evidenced incremental `OPENING` of 20 is included as an
-  ordinary movement and cash closes at 120, not filtered by type. Cover
-  go-live initialization, a genuinely certified zero opening, missing or
-  pre-go-live coverage, reversals, corrections, backdated entries, foreign
-  scope, stale/ambiguous certification and authority outage. Race a post
-  or policy invalidation against the report snapshot and verify the
-  classification and journal write commit together or neither does.
-- Numeric boundary fixture: configure 2025-07-01 through 2026-06-30 as
+  ordinary movement and cash closes at 120, not filtered by type. Place
+  this fixture in a fiscal year starting strictly after go-live. Reconcile
+  independently evidenced source cash and equity of 100 each against
+  balanced initialization of 90 each: both routes must fail with
+  `accounting_policy_unavailable`, despite the balanced journal. Test
+  missing accounts and currencies, duplicate mapping, unverifiable evidence,
+  empty-source evidence and a source write in the cutoff-to-initialization
+  interval with and without a verified bridge. No partial results are allowed.
+  For a July go-live in a January-start fiscal year, let external cash have
+  gross debits 100 and credits 40 and initialize its net 60. With earlier
+  error-precedence checks satisfied, assert the trial route returns
+  `go_live_reporting_unsupported`, not YTD 60/0; likewise reject a period
+  beginning on go-live. In a later fiscal year starting after go-live,
+  verify certified initialization contributes to opening balances while
+  its entries are excluded from that later year's turnover. Cover a
+  genuinely evidenced zero source, missing or pre-go-live coverage,
+  reversals, corrections, backdated entries, foreign scope, stale or
+  ambiguous certification and authority outage. Race a post or policy
+  invalidation against the report snapshot and verify the classification
+  and journal write commit together or neither does. Assert the UI clears
+  figures and badge for the go-live error and cannot restore them from an
+  older delayed success.
+- Numeric boundary fixture: use a certified go-live before 2025-06-30 and
+  configure 2025-07-01 through 2026-06-30 as
   one fiscal year and 2025-12-15 through 2026-01-14 as a period. For one
   account, post balanced entries with debits 10 on June 30, 20 on July 1,
   30 and credit 7 on January 14, and 40 on January 15; also post credit 5
@@ -2010,3 +2051,10 @@ The account-currency design remains explicitly ⚠ NEEDS HUMAN CONFIRMATION and 
   does not approve the policy or design an annual close-and-reopen model.
 - Policy authority, writer enforcement, migration and accounting-owner
   review remain prerequisites; cross-page consistency remains unresolved.
+
+### 2026-11-17 — opening-policy evidence correction (local draft)
+
+- Require independently evidenced, complete source reconciliation and
+  cutover coverage; a balanced initialization does not prove correctness.
+- Reject trial balances for the go-live fiscal year pending an approved
+  presentation and gross-turnover design. No accounting approval is implied.
