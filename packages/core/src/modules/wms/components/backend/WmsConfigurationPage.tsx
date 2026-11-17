@@ -35,6 +35,7 @@ import {
   formatCatalogProductLabel,
   formatCatalogVariantLabel,
   formatInventoryQuantity,
+  inventoryLocationTypeLabel,
   inventoryRotationStrategyLabel,
 } from '../../lib/inventoryDisplayUi'
 import { LocationEditDialog } from './LocationEditDialog'
@@ -827,7 +828,7 @@ export function LocationSection({ viewAllHref }: ConfigSectionOptions = {}) {
         )
       },
     },
-    { accessorKey: 'type', header: t('wms.backend.config.locations.columns.type', 'Type'), enableSorting: true, cell: ({ row }) => row.original.type || '—' },
+    { accessorKey: 'type', header: t('wms.backend.config.locations.columns.type', 'Type'), enableSorting: true, cell: ({ row }) => inventoryLocationTypeLabel(row.original.type, t) },
     {
       accessorKey: 'warehouse_name',
       header: t('wms.backend.config.locations.columns.warehouse', 'Warehouse'),
