@@ -21986,7 +21986,11 @@
     "frameworkContext": [
       {
         "module": "agent_orchestrator",
-        "query": "eval CLI offline model tool fixture record replay tenant org"
+        "query": "on-fixture-miss"
+      },
+      {
+        "module": "agent_orchestrator",
+        "query": "withCaseModelFixtures"
       }
     ],
     "requiredDecisions": [
