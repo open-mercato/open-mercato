@@ -1,3 +1,18 @@
+jest.mock('../../lib/outbound-routing', () => ({
+  resolveOutboundRouting: jest.fn(async (em, input) => {
+    const { findOneWithDecryption } = jest.requireMock('@open-mercato/shared/lib/encryption/find')
+    const { ChannelThreadMapping, CommunicationChannel } = jest.requireActual('../../data/entities')
+    const mapping = await findOneWithDecryption(em, ChannelThreadMapping, {
+      messageThreadId: input.message.threadId, ...input.scope,
+    }, undefined, input.scope)
+    if (!mapping) return null
+    const channel = await findOneWithDecryption(em, CommunicationChannel, {
+      id: mapping.channelId, deletedAt: null, ...input.scope,
+    }, undefined, input.scope)
+    return channel ? { mapping, channel } : null
+  }),
+}))
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
