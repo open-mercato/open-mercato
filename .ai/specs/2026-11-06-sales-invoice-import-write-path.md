@@ -32,7 +32,11 @@
 - negative amounts on the five line fields, on any line `kind`, and on `taxTotalAmount`, `subtotalNetAmount` and `grandTotalNetAmount`, while the gross totals stay ≥ 0;
 - replacing every line through `replaceLines: true`, also on an invoice that has payment allocations?
 
+*Why:* an imported invoice was already issued by the source system. Recomputing it with Open Mercato's prices, tax rates and rounding could change amounts the customer was billed, and the Xero App Spec's Phase 2 acceptance criteria require header and line amounts identical to Xero's. Odoo and ERPNext also allow negative lines while refusing a negative total (Market Reference, under [Overview](#overview)). [Design Decisions](#design-decisions) gives the reason for each item: negative amounts on any `kind`, the three header fields, and replacement on an invoice with allocations, since nothing computes from invoice lines.
+
 **Q2, which gates only the `sales/AGENTS.md` line and the Xero App Spec:** may an invoice that mirrors an external ledger exist without an order, and so without a channel, which invoices do not have?
+
+*Why:* an invoice issued directly in the source ledger has no order there to point to, and `orderId` is already optional, so a yes records what the API accepts today. The customer is still recorded: the import writes the invoice's Company link as a custom field in the same transaction (see [Problem Statement](#problem-statement)). The alternative, an order nobody placed, is worse, as the rejected option below shows.
 
 - **Recommended, and assumed by this spec:** yes to both, with this scope:
   - Code that issues an invoice inside Open Mercato, such as the worker in `.ai/specs/2026-10-21-sales-recurring-orders.md`, still computes it from its order with `salesCalculationService` and links that order. The link is stored once #9482 lands.
