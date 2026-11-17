@@ -1626,13 +1626,17 @@ top of the live query.
   database termination is confirmed. Exercise both routes and internal
   callers with several statements individually shorter than five seconds but
   totaling more than the single deadline; assert `report_timeout`, no late or
-  partial success, and no later statement or retry. Pause connection setup,
+  partial success, and no later report/business statement or retry. Permit
+  bounded cancellation and cleanup SQL, including rollback. Pause connection setup,
   timeout-setting, authority reads, serialization and lease renewal across
   the deadline. A sub-millisecond remainder must start no statement and
   never set a zero PostgreSQL timeout. Hold cancellation or lose a worker and
   assert the slot stays fenced until confirmed backend termination across
-  expiry, crash, recovery and failover; another scope retains fair capacity.
-  Test real PostgreSQL cancellation as well as a controlled monotonic clock.
+  expiry, crash, recovery and failover. Under healthy continuous admission
+  with spare capacity, another scope retains fair capacity; during coordinator
+  recovery, deny all new epoch grants until all old backends stop, returning
+  503 to every affected scope. Test real PostgreSQL cancellation as well as
+  a controlled monotonic clock.
 - Coordinator continuity: acknowledge active leases and rate usage on one
   instance, promote a replica missing those writes, and partition an old
   coordinator while its database queries still run. Assert no new epoch
@@ -1896,8 +1900,8 @@ enforces the following for both routes and every admitted direct caller:
   bound setting the timeout and other database round trips with the same
   client-side deadline. Per-statement limits supplement the single elapsed
   timer; neither repeated statements nor lease renewal resets it.
-  On expiry, reject new work, cancel the active query, roll back/terminate the
-  transaction and return `503 { error: 'report_timeout' }` without figures;
+  On expiry, reject new report/business work, cancel the active query, allow
+  bounded cleanup SQL including rollback, terminate the transaction and return `503 { error: 'report_timeout' }` without figures;
   do not emit a late success, retry the report, or fall back to stale data.
   The response may be returned while cancellation is pending, but retain and
   fence the admission slot until the database confirms all work stopped. A
