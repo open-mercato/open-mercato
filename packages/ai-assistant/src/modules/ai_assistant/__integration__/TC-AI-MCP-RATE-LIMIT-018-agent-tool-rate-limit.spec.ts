@@ -18,7 +18,7 @@ import {
  *
  * Surfaces under test:
  *   - /api/ai_assistant/tools/execute         (POST, agent tool over the per-caller ceiling)
- *   - /api/audit_logs/audit-logs/access        (GET, the refused call's audit row)
+ *   - /api/audit_logs/audit-logs/access        (GET `actorScope=all` as admin, the refused call's audit row)
  *
  * The ceiling is `RATE_LIMIT_AI_AGENT_TOOL_POINTS` (default 30) calls per window, per tenant and
  * session user. Rate limits are globally off in the integration environment unless the app was
@@ -88,7 +88,7 @@ test.describe('TC-AI-MCP-RATE-LIMIT-018: agent tool rate limit', () => {
             const response = await apiRequest(
               request,
               'GET',
-              `${ACCESS_LOGS_PATH}?resourceKind=${encodeURIComponent(MCP_AUDIT_RESOURCE_KIND)}&pageSize=50`,
+              `${ACCESS_LOGS_PATH}?resourceKind=${encodeURIComponent(MCP_AUDIT_RESOURCE_KIND)}&pageSize=100&actorScope=all`,
               { token: adminToken },
             );
             if (response.status() !== 200) return false;
