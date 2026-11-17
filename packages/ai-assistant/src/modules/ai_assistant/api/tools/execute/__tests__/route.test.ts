@@ -183,6 +183,39 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
     })
   })
 
+  it('answers 429 with Retry-After and audits a denial when an agent tool is rate limited (C-3)', async () => {
+    getToolMock.mockReturnValue({
+      name: 'customers.summary_agent.run',
+      agentRef: { agentId: 'customers.summary_agent', engine: 'ai-assistant' },
+    })
+    executeToolMock.mockResolvedValue({
+      success: false,
+      error: 'rate limited',
+      errorCode: 'RATE_LIMITED',
+      retryAfterSeconds: 42,
+    })
+
+    const response = await POST(buildRequest({ toolName: 'customers.summary_agent.run', args: {} }))
+
+    expect(response.status).toBe(429)
+    expect(response.headers.get('Retry-After')).toBe('42')
+    expect(await response.json()).toEqual({ success: false, error: 'rate limited', code: 'RATE_LIMITED' })
+    expect(accessLogEntries[0].context).toMatchObject({ outcome: 'denied', errorCode: 'RATE_LIMITED' })
+  })
+
+  it('answers 503 when the agent-tool rate limiter is unavailable (C-3)', async () => {
+    getToolMock.mockReturnValue({
+      name: 'customers.summary_agent.run',
+      agentRef: { agentId: 'customers.summary_agent', engine: 'ai-assistant' },
+    })
+    executeToolMock.mockResolvedValue({ success: false, error: 'unavailable', errorCode: 'RATE_LIMIT_UNAVAILABLE' })
+
+    const response = await POST(buildRequest({ toolName: 'customers.summary_agent.run', args: {} }))
+
+    expect(response.status).toBe(503)
+    expect(accessLogEntries[0].context).toMatchObject({ outcome: 'error', errorCode: 'RATE_LIMIT_UNAVAILABLE' })
+  })
+
   it('writes no row when toolName is missing', async () => {
     const response = await POST(buildRequest({ args: {} }))
 

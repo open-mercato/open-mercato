@@ -681,7 +681,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 - **Scenario**: An MCP client loops on an agent tool, incurring LLM cost.
 - **Severity**: Medium
 - **Affected area**: LLM spend, tenant quotas
-- **Mitigation**: Agent loop budgets (`loop.budget`) and `timeoutMs` apply; token usage is recorded per run (`ai_token_usage_events`); existing rate limiting (`lib/rate-limit.ts`) can be applied per API key on the HTTP handler (Phase 4 step 1 wires it for agent tools).
+- **Mitigation**: Agent loop budgets (`loop.budget`) and `timeoutMs` apply; token usage is recorded per run (`ai_token_usage_events`); `executeTool` rate-limits agent tools on the `mcp` and `tools-api` channels per tenant and API key, or per session user (`lib/agent-tool-rate-limit.ts`, `RATE_LIMIT_AI_AGENT_TOOL_*`, default 30/min; fail closed when a registered limiter cannot decide).
 - **Residual risk**: Per-key spend caps are out of scope.
 
 #### AO dispatcher absent or failing
@@ -798,3 +798,8 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 
 - Integration: `TC-AI-MCP-PARITY-011` now exists — for one API-key role it compares `customers.deal_analyzer` `allowedTools` reachable via `/api/ai_assistant/ai/agents` + the tool list with the `view=mcp` exposure filtered to those tools, and asserts an agent the role lacks `requiredFeatures` for is absent from `/ai/agents`, its agent tool (when registered) is absent from both listings and refused on `/tools/execute`, and `/ai/run-object` answers 403 `agent_features_denied`.
 - Deviation recorded: the audit assertion was not added to `TC-AI-TOOLS-EXECUTE-007-direct-tool-execution.spec.ts` as planned. `TC-AI-MCP-AUDIT-014-tool-call-audit.spec.ts` covers it instead: a `/tools/execute` call with an `x-correlation-id` writes an access-log row (`resourceKind` `ai_assistant.mcp_tool_call`, `channel: tools-api`, `principal: session`, `isMutation: false`) with no argument values.
+
+### 2026-11-17
+
+- Agent-tool rate limit (roadmap-gaps item C-3; the risk register promised it, but no MCP path called a limiter). `executeTool` consumes one point from `ai_agent_tool` for every tool with `agentRef` on the `mcp` and `tools-api` channels, after the ACL and input checks and before the handler. The key is `tenant:key:<apiKeyId>` for API-key callers, `tenant:user:<userId>` for session-token callers. Over the limit it returns `RATE_LIMITED` with `retryAfterSeconds` (audit `denied`; `/tools/execute` answers `429` with `Retry-After`). A registered limiter that throws or reports `degraded` gives `RATE_LIMIT_UNAVAILABLE` (audit `error`; `503`). No registered limiter, or `RATE_LIMIT_ENABLED=false`, means no limit. The `agent` channel (in-loop calls), plain tools and workers are unchanged.
+- Not covered: per-key rate limiting of plain `tools/call` (the approval-queue risk entry above still claims it exists).

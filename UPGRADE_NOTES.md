@@ -1681,6 +1681,14 @@ Until now, a value other than `direct`, `deny` or `approval` fell back to `direc
 
 **Action:** before upgrading, check that `OM_MCP_MUTATION_MODE` is unset or one of `direct`, `deny`, `approval` on every host that runs an MCP server.
 
+### MCP: agent tools are rate-limited
+
+Docs: `apps/docs/docs/framework/ai-assistant/mcp.mdx` → "Agent tools" → "Rate limit".
+
+Calls to agent tools (`defineAgentTool` / `mcpTool`) over `mcp:serve-http`, `mcp:serve`, `mcp:dev` and `POST /api/ai_assistant/tools/execute` now consume a rate-limit bucket per tenant and API key (per user for session-token callers): 30 calls per 60 seconds by default, tunable with `RATE_LIMIT_AI_AGENT_TOOL_POINTS` / `_DURATION` / `_BLOCK_DURATION`. Over the limit the call returns `RATE_LIMITED` without running the agent (`429` + `Retry-After` on `/tools/execute`). When the registered limiter cannot decide (e.g. Redis unreachable) the call returns `RATE_LIMIT_UNAVAILABLE` (`503`). Plain tools, agent tools called inside an agent loop, and workers are not affected; with `RATE_LIMIT_ENABLED=false` nothing is limited. The new `errorCode` values are additive.
+
+**Action:** if an MCP client runs agent tools in bulk with one API key, raise `RATE_LIMIT_AI_AGENT_TOOL_POINTS` for that deployment.
+
 ### Time tracking: a new built-in setting key `defaults.entryMode` (#6989)
 
 The staff time-tracking settings gain a new built-in key, `defaults.entryMode`
