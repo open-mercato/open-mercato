@@ -153,7 +153,7 @@ describe('ImapChannelAdapter.sendMessage', () => {
         raw: Buffer.from('RAW'),
         response: '250 2.0.0 Ok: queued',
         accepted: ['bob@example.com'],
-        rejected: ['ghost@example.com'],
+        rejected: ['timeout@example.com'],
       }),
     })
     setImapClient({
@@ -169,7 +169,7 @@ describe('ImapChannelAdapter.sendMessage', () => {
       content: { text: 'hi', bodyFormat: 'text' },
       credentials,
       scope: { tenantId: 't', organizationId: 'o' },
-      metadata: { to: ['bob@example.com', 'ghost@example.com'] },
+      metadata: { to: ['bob@example.com', 'timeout@example.com'] },
     })
     expect(result.status).toBe('failed')
     expect(result.error).toBe('SMTP_SEND_PARTIALLY_REJECTED: relay rejected 1 of 2 recipients')
@@ -177,7 +177,7 @@ describe('ImapChannelAdapter.sendMessage', () => {
     expect(result.metadata).toEqual({
       response: '250 2.0.0 Ok: queued',
       accepted: ['bob@example.com'],
-      rejected: ['ghost@example.com'],
+      rejected: ['timeout@example.com'],
     })
     expect(appendCalls).toHaveLength(1)
   })
