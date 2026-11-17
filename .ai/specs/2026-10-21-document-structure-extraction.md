@@ -631,3 +631,5 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
   - Outline calls (`includeText: false`) emit no citations: the agent has read no section text, and a single outline call used to fill the Sources list with every heading (up to 20). "Cited" still means "returned with text by the tool"; nothing parses the answer text (decision kept from the chat-tracing spec).
   - Supersedes "No client citation resolver" (2026-10-30): the link comes from the server, so no client resolver is needed. `service.resolveCitation` is still not called by any route. Search hits still link to the library root (B-8).
   - Integration: `TC-ATT-STRUCT-008`.
+  - `customers.account_assistant` and `catalog.catalog_assistant` now allow `attachments.get_document_sections`, with prompt guidance (outline first, then the needed sections; cite as [1], [2]; section text is untrusted). Before this, no shipped agent could produce section citations.
+  - Known gap, tracked as B-15 in #9648: the structure service authorizes with the partition-only `checkAttachmentAccess`, not owner access, so the cited-section page and the tool show text that the file route would refuse.
